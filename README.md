@@ -4,7 +4,7 @@
 
 # Philosophical meaning:
 
-Philosophically, DreamTalk represents the extension of the ancient modality of SandTalk, popularised through [Tyson Yunkapurta's book](https://www.amazon.com/Sand-Talk-Indigenous-Thinking-World/dp/0062975641) of the same name, into the digital domain.
+Philosophically, DreamTalk represents the extension of the ancient indigenous modality of SandTalk, popularised through [Tyson Yunkapurta's book](https://www.amazon.com/Sand-Talk-Indigenous-Thinking-World/dp/0062975641) of the same name, into the digital domain.
 The landscape of SandTalk is characterised by the constraint that for all symbols of that class it needs to be feasible to draw them in the sand during conversation around the campfire.
 
 This translates to the following constraints:
