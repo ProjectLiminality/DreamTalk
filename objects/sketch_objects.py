@@ -12,7 +12,25 @@ import c4d
 class Sketch(CustomObject):
     """gives useful additional parameters to SVG objects"""
 
-    def __init__(self, file_name, rel_x=0, rel_y=0, rel_z=0, rel_rot=0, plane="xy", on_floor=False, color=WHITE, diameter=100, filled=False, fill_color=None, **kwargs):
+    def __init__(self, file_name, rel_x=0, rel_y=0, rel_z=0, rel_rot=0, plane="xy", on_floor=False, color=WHITE, diameter=100, filled=False, fill_color=None, assets_path=None, **kwargs):
+        """
+        Base class for SVG-based symbols.
+
+        Args:
+            file_name: Name of the SVG file (without .svg extension)
+            rel_x, rel_y, rel_z: Relative position offsets
+            rel_rot: Relative rotation
+            plane: "xy", "zy", or "xz"
+            on_floor: If True, positions object so bottom touches y=0
+            color: Stroke color
+            diameter: Bounding diameter for scaling
+            filled: Whether to fill the shape
+            fill_color: Fill color (defaults to stroke color)
+            assets_path: Path to assets directory containing the SVG.
+                        If None, uses global SVG_PATH. Sovereign symbols
+                        should pass Path(__file__).parent / "assets".
+            **kwargs: Passed to CustomObject
+        """
         self.file_name = file_name
         self.plane = plane
         self.rel_x = rel_x
@@ -23,6 +41,7 @@ class Sketch(CustomObject):
         self.color = color
         self.filled = filled
         self.fill_color = fill_color
+        self.assets_path = assets_path
         super().__init__(diameter=diameter, **kwargs)
         self.set_to_floor()
         self.inherit_parameters_from_svg()
@@ -41,7 +60,7 @@ class Sketch(CustomObject):
             self.move(y=height / 2)
 
     def specify_parts(self):
-        self.svg = SVG(self.file_name, color=self.color, filled=self.filled, fill_color=self.fill_color)
+        self.svg = SVG(self.file_name, color=self.color, filled=self.filled, fill_color=self.fill_color, assets_path=self.assets_path)
         if self.filled:
             self.membrane = self.svg.membrane
             self.membrane.obj.InsertUnder(self.obj)

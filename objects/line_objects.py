@@ -153,8 +153,20 @@ class Spline(LineObject):
 
 class SVG(Spline):  # takes care of importing svgs
 
-    def __init__(self, file_name, x=0, y=0, z=0, **kwargs):
+    def __init__(self, file_name, x=0, y=0, z=0, assets_path=None, **kwargs):
+        """
+        Load an SVG file as a spline.
+
+        Args:
+            file_name: Name of the SVG file (without .svg extension), or full path
+            x, y, z: Position offsets
+            assets_path: Optional path to assets directory. If provided, looks for
+                        file_name.svg in this directory. If None, uses global SVG_PATH.
+                        This enables sovereign symbols to carry their own assets.
+            **kwargs: Passed to Spline base class
+        """
         self.file_name = file_name
+        self.assets_path = assets_path
         self.x = x
         self.y = y
         self.z = z
@@ -163,7 +175,11 @@ class SVG(Spline):  # takes care of importing svgs
         self.fix_axes()
 
     def extract_spline_from_vector_import(self):
-        file_path = os.path.join(SVG_PATH, self.file_name + ".svg")
+        # Determine file path based on whether assets_path is provided
+        if self.assets_path is not None:
+            file_path = os.path.join(self.assets_path, self.file_name + ".svg")
+        else:
+            file_path = os.path.join(SVG_PATH, self.file_name + ".svg")
         vector_import = c4d.BaseObject(1057899)
         self.document = c4d.documents.GetActiveDocument()
         self.document.InsertObject(vector_import)

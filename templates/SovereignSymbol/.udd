@@ -1,0 +1,10 @@
+{
+  "uuid": "",
+  "title": "SymbolName",
+  "type": "dream",
+  "dreamTalk": "./renders/symbol.gif",
+  "submodules": [],
+  "supermodules": [],
+  "tags": ["animation", "dreamtalk", "symbol"],
+  "description": ""
+}
