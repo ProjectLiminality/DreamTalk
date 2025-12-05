@@ -225,3 +225,42 @@ Key constants in `constants.py`:
 ## Cinema 4D Integration
 
 The library requires Cinema 4D R26+ and uses the `c4d` module extensively. Objects are created as `c4d.BaseObject` instances and inserted into the active document.
+
+## Design Principles
+
+### Abilities Over Separate Classes
+
+When an object has an optional capability (like Fire's glow), add it as a parameter rather than creating a separate class. Example:
+
+```python
+# Good: Fire with optional glow
+fire = Fire(glow=True, brightness=0.8)
+
+# Avoid: Separate PhysicalFire class (redundant)
+```
+
+This keeps the ontology clean — one concept, multiple abilities.
+
+### Core Library vs Sovereign Symbols
+
+**Core Library contains**:
+- Primitives wrapping Cinema 4D objects (Circle, Cube, etc.)
+- Base classes (Sketch, CustomObject, etc.)
+- Infrastructure (animation system, XPresso, materials)
+
+**Sovereign Symbols contain**:
+- Objects with semantic meaning (Fire, Human, MindVirus)
+- Their own assets (SVG files, textures)
+- Can be Sketch-based (single SVG) or CustomObject-based (composite)
+
+The `Sketch` class accepts `assets_path` parameter, allowing sovereign symbols to carry their own SVG assets rather than relying on the global `SVG_PATH`.
+
+## Current Sovereign Symbols
+
+- **Fire** (`/Users/davidrug/RealDealVault/Fire`): Fire symbol with optional `glow=True` for illumination
+
+## Future Vision
+
+- Real-time web-based implementation (replacing Cinema 4D rendering)
+- AI-driven symbol creation from natural language
+- Full DreamOS integration where symbols populate DreamNodes automatically
