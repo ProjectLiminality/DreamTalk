@@ -3,6 +3,7 @@ import importlib
 importlib.reload(DreamTalk.objects.line_objects)
 from DreamTalk.objects.abstract_objects import CustomObject
 from DreamTalk.objects.line_objects import SVG
+from DreamTalk.objects.light_objects import Light
 from DreamTalk.xpresso.userdata import UOptions, ULength, UAngle, UGroup
 from DreamTalk.xpresso.xpressions import XRelation, XIdentity, XAction, Movement
 from DreamTalk.constants import *
@@ -156,9 +157,48 @@ class Human(Sketch):
         super().__init__(description, **kwargs)
 
 class Fire(Sketch):
+    """
+    An animated fire symbol with optional illumination.
 
-    def __init__(self, **kwargs):
+    When glow=True, includes a Light source that illuminates surrounding
+    objects in Cinema 4D's 3D renderer.
+
+    Parameters:
+        glow: If True, adds a light source for physical illumination
+        brightness: Light intensity when glow=True (default: 1.0)
+        **kwargs: Passed to Sketch base class
+    """
+
+    def __init__(self, glow=False, brightness=1, **kwargs):
+        self.glow = glow
+        self.brightness = brightness
+        self.light_source = None
         super().__init__("fire", **kwargs)
+
+        if self.glow:
+            self._add_light_source()
+            self._setup_glow_creation()
+
+    def _add_light_source(self):
+        """Add a light source that illuminates surrounding objects."""
+        self.light_source = Light(
+            temperature=0.1,
+            brightness=self.brightness,
+            visibility_type="visible",
+            radius=30,
+            y=4.5
+        )
+        self.light_source.obj.InsertUnder(self.obj)
+
+    def _setup_glow_creation(self):
+        """Override creation to include light fade-in after fire draws."""
+        self.glow_creation_action = XAction(
+            Movement(self.svg.creation_parameter, (0, 1), part=self.svg),
+            Movement(self.light_source.creation_parameter, (1/2, 1), part=self.light_source),
+            target=self,
+            completion_parameter=self.creation_parameter,
+            name="GlowCreation"
+        )
 
 class Footprint(Sketch):
 

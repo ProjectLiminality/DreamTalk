@@ -221,7 +221,7 @@ class PhysicalCampfire(CustomObject):
         self.right_human = Human(
             perspective="portrait", posture="standing", on_floor=True, diameter=30)
         self.humans = Group(self.left_human, self.right_human, name="Humans")
-        self.fire = PhysicalFire()
+        self.fire = Fire(glow=True, on_floor=True, diameter=15)
         self.symbol = GitHub(plane="xz", z=-self.border_radius/2, diameter=20)
         self.thesis = Circle(radius=2, color=BLUE, creation=True)
         self.thesis.attach_to(self.left_human, direction="top", offset=6)
@@ -314,30 +314,6 @@ class PhysicalCampfire(CustomObject):
         animation = ScalarAnimation(
             target=self, descriptor=desc_id, value_fin=completion)
         return animation
-
-class PhysicalFire(CustomObject):
-    """the physical fire used in the physical campfire object consisting of the fire sketch and a glow light"""
-
-    def __init__(self, brightness=1, **kwargs):
-        self.brightness = brightness
-        super().__init__(**kwargs)
-
-    def specify_parts(self):
-        self.fire = Fire(on_floor=True, diameter=15)
-        self.light_source = Light(
-            temperature=0.1, brightness=self.brightness, visibility_type="visible", radius=30, y=4.5)
-        self.parts += [self.fire, self.light_source]
-
-    def specify_action_parameters(self):
-        self.creation_parameter = UCompletion(name="Creation", default_value=0)
-        self.action_parameters = [self.creation_parameter]
-
-    def specify_creation(self):
-        creation_action = XAction(
-            Movement(self.fire.creation_parameter, (0, 1), part=self.fire),
-            Movement(self.light_source.creation_parameter,
-                     (1 / 2, 1), part=self.light_source),
-            target=self, completion_parameter=self.creation_parameter, name="Creation")
 
 class DigitalCampfire(CustomObject):
 
