@@ -36,7 +36,7 @@ class ProtoAnimator(ABC):
         """inserts helper objects into the hierarchy if needed"""
         pass
 
-    def deepflatten(iterable, depth=None, types=None, ignore=None):
+    def deepflatten(self, iterable, depth=None, types=None, ignore=None):
         """flatten an iterable to the specified depth"""
         if depth is None:
             depth = float('inf')
