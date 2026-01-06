@@ -14,7 +14,7 @@ This translates to the following constraints:
 - no shading
 - no movement
    
-DreamTalk takes the fundamental principles of SandTalk and carefully expands them to span a larger space that while still retaining the essential qualities of the original modality.
+DreamTalk takes the fundamental principles of SandTalk and carefully expands them to span a larger space while still retaining the essential qualities of the original modality.
 
 As such its features consist of:
 - line based (SVGs, splines etc.)
@@ -29,3 +29,7 @@ So a photorealistic image for example would not be considered part of that class
 
 Technically, these principles are being worked into a python based programmatic animation library of the same name inspired by 3blue1brown's pioneering work in this space with "manim"
 In its current implementation it uses the popular computer graphics software Cinema4D as its backend.
+
+# Future: MCP Integration
+
+For AI-assisted 3D modeling and scene manipulation, there's a [Cinema 4D MCP server](https://github.com/ttiimmaacc/cinema4d-mcp) that enables Claude to interact directly with Cinema 4D via socket-based communication. This could enable prompt-driven DreamTalk symbol creation.

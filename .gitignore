@@ -1,2 +1,14 @@
 
 /.DS_Store
+.DS_Store
+__pycache__/
+*.pyc
+
+# MCP servers (cloned dependencies)
+mcp-servers/cinema4d-mcp/
+
+# Generated images
+generated-images/
+
+# Virtual environments
+.venv/

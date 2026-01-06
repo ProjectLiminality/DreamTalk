@@ -259,6 +259,27 @@ The `Sketch` class accepts `assets_path` parameter, allowing sovereign symbols t
 
 - **Fire** (`/Users/davidrug/RealDealVault/Fire`): Fire symbol with optional `glow=True` for illumination
 
+## AI Documentation
+
+For scene creation, refer to **`docs/ai/dreamtalk_api.md`** - comprehensive API reference optimized for AI consumption.
+
+For library development (extending DreamTalk itself), the c4d SDK patterns are documented throughout the codebase.
+
+## MCP Integration (Claude Code ↔ Cinema 4D)
+
+DreamTalk supports bidirectional communication with Cinema 4D via MCP (Model Context Protocol).
+
+**Setup**:
+1. Install the MCP server: `mcp-servers/cinema4d-mcp/`
+2. Install the C4D plugin: Copy `mcp_server_plugin.pyp` to C4D plugins folder
+3. Configure `.mcp.json` with the cinema4d server
+4. In C4D: Extensions > Socket Server Plugin > Start Server
+
+**Usage**:
+- Claude Code can execute DreamTalk scenes directly in a running C4D instance
+- Enables autonomous iteration: generate scene → execute → view result → adjust
+- User watches scene build in real-time and can intervene at any point
+
 ## Future Vision
 
 - Real-time web-based implementation (replacing Cinema 4D rendering)
