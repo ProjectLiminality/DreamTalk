@@ -17,8 +17,9 @@ SPLINE_THICKNESS = 5
 # math
 PI = 3.141592653589793
 
-# paths
-SVG_PATH = "/Users/davidrug/Library/Preferences/Maxon/Maxon Cinema 4D R26_8986B2D7/python39/libs/DreamTalk/assets/svg"
+# paths - dynamically resolve relative to this file
+import os as _os
+SVG_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "assets", "svg")
 
 # camera settings
 ASPECT_RATIO = 16/9

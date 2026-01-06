@@ -42,11 +42,11 @@ import DreamTalk.xpresso.xpressions
 import DreamTalk.xpresso.userdata
 import DreamTalk.animation.abstract_animators
 
-DreamTalk_path = "/Users/davidrug/Library/Preferences/Maxon/Maxon Cinema 4D R26_8986B2D7/python39/libs/DreamTalk"
+# Dynamically resolve DreamTalk path relative to this file
+import os as _os
+DreamTalk_path = _os.path.dirname(_os.path.abspath(__file__))
 
-if DreamTalk_path not in sys.path:
-    print("add path")
-    sys.path.insert(0, DreamTalk_path)
+# No need to add to path - we're already being imported from the correct location
 
 reload(DreamTalk.scene)
 reload(DreamTalk.utils)
