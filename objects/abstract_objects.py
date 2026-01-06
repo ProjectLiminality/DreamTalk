@@ -7,12 +7,32 @@ from DreamTalk.constants import WHITE, SCALE_X, SCALE_Y, SCALE_Z
 from DreamTalk.animation.animation import VectorAnimation, ScalarAnimation, ColorAnimation
 from DreamTalk.xpresso.userdata import *
 from DreamTalk.xpresso.xpressions import XRelation, XIdentity, XSplineLength, XBoundingBox, XAction, Movement
-import DreamTalk.objects.effect_objects as effect_objects
-import DreamTalk.objects.helper_objects as helper_objects
-import DreamTalk.objects.custom_objects as custom_objects
+# Lazy imports to avoid circular dependencies - these modules import from this file
+# Import them inside methods that need them instead of at module level
+# import DreamTalk.objects.effect_objects as effect_objects
+# import DreamTalk.objects.helper_objects as helper_objects
+# import DreamTalk.objects.custom_objects as custom_objects
 from abc import ABC, abstractmethod
 import c4d.utils
 import c4d
+
+
+def _get_effect_objects():
+    """Lazy import to avoid circular dependency"""
+    import DreamTalk.objects.effect_objects as effect_objects
+    return effect_objects
+
+
+def _get_helper_objects():
+    """Lazy import to avoid circular dependency"""
+    import DreamTalk.objects.helper_objects as helper_objects
+    return helper_objects
+
+
+def _get_custom_objects():
+    """Lazy import to avoid circular dependency"""
+    import DreamTalk.objects.custom_objects as custom_objects
+    return custom_objects
 
 
 class ProtoObject(ABC):
@@ -407,10 +427,12 @@ class VisibleObject(ProtoObject):
         self.align_to_spline_tag = AlignToSplineTag(target=self, spline=spline)
 
     def wrap_around(self, target=None):
+        helper_objects = _get_helper_objects()
         self.shrink_wrap = helper_objects.ShrinkWrap(target=target)
         self.shrink_wrap.obj.InsertUnder(self.obj)
 
     def project_to_surface(self, projection_surface=None, **kwargs):
+        helper_objects = _get_helper_objects()
         self.projection = helper_objects.Projection(target=self, projection_surface=projection_surface, **kwargs)
 
     def move_axis(self, position=(0, 0, 0)):
@@ -494,6 +516,7 @@ class CustomObject(VisibleObject):
 
     def specify_visibility_inheritance_relations(self):
         """inherits visibility to parts"""
+        effect_objects = _get_effect_objects()
         visibility_relations = []
         for part in self.parts:
             if hasattr(part, "visibility_parameter") and not isinstance(part, effect_objects.Morpher):
@@ -563,6 +586,7 @@ class LineObject(VisibleObject):
             self.create_membrane()
 
     def create_membrane(self):
+        custom_objects = _get_custom_objects()
         if self.fill_color:
             color = self.fill_color
         else:
