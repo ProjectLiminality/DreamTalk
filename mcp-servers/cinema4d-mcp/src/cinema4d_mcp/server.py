@@ -984,7 +984,8 @@ async def render_preview(
             return f"❌ Error: {response['error']}"
 
         # Check if the response contains the base64 image data
-        if "image_data" not in response:
+        # Plugin returns "image_base64" key
+        if "image_base64" not in response:
             return "❌ Error: No image data returned from Cinema 4D"
 
         # Get image dimensions
@@ -992,7 +993,7 @@ async def render_preview(
         preview_height = response.get("height", height or "default")
 
         # Display the image using markdown
-        image_data = response["image_data"]
+        image_data = response["image_base64"]
         image_format = response.get("format", "png")
 
         # Note: The plugin handler handle_render_preview was already designed
