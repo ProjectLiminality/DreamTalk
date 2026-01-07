@@ -36,12 +36,13 @@ class MoGraphObject(ProtoObject):
 
 class Tracer(MoGraphObject, LineObject):
 
-    def __init__(self, *nodes, spline_type="bezier", tracing_mode="path", reverse=False, nodes_to_children=False, intermediate_points=None, **kwargs):
+    def __init__(self, *nodes, spline_type="bezier", tracing_mode="path", reverse=False, nodes_to_children=False, intermediate_points=None, trace_limit=None, **kwargs):
         self.nodes = nodes
         self.spline_type = spline_type
         self.tracing_mode = tracing_mode
         self.reverse = reverse
         self.intermediate_points = intermediate_points
+        self.trace_limit = trace_limit
         super().__init__(**kwargs)
         if nodes_to_children:
             self.nodes_to_children()
@@ -72,6 +73,10 @@ class Tracer(MoGraphObject, LineObject):
         self.obj[c4d.SPLINEOBJECT_INTERPOLATION] = 1  # adaptive
         self.obj[c4d.MGTRACEROBJECT_USEPOINTS] = False  # no vertex tracing
         self.obj[c4d.MGTRACEROBJECT_SPACE] = False  # global space
+        # trace limit (number of frames to keep in trail)
+        if self.trace_limit is not None:
+            self.obj[c4d.MGTRACEROBJECT_LIMITMODE] = c4d.MGTRACEROBJECT_LIMITMODE_END  # limit from end
+            self.obj[c4d.MGTRACEROBJECT_LIMITMODE_AMMOUNT] = self.trace_limit  # note: C4D typo "AMMOUNT"
 
 
 class Cloner(MoGraphObject):
