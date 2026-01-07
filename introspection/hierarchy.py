@@ -347,3 +347,469 @@ def describe_hierarchy(doc=None):
         "summary": summary,
         "document_name": doc.GetDocumentName() or "Untitled"
     }
+
+
+def find_object_by_name(name, doc=None):
+    """
+    Find an object by name in the document.
+
+    Args:
+        name: Object name to find
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        c4d.BaseObject or None
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    def search_recursive(obj):
+        while obj:
+            if obj.GetName() == name:
+                return obj
+            found = search_recursive(obj.GetDown())
+            if found:
+                return found
+            obj = obj.GetNext()
+        return None
+
+    return search_recursive(doc.GetFirstObject())
+
+
+def get_all_userdata(obj):
+    """
+    Get all userdata parameters on an object.
+
+    Returns:
+        dict mapping group_name -> {param_name: value}
+    """
+    ud = obj.GetUserDataContainer()
+    if not ud:
+        return {}
+
+    result = {}
+    current_group = "Ungrouped"
+
+    for desc_id, bc in ud:
+        name = bc.GetString(c4d.DESC_NAME)
+        dtype = desc_id[1].dtype if len(desc_id) > 1 else 0
+
+        if dtype == 1:  # Group
+            current_group = name or "Unnamed Group"
+            if current_group not in result:
+                result[current_group] = {}
+        else:
+            # Parameter
+            try:
+                value = obj[desc_id]
+                # Convert c4d types to Python types
+                if isinstance(value, c4d.Vector):
+                    value = {"x": value.x, "y": value.y, "z": value.z}
+                elif hasattr(value, '__float__'):
+                    value = float(value)
+
+                if current_group not in result:
+                    result[current_group] = {}
+                result[current_group][name] = value
+            except:
+                pass
+
+    return result
+
+
+def get_object_tags(obj):
+    """
+    Get all tags on an object with their types.
+
+    Returns:
+        list of {name, type, details}
+    """
+    tags = []
+    for tag in obj.GetTags():
+        tag_info = {
+            "name": tag.GetName(),
+            "type": tag.GetTypeName(),
+        }
+
+        # Extract specific tag info
+        tag_type = tag.GetType()
+        if tag_type == c4d.Ttexture:
+            mat = tag.GetMaterial()
+            if mat:
+                tag_info["material"] = mat.GetName()
+
+        tags.append(tag_info)
+
+    return tags
+
+
+def inspect_object(name, doc=None):
+    """
+    Deep inspection of a single object by name.
+
+    Args:
+        name: Object name to inspect
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with detailed object information
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    obj = find_object_by_name(name, doc)
+    if obj is None:
+        return {"error": f"Object '{name}' not found"}
+
+    pos = obj.GetAbsPos()
+    rot = obj.GetAbsRot()
+    scale = obj.GetAbsScale()
+
+    import math
+
+    result = {
+        "name": obj.GetName(),
+        "type": detect_dreamtalk_class(obj),
+        "c4d_type": obj.GetTypeName(),
+        "transform": {
+            "position": {"x": round(pos.x, 2), "y": round(pos.y, 2), "z": round(pos.z, 2)},
+            "rotation": {"h": round(math.degrees(rot.x), 2), "p": round(math.degrees(rot.y), 2), "b": round(math.degrees(rot.z), 2)},
+            "scale": {"x": round(scale.x, 3), "y": round(scale.y, 3), "z": round(scale.z, 3)},
+        },
+        "userdata": get_all_userdata(obj),
+        "tags": get_object_tags(obj),
+    }
+
+    # Parent info
+    parent = obj.GetUp()
+    if parent:
+        result["parent"] = parent.GetName()
+
+    # Children
+    children = []
+    child = obj.GetDown()
+    while child:
+        children.append(child.GetName())
+        child = child.GetNext()
+    if children:
+        result["children"] = children
+
+    # Color
+    color = get_color_from_object(obj)
+    if color:
+        result["color"] = {
+            "rgb": {"r": round(color[0], 3), "g": round(color[1], 3), "b": round(color[2], 3)},
+            "name": color_to_name(color)
+        }
+
+    # Bounding box
+    bbox = obj.GetRad()
+    if bbox:
+        result["bounding_box"] = {
+            "width": round(bbox.x * 2, 2),
+            "height": round(bbox.y * 2, 2),
+            "depth": round(bbox.z * 2, 2)
+        }
+
+    return result
+
+
+def inspect_materials(doc=None):
+    """
+    Describe all materials in the scene.
+
+    Args:
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with material descriptions and usage
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    materials = []
+    mat = doc.GetFirstMaterial()
+
+    while mat:
+        mat_info = {
+            "name": mat.GetName(),
+            "type": mat.GetTypeName(),
+        }
+
+        # Try to get color
+        try:
+            if mat[c4d.MATERIAL_USE_COLOR]:
+                color = mat[c4d.MATERIAL_COLOR_COLOR]
+                mat_info["color"] = {
+                    "rgb": {"r": round(color.x, 3), "g": round(color.y, 3), "b": round(color.z, 3)},
+                    "name": color_to_name((color.x, color.y, color.z))
+                }
+        except:
+            pass
+
+        # Try to get transparency
+        try:
+            if mat[c4d.MATERIAL_USE_TRANSPARENCY]:
+                mat_info["has_transparency"] = True
+        except:
+            pass
+
+        # Try to get luminance/glow
+        try:
+            if mat[c4d.MATERIAL_USE_LUMINANCE]:
+                mat_info["has_luminance"] = True
+        except:
+            pass
+
+        # Find objects using this material
+        used_by = []
+
+        def find_usage(obj):
+            while obj:
+                for tag in obj.GetTags():
+                    if tag.GetType() == c4d.Ttexture:
+                        tag_mat = tag.GetMaterial()
+                        if tag_mat and tag_mat.GetName() == mat.GetName():
+                            used_by.append(obj.GetName())
+                find_usage(obj.GetDown())
+                obj = obj.GetNext()
+
+        find_usage(doc.GetFirstObject())
+        if used_by:
+            mat_info["used_by"] = used_by
+
+        materials.append(mat_info)
+        mat = mat.GetNext()
+
+    return {
+        "materials": materials,
+        "count": len(materials),
+        "summary": f"Scene has {len(materials)} material(s)"
+    }
+
+
+def inspect_animation(start_frame=None, end_frame=None, doc=None):
+    """
+    Describe what happens in the animation between frames.
+
+    Args:
+        start_frame: Start frame (defaults to document start)
+        end_frame: End frame (defaults to document end)
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with animation description
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    fps = doc.GetFps()
+    doc_start = doc.GetMinTime().GetFrame(fps)
+    doc_end = doc.GetMaxTime().GetFrame(fps)
+
+    if start_frame is None:
+        start_frame = doc_start
+    if end_frame is None:
+        end_frame = doc_end
+
+    # Collect all animated objects and their keyframes
+    animated_objects = []
+
+    def find_animated(obj):
+        while obj:
+            tracks = obj.GetCTracks()
+            if tracks:
+                obj_info = {
+                    "name": obj.GetName(),
+                    "type": detect_dreamtalk_class(obj),
+                    "tracks": []
+                }
+
+                for track in tracks:
+                    desc_id = track.GetDescriptionID()
+                    curve = track.GetCurve()
+                    if curve:
+                        keyframes = []
+                        for i in range(curve.GetKeyCount()):
+                            key = curve.GetKey(i)
+                            frame = key.GetTime().GetFrame(fps)
+                            if start_frame <= frame <= end_frame:
+                                keyframes.append({
+                                    "frame": frame,
+                                    "value": round(key.GetValue(), 3)
+                                })
+
+                        if keyframes:
+                            # Try to get parameter name
+                            param_name = "Unknown"
+                            try:
+                                # Check common DreamTalk parameters
+                                ud = obj.GetUserDataContainer()
+                                if ud:
+                                    for ud_id, bc in ud:
+                                        if ud_id == desc_id:
+                                            param_name = bc.GetString(c4d.DESC_NAME)
+                                            break
+                            except:
+                                pass
+
+                            obj_info["tracks"].append({
+                                "parameter": param_name,
+                                "keyframes": keyframes
+                            })
+
+                if obj_info["tracks"]:
+                    animated_objects.append(obj_info)
+
+            find_animated(obj.GetDown())
+            obj = obj.GetNext()
+
+    find_animated(doc.GetFirstObject())
+
+    # Generate summary
+    total_keyframes = sum(
+        len(track["keyframes"])
+        for obj in animated_objects
+        for track in obj["tracks"]
+    )
+
+    return {
+        "frame_range": {"start": start_frame, "end": end_frame},
+        "fps": fps,
+        "duration_seconds": round((end_frame - start_frame) / fps, 2),
+        "animated_objects": animated_objects,
+        "stats": {
+            "animated_object_count": len(animated_objects),
+            "total_keyframes": total_keyframes
+        },
+        "summary": f"Animation from frame {start_frame} to {end_frame} ({round((end_frame - start_frame) / fps, 2)}s): {len(animated_objects)} animated object(s), {total_keyframes} keyframe(s)"
+    }
+
+
+def validate_scene(doc=None):
+    """
+    Run sanity checks on the scene before rendering.
+
+    Args:
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with validation results and any issues found
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    issues = []
+    warnings = []
+    info = []
+
+    # Check for objects at origin that shouldn't be
+    origin_objects = []
+
+    def check_objects(obj, depth=0):
+        while obj:
+            pos = obj.GetAbsPos()
+            name = obj.GetName()
+            obj_type = detect_dreamtalk_class(obj)
+
+            # Check for objects stuck at origin (except root CustomObjects)
+            if depth > 0 and obj_type != "Camera":
+                if pos.x == 0 and pos.y == 0 and pos.z == 0:
+                    # Only flag if it has siblings at different positions
+                    sibling = obj.GetNext() or obj.GetPred()
+                    if sibling:
+                        sib_pos = sibling.GetAbsPos()
+                        if sib_pos.x != 0 or sib_pos.y != 0 or sib_pos.z != 0:
+                            origin_objects.append(name)
+
+            # Check for missing materials on visible objects
+            if obj_type in ("LineObject", "SolidObject"):
+                has_material = False
+                for tag in obj.GetTags():
+                    if tag.GetType() == c4d.Ttexture:
+                        has_material = True
+                        break
+                if not has_material:
+                    warnings.append(f"'{name}' ({obj_type}) has no material assigned")
+
+            # Check for 0 creation on DreamTalk objects
+            creation = get_userdata_value(obj, "Actions", "Creation")
+            if creation is not None and creation == 0:
+                info.append(f"'{name}' has creation at 0% (not animated yet)")
+
+            check_objects(obj.GetDown(), depth + 1)
+            obj = obj.GetNext()
+
+    check_objects(doc.GetFirstObject())
+
+    # Check materials
+    mat = doc.GetFirstMaterial()
+    material_count = 0
+    unused_materials = []
+
+    while mat:
+        material_count += 1
+        mat_name = mat.GetName()
+
+        # Check if material is used
+        is_used = False
+
+        def check_usage(obj):
+            nonlocal is_used
+            while obj and not is_used:
+                for tag in obj.GetTags():
+                    if tag.GetType() == c4d.Ttexture:
+                        tag_mat = tag.GetMaterial()
+                        if tag_mat and tag_mat.GetName() == mat_name:
+                            is_used = True
+                            return
+                check_usage(obj.GetDown())
+                obj = obj.GetNext()
+
+        check_usage(doc.GetFirstObject())
+        if not is_used:
+            unused_materials.append(mat_name)
+
+        mat = mat.GetNext()
+
+    if unused_materials:
+        warnings.append(f"Unused materials: {', '.join(unused_materials)}")
+
+    # Check render settings
+    rd = doc.GetActiveRenderData()
+    if rd:
+        fps = rd[c4d.RDATA_FRAMERATE]
+        width = rd[c4d.RDATA_XRES]
+        height = rd[c4d.RDATA_YRES]
+        info.append(f"Render settings: {int(width)}x{int(height)} @ {int(fps)}fps")
+
+    # Check for camera
+    has_camera = False
+
+    def find_camera(obj):
+        nonlocal has_camera
+        while obj:
+            if obj.GetType() == _get_c4d_type('Ocamera'):
+                has_camera = True
+                return
+            find_camera(obj.GetDown())
+            obj = obj.GetNext()
+
+    find_camera(doc.GetFirstObject())
+    if not has_camera:
+        warnings.append("No camera in scene")
+
+    # Build result
+    is_valid = len(issues) == 0
+
+    return {
+        "valid": is_valid,
+        "issues": issues,
+        "warnings": warnings,
+        "info": info,
+        "stats": {
+            "material_count": material_count,
+            "unused_materials": len(unused_materials),
+        },
+        "summary": f"Scene validation: {'PASSED' if is_valid else 'FAILED'} - {len(issues)} issue(s), {len(warnings)} warning(s)"
+    }

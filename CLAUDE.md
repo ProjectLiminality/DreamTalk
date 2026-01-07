@@ -269,13 +269,56 @@ For library development (extending DreamTalk itself), the c4d SDK patterns are d
 
 DreamTalk supports bidirectional communication with Cinema 4D via MCP (Model Context Protocol).
 
-**Setup**:
-1. Install the MCP server: `mcp-servers/cinema4d-mcp/`
-2. Install the C4D plugin: Copy `mcp_server_plugin.pyp` to C4D plugins folder
-3. Configure `.mcp.json` with the cinema4d server
-4. In C4D: Extensions > Socket Server Plugin > Start Server
+### Quick Setup
 
-**Usage**:
+Run the setup script (creates symlinks, installs dependencies):
+```bash
+./scripts/setup.sh
+```
+
+Then:
+1. Restart Cinema 4D to load the plugin
+2. In C4D: Extensions > Socket Server Plugin > Start Server
+3. Start Claude Code in the DreamTalk directory
+
+### Manual Setup
+
+If you prefer manual installation:
+
+1. **Symlink the C4D plugin** (single source of truth):
+   ```bash
+   ln -s /path/to/DreamTalk/mcp-servers/cinema4d-mcp/c4d_plugin/mcp_server_plugin.pyp \
+         ~/Library/Preferences/Maxon/Maxon\ Cinema\ 4D\ 2025_*/plugins/
+   ```
+
+2. **Install MCP server dependencies**:
+   ```bash
+   cd mcp-servers/cinema4d-mcp && uv sync
+   ```
+
+3. **Configure `.mcp.json`** (already in repo - adjust paths if needed)
+
+### AI Introspection Tools
+
+DreamTalk provides semantic scene introspection for AI assistance:
+
+| Tool | Purpose |
+|------|---------|
+| `describe_hierarchy()` | Semantic scene tree with DreamTalk types |
+| `inspect_object(name)` | Deep dive into single object (userdata, tags, transform) |
+| `inspect_materials()` | Material palette with usage tracking |
+| `inspect_animation(start, end)` | Keyframe analysis |
+| `validate_scene()` | Pre-render sanity checks |
+
+These can be called via MCP or directly in Python:
+```python
+from DreamTalk.introspection import describe_hierarchy, validate_scene
+result = describe_hierarchy()
+validation = validate_scene()
+```
+
+### Usage
+
 - Claude Code can execute DreamTalk scenes directly in a running C4D instance
 - Enables autonomous iteration: generate scene → execute → view result → adjust
 - User watches scene build in real-time and can intervene at any point

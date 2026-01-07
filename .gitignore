@@ -4,8 +4,8 @@
 __pycache__/
 *.pyc
 
-# MCP servers (cloned dependencies)
-mcp-servers/cinema4d-mcp/
+# MCP servers - virtual environments only
+mcp-servers/*/.venv/
 
 # Generated images
 generated-images/

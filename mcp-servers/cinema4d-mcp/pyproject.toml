@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cinema4d-mcp"
+version = "0.1.2"
+description = "Cinema 4D MCP Server for Claude Desktop with MoGraph support"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "starlette",
+]
+
+[project.scripts]
+cinema4d-mcp-wrapper = "cinema4d_mcp:main_wrapper"
+cinema4d-mcp = "cinema4d_mcp:main"
