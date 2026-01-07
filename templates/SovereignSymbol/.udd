@@ -2,9 +2,7 @@
   "uuid": "",
   "title": "SymbolName",
   "type": "dream",
-  "dreamTalk": "./renders/symbol.gif",
+  "dreamTalk": "SymbolName.mp4",
   "submodules": [],
-  "supermodules": [],
-  "tags": ["animation", "dreamtalk", "symbol"],
-  "description": ""
+  "supermodules": []
 }

@@ -1333,6 +1333,8 @@ class C4DSocketServer(threading.Thread):
                     settings[c4d.RDATA_FRAMESEQUENCE] = (
                         c4d.RDATA_FRAMESEQUENCE_CURRENTFRAME
                     )
+                    # Force Standard renderer (required for Sketch & Toon, avoids Redshift memory issues)
+                    settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
 
                     # 4. Mandatory Flags (SDK §9.4.5)
                     render_flags = (
@@ -5832,6 +5834,8 @@ class C4DSocketServer(threading.Thread):
                 settings[c4d.RDATA_YRES] = float(height)
                 settings[c4d.RDATA_FRAMESEQUENCE] = c4d.RDATA_FRAMESEQUENCE_CURRENTFRAME
                 settings[c4d.RDATA_SAVEIMAGE] = False  # Render to bitmap, not auto-save
+                # Force Standard renderer (required for Sketch & Toon, avoids Redshift memory issues)
+                settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
 
                 doc.InsertRenderData(rd_clone)
                 temp_rd_inserted = True
