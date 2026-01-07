@@ -1517,6 +1517,7 @@ class FoldableCube(CustomObject):
                 movements.append(Movement(self.bottom_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
             creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
 
+
 class Membrane(CustomObject):
     """creates a membrane for any given spline using the extrude and instance object"""
 
