@@ -475,6 +475,29 @@ For DreamOS's 3D UI, WebGL via React Three Fiber is the path:
 4. **Future Phase 3**: Particles, vertex dynamics
 5. **Future Phase 4**: Physics, advanced interactions
 
+### Future: Voice Integration with WhisperModels DreamNode
+
+Local speech-to-text for Claude Code via VoiceMode MCP. Currently blocked on whisper.cpp build issues.
+
+**Vision**: A `WhisperModels` DreamNode containing all Whisper model formats:
+- PyTorch `.pt` files (already at `~/.cache/whisper/`)
+- GGML `.bin` files (for whisper.cpp / VoiceMode)
+- ONNX format (for faster-whisper / InterBrain)
+
+Symlink pattern:
+```
+WhisperModels/                           # Sovereign DreamNode
+├── pytorch/base.pt, medium.pt, large.pt
+├── ggml/ggml-base.bin, ggml-medium.bin
+└── onnx/...
+
+~/.voicemode/models/    → symlink → WhisperModels/ggml/
+~/.cache/whisper/       → symlink → WhisperModels/pytorch/
+InterBrain/models/      → symlink → WhisperModels/onnx/
+```
+
+This unifies all Whisper installations across the system. One source of truth, multiple consumers.
+
 ### Prompt-to-Symbol Pipeline
 
 The ultimate vision:
