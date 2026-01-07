@@ -4,7 +4,7 @@
       "command": "/Users/davidrug/.local/bin/uv",
       "args": [
         "--directory",
-        "/Users/davidrug/RealDealVault/DreamTalk/mcp-servers/mcp-server-gemini-image-generator",
+        "/Users/davidrug/ProjectLiminality/DreamTalk/mcp-servers/mcp-server-gemini-image-generator",
         "run",
         "--python",
         "python3.12",
@@ -12,14 +12,14 @@
       ],
       "env": {
         "GEMINI_API_KEY": "${GEMINI_API_KEY}",
-        "OUTPUT_IMAGE_PATH": "/Users/davidrug/RealDealVault/DreamTalk/generated-images"
+        "OUTPUT_IMAGE_PATH": "/Users/davidrug/ProjectLiminality/DreamTalk/generated-images"
       }
     },
     "cinema4d": {
       "command": "/Users/davidrug/.local/bin/uv",
       "args": [
         "--directory",
-        "/Users/davidrug/RealDealVault/DreamTalk/mcp-servers/cinema4d-mcp",
+        "/Users/davidrug/ProjectLiminality/DreamTalk/mcp-servers/cinema4d-mcp",
         "run",
         "--python",
         "python3.12",
