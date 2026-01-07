@@ -213,6 +213,7 @@ class RenderSettings():
         self.settings = self.document.GetActiveRenderData()
 
         # set parameters
+        self.settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD  # ensure Standard renderer (not Redshift)
         self.settings[c4d.RDATA_FRAMESEQUENCE] = 3  # set range to preview
         if self.alpha:
             self.settings[c4d.RDATA_FORMAT] = 1023671 # Set to PNG
