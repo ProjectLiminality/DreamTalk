@@ -344,6 +344,42 @@ validation = validate_scene()
 - Enables autonomous iteration: generate scene → execute → view result → adjust
 - User watches scene build in real-time and can intervene at any point
 
+### Rendering for AI Feedback
+
+**For visual feedback during iteration, use this pattern:**
+
+```python
+# Execute via MCP execute_python_script - renders to temp file Claude can read
+import c4d
+import tempfile
+
+doc = c4d.documents.GetActiveDocument()
+doc.SetTime(c4d.BaseTime(FRAME_NUMBER, 30))
+doc.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+rd = doc.GetActiveRenderData()
+settings = rd.GetData()
+settings[c4d.RDATA_XRES] = 640
+settings[c4d.RDATA_YRES] = 360
+settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
+
+bmp = c4d.bitmaps.BaseBitmap()
+bmp.Init(640, 360, 24)  # 24-bit RGB - CRITICAL for Sketch & Toon
+
+result = c4d.documents.RenderDocument(doc, settings, bmp, c4d.RENDERFLAGS_EXTERNAL)
+path = tempfile.gettempdir() + "/preview.png"
+bmp.Save(path, c4d.FILTER_PNG)
+print(f"Saved to: {path}")
+```
+
+Then use `Read` tool on the saved PNG path to view the render.
+
+**Key requirements:**
+- Use `BaseBitmap` with 24-bit color (NOT `MultipassBitmap`)
+- Use Standard renderer (NOT Redshift) for Sketch & Toon
+- Ensure Sketch & Toon VideoPost is enabled in render settings
+- Save to temp file and read with Claude's Read tool
+
 ## Render Pipeline
 
 ### Output Formats

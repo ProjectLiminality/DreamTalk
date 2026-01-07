@@ -1344,9 +1344,9 @@ class C4DSocketServer(threading.Thread):
                         | c4d.RENDERFLAGS_NODOCUMENTCLONE
                     )
 
-                    # 5. Bitmap Initialization (SDK §11.2.3)
-                    bmp = c4d.bitmaps.MultipassBitmap(width, height, c4d.COLORMODE_RGB)
-                    bmp.AddChannel(True, True)  # Required alpha
+                    # 5. Bitmap Initialization - Use BaseBitmap for reliable Sketch & Toon rendering
+                    bmp = c4d.bitmaps.BaseBitmap()
+                    bmp.Init(width, height, 24)  # 24-bit RGB works reliably with Sketch & Toon
 
                     # 6. Frame Synchronization
                     doc.SetTime(c4d.BaseTime(frame, doc.GetFps()))
