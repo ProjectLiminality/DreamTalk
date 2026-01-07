@@ -85,12 +85,14 @@ The symbol **contains the logic that created it**, which can be applied elsewher
 ├── CLAUDE.md                        # AI instructions for this symbol
 ├── <symbol_name>.py                 # The CustomObject class definition
 ├── symbol_scene.py                  # Scene that renders the canonical symbol
-├── renders/
-│   └── symbol.gif                   # The face of this DreamNode
+├── <SymbolName>.mp4                 # Web distribution (referenced in .udd)
+├── <SymbolName>.mov                 # Master with alpha (Keynote compatible)
 └── submodules/
     ├── DreamTalk/                   # Core library (always present)
     └── <OtherSymbol>/               # Optional: other sovereign symbols as parts
 ```
+
+**Render outputs at root, named after DreamNode.** PNG frames are transient (not committed).
 
 ### The `.udd` Schema for Symbols
 
@@ -99,13 +101,15 @@ The symbol **contains the logic that created it**, which can be applied elsewher
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
   "title": "Mind Virus",
   "type": "dream",
-  "dreamTalk": "./renders/symbol.gif",
+  "dreamTalk": "MindVirus.mp4",
   "submodules": ["<DreamTalk-uuid>", "<OtherSymbol-uuid>"],
   "supermodules": ["<Labyrinth-uuid>"],
   "tags": ["animation", "dreamtalk", "symbol"],
   "description": "A cube that opens into a jellyfish-like creature"
 }
 ```
+
+**Note:** `dreamTalk` references the MP4 (web distribution). The MOV master lives alongside it for Keynote/editing use.
 
 ### Holarchic Submodule Pattern
 
@@ -323,8 +327,110 @@ validation = validate_scene()
 - Enables autonomous iteration: generate scene → execute → view result → adjust
 - User watches scene build in real-time and can intervene at any point
 
+## Render Pipeline
+
+### Output Formats
+
+| Type | Format | Use Case |
+|------|--------|----------|
+| Still | PNG (alpha) | Static symbols, thumbnails |
+| Dynamic master | MOV ProRes 4444 (alpha) | Keynote, archival, editing |
+| Dynamic web | MP4 H.264 (derived) | InterBrain, GitHub Pages |
+
+### Pipeline Flow
+
+```
+symbol_scene.py          # Source of truth
+    ↓ (C4D execute)
+[PNG frames]             # Transient - delete after encoding
+    ↓ (ffmpeg)
+.mov (ProRes 4444)       # Master - alpha, Keynote compatible
+    ↓ (ffmpeg)
+.mp4 (H.264)             # Web distribution
+```
+
+**Key settings:**
+- Always use Standard renderer (not Redshift) for Sketch & Toon
+- `save=True` in Scene constructor configures render export
+- ProRes 4444: `ffmpeg -i frames/%04d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le output.mov`
+- H.264 derived: `ffmpeg -i output.mov -c:v libx264 -pix_fmt yuv420p -crf 23 output.mp4`
+
+## Current Workflow
+
+The immediate workflow is **C4D + Keynote + Claude Code**:
+
+1. **Claude Code**: Generate/modify DreamTalk Python via natural language
+2. **Cinema 4D**: Execute scenes, render with Sketch & Toon
+3. **Keynote**: Compose final presentations with transparent video overlays
+
+Claude Code integrates via MCP to:
+- Execute DreamTalk scenes in running C4D instance
+- Introspect scene hierarchy and validate before render
+- Iterate autonomously: prompt → code → execute → view → adjust
+
 ## Future Vision
 
-- Real-time web-based implementation (replacing Cinema 4D rendering)
-- AI-driven symbol creation from natural language
-- Full DreamOS integration where symbols populate DreamNodes automatically
+### Backend Abstraction
+
+DreamTalk's Python API can target multiple render backends:
+
+```
+DreamTalk Python API
+    │
+    ├── Cinema 4D Backend (current)
+    │   └── Professional: MoGraph, particles, procedural tools
+    │
+    └── WebGL Backend (future)
+        └── Real-time: browser-native, interactive, InterBrain UI
+```
+
+### WebGL Feasibility Assessment
+
+**Straightforward to port:**
+- Primitives, splines, materials
+- Animation/keyframe system
+- Cloner, Fields, Effectors (math-based)
+- Vertex maps, infection/growth (GPU shaders - actually faster)
+- Particle systems (GPU particles)
+- Basic physics (Rapier.js/WASM)
+
+**Challenging:**
+- 3D silhouette → vector spline extraction (hard in real-time)
+- Spline morphing with topology mismatch (use Flubber.js)
+- Complex deformers (case by case)
+
+**C4D remains valuable for:**
+- MoGraph advanced features
+- Sketch & Toon outline-to-spline
+- Complex procedural workflows
+- Professional master renders
+
+### WebGL + React Three Fiber
+
+For DreamOS's 3D UI, WebGL via React Three Fiber is the path:
+- Full interactivity (click, hover, drag on DreamNodes)
+- Seamless React integration
+- Real-time 60fps for thousands of objects
+- HTML overlays for UI elements
+- WebXR ready (VR/AR)
+
+### Phased Approach
+
+1. **Now**: Streamline C4D workflow with Claude Code MCP integration
+2. **Future Phase 1**: Core WebGL port (shapes, animation, line rendering)
+3. **Future Phase 2**: MoGraph subset (Cloner, Fields, Effectors)
+4. **Future Phase 3**: Particles, vertex dynamics
+5. **Future Phase 4**: Physics, advanced interactions
+
+### Prompt-to-Symbol Pipeline
+
+The ultimate vision:
+```
+Natural language prompt
+    ↓ (AI)
+DreamTalk Python code
+    ↓ (WebGL or C4D backend)
+Rendered symbol (MP4/real-time)
+```
+
+WebGL enables this fully browser-native. C4D requires hosted service (licensing considerations apply for commercial hosting).
