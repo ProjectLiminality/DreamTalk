@@ -180,6 +180,105 @@ class Scene(ABC):
         """adds time without any animations"""
         self.add_time(seconds)
 
+    def render_preview_frames(self, frames=None, output_dir=None, width=640, height=360):
+        """
+        Render key frames to PNG files for AI-assisted iteration.
+
+        Args:
+            frames: List of frame numbers to render. If None, auto-samples 5 frames
+                    across the animation range.
+            output_dir: Directory for output PNGs. Defaults to /tmp/dreamtalk_preview/
+            width: Preview width in pixels (default 640)
+            height: Preview height in pixels (default 360)
+
+        Returns:
+            List of paths to rendered PNG files.
+
+        Files are named preview_XXXX.png and are overwritten on each call,
+        enabling fast iteration without file accumulation.
+        """
+        import tempfile
+
+        # Default output directory
+        if output_dir is None:
+            output_dir = os.path.join(tempfile.gettempdir(), "dreamtalk_preview")
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Auto-sample frames if not specified
+        if frames is None:
+            min_frame = int(self.document[c4d.DOCUMENT_MINTIME].GetFrame(FPS))
+            max_frame = int(self.document[c4d.DOCUMENT_MAXTIME].GetFrame(FPS))
+            # Sample 5 frames: start, 25%, 50%, 75%, end
+            if max_frame > min_frame:
+                frames = [
+                    min_frame,
+                    min_frame + (max_frame - min_frame) // 4,
+                    min_frame + (max_frame - min_frame) // 2,
+                    min_frame + 3 * (max_frame - min_frame) // 4,
+                    max_frame
+                ]
+            else:
+                frames = [min_frame]
+
+        # Get render settings and configure for preview
+        rd = self.document.GetActiveRenderData()
+        original_width = rd[c4d.RDATA_XRES]
+        original_height = rd[c4d.RDATA_YRES]
+        original_format = rd[c4d.RDATA_FORMAT]
+        original_save = rd[c4d.RDATA_SAVEIMAGE]
+        original_alpha = rd[c4d.RDATA_ALPHACHANNEL]
+
+        # Set preview settings
+        rd[c4d.RDATA_XRES] = width
+        rd[c4d.RDATA_YRES] = height
+        rd[c4d.RDATA_FORMAT] = c4d.FILTER_PNG
+        rd[c4d.RDATA_SAVEIMAGE] = False
+        rd[c4d.RDATA_ALPHACHANNEL] = True
+        rd[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
+
+        rendered_paths = []
+
+        try:
+            for frame in frames:
+                # Set frame
+                self.document.SetTime(c4d.BaseTime(frame, FPS))
+                self.document.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+                # Create bitmap
+                bmp = c4d.bitmaps.BaseBitmap()
+                if bmp.Init(width, height, 32) != c4d.IMAGERESULT_OK:
+                    print(f"[DreamTalk] Failed to init bitmap for frame {frame}")
+                    continue
+
+                # Render
+                render_flags = c4d.RENDERFLAGS_EXTERNAL | c4d.RENDERFLAGS_NODOCUMENTCLONE
+                result = c4d.documents.RenderDocument(self.document, rd.GetData(), bmp, render_flags)
+
+                if result != c4d.RENDERRESULT_OK:
+                    print(f"[DreamTalk] Render failed for frame {frame}: {result}")
+                    continue
+
+                # Save to file (overwriting)
+                output_path = os.path.join(output_dir, f"preview_{frame:04d}.png")
+                if bmp.Save(output_path, c4d.FILTER_PNG) == c4d.IMAGERESULT_OK:
+                    rendered_paths.append(output_path)
+                    print(f"[DreamTalk] Rendered frame {frame} -> {output_path}")
+                else:
+                    print(f"[DreamTalk] Failed to save frame {frame}")
+
+                bmp.FlushAll()
+
+        finally:
+            # Restore original settings
+            rd[c4d.RDATA_XRES] = original_width
+            rd[c4d.RDATA_YRES] = original_height
+            rd[c4d.RDATA_FORMAT] = original_format
+            rd[c4d.RDATA_SAVEIMAGE] = original_save
+            rd[c4d.RDATA_ALPHACHANNEL] = original_alpha
+            c4d.EventAdd()
+
+        return rendered_paths
+
 
 class RenderSettings():
     """holds and writes the render settings to cinema"""
