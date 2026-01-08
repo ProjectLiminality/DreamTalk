@@ -813,3 +813,330 @@ def validate_scene(doc=None):
         },
         "summary": f"Scene validation: {'PASSED' if is_valid else 'FAILED'} - {len(issues)} issue(s), {len(warnings)} warning(s)"
     }
+
+
+def inspect_xpresso(obj):
+    """
+    Deep inspection of XPresso tags on an object.
+
+    Reveals how userdata parameters connect to object properties through XPresso.
+    This is critical for understanding DreamTalk's abstraction layer where
+    Creation -> XPresso -> Fill/Draw -> Material visibility.
+
+    Args:
+        obj: Cinema 4D BaseObject (or object name string)
+
+    Returns:
+        dict with XPresso structure including groups, nodes, and connections
+    """
+    if isinstance(obj, str):
+        doc = c4d.documents.GetActiveDocument()
+        obj = find_object_by_name(obj, doc)
+        if obj is None:
+            return {"error": f"Object not found"}
+
+    result = {
+        "object": obj.GetName(),
+        "xpresso_tags": []
+    }
+
+    for tag in obj.GetTags():
+        if tag.GetType() != c4d.Texpresso:
+            continue
+
+        tag_info = {
+            "name": tag.GetName(),
+            "groups": []
+        }
+
+        node_master = tag.GetNodeMaster()
+        if not node_master:
+            continue
+
+        root = node_master.GetRoot()
+        if not root:
+            continue
+
+        def traverse_nodes(node, group_info=None):
+            """Traverse XPresso nodes and extract their structure."""
+            nodes_list = []
+
+            while node:
+                node_name = node.GetName()
+                op_id = node.GetOperatorID()
+
+                node_info = {
+                    "name": node_name,
+                    "operator_id": op_id,
+                    "inputs": [],
+                    "outputs": []
+                }
+
+                # Get input ports
+                for port in node.GetInPorts():
+                    port_name = port.GetName(node)
+                    node_info["inputs"].append(port_name)
+
+                # Get output ports
+                for port in node.GetOutPorts():
+                    port_name = port.GetName(node)
+                    node_info["outputs"].append(port_name)
+
+                # Check if this is a group (contains children)
+                child = node.GetDown()
+                if child:
+                    # This is a group node - extract its children
+                    if op_id == 1001144:  # XGroup
+                        group_data = {
+                            "name": node_name,
+                            "nodes": traverse_nodes(child)
+                        }
+                        if group_info is not None:
+                            group_info.append(group_data)
+                        else:
+                            tag_info["groups"].append(group_data)
+                    else:
+                        node_info["children"] = traverse_nodes(child)
+                        nodes_list.append(node_info)
+                else:
+                    nodes_list.append(node_info)
+
+                node = node.GetNext()
+
+            return nodes_list
+
+        # Start traversal from root's children
+        first_node = root.GetDown()
+        if first_node:
+            traverse_nodes(first_node, tag_info["groups"])
+
+        result["xpresso_tags"].append(tag_info)
+
+    return result
+
+
+def get_scene_snapshot(doc=None):
+    """
+    Create a snapshot of scene state including transforms, userdata, and materials.
+
+    Used for scene diffing - compare before and after states.
+    Captures:
+    - Object transforms (position, rotation, scale)
+    - Userdata parameters
+    - Sketch & Toon material properties
+
+    Args:
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with 'objects' and 'materials' snapshots
+    """
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    snapshot = {"objects": {}, "materials": {}}
+
+    def capture_object(obj):
+        while obj:
+            obj_name = obj.GetName()
+            flat_data = {}
+
+            # Capture transform
+            pos = obj.GetAbsPos()
+            rot = obj.GetAbsRot()
+            scale = obj.GetAbsScale()
+
+            flat_data["transform.x"] = round(pos.x, 2)
+            flat_data["transform.y"] = round(pos.y, 2)
+            flat_data["transform.z"] = round(pos.z, 2)
+
+            # Only include rotation if non-zero
+            import math
+            if abs(rot.x) > 0.001 or abs(rot.y) > 0.001 or abs(rot.z) > 0.001:
+                flat_data["transform.h"] = round(math.degrees(rot.x), 2)
+                flat_data["transform.p"] = round(math.degrees(rot.y), 2)
+                flat_data["transform.b"] = round(math.degrees(rot.z), 2)
+
+            # Only include scale if non-uniform
+            if abs(scale.x - 1) > 0.001 or abs(scale.y - 1) > 0.001 or abs(scale.z - 1) > 0.001:
+                flat_data["transform.scale_x"] = round(scale.x, 3)
+                flat_data["transform.scale_y"] = round(scale.y, 3)
+                flat_data["transform.scale_z"] = round(scale.z, 3)
+
+            # Capture userdata
+            userdata = get_all_userdata(obj)
+            for group_name, params in userdata.items():
+                for param_name, value in params.items():
+                    key = f"userdata.{group_name}.{param_name}"
+                    # Convert complex types to comparable values
+                    if isinstance(value, dict):
+                        if 'x' in value and 'y' in value and 'z' in value:
+                            value = (value['x'], value['y'], value['z'])
+                    if isinstance(value, float):
+                        value = round(value, 4)
+                    flat_data[key] = value
+
+            snapshot["objects"][obj_name] = flat_data
+
+            # Recurse
+            capture_object(obj.GetDown())
+            obj = obj.GetNext()
+
+    capture_object(doc.GetFirstObject())
+
+    # Capture materials (especially Sketch & Toon)
+    mat = doc.GetFirstMaterial()
+    while mat:
+        mat_name = mat.GetName()
+        mat_type = mat.GetType()
+        mat_data = {"type": mat.GetTypeName()}
+
+        # Sketch & Toon material (Msketch = 1011014)
+        if mat_type == _get_c4d_type('Msketch'):
+            try:
+                mat_data["thickness"] = round(mat[c4d.OUTLINEMAT_THICKNESS], 2)
+            except: pass
+            try:
+                mat_data["line_contour"] = bool(mat[c4d.OUTLINEMAT_LINE_CONTOUR])
+            except: pass
+            try:
+                mat_data["contour_mode"] = mat[c4d.OUTLINEMAT_LINE_CONTOUR_MODE]
+            except: pass
+            try:
+                mat_data["contour_spacing_type"] = mat[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION_SPACING]
+            except: pass
+            try:
+                mat_data["contour_spacing"] = round(mat[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION_SPACE], 2)
+            except: pass
+            try:
+                mat_data["contour_steps"] = mat[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION_STEPS]
+            except: pass
+            try:
+                # Contour position mode (Object X/Y/Z, World X/Y/Z, View X/Y/Z)
+                mat_data["contour_object_x"] = bool(mat[c4d.OUTLINEMAT_LINE_CONTOUR_OBJECT_X])
+                mat_data["contour_object_y"] = bool(mat[c4d.OUTLINEMAT_LINE_CONTOUR_OBJECT_Y])
+                mat_data["contour_object_z"] = bool(mat[c4d.OUTLINEMAT_LINE_CONTOUR_OBJECT_Z])
+            except: pass
+
+        snapshot["materials"][mat_name] = mat_data
+        mat = mat.GetNext()
+
+    return snapshot
+
+
+# Module-level storage for scene snapshots
+_last_snapshot = None
+
+
+def diff_scene(doc=None):
+    """
+    Compare current scene state to last snapshot and show changes.
+
+    Call this after making manual changes in C4D to see what was modified.
+    Automatically stores current state for next diff.
+
+    Detects changes to:
+    - Object transforms (position, rotation, scale)
+    - Userdata parameters
+    - Material properties (especially Sketch & Toon)
+
+    Args:
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with changes grouped by category (objects, materials)
+    """
+    global _last_snapshot
+
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    current = get_scene_snapshot(doc)
+
+    if _last_snapshot is None:
+        _last_snapshot = current
+        return {
+            "status": "first_snapshot",
+            "message": "Initial snapshot captured. Make changes and call diff_scene() again.",
+            "objects_tracked": len(current["objects"]),
+            "materials_tracked": len(current["materials"])
+        }
+
+    changes = {
+        "objects": {"modified": {}, "added": {}, "removed": {}},
+        "materials": {"modified": {}, "added": {}, "removed": {}}
+    }
+
+    def diff_dict(current_dict, old_dict, changes_dict):
+        """Compare two dictionaries and populate changes."""
+        # Find modifications and additions
+        for name, params in current_dict.items():
+            if name not in old_dict:
+                changes_dict["added"][name] = params
+            else:
+                old_params = old_dict[name]
+                item_changes = {}
+
+                for param, value in params.items():
+                    if param not in old_params:
+                        item_changes[param] = {"new": value, "old": None}
+                    elif old_params[param] != value:
+                        item_changes[param] = {"old": old_params[param], "new": value}
+
+                if item_changes:
+                    changes_dict["modified"][name] = item_changes
+
+        # Find removals
+        for name in old_dict:
+            if name not in current_dict:
+                changes_dict["removed"][name] = old_dict[name]
+
+    # Diff objects and materials
+    diff_dict(current["objects"], _last_snapshot["objects"], changes["objects"])
+    diff_dict(current["materials"], _last_snapshot["materials"], changes["materials"])
+
+    # Update snapshot for next diff
+    _last_snapshot = current
+
+    # Build summary
+    summary_parts = []
+
+    # Object changes
+    obj_changes = changes["objects"]
+    if obj_changes["modified"]:
+        for obj, params in obj_changes["modified"].items():
+            for param, vals in params.items():
+                summary_parts.append(f"{obj}.{param}: {vals['old']} → {vals['new']}")
+    if obj_changes["added"]:
+        summary_parts.append(f"Added objects: {', '.join(obj_changes['added'].keys())}")
+    if obj_changes["removed"]:
+        summary_parts.append(f"Removed objects: {', '.join(obj_changes['removed'].keys())}")
+
+    # Material changes
+    mat_changes = changes["materials"]
+    if mat_changes["modified"]:
+        for mat, params in mat_changes["modified"].items():
+            for param, vals in params.items():
+                summary_parts.append(f"Material {mat}.{param}: {vals['old']} → {vals['new']}")
+    if mat_changes["added"]:
+        summary_parts.append(f"Added materials: {', '.join(mat_changes['added'].keys())}")
+    if mat_changes["removed"]:
+        summary_parts.append(f"Removed materials: {', '.join(mat_changes['removed'].keys())}")
+
+    total_changes = (
+        len(obj_changes["modified"]) + len(obj_changes["added"]) + len(obj_changes["removed"]) +
+        len(mat_changes["modified"]) + len(mat_changes["added"]) + len(mat_changes["removed"])
+    )
+
+    return {
+        "changes": changes,
+        "total_changes": total_changes,
+        "summary": "; ".join(summary_parts) if summary_parts else "No changes detected"
+    }
+
+
+def reset_snapshot():
+    """Reset the scene snapshot to force a fresh capture on next diff."""
+    global _last_snapshot
+    _last_snapshot = None
+    return {"status": "reset", "message": "Snapshot cleared"}
