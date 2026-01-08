@@ -53,21 +53,51 @@ class MaterialTag(Tag):
 
 class SketchTag(MaterialTag):
 
-    def __init__(self, outline=False, folds=False, creases=False, border=False, contour=False, splines=True, **kwargs):
+    def __init__(self, outline=False, folds=False, creases=False, border=False, contour=False, splines=True,
+                 hidden_material=True, **kwargs):
+        """
+        Create a Sketch Style tag for Sketch & Toon rendering.
+
+        Args:
+            outline: Enable outline rendering
+            folds: Enable fold lines
+            creases: Enable crease lines
+            border: Enable border lines
+            contour: Enable contour lines
+            splines: Enable spline rendering
+            hidden_material: Control hidden line rendering:
+                - True (default): Use same material for hidden lines (solid look)
+                - False/None: No hidden material (X-ray see-through effect)
+                - Material object: Use specific material for hidden lines
+            **kwargs: Parent class arguments (target, material, name)
+        """
         self.outline = outline
         self.folds = folds
         self.creases = creases
         self.border = border
         self.contour = contour
         self.splines = splines
+        self.hidden_material = hidden_material
         super().__init__(**kwargs)
 
     def specify_tag_type(self):
         self.obj = c4d.BaseTag(1011012)  # create sketch tag
 
     def link_to_material(self, material):
+        # Visible material - always set
         self.obj[c4d.OUTLINEMAT_LINE_DEFAULT_MAT_V] = material.obj
-        self.obj[c4d.OUTLINEMAT_LINE_DEFAULT_MAT_H] = material.obj
+
+        # Hidden material - configurable
+        if self.hidden_material is True:
+            # Default: use same material for hidden lines (solid look)
+            self.obj[c4d.OUTLINEMAT_LINE_DEFAULT_MAT_H] = material.obj
+        elif self.hidden_material is False or self.hidden_material is None:
+            # X-ray effect: no hidden material (see-through)
+            self.obj[c4d.OUTLINEMAT_LINE_DEFAULT_MAT_H] = None
+        else:
+            # Custom hidden material provided
+            self.obj[c4d.OUTLINEMAT_LINE_DEFAULT_MAT_H] = self.hidden_material.obj
+
         self.linked_material = material
         material.linked_tag = self
 
