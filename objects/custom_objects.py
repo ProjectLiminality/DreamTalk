@@ -1478,7 +1478,8 @@ class FoldableCube(CustomObject):
             self.parts.append(self.bottom_rectangle)
 
     def specify_parameters(self):
-        self.fold_parameter = UCompletion(name="Fold", default_value=0)
+        # UBipolar allows -1 to 1 range: positive folds upward, negative folds downward
+        self.fold_parameter = UBipolar(name="Fold", default_value=0)
         self.parameters += [self.fold_parameter]
 
     def specify_relations(self):

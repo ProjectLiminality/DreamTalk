@@ -11,7 +11,7 @@
         "mcp-server-gemini-image-generator"
       ],
       "env": {
-        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
+        "GEMINI_API_KEY": "AIzaSyBl7a-GoBpzSpF_qPr32afVRJf2EORMy6M",
         "OUTPUT_IMAGE_PATH": "/Users/davidrug/ProjectLiminality/DreamTalk/generated-images"
       }
     },

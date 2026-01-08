@@ -188,6 +188,31 @@ class UCompletion(UReal):
         super().specify_name(name)
 
 
+class UBipolar(UReal):
+    """creates a bipolar field: t -> [-1,1]
+
+    Useful for parameters that can go in both directions,
+    like folding that can flip forward or backward.
+    """
+
+    def specify_constraints(self):
+        # set range
+        self.bc[c4d.DESC_MIN] = -1
+        self.bc[c4d.DESC_MAX] = 1
+        # set unit to percent
+        self.bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        # set step size to one percent
+        self.bc[c4d.DESC_STEP] = 0.01
+        # set interface to slider
+        self.bc[c4d.DESC_CUSTOMGUI] = c4d.CUSTOMGUI_REALSLIDER
+
+    def specify_name(self, name):
+        # sets the display name of the element
+        if name is None:
+            name = "Bipolar"
+        super().specify_name(name)
+
+
 class UAngle(UReal):
     """creates an angle field: phi -> [0,2π]"""
 

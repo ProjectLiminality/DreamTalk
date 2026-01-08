@@ -284,6 +284,12 @@ class C4DSocketServer(threading.Thread):
                             response = self.handle_inspect_animation(command)
                         elif command_type == "validate_scene":
                             response = self.handle_validate_scene(command)
+                        elif command_type == "inspect_xpresso":
+                            response = self.handle_inspect_xpresso(command)
+                        elif command_type == "diff_scene":
+                            response = self.handle_diff_scene(command)
+                        elif command_type == "reset_snapshot":
+                            response = self.handle_reset_snapshot(command)
                         else:
                             response = {"error": f"Unknown command: {command_type}"}
 
@@ -6418,6 +6424,116 @@ class C4DSocketServer(threading.Thread):
             self.log("[C4D] DreamTalk introspection not available for validation")
         except Exception as e:
             return {"error": f"Failed to validate scene: {str(e)}"}
+
+        return {"description": description}
+
+    def handle_inspect_xpresso(self, command):
+        """Handle inspect_xpresso command - deep XPresso tag inspection."""
+        object_name = command.get("object_name")
+        if not object_name:
+            return {"error": "object_name is required"}
+
+        doc = c4d.documents.GetActiveDocument()
+
+        try:
+            from DreamTalk.introspection import inspect_xpresso
+            result = inspect_xpresso(object_name)
+
+            # Format as readable description
+            lines = [f"# XPresso Inspection: {object_name}", ""]
+
+            if "error" in result:
+                return {"error": result["error"]}
+
+            for tag_info in result.get("xpresso_tags", []):
+                lines.append(f"## XPresso Tag: {tag_info['name']}")
+                lines.append("")
+
+                for group in tag_info.get("groups", []):
+                    lines.append(f"### {group['name']}")
+                    for node in group.get("nodes", []):
+                        inputs = ", ".join(node.get("inputs", [])) or "none"
+                        outputs = ", ".join(node.get("outputs", [])) or "none"
+                        lines.append(f"- **{node['name']}**: in=[{inputs}] → out=[{outputs}]")
+                    lines.append("")
+
+            if not result.get("xpresso_tags"):
+                lines.append("No XPresso tags found on this object.")
+
+            description = "\n".join(lines)
+            self.log(f"[C4D] Inspected XPresso on {object_name}")
+
+        except ImportError as e:
+            description = f"# XPresso Inspection\n\n(DreamTalk introspection not available: {e})"
+            self.log("[C4D] DreamTalk introspection not available for XPresso")
+        except Exception as e:
+            return {"error": f"Failed to inspect XPresso: {str(e)}"}
+
+        return {"description": description}
+
+    def handle_diff_scene(self, command):
+        """Handle diff_scene command - compare scene state to last snapshot."""
+        doc = c4d.documents.GetActiveDocument()
+
+        try:
+            from DreamTalk.introspection import diff_scene
+            result = diff_scene(doc)
+
+            # Format as readable description
+            if result.get("status") == "first_snapshot":
+                description = f"# Scene Diff\n\n{result['message']}\n\nObjects tracked: {result['objects_tracked']}"
+            else:
+                lines = ["# Scene Diff", ""]
+                lines.append(f"**Summary**: {result['summary']}")
+                lines.append("")
+
+                changes = result.get("changes", {})
+
+                if changes.get("modified"):
+                    lines.append("## Modified")
+                    for obj, params in changes["modified"].items():
+                        for param, vals in params.items():
+                            lines.append(f"- `{obj}.{param}`: {vals['old']} → **{vals['new']}**")
+                    lines.append("")
+
+                if changes.get("added"):
+                    lines.append("## Added Objects")
+                    for obj in changes["added"]:
+                        lines.append(f"- {obj}")
+                    lines.append("")
+
+                if changes.get("removed"):
+                    lines.append("## Removed Objects")
+                    for obj in changes["removed"]:
+                        lines.append(f"- {obj}")
+                    lines.append("")
+
+                if result["total_changes"] == 0:
+                    lines.append("No changes detected since last snapshot.")
+
+                description = "\n".join(lines)
+
+            self.log("[C4D] Performed scene diff")
+
+        except ImportError as e:
+            description = f"# Scene Diff\n\n(DreamTalk introspection not available: {e})"
+            self.log("[C4D] DreamTalk introspection not available for diff")
+        except Exception as e:
+            return {"error": f"Failed to diff scene: {str(e)}"}
+
+        return {"description": description}
+
+    def handle_reset_snapshot(self, command):
+        """Handle reset_snapshot command - clear scene snapshot."""
+        try:
+            from DreamTalk.introspection import reset_snapshot
+            result = reset_snapshot()
+            description = f"# Snapshot Reset\n\n{result['message']}"
+            self.log("[C4D] Reset scene snapshot")
+        except ImportError as e:
+            description = f"# Snapshot Reset\n\n(DreamTalk introspection not available: {e})"
+        except Exception as e:
+            return {"error": f"Failed to reset snapshot: {str(e)}"}
 
         return {"description": description}
 

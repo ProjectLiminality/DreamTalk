@@ -156,13 +156,14 @@ class ScalarAnimation(ProtoAnimation):
         """sets the actual keyframes of the animation"""
         # translate relative to absolute run time
         self.scale_relative_run_time(self.abs_run_time)
-        # calculate offset frame for initial keyframe
-        offset = 1 / self.document.GetFps()
-        # set keyframes
+        # set keyframes at exact start and stop times
+        # Note: When chaining animations, the end keyframe of one animation will
+        # coincide with the start keyframe of the next - C4D handles this by
+        # updating the existing keyframe rather than creating duplicates
         self.key_ini = KeyFrame(
             self.target, self.desc_id, value=self.value_ini, time=self.global_time(self.abs_start))  # create initial keyframe
         self.key_fin = KeyFrame(
-            self.target, self.desc_id, value=self.value_fin, time=self.global_time(self.abs_stop - offset))  # create final keyframe
+            self.target, self.desc_id, value=self.value_fin, time=self.global_time(self.abs_stop))  # create final keyframe
 
     def scale_relative_run_time(self, abs_run_time):
         """scales the relative run time by the absolute run time"""

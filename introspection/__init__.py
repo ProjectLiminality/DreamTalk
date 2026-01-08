@@ -35,6 +35,12 @@ from .hierarchy import (
     inspect_animation,
     validate_scene,
     find_object_by_name,
+    # XPresso introspection
+    inspect_xpresso,
+    # Scene diffing
+    get_scene_snapshot,
+    diff_scene,
+    reset_snapshot,
 )
 from .formatters import format_for_ai, format_markdown, format_json
 
@@ -48,6 +54,12 @@ __all__ = [
     "inspect_materials",
     "inspect_animation",
     "validate_scene",
+    # XPresso
+    "inspect_xpresso",
+    # Scene diffing
+    "get_scene_snapshot",
+    "diff_scene",
+    "reset_snapshot",
     # Formatters
     "format_for_ai",
     "format_markdown",

@@ -322,21 +322,54 @@ class RenderSettings():
         self.settings[c4d.RDATA_SAVEIMAGE] = False  # set to not save image
 
     def set_resolution(self, resolution):
-        """sets the resolution for the render"""
+        """sets the resolution for the render
 
+        DreamTalk symbols default to square 1:1 aspect ratio for thumbnail compatibility.
+        DreamSong videos use 16:9 aspect ratio.
+
+        Square presets (DreamTalk symbols):
+            - "default": 1080x1080 (recommended for symbols)
+            - "low": 540x540
+            - "verylow": 270x270
+            - "high": 1440x1440
+            - "veryhigh": 2160x2160 (4K square)
+
+        Widescreen presets (DreamSong videos):
+            - "wide": 1920x1080 (1080p)
+            - "wide_low": 1280x720 (720p)
+            - "wide_high": 2560x1440 (1440p)
+            - "wide_veryhigh": 3840x2160 (4K)
+        """
+        # Square presets (DreamTalk symbols - 1:1 aspect ratio)
         if resolution == "verylow":
-            self.settings[c4d.RDATA_XRES] = 320
-            self.settings[c4d.RDATA_YRES] = 180
-        elif resolution == "low":
-            self.settings[c4d.RDATA_XRES] = 480
+            self.settings[c4d.RDATA_XRES] = 270
             self.settings[c4d.RDATA_YRES] = 270
+        elif resolution == "low":
+            self.settings[c4d.RDATA_XRES] = 540
+            self.settings[c4d.RDATA_YRES] = 540
         elif resolution == "default":
-            self.settings[c4d.RDATA_XRES] = 1280
-            self.settings[c4d.RDATA_YRES] = 720
+            self.settings[c4d.RDATA_XRES] = 1080
+            self.settings[c4d.RDATA_YRES] = 1080
         elif resolution == "high":
-            self.settings[c4d.RDATA_XRES] = 2560
+            self.settings[c4d.RDATA_XRES] = 1440
             self.settings[c4d.RDATA_YRES] = 1440
         elif resolution == "veryhigh":
+            self.settings[c4d.RDATA_XRES] = 2160
+            self.settings[c4d.RDATA_YRES] = 2160
+        # Widescreen presets (DreamSong videos - 16:9 aspect ratio)
+        elif resolution == "wide_verylow":
+            self.settings[c4d.RDATA_XRES] = 640
+            self.settings[c4d.RDATA_YRES] = 360
+        elif resolution == "wide_low":
+            self.settings[c4d.RDATA_XRES] = 1280
+            self.settings[c4d.RDATA_YRES] = 720
+        elif resolution == "wide":
+            self.settings[c4d.RDATA_XRES] = 1920
+            self.settings[c4d.RDATA_YRES] = 1080
+        elif resolution == "wide_high":
+            self.settings[c4d.RDATA_XRES] = 2560
+            self.settings[c4d.RDATA_YRES] = 1440
+        elif resolution == "wide_veryhigh":
             self.settings[c4d.RDATA_XRES] = 3840
             self.settings[c4d.RDATA_YRES] = 2160
 
@@ -355,8 +388,8 @@ class RenderSettings():
         sketch_vp[c4d.OUTLINEMAT_EDLINES_LINE_DRAW] = 1  # 3D lines in editor
         # set to custom mode
         sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_INDEPENDENT_MODE] = 1
-        sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEW] = 1280  # set custom width
-        sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEH] = 700  # set custom height
+        sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEW] = 1080  # set custom width (square)
+        sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEH] = 1080  # set custom height (square)
         sketch_vp[c4d.OUTLINEMAT_EDLINES_REDRAW_FULL] = True  # redraw lines
         sketch_vp[c4d.OUTLINEMAT_LINE_SPLINES] = True  # enable splines
 

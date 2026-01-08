@@ -40,6 +40,7 @@ import DreamTalk.constants
 import DreamTalk.xpresso.xpresso
 import DreamTalk.xpresso.xpressions
 import DreamTalk.xpresso.userdata
+import DreamTalk.animation.animation
 import DreamTalk.animation.abstract_animators
 
 # Dynamically resolve DreamTalk path relative to this file
@@ -61,6 +62,7 @@ reload(DreamTalk.constants)
 reload(DreamTalk.xpresso.xpresso)
 reload(DreamTalk.xpresso.xpressions)
 reload(DreamTalk.xpresso.userdata)
+reload(DreamTalk.animation.animation)
 reload(DreamTalk.animation.abstract_animators)
 
 
