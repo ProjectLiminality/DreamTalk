@@ -274,3 +274,14 @@ class ThreeDCamera(CustomObject):
         animations += [rotate_animation, move_animation]
         animations = AnimationGroup(*animations)
         return animations
+
+    def follow(self, target):
+        """Make the camera follow a target object.
+
+        Changes the target of the camera's TargetTag so it looks at
+        the specified object instead of the default focus_point Null.
+
+        Args:
+            target: A DreamTalk object to follow
+        """
+        self.target_tag.set_target(target)

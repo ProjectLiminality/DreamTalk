@@ -173,13 +173,22 @@ class TargetTag(Tag):
     def __init__(self, focus_point=None, **kwargs):
         self.focus_point = focus_point
         super().__init__(**kwargs)
-        self.set_target()
-    
+        self.set_target(self.focus_point)
+
     def specify_tag_type(self):
         self.obj = c4d.BaseTag(c4d.Ttargetexpression)
 
-    def set_target(self):
-        self.obj[c4d.TARGETEXPRESSIONTAG_LINK] = self.focus_point.obj
+    def set_target(self, target):
+        """Set the target object for this tag to look at.
+
+        Args:
+            target: A DreamTalk object (with .obj attribute) or c4d.BaseObject
+        """
+        if hasattr(target, 'obj'):
+            self.obj[c4d.TARGETEXPRESSIONTAG_LINK] = target.obj
+        else:
+            self.obj[c4d.TARGETEXPRESSIONTAG_LINK] = target
+        self.focus_point = target
 
 
 class AlignToSplineTag(Tag):
