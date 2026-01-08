@@ -782,3 +782,96 @@ When iterating on the parent DreamNode's image, Claude automatically has visual 
 - Consistent visual language across the holarchy
 
 **Status:** Future planning - requires automation to extract frames from video dreamTalks and load into context
+
+## Known Limitations & Challenges
+
+### 1. Easing Cascade Problem
+
+**Issue:** When nested CustomObjects each define their own `specify_creation()` with easing, the easings compound through the holarchy, producing non-visually-appealing effects.
+
+**Example:**
+```
+Scene plays Create(MindVirus) with ease_in_out
+  → MindVirus.creation triggers FoldableCube.creation with ease_in_out
+    → FoldableCube.creation triggers each Rectangle.creation with ease_in_out
+```
+
+Each level applies its own easing curve to an already-eased input, resulting in extreme acceleration/deceleration at boundaries.
+
+**Current workaround:** Manually coordinate creation animations at the top level, or use linear interpolation for child objects.
+
+**Future solution needed:** A system where easing is applied only at the outermost level, with children receiving "raw" normalized time. Or a way to detect nesting depth and adjust accordingly.
+
+### 2. Animation State Management
+
+**Issue:** CustomObjects may have multiple distinct animation "modes" or "states" (e.g., MindVirus has: creation, thrust/locomotion, capture/attachment). Currently there's no standard pattern for managing these states.
+
+**Current approach:**
+- `creation` parameter handles entering the scene
+- Additional parameters (e.g., `fold`, `thrust`) can be animated manually
+- Complex state transitions require custom XPresso or scene-level orchestration
+
+**Desired pattern:** A state machine or mode system where:
+- Each CustomObject declares its animation modes
+- Modes can have entry/exit animations
+- Higher holons can trigger mode transitions on child objects
+- State changes propagate cleanly through the hierarchy
+
+**Design questions:**
+- Should modes be discrete (enum) or continuous (blend between states)?
+- How do physics-driven animations interact with keyframe-driven modes?
+- How does a parent holon override or extend a child's mode behavior?
+
+### 3. Physics vs Keyframe Animation
+
+**Issue:** Some animations are best expressed as keyframes (precise choreography), others as physics simulations (organic movement). DreamTalk currently focuses on keyframes via XPresso.
+
+**Example:** MindVirus jellyfish locomotion wants:
+- Tentacle fold: keyframeable (controls the "pulse")
+- Position/momentum: physics-driven (rapid pulse → forward thrust → drift)
+
+**Challenge:** Mixing these paradigms requires either:
+- C4D Dynamics (rigid/soft body) — heavy, hard to control precisely
+- Custom physics in XPresso — complex to implement
+- Baking physics to keyframes — loses interactivity
+
+**Potential approach:** A "thrust" parameter that internally manages both the tentacle animation AND the resulting position change via XPresso formulas that simulate momentum.
+
+### 4. Holarchic Animation Inheritance
+
+**Issue:** When a symbol is used as a submodule in a higher holon, the parent may need to:
+- Trigger the child's built-in animations
+- Override specific animation parameters
+- Add new animation behaviors that the child didn't anticipate
+
+**Example:** MindVirus defines thrust locomotion. InfectedMind (higher holon) needs:
+- MindVirus to swim toward a target (use thrust)
+- MindVirus to flip and wrap around head (new behavior not in MindVirus)
+
+**Question:** Should the flip/wrap behavior be:
+- Added to MindVirus as a mode (polluting it with context-specific behavior)?
+- Defined in InfectedMind using MindVirus's exposed parameters?
+- A branch of MindVirus specific to InfectedMind context?
+
+The "software gardening" philosophy suggests: implement in InfectedMind first, then extract reusable parts back to MindVirus only if they prove generally useful.
+
+### 5. Organic Motion Patterns
+
+**Issue:** Natural movement (jellyfish pulse, breathing, organic drift) requires specific timing curves that are hard to express with standard ease functions.
+
+**Jellyfish locomotion pattern:**
+```
+Time:     |----rapid----|--------slow drift--------|----rapid----|
+Fold:     0 ━━━━━━━━━━━▶ 1 ━━━━━━━━━━━━━━━━━━━━━━━▶ 0 ━━━━━━━━━━━▶ 1
+Velocity: 0 ━━━━━▶ peak ━━━━▶ decay ━━━━▶ ~0 ━━━━━━▶ 0 ━━━━━▶ peak
+```
+
+**Needed:**
+- Custom easing curves (spline-based)
+- Velocity coupling (fold rate → position change)
+- Loopable pulse cycles with natural variation
+
+**Potential implementation:**
+- `UPulse` parameter type with frequency, attack, decay
+- XPresso formula linking pulse phase to position delta
+- Optional noise/variation overlay for organic feel
