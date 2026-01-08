@@ -1451,30 +1451,32 @@ class FlowerOfLife(CustomObject):
 class FoldableCube(CustomObject):
     """The foldable cube object consists of four individual rectangles forming the front, back, right, and left faces of a cube which can fold away using a specified parameter"""
     
-    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, **kwargs):
+    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, **kwargs):
         self.color = color
         self.bottom = bottom
         self.drive_opacity = drive_opacity
+        self.stroke_width = stroke_width
         super().__init__(**kwargs)
 
     def specify_parts(self):
         # Define the rectangles without positions
-        self.front_rectangle = Rectangle(z=50, plane="xz", creation=True, color=self.color, name="FrontRectangle")
-        self.back_rectangle = Rectangle(z=-50, plane="xz", creation=True, color=self.color, name="BackRectangle")
-        self.right_rectangle = Rectangle(x=50, plane="xz", creation=True, color=self.color, name="RightRectangle")
-        self.left_rectangle = Rectangle(x=-50, plane="xz", creation=True, color=self.color, name="LeftRectangle")
-        
+        sw = self.stroke_width
+        self.front_rectangle = Rectangle(z=50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="FrontRectangle")
+        self.back_rectangle = Rectangle(z=-50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="BackRectangle")
+        self.right_rectangle = Rectangle(x=50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="RightRectangle")
+        self.left_rectangle = Rectangle(x=-50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="LeftRectangle")
+
         # Define groups with position attributes for transformations
         self.front_axis = Group(self.front_rectangle, z=50, name="FrontAxis")
         self.back_axis = Group(self.back_rectangle, z=-50, name="BackAxis")
         self.right_axis = Group(self.right_rectangle, x=50, name="RightAxis")
         self.left_axis = Group(self.left_rectangle, x=-50, name="LeftAxis")
-        
+
         # Add all parts to the parts list
         self.parts += [self.front_axis, self.back_axis, self.right_axis, self.left_axis]
 
         if self.bottom:
-            self.bottom_rectangle = Rectangle(plane="xz", creation=True, color=self.color, name="BottomRectangle")
+            self.bottom_rectangle = Rectangle(plane="xz", creation=True, color=self.color, stroke_width=sw, name="BottomRectangle")
             self.parts.append(self.bottom_rectangle)
 
     def specify_parameters(self):
