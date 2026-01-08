@@ -700,7 +700,7 @@ class LineObject(VisibleObject):
 class SolidObject(VisibleObject):
     """solid objects only require a fill material"""
 
-    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, outline_only=False, hidden_material=True, **kwargs):
+    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, outline_only=False, hidden_material=True, stroke_width=None, **kwargs):
         """
         Base class for 3D solid objects with fill and sketch materials.
 
@@ -721,6 +721,7 @@ class SolidObject(VisibleObject):
                 - True (default): Same material for hidden lines (solid look)
                 - False/None: No hidden material (X-ray see-through effect)
                 - Material object: Custom hidden line material
+            stroke_width: Override sketch line thickness
             **kwargs: Parent class arguments
         """
         self.filled = filled
@@ -736,6 +737,7 @@ class SolidObject(VisibleObject):
         self.fill_opacity = fill_opacity
         self.outline_only = outline_only
         self.hidden_material = hidden_material
+        self.stroke_width = stroke_width
         super().__init__(**kwargs)
         self.derive_colors()
         # fill setup
@@ -824,7 +826,7 @@ class SolidObject(VisibleObject):
 
     def set_sketch_material(self):
         self.sketch_material = SketchMaterial(
-            name=self.__class__.__name__, draw_order=self.draw_order, color=self.sketch_color, arrow_start=self.arrow_start, arrow_end=self.arrow_end)
+            name=self.__class__.__name__, draw_order=self.draw_order, color=self.sketch_color, arrow_start=self.arrow_start, arrow_end=self.arrow_end, stroke_width=self.stroke_width)
 
     def set_sketch_tag(self):
         outline = True
