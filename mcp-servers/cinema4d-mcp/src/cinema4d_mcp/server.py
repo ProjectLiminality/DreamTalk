@@ -953,52 +953,71 @@ async def render_preview(
     ctx: Context = None,
 ) -> str:
     """
-    Render the current view and return a base64-encoded preview image.
+    Render the current view and save to a temp file for viewing.
+
+    This tool renders the scene and saves to /tmp/c4d_preview.png.
+    After calling this tool, use the Read tool on the returned path to view the image.
 
     Args:
-        width: Optional preview width in pixels
-        height: Optional preview height in pixels
-        frame: Optional frame number to render
+        width: Preview width in pixels (default: 640)
+        height: Preview height in pixels (default: 360)
+        frame: Frame number to render (default: current frame)
+
+    Returns:
+        Path to the saved preview image (use Read tool to view it)
     """
+    # Build the render script using the proven CLAUDE.md pattern
+    w = width or 640
+    h = height or 360
+    frame_code = f"doc.SetTime(c4d.BaseTime({frame}, doc.GetFps()))" if frame is not None else "pass  # Use current frame"
+
+    render_script = f'''
+import c4d
+import tempfile
+
+doc = c4d.documents.GetActiveDocument()
+{frame_code}
+doc.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+rd = doc.GetActiveRenderData()
+settings = rd.GetData()
+settings[c4d.RDATA_XRES] = {w}
+settings[c4d.RDATA_YRES] = {h}
+settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
+
+bmp = c4d.bitmaps.BaseBitmap()
+bmp.Init({w}, {h}, 24)  # 24-bit RGB for Sketch & Toon compatibility
+
+result = c4d.documents.RenderDocument(doc, settings, bmp, c4d.RENDERFLAGS_EXTERNAL)
+if result != c4d.RENDERRESULT_OK:
+    print(f"Render failed with code: {{result}}")
+else:
+    path = "/tmp/c4d_preview.png"
+    bmp.Save(path, c4d.FILTER_PNG)
+    print(f"PREVIEW_PATH:{{path}}")
+'''
+
     async with c4d_connection_context() as connection:
         if not connection.connected:
             return "❌ Not connected to Cinema 4D"
 
-        # Prepare command
-        command = {"command": "render_preview"}
-
-        if width:
-            command["width"] = width
-        if height:
-            command["height"] = height
-        if frame is not None:
-            command["frame"] = frame
-
-        # Set longer timeout for rendering
-        logger.info(f"Sending render_preview command with parameters: {command}")
-
-        # Send command to Cinema 4D
-        response = send_to_c4d(connection, command)
+        # Execute the render script via execute_python
+        response = send_to_c4d(
+            connection, {"command": "execute_python", "script": render_script}
+        )
 
         if "error" in response:
             return f"❌ Error: {response['error']}"
 
-        # Check if the response contains the base64 image data
-        # Plugin returns "image_base64" key
-        if "image_base64" not in response:
-            return "❌ Error: No image data returned from Cinema 4D"
-
-        # Get image dimensions
-        preview_width = response.get("width", width or "default")
-        preview_height = response.get("height", height or "default")
-
-        # Display the image using markdown
-        image_data = response["image_base64"]
-        image_format = response.get("format", "png")
-
-        # Note: The plugin handler handle_render_preview was already designed
-        # to return the structure needed for image display if successful.
-        return response  # Return the raw dictionary
+        # Extract the path from the output
+        output = response.get("output", "")
+        if "PREVIEW_PATH:" in output:
+            path = output.split("PREVIEW_PATH:")[1].strip().split("\n")[0]
+            return f"Preview saved to: {path}\n\nUse the Read tool on this path to view the image."
+        elif "Render failed" in output:
+            return f"❌ Render failed: {output}"
+        else:
+            return f"Preview saved to: /tmp/c4d_preview.png\n\nUse the Read tool on this path to view the image."
 
 
 @mcp.tool()
@@ -1184,6 +1203,88 @@ async def validate_scene(
             return f"❌ Error: {response['error']}"
 
         return response.get("description", "No description available")
+
+
+@mcp.tool()
+async def inspect_xpresso(
+    object_name: str,
+    ctx: Context = None,
+) -> str:
+    """
+    Deep inspection of XPresso tags on an object.
+
+    Reveals how userdata parameters connect to object properties through XPresso.
+    This is critical for understanding DreamTalk's abstraction layer where
+    Creation -> XPresso -> Fill/Draw -> Material visibility.
+
+    Args:
+        object_name: Name of the object to inspect XPresso on
+    """
+    async with c4d_connection_context() as connection:
+        if not connection.connected:
+            return "❌ Not connected to Cinema 4D"
+
+        response = send_to_c4d(connection, {
+            "command": "inspect_xpresso",
+            "object_name": object_name
+        })
+
+        if "error" in response:
+            return f"❌ Error: {response['error']}"
+
+        return response.get("description", response)
+
+
+@mcp.tool()
+async def diff_scene(
+    ctx: Context = None,
+) -> str:
+    """
+    Compare current scene state to last snapshot and show changes.
+
+    Call this after making manual changes in Cinema 4D to see what was modified.
+    Automatically stores current state for next diff.
+
+    Workflow:
+    1. First call captures initial snapshot
+    2. User makes changes in Cinema 4D UI
+    3. Second call shows what changed (e.g., "Cable.Creation: 0.0 → 1.0")
+    """
+    async with c4d_connection_context() as connection:
+        if not connection.connected:
+            return "❌ Not connected to Cinema 4D"
+
+        response = send_to_c4d(connection, {
+            "command": "diff_scene"
+        })
+
+        if "error" in response:
+            return f"❌ Error: {response['error']}"
+
+        return response.get("description", response)
+
+
+@mcp.tool()
+async def reset_scene_snapshot(
+    ctx: Context = None,
+) -> str:
+    """
+    Reset the scene snapshot to force a fresh capture on next diff.
+
+    Use this to start a new diff session from current state.
+    """
+    async with c4d_connection_context() as connection:
+        if not connection.connected:
+            return "❌ Not connected to Cinema 4D"
+
+        response = send_to_c4d(connection, {
+            "command": "reset_snapshot"
+        })
+
+        if "error" in response:
+            return f"❌ Error: {response['error']}"
+
+        return response.get("description", response)
 
 
 @mcp.resource("c4d://primitives")
