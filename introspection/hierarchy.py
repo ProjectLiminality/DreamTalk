@@ -976,6 +976,45 @@ def get_scene_snapshot(doc=None):
                         value = round(value, 4)
                     flat_data[key] = value
 
+            # Capture Sketch Style Tag properties (Tsketchstyle = 1011012)
+            for tag in obj.GetTags():
+                if tag.GetType() == 1011012:  # Tsketchstyle
+                    tag_name = tag.GetName()
+                    prefix = f"tag.{tag_name}"
+
+                    # Material links
+                    try:
+                        visible_mat = tag[10071]  # Default Visible
+                        flat_data[f"{prefix}.visible_material"] = visible_mat.GetName() if visible_mat else None
+                    except: pass
+                    try:
+                        hidden_mat = tag[10072]  # Default Hidden
+                        flat_data[f"{prefix}.hidden_material"] = hidden_mat.GetName() if hidden_mat else None
+                    except: pass
+
+                    # Line types enabled
+                    try: flat_data[f"{prefix}.outline"] = bool(tag[10001])
+                    except: pass
+                    try: flat_data[f"{prefix}.folds"] = bool(tag[10002])
+                    except: pass
+                    try: flat_data[f"{prefix}.creases"] = bool(tag[10005])
+                    except: pass
+                    try: flat_data[f"{prefix}.contour"] = bool(tag[10010])
+                    except: pass
+                    try: flat_data[f"{prefix}.splines"] = bool(tag[10013])
+                    except: pass
+
+                    # Contour settings (only if contour enabled)
+                    if tag[10010]:  # Contour enabled
+                        try: flat_data[f"{prefix}.contour_mode"] = tag[11000]  # 0=Angle, 1=Position, 2=UVW
+                        except: pass
+                        try: flat_data[f"{prefix}.contour_position"] = tag[11002]  # 0=Object X, 1=Y, 2=Z
+                        except: pass
+                        try: flat_data[f"{prefix}.contour_spacing_type"] = tag[11014]  # 0=Relative, 1=Absolute
+                        except: pass
+                        try: flat_data[f"{prefix}.contour_step"] = round(tag[11016], 2)  # Step value
+                        except: pass
+
             snapshot["objects"][obj_name] = flat_data
 
             # Recurse
