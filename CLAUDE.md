@@ -344,12 +344,68 @@ validation = validate_scene()
 - Enables autonomous iteration: generate scene → execute → view result → adjust
 - User watches scene build in real-time and can intervene at any point
 
-### Rendering for AI Feedback
+### AI-Assisted Iteration Workflow
 
-**For visual feedback during iteration, use this pattern:**
+The core workflow for iterating on DreamNodes with Claude Code:
+
+```
+1. Execute DreamNode.py → Scene created in C4D
+2. Render preview → Claude views result
+3. Discuss/adjust → Edit the .py file
+4. Re-execute → See changes
+5. Repeat until satisfied
+6. Commit progress
+```
+
+**Critical principle**: All progress consolidates into the DreamNode's `.py` file. Never create one-off inline scenes — always execute the actual file so changes accumulate.
+
+### Executing DreamNode Scripts
+
+**Use `runpy` to execute a DreamNode's Python file as `__main__`:**
 
 ```python
-# Execute via MCP execute_python_script - renders to temp file Claude can read
+# Step 1: Clear the scene
+import c4d
+doc = c4d.documents.GetActiveDocument()
+while doc.GetFirstObject():
+    doc.GetFirstObject().Remove()
+while doc.GetFirstMaterial():
+    doc.GetFirstMaterial().Remove()
+c4d.EventAdd()
+
+# Step 2: Execute the DreamNode's .py file directly
+import runpy
+runpy.run_path('/path/to/DreamNode/DreamNode.py', run_name='__main__')
+```
+
+This triggers the `if __name__ == "__main__"` block, which contains the canonical standalone scene. The DreamNode's class definition and scene setup are both in the same file:
+
+```python
+# DreamNode.py structure
+class MySymbol(CustomObject):
+    # Class definition - all parameters, parts, relations, creation
+    ...
+
+if __name__ == "__main__":
+    class MySymbolScene(ThreeDScene):
+        def construct(self):
+            symbol = MySymbol(...)  # Instantiate with desired config
+            self.camera.move_orbit(...)
+            self.play(Create(symbol), run_time=3)
+
+    scene = MySymbolScene()
+```
+
+**Why runpy?**
+- `exec()` is blocked for security
+- Importing doesn't trigger `__main__`
+- `runpy.run_path(..., run_name='__main__')` properly simulates direct execution
+
+### Rendering for AI Feedback
+
+**After executing a scene, render a preview for visual feedback:**
+
+```python
 import c4d
 import tempfile
 
@@ -379,6 +435,72 @@ Then use `Read` tool on the saved PNG path to view the render.
 - Use Standard renderer (NOT Redshift) for Sketch & Toon
 - Ensure Sketch & Toon VideoPost is enabled in render settings
 - Save to temp file and read with Claude's Read tool
+
+### Complete Iteration Example
+
+```python
+# === EXECUTE ===
+import c4d
+doc = c4d.documents.GetActiveDocument()
+while doc.GetFirstObject():
+    doc.GetFirstObject().Remove()
+while doc.GetFirstMaterial():
+    doc.GetFirstMaterial().Remove()
+c4d.EventAdd()
+
+import runpy
+runpy.run_path('/Users/davidrug/ProjectLiminality/MindVirus/MindVirus.py', run_name='__main__')
+```
+
+```python
+# === RENDER PREVIEW ===
+import c4d
+import tempfile
+
+doc = c4d.documents.GetActiveDocument()
+doc.SetTime(c4d.BaseTime(90, 30))  # Frame 90
+doc.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+rd = doc.GetActiveRenderData()
+settings = rd.GetData()
+settings[c4d.RDATA_XRES] = 640
+settings[c4d.RDATA_YRES] = 360
+settings[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
+
+bmp = c4d.bitmaps.BaseBitmap()
+bmp.Init(640, 360, 24)
+result = c4d.documents.RenderDocument(doc, settings, bmp, c4d.RENDERFLAGS_EXTERNAL)
+path = tempfile.gettempdir() + "/preview.png"
+bmp.Save(path, c4d.FILTER_PNG)
+print(f"Saved to: {path}")
+```
+
+Then Claude uses `Read` tool on the path to see the result.
+
+### Anti-Pattern: Inline Scenes
+
+**NEVER do this:**
+```python
+# BAD - creates objects directly, bypassing the DreamNode class
+class QuickTestScene(ThreeDScene):
+    def construct(self):
+        eye = ImagePlane(...)  # Direct instantiation
+        cube = FoldableCube(...)  # Not using MindVirus class!
+```
+
+This bypasses the actual `MindVirus` class, so:
+- No cable (it's defined in MindVirus.specify_parts)
+- No proper hierarchy
+- Progress doesn't accumulate
+- Next iteration starts from scratch
+
+**ALWAYS do this:**
+```python
+# GOOD - execute the actual DreamNode file
+runpy.run_path('/path/to/MindVirus/MindVirus.py', run_name='__main__')
+```
+
+This uses the real class with all its accumulated features.
 
 ## Render Pipeline
 
@@ -573,6 +695,22 @@ MindVirus (gains: simplified/instanced variant)
 
 Each higher context enriches the lower holons with new construction variants. The DreamNode becomes more versatile precisely in the measure that it is actually necessary.
 
+### Where Changes Go (Critical Rule)
+
+**All learning and tweaking consolidates into the Python file of the specific DreamNode.**
+
+When iterating on a symbol (e.g., MindVirus):
+- Adjustments to geometry, positioning, parameters → `MindVirus/MindVirus.py`
+- New construction variants (tracer mode, static cable mode) → `MindVirus/MindVirus.py`
+- Bug fixes discovered during use → `MindVirus/MindVirus.py`
+
+**NOT** into:
+- The scene script that's using it (that's just instantiation)
+- The DreamTalk core library (unless it's truly general infrastructure)
+- Scattered helper files
+
+The goal is a **versatile Python class** that can be instantiated in different configurations. The DreamNode's `.py` file is the single source of truth for that symbol's behavior and construction options.
+
 ## Current Holarchic Symbols
 
 ### TheLabyrinth Holarchy (reference implementation)
@@ -618,3 +756,29 @@ Labyrinth (Scene)
 - **MindVirus**: Narrative with control mechanism (jellyfish + string)
 - **DoubleWall**: Hidden tunnels between apparent divisions (elite access)
 - **Labyrinth**: The full caste system made visible
+
+## Future: Submodule DreamTalk Auto-Loading for Style References
+
+When iterating on sketch-to-vector cleanup using AI image editing (Gemini), naive prompting hits limits. The solution: **dynamically load DreamTalk renders from submodules as style references**.
+
+**The Vision:**
+- When working in a DreamNode, automatically load the `dreamTalk` media from all submodules into conversation context
+- These serve as style references for AI image editing - showing the target aesthetic
+- The DreamTalk of the current DreamNode also loads for continuity
+
+**Implementation Pattern:**
+```
+ShineAwayTheGatesToHeaven/
+├── .udd (dreamTalk: current render)
+├── submodules/
+│   ├── MindVirus/ (dreamTalk: MindVirus.mp4 frame)
+│   ├── LiminalMind/ (dreamTalk: shows the bust style)
+│   └── Love/ (dreamTalk: flower of life with light)
+```
+
+When iterating on the parent DreamNode's image, Claude automatically has visual context from all component symbols. This enables:
+- "Make the cubes look like the MindVirus style"
+- "The bust should match the LiminalMind aesthetic"
+- Consistent visual language across the holarchy
+
+**Status:** Future planning - requires automation to extract frames from video dreamTalks and load into context
