@@ -700,7 +700,7 @@ class LineObject(VisibleObject):
 class SolidObject(VisibleObject):
     """solid objects only require a fill material"""
 
-    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, outline_only=False, hidden_material=True, stroke_width=None, **kwargs):
+    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, hidden_material=True, stroke_width=None, sketch_outline=True, sketch_folds=False, sketch_creases=True, sketch_border=False, sketch_contour=True, sketch_splines=True, **kwargs):
         """
         Base class for 3D solid objects with fill and sketch materials.
 
@@ -716,12 +716,17 @@ class SolidObject(VisibleObject):
             arrow_end: Add arrow at spline end
             fill_opacity: Fill opacity (0-1)
             sketch_opacity: Sketch opacity (0-1)
-            outline_only: Only render outlines, no creases/splines
             hidden_material: Control hidden line rendering:
                 - True (default): Same material for hidden lines (solid look)
                 - False/None: No hidden material (X-ray see-through effect)
                 - Material object: Custom hidden line material
             stroke_width: Override sketch line thickness
+            sketch_outline: Enable outline rendering (default True)
+            sketch_folds: Enable fold lines (default False)
+            sketch_creases: Enable crease lines (default True)
+            sketch_border: Enable border lines (default False)
+            sketch_contour: Enable contour lines (default True)
+            sketch_splines: Enable spline rendering (default True)
             **kwargs: Parent class arguments
         """
         self.filled = filled
@@ -735,9 +740,14 @@ class SolidObject(VisibleObject):
         self.arrow_end = arrow_end
         self.sketch_opacity = sketch_opacity
         self.fill_opacity = fill_opacity
-        self.outline_only = outline_only
         self.hidden_material = hidden_material
         self.stroke_width = stroke_width
+        self.sketch_outline = sketch_outline
+        self.sketch_folds = sketch_folds
+        self.sketch_creases = sketch_creases
+        self.sketch_border = sketch_border
+        self.sketch_contour = sketch_contour
+        self.sketch_splines = sketch_splines
         super().__init__(**kwargs)
         self.derive_colors()
         # fill setup
@@ -829,15 +839,17 @@ class SolidObject(VisibleObject):
             name=self.__class__.__name__, draw_order=self.draw_order, color=self.sketch_color, arrow_start=self.arrow_start, arrow_end=self.arrow_end, stroke_width=self.stroke_width)
 
     def set_sketch_tag(self):
-        outline = True
-        creases = True
-        splines = True
-        if self.outline_only:
-            creases = False
-            splines = False
         self.sketch_tag = SketchTag(
-            target=self, material=self.sketch_material, splines=splines, outline=outline, creases=creases,
-            hidden_material=self.hidden_material)
+            target=self,
+            material=self.sketch_material,
+            outline=self.sketch_outline,
+            folds=self.sketch_folds,
+            creases=self.sketch_creases,
+            border=self.sketch_border,
+            contour=self.sketch_contour,
+            splines=self.sketch_splines,
+            hidden_material=self.hidden_material
+        )
 
     def specify_sketch_parameters(self):
         self.draw_parameter = UCompletion(
