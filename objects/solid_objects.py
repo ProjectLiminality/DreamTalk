@@ -160,14 +160,22 @@ class Loft(SolidObject):
 
 class SweepNurbs(SolidObject):
 
-    def __init__(self, rail=None, profile=None, **kwargs):
+    def __init__(self, rail=None, profile=None, start_scale=1.0, end_scale=1.0, **kwargs):
         self.rail = rail
         self.profile = profile
+        self.start_scale = start_scale
+        self.end_scale = end_scale
         super().__init__(**kwargs)
         self.insert_children()
 
     def specify_object(self):
         self.obj = c4d.BaseObject(c4d.Osweep)
+
+    def set_object_properties(self):
+        # SWEEPOBJECT_STARTGROWTH controls start scale (confusingly named)
+        # SWEEPOBJECT_SCALE controls end scale
+        self.obj[c4d.SWEEPOBJECT_STARTGROWTH] = self.start_scale
+        self.obj[c4d.SWEEPOBJECT_SCALE] = self.end_scale
 
     def insert_children(self):
         self.rail.obj.InsertUnder(self.obj)
@@ -176,7 +184,9 @@ class SweepNurbs(SolidObject):
     def set_unique_desc_ids(self):
         self.desc_ids = {
             "start_growth": c4d.DescID(c4d.DescLevel(c4d.SWEEPOBJECT_STARTGROWTH, c4d.DTYPE_REAL, 0)),
-            "end_growth": c4d.DescID(c4d.DescLevel(c4d.SWEEPOBJECT_GROWTH, c4d.DTYPE_REAL, 0))
+            "end_growth": c4d.DescID(c4d.DescLevel(c4d.SWEEPOBJECT_GROWTH, c4d.DTYPE_REAL, 0)),
+            "start_scale": c4d.DescID(c4d.DescLevel(c4d.SWEEPOBJECT_STARTGROWTH, c4d.DTYPE_REAL, 0)),
+            "end_scale": c4d.DescID(c4d.DescLevel(c4d.SWEEPOBJECT_SCALE, c4d.DTYPE_REAL, 0))
         }
 
 
