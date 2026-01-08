@@ -54,7 +54,9 @@ class MaterialTag(Tag):
 class SketchTag(MaterialTag):
 
     def __init__(self, outline=False, folds=False, creases=False, border=False, contour=False, splines=True,
-                 hidden_material=True, **kwargs):
+                 hidden_material=True,
+                 contour_position=2, contour_spacing_mode=1, contour_spacing=15,
+                 **kwargs):
         """
         Create a Sketch Style tag for Sketch & Toon rendering.
 
@@ -69,6 +71,9 @@ class SketchTag(MaterialTag):
                 - True (default): Use same material for hidden lines (solid look)
                 - False/None: No hidden material (X-ray see-through effect)
                 - Material object: Use specific material for hidden lines
+            contour_position: Contour position mode (0=World, 1=Camera, 2=ObjectZ, etc.) Default 2 (ObjectZ)
+            contour_spacing_mode: 0=Relative, 1=Absolute. Default 1 (Absolute)
+            contour_spacing: Spacing value in cm (default 15)
             **kwargs: Parent class arguments (target, material, name)
         """
         self.outline = outline
@@ -78,6 +83,9 @@ class SketchTag(MaterialTag):
         self.contour = contour
         self.splines = splines
         self.hidden_material = hidden_material
+        self.contour_position = contour_position
+        self.contour_spacing_mode = contour_spacing_mode
+        self.contour_spacing = contour_spacing
         super().__init__(**kwargs)
 
     def specify_tag_type(self):
@@ -102,14 +110,17 @@ class SketchTag(MaterialTag):
         material.linked_tag = self
 
     def set_tag_properties(self):
-        # enable spline rendering
+        # Line type enables
         self.obj[c4d.OUTLINEMAT_LINE_SPLINES] = self.splines
-        # disable non spline types
         self.obj[c4d.OUTLINEMAT_LINE_FOLD] = self.folds
         self.obj[c4d.OUTLINEMAT_LINE_CREASE] = self.creases
         self.obj[c4d.OUTLINEMAT_LINE_BORDER] = self.border
         self.obj[c4d.OUTLINEMAT_LINE_CONTOUR] = self.contour
         self.obj[c4d.OUTLINEMAT_LINE_OUTLINE] = self.outline
+        # Contour settings
+        self.obj[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION] = self.contour_position
+        self.obj[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION_SPACING] = self.contour_spacing_mode
+        self.obj[c4d.OUTLINEMAT_LINE_CONTOUR_POSITION_SPACE] = self.contour_spacing
 
     def set_unique_desc_ids(self):
         self.desc_ids = {
