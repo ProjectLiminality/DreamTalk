@@ -42,6 +42,7 @@ import DreamTalk.xpresso.xpressions
 import DreamTalk.xpresso.userdata
 import DreamTalk.animation.animation
 import DreamTalk.animation.abstract_animators
+import DreamTalk.generator
 
 # Dynamically resolve DreamTalk path relative to this file
 import os as _os
@@ -64,6 +65,7 @@ reload(DreamTalk.xpresso.xpressions)
 reload(DreamTalk.xpresso.userdata)
 reload(DreamTalk.animation.animation)
 reload(DreamTalk.animation.abstract_animators)
+reload(DreamTalk.generator)
 
 
 # then we import the objects from the sublibraries
@@ -80,3 +82,4 @@ from DreamTalk.xpresso.xpresso import *
 from DreamTalk.xpresso.xpressions import *
 from DreamTalk.xpresso.userdata import *
 from DreamTalk.animation.abstract_animators import *
+from DreamTalk.generator import *

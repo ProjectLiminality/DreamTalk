@@ -9,6 +9,7 @@ from DreamTalk.xpresso.userdata import *
 from DreamTalk.xpresso.xpressions import *
 from DreamTalk.animation.animation import ScalarAnimation
 from DreamTalk.constants import *
+from DreamTalk.generator import GeneratorMixin
 import random
 import c4d
 from DreamTalk.objects.sketch_objects import Sketch
@@ -1448,9 +1449,14 @@ class FlowerOfLife(CustomObject):
         animation = ScalarAnimation(target=self, descriptor=desc_id, value_fin=completion)  
         return animation
 
-class FoldableCube(CustomObject):
-    """The foldable cube object consists of four individual rectangles forming the front, back, right, and left faces of a cube which can fold away using a specified parameter"""
-    
+class FoldableCube(CustomObject, GeneratorMixin):
+    """The foldable cube object consists of four individual rectangles forming the front, back, right, and left faces of a cube which can fold away using a specified parameter.
+
+    Supports two modes:
+    - Standard mode: Uses XPresso for relationships (default)
+    - Generator mode: Use create_as_generator() for MoGraph Cloner compatibility
+    """
+
     def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, **kwargs):
         self.color = color
         self.bottom = bottom
@@ -1519,6 +1525,74 @@ class FoldableCube(CustomObject):
             if self.bottom:
                 movements.append(Movement(self.bottom_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
             creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+
+    def specify_generator_code(self):
+        """Generator code for MoGraph Cloner compatibility.
+
+        This code runs inside the Python Generator and modifies children
+        based on the Fold parameter. Each clone gets unique values via op.GetMg().
+        """
+        # UserData ID 1 is always the first parameter (Fold)
+        # Standard format: c4d.ID_USERDATA container (700) with sub-ID 1
+        return '''
+def main():
+    # Read Fold parameter (UserData ID 1) - UBipolar: -1 to 1
+    fold = op[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),
+                        c4d.DescLevel(1, c4d.DTYPE_REAL, 0))]
+    angle = fold * PI / 2  # -90 to +90 degrees
+
+    # Modify axis children based on fold
+    child = op.GetDown()
+    while child:
+        name = child.GetName()
+        if name == "FrontAxis":
+            child.SetRelRot(c4d.Vector(angle, 0, 0))
+        elif name == "BackAxis":
+            child.SetRelRot(c4d.Vector(-angle, 0, 0))
+        elif name == "RightAxis":
+            child.SetRelRot(c4d.Vector(0, 0, -angle))
+        elif name == "LeftAxis":
+            child.SetRelRot(c4d.Vector(0, 0, angle))
+        child = child.GetNext()
+
+    return None
+'''
+
+    def specify_generator_code_position_driven(self, axis='x', range_val=300):
+        """Generator code that derives Fold from clone position.
+
+        Perfect for MoGraph Cloners where fold should vary by position.
+
+        Args:
+            axis: Which axis to read position from ('x', 'y', or 'z')
+            range_val: Position range that maps to fold -1 to 1
+        """
+        return f'''
+def main():
+    # Get position (unique per clone in MoGraph Cloner)
+    mg = op.GetMg()
+    pos = mg.off.{axis}
+
+    # Map position to fold: -{range_val} to {range_val} -> -1 to 1
+    fold = max(-1.0, min(1.0, pos / {range_val}))
+    angle = fold * PI / 2  # -90 to +90 degrees
+
+    # Modify axis children based on fold
+    child = op.GetDown()
+    while child:
+        name = child.GetName()
+        if name == "FrontAxis":
+            child.SetRelRot(c4d.Vector(angle, 0, 0))
+        elif name == "BackAxis":
+            child.SetRelRot(c4d.Vector(-angle, 0, 0))
+        elif name == "RightAxis":
+            child.SetRelRot(c4d.Vector(0, 0, -angle))
+        elif name == "LeftAxis":
+            child.SetRelRot(c4d.Vector(0, 0, angle))
+        child = child.GetNext()
+
+    return None
+'''
 
 
 class Membrane(CustomObject):
