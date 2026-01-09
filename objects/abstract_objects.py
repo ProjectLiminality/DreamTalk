@@ -453,9 +453,15 @@ class VisibleObject(ProtoObject):
 
 class CustomObject(VisibleObject):
     """this class is used to create custom objects that are basically
-    groups with coupling of the childrens parameters through xpresso"""
+    groups with coupling of the childrens parameters through xpresso
 
-    def __init__(self, diameter=None, **kwargs):
+    Supports two modes:
+    - Standard mode (default): Uses XPresso for parameter relationships
+    - Generator mode (generator_mode=True): Uses Python Generator for MoGraph compatibility
+    """
+
+    def __init__(self, diameter=None, generator_mode=False, **kwargs):
+        self.generator_mode = generator_mode
         super().__init__(**kwargs)
         self.parts = []
         self.specify_parts()
@@ -463,21 +469,66 @@ class CustomObject(VisibleObject):
         self.parameters = []
         self.specify_parameters()
         self.insert_parameters()
+        self.relations = []  # Initialize relations list before specify_relations
         self.specify_relations()
-        self.action_parameters = []
-        self.specify_action_parameters()
-        self.specify_creation_parameter()
-        self.insert_action_parameters()
-        self.specify_actions()
-        self.specify_creation()
-        self.diameter = diameter
-        self.add_bounding_box_information()
-        self.specify_bounding_box_parameters()
-        self.insert_bounding_box_parameters()
-        self.specify_bounding_box_relations()
-        self.specify_visibility_inheritance_relations()
-        self.specify_position_inheritance()
-        self.sort_relations_by_priority()
+
+        # Skip XPresso setup in generator mode
+        if not self.generator_mode:
+            self.action_parameters = []
+            self.specify_action_parameters()
+            self.specify_creation_parameter()
+            self.insert_action_parameters()
+            self.specify_actions()
+            self.specify_creation()
+            self.diameter = diameter
+            self.add_bounding_box_information()
+            self.specify_bounding_box_parameters()
+            self.insert_bounding_box_parameters()
+            self.specify_bounding_box_relations()
+            self.specify_visibility_inheritance_relations()
+            self.specify_position_inheritance()
+            self.sort_relations_by_priority()
+        else:
+            # Generator mode: convert to Python Generator
+            self.action_parameters = []
+            self.diameter = diameter
+            self._convert_to_generator()
+
+    def _convert_to_generator(self):
+        """Convert this CustomObject to a Python Generator for MoGraph compatibility.
+
+        This replaces self.obj (a Null) with a Python Generator that:
+        - Has the same UserData parameters
+        - Contains the same children (recursively converted if they have GeneratorMixin)
+        - Uses Python code instead of XPresso for relationships
+        """
+        if not hasattr(self, 'create_as_generator'):
+            # No GeneratorMixin - can't convert
+            return
+
+        # Store old obj reference
+        old_obj = self.obj
+        old_parent = old_obj.GetUp()
+        old_pred = old_obj.GetPred()
+
+        # Create the generator version
+        gen = self.create_as_generator(recursive=True)
+
+        # Replace old_obj with gen in the document
+        if old_parent:
+            if old_pred:
+                gen.InsertAfter(old_pred)
+            else:
+                gen.InsertUnder(old_parent)
+        else:
+            # Was at root level
+            doc = c4d.documents.GetActiveDocument()
+            doc.InsertObject(gen)
+
+        old_obj.Remove()
+
+        # Update self.obj to point to the generator
+        self.obj = gen
 
     def specify_creation(self):
         """used to specify the unique creation animation for each individual custom object"""

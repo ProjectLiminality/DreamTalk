@@ -1,33 +1,24 @@
 """
 Generator-based relationship system for MoGraph compatibility.
 
-This module provides a mixin class that enables DreamTalk CustomObjects
-to work with MoGraph Cloners by replacing XPresso relationships with
-Python Generator code.
+This module enables DreamTalk CustomObjects to work with MoGraph Cloners
+by automatically translating XPresso relationships into Python Generator code.
 
 Key insight: Instead of XPresso nodes that store object references (which break
 when cloned), we use Python Generators that modify their children based on
 UserData parameters. The relationship logic lives in plain Python code.
 
 Usage:
-    class FoldableCube(CustomObject, GeneratorMixin):
-        def specify_parts(self): ...
+    # Simple - just pass generator_mode=True to any CustomObject
+    virus = MindVirus(color=BLUE, generator_mode=True)
 
-        def specify_generator_code(self):
-            return '''
-def main():
-    fold = op[FOLD_ID]
-    child = op.GetDown()
-    while child:
-        if child.GetName() == "LeftAxis":
-            child.SetRelRot(c4d.Vector(0, 0, fold * PI/2))
-        child = child.GetNext()
-    return None
-'''
+    # The library automatically:
+    # 1. Converts the object to a Python Generator
+    # 2. Translates specify_relations() XPresso patterns to Python code
+    # 3. Recursively converts child CustomObjects that also have GeneratorMixin
 """
 
 import c4d
-from abc import ABC
 import math
 
 # Standard imports that generator code will need
@@ -41,10 +32,10 @@ class GeneratorMixin:
     """
     Mixin class that adds generator-based relationship support to CustomObjects.
 
-    When mixed into a CustomObject, provides:
-    - create_as_generator(): Creates a Python Generator version of the object
-    - Generator code is defined in specify_generator_code()
-    - Children are created normally, relationships are computed in Python
+    When mixed into a CustomObject, the library can automatically:
+    - Convert XIdentity/XRelation patterns to generator code
+    - Create Python Generator objects instead of Null + XPresso
+    - Recursively convert child CustomObjects
 
     The generator pattern:
     1. Generator reads UserData parameters
@@ -53,52 +44,150 @@ class GeneratorMixin:
     4. Works inside MoGraph Cloners - each clone gets unique values from op.GetMg()
     """
 
-    # Subclasses override this to define their relationship logic
-    GENERATOR_CODE = None
-
-    def specify_generator_code(self):
+    def _auto_generate_code_from_relations(self):
         """
-        Override this method to return Python code for the generator.
+        Automatically generate Python code from specify_relations() patterns.
 
-        The code should define a main() function that:
-        - Reads parameters from op[DESC_ID] (UserData on the generator)
-        - Modifies children via op.GetDown() traversal
-        - Returns None (children are the output)
-
-        Available in the code:
-        - op: The Python Generator object
-        - doc: The active document (via c4d.documents.GetActiveDocument())
-        - c4d: The Cinema 4D module
-        - math, PI: Math utilities
+        Introspects the XPresso relations defined on this object and generates
+        equivalent Python generator code.
 
         Returns:
-            str: Python code string for the generator's main() function
+            str: Python code for main() function, or empty string if no relations
         """
-        return self.GENERATOR_CODE or ''
+        if not hasattr(self, 'relations') or not self.relations:
+            # No relations defined, return minimal pass-through code
+            return '''
+def main():
+    return None
+'''
+
+        code_lines = []
+        code_lines.append('def main():')
+
+        # Track which parameters we need to read
+        params_to_read = set()
+        child_updates = []
+
+        for relation in self.relations:
+            rel_class = relation.__class__.__name__
+
+            if rel_class == 'XIdentity':
+                # XIdentity: pass parameter value directly to child
+                # relation.parameter = source param on whole (self)
+                # relation.part = target child object
+                # relation.desc_ids = target parameter(s) on child
+
+                param = relation.parameter
+                part = relation.part
+                target_desc_ids = relation.desc_ids
+
+                # Build parameter read
+                param_name = param.name.lower().replace(' ', '_')
+                params_to_read.add((param_name, param))
+
+                # Build child update
+                child_name = part.obj.GetName() if hasattr(part, 'obj') else str(part)
+                for desc_id in target_desc_ids:
+                    child_updates.append((child_name, desc_id, param_name, None))
+
+            elif rel_class == 'XRelation':
+                # XRelation: apply formula to parameter before passing to child
+                param = relation.parameters[0] if relation.parameters else None
+                if param:
+                    param_name = param.name.lower().replace(' ', '_')
+                    params_to_read.add((param_name, param))
+
+                    part = relation.part
+                    child_name = part.obj.GetName() if hasattr(part, 'obj') else str(part)
+                    formula = relation.formula if hasattr(relation, 'formula') else None
+
+                    for desc_id in relation.desc_ids:
+                        child_updates.append((child_name, desc_id, param_name, formula))
+
+        # Generate parameter reading code
+        for param_name, param in params_to_read:
+            # UserData ID - need to determine the index
+            # For now, use a simple approach: first param is ID 1, etc.
+            param_idx = self.parameters.index(param) + 1 if param in self.parameters else 1
+            code_lines.append(f'    # Read {param.name} parameter (UserData ID {param_idx})')
+            code_lines.append(f'    {param_name} = op[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),')
+            code_lines.append(f'                        c4d.DescLevel({param_idx}, c4d.DTYPE_REAL, 0))]')
+            code_lines.append('')
+
+        # Generate child traversal and update code
+        if child_updates:
+            code_lines.append('    # Update children')
+            code_lines.append('    child = op.GetDown()')
+            code_lines.append('    while child:')
+
+            # Group updates by child name
+            updates_by_child = {}
+            for child_name, desc_id, param_name, formula in child_updates:
+                if child_name not in updates_by_child:
+                    updates_by_child[child_name] = []
+                updates_by_child[child_name].append((desc_id, param_name, formula))
+
+            for child_name, updates in updates_by_child.items():
+                code_lines.append(f'        if child.GetName() == "{child_name}":')
+                for desc_id, param_name, formula in updates:
+                    # Determine what value to set
+                    if formula:
+                        # Apply formula - replace parameter name with variable
+                        value_expr = formula.replace(param_name.replace('_', ' ').title(), param_name)
+                        value_expr = value_expr.replace('PI', 'PI')
+                    else:
+                        value_expr = param_name
+
+                    # Determine target - is it a UserData param or a built-in?
+                    if hasattr(desc_id, '__iter__') and len(desc_id) == 2:
+                        # Likely a rotation or position component
+                        # Check if it's ROT_P, ROT_B, etc.
+                        code_lines.append(f'            # Set parameter via UserData')
+                        code_lines.append(f'            child[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),')
+                        code_lines.append(f'                            c4d.DescLevel(1, c4d.DTYPE_REAL, 0))] = {value_expr}')
+                    else:
+                        code_lines.append(f'            child[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),')
+                        code_lines.append(f'                            c4d.DescLevel(1, c4d.DTYPE_REAL, 0))] = {value_expr}')
+
+            code_lines.append('        child = child.GetNext()')
+
+        code_lines.append('')
+        code_lines.append('    return None')
+
+        return '\n'.join(code_lines)
 
     def _build_generator_code(self):
-        """Combines imports with the object's generator code."""
-        user_code = self.specify_generator_code()
-        return GENERATOR_IMPORTS + '\n' + user_code
+        """Build complete generator code including imports."""
+        # Try auto-generation first
+        auto_code = self._auto_generate_code_from_relations()
+        if auto_code and 'return None' in auto_code:
+            return GENERATOR_IMPORTS + '\n' + auto_code
 
-    def create_as_generator(self, **kwargs):
+        # Fall back to manual specify_generator_code if defined
+        if hasattr(self, 'specify_generator_code'):
+            user_code = self.specify_generator_code()
+            if user_code:
+                return GENERATOR_IMPORTS + '\n' + user_code
+
+        # Default: minimal pass-through
+        return GENERATOR_IMPORTS + '''
+def main():
+    return None
+'''
+
+    def create_as_generator(self, recursive=True):
         """
         Create this object as a Python Generator instead of a Null with XPresso.
 
-        Returns a Python Generator object with:
-        - The same UserData parameters as the normal object
-        - Children created normally (visible in Object Manager)
-        - Relationship logic in Python code instead of XPresso
-
         Args:
-            **kwargs: Passed to the normal constructor for creating children
+            recursive: If True, also convert child CustomObjects with GeneratorMixin
 
         Returns:
             c4d.BaseObject: A Python Generator object
         """
         # Create the generator object
         gen = c4d.BaseObject(1023866)  # Python Generator
-        gen.SetName(self.name if hasattr(self, 'name') else self.__class__.__name__)
+        gen.SetName(self.obj.GetName() if hasattr(self, 'obj') else self.__class__.__name__)
 
         # Set the code
         gen[c4d.OPYTHON_CODE] = self._build_generator_code()
@@ -107,8 +196,8 @@ class GeneratorMixin:
         # Copy UserData from self.obj to generator
         self._copy_userdata_to_generator(gen)
 
-        # Move children from self.obj to generator
-        self._move_children_to_generator(gen)
+        # Move/convert children from self.obj to generator
+        self._move_children_to_generator(gen, recursive=recursive)
 
         return gen
 
@@ -131,22 +220,45 @@ class GeneratorMixin:
             except:
                 pass
 
-    def _move_children_to_generator(self, gen):
-        """Move children from self.obj to the generator."""
+    def _move_children_to_generator(self, gen, recursive=True):
+        """Move children from self.obj to the generator.
+
+        Args:
+            gen: The generator object to move children under
+            recursive: If True, convert child CustomObjects with GeneratorMixin to generators
+        """
         if not hasattr(self, 'obj'):
             return
 
-        # Collect children first (modifying during iteration is unsafe)
-        children = []
+        # Collect children and their DreamTalk wrapper objects
+        children_to_move = []
         child = self.obj.GetDown()
         while child:
-            children.append(child)
+            children_to_move.append(child)
             child = child.GetNext()
 
-        # Move each child under the generator
-        for child in children:
-            child.Remove()
-            child.InsertUnder(gen)
+        # Check if we have parts that map to these children
+        parts_by_name = {}
+        if hasattr(self, 'parts'):
+            for part in self.parts:
+                if hasattr(part, 'obj'):
+                    parts_by_name[part.obj.GetName()] = part
+
+        # Move/convert each child
+        for child_obj in children_to_move:
+            child_obj.Remove()
+
+            # Check if this child has a DreamTalk wrapper with GeneratorMixin
+            child_name = child_obj.GetName()
+            part = parts_by_name.get(child_name)
+
+            if recursive and part and hasattr(part, 'create_as_generator'):
+                # This child is a CustomObject with GeneratorMixin - convert it
+                child_gen = part.create_as_generator(recursive=True)
+                child_gen.InsertUnder(gen)
+            else:
+                # Regular child - just move it
+                child_obj.InsertUnder(gen)
 
 
 def build_generator_from_class(cls, **kwargs):

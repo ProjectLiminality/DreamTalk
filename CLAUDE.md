@@ -875,3 +875,255 @@ Velocity: 0 ━━━━━▶ peak ━━━━▶ decay ━━━━▶ ~0 ━
 - `UPulse` parameter type with frequency, attack, decay
 - XPresso formula linking pulse phase to position delta
 - Optional noise/variation overlay for organic feel
+
+## MoGraph + Python Generator Integration (R&D Breakthrough)
+
+### The Challenge
+
+DreamTalk CustomObjects use XPresso and UserData parameters for animation. MoGraph's standard Cloner can clone objects but only linearly interpolates parameters between blend states - it doesn't re-evaluate generators or XPresso for intermediate states. This makes it impossible to clone a MindVirus and have each clone at a different fold state.
+
+### The Solution: Python Generator + Cloner
+
+**Key Discovery:** A Python Generator placed inside a MoGraph Cloner IS evaluated separately for each clone, and `op.GetMg()` returns the clone's unique world position (including cloner offsets).
+
+**Critical Setting:** In the Python Generator's attributes, **disable "Optimize Cache"** - otherwise the generator caches its output and won't respond to external changes (like moving a field object).
+
+### Proof of Concept: Laptop Hinge Test
+
+Minimal test proving per-clone geometry generation:
+
+```python
+# Python Generator code
+import c4d
+import math
+
+def main():
+    PI = math.pi
+    mg = op.GetMg()
+    x = mg.off.x
+
+    # Derive fold from world X position (or from field lookup)
+    fold = min(1.0, max(0.0, x / 400.0))
+    angle = fold * PI  # 0 to 180 degrees
+
+    size = 80
+    half = size / 2
+
+    root = c4d.BaseObject(c4d.Onull)
+    root.SetName(f"L_f{fold:.2f}")
+
+    # BASE - flat on XZ plane
+    base = c4d.BaseObject(c4d.Osplinerectangle)
+    base[c4d.PRIM_RECTANGLE_WIDTH] = size
+    base[c4d.PRIM_RECTANGLE_HEIGHT] = size
+    base.SetRelRot(c4d.Vector(PI/2, 0, 0))  # Lie flat
+    base.InsertUnder(root)
+
+    # HINGE at back edge, rotates based on fold
+    hinge = c4d.BaseObject(c4d.Onull)
+    hinge.SetRelPos(c4d.Vector(0, 0, -half))
+    hinge.SetRelRot(c4d.Vector(-angle, 0, 0))  # Fold upward
+    hinge.InsertUnder(root)
+
+    # LID attached to hinge
+    lid = c4d.BaseObject(c4d.Osplinerectangle)
+    lid[c4d.PRIM_RECTANGLE_WIDTH] = size
+    lid[c4d.PRIM_RECTANGLE_HEIGHT] = size
+    lid.SetRelRot(c4d.Vector(PI/2, 0, 0))
+    lid.SetRelPos(c4d.Vector(0, 0, -half))
+    lid.InsertUnder(hinge)
+
+    return root
+```
+
+**Result:** 5 clones along X axis each show different hinge angles - proving the generator re-evaluates geometry per clone, not just interpolating.
+
+### Field-Driven Parameters
+
+The generator can look up external objects and calculate parameters from them:
+
+```python
+def main():
+    doc = c4d.documents.GetActiveDocument()
+    mg = op.GetMg()
+    pos = mg.off
+
+    # Find a field/null and calculate distance-based falloff
+    field = doc.SearchObject("MyField")
+    if field:
+        field_pos = field.GetMg().off
+        radius = 150.0
+        dist = (pos - field_pos).GetLength()
+        fold = max(0.0, 1.0 - dist / radius)
+    else:
+        fold = 0.5  # fallback
+
+    # ... generate geometry based on fold ...
+```
+
+**With "Optimize Cache" OFF:** Moving the field object in the viewport causes all clones to update in real-time!
+
+### Python MoGraph Tools Reference
+
+| Tool | ID | Executes | Key Capability |
+|------|-----|----------|----------------|
+| Python Generator | 1023866 | Per-clone when in Cloner | `op.GetMg()` gives unique position |
+| Python Effector | 1025800 | Once per evaluation | Access to all MoData arrays |
+| Python Field | 440000277 | When sampled | Custom `Sample()` returns weights per position |
+| Python Tag | 1022749 | Per frame | Attached to objects |
+
+### Cloner Setup
+
+```python
+# Create Linear Cloner
+cloner = c4d.BaseObject(c4d.Omgcloner)
+cloner[c4d.ID_MG_MOTIONGENERATOR_MODE] = 1  # 1 = Linear mode (NOT 0!)
+cloner[1270] = 5  # MG_LINEAR_COUNT
+cloner[1273] = c4d.Vector(100, 0, 0)  # MG_LINEAR_OBJECT_POSITION (step)
+
+# Parent generator under cloner
+generator.InsertUnder(cloner)
+```
+
+### Architecture for DreamTalk-MoGraph Bridge
+
+**Vision:** A compatibility layer where DreamTalk CustomObjects can be cloned with MoGraph while respecting their procedural parameters.
+
+**Approach:**
+1. Create a "MoGraph Wrapper" Python Generator
+2. Wrapper reads a child DreamTalk CustomObject
+3. Wrapper samples fields/effectors and sets UserData parameters
+4. Child CustomObject generates geometry based on those parameters
+5. Each clone gets unique parameter values based on position/field
+
+**Key Insight:** The Python Generator can access `doc.SearchObject()` to find any object in the scene, enabling it to:
+- Read field positions and calculate custom falloffs
+- Sample actual C4D fields (via Python Field integration)
+- Look up animation curves on other objects
+- Create true procedural cloning with full DreamTalk parameter control
+
+### Generator-as-Controller Architecture (Major Breakthrough)
+
+**Problem Solved:** XPresso-based CustomObjects don't work in MoGraph Cloners because XPresso stores object references that break when cloned.
+
+**Solution:** Replace XPresso with Python Generators that **modify their children** rather than generating geometry.
+
+#### The Pattern
+
+```
+Cloner
+  └─ ParentGenerator (Python Generator)     ← reads position, pushes params down
+        └─ ChildGenerator (Python Generator) ← reads params, modifies children
+              ├─ Null (axis/transform)
+              │    └─ Spline (geometry)
+              └─ ...more children
+```
+
+#### Key Principles
+
+1. **Generator modifies children, returns None:**
+   ```python
+   def main():
+       fold = op[FOLD_USERDATA_ID]  # Read parameter
+
+       child = op.GetDown()
+       while child:
+           if child.GetName() == "LeftAxis":
+               child.SetRelRot(c4d.Vector(0, 0, fold * PI/2))
+           child = child.GetNext()
+
+       return None  # Children ARE the output
+   ```
+
+2. **Children remain visible in Object Manager** - holonic structure preserved
+
+3. **Nested generators communicate via UserData:**
+   ```python
+   # Parent generator pushes value to child generator
+   child_gen[CHILD_FOLD_ID] = fold
+   ```
+
+4. **Each clone gets unique values** via `op.GetMg()`:
+   ```python
+   mg = op.GetMg()
+   x = mg.off.x
+   fold = x / 600.0  # Position-based parameter
+   ```
+
+5. **Disable "Optimize Cache"** on all generators (`op[c4d.OPYTHON_OPTIMIZE] = False`)
+
+#### Benefits Over XPresso
+
+| XPresso | Generator-as-Controller |
+|---------|------------------------|
+| Object references break on clone | Position-based calculation per clone |
+| Visual node graph (C4D-specific) | Python code (portable) |
+| Hard to version control | Git-friendly |
+| Opaque to AI | AI can read/modify |
+| Requires manual wiring | Relationships defined in code |
+
+#### Migration Path
+
+The existing `CustomObject` class can be extended:
+
+```python
+class FoldableCube(CustomObject):
+    # Traditional XPresso-based approach
+    def specify_parts(self): ...
+    def specify_relations(self): ...
+
+    # NEW: Generator-based approach for MoGraph
+    @classmethod
+    def create_generator(cls, **params):
+        """Create a Python Generator version of this object."""
+        gen = c4d.BaseObject(1023866)
+        gen[c4d.OPYTHON_CODE] = cls._generator_code()
+        gen[c4d.OPYTHON_OPTIMIZE] = False
+        # Add UserData, create children...
+        return gen
+```
+
+#### Proven Working
+
+- ✅ Single generator modifying children
+- ✅ Nested generators (MindVirus > FoldableCube)
+- ✅ Linear Cloner with position-based fold
+- ✅ UserData propagation between generator levels
+- ✅ Holonic hierarchy visible in Object Manager
+
+### Future Architecture Vision
+
+**Goal:** DreamTalk objects that work seamlessly with both:
+- Direct scene use (current CustomObject pattern)
+- MoGraph cloning (Generator-as-Controller pattern)
+
+**Long-term:** Move ALL relationship logic into Python, making DreamTalk:
+- Backend-agnostic (can target WebGL, other 3D software)
+- Fully version-controlled (no binary XPresso data)
+- AI-native (Claude can understand and modify all relationships)
+
+### Implementation Status
+
+**Completed:**
+- ✅ `GeneratorMixin` class in `generator.py` - provides `create_as_generator()` method
+- ✅ `generator_mode=True` flag in `CustomObject.__init__()` - automatic conversion
+- ✅ Auto-generation of code from `XIdentity` relations
+- ✅ Recursive conversion of child CustomObjects with GeneratorMixin
+- ✅ FoldableCube updated with GeneratorMixin
+- ✅ MindVirus updated with GeneratorMixin
+
+**Usage:**
+```python
+# Standard mode (XPresso) - traditional use
+virus = MindVirus(color=BLUE)
+
+# Generator mode - MoGraph compatible
+virus = MindVirus(color=BLUE, generator_mode=True)
+```
+
+**Remaining Work:**
+1. Test full MindVirus with `generator_mode=True` in Cloner
+2. Add auto-translation for `XRelation` with formulas
+3. Handle complex XPresso patterns (XAction, XBoundingBox, etc.)
+4. Test with MoGraph Fields for dynamic parameter control
+5. Consider position-driven mode for automatic clone variation
