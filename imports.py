@@ -29,6 +29,7 @@ import sys
 import importlib
 import DreamTalk.scene
 import DreamTalk.utils
+import DreamTalk.objects.abstract_objects
 import DreamTalk.objects.helper_objects
 import DreamTalk.objects.camera_objects
 import DreamTalk.objects.custom_objects
@@ -53,6 +54,8 @@ DreamTalk_path = _os.path.dirname(_os.path.abspath(__file__))
 
 reload(DreamTalk.scene)
 reload(DreamTalk.utils)
+# abstract_objects must be reloaded BEFORE line_objects and solid_objects that depend on it
+reload(DreamTalk.objects.abstract_objects)
 reload(DreamTalk.objects.helper_objects)
 reload(DreamTalk.objects.camera_objects)
 reload(DreamTalk.objects.custom_objects)

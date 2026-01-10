@@ -3,6 +3,7 @@ import DreamTalk.materials
 importlib.reload(DreamTalk.materials)
 from DreamTalk.materials import FillMaterial, SketchMaterial
 from DreamTalk.tags import FillTag, SketchTag, XPressoTag, AlignToSplineTag
+from DreamTalk.objects.stroke_objects import StrokeGen, StrokeMaterial, SilhouetteSplineGen, MeshStroke
 from DreamTalk.constants import WHITE, SCALE_X, SCALE_Y, SCALE_Z
 from DreamTalk.animation.animation import VectorAnimation, ScalarAnimation, ColorAnimation
 from DreamTalk.xpresso.userdata import *
@@ -602,10 +603,16 @@ class CustomObject(VisibleObject):
 
 
 class LineObject(VisibleObject):
-    """line objects consist of splines and only require a sketch material"""
+    """line objects consist of splines and only require a sketch material
 
-    def __init__(self, color=WHITE, plane="xy", arrow_start=False, arrow_end=False, draw_completion=0, opacity=1, helper_mode=False, draw_order="long_to_short", filled=False, fill_color=None, stroke_width=None, **kwargs):
-        self.stroke_width = stroke_width
+    Supports two rendering modes:
+    - Sketch mode (default): Uses Sketch & Toon post-effect
+    - Stroke mode (stroke_mode=True): Uses geometry-based strokes (MoGraph compatible, faster)
+    """
+
+    def __init__(self, color=WHITE, plane="xy", arrow_start=False, arrow_end=False, draw_completion=0, opacity=1, helper_mode=False, draw_order="long_to_short", filled=False, fill_color=None, stroke_width=None, stroke_mode=False, **kwargs):
+        self.stroke_width = stroke_width if stroke_width is not None else 3.0
+        self.stroke_mode = stroke_mode
         super().__init__(**kwargs)
         self.color = color
         self.plane = plane
@@ -615,9 +622,15 @@ class LineObject(VisibleObject):
         self.opacity = opacity
         self.draw_order = draw_order
         if not helper_mode:
-            self.set_sketch_material()
-            self.set_sketch_tag()
-            self.sketch_parameter_setup()
+            if self.stroke_mode:
+                # Geometry-based stroke rendering
+                self._setup_stroke_mode()
+                self.sketch_parameter_setup()  # Sets up Draw, Opacity, Color parameters
+            else:
+                # Traditional Sketch & Toon rendering
+                self.set_sketch_material()
+                self.set_sketch_tag()
+                self.sketch_parameter_setup()
             self.set_plane()
             self.spline_length_parameter_setup()
             self.parameters = []
@@ -646,22 +659,158 @@ class LineObject(VisibleObject):
         self.membrane = custom_objects.Membrane(
             self, name=self.name + "Membrane", creation=True, color=color)
 
+    def _setup_stroke_mode(self):
+        """Set up geometry-based stroke rendering using StrokeGen.
+
+        In stroke mode:
+        - self.spline holds the original spline object
+        - self.obj becomes the StrokeGen (for position/rotation/UserData compatibility)
+        - The spline is a child of the stroke generator
+
+        This maintains the mental model that self.obj is "the thing" while
+        enabling geometry-based stroke rendering.
+        """
+        from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, StrokeMaterial
+
+        # Store spline reference
+        self.spline = self.obj
+
+        # Create the stroke generator
+        self.stroke_gen = c4d.BaseObject(1023866)  # Python Generator
+        self.stroke_gen[c4d.OPYTHON_CODE] = STROKE_GEN_CODE
+        self.stroke_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
+        self.stroke_gen.SetName(self.name)
+
+        # Add Stroke Width UserData
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Stroke Width"
+        bc[c4d.DESC_DEFAULT] = 3.0
+        bc[c4d.DESC_MIN] = 0.1
+        bc[c4d.DESC_MAX] = 100.0
+        bc[c4d.DESC_STEP] = 0.5
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_METER
+        self.stroke_width_id = self.stroke_gen.AddUserData(bc)
+        self.stroke_gen[self.stroke_width_id] = self.stroke_width
+
+        # Add Draw UserData (0-1 completion for animation)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Draw"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.stroke_draw_id = self.stroke_gen.AddUserData(bc)
+        self.stroke_gen[self.stroke_draw_id] = self.draw_completion
+
+        # Insert stroke gen into document
+        self.document.InsertObject(self.stroke_gen)
+
+        # Move spline under stroke gen
+        self.spline.Remove()
+        self.spline.InsertUnder(self.stroke_gen)
+
+        # Create and apply stroke material
+        self.stroke_material = StrokeMaterial(
+            color=self.color,
+            opacity=self.opacity,
+            name=f"{self.name}_StrokeMat"
+        )
+        tag = self.stroke_gen.MakeTag(c4d.Ttexture)
+        tag[c4d.TEXTURETAG_MATERIAL] = self.stroke_material.obj
+
+        # Swap obj to be the stroke_gen - this is the "main" object now
+        self.obj = self.stroke_gen
+
+    def _stroke_sketch_parameter_setup(self):
+        """Set up parameters for stroke mode that mirror sketch parameters.
+
+        In stroke mode, Draw/Opacity/Color UserData already exists on
+        the stroke generator (self.obj). We just need to create parameter
+        wrappers that reference the existing desc_ids.
+        """
+        # Draw parameter - already on stroke_gen via _setup_stroke_mode
+        self.draw_parameter = UCompletion(
+            name="Draw", default_value=self.draw_completion)
+        self.draw_parameter.desc_id = self.stroke_draw_id  # Point to existing
+
+        # For Opacity and Color, we use the material directly
+        # Create parameter objects but they'll control the material
+        self.opacity_parameter = UCompletion(
+            name="Opacity", default_value=self.opacity)
+        self.color_parameter = UColor(
+            name="Color", default_value=self.color)
+
+        self.sketch_parameters = [self.draw_parameter,
+                                  self.opacity_parameter, self.color_parameter]
+
     def spline_length_parameter_setup(self):
         self.specify_spline_length_parameter()
         self.insert_spline_length_parameter()
         self.specify_spline_length_relation()
 
     def sketch_parameter_setup(self):
-        self.specify_sketch_parameters()
-        self.insert_sketch_parameters()
-        self.specify_sketch_relations()
+        if self.stroke_mode:
+            self._stroke_sketch_parameter_setup()
+            self._insert_stroke_sketch_parameters()
+            self._specify_stroke_sketch_relations()
+        else:
+            self.specify_sketch_parameters()
+            self.insert_sketch_parameters()
+            self.specify_sketch_relations()
+
+    def _insert_stroke_sketch_parameters(self):
+        """Insert additional UserData on stroke_gen for Opacity and Color.
+
+        Draw is already on the generator (read by generator code).
+        Opacity and Color are added for animation compatibility but
+        actually control the material programmatically.
+        """
+        # Opacity UserData (for animation keyframing)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Opacity"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.stroke_opacity_id = self.obj.AddUserData(bc)
+        self.obj[self.stroke_opacity_id] = self.opacity
+        self.opacity_parameter.desc_id = self.stroke_opacity_id
+
+        # Color UserData (for animation keyframing)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
+        bc[c4d.DESC_NAME] = "Color"
+        self.stroke_color_id = self.obj.AddUserData(bc)
+        self.obj[self.stroke_color_id] = self.color
+        self.color_parameter.desc_id = self.stroke_color_id
+
+    def _specify_stroke_sketch_relations(self):
+        """Link UserData to stroke material.
+
+        In stroke mode:
+        - Draw is handled by the generator code directly (reads UserData by name)
+        - Opacity and Color are set at construction time on the material
+
+        For animated opacity/color, use set_opacity() and set_color() methods
+        or animate via Python Generator code.
+        """
+        # No XPresso relations needed - generator reads Draw directly
+        # Opacity/Color are set on material at construction time
+        pass
 
     def specify_creation(self):
         """specifies the creation action"""
-        creation_action = XAction(
-            Movement(self.draw_parameter, (0, 1)),
-            target=self, completion_parameter=self.creation_parameter, name="Creation")
-        self.actions.append(creation_action)
+        if self.stroke_mode:
+            # In stroke mode, creation animation is simpler - just animate the Draw UserData
+            # XAction uses XPresso which is complex; stroke_mode uses direct UserData access
+            # The Create animator will animate the creation_parameter which maps to draw
+            pass
+        else:
+            creation_action = XAction(
+                Movement(self.draw_parameter, (0, 1)),
+                target=self, completion_parameter=self.creation_parameter, name="Creation")
+            self.actions.append(creation_action)
 
     def set_sketch_material(self):
         self.sketch_material = SketchMaterial(
@@ -749,9 +898,14 @@ class LineObject(VisibleObject):
 
 
 class SolidObject(VisibleObject):
-    """solid objects only require a fill material"""
+    """solid objects only require a fill material
 
-    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, hidden_material=True, stroke_width=None, sketch_outline=True, sketch_folds=False, sketch_creases=True, sketch_border=False, sketch_contour=True, sketch_splines=True, **kwargs):
+    Supports two rendering modes:
+    - Sketch mode (default): Uses Sketch & Toon post-effect for silhouette lines
+    - Stroke mode (stroke_mode=True): Uses geometry-based strokes (MoGraph compatible, faster)
+    """
+
+    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, hidden_material=True, stroke_width=None, sketch_outline=True, sketch_folds=False, sketch_creases=True, sketch_border=False, sketch_contour=True, sketch_splines=True, stroke_mode=False, **kwargs):
         """
         Base class for 3D solid objects with fill and sketch materials.
 
@@ -778,8 +932,11 @@ class SolidObject(VisibleObject):
             sketch_border: Enable border lines (default False)
             sketch_contour: Enable contour lines (default True)
             sketch_splines: Enable spline rendering (default True)
+            stroke_mode: Use geometry-based strokes instead of Sketch & Toon (default False)
             **kwargs: Parent class arguments
         """
+        self.stroke_mode = stroke_mode
+        self.stroke_width = stroke_width if stroke_width is not None else 3.0
         self.filled = filled
         self.glowing = glowing
         self.color = color
@@ -792,7 +949,6 @@ class SolidObject(VisibleObject):
         self.sketch_opacity = sketch_opacity
         self.fill_opacity = fill_opacity
         self.hidden_material = hidden_material
-        self.stroke_width = stroke_width
         self.sketch_outline = sketch_outline
         self.sketch_folds = sketch_folds
         self.sketch_creases = sketch_creases
@@ -806,9 +962,15 @@ class SolidObject(VisibleObject):
         self.set_fill_tag()
         self.fill_parameter_setup()
         # sketch setup
-        self.set_sketch_material()
-        self.set_sketch_tag()
-        self.sketch_parameter_setup()
+        if self.stroke_mode:
+            # Geometry-based stroke rendering
+            self._setup_stroke_mode()
+            self.sketch_parameter_setup()  # Sets up Draw, Opacity, Color parameters
+        else:
+            # Traditional Sketch & Toon rendering
+            self.set_sketch_material()
+            self.set_sketch_tag()
+            self.sketch_parameter_setup()
         self.parameters = []
         self.specify_parameters()
         self.insert_parameters()
@@ -827,13 +989,144 @@ class SolidObject(VisibleObject):
         if not self.sketch_color:
             self.sketch_color = self.color
 
+    def _setup_stroke_mode(self):
+        """Set up geometry-based stroke rendering using MeshStroke.
+
+        In stroke mode for solids:
+        - self.mesh holds the original mesh object
+        - self.obj becomes the MeshStroke wrapper (for position/rotation/UserData compatibility)
+        - The mesh is nested inside: StrokeGen > SilhouetteSplineGen > Mesh
+
+        This extracts silhouette edges and renders them as geometry-based strokes.
+        """
+        from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, SILHOUETTE_SPLINE_GEN_CODE, StrokeMaterial
+
+        # Store mesh reference
+        self.mesh = self.obj
+
+        # Create the silhouette spline generator
+        self.silhouette_gen = c4d.BaseObject(1023866)  # Python Generator
+        self.silhouette_gen[c4d.OPYTHON_CODE] = SILHOUETTE_SPLINE_GEN_CODE
+        self.silhouette_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
+        self.silhouette_gen.SetName("SilhouetteSpline")
+
+        # Create the stroke generator
+        self.stroke_gen = c4d.BaseObject(1023866)  # Python Generator
+        self.stroke_gen[c4d.OPYTHON_CODE] = STROKE_GEN_CODE
+        self.stroke_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
+        self.stroke_gen.SetName(self.name)
+
+        # Add Stroke Width UserData to stroke gen
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Stroke Width"
+        bc[c4d.DESC_DEFAULT] = 3.0
+        bc[c4d.DESC_MIN] = 0.1
+        bc[c4d.DESC_MAX] = 100.0
+        bc[c4d.DESC_STEP] = 0.5
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_METER
+        self.stroke_width_id = self.stroke_gen.AddUserData(bc)
+        self.stroke_gen[self.stroke_width_id] = self.stroke_width
+
+        # Add Draw UserData (0-1 completion for animation)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Draw"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.stroke_draw_id = self.stroke_gen.AddUserData(bc)
+        self.stroke_gen[self.stroke_draw_id] = self.draw_completion
+
+        # Insert stroke gen into document
+        self.document.InsertObject(self.stroke_gen)
+
+        # Build hierarchy: StrokeGen > SilhouetteSplineGen > Mesh
+        self.silhouette_gen.InsertUnder(self.stroke_gen)
+        self.mesh.Remove()
+        self.mesh.InsertUnder(self.silhouette_gen)
+
+        # Create and apply stroke material
+        self.stroke_material = StrokeMaterial(
+            color=self.sketch_color,
+            opacity=self.sketch_opacity,
+            name=f"{self.name}_StrokeMat"
+        )
+        tag = self.stroke_gen.MakeTag(c4d.Ttexture)
+        tag[c4d.TEXTURETAG_MATERIAL] = self.stroke_material.obj
+
+        # Swap obj to be the stroke_gen - this is the "main" object now
+        self.obj = self.stroke_gen
+
+    def sketch_parameter_setup(self):
+        if self.stroke_mode:
+            self._stroke_sketch_parameter_setup()
+            self._insert_stroke_sketch_parameters()
+            self._specify_stroke_sketch_relations()
+        else:
+            self.specify_sketch_parameters()
+            self.insert_sketch_parameters()
+            self.specify_sketch_relations()
+
+    def _stroke_sketch_parameter_setup(self):
+        """Set up parameters for stroke mode that mirror sketch parameters."""
+        # Draw parameter - already on stroke_gen via _setup_stroke_mode
+        self.draw_parameter = UCompletion(
+            name="Draw", default_value=self.draw_completion)
+        self.draw_parameter.desc_id = self.stroke_draw_id  # Point to existing
+
+        # For Opacity and Color, we use the material directly
+        self.opacity_parameter = UCompletion(
+            name="SketchOpacity", default_value=self.sketch_opacity)
+        self.color_parameter = UColor(
+            name="Color", default_value=self.sketch_color)
+
+        self.sketch_parameters = [self.draw_parameter,
+                                  self.opacity_parameter, self.color_parameter]
+
+    def _insert_stroke_sketch_parameters(self):
+        """Insert additional UserData on stroke_gen for Opacity and Color."""
+        # Opacity UserData (for animation keyframing)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "SketchOpacity"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.stroke_opacity_id = self.obj.AddUserData(bc)
+        self.obj[self.stroke_opacity_id] = self.sketch_opacity
+        self.opacity_parameter.desc_id = self.stroke_opacity_id
+
+        # Color UserData (for animation keyframing)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
+        bc[c4d.DESC_NAME] = "Color"
+        self.stroke_color_id = self.obj.AddUserData(bc)
+        self.obj[self.stroke_color_id] = self.sketch_color
+        self.color_parameter.desc_id = self.stroke_color_id
+
+    def _specify_stroke_sketch_relations(self):
+        """Link UserData to stroke material.
+
+        In stroke mode:
+        - Draw is handled by the generator code directly (reads UserData by name)
+        - Opacity and Color are set at construction time on the material
+        """
+        # No XPresso relations needed - generator reads Draw directly
+        pass
+
     def specify_creation(self):
         """specifies the creation action"""
-        creation_action = XAction(
-            Movement(self.fill_parameter, (1 / 3, 1),
-                     output=(0, self.fill_opacity)),
-            Movement(self.draw_parameter, (0, 2 / 3)),
-            target=self, completion_parameter=self.creation_parameter, name="Creation")
+        if self.stroke_mode:
+            # In stroke mode, skip XAction - use direct UserData access
+            # Create animator will animate the creation_parameter directly
+            pass
+        else:
+            creation_action = XAction(
+                Movement(self.fill_parameter, (1 / 3, 1),
+                         output=(0, self.fill_opacity)),
+                Movement(self.draw_parameter, (0, 2 / 3)),
+                target=self, completion_parameter=self.creation_parameter, name="Creation")
 
     def fill_parameter_setup(self):
         self.specify_fill_parameter()
@@ -879,11 +1172,6 @@ class SolidObject(VisibleObject):
             target=self, descriptor=desc_id, value_fin=completion)
         self.obj[desc_id] = completion
         return animation
-
-    def sketch_parameter_setup(self):
-        self.specify_sketch_parameters()
-        self.insert_sketch_parameters()
-        self.specify_sketch_relations()
 
     def set_sketch_material(self):
         self.sketch_material = SketchMaterial(

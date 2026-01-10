@@ -14,12 +14,21 @@ from pprint import pprint
 
 
 class Scene(ABC):
-    """abstract class acting as blueprint for scenes"""
+    """abstract class acting as blueprint for scenes
 
-    def __init__(self, resolution="default", alpha=True, save=False):
+    Args:
+        resolution: Render resolution preset (default: "default")
+        alpha: Enable alpha channel (default: True)
+        save: Save render output (default: False)
+        sketch_mode: Enable Sketch & Toon VideoPost (default: True)
+            Set to False when using only stroke_mode objects for faster rendering.
+    """
+
+    def __init__(self, resolution="default", alpha=True, save=False, sketch_mode=True):
         self.resolution = resolution
         self.alpha = alpha
         self.save = save
+        self.sketch_mode = sketch_mode
         self.time_ini = None
         self.time_fin = None
         self.kill_old_document()
@@ -56,7 +65,7 @@ class Scene(ABC):
             self.document[c4d.DOCUMENT_LOOPMAXTIME] = self.time_fin
 
     def set_render_settings(self):
-        self.render_settings = RenderSettings(alpha=self.alpha)
+        self.render_settings = RenderSettings(alpha=self.alpha, sketch_mode=self.sketch_mode)
         self.render_settings.set_resolution(self.resolution)
         if self.save:
             self.render_settings.set_export_settings()
@@ -281,13 +290,21 @@ class Scene(ABC):
 
 
 class RenderSettings():
-    """holds and writes the render settings to cinema"""
+    """holds and writes the render settings to cinema
 
-    def __init__(self, alpha=True):
+    Args:
+        alpha: Enable alpha channel (default: True)
+        sketch_mode: Enable Sketch & Toon VideoPost (default: True)
+            Set to False when using only stroke_mode objects for faster rendering.
+    """
+
+    def __init__(self, alpha=True, sketch_mode=True):
         self.alpha = alpha
+        self.sketch_mode = sketch_mode
         self.document = c4d.documents.GetActiveDocument()  # get document
         self.set_base_settings()
-        self.set_sketch_settings()
+        if self.sketch_mode:
+            self.set_sketch_settings()
 
     def set_export_settings(self):
         """sets the export settings"""
