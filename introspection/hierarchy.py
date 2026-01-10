@@ -740,7 +740,18 @@ def validate_scene(doc=None):
             if obj.GetType() == 1023866:  # Python Generator
                 cache = obj.GetCache()
                 if cache is None:
-                    issues.append(f"'{name}' (Python Generator) has error - no cache produced")
+                    # Don't flag if generator is inside a MoGraph Cloner (known limitation)
+                    # Cache returns None for template objects inside Cloners
+                    is_inside_cloner = False
+                    parent = obj.GetUp()
+                    while parent:
+                        if parent.GetType() == 1018544:  # MoGraph Cloner
+                            is_inside_cloner = True
+                            break
+                        parent = parent.GetUp()
+
+                    if not is_inside_cloner:
+                        issues.append(f"'{name}' (Python Generator) has error - no cache produced")
 
             # Check for 0 creation on DreamTalk objects
             creation = get_userdata_value(obj, "Actions", "Creation")
