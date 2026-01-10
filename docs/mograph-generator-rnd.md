@@ -149,66 +149,94 @@ Sketch & Toon is a **post-effect** - it renders lines in 2D screen space after t
 
 **Core insight**: Replace post-effect line drawing with **real 3D spline geometry** that gets swept into visible strokes.
 
-#### Two Approaches
+#### The Stroke Generator Approach
 
-| Aspect | Sweep NURBS (Simple) | Silhouette Generator (Advanced) |
-|--------|---------------------|--------------------------------|
-| **How it works** | Sweep a circle profile along existing splines | Python Generator detects silhouette edges from mesh, outputs splines |
-| **Draw animation** | Native Start/End Growth parameters | Spline point animation or growth |
-| **MoGraph compatible** | ✅ Geometry is per-clone | ✅ Generator re-evaluates per-clone |
-| **Real-time capable** | ✅ Viewport renders geometry | ✅ Viewport renders geometry |
-| **Perspective lines** | ❌ Only follows existing splines | ✅ Camera-relative silhouette detection |
-| **Morphable** | ✅ Real geometry | ✅ Real splines |
-| **Performance** | Fast (simple sweep) | Medium (per-frame calculation) |
+All stroke rendering is handled by Python Generators that output optimized geometry directly:
 
-#### Sweep NURBS Pattern (Available Now)
+| Input Type | Generator Behavior |
+|------------|-------------------|
+| **Spline** | Creates camera-facing ribbon/tube polygons along spline path |
+| **Mesh** | Detects silhouette edges from camera perspective, creates stroke geometry |
+| **Generator** | Gets cache, recurses on children |
 
-For primitives like Circle, this is already viable:
+Key properties:
+- **Draw animation**: Control via polygon count or partial geometry generation
+- **MoGraph compatible**: Generator re-evaluates per-clone with unique `op.GetMg()`
+- **Camera-relative**: Updates as camera moves (for silhouette detection)
+- **Viewport visible**: Real geometry renders instantly
+- **No intermediate objects**: No Sweep NURBS, no Sketch tags - generator outputs final geometry
 
-```
-Circle Spline
-  └── Sweep NURBS
-        └── Profile (small circle/n-gon)
-        └── Luminance Material (stroke color)
-```
+#### Spline-to-Stroke Generator
 
-- **Draw animation**: Use Sweep's Start Growth / End Growth
-- **MoGraph**: Each clone gets its own geometry, fully independent
-- **No Sketch & Toon needed**: Pure geometry + standard material
-
-#### Silhouette Generator Pattern (Future Development)
-
-For perspective-based outline rendering (what mtEdgeSpline from [Insydium MeshTools](https://insydium.ltd/products/meshtools/) does):
+For spline inputs (Circle, Line, Arc, etc.), the generator creates camera-facing stroke geometry:
 
 ```python
-# Python Generator that outputs silhouette splines
+def main():
+    camera = get_active_camera()
+    spline = op.GetDown()  # Child spline
+
+    # Get spline points
+    points = spline.GetAllPoints()
+
+    # For each segment, create camera-facing quad
+    stroke_polys = []
+    for i in range(len(points) - 1):
+        p1, p2 = points[i], points[i+1]
+        # Calculate perpendicular direction facing camera
+        to_cam = (camera.GetMg().off - p1).GetNormalized()
+        tangent = (p2 - p1).GetNormalized()
+        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+        # Create quad facing camera
+        stroke_polys.append(create_quad(p1 - perp, p1 + perp, p2 + perp, p2 - perp))
+
+    return build_polygon_object(stroke_polys)
+```
+
+#### Mesh-to-Silhouette Generator
+
+For mesh inputs, detects silhouette edges and creates stroke geometry (similar to [Insydium MeshTools mtEdgeSpline](https://insydium.ltd/products/meshtools/)):
+
+```python
 def main():
     camera = get_active_camera()
     mesh = op.GetDown().GetCache()
+    cam_pos = camera.GetMg().off
 
-    # For each edge, check if adjacent faces have opposite view-facing
+    polys = mesh.GetAllPolygons()
+    points = mesh.GetAllPoints()
+
+    # Classify each face as front/back facing
+    face_facing = []
+    for poly in polys:
+        center = get_poly_center(poly, points)
+        normal = get_poly_normal(poly, points)
+        view_dir = (cam_pos - center).GetNormalized()
+        face_facing.append(normal.Dot(view_dir) > 0)
+
+    # Find silhouette edges (where front meets back)
     silhouette_edges = []
-    for edge in mesh.edges:
+    for edge in get_edges(mesh):
         face_a, face_b = get_adjacent_faces(edge)
-        if is_front_facing(face_a, camera) != is_front_facing(face_b, camera):
+        if face_facing[face_a] != face_facing[face_b]:
             silhouette_edges.append(edge)
 
-    # Convert edges to spline
-    return edges_to_spline(silhouette_edges)
+    # Convert edges to stroke geometry
+    return edges_to_stroke_geometry(silhouette_edges, stroke_width, cam_pos)
 ```
 
-**This is feasible with a Python Generator** - no compiled plugin needed. The algorithm:
-1. Get camera position/direction
-2. Calculate face normals for child mesh
-3. Dot product with view direction → front/back classification
-4. Edges where classification differs = silhouette
-5. Output as SplineObject
+**Algorithm**:
+1. Get camera position
+2. Calculate face normals, dot with view direction → front/back classification
+3. Edges where adjacent faces differ = silhouette
+4. Output as PolygonObject (camera-facing stroke geometry)
 
-The splines can then be swept, providing:
+**Properties**:
 - ✅ Real 3D geometry (morphable, clonable)
 - ✅ MoGraph compatible (generator re-evaluates per clone)
 - ✅ Camera-relative (updates as camera moves)
 - ✅ Viewport visible (real geometry, not post-effect)
+- ✅ Draw animation via partial geometry generation
 
 ### The DreamTalk Plugin Vision
 
@@ -585,49 +613,17 @@ Cloner
 
 Each clone gets unique position → parent calculates fold → passes to all children → children apply to their structure. Three levels of hierarchy working together.
 
-### Phase 3: Primitive Handling ✅ COMPLETE
+### Phase 3: Primitive Handling ✅ COMPLETE (Superseded)
 
-**Goal**: Decide and implement how primitives integrate with generator-based holons.
+**Original findings** led to the unified vision documented above. Key insight: Sketch & Toon materials are not per-clone in MoGraph, which led us to abandon Sketch & Toon entirely in favor of geometry-based strokes.
 
-- [x] Audit current XPresso usage on primitives (Draw, Opacity, Color → Sketch material)
-- [x] Test removing XPresso tags - XPresso doesn't work inside generators anyway
-- [x] Prototype consolidated generator approach - parent generator controls children
-- [x] Decide on minimal pattern for visibility/material control
-
-**Key Findings**:
-
-1. **XPresso doesn't work inside generators**: When a generator modifies a child's UserData, any XPresso on that child doesn't re-evaluate. The generator runs, sets values, but XPresso tags are never triggered.
-
-2. **Generator CAN directly control Sketch material**: Parent generator can read/write `mat[c4d.OUTLINEMAT_ANIMATE_STROKE_SPEED_COMPLETE]` to control draw completion.
-
-3. **Material properties are NOT per-clone**: In MoGraph context, all clones share the same material. Modifying material from generator affects ALL clones identically, not per-clone.
-
-4. **Structural properties ARE per-clone**: Rotation, position, scale, visibility - these work perfectly per-clone because they're on the object, not shared resources.
-
-**The Minimal Primitive Pattern**:
-
-For **standalone holons** (not in Cloner):
-```
-Primitive (spline/solid)
-  └── Sketch Tag → Sketch Material
-Parent Generator:
-  - Has Draw/Opacity/Color UserData
-  - Generator code directly modifies Sketch material parameters
-  - Works because there's only one instance
-```
-
-For **MoGraph cloned holons**:
-```
-Same structure, BUT:
-  - Structural parameters (fold, rotation, position) → work per-clone ✅
-  - Material parameters (draw, color) → shared across all clones ⚠️
-  - For per-clone material variation: use MoGraph Fields + Shader Effector
-```
-
-**Decision**: Primitives stay as raw C4D objects (not generators). They get:
-- Sketch tag + material for line rendering
-- NO XPresso (doesn't work in generator context anyway)
-- Parent holon (generator) controls them via direct property access
+**New approach** (see "The Unified Vision" section):
+- Generators directly output optimized stroke geometry (no Sweep NURBS intermediate)
+- Spline → Generator creates camera-facing ribbon/tube polygons
+- Mesh → Generator detects silhouette edges, creates stroke geometry
+- Draw animation via geometry point count or visibility
+- Color/Opacity via MoGraph Multi Shader or Fields on Luminance material
+- No Sketch & Toon, no XPresso
 
 ### Phase 4: Library Refactor
 
