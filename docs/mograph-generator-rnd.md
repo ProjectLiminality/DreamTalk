@@ -35,12 +35,49 @@ We are **completely removing Sketch & Toon** from the DreamTalk universe. Everyt
 
 ### MoGraph-Native Color and Opacity
 
-**Color**: MoGraph Multi Shader or Fields can drive luminance material color per-clone. This already works.
+**Color**: MoGraph Multi Shader in the luminance channel provides per-clone color variation. ✅ VERIFIED
 
-**Opacity**: Same mechanism - MoGraph can drive the Alpha/Transparency channel per-clone via:
-- MoGraph Multi Shader in Alpha channel
-- Fields driving transparency
-- Vertex alpha on generated geometry (Color Effector compatible)
+```python
+# Create MoGraph Multi Shader with color layers
+multi_shader = c4d.BaseShader(c4d.Xmgmultishader)  # ID: 1019397
+multi_shader[c4d.MGMULTISHADER_MODE] = c4d.MGMULTISHADER_MODE_INDEXRATIO
+
+# Add color shaders as layers
+colors = [c4d.Vector(1,0,0), c4d.Vector(1,1,0), c4d.Vector(0,1,0), c4d.Vector(0,0,1)]
+for i, color in enumerate(colors):
+    color_shader = c4d.BaseShader(c4d.Xcolor)
+    color_shader[c4d.COLORSHADER_COLOR] = color
+    multi_shader.InsertShader(color_shader)
+    multi_shader[c4d.DescID(c4d.DescLevel(c4d.MGMULTISHADER_LAYER_LINK + i))] = color_shader
+
+# Apply to luminance channel
+mat[c4d.MATERIAL_LUMINANCE_SHADER] = multi_shader
+```
+
+**Alternative**: MoGraph Color Shader (`c4d.Xmgcolor`, ID: 1018767) reads from MoGraph Color Tags applied by effectors. Set to `MGCOLORSHADER_MODE_INDEXRATIO` to map clone index to a grayscale gradient.
+
+**Opacity**: MoGraph Multi Shader in the **Alpha channel** provides per-clone opacity variation. ✅ VERIFIED
+
+```python
+# Enable Alpha channel on material
+mat[c4d.MATERIAL_USE_ALPHA] = True
+
+# Create Multi Shader with varying opacity levels
+alpha_multi = c4d.BaseShader(c4d.Xmgmultishader)
+alpha_multi[c4d.MGMULTISHADER_MODE] = c4d.MGMULTISHADER_MODE_INDEXRATIO
+
+# White = visible, Black = invisible
+opacities = [c4d.Vector(1,1,1), c4d.Vector(0.6,0.6,0.6), c4d.Vector(0.3,0.3,0.3)]
+for i, alpha in enumerate(opacities):
+    color_shader = c4d.BaseShader(c4d.Xcolor)
+    color_shader[c4d.COLORSHADER_COLOR] = alpha
+    alpha_multi.InsertShader(color_shader)
+    alpha_multi[c4d.DescID(c4d.DescLevel(c4d.MGMULTISHADER_LAYER_LINK + i))] = color_shader
+
+mat[c4d.MATERIAL_ALPHA_SHADER] = alpha_multi
+```
+
+**Note**: Use the **Alpha channel**, not Transparency. Transparency channel doesn't work well with luminance-only materials.
 
 Both color and opacity are **fully MoGraph-native** when using standard materials on geometry.
 
