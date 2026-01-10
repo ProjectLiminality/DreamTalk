@@ -203,278 +203,72 @@ Key properties:
 - **Viewport visible**: Real geometry renders instantly
 - **No intermediate objects**: No Sweep NURBS, no Sketch tags - generator outputs final geometry
 
-#### Spline-to-Stroke Generator ✅ VERIFIED
+#### Spline-to-Stroke Generator
 
-For spline inputs (Circle, Line, Arc, etc.), the generator creates camera-facing stroke geometry.
+For spline inputs (Circle, Line, Arc, etc.), the generator creates camera-facing stroke geometry:
 
-**Critical discoveries:**
-- `child.GetCache()` returns a `LineObject` (type 5137) with **interpolated points** (e.g., 36 for circle)
-- `child.GetRealSpline()` returns only **base control points** (e.g., 4 for circle) - NOT what you want
-- Must check `spline.CheckType(c4d.Opoint)` before calling `GetPointCount()`
-- For closed splines, append first point to close the loop: `if is_closed: points.append(points[0])`
-- Camera fallback for cloner context: `cam_pos = camera.GetMg().off if camera else c4d.Vector(0, 100, -500)`
-
-**Complete working code:**
 ```python
-import c4d
-
-def get_userdata_by_name(obj, param_name):
-    ud = obj.GetUserDataContainer()
-    for desc_id, bc in ud:
-        if bc[c4d.DESC_NAME] == param_name:
-            try:
-                return obj[desc_id]
-            except:
-                return None
-    return None
-
 def main():
-    draw = get_userdata_by_name(op, "Draw")
-    if draw is None:
-        draw = 1.0
-    stroke_width = get_userdata_by_name(op, "StrokeWidth")
-    if stroke_width is None:
-        stroke_width = 3.0
+    camera = get_active_camera()
+    spline = op.GetDown()  # Child spline
 
-    # Get camera - with fallback for cloner context
-    doc = op.GetDocument()
-    bd = doc.GetActiveBaseDraw() if doc else None
-    camera = bd.GetSceneCamera(doc) if bd else None
-    cam_pos = camera.GetMg().off if camera else c4d.Vector(0, 100, -500)
+    # Get spline points
+    points = spline.GetAllPoints()
 
-    # Get child spline
-    child = op.GetDown()
-    if not child:
-        return c4d.PolygonObject(0, 0)
-
-    # CRITICAL: GetCache() returns LineObject with interpolated points
-    # GetRealSpline() only returns control points (wrong!)
-    spline = child.GetCache()
-    if not spline:
-        spline = child.GetRealSpline()
-    if not spline:
-        spline = child
-
-    # Must check type before accessing point methods
-    if not spline.CheckType(c4d.Opoint):
-        return c4d.PolygonObject(0, 0)
-
-    child_mg = child.GetMg()
-    point_count = spline.GetPointCount()
-    if point_count < 2:
-        return c4d.PolygonObject(0, 0)
-
-    # Collect world-space points
-    points = []
-    for i in range(point_count):
-        local_pt = spline.GetPoint(i)
-        world_pt = child_mg * local_pt
-        points.append(world_pt)
-
-    # CRITICAL: For closed splines, append first point to close loop
-    is_closed = False
-    real_spline = child.GetRealSpline()
-    if real_spline and hasattr(real_spline, 'IsClosed'):
-        is_closed = real_spline.IsClosed()
-    if is_closed:
-        points.append(points[0])
-
-    # Draw animation: control number of segments rendered
-    total_segments = len(points) - 1
-    segments_to_draw = max(1, int(total_segments * draw))
-
-    # Create polygon ribbon
-    num_points = segments_to_draw * 4
-    num_polys = segments_to_draw
-
-    poly_obj = c4d.PolygonObject(num_points, num_polys)
-
-    for i in range(segments_to_draw):
-        p1 = points[i]
-        p2 = points[i + 1]
-
+    # For each segment, create camera-facing quad
+    stroke_polys = []
+    for i in range(len(points) - 1):
+        p1, p2 = points[i], points[i+1]
+        # Calculate perpendicular direction facing camera
+        to_cam = (camera.GetMg().off - p1).GetNormalized()
         tangent = (p2 - p1).GetNormalized()
-        midpoint = (p1 + p2) * 0.5
-        to_cam = (cam_pos - midpoint).GetNormalized()
         perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
 
-        # Fallback if cross product fails (edge parallel to view)
-        if perp.GetLength() < 0.001:
-            perp = tangent.Cross(c4d.Vector(0, 1, 0)).GetNormalized() * stroke_width
-            if perp.GetLength() < 0.001:
-                perp = c4d.Vector(stroke_width, 0, 0)
+        # Create quad facing camera
+        stroke_polys.append(create_quad(p1 - perp, p1 + perp, p2 + perp, p2 - perp))
 
-        idx = i * 4
-        poly_obj.SetPoint(idx + 0, p1 - perp)
-        poly_obj.SetPoint(idx + 1, p1 + perp)
-        poly_obj.SetPoint(idx + 2, p2 + perp)
-        poly_obj.SetPoint(idx + 3, p2 - perp)
-        poly_obj.SetPolygon(i, c4d.CPolygon(idx, idx + 1, idx + 2, idx + 3))
-
-    poly_obj.Message(c4d.MSG_UPDATE)
-    return poly_obj
+    return build_polygon_object(stroke_polys)
 ```
 
-#### Mesh-to-Silhouette Generator ✅ VERIFIED
+#### Mesh-to-Silhouette Generator
 
-For mesh inputs, detects silhouette edges and creates stroke geometry.
+For mesh inputs, detects silhouette edges and creates stroke geometry (similar to [Insydium MeshTools mtEdgeSpline](https://insydium.ltd/products/meshtools/)):
 
-**Critical discoveries:**
-- Edge-to-face mapping uses sorted tuple: `edge_key = tuple(sorted((v1, v2)))`
-- Boundary edges (open meshes): include if the single adjacent face is front-facing
-- **Parametric objects (Sphere, Cube) have no cache inside Cloner** - use Platonic or pre-converted polygons
-- Polygon normal calculation uses cross product of two edge vectors
-
-**Complete working code:**
 ```python
-import c4d
-
-def get_userdata_by_name(obj, param_name):
-    ud = obj.GetUserDataContainer()
-    for desc_id, bc in ud:
-        if bc[c4d.DESC_NAME] == param_name:
-            try:
-                return obj[desc_id]
-            except:
-                return None
-    return None
-
-def get_poly_normal(poly, points):
-    """Calculate face normal from polygon vertices."""
-    a = points[poly.a]
-    b = points[poly.b]
-    c = points[poly.c]
-    v1 = b - a
-    v2 = c - a
-    return v1.Cross(v2).GetNormalized()
-
-def get_poly_center(poly, points):
-    """Get center of polygon."""
-    if poly.IsTriangle():
-        return (points[poly.a] + points[poly.b] + points[poly.c]) / 3.0
-    else:
-        return (points[poly.a] + points[poly.b] + points[poly.c] + points[poly.d]) / 4.0
-
 def main():
-    stroke_width = get_userdata_by_name(op, "StrokeWidth")
-    if stroke_width is None:
-        stroke_width = 2.0
-
-    # Get camera with fallback
-    doc = op.GetDocument()
-    bd = doc.GetActiveBaseDraw() if doc else None
-    camera = bd.GetSceneCamera(doc) if bd else None
-    if not camera:
-        return c4d.PolygonObject(0, 0)
+    camera = get_active_camera()
+    mesh = op.GetDown().GetCache()
     cam_pos = camera.GetMg().off
 
-    # Get child mesh
-    child = op.GetDown()
-    if not child:
-        return c4d.PolygonObject(0, 0)
+    polys = mesh.GetAllPolygons()
+    points = mesh.GetAllPoints()
 
-    # Get polygon cache - NOTE: parametric objects return None inside Cloner!
-    # Use Platonic or pre-converted polygon objects instead of Sphere/Cube
-    mesh = child.GetCache()
-    if not mesh:
-        mesh = child
-    if not mesh.CheckType(c4d.Opolygon):
-        mesh = child.GetDeformCache()
-        if not mesh or not mesh.CheckType(c4d.Opolygon):
-            return c4d.PolygonObject(0, 0)
-
-    mesh_mg = child.GetMg()
-    point_count = mesh.GetPointCount()
-    poly_count = mesh.GetPolygonCount()
-
-    if point_count < 3 or poly_count < 1:
-        return c4d.PolygonObject(0, 0)
-
-    # Transform points to world space
-    points = [mesh_mg * mesh.GetPoint(i) for i in range(point_count)]
-    polys = [mesh.GetPolygon(i) for i in range(poly_count)]
-
-    # Step 1: Classify each face as front or back facing
-    face_front = []
+    # Classify each face as front/back facing
+    face_facing = []
     for poly in polys:
         center = get_poly_center(poly, points)
         normal = get_poly_normal(poly, points)
         view_dir = (cam_pos - center).GetNormalized()
-        is_front = normal.Dot(view_dir) > 0
-        face_front.append(is_front)
+        face_facing.append(normal.Dot(view_dir) > 0)
 
-    # Step 2: Build edge-to-face mapping
-    # CRITICAL: Use sorted tuple as edge key for consistent lookup
-    edge_faces = {}  # edge_key -> list of face indices
-
-    for fi, poly in enumerate(polys):
-        if poly.IsTriangle():
-            edges = [(poly.a, poly.b), (poly.b, poly.c), (poly.c, poly.a)]
-        else:
-            edges = [(poly.a, poly.b), (poly.b, poly.c), (poly.c, poly.d), (poly.d, poly.a)]
-
-        for e in edges:
-            edge_key = tuple(sorted(e))  # CRITICAL: sorted for consistent key
-            if edge_key not in edge_faces:
-                edge_faces[edge_key] = []
-            edge_faces[edge_key].append(fi)
-
-    # Step 3: Find silhouette edges (front meets back) and boundary edges
+    # Find silhouette edges (where front meets back)
     silhouette_edges = []
-    for edge_key, faces in edge_faces.items():
-        if len(faces) == 2:
-            f1, f2 = faces
-            if face_front[f1] != face_front[f2]:
-                silhouette_edges.append(edge_key)
-        elif len(faces) == 1:
-            # Boundary edge on open mesh - include if front-facing
-            if face_front[faces[0]]:
-                silhouette_edges.append(edge_key)
+    for edge in get_edges(mesh):
+        face_a, face_b = get_adjacent_faces(edge)
+        if face_facing[face_a] != face_facing[face_b]:
+            silhouette_edges.append(edge)
 
-    if not silhouette_edges:
-        return c4d.PolygonObject(0, 0)
-
-    # Step 4: Create stroke geometry from silhouette edges
-    num_edges = len(silhouette_edges)
-    num_points = num_edges * 4
-    num_polys = num_edges
-
-    poly_obj = c4d.PolygonObject(num_points, num_polys)
-
-    for i, (v1, v2) in enumerate(silhouette_edges):
-        p1 = points[v1]
-        p2 = points[v2]
-
-        tangent = (p2 - p1).GetNormalized()
-        midpoint = (p1 + p2) * 0.5
-        to_cam = (cam_pos - midpoint).GetNormalized()
-        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
-
-        if perp.GetLength() < 0.001:
-            perp = tangent.Cross(c4d.Vector(0, 1, 0)).GetNormalized() * stroke_width
-            if perp.GetLength() < 0.001:
-                perp = c4d.Vector(stroke_width, 0, 0)
-
-        idx = i * 4
-        poly_obj.SetPoint(idx + 0, p1 - perp)
-        poly_obj.SetPoint(idx + 1, p1 + perp)
-        poly_obj.SetPoint(idx + 2, p2 + perp)
-        poly_obj.SetPoint(idx + 3, p2 - perp)
-        poly_obj.SetPolygon(i, c4d.CPolygon(idx, idx + 1, idx + 2, idx + 3))
-
-    poly_obj.Message(c4d.MSG_UPDATE)
-    return poly_obj
+    # Convert edges to stroke geometry
+    return edges_to_stroke_geometry(silhouette_edges, stroke_width, cam_pos)
 ```
 
-**Algorithm summary:**
+**Algorithm**:
 1. Get camera position
 2. Calculate face normals, dot with view direction → front/back classification
-3. Build edge→face mapping using `tuple(sorted(v1, v2))` as key
-4. Silhouette = edges where adjacent faces differ in facing
-5. Boundary = edges with only one face (include if front-facing)
-6. Output camera-facing quad per edge
+3. Edges where adjacent faces differ = silhouette
+4. Output as PolygonObject (camera-facing stroke geometry)
 
-**Properties:**
+**Properties**:
 - ✅ Real 3D geometry (morphable, clonable)
 - ✅ MoGraph compatible (generator re-evaluates per clone)
 - ✅ Camera-relative (updates as camera moves)
@@ -958,6 +752,125 @@ while child:
    - Cloner context: children are virtual but template is editable
 
 ## Session Log
+
+### 2025-01-10: Two-Layer Stroke Architecture ✅ VERIFIED
+
+**The Architecture:**
+
+```
+Layer 1: SilhouetteSplineGen
+├── Input: Mesh + Camera perspective
+├── Output: MoGraph-compatible SplineObject
+└── Use: Can feed into MoSpline, Spline Effector, morphing, etc.
+
+Layer 2: StrokeGen (Universal)
+├── Input: ANY spline (Circle, Arc, SilhouetteSpline, etc.)
+├── Output: Camera-facing polygon geometry
+└── Properties: Optimized quads, always faces camera, MoGraph compatible
+```
+
+**Why Two Layers:**
+1. Silhouette detection outputs a **spline** (not geometry) so it can be manipulated by C4D's native spline tools (MoSpline, Spline Effector, morphing)
+2. The stroke generator is **universal** - works on any spline, not just silhouettes
+3. Separation of concerns: silhouette detection vs stroke rendering
+
+**Working Code - SilhouetteSplineGen:**
+```python
+def main():
+    """Mesh → Silhouette Spline. MoGraph compatible."""
+    # Get camera and generator world matrix
+    cam_world = cam.GetMg().off
+    gen_mg = op.GetMg()  # Unique per clone in MoGraph!
+
+    # Get mesh points in world space
+    child_ml = child.GetMl()
+    world_points = [gen_mg * (child_ml * p) for p in mesh.GetAllPoints()]
+
+    # Classify faces as front/back facing
+    for poly in polys:
+        normal = calculate_normal(poly, world_points)
+        view_dir = (cam_world - center).GetNormalized()
+        face_facing.append(normal.Dot(view_dir) > 0)
+
+    # Find silhouette edges (where front meets back)
+    for edge, faces in edge_faces.items():
+        if face_facing[faces[0]] != face_facing[faces[1]]:
+            silhouette_edges.append(edge)
+
+    # Output as multi-segment spline (each edge = segment)
+    spline = c4d.SplineObject(point_count, c4d.SPLINETYPE_LINEAR)
+    spline.ResizeObject(point_count, num_segments)
+    # Transform back to generator local space
+    for edge in silhouette_edges:
+        spline.SetSegment(i, 2, False)  # 2 points, not closed
+
+    return spline
+```
+
+**Working Code - StrokeGen (Universal Spline → Geometry):**
+```python
+def main():
+    """Any Spline → Camera-facing stroke geometry. Universal."""
+    stroke_width = get_userdata("Stroke Width", default=3.0)
+    cam_world = cam.GetMg().off
+    gen_mg = op.GetMg()
+
+    # Handle both SplineObject and LineObject (cache type)
+    spline = child.GetCache() or child
+    is_spline = spline.IsInstanceOf(c4d.Ospline) or spline.GetType() == 5137
+
+    # Transform points to world space
+    world_points = [gen_mg * (child_ml * p) for p in spline.GetAllPoints()]
+
+    # Handle segmented splines (silhouette output has multiple segments)
+    for segment in segments:
+        for i in range(num_edges):
+            p1, p2 = segment[i], segment[(i+1) % len(segment)]
+
+            # Calculate camera-facing perpendicular
+            tangent = (p2 - p1).GetNormalized()
+            to_cam = (cam_world - midpoint).GetNormalized()
+            perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+            # Create quad in generator local space
+            gen_mg_inv = ~gen_mg
+            q0 = gen_mg_inv * (p1 - perp)
+            q1 = gen_mg_inv * (p1 + perp)
+            q2 = gen_mg_inv * (p2 + perp)
+            q3 = gen_mg_inv * (p2 - perp)
+
+            stroke_polys.append(quad)
+
+    return PolygonObject(stroke_points, stroke_polys)
+```
+
+**Key Implementation Details:**
+
+1. **LineObject (type 5137)** is the cache type for spline primitives - must check for this alongside `IsInstanceOf(c4d.Ospline)`
+
+2. **Closed spline detection** - for primitives like Circle, check type ID:
+   ```python
+   if child.GetType() in [5181, 5176, 5180, ...]:  # Circle, Flower, 4-Side, etc.
+       is_closed = True
+   ```
+
+3. **Multi-segment splines** - silhouette output has multiple segments (one per edge), must iterate:
+   ```python
+   for seg_i in range(spline.GetSegmentCount()):
+       seg_info = spline.GetSegment(seg_i)
+       # Process segment
+   ```
+
+4. **Coordinate spaces** - the key insight:
+   - Do silhouette detection in WORLD space (for camera perspective)
+   - Output geometry in GENERATOR LOCAL space (so MoGraph transforms work)
+   - Use `gen_mg_inv = ~gen_mg` to transform back
+
+**Verified in MoGraph Cloner:**
+- 3x3 grid of icosahedra
+- Each with unique perspective-correct silhouettes
+- Full pipeline: Cloner > StrokeGen > SilhouetteSplineGen > Mesh
+- ~15ms viewport preview for 9 objects
 
 ### 2025-01-10: Phase 3 - Primitive Handling
 **Key discoveries:**
