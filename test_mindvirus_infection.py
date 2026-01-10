@@ -51,6 +51,7 @@ class TestScene(ThreeDScene):
             stroke_width=3,
             z=400,  # Start behind
             scale=0.6,
+            generator_mode=True,  # Test generator mode
             name="MindVirus"
         )
 
@@ -59,7 +60,9 @@ class TestScene(ThreeDScene):
 
         # Check if virus.cube has generator_mode
         print(f"Virus cube type: {virus.cube.obj.GetTypeName()}")
+        print(f"Virus cube is generator: {virus.cube.obj.GetType() == 1023866}")
         print(f"Virus has fold_parameter: {hasattr(virus, 'fold_parameter')}")
+        print(f"Virus generator_mode: {virus.generator_mode}")
 
 if __name__ == "__main__":
     scene = TestScene()
