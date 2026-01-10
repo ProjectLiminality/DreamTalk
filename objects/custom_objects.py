@@ -1533,6 +1533,7 @@ class FoldableCube(CustomObject, GeneratorMixin):
         based on the Fold parameter. Each clone gets unique values via op.GetMg().
         """
         # Use name-based lookup for robustness (UserData IDs vary based on other parameters)
+        # Rotation axes match XPresso relations: Front/Back use ROT_P (Y), Right/Left use ROT_B (Z)
         return '''
 def main():
     # Read Fold parameter by name (robust to UserData ID changes)
@@ -1542,17 +1543,18 @@ def main():
     angle = fold * PI / 2  # -90 to +90 degrees
 
     # Modify axis children based on fold
+    # Front/Back rotate around Y (pitch), Right/Left rotate around Z (bank)
     child = op.GetDown()
     while child:
         name = child.GetName()
         if name == "FrontAxis":
-            child.SetRelRot(c4d.Vector(angle, 0, 0))
+            child.SetRelRot(c4d.Vector(0, angle, 0))   # ROT_P (Y)
         elif name == "BackAxis":
-            child.SetRelRot(c4d.Vector(-angle, 0, 0))
+            child.SetRelRot(c4d.Vector(0, -angle, 0))  # ROT_P (Y)
         elif name == "RightAxis":
-            child.SetRelRot(c4d.Vector(0, 0, -angle))
+            child.SetRelRot(c4d.Vector(0, 0, -angle))  # ROT_B (Z)
         elif name == "LeftAxis":
-            child.SetRelRot(c4d.Vector(0, 0, angle))
+            child.SetRelRot(c4d.Vector(0, 0, angle))   # ROT_B (Z)
         child = child.GetNext()
 
     return None
