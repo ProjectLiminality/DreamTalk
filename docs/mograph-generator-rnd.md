@@ -2,6 +2,370 @@
 
 This document captures the emerging vision for DreamTalk's architecture: **Python Generators as the universal container for visual holons**, enabling recursive composition and MoGraph compatibility.
 
+---
+
+## The Unified Vision: Dropping Sketch & Toon Entirely
+
+### The Radical Simplification
+
+We are **completely removing Sketch & Toon** from the DreamTalk universe. Everything becomes geometry + luminance materials, orchestrated by Python Generators.
+
+#### What We're Dropping
+- Sketch & Toon post-effect
+- Sketch materials
+- Sketch tags
+- All XPresso that drove Sketch parameters
+
+#### What Remains
+- **Luminance materials** for stroke color (already MoGraph-native via Color Shader/Fields)
+- **Geometry** for everything visible (strokes are swept splines or generated meshes)
+- **Python Generators** as the universal orchestrator
+
+#### Why This Works
+
+| Aspect | Old (Sketch & Toon) | New (Geometry Generators) |
+|--------|---------------------|---------------------------|
+| Render pipeline | Post-effect (separate pass) | Standard geometry render |
+| MoGraph compatibility | Material-level only | Fully per-clone |
+| Viewport feedback | Must render to see | Instant |
+| System complexity | Tags + Materials + XPresso | Just Python generators |
+| Performance | Baseline | 10-50x faster |
+| WebGL export | Impossible | Clean GLTF/USD |
+| Mental model | Multiple interacting systems | One unified system |
+
+### MoGraph-Native Color and Opacity
+
+**Color**: MoGraph Multi Shader or Fields can drive luminance material color per-clone. This already works.
+
+**Opacity**: Same mechanism - MoGraph can drive the Alpha/Transparency channel per-clone via:
+- MoGraph Multi Shader in Alpha channel
+- Fields driving transparency
+- Vertex alpha on generated geometry (Color Effector compatible)
+
+Both color and opacity are **fully MoGraph-native** when using standard materials on geometry.
+
+### The DreamTalkStroke Generator
+
+A unified generator that replaces all Sketch & Toon functionality:
+
+```
+DreamTalkStroke Generator
+├── Input: Any C4D object (spline, mesh, or generator)
+├── Detects type:
+│   ├── Spline → Sweep with profile, growth parameters
+│   ├── Mesh → Silhouette detection → Splines → Sweep
+│   └── Generator → Get cache, recurse
+├── Output: Optimized stroke geometry
+│   ├── Camera-facing polygons only
+│   ├── LOD based on distance
+│   └── Luminance material (color/alpha from UserData)
+└── MoGraph: Re-evaluates per clone with unique op.GetMg()
+```
+
+This becomes a **library primitive** - drop it on any object like you would a Sketch tag, but it outputs real geometry.
+
+### The Holon as Single Source of Truth
+
+The Python Generator consolidates EVERYTHING:
+
+```python
+class MindVirus(Holon):
+    def specify_parts(self):
+        self.cube = FoldableCube(...)
+        self.cable = Cable(...)
+
+    def specify_generator_code(self):
+        return '''
+def main():
+    fold = get_userdata("Fold")
+    color = get_userdata("Color")
+    opacity = get_userdata("Opacity")
+
+    # Structural relationships
+    set_child_rotation("FrontAxis", fold * PI/2)
+
+    # Stroke generation (replaces Sketch & Toon)
+    for child in get_children():
+        stroke_geo = generate_stroke(child, camera, thickness=2)
+        stroke_geo.set_color(color)
+        stroke_geo.set_alpha(opacity)
+
+    return None
+'''
+```
+
+The generator handles:
+- **Structural relationships** (fold, position, scale)
+- **Visual rendering** (stroke geometry generation)
+- **Parameter interface** (UserData)
+- **Holonic composition** (parent/child relationships)
+
+### Holarchy Flow
+
+UserData flows down through generators exactly as before:
+
+```
+Cloner (position varies per clone)
+  └── MindVirus Generator (reads position → fold, color, opacity)
+        ├── FoldableCube Generator (receives fold → axes rotation)
+        │     └── Stroke geometry (auto-generated, colored, alpha'd)
+        └── Cable Generator (receives growth → spline length)
+              └── Stroke geometry (auto-generated)
+```
+
+Each level:
+1. Receives parameters from parent (or position from Cloner)
+2. Applies structural relationships
+3. Generates its own stroke geometry
+4. Passes relevant parameters to children
+
+### The Secret Sauce
+
+**The Python Generator becomes the single point of truth.** Everything consolidates into code that is:
+
+- **Git-friendly**: Plain text Python, no binary XPresso or material data
+- **AI-readable/writable**: Claude can understand and modify the entire system
+- **MoGraph-native**: Generators re-evaluate per-clone with unique transforms
+- **Performant**: 10-50x faster than Sketch & Toon
+- **Exportable**: Real geometry exports cleanly to GLTF/USD/WebGL
+
+Sketch & Toon was always a bolted-on post-effect trying to fake something that should have been geometry. We're just... making it geometry.
+
+---
+
+## Technical Deep-Dive: Why Sketch & Toon Fails
+
+### The Problem with Sketch & Toon
+
+Sketch & Toon is a **post-effect** - it renders lines in 2D screen space after the 3D scene is computed. This creates fundamental limitations:
+
+1. **Not MoGraph-native**: Material properties (Draw, Color, Opacity) are document-level, not per-clone
+2. **No 3D geometry**: Lines exist only in the render, can't be morphed, swept, or used as real splines
+3. **Flickering/popping**: Post-effect nature causes instability during animation
+4. **Conflicts with other effects**: DOF, motion blur, reflections can break or conflict
+5. **Not real-time**: Requires full render pass, incompatible with viewport/WebGL workflows
+
+### The Solution: Geometry-Based Line Rendering
+
+**Core insight**: Replace post-effect line drawing with **real 3D spline geometry** that gets swept into visible strokes.
+
+#### Two Approaches
+
+| Aspect | Sweep NURBS (Simple) | Silhouette Generator (Advanced) |
+|--------|---------------------|--------------------------------|
+| **How it works** | Sweep a circle profile along existing splines | Python Generator detects silhouette edges from mesh, outputs splines |
+| **Draw animation** | Native Start/End Growth parameters | Spline point animation or growth |
+| **MoGraph compatible** | ✅ Geometry is per-clone | ✅ Generator re-evaluates per-clone |
+| **Real-time capable** | ✅ Viewport renders geometry | ✅ Viewport renders geometry |
+| **Perspective lines** | ❌ Only follows existing splines | ✅ Camera-relative silhouette detection |
+| **Morphable** | ✅ Real geometry | ✅ Real splines |
+| **Performance** | Fast (simple sweep) | Medium (per-frame calculation) |
+
+#### Sweep NURBS Pattern (Available Now)
+
+For primitives like Circle, this is already viable:
+
+```
+Circle Spline
+  └── Sweep NURBS
+        └── Profile (small circle/n-gon)
+        └── Luminance Material (stroke color)
+```
+
+- **Draw animation**: Use Sweep's Start Growth / End Growth
+- **MoGraph**: Each clone gets its own geometry, fully independent
+- **No Sketch & Toon needed**: Pure geometry + standard material
+
+#### Silhouette Generator Pattern (Future Development)
+
+For perspective-based outline rendering (what mtEdgeSpline from [Insydium MeshTools](https://insydium.ltd/products/meshtools/) does):
+
+```python
+# Python Generator that outputs silhouette splines
+def main():
+    camera = get_active_camera()
+    mesh = op.GetDown().GetCache()
+
+    # For each edge, check if adjacent faces have opposite view-facing
+    silhouette_edges = []
+    for edge in mesh.edges:
+        face_a, face_b = get_adjacent_faces(edge)
+        if is_front_facing(face_a, camera) != is_front_facing(face_b, camera):
+            silhouette_edges.append(edge)
+
+    # Convert edges to spline
+    return edges_to_spline(silhouette_edges)
+```
+
+**This is feasible with a Python Generator** - no compiled plugin needed. The algorithm:
+1. Get camera position/direction
+2. Calculate face normals for child mesh
+3. Dot product with view direction → front/back classification
+4. Edges where classification differs = silhouette
+5. Output as SplineObject
+
+The splines can then be swept, providing:
+- ✅ Real 3D geometry (morphable, clonable)
+- ✅ MoGraph compatible (generator re-evaluates per clone)
+- ✅ Camera-relative (updates as camera moves)
+- ✅ Viewport visible (real geometry, not post-effect)
+
+### The DreamTalk Plugin Vision
+
+Eventually, consolidate all Cinema 4D integration into a **DreamTalk Companion Plugin**:
+
+```
+DreamTalk Plugin
+├── MCP Server (current implementation, for AI communication)
+├── Silhouette Generator (camera-relative outline splines)
+├── Optimized Primitives (pre-built sweep-based strokes)
+└── DreamNode Loader (import symbols directly from git repos)
+```
+
+This ships WITH DreamTalk as a submodule, not as a separate purchase. The goal: **everything needed for the DreamTalk aesthetic without external plugin dependencies**.
+
+### Real-Time Rendering Path
+
+For increasingly real-time workflows while still in Cinema 4D:
+
+| Method | Speed | Quality | Use Case |
+|--------|-------|---------|----------|
+| Viewport (OpenGL) | ~60fps | Low | Positioning, timing |
+| Interactive Render Region | ~2-10fps | Medium | Lighting, material tweaks |
+| Full Render | Seconds/frame | High | Final output |
+
+**Key optimizations for IRR**:
+- Reduce Anti-Aliasing to Geometry mode
+- Disable Global Illumination during iteration
+- Use render regions to focus on specific areas
+- Bake complex simulations to keyframes
+
+### WebGL Migration Path
+
+The geometry-based approach directly enables WebGL/Three.js migration:
+
+```
+DreamTalk Symbol
+  └── Python Generator (C4D)
+        └── Outputs splines + sweep geometry
+              └── Export as GLTF/USD
+                    └── Load in Three.js/WebGL
+```
+
+Since strokes are real geometry (not post-effects), they export cleanly. The same mathematical definitions that drive the C4D generators can eventually drive WebGL equivalents directly.
+
+### Performance Breakdown: Sketch & Toon vs Geometry-Based Strokes
+
+#### How Each Pipeline Works
+
+**Sketch & Toon Pipeline** (per frame):
+```
+1. Render full 3D scene to depth/normal buffers
+2. Edge detection pass (image-space, ALL visible edges)
+3. Line tracing (convert detected edges to vector strokes)
+4. Stroke rendering (apply thickness, textures, effects)
+5. Composite onto final image
+```
+Cost scales with: **Screen resolution × edge complexity × stroke effects**
+
+The killer: Steps 2-4 happen in a black box. Every edge in the scene is evaluated, even ones you don't care about.
+
+**Geometry-Based Pipeline** (Silhouette Generator, per frame):
+```
+1. Get camera position (trivial)
+2. For each polygon: dot(normal, view_dir) → front/back (N polygons × 1 dot product)
+3. For each edge: check if adjacent faces differ (E edges × 1 comparison)
+4. Build spline from silhouette edges (S silhouette points)
+5. Sweep renders as normal geometry
+```
+Cost scales with: **Polygon count of SOURCE mesh** (not screen resolution)
+
+#### Scaling Characteristics
+
+| Factor | Sketch & Toon | Geometry Silhouette |
+|--------|---------------|---------------------|
+| **Screen resolution** | Linear cost increase | No impact |
+| **Source mesh complexity** | Exponential (traces ALL segments) | Linear (just dot products) |
+| **Number of objects** | Multiplicative | Additive (parallelizable) |
+| **Stroke effects** | Each effect = another pass | One-time geometry, material handles rest |
+| **MoGraph clones** | Same material = same render cost | Each clone = independent geometry |
+| **Viewport preview** | Requires render | Native viewport display |
+
+#### Concrete Estimates
+
+**Simple symbol** (e.g., FoldableCube, ~100 polygons):
+
+| Aspect | Sketch & Toon | Geometry Silhouette |
+|--------|---------------|---------------------|
+| Silhouette calculation | ~5-20ms (hidden in render) | <1ms (100 dot products) |
+| Render time per frame | 50-500ms | 5-20ms (just geometry) |
+| Viewport feedback | None (must render) | Instant |
+
+**Complex scene** (e.g., 50 MindViruses in Cloner, ~5000 polygons each):
+
+| Aspect | Sketch & Toon | Geometry Silhouette |
+|--------|---------------|---------------------|
+| Edge detection | Must process 250K polygons worth of screen edges | 50 generators × 5K dot products each |
+| Cloner behavior | All clones share material (no per-clone variation) | Each clone independent |
+| Total render | 2-10 seconds | 100-500ms |
+
+#### Camera-Optimal Geometry (Advanced Optimization)
+
+Beyond basic silhouette-to-sweep, a smarter approach:
+
+```
+Silhouette Generator outputs splines
+    ↓
+Stroke Generator takes splines + camera
+    ↓
+Outputs MINIMAL geometry that looks like the stroke
+    (only polygons facing camera, optimal subdivision)
+    ↓
+Standard material render (luminance = stroke color)
+```
+
+This is **camera-optimal geometry** - generating only the polygons that will actually be visible from the current camera angle (like game engine billboard/impostor rendering).
+
+Additional savings:
+- Backface culling is "free" - you never generate backfaces
+- LOD is automatic - distant strokes get fewer subdivisions
+- GPU handles final render natively
+
+#### Implementation Tiers
+
+| Scenario | Sketch & Toon | Geometry (Python) | Geometry (C++) |
+|----------|---------------|-------------------|----------------|
+| Simple symbol | 50-500ms | 5-20ms | <5ms |
+| Complex scene | 2-10s | 100-500ms | 20-100ms |
+| MoGraph 100 clones | Same cost (shared mat) | 100× single cost | 100× single cost |
+| Real-time viable | ❌ | Marginal | ✅ |
+| WebGL exportable | ❌ | ✅ | ✅ |
+
+**Bottom line**: Geometry approach is **10-50x faster** for typical DreamTalk use cases, with MoGraph compatibility, viewport preview, and export capability as bonuses.
+
+### C++ Plugin Translation Layer (Future)
+
+The ultimate optimization: compile DreamTalk holons to native C4D ObjectData plugins.
+
+```
+DreamTalk Python                    Compiled Plugin
+─────────────────                   ───────────────
+class MindVirus(Holon)      →       MindVirus ObjectData (C++)
+  - specify_parts()         →         Pre-built child structure
+  - specify_generator_code()→         Compiled generator logic
+  - UserData parameters     →         Native C4D parameters
+```
+
+Benefits:
+- **10-100x performance** on generator evaluation
+- **Native C4D integration** (appears in object menu, has icon)
+- **Distributable** to other C4D users without Python
+- **Still AI-readable** - DreamTalk Python remains source of truth
+
+This creates a path where DreamTalk symbols can be "published" as first-class C4D objects, useful both for our own complex scenes and potentially for the broader C4D plugin ecosystem.
+
+---
+
 ## The Vision
 
 ### DreamTalk = Visual Holons
