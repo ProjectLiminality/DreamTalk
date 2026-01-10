@@ -29,13 +29,16 @@ def main():
     """Convert any spline child to camera-facing stroke geometry. Universal."""
     doc = c4d.documents.GetActiveDocument()
 
-    # Get stroke width from UserData
+    # Get UserData parameters
     stroke_width = 3.0
+    draw_completion = 1.0
     ud = op.GetUserDataContainer()
     for desc_id, bc in ud:
-        if bc[c4d.DESC_NAME] == "Stroke Width":
+        name = bc[c4d.DESC_NAME]
+        if name == "Stroke Width":
             stroke_width = op[desc_id]
-            break
+        elif name == "Draw":
+            draw_completion = op[desc_id]
 
     # Get camera
     bd = doc.GetActiveBaseDraw()
@@ -130,7 +133,11 @@ def main():
     if seg_count <= 1:
         # Single segment or no segments
         num_pts = len(world_points)
-        num_edges = num_pts if is_closed else num_pts - 1
+        total_edges = num_pts if is_closed else num_pts - 1
+        # Limit edges based on draw completion (0-1)
+        num_edges = max(0, int(total_edges * draw_completion))
+        if num_edges == 0 and draw_completion > 0:
+            num_edges = 1  # Show at least one edge if any completion
 
         for i in range(num_edges):
             p1_world = world_points[i]
@@ -150,9 +157,26 @@ def main():
             stroke_points.extend([q0, q1, q2, q3])
             stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
     else:
-        # Multiple segments - process each
+        # Multiple segments - process each with draw completion
         pt_idx = 0
+        # Count total edges first
+        total_edges = 0
         for seg_i in range(seg_count):
+            seg_info = spline.GetSegment(seg_i)
+            seg_cnt = seg_info["cnt"]
+            seg_closed = seg_info["closed"]
+            total_edges += seg_cnt if seg_closed else seg_cnt - 1
+
+        # Calculate how many edges to draw based on completion
+        target_edges = max(0, int(total_edges * draw_completion))
+        if target_edges == 0 and draw_completion > 0:
+            target_edges = 1
+
+        edges_drawn = 0
+        for seg_i in range(seg_count):
+            if edges_drawn >= target_edges:
+                break
+
             seg_info = spline.GetSegment(seg_i)
             seg_cnt = seg_info["cnt"]
             seg_closed = seg_info["closed"]
@@ -162,8 +186,10 @@ def main():
 
             num_pts = len(seg_points)
             num_edges = num_pts if seg_closed else num_pts - 1
+            # Limit edges in this segment based on remaining budget
+            edges_this_seg = min(num_edges, target_edges - edges_drawn)
 
-            for i in range(num_edges):
+            for i in range(edges_this_seg):
                 p1_world = seg_points[i]
                 p2_world = seg_points[(i + 1) % num_pts]
 
@@ -180,6 +206,7 @@ def main():
                 base_idx = len(stroke_points)
                 stroke_points.extend([q0, q1, q2, q3])
                 stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+                edges_drawn += 1
 
     if not stroke_polys:
         return None
@@ -433,6 +460,7 @@ class StrokeGen:
     Args:
         child: A DreamTalk spline object (Circle, Arc, etc.) or c4d spline
         stroke_width: Width of the stroke in scene units (default 3.0)
+        draw: Draw completion 0-1, for animation (default 1.0)
         color: Stroke color (default BLACK)
         opacity: Stroke opacity 0-1 (default 1.0)
         name: Generator name
@@ -442,15 +470,19 @@ class StrokeGen:
         circle = Circle(radius=100)
         stroke = StrokeGen(circle, stroke_width=4, color=BLUE)
 
+        # Animate draw-on:
+        stroke = StrokeGen(circle, draw=0.5)  # Half drawn
+
         # Or wrap a silhouette:
         mesh = Icosahedron(radius=50)
         silhouette = SilhouetteSplineGen(mesh)
         stroke = StrokeGen(silhouette, stroke_width=3)
     """
 
-    def __init__(self, child=None, stroke_width=3.0, color=None, opacity=1.0,
+    def __init__(self, child=None, stroke_width=3.0, draw=1.0, color=None, opacity=1.0,
                  name=None, x=0, y=0, z=0, position=None):
         self.stroke_width = stroke_width
+        self.draw = draw
         self.color = color if color is not None else BLACK
         self.opacity = opacity
         self.child = child
@@ -500,6 +532,17 @@ class StrokeGen:
         self.stroke_width_id = self.obj.AddUserData(bc)
         self.obj[self.stroke_width_id] = self.stroke_width
 
+        # Add Draw UserData (0-1 completion for animation)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Draw"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.draw_id = self.obj.AddUserData(bc)
+        self.obj[self.draw_id] = self.draw
+
     def _insert_child(self, child):
         """Insert the child spline under the generator."""
         if hasattr(child, 'obj'):
@@ -527,6 +570,11 @@ class StrokeGen:
         """Update the stroke width."""
         self.stroke_width = width
         self.obj[self.stroke_width_id] = width
+
+    def set_draw(self, draw):
+        """Update the draw completion (0-1)."""
+        self.draw = draw
+        self.obj[self.draw_id] = draw
 
     def set_color(self, color):
         """Update the stroke color."""
@@ -627,6 +675,7 @@ class MeshStroke:
     Args:
         child: A DreamTalk mesh object or c4d mesh
         stroke_width: Width of the stroke (default 3.0)
+        draw: Draw completion 0-1 for animation (default 1.0)
         color: Stroke color (default BLACK)
         opacity: Stroke opacity 0-1 (default 1.0)
         name: Name for the stroke generator
@@ -637,8 +686,9 @@ class MeshStroke:
         stroked = MeshStroke(mesh, stroke_width=4, color=BLUE)
     """
 
-    def __init__(self, child=None, stroke_width=3.0, color=None, opacity=1.0,
+    def __init__(self, child=None, stroke_width=3.0, draw=1.0, color=None, opacity=1.0,
                  name=None, x=0, y=0, z=0, position=None):
+        self.draw = draw
         self.document = c4d.documents.GetActiveDocument()
 
         # Create silhouette generator (don't insert to doc yet)
@@ -675,6 +725,17 @@ class MeshStroke:
         self.stroke_width_id = self.obj.AddUserData(bc)
         self.obj[self.stroke_width_id] = stroke_width
 
+        # Add Draw UserData (0-1 completion for animation)
+        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        bc[c4d.DESC_NAME] = "Draw"
+        bc[c4d.DESC_DEFAULT] = 1.0
+        bc[c4d.DESC_MIN] = 0.0
+        bc[c4d.DESC_MAX] = 1.0
+        bc[c4d.DESC_STEP] = 0.01
+        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
+        self.draw_id = self.obj.AddUserData(bc)
+        self.obj[self.draw_id] = self.draw
+
         # Set name
         if name:
             self.obj.SetName(name)
@@ -707,6 +768,11 @@ class MeshStroke:
     def set_stroke_width(self, width):
         """Update the stroke width."""
         self.obj[self.stroke_width_id] = width
+
+    def set_draw(self, draw):
+        """Update the draw completion (0-1)."""
+        self.draw = draw
+        self.obj[self.draw_id] = draw
 
     def set_color(self, color):
         """Update the stroke color."""

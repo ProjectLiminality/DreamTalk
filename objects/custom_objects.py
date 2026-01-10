@@ -1454,15 +1454,17 @@ class FoldableCube(CustomObject, GeneratorMixin):
 
     Supports two modes:
     - Standard mode: Uses XPresso for relationships (default)
-    - Generator mode: Use create_as_generator() for MoGraph Cloner compatibility
+    - Generator mode (generator_mode=True): Uses Python Generator for MoGraph Cloner compatibility
+      and XPresso-free operation
     """
 
-    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, **kwargs):
+    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, generator_mode=False, **kwargs):
         self.color = color
         self.bottom = bottom
         self.drive_opacity = drive_opacity
         self.stroke_width = stroke_width
-        super().__init__(**kwargs)
+        # Pass generator_mode to parent class explicitly
+        super().__init__(generator_mode=generator_mode, **kwargs)
 
     def specify_parts(self):
         # Define the rectangles without positions
@@ -1491,40 +1493,168 @@ class FoldableCube(CustomObject, GeneratorMixin):
         self.parameters += [self.fold_parameter]
 
     def specify_relations(self):
-        # Relations for folding the rectangles into position to form the cube sides
-        self.front_relation = XRelation(part=self.front_axis, whole=self, desc_ids=[ROT_P],
-                                        parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
-        self.back_relation = XRelation(part=self.back_axis, whole=self, desc_ids=[ROT_P],
-                                       parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
-        self.right_relation = XRelation(part=self.right_axis, whole=self, desc_ids=[ROT_B],
-                                        parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
-        self.left_relation = XRelation(part=self.left_axis, whole=self, desc_ids=[ROT_B],
-                                       parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
+        if self.generator_mode:
+            # In generator mode, skip XPresso - Python Generator handles fold relations
+            pass
+        else:
+            # Standard mode: use XPresso for folding the rectangles
+            self.front_relation = XRelation(part=self.front_axis, whole=self, desc_ids=[ROT_P],
+                                            parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
+            self.back_relation = XRelation(part=self.back_axis, whole=self, desc_ids=[ROT_P],
+                                           parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
+            self.right_relation = XRelation(part=self.right_axis, whole=self, desc_ids=[ROT_B],
+                                            parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
+            self.left_relation = XRelation(part=self.left_axis, whole=self, desc_ids=[ROT_B],
+                                           parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
 
     def specify_creation(self):
-        # Define the creation action for the foldable cube
-        if self.drive_opacity:
-            movements = [
-                Movement(self.fold_parameter, (0, 1), output=(0, 1)),
-                Movement(self.front_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
-                Movement(self.back_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
-                Movement(self.right_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
-                Movement(self.left_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
-            ]
-            if self.bottom:
-                movements.append(Movement(self.bottom_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
-            creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+        if self.generator_mode:
+            # In generator mode, skip XAction - use keyframe-based create() instead
+            pass
         else:
-            movements = [
-                Movement(self.fold_parameter, (0, 1), output=(0, 1)),
-                Movement(self.front_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
-                Movement(self.back_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
-                Movement(self.right_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
-                Movement(self.left_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
-            ]
-            if self.bottom:
-                movements.append(Movement(self.bottom_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
-            creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+            # Standard mode: use XAction for creation timeline
+            if self.drive_opacity:
+                movements = [
+                    Movement(self.fold_parameter, (0, 1), output=(0, 1)),
+                    Movement(self.front_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
+                    Movement(self.back_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
+                    Movement(self.right_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
+                    Movement(self.left_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
+                ]
+                if self.bottom:
+                    movements.append(Movement(self.bottom_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
+                creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+            else:
+                movements = [
+                    Movement(self.fold_parameter, (0, 1), output=(0, 1)),
+                    Movement(self.front_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
+                    Movement(self.back_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
+                    Movement(self.right_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
+                    Movement(self.left_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
+                ]
+                if self.bottom:
+                    movements.append(Movement(self.bottom_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
+                creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+
+    def _convert_to_generator(self):
+        """Convert this FoldableCube to use a Python Generator instead of XPresso.
+
+        This wraps the null object in a Python Generator that reads the Fold
+        UserData parameter and sets child rotations accordingly.
+        """
+        from DreamTalk.generator import GENERATOR_IMPORTS
+
+        # Create the generator object
+        self.gen = c4d.BaseObject(1023866)  # Python Generator
+        self.gen.SetName(self.name)
+        self.gen[c4d.OPYTHON_CODE] = GENERATOR_IMPORTS + self.specify_generator_code()
+        self.gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph compatibility!
+
+        # Copy UserData from self.obj to generator
+        ud = self.obj.GetUserDataContainer()
+        for desc_id, bc in ud:
+            if bc[c4d.DESC_CUSTOMGUI] == c4d.CUSTOMGUI_SEPARATOR:
+                continue
+            new_id = self.gen.AddUserData(bc)
+            try:
+                self.gen[new_id] = self.obj[desc_id]
+            except:
+                pass
+
+        # Move children from self.obj to generator
+        children = []
+        child = self.obj.GetDown()
+        while child:
+            children.append(child)
+            child = child.GetNext()
+
+        for child in children:
+            child.Remove()
+            child.InsertUnder(self.gen)
+
+        # Replace self.obj in the document
+        self.gen.InsertAfter(self.obj)
+        self.obj.Remove()
+
+        # Update references
+        self.null_obj = self.obj  # Keep reference to original null
+        self.obj = self.gen  # Now self.obj is the generator
+
+        # Update fold_parameter desc_id to point to new generator's UserData
+        # Find the Fold parameter by name in the generator's UserData
+        ud = self.gen.GetUserDataContainer()
+        for desc_id, bc in ud:
+            if bc[c4d.DESC_NAME] == "Fold":
+                self.fold_parameter.desc_id = desc_id
+                break
+
+    def create(self, completion=1):
+        """Keyframe-based creation animation for generator mode.
+
+        In generator mode, this replaces XAction with direct keyframe animations.
+        """
+        if not self.generator_mode:
+            # Standard mode: use inherited create() which triggers XAction
+            return super().create(completion)
+
+        animations = []
+
+        # Creation parameter animation
+        creation_anim = ScalarAnimation(
+            target=self,
+            descriptor=self.creation_parameter.desc_id,
+            value_fin=completion
+        )
+        animations.append(creation_anim)
+
+        # Fold: 0 → completion over full timeline
+        fold_anim = ScalarAnimation(
+            target=self,
+            descriptor=self.fold_parameter.desc_id,
+            value_ini=0,
+            value_fin=completion,
+            rel_start=0,
+            rel_stop=1
+        )
+        animations.append(fold_anim)
+
+        # Rectangle opacity/creation animations (delayed start)
+        rectangles = [self.front_rectangle, self.back_rectangle,
+                      self.right_rectangle, self.left_rectangle]
+        if self.bottom:
+            rectangles.append(self.bottom_rectangle)
+
+        for rect in rectangles:
+            if self.drive_opacity:
+                rect_anim = ScalarAnimation(
+                    target=rect,
+                    descriptor=rect.opacity_parameter.desc_id,
+                    value_ini=0,
+                    value_fin=completion,
+                    rel_start=1/3,
+                    rel_stop=1
+                )
+            else:
+                rect_anim = ScalarAnimation(
+                    target=rect,
+                    descriptor=rect.creation_parameter.desc_id,
+                    value_ini=0,
+                    value_fin=completion,
+                    rel_start=1/3,
+                    rel_stop=1
+                )
+            animations.append(rect_anim)
+
+        # Set final values
+        self.obj[self.creation_parameter.desc_id] = completion
+        self.obj[self.fold_parameter.desc_id] = completion
+        for rect in rectangles:
+            if self.drive_opacity:
+                rect.obj[rect.opacity_parameter.desc_id] = completion
+            else:
+                rect.obj[rect.creation_parameter.desc_id] = completion
+
+        return AnimationGroup(*animations)
 
     def specify_generator_code(self):
         """Generator code for MoGraph Cloner compatibility.

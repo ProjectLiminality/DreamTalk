@@ -22,13 +22,16 @@ class Scene(ABC):
         save: Save render output (default: False)
         sketch_mode: Enable Sketch & Toon VideoPost (default: True)
             Set to False when using only stroke_mode objects for faster rendering.
+        generator_mode: Use Python Generators instead of XPresso (default: False)
+            Set to True for MoGraph compatibility and cleaner exports.
     """
 
-    def __init__(self, resolution="default", alpha=True, save=False, sketch_mode=True):
+    def __init__(self, resolution="default", alpha=True, save=False, sketch_mode=True, generator_mode=False):
         self.resolution = resolution
         self.alpha = alpha
         self.save = save
         self.sketch_mode = sketch_mode
+        self.generator_mode = generator_mode
         self.time_ini = None
         self.time_fin = None
         self.kill_old_document()
@@ -418,7 +421,7 @@ class TwoDScene(Scene):
     """a 2D scene uses a 2D camera setup"""
 
     def set_camera(self):
-        self.camera = TwoDCamera()
+        self.camera = TwoDCamera(generator_mode=self.generator_mode)
         # get basedraw of scene
         bd = self.document.GetActiveBaseDraw()
         # set camera of basedraw to scene camera
@@ -429,7 +432,7 @@ class ThreeDScene(Scene):
     """a 3D scene uses a 3D camera setup"""
 
     def set_camera(self):
-        self.camera = ThreeDCamera()
+        self.camera = ThreeDCamera(generator_mode=self.generator_mode)
         # get basedraw of scene
         bd = self.document.GetActiveBaseDraw()
         # set camera of basedraw to scene camera
