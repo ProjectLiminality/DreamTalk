@@ -753,6 +753,76 @@ while child:
 
 ## Session Log
 
+### 2025-01-10: Library Audit - Sketch & Toon / XPresso References
+
+**Summary**: 153 Sketch refs across 13 files, 70 XPresso refs across 20 files.
+
+#### Files to Refactor (Core Library)
+
+| File | Sketch | XPresso | Purpose | Refactor Strategy |
+|------|--------|---------|---------|-------------------|
+| `objects/abstract_objects.py` | 76 | 16 | Base classes (LineObject, SolidObject) | Replace SketchMaterial/Tag with StrokeGen |
+| `scene.py` | 16 | 0 | Scene setup, render settings | Remove Sketch VideoPost, use Standard renderer |
+| `materials.py` | 2 | 0 | SketchMaterial class | Replace with luminance material helper |
+| `tags.py` | 3 | 2 | SketchTag, XPressoTag classes | Remove SketchTag, keep XPressoTag for legacy |
+| `animation/sketch_animators.py` | 3 | 0 | Draw/Complete animators | Replace with geometry-based animation |
+| `objects/sketch_objects.py` | 19 | 2 | Sketch-specific objects | Remove entire file |
+| `xpresso/` directory | 0 | 5+ | XPresso system | Keep for legacy, deprecate in favor of generators |
+| `introspection/hierarchy.py` | 14 | 9 | Scene analysis | Update to detect generators instead of XPresso |
+
+#### Key Classes to Replace
+
+1. **SketchMaterial** (`materials.py:37-89`)
+   - Creates Sketch & Toon material (ID 1011014)
+   - Replace with: Luminance material + MoGraph Multi Shader for color/opacity
+
+2. **SketchTag** (`tags.py:54-128`)
+   - Creates Sketch Style tag (ID 1011012)
+   - Replace with: StrokeGen Python Generator
+
+3. **LineObject.set_sketch_material()** (`objects/abstract_objects.py`)
+   - Sets up Sketch material/tag on splines
+   - Replace with: Wrap in StrokeGen
+
+4. **SolidObject.sketch_material/sketch_tag** (`objects/abstract_objects.py`)
+   - Sketch rendering for 3D objects
+   - Replace with: Wrap in SilhouetteSplineGen → StrokeGen
+
+5. **Scene.set_sketch_settings()** (`scene.py:376-397`)
+   - Adds Sketch VideoPost to render settings
+   - Replace with: Remove entirely (geometry renders with Standard)
+
+#### XPresso Patterns to Replace
+
+1. **XPressoTag** (`tags.py:146-168`) - Keep for legacy, deprecate
+2. **XIdentity/XRelation** (`xpresso/xpressions.py`) - Replace with generator code
+3. **specify_relations()** pattern - Replace with `specify_generator_code()`
+4. **Parameter linking** - Replace with UserData + generator reads
+
+#### Refactor Order (Recommended)
+
+1. **Phase 1: New Primitives**
+   - Add `StrokeGen` class that wraps any spline child
+   - Add `SilhouetteSplineGen` class that converts mesh to silhouette spline
+   - These become new library primitives alongside Circle, Cube, etc.
+
+2. **Phase 2: Deprecate Old System**
+   - Add `generator_mode=True` as default on CustomObject
+   - Make SketchMaterial/SketchTag raise deprecation warnings
+   - Update LineObject/SolidObject to use StrokeGen when `generator_mode=True`
+
+3. **Phase 3: Remove Old System**
+   - Delete `materials.py:SketchMaterial`
+   - Delete `tags.py:SketchTag`
+   - Delete `animation/sketch_animators.py`
+   - Delete `objects/sketch_objects.py`
+   - Remove Sketch VideoPost from `scene.py`
+
+4. **Phase 4: XPresso Cleanup**
+   - Move `xpresso/` to `xpresso_legacy/`
+   - Update all holons to use generator code
+   - Remove XPresso import from `imports.py`
+
 ### 2025-01-10: Two-Layer Stroke Architecture ✅ VERIFIED
 
 **The Architecture:**
