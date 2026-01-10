@@ -245,3 +245,29 @@ Nested DreamTalk submodules remain as pointers (sovereignty preserved) but aren'
 | Dynamic web | MP4 H.264 | InterBrain, web |
 
 Always use Standard renderer (not Redshift) for Sketch & Toon.
+
+## Cinema 4D Gotchas (Common Bugs)
+
+### MoGraph Cloner Default Mode
+**Bug**: Cloner defaults to "Object" mode (mode 0), which requires a target object to clone onto. Without a target, no clones appear.
+
+**Fix**: Always explicitly set cloner mode when creating:
+```python
+cloner[c4d.ID_MG_MOTIONGENERATOR_MODE] = 2  # Grid Array
+# OR
+cloner[c4d.ID_MG_MOTIONGENERATOR_MODE] = 1  # Linear (note: use MG_LINEAR_COUNT, not ID constant)
+```
+
+Mode values: 0=Object, 1=Linear, 2=Grid Array, 3=Radial, 4=Honeycomb
+
+### Generator Cache Returns None Inside Cloner
+**Bug**: When a Python Generator is a child of a MoGraph Cloner, `child.GetCache()` returns `None` for parametric objects (Sphere, Cube, etc.) inside the generator.
+
+**Cause**: The cloner's virtual cloning doesn't fully evaluate nested caches.
+
+**Workarounds**:
+1. Use polygon-based primitives (Platonic, or pre-converted objects) instead of parametric primitives
+2. Use `SendModelingCommand` to force polygon conversion
+3. Check for None and handle gracefully
+
+**Note**: This is a false positive in `describe_scene()` validation - generators inside Cloners legitimately show cache=None for the master template.
