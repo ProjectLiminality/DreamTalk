@@ -36,6 +36,7 @@ import DreamTalk.objects.effect_objects
 import DreamTalk.objects.line_objects
 import DreamTalk.objects.solid_objects
 import DreamTalk.objects.sketch_objects
+import DreamTalk.objects.stroke_objects
 import DreamTalk.constants
 import DreamTalk.xpresso.xpresso
 import DreamTalk.xpresso.xpressions
@@ -59,6 +60,7 @@ reload(DreamTalk.objects.effect_objects)
 reload(DreamTalk.objects.line_objects)
 reload(DreamTalk.objects.solid_objects)
 reload(DreamTalk.objects.sketch_objects)
+reload(DreamTalk.objects.stroke_objects)
 reload(DreamTalk.constants)
 reload(DreamTalk.xpresso.xpresso)
 reload(DreamTalk.xpresso.xpressions)
@@ -77,6 +79,7 @@ from DreamTalk.objects.effect_objects import *
 from DreamTalk.objects.line_objects import *
 from DreamTalk.objects.solid_objects import *
 from DreamTalk.objects.sketch_objects import *
+from DreamTalk.objects.stroke_objects import *
 from DreamTalk.constants import *
 from DreamTalk.xpresso.xpresso import *
 from DreamTalk.xpresso.xpressions import *
