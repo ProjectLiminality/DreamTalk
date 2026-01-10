@@ -1532,13 +1532,13 @@ class FoldableCube(CustomObject, GeneratorMixin):
         This code runs inside the Python Generator and modifies children
         based on the Fold parameter. Each clone gets unique values via op.GetMg().
         """
-        # UserData ID 1 is always the first parameter (Fold)
-        # Standard format: c4d.ID_USERDATA container (700) with sub-ID 1
+        # Use name-based lookup for robustness (UserData IDs vary based on other parameters)
         return '''
 def main():
-    # Read Fold parameter (UserData ID 1) - UBipolar: -1 to 1
-    fold = op[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),
-                        c4d.DescLevel(1, c4d.DTYPE_REAL, 0))]
+    # Read Fold parameter by name (robust to UserData ID changes)
+    fold = get_userdata_by_name(op, "Fold")
+    if fold is None:
+        fold = 0.0
     angle = fold * PI / 2  # -90 to +90 degrees
 
     # Modify axis children based on fold

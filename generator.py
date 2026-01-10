@@ -25,6 +25,17 @@ import math
 GENERATOR_IMPORTS = '''import c4d
 import math
 PI = math.pi
+
+def get_userdata_by_name(obj, param_name):
+    """Find UserData value by parameter name."""
+    ud = obj.GetUserDataContainer()
+    for desc_id, bc in ud:
+        if bc[c4d.DESC_NAME] == param_name:
+            try:
+                return obj[desc_id]
+            except:
+                return None
+    return None
 '''
 
 
@@ -106,12 +117,11 @@ def main():
 
         # Generate parameter reading code
         for param_name, param in params_to_read:
-            # UserData ID - need to determine the index
-            # For now, use a simple approach: first param is ID 1, etc.
-            param_idx = self.parameters.index(param) + 1 if param in self.parameters else 1
-            code_lines.append(f'    # Read {param.name} parameter (UserData ID {param_idx})')
-            code_lines.append(f'    {param_name} = op[c4d.DescID(c4d.DescLevel(c4d.ID_USERDATA, c4d.DTYPE_SUBCONTAINER, 0),')
-            code_lines.append(f'                        c4d.DescLevel({param_idx}, c4d.DTYPE_REAL, 0))]')
+            # Use name-based lookup for robustness
+            code_lines.append(f'    # Read {param.name} parameter')
+            code_lines.append(f'    {param_name} = get_userdata_by_name(op, "{param.name}")')
+            code_lines.append(f'    if {param_name} is None:')
+            code_lines.append(f'        {param_name} = 0.0  # fallback')
             code_lines.append('')
 
         # Generate child traversal and update code
@@ -158,16 +168,17 @@ def main():
 
     def _build_generator_code(self):
         """Build complete generator code including imports."""
-        # Try auto-generation first
-        auto_code = self._auto_generate_code_from_relations()
-        if auto_code and 'return None' in auto_code:
-            return GENERATOR_IMPORTS + '\n' + auto_code
-
-        # Fall back to manual specify_generator_code if defined
+        # PREFER manual specify_generator_code if defined (more reliable)
         if hasattr(self, 'specify_generator_code'):
             user_code = self.specify_generator_code()
-            if user_code:
+            if user_code and user_code.strip():
                 return GENERATOR_IMPORTS + '\n' + user_code
+
+        # Fall back to auto-generation from relations
+        auto_code = self._auto_generate_code_from_relations()
+        if auto_code and 'child = op.GetDown()' in auto_code:
+            # Only use auto-generated code if it actually does something
+            return GENERATOR_IMPORTS + '\n' + auto_code
 
         # Default: minimal pass-through
         return GENERATOR_IMPORTS + '''

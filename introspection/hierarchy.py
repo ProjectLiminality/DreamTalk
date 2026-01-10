@@ -86,6 +86,10 @@ def detect_dreamtalk_class(obj):
     if obj_type == _get_c4d_type('Olight'):
         return "Light"
 
+    # Python Generator (holon container)
+    if obj_type == 1023866:
+        return "Generator"
+
     # Check userdata for DreamTalk signatures
     groups = get_userdata_groups(obj)
 
@@ -731,6 +735,12 @@ def validate_scene(doc=None):
                         break
                 if not has_material:
                     warnings.append(f"'{name}' ({obj_type}) has no material assigned")
+
+            # Check for Python Generator errors (red icon = no cache)
+            if obj.GetType() == 1023866:  # Python Generator
+                cache = obj.GetCache()
+                if cache is None:
+                    issues.append(f"'{name}' (Python Generator) has error - no cache produced")
 
             # Check for 0 creation on DreamTalk objects
             creation = get_userdata_value(obj, "Actions", "Creation")
