@@ -189,24 +189,37 @@ def main():
 
 ## Implementation Roadmap
 
-### Phase 1: MoGraph Integration (Current)
+### Phase 1: MoGraph Integration ✅ COMPLETE
 
 **Goal**: Full compatibility with Cinema 4D's MoGraph system - Cloners, Effectors, Fields.
 
-- [ ] Test minimal `return None` generator in Cloner
-- [ ] Verify children remain visible per-clone
-- [ ] Confirm position-based parameter variation works
-- [ ] Test Field sampling from generator code
-- [ ] Test Effector influence on generator parameters
-- [ ] Document the complete MoGraph workflow
+- [x] Test minimal `return None` generator in Cloner
+- [x] Verify children remain visible per-clone
+- [x] Confirm position-based parameter variation works
+- [x] Test Field sampling from generator code (distance-based falloff works)
+- [x] Test Effector influence - generators see pre-effector positions (limitation documented)
+- [x] Document the complete MoGraph workflow
 
-### Phase 2: Nested Holons
+**Key discovery**: Generators execute BEFORE effectors, so use Fields for spatial influence instead.
+
+### Phase 2: Nested Holons ✅ COMPLETE
 
 **Goal**: Prove recursive composition works - a generator containing generators.
 
-- [ ] Create simple two-level test (e.g., FoldableCube inside MindVirus)
-- [ ] Verify parent can pass parameters to child generators via UserData
-- [ ] Test in Cloner - do nested generators also re-evaluate per-clone?
+- [x] Create simple two-level test (CubeTriad containing 3 FoldableCubes)
+- [x] Verify parent can pass parameters to child generators via UserData
+- [x] Test in Cloner - nested generators re-evaluate per-clone ✅
+
+**Results**: Full holarchic pattern verified:
+```
+Cloner
+  └── CubeTriad (parent generator) - reads Y position
+        ├── Cube1 (child generator) - receives fold value
+        ├── Cube2 (child generator) - receives fold value
+        └── Cube3 (child generator) - receives fold value
+```
+
+Each clone gets unique position → parent calculates fold → passes to all children → children apply to their structure. Three levels of hierarchy working together.
 
 ### Phase 3: Primitive Handling
 
@@ -256,9 +269,22 @@ mg = op.GetMg()
 world_pos = mg.off  # c4d.Vector
 ```
 
-**Pass value to child generator's UserData:**
+**Pass value to child generator's UserData (by name):**
 ```python
-child_gen[c4d.DescID(...)] = value
+def set_userdata_by_name(obj, param_name, value):
+    """Set UserData value by parameter name."""
+    ud = obj.GetUserDataContainer()
+    for desc_id, bc in ud:
+        if bc[c4d.DESC_NAME] == param_name:
+            obj[desc_id] = value
+            return True
+    return False
+
+# In parent generator's main():
+child = op.GetDown()
+while child:
+    set_userdata_by_name(child, "Fold", fold_value)
+    child = child.GetNext()
 ```
 
 ### MoGraph Cloner Modes
@@ -285,16 +311,34 @@ child_gen[c4d.DescID(...)] = value
 
 ## Session Log
 
-### 2025-01-10: MoGraph Integration Testing
+### 2025-01-10: Phase 2 - Nested Holons
+**Verified working:**
+- Generator containing generators (CubeTriad with 3 FoldableCube children)
+- Parent passes parameters to child generators via `set_userdata_by_name()`
+- Nested holons work inside Cloners - each clone gets unique hierarchy
+- Three-level hierarchy: Cloner → Parent Generator → Child Generators
+- Position-based variation cascades through entire holarchy
+
+**Pattern established:**
+```
+Parent reads position → calculates value → passes to children → children apply internally
+```
+
+### 2025-01-10: Phase 1 - MoGraph Integration Testing
 **Verified working:**
 - `return None` generators work in Cloners - children visible per-clone
 - Position-based parameter variation (rotation/scale based on X position)
 - Field-driven parameters via distance calculation to external objects
 - Dynamic response - moving field updates all clones in real-time
+- Name-based UserData lookup for robust parameter access
 
 **Discovered limitation:**
 - Generators execute BEFORE effectors - cannot see effector-modified transforms
 - For effector integration, need Python Effector or field-based approach
+
+**Fixed:**
+- FoldableCube rotation axes (Front/Back use Y, Right/Left use Z)
+- Generator error detection in describe_scene (cache=None = error)
 
 ### 2025-01-10: Vision Clarification
 - Articulated holonic architecture vision
