@@ -915,53 +915,139 @@ def inspect_xpresso(obj):
     return result
 
 
+def _capture_native_params(obj):
+    """
+    Capture all native C4D parameters for an object.
+
+    Only captures serializable types (int, float, bool, str, Vector).
+    Used for silent delta tracking - not displayed unless changed.
+
+    Returns:
+        dict with:
+        - 'values': dict mapping DescID string to current value
+        - 'meta': dict mapping DescID string to metadata (name, cycle options)
+    """
+    values = {}
+    meta = {}
+
+    try:
+        desc = obj.GetDescription(c4d.DESCFLAGS_DESC_NONE)
+
+        for bc, paramid, groupid in desc:
+            # Skip container/group types that aren't actual values
+            dtype = bc.GetInt32(c4d.DESC_CUSTOMGUI)
+            if dtype in [0]:  # Skip pure groups
+                continue
+
+            param_key = str(paramid)
+
+            try:
+                value = obj[paramid]
+
+                # Only capture serializable types
+                if isinstance(value, (int, float, bool)):
+                    values[param_key] = value
+                elif isinstance(value, str):
+                    # Skip very long strings (likely code blocks)
+                    if len(value) < 200:
+                        values[param_key] = value
+                elif isinstance(value, c4d.Vector):
+                    values[param_key] = (round(value.x, 4), round(value.y, 4), round(value.z, 4))
+                elif value is None:
+                    values[param_key] = None
+                else:
+                    continue  # Skip other complex types
+
+                # Capture metadata for this parameter
+                param_meta = {}
+
+                # Parameter name from UI
+                name = bc.GetString(c4d.DESC_NAME)
+                if name:
+                    param_meta["name"] = name
+
+                # Internal ID name (e.g., "ID_MG_MOTIONGENERATOR_MODE")
+                ident = bc.GetString(999)  # 999 holds the identifier string
+                if ident:
+                    param_meta["ident"] = ident
+
+                # Cycle/enum values (dropdown options)
+                cycle = bc.GetContainer(c4d.DESC_CYCLE)
+                if cycle:
+                    options = {}
+                    for i, label in cycle:
+                        options[i] = label
+                    if options:
+                        param_meta["options"] = options
+
+                if param_meta:
+                    meta[param_key] = param_meta
+
+            except:
+                pass  # Skip unreadable parameters
+    except:
+        pass  # Object doesn't support description iteration
+
+    return {"values": values, "meta": meta}
+
+
 def get_scene_snapshot(doc=None):
     """
-    Create a snapshot of scene state including transforms, userdata, and materials.
+    Create a snapshot of scene state for change detection.
 
-    Used for scene diffing - compare before and after states.
-    Captures:
-    - Object transforms (position, rotation, scale)
-    - Userdata parameters
-    - Sketch & Toon material properties
+    Captures two levels of data:
+    1. DreamTalk data (always shown): transforms, userdata, sketch tags
+    2. Native C4D params (silent): ALL object parameters, only surfaced on delta
+
+    Objects are tracked by GUID for stable identity across renames.
 
     Args:
         doc: Cinema 4D document (defaults to active document)
 
     Returns:
-        dict with 'objects' and 'materials' snapshots
+        dict with 'objects' and 'materials' snapshots, keyed by GUID
     """
     if doc is None:
         doc = c4d.documents.GetActiveDocument()
 
-    snapshot = {"objects": {}, "materials": {}}
+    snapshot = {
+        "objects": {},      # Keyed by GUID
+        "materials": {},    # Keyed by name (materials don't have stable GUIDs)
+        "guid_to_name": {}  # For display purposes
+    }
 
     def capture_object(obj):
         while obj:
+            obj_guid = str(obj.GetGUID())
             obj_name = obj.GetName()
-            flat_data = {}
+
+            # Store GUID -> name mapping for display
+            snapshot["guid_to_name"][obj_guid] = obj_name
+
+            # DreamTalk data (always shown)
+            dreamtalk_data = {}
 
             # Capture transform
             pos = obj.GetAbsPos()
             rot = obj.GetAbsRot()
             scale = obj.GetAbsScale()
 
-            flat_data["transform.x"] = round(pos.x, 2)
-            flat_data["transform.y"] = round(pos.y, 2)
-            flat_data["transform.z"] = round(pos.z, 2)
+            dreamtalk_data["transform.x"] = round(pos.x, 2)
+            dreamtalk_data["transform.y"] = round(pos.y, 2)
+            dreamtalk_data["transform.z"] = round(pos.z, 2)
 
             # Only include rotation if non-zero
             import math
             if abs(rot.x) > 0.001 or abs(rot.y) > 0.001 or abs(rot.z) > 0.001:
-                flat_data["transform.h"] = round(math.degrees(rot.x), 2)
-                flat_data["transform.p"] = round(math.degrees(rot.y), 2)
-                flat_data["transform.b"] = round(math.degrees(rot.z), 2)
+                dreamtalk_data["transform.h"] = round(math.degrees(rot.x), 2)
+                dreamtalk_data["transform.p"] = round(math.degrees(rot.y), 2)
+                dreamtalk_data["transform.b"] = round(math.degrees(rot.z), 2)
 
             # Only include scale if non-uniform
             if abs(scale.x - 1) > 0.001 or abs(scale.y - 1) > 0.001 or abs(scale.z - 1) > 0.001:
-                flat_data["transform.scale_x"] = round(scale.x, 3)
-                flat_data["transform.scale_y"] = round(scale.y, 3)
-                flat_data["transform.scale_z"] = round(scale.z, 3)
+                dreamtalk_data["transform.scale_x"] = round(scale.x, 3)
+                dreamtalk_data["transform.scale_y"] = round(scale.y, 3)
+                dreamtalk_data["transform.scale_z"] = round(scale.z, 3)
 
             # Capture userdata
             userdata = get_all_userdata(obj)
@@ -974,7 +1060,7 @@ def get_scene_snapshot(doc=None):
                             value = (value['x'], value['y'], value['z'])
                     if isinstance(value, float):
                         value = round(value, 4)
-                    flat_data[key] = value
+                    dreamtalk_data[key] = value
 
             # Capture Sketch Style Tag properties (Tsketchstyle = 1011012)
             for tag in obj.GetTags():
@@ -985,37 +1071,44 @@ def get_scene_snapshot(doc=None):
                     # Material links
                     try:
                         visible_mat = tag[10071]  # Default Visible
-                        flat_data[f"{prefix}.visible_material"] = visible_mat.GetName() if visible_mat else None
+                        dreamtalk_data[f"{prefix}.visible_material"] = visible_mat.GetName() if visible_mat else None
                     except: pass
                     try:
                         hidden_mat = tag[10072]  # Default Hidden
-                        flat_data[f"{prefix}.hidden_material"] = hidden_mat.GetName() if hidden_mat else None
+                        dreamtalk_data[f"{prefix}.hidden_material"] = hidden_mat.GetName() if hidden_mat else None
                     except: pass
 
                     # Line types enabled
-                    try: flat_data[f"{prefix}.outline"] = bool(tag[10001])
+                    try: dreamtalk_data[f"{prefix}.outline"] = bool(tag[10001])
                     except: pass
-                    try: flat_data[f"{prefix}.folds"] = bool(tag[10002])
+                    try: dreamtalk_data[f"{prefix}.folds"] = bool(tag[10002])
                     except: pass
-                    try: flat_data[f"{prefix}.creases"] = bool(tag[10005])
+                    try: dreamtalk_data[f"{prefix}.creases"] = bool(tag[10005])
                     except: pass
-                    try: flat_data[f"{prefix}.contour"] = bool(tag[10010])
+                    try: dreamtalk_data[f"{prefix}.contour"] = bool(tag[10010])
                     except: pass
-                    try: flat_data[f"{prefix}.splines"] = bool(tag[10013])
+                    try: dreamtalk_data[f"{prefix}.splines"] = bool(tag[10013])
                     except: pass
 
                     # Contour settings (only if contour enabled)
                     if tag[10010]:  # Contour enabled
-                        try: flat_data[f"{prefix}.contour_mode"] = tag[11000]  # 0=Angle, 1=Position, 2=UVW
+                        try: dreamtalk_data[f"{prefix}.contour_mode"] = tag[11000]  # 0=Angle, 1=Position, 2=UVW
                         except: pass
-                        try: flat_data[f"{prefix}.contour_position"] = tag[11002]  # 0=Object X, 1=Y, 2=Z
+                        try: dreamtalk_data[f"{prefix}.contour_position"] = tag[11002]  # 0=Object X, 1=Y, 2=Z
                         except: pass
-                        try: flat_data[f"{prefix}.contour_spacing_type"] = tag[11014]  # 0=Relative, 1=Absolute
+                        try: dreamtalk_data[f"{prefix}.contour_spacing_type"] = tag[11014]  # 0=Relative, 1=Absolute
                         except: pass
-                        try: flat_data[f"{prefix}.contour_step"] = round(tag[11016], 2)  # Step value
+                        try: dreamtalk_data[f"{prefix}.contour_step"] = round(tag[11016], 2)  # Step value
                         except: pass
 
-            snapshot["objects"][obj_name] = flat_data
+            # Native C4D params (silent - only surfaced on delta)
+            native_params = _capture_native_params(obj)
+
+            snapshot["objects"][obj_guid] = {
+                "name": obj_name,
+                "dreamtalk": dreamtalk_data,
+                "native": native_params
+            }
 
             # Recurse
             capture_object(obj.GetDown())
@@ -1077,6 +1170,7 @@ def diff_scene(doc=None):
     Detects changes to:
     - Object transforms (position, rotation, scale)
     - Userdata parameters
+    - Native C4D parameters (only on delta)
     - Material properties (especially Sketch & Toon)
 
     Args:
@@ -1101,75 +1195,47 @@ def diff_scene(doc=None):
             "materials_tracked": len(current["materials"])
         }
 
-    changes = {
-        "objects": {"modified": {}, "added": {}, "removed": {}},
-        "materials": {"modified": {}, "added": {}, "removed": {}}
-    }
-
-    def diff_dict(current_dict, old_dict, changes_dict):
-        """Compare two dictionaries and populate changes."""
-        # Find modifications and additions
-        for name, params in current_dict.items():
-            if name not in old_dict:
-                changes_dict["added"][name] = params
-            else:
-                old_params = old_dict[name]
-                item_changes = {}
-
-                for param, value in params.items():
-                    if param not in old_params:
-                        item_changes[param] = {"new": value, "old": None}
-                    elif old_params[param] != value:
-                        item_changes[param] = {"old": old_params[param], "new": value}
-
-                if item_changes:
-                    changes_dict["modified"][name] = item_changes
-
-        # Find removals
-        for name in old_dict:
-            if name not in current_dict:
-                changes_dict["removed"][name] = old_dict[name]
-
-    # Diff objects and materials
-    diff_dict(current["objects"], _last_snapshot["objects"], changes["objects"])
-    diff_dict(current["materials"], _last_snapshot["materials"], changes["materials"])
+    # Use the shared diff function
+    diff_result = _compute_diff(_last_snapshot, current)
 
     # Update snapshot for next diff
     _last_snapshot = current
 
     # Build summary
     summary_parts = []
+    changes = diff_result["changes"]
 
     # Object changes
     obj_changes = changes["objects"]
-    if obj_changes["modified"]:
-        for obj, params in obj_changes["modified"].items():
+    if obj_changes.get("dreamtalk_modified"):
+        for obj, params in obj_changes["dreamtalk_modified"].items():
             for param, vals in params.items():
                 summary_parts.append(f"{obj}.{param}: {vals['old']} → {vals['new']}")
-    if obj_changes["added"]:
-        summary_parts.append(f"Added objects: {', '.join(obj_changes['added'].keys())}")
-    if obj_changes["removed"]:
-        summary_parts.append(f"Removed objects: {', '.join(obj_changes['removed'].keys())}")
+
+    if obj_changes.get("native_modified"):
+        for obj, params in obj_changes["native_modified"].items():
+            for desc_id, vals in params.items():
+                summary_parts.append(f"{obj} [DescID {desc_id}]: {vals['old']} → {vals['new']}")
+
+    if obj_changes.get("added"):
+        summary_parts.append(f"Added objects: {', '.join(obj_changes['added'])}")
+    if obj_changes.get("removed"):
+        summary_parts.append(f"Removed objects: {', '.join(obj_changes['removed'])}")
 
     # Material changes
     mat_changes = changes["materials"]
-    if mat_changes["modified"]:
+    if mat_changes.get("modified"):
         for mat, params in mat_changes["modified"].items():
             for param, vals in params.items():
                 summary_parts.append(f"Material {mat}.{param}: {vals['old']} → {vals['new']}")
-    if mat_changes["added"]:
-        summary_parts.append(f"Added materials: {', '.join(mat_changes['added'].keys())}")
-    if mat_changes["removed"]:
-        summary_parts.append(f"Removed materials: {', '.join(mat_changes['removed'].keys())}")
-
-    total_changes = (
-        len(obj_changes["modified"]) + len(obj_changes["added"]) + len(obj_changes["removed"]) +
-        len(mat_changes["modified"]) + len(mat_changes["added"]) + len(mat_changes["removed"])
-    )
+    if mat_changes.get("added"):
+        summary_parts.append(f"Added materials: {', '.join(mat_changes['added'])}")
+    if mat_changes.get("removed"):
+        summary_parts.append(f"Removed materials: {', '.join(mat_changes['removed'])}")
 
     return {
         "changes": changes,
-        "total_changes": total_changes,
+        "total_changes": diff_result["total_changes"],
         "summary": "; ".join(summary_parts) if summary_parts else "No changes detected"
     }
 
@@ -1179,3 +1245,210 @@ def reset_snapshot():
     global _last_snapshot
     _last_snapshot = None
     return {"status": "reset", "message": "Snapshot cleared"}
+
+
+def describe_scene(doc=None):
+    """
+    Universal scene introspection with automatic change detection.
+
+    Combines all introspection capabilities into one call:
+    - Scene metadata (fps, frame range, current frame)
+    - Full object hierarchy with DreamTalk semantics
+    - All UserData parameters with current values
+    - Materials and their assignments
+    - Animation keyframes summary
+    - Validation warnings
+    - Changes since last call (auto-diffing)
+
+    Auto-snapshots after each call for change detection on next call.
+
+    Args:
+        doc: Cinema 4D document (defaults to active document)
+
+    Returns:
+        dict with complete scene state and any changes detected
+    """
+    global _last_snapshot
+
+    if doc is None:
+        doc = c4d.documents.GetActiveDocument()
+
+    # Get current snapshot for diffing
+    current_snapshot = get_scene_snapshot(doc)
+
+    # Compute diff if we have a previous snapshot
+    changes = None
+    if _last_snapshot is not None:
+        diff_result = _compute_diff(_last_snapshot, current_snapshot)
+        if diff_result["total_changes"] > 0:
+            changes = diff_result
+
+    # Update snapshot for next call
+    _last_snapshot = current_snapshot
+
+    # Gather all scene info
+    fps = doc.GetFps()
+    current_frame = doc.GetTime().GetFrame(fps)
+    doc_start = doc.GetMinTime().GetFrame(fps)
+    doc_end = doc.GetMaxTime().GetFrame(fps)
+
+    # Hierarchy
+    hierarchy = describe_hierarchy(doc)
+
+    # Materials
+    materials = inspect_materials(doc)
+
+    # Animation summary
+    animation = inspect_animation(doc_start, doc_end, doc)
+
+    # Validation
+    validation = validate_scene(doc)
+
+    # Build result
+    result = {
+        "document_name": doc.GetDocumentName() or "Untitled",
+        "frame": {
+            "current": current_frame,
+            "start": doc_start,
+            "end": doc_end,
+            "fps": fps
+        },
+        "hierarchy": hierarchy,
+        "materials": materials,
+        "animation": animation,
+        "validation": validation,
+        "changes": changes
+    }
+
+    return result
+
+
+def _compute_diff(old_snapshot, current_snapshot):
+    """
+    Compute diff between two snapshots.
+
+    Internal helper for describe_scene auto-diffing.
+
+    Handles GUID-based object tracking with separate dreamtalk/native params.
+    DreamTalk changes are always reported.
+    Native C4D param changes are only reported when they differ (silent tracking).
+    """
+    changes = {
+        "objects": {
+            "dreamtalk_modified": {},  # DreamTalk param changes (always important)
+            "native_modified": {},      # Native C4D param changes (only on delta)
+            "added": [],
+            "removed": []
+        },
+        "materials": {"modified": {}, "added": [], "removed": []}
+    }
+
+    # Get GUID->name mappings for display
+    current_names = current_snapshot.get("guid_to_name", {})
+    old_names = old_snapshot.get("guid_to_name", {})
+
+    current_objects = current_snapshot.get("objects", {})
+    old_objects = old_snapshot.get("objects", {})
+
+    # Find object changes by GUID
+    for guid, obj_data in current_objects.items():
+        obj_name = obj_data.get("name", current_names.get(guid, guid))
+
+        if guid not in old_objects:
+            # New object
+            changes["objects"]["added"].append(obj_name)
+        else:
+            old_obj_data = old_objects[guid]
+
+            # Compare DreamTalk params
+            dreamtalk_changes = {}
+            current_dt = obj_data.get("dreamtalk", {})
+            old_dt = old_obj_data.get("dreamtalk", {})
+
+            for param, value in current_dt.items():
+                if param not in old_dt:
+                    dreamtalk_changes[param] = {"old": None, "new": value}
+                elif old_dt[param] != value:
+                    dreamtalk_changes[param] = {"old": old_dt[param], "new": value}
+
+            if dreamtalk_changes:
+                changes["objects"]["dreamtalk_modified"][obj_name] = dreamtalk_changes
+
+            # Compare Native C4D params (silent - only report deltas)
+            # New structure: native = {"values": {...}, "meta": {...}}
+            native_changes = {}
+            current_native = obj_data.get("native", {})
+            old_native = old_obj_data.get("native", {})
+
+            current_values = current_native.get("values", current_native) if isinstance(current_native, dict) else {}
+            old_values = old_native.get("values", old_native) if isinstance(old_native, dict) else {}
+            current_meta = current_native.get("meta", {}) if isinstance(current_native, dict) else {}
+
+            for param, value in current_values.items():
+                if param in old_values and old_values[param] != value:
+                    # Only report if param existed before AND changed
+                    change_info = {"old": old_values[param], "new": value}
+
+                    # Add metadata if available
+                    if param in current_meta:
+                        meta = current_meta[param]
+                        if "name" in meta:
+                            change_info["name"] = meta["name"]
+                        if "ident" in meta:
+                            change_info["ident"] = meta["ident"]
+                        if "options" in meta:
+                            # Resolve old/new values to human-readable labels
+                            options = meta["options"]
+                            if old_values[param] in options:
+                                change_info["old_label"] = options[old_values[param]]
+                            if value in options:
+                                change_info["new_label"] = options[value]
+
+                    native_changes[param] = change_info
+
+            if native_changes:
+                changes["objects"]["native_modified"][obj_name] = native_changes
+
+    # Find removed objects
+    for guid in old_objects:
+        if guid not in current_objects:
+            old_name = old_objects[guid].get("name", old_names.get(guid, guid))
+            changes["objects"]["removed"].append(old_name)
+
+    # Diff materials (simpler - no native/dreamtalk split)
+    current_mats = current_snapshot.get("materials", {})
+    old_mats = old_snapshot.get("materials", {})
+
+    for mat_name, mat_data in current_mats.items():
+        if mat_name not in old_mats:
+            changes["materials"]["added"].append(mat_name)
+        else:
+            old_mat = old_mats[mat_name]
+            mat_changes = {}
+            for param, value in mat_data.items():
+                if param not in old_mat:
+                    mat_changes[param] = {"old": None, "new": value}
+                elif old_mat[param] != value:
+                    mat_changes[param] = {"old": old_mat[param], "new": value}
+            if mat_changes:
+                changes["materials"]["modified"][mat_name] = mat_changes
+
+    for mat_name in old_mats:
+        if mat_name not in current_mats:
+            changes["materials"]["removed"].append(mat_name)
+
+    # Count total changes
+    total_changes = (
+        len(changes["objects"]["dreamtalk_modified"]) +
+        len(changes["objects"]["native_modified"]) +
+        len(changes["objects"]["added"]) +
+        len(changes["objects"]["removed"]) +
+        len(changes["materials"]["modified"]) +
+        len(changes["materials"]["added"]) +
+        len(changes["materials"]["removed"])
+    )
+
+    return {
+        "changes": changes,
+        "total_changes": total_changes
+    }

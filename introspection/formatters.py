@@ -379,3 +379,204 @@ def format_validate_scene(result):
             lines.append(f"- Unused materials: {stats['unused_materials']}")
 
     return "\n".join(lines)
+
+
+def format_describe_scene(result):
+    """
+    Format describe_scene result as markdown.
+
+    Universal formatter for the consolidated introspection tool.
+
+    Args:
+        result: dict from describe_scene()
+
+    Returns:
+        Markdown string
+    """
+    lines = []
+
+    # Header with scene name and frame info
+    doc_name = result.get("document_name", "Untitled")
+    frame = result.get("frame", {})
+    lines.append(f"# Scene: {doc_name}")
+    lines.append(f"Frame {frame.get('current', 0)}/{frame.get('end', 0)} @ {frame.get('fps', 30)}fps")
+    lines.append("")
+
+    # Changes section (most important - at top)
+    changes = result.get("changes")
+    if changes:
+        lines.append("## Changes Detected")
+        lines.append("")
+        _format_changes(changes, lines)
+        lines.append("")
+    elif result.get("changes") is None:
+        lines.append("*First inspection - baseline captured for change detection*")
+        lines.append("")
+
+    # Hierarchy
+    hierarchy = result.get("hierarchy", {})
+    if hierarchy.get("objects"):
+        lines.append("## Hierarchy")
+        lines.append(f"*{hierarchy.get('summary', '')}*")
+        lines.append("")
+        for obj in hierarchy["objects"]:
+            _format_object_compact(obj, lines, indent=0)
+        lines.append("")
+
+    # Materials (compact)
+    materials = result.get("materials", {})
+    mat_list = materials.get("materials", [])
+    if mat_list:
+        lines.append(f"## Materials ({len(mat_list)})")
+        for mat in mat_list:
+            mat_line = f"- **{mat['name']}**"
+            if mat.get("color"):
+                mat_line += f" [{mat['color'].get('name', '')}]"
+            if mat.get("used_by"):
+                mat_line += f" → {', '.join(mat['used_by'])}"
+            else:
+                mat_line += " (unused)"
+            lines.append(mat_line)
+        lines.append("")
+
+    # Animation (compact)
+    animation = result.get("animation", {})
+    animated = animation.get("animated_objects", [])
+    if animated:
+        lines.append(f"## Animation")
+        lines.append(f"*{animation.get('summary', '')}*")
+        for obj in animated:
+            tracks_summary = ", ".join([t.get("parameter", "?") for t in obj.get("tracks", [])])
+            lines.append(f"- {obj['name']}: {tracks_summary}")
+        lines.append("")
+
+    # Validation warnings (compact)
+    validation = result.get("validation", {})
+    warnings = validation.get("warnings", [])
+    issues = validation.get("issues", [])
+    if warnings or issues:
+        lines.append("## Validation")
+        for issue in issues:
+            lines.append(f"- ❌ {issue}")
+        for warning in warnings:
+            lines.append(f"- ⚠️ {warning}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_changes(changes_result, lines):
+    """Format change detection results.
+
+    Handles both DreamTalk param changes and native C4D param changes.
+    Native changes include the DescID for direct use in code.
+    """
+    changes = changes_result.get("changes", {})
+
+    # Object changes
+    obj_changes = changes.get("objects", {})
+
+    # DreamTalk param changes (userdata, transforms, etc.)
+    if obj_changes.get("dreamtalk_modified"):
+        for obj_name, params in obj_changes["dreamtalk_modified"].items():
+            for param, vals in params.items():
+                old_val = vals.get('old')
+                new_val = vals.get('new')
+                # Format values nicely
+                if isinstance(old_val, float):
+                    old_val = round(old_val, 3)
+                if isinstance(new_val, float):
+                    new_val = round(new_val, 3)
+                lines.append(f"- **{obj_name}**.{param}: `{old_val}` → `{new_val}`")
+
+    # Native C4D param changes (only shown when changed)
+    if obj_changes.get("native_modified"):
+        for obj_name, params in obj_changes["native_modified"].items():
+            for desc_id_str, vals in params.items():
+                old_val = vals.get('old')
+                new_val = vals.get('new')
+                param_name = vals.get('name', '')
+                ident = vals.get('ident', '')
+                old_label = vals.get('old_label')
+                new_label = vals.get('new_label')
+
+                # Format values nicely
+                if isinstance(old_val, float):
+                    old_val = round(old_val, 3)
+                if isinstance(new_val, float):
+                    new_val = round(new_val, 3)
+
+                # Build the change description
+                # If we have labels (dropdown/enum), show "Label (value)"
+                if old_label and new_label:
+                    old_display = f"{old_label} ({old_val})"
+                    new_display = f"{new_label} ({new_val})"
+                else:
+                    old_display = str(old_val)
+                    new_display = str(new_val)
+
+                # Build parameter identifier: "Name" or "Name (ID_CONSTANT)"
+                if param_name and ident:
+                    param_display = f"{param_name} ({ident})"
+                elif param_name:
+                    param_display = param_name
+                elif ident:
+                    param_display = ident
+                else:
+                    param_display = f"DescID {desc_id_str}"
+
+                lines.append(f"- **{obj_name}**.{param_display}: `{old_display}` → `{new_display}`")
+
+    # Added/removed objects
+    if obj_changes.get("added"):
+        for name in obj_changes["added"]:
+            lines.append(f"- **+ Added**: {name}")
+
+    if obj_changes.get("removed"):
+        for name in obj_changes["removed"]:
+            lines.append(f"- **- Removed**: {name}")
+
+    # Material changes
+    mat_changes = changes.get("materials", {})
+    if mat_changes.get("modified"):
+        for mat_name, params in mat_changes["modified"].items():
+            for param, vals in params.items():
+                lines.append(f"- Material **{mat_name}**.{param}: `{vals.get('old')}` → `{vals.get('new')}`")
+
+    if mat_changes.get("added"):
+        for name in mat_changes["added"]:
+            lines.append(f"- **+ Added Material**: {name}")
+
+    if mat_changes.get("removed"):
+        for name in mat_changes["removed"]:
+            lines.append(f"- **- Removed Material**: {name}")
+
+
+def _format_object_compact(obj, lines, indent=0):
+    """Format a single object compactly with its key parameters."""
+    prefix = "  " * indent
+
+    # Build object line
+    name = obj.get("name", "Unknown")
+    obj_type = obj.get("type", "Unknown")
+
+    parts = [f"{name} ({obj_type})"]
+
+    # Position (only if non-zero)
+    pos = obj.get("position", {})
+    if pos.get("x", 0) != 0 or pos.get("y", 0) != 0 or pos.get("z", 0) != 0:
+        parts.append(f"@ ({pos.get('x', 0)}, {pos.get('y', 0)}, {pos.get('z', 0)})")
+
+    # Key DreamTalk params
+    if obj.get("creation") is not None:
+        parts.append(f"creation:{obj['creation']}%")
+    if obj.get("draw") is not None and obj.get("draw") != 100:
+        parts.append(f"draw:{obj['draw']}%")
+    if obj.get("color"):
+        parts.append(f"[{obj['color']}]")
+
+    lines.append(f"{prefix}- {' '.join(parts)}")
+
+    # Recurse children
+    for child in obj.get("children", []):
+        _format_object_compact(child, lines, indent + 1)
