@@ -91,32 +91,41 @@ def create(self, completion=1):
 
 ## Classes to Migrate
 
-### Phase 1: Camera System
-- [ ] ThreeDCamera - spherical coordinates, zoom interpolation
-- [ ] TwoDCamera - zoom relation
+### Phase 1: Camera System (COMPLETED)
+- [x] ThreeDCamera - spherical coordinates, zoom interpolation
+- [x] TwoDCamera - zoom relation
 
-### Phase 2: Core Objects
-- [ ] FoldableCube - fold relations (already has GeneratorMixin)
+### Phase 2: Core Objects (PARTIALLY COMPLETED)
+- [x] FoldableCube - fold relations (uses GeneratorMixin)
 - [ ] CustomObject - XIdentity for visibility
 - [ ] Group - bounding box relations
 
-### Phase 3: Effects/Animators
-- [ ] Morpher - complex spline segment mapping
+### Phase 3: Effects/Animators (FUTURE)
+- [ ] Morpher - complex spline segment mapping (uses extensive XPresso)
 - [ ] Breathing - sinusoidal animation
 - [ ] Explosion - multi-part animation
 
-### Phase 4: Stroke Mode Integration
-- [ ] Add stroke_mode to USD class
-- [ ] Add stroke_mode to SweepNurbs class
-- [ ] Update all solid objects to support stroke_mode
+### Phase 4: Stroke Mode Integration (COMPLETED)
+- [x] stroke_mode already in SolidObject base class
+- [x] USD class inherits stroke_mode support
+- [x] SweepNurbs class inherits stroke_mode support
+- [x] HumanMind updated with explicit stroke_mode parameter
 
-## Implementation Order
+## Implementation Status
 
-1. **FoldableCube**: Add `generator_mode=True` parameter that uses Python Generator instead of XPresso
-2. **ThreeDCamera**: Create generator-based implementation
-3. **MindVirus**: Update to use `generator_mode=True` for FoldableCube
-4. **Test MindVirusInfection**: Validate complete scene works
-5. **Clean up**: Remove unused XPresso code
+### Completed
+1. **FoldableCube**: `generator_mode=True` parameter uses Python Generator for fold relations
+2. **ThreeDCamera**: Generator-based spherical coordinate camera control
+3. **TwoDCamera**: Generator-based zoom control
+4. **MindVirus**: Updated with `generator_mode` support, passes to FoldableCube
+5. **HumanMind**: Added explicit `stroke_mode` parameter
+6. **Test Suite**: `test_full_migration.py` validates complete scene
+
+### Remaining Work
+- CustomObject: General XIdentity patterns for visibility
+- Group: Bounding box relations
+- Morpher: Complex spline segment mapping (low priority)
+- Breathing/Explosion: Animation effects (low priority)
 
 ## Key Design Decisions
 
@@ -135,3 +144,9 @@ Already implemented in LineObject and SolidObject:
 Keep keyframe-based animation system (ScalarAnimation, VectorAnimation):
 - Already works without XPresso
 - Just need to ensure all creation animations use this pattern
+
+### MindVirus Generator Mode
+MindVirus uses helper methods to abstract fold control:
+- `_get_fold_target_and_desc()`: Returns correct target for animations
+- `_set_fold_value(value)`: Sets fold on appropriate target
+- In generator_mode, animates cube's UserData directly (no XIdentity needed)
