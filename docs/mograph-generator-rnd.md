@@ -221,14 +221,49 @@ Cloner
 
 Each clone gets unique position → parent calculates fold → passes to all children → children apply to their structure. Three levels of hierarchy working together.
 
-### Phase 3: Primitive Handling
+### Phase 3: Primitive Handling ✅ COMPLETE
 
 **Goal**: Decide and implement how primitives integrate with generator-based holons.
 
-- [ ] Audit current XPresso usage on primitives (what does it actually do?)
-- [ ] Test removing XPresso tags - what breaks?
-- [ ] Prototype Python tag approach vs consolidated generator approach
-- [ ] Decide on minimal pattern for visibility/material control
+- [x] Audit current XPresso usage on primitives (Draw, Opacity, Color → Sketch material)
+- [x] Test removing XPresso tags - XPresso doesn't work inside generators anyway
+- [x] Prototype consolidated generator approach - parent generator controls children
+- [x] Decide on minimal pattern for visibility/material control
+
+**Key Findings**:
+
+1. **XPresso doesn't work inside generators**: When a generator modifies a child's UserData, any XPresso on that child doesn't re-evaluate. The generator runs, sets values, but XPresso tags are never triggered.
+
+2. **Generator CAN directly control Sketch material**: Parent generator can read/write `mat[c4d.OUTLINEMAT_ANIMATE_STROKE_SPEED_COMPLETE]` to control draw completion.
+
+3. **Material properties are NOT per-clone**: In MoGraph context, all clones share the same material. Modifying material from generator affects ALL clones identically, not per-clone.
+
+4. **Structural properties ARE per-clone**: Rotation, position, scale, visibility - these work perfectly per-clone because they're on the object, not shared resources.
+
+**The Minimal Primitive Pattern**:
+
+For **standalone holons** (not in Cloner):
+```
+Primitive (spline/solid)
+  └── Sketch Tag → Sketch Material
+Parent Generator:
+  - Has Draw/Opacity/Color UserData
+  - Generator code directly modifies Sketch material parameters
+  - Works because there's only one instance
+```
+
+For **MoGraph cloned holons**:
+```
+Same structure, BUT:
+  - Structural parameters (fold, rotation, position) → work per-clone ✅
+  - Material parameters (draw, color) → shared across all clones ⚠️
+  - For per-clone material variation: use MoGraph Fields + Shader Effector
+```
+
+**Decision**: Primitives stay as raw C4D objects (not generators). They get:
+- Sketch tag + material for line rendering
+- NO XPresso (doesn't work in generator context anyway)
+- Parent holon (generator) controls them via direct property access
 
 ### Phase 4: Library Refactor
 
@@ -300,16 +335,48 @@ while child:
 ## Open Questions
 
 1. **Visibility inheritance**: How do we elegantly handle "hide parent hides children" without XPresso?
+   - Generator can set `child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR]` directly
+   - Needs testing to confirm it cascades properly
 
-2. **Material assignment**: Currently XPresso drives Sketch tag parameters. What replaces this?
+2. ~~**Material assignment**: Currently XPresso drives Sketch tag parameters. What replaces this?~~
+   - **ANSWERED**: Generator directly modifies Sketch material for standalone use
+   - For MoGraph per-clone: use Fields + Shader Effector
 
 3. **Performance**: With deep holarchies, does generator nesting cause performance issues?
+   - Early tests with 3-level hierarchy (Cloner→Parent→Children) showed no issues
+   - Needs stress testing with larger hierarchies
 
 4. **Animation keyframes**: Can we keyframe UserData on generators the same way we do on Nulls?
+   - Should work - generators are just BaseObjects with UserData
+   - Needs verification
 
 5. **Editor visibility**: Does `return None` preserve Object Manager editability of children in all contexts?
+   - Verified: Children remain selectable and editable in Object Manager
+   - Cloner context: children are virtual but template is editable
 
 ## Session Log
+
+### 2025-01-10: Phase 3 - Primitive Handling
+**Key discoveries:**
+- XPresso on primitives does NOT work inside generators (XPresso never re-evaluates)
+- Generator CAN directly modify Sketch material parameters (Draw, Color, Opacity)
+- Material modifications are document-level - affect ALL clones, not per-clone
+- Structural modifications (rotation, position) ARE per-clone
+
+**Tested patterns:**
+- Minimal generator with circle child + Sketch tag → WORKS in Cloner
+- Generator modifying Sketch tag's Complete parameter → Tag doesn't update per-clone
+- Generator creating unique materials per clone → Materials can't be inserted from generator code
+
+**Decision made:**
+- Primitives stay as raw C4D objects (atoms, not holons)
+- NO XPresso on primitives (doesn't work in generator context)
+- Parent generator directly controls Sketch material for standalone use
+- For MoGraph per-clone material variation: use Fields + Shader Effector (not generator code)
+
+**False positive fixed:**
+- Generator inside Cloner shows cache=None - this is NORMAL (master template has no cache, clones do)
+- Need to update describe_scene to not flag this as error when generator is under Cloner
 
 ### 2025-01-10: Phase 2 - Nested Holons
 **Verified working:**

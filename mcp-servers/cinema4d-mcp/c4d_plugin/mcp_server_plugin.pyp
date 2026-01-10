@@ -19,6 +19,17 @@ import traceback
 
 PLUGIN_ID = 1057843  # Unique plugin ID for SpecialEventAdd
 
+# Add DreamTalk parent to Python path for introspection module access
+# Resolve symlink to find the real plugin location, then navigate to DreamTalk's parent
+# Plugin is at: DreamTalk/mcp-servers/cinema4d-mcp/c4d_plugin/mcp_server_plugin.pyp
+# We need: /Users/davidrug/ProjectLiminality (parent of DreamTalk)
+_plugin_path = os.path.realpath(__file__)
+_dreamtalk_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_plugin_path))))
+_dreamtalk_parent = os.path.dirname(_dreamtalk_root)  # Go up one more level
+if _dreamtalk_parent not in sys.path:
+    sys.path.insert(0, _dreamtalk_parent)
+    print(f"[C4D MCP] Added to path: {_dreamtalk_parent}")
+
 # Check Cinema 4D version and log compatibility info
 C4D_VERSION = c4d.GetC4DVersion()
 C4D_VERSION_MAJOR = C4D_VERSION // 1000
@@ -290,6 +301,14 @@ class C4DSocketServer(threading.Thread):
                             response = self.handle_diff_scene(command)
                         elif command_type == "reset_snapshot":
                             response = self.handle_reset_snapshot(command)
+                        elif command_type == "viewport_preview":
+                            response = self.handle_viewport_preview(command)
+                        elif command_type == "rendered_preview":
+                            response = self.handle_rendered_preview(command)
+                        elif command_type == "describe_scene":
+                            response = self.handle_describe_scene(command)
+                        elif command_type == "run_dreamtalk":
+                            response = self.handle_run_dreamtalk(command)
                         else:
                             response = {"error": f"Unknown command: {command_type}"}
 
@@ -6536,6 +6555,385 @@ class C4DSocketServer(threading.Thread):
             return {"error": f"Failed to reset snapshot: {str(e)}"}
 
         return {"description": description}
+
+    def handle_viewport_preview(self, command):
+        """
+        Fast viewport preview using hardware OpenGL renderer (~100-200ms per frame).
+
+        PRIMARY FEEDBACK TOOL - use this 95% of the time for geometry, positioning,
+        hierarchy checks. Does NOT show Sketch & Toon lines or post-effects.
+
+        Args:
+            command: dict with optional 'frames' (int or list), 'width', 'height'
+
+        Returns:
+            dict with 'success', 'paths' (list), timing info
+        """
+        width = command.get("width", 640)
+        height = command.get("height", 360)
+        frames_input = command.get("frames", None)
+
+        # Normalize frames to list
+        if frames_input is None:
+            frames = None  # Use current frame
+        elif isinstance(frames_input, (int, float)):
+            frames = [int(frames_input)]
+        else:
+            frames = [int(f) for f in frames_input]
+
+        def capture_task():
+            rd_temp = None
+            paths = []
+            total_time = 0
+            try:
+                doc = c4d.documents.GetActiveDocument()
+                if not doc:
+                    return {"error": "No active document"}
+
+                fps = doc.GetFps()
+
+                # Create a CLEAN temporary RenderData without any VideoPost effects
+                rd_temp = c4d.documents.RenderData()
+                rd_temp[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_PREVIEWHARDWARE
+                rd_temp[c4d.RDATA_XRES] = width
+                rd_temp[c4d.RDATA_YRES] = height
+                rd_temp[c4d.RDATA_FRAMESEQUENCE] = c4d.RDATA_FRAMESEQUENCE_CURRENTFRAME
+                doc.InsertRenderData(rd_temp)
+
+                # Determine which frames to render
+                if frames is None:
+                    frame_list = [doc.GetTime().GetFrame(fps)]
+                else:
+                    frame_list = frames
+
+                for frame in frame_list:
+                    # Set frame
+                    doc.SetTime(c4d.BaseTime(frame, fps))
+                    doc.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+                    # Create bitmap
+                    bmp = c4d.bitmaps.BaseBitmap()
+                    if bmp.Init(width, height, 24) != c4d.IMAGERESULT_OK:
+                        return {"error": f"Failed to initialize bitmap ({width}x{height})"}
+
+                    # Render
+                    start_time = time.time()
+                    result = c4d.documents.RenderDocument(
+                        doc, rd_temp.GetData(), bmp,
+                        c4d.RENDERFLAGS_EXTERNAL | c4d.RENDERFLAGS_NODOCUMENTCLONE
+                    )
+                    total_time += time.time() - start_time
+
+                    if result != c4d.RENDERRESULT_OK:
+                        return {"error": f"Hardware preview failed at frame {frame}: {self._render_code_to_str(result)}"}
+
+                    # Save
+                    if len(frame_list) == 1:
+                        path = "/tmp/c4d_viewport_preview.png"
+                    else:
+                        path = f"/tmp/c4d_viewport_preview_{frame:04d}.png"
+
+                    save_result = bmp.Save(path, c4d.FILTER_PNG)
+                    if save_result != c4d.IMAGERESULT_OK:
+                        return {"error": f"Failed to save image: {save_result}"}
+                    paths.append(path)
+                    bmp.FlushAll()
+
+                return {
+                    "success": True,
+                    "paths": paths,
+                    "frames": frame_list,
+                    "width": width,
+                    "height": height,
+                    "total_time_ms": int(total_time * 1000),
+                    "renderer": "hardware_preview"
+                }
+
+            except Exception as e:
+                import traceback
+                return {"error": f"Viewport preview failed: {str(e)}", "traceback": traceback.format_exc()}
+            finally:
+                if rd_temp:
+                    try:
+                        rd_temp.Remove()
+                    except:
+                        pass
+                c4d.EventAdd()
+
+        return self.execute_on_main_thread(capture_task, _timeout=60)
+
+    def handle_rendered_preview(self, command):
+        """
+        Full rendered preview with Sketch & Toon and proper materials (~2-10s per frame).
+
+        SECONDARY FEEDBACK TOOL - use when you need to verify line drawing,
+        creation animations, or final look. Much slower than viewport_preview.
+
+        Uses Standard renderer with Sketch & Toon VideoPost (matches DreamTalk library).
+
+        Args:
+            command: dict with optional 'frames' (int or list), 'width', 'height'
+
+        Returns:
+            dict with 'success', 'paths' (list), timing info
+        """
+        width = command.get("width", 640)
+        height = command.get("height", 360)
+        frames_input = command.get("frames", None)
+
+        # Normalize frames to list
+        if frames_input is None:
+            frames = None
+        elif isinstance(frames_input, (int, float)):
+            frames = [int(frames_input)]
+        else:
+            frames = [int(f) for f in frames_input]
+
+        def render_task():
+            rd_temp = None
+            paths = []
+            total_time = 0
+            original_rd = None
+            try:
+                doc = c4d.documents.GetActiveDocument()
+                if not doc:
+                    return {"error": "No active document"}
+
+                fps = doc.GetFps()
+                original_rd = doc.GetActiveRenderData()
+
+                # Create render data matching DreamTalk library settings
+                rd_temp = c4d.documents.RenderData()
+                rd_temp[c4d.RDATA_RENDERENGINE] = c4d.RDATA_RENDERENGINE_STANDARD
+                rd_temp[c4d.RDATA_XRES] = width
+                rd_temp[c4d.RDATA_YRES] = height
+                rd_temp[c4d.RDATA_FRAMESEQUENCE] = c4d.RDATA_FRAMESEQUENCE_CURRENTFRAME
+                rd_temp[c4d.RDATA_SAVEIMAGE] = False
+
+                # Add Sketch & Toon VideoPost (matching DreamTalk scene.py settings)
+                sketch_vp = c4d.documents.BaseVideoPost(1011015)
+                sketch_vp[c4d.OUTLINEMAT_SHADING_BACK] = False
+                sketch_vp[c4d.OUTLINEMAT_SHADING_OBJECT] = False
+                sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_INDEPENDENT] = True
+                sketch_vp[c4d.OUTLINEMAT_EDLINES_SHOWLINES] = True
+                sketch_vp[c4d.OUTLINEMAT_EDLINES_LINE_DRAW] = 1
+                sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_INDEPENDENT_MODE] = 1
+                sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEW] = 1080
+                sketch_vp[c4d.OUTLINEMAT_PIXELUNITS_BASEH] = 1080
+                sketch_vp[c4d.OUTLINEMAT_EDLINES_REDRAW_FULL] = True
+                sketch_vp[c4d.OUTLINEMAT_LINE_SPLINES] = True
+                rd_temp.InsertVideoPost(sketch_vp)
+
+                doc.InsertRenderData(rd_temp)
+                doc.SetActiveRenderData(rd_temp)
+
+                # Determine which frames to render
+                if frames is None:
+                    frame_list = [doc.GetTime().GetFrame(fps)]
+                else:
+                    frame_list = frames
+
+                for frame in frame_list:
+                    # Set frame
+                    doc.SetTime(c4d.BaseTime(frame, fps))
+                    doc.ExecutePasses(None, True, True, True, c4d.BUILDFLAGS_NONE)
+
+                    # Create bitmap - 24-bit for Sketch & Toon compatibility
+                    bmp = c4d.bitmaps.BaseBitmap()
+                    if bmp.Init(width, height, 24) != c4d.IMAGERESULT_OK:
+                        return {"error": f"Failed to initialize bitmap ({width}x{height})"}
+
+                    # Render with Standard renderer
+                    start_time = time.time()
+                    result = c4d.documents.RenderDocument(
+                        doc, rd_temp.GetData(), bmp,
+                        c4d.RENDERFLAGS_EXTERNAL | c4d.RENDERFLAGS_NODOCUMENTCLONE
+                    )
+                    total_time += time.time() - start_time
+
+                    if result != c4d.RENDERRESULT_OK:
+                        return {"error": f"Render failed at frame {frame}: {self._render_code_to_str(result)}"}
+
+                    # Save
+                    if len(frame_list) == 1:
+                        path = "/tmp/c4d_rendered_preview.png"
+                    else:
+                        path = f"/tmp/c4d_rendered_preview_{frame:04d}.png"
+
+                    save_result = bmp.Save(path, c4d.FILTER_PNG)
+                    if save_result != c4d.IMAGERESULT_OK:
+                        return {"error": f"Failed to save image: {save_result}"}
+                    paths.append(path)
+                    bmp.FlushAll()
+
+                return {
+                    "success": True,
+                    "paths": paths,
+                    "frames": frame_list,
+                    "width": width,
+                    "height": height,
+                    "total_time_ms": int(total_time * 1000),
+                    "renderer": "standard_sketch_toon"
+                }
+
+            except Exception as e:
+                import traceback
+                return {"error": f"Rendered preview failed: {str(e)}", "traceback": traceback.format_exc()}
+            finally:
+                if rd_temp:
+                    try:
+                        if original_rd:
+                            doc.SetActiveRenderData(original_rd)
+                        rd_temp.Remove()
+                    except:
+                        pass
+                c4d.EventAdd()
+
+        # Longer timeout for rendered preview
+        return self.execute_on_main_thread(render_task, _timeout=180)
+
+    def handle_describe_scene(self, command):
+        """
+        Universal scene introspection with automatic change detection.
+
+        Combines all introspection into one call:
+        - Scene metadata (fps, frame range, current frame)
+        - Full object hierarchy with DreamTalk semantics
+        - All UserData parameters
+        - Materials and assignments
+        - Animation keyframes
+        - Validation warnings
+        - Changes since last call (auto-diffing)
+        """
+        def describe_task():
+            doc = c4d.documents.GetActiveDocument()
+            if not doc:
+                return {"error": "No active document"}
+
+            try:
+                from DreamTalk.introspection import describe_scene, format_describe_scene
+                result = describe_scene(doc)
+                description = format_describe_scene(result)
+                self.log("[C4D] Universal scene introspection completed")
+                return {"description": description, "raw": result}
+            except ImportError as e:
+                self.log(f"[C4D] DreamTalk introspection not available: {e}")
+                # Fallback to basic scene info
+                fps = doc.GetFps()
+                current_frame = doc.GetTime().GetFrame(fps)
+                doc_start = doc.GetMinTime().GetFrame(fps)
+                doc_end = doc.GetMaxTime().GetFrame(fps)
+
+                # Count objects
+                obj_count = 0
+                def count_objects(obj):
+                    nonlocal obj_count
+                    while obj:
+                        obj_count += 1
+                        count_objects(obj.GetDown())
+                        obj = obj.GetNext()
+                count_objects(doc.GetFirstObject())
+
+                # Count materials
+                mat_count = 0
+                mat = doc.GetFirstMaterial()
+                while mat:
+                    mat_count += 1
+                    mat = mat.GetNext()
+
+                description = f"""# Scene: {doc.GetDocumentName() or 'Untitled'}
+Frame {current_frame}/{doc_end} @ {fps}fps
+
+*DreamTalk introspection not available - showing basic info*
+
+## Summary
+- Objects: {obj_count}
+- Materials: {mat_count}
+- Frame range: {doc_start} - {doc_end}
+"""
+                return {"description": description}
+            except Exception as e:
+                import traceback
+                return {"error": f"Scene introspection failed: {str(e)}", "traceback": traceback.format_exc()}
+
+        return self.execute_on_main_thread(describe_task, _timeout=30)
+
+    def handle_run_dreamtalk(self, command):
+        """
+        Canonical DreamTalk script execution.
+
+        Clears the scene and runs the specified DreamTalk .py file as __main__.
+        This triggers the `if __name__ == "__main__"` block which contains
+        the canonical standalone scene for that DreamNode.
+
+        Args (in command):
+            path: Absolute path to the DreamTalk .py file
+            clear_scene: Whether to clear scene before running (default: True)
+        """
+        path = command.get("path")
+        if not path:
+            return {"error": "path is required"}
+
+        clear_scene = command.get("clear_scene", True)
+
+        def run_task():
+            import runpy
+            import os
+
+            if not os.path.exists(path):
+                return {"error": f"File not found: {path}"}
+
+            doc = c4d.documents.GetActiveDocument()
+            if not doc:
+                return {"error": "No active document"}
+
+            try:
+                # Clear scene if requested
+                if clear_scene:
+                    while doc.GetFirstObject():
+                        doc.GetFirstObject().Remove()
+                    while doc.GetFirstMaterial():
+                        doc.GetFirstMaterial().Remove()
+                    c4d.EventAdd()
+                    self.log("[C4D] Scene cleared")
+
+                # Execute the DreamTalk script as __main__
+                self.log(f"[C4D] Executing DreamTalk: {path}")
+                runpy.run_path(path, run_name='__main__')
+
+                c4d.EventAdd()
+                self.log(f"[C4D] DreamTalk execution completed: {path}")
+
+                # Get fresh document reference (script may have changed it)
+                doc = c4d.documents.GetActiveDocument()
+
+                # Count resulting objects
+                obj_count = 0
+                def count_objects(obj):
+                    nonlocal obj_count
+                    while obj:
+                        obj_count += 1
+                        count_objects(obj.GetDown())
+                        obj = obj.GetNext()
+                if doc:
+                    count_objects(doc.GetFirstObject())
+
+                return {
+                    "success": True,
+                    "path": path,
+                    "objects_created": obj_count,
+                    "message": f"Executed {os.path.basename(path)}, created {obj_count} object(s)"
+                }
+
+            except Exception as e:
+                import traceback
+                self.log(f"[**ERROR**] DreamTalk execution failed: {str(e)}")
+                return {
+                    "error": f"DreamTalk execution failed: {str(e)}",
+                    "traceback": traceback.format_exc()
+                }
+
+        return self.execute_on_main_thread(run_task, _timeout=60)
 
 
 class SocketServerDialog(gui.GeDialog):

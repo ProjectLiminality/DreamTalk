@@ -28,6 +28,9 @@ Usage:
 """
 
 from .hierarchy import (
+    # Universal introspection (primary tool)
+    describe_scene,
+    # Legacy/internal functions (still available if needed)
     describe_hierarchy,
     describe_object,
     inspect_object,
@@ -37,26 +40,25 @@ from .hierarchy import (
     find_object_by_name,
     # XPresso introspection
     inspect_xpresso,
-    # Scene diffing
+    # Scene diffing (now integrated into describe_scene)
     get_scene_snapshot,
     diff_scene,
     reset_snapshot,
 )
-from .formatters import format_for_ai, format_markdown, format_json
+from .formatters import format_for_ai, format_markdown, format_json, format_describe_scene
 
 __all__ = [
-    # Hierarchy
+    # Universal introspection (primary)
+    "describe_scene",
+    # Legacy/internal (still available)
     "describe_hierarchy",
     "describe_object",
     "find_object_by_name",
-    # Deep inspection
     "inspect_object",
     "inspect_materials",
     "inspect_animation",
     "validate_scene",
-    # XPresso
     "inspect_xpresso",
-    # Scene diffing
     "get_scene_snapshot",
     "diff_scene",
     "reset_snapshot",
@@ -64,4 +66,5 @@ __all__ = [
     "format_for_ai",
     "format_markdown",
     "format_json",
+    "format_describe_scene",
 ]
