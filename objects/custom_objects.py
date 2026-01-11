@@ -1701,12 +1701,12 @@ def main():
         name = child.GetName()
 
         # Rotate pivot nulls - rectangles follow as children
-        # Front/Back: rotate around X axis (pitch)
+        # Front/Back: rotate around P (pitch/Y axis)
         # Right/Left: rotate around Z axis (bank)
         if name == "FrontPivot":
-            child.SetRelRot(c4d.Vector(-angle, 0, 0))  # Negative X folds up
+            child.SetRelRot(c4d.Vector(0, -angle, 0))  # Negative P folds up
         elif name == "BackPivot":
-            child.SetRelRot(c4d.Vector(angle, 0, 0))   # Positive X folds up
+            child.SetRelRot(c4d.Vector(0, angle, 0))   # Positive P folds up
         elif name == "RightPivot":
             child.SetRelRot(c4d.Vector(0, 0, angle))   # Positive Z folds up
         elif name == "LeftPivot":
