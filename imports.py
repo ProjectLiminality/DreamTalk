@@ -49,6 +49,7 @@ import DreamTalk.xpresso.types
 import DreamTalk.xpresso.states
 import DreamTalk.animation.animation
 import DreamTalk.animation.abstract_animators
+import DreamTalk.animation.animate
 
 # Resolve DreamTalk path
 import os as _os
@@ -71,6 +72,7 @@ reload(DreamTalk.xpresso.types)
 reload(DreamTalk.xpresso.states)
 reload(DreamTalk.animation.animation)
 reload(DreamTalk.animation.abstract_animators)
+reload(DreamTalk.animation.animate)
 
 
 # Import public API

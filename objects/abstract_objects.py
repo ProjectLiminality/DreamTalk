@@ -161,6 +161,30 @@ class ProtoObject(ABC):
         self.obj[descriptor] += scale
         return animation
 
+    @property
+    def animate(self):
+        """
+        Fluent animation API.
+
+        Returns an AnimatorProxy that provides attribute access for
+        animating any parameter by name.
+
+        Usage:
+            # Animate a UserData parameter
+            self.play(virus.animate.fold(0.5), run_time=1)
+
+            # Animate through a sequence
+            self.play(virus.animate.fold.sequence(1, 0.1, 1), run_time=2)
+
+            # Animate position components
+            self.play(circle.animate.x(100).y(50), run_time=1)
+
+            # Chain multiple animations
+            self.play(virus.animate.fold(0.5).x(100), run_time=1.5)
+        """
+        from DreamTalk.animation.animate import AnimatorProxy
+        return AnimatorProxy(self)
+
 
 # =============================================================================
 # VISIBLE OBJECT - Objects that can be seen

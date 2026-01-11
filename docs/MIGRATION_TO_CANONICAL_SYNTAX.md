@@ -410,12 +410,18 @@ from DreamTalk.xpresso.states import State
 
 ## Implementation Order
 
-1. **Phase 1: Naming** - Quick wins, no breaking changes
-2. **Phase 4: .animate API** - High value, isolated change
-3. **Phase 5: State Machines** - Builds on .animate
+1. ✅ **Phase 1: Naming** - Quick wins, no breaking changes
+2. ✅ **Phase 4: .animate API** - High value, isolated change
+3. ✅ **Phase 5: State Machines** - Builds on .animate
 4. **Phase 2: Type-Hinted Parameters** - Requires careful design
 5. **Phase 3: Inline Bindings** - Most complex, depends on Phase 2
 6. **Phase 6: Clean Imports** - Final polish
+
+### Completed Items
+
+- **Phase 1**: Holon alias, Dream alias, unfold() method, Observer unification
+- **Phase 4**: `.animate` fluent API (`circle.animate.x(100).y(50)`, chaining, sequences)
+- **Phase 5**: State machines with `transition_to()` (`breath.transition_to(Breath.States.inhale)`)
 
 ---
 
