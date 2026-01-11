@@ -413,7 +413,7 @@ from DreamTalk.xpresso.states import State
 1. ✅ **Phase 1: Naming** - Quick wins, no breaking changes
 2. ✅ **Phase 4: .animate API** - High value, isolated change
 3. ✅ **Phase 5: State Machines** - Builds on .animate
-4. **Phase 2: Type-Hinted Parameters** - Requires careful design
+4. ✅ **Phase 2: Type-Hinted Parameters** - Auto-create UserData from annotations
 5. **Phase 3: Inline Bindings** - Most complex, depends on Phase 2
 6. **Phase 6: Clean Imports** - Final polish
 
@@ -422,6 +422,7 @@ from DreamTalk.xpresso.states import State
 - **Phase 1**: Holon alias, Dream alias, unfold() method, Observer unification
 - **Phase 4**: `.animate` fluent API (`circle.animate.x(100).y(50)`, chaining, sequences)
 - **Phase 5**: State machines with `transition_to()` (`breath.transition_to(Breath.States.inhale)`)
+- **Phase 2**: Type-hinted parameters (`expansion: Completion = 0.5` auto-creates UserData)
 
 ---
 

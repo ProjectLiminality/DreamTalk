@@ -183,3 +183,39 @@ def get_default_value(type_hint, class_default):
         return type_hint().default
 
     return None
+
+
+def create_userdata_from_type(name, type_class, default_value):
+    """
+    Create a UserData object from a type hint.
+
+    Args:
+        name: Parameter name
+        type_class: The ParameterType class (Length, Bipolar, etc.)
+        default_value: Default value for the parameter
+
+    Returns:
+        A UData subclass instance (ULength, UBipolar, etc.)
+    """
+    from DreamTalk.xpresso.userdata import (
+        ULength, UAngle, UBipolar, UCompletion, UColor, UCount, UCheckBox
+    )
+
+    # Map type classes to UserData classes
+    type_to_userdata = {
+        Length: ULength,
+        Angle: UAngle,
+        Bipolar: UBipolar,
+        Completion: UCompletion,
+        Color: UColor,
+        Integer: UCount,  # UCount is the concrete integer class
+        Bool: UCheckBox,
+    }
+
+    # Get the UserData class for this type
+    userdata_class = type_to_userdata.get(type_class)
+    if userdata_class is None:
+        raise ValueError(f"Unknown parameter type: {type_class}")
+
+    # Create and return the UserData instance
+    return userdata_class(name=name, default_value=default_value)

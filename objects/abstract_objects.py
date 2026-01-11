@@ -697,6 +697,8 @@ class CustomObject(VisibleObject):
         self.specify_parts()
         self.parameters = []
         self.specify_parameters()
+        # Collect type-hinted parameters from class annotations
+        self._collect_annotated_parameters()
         self.insert_parameters()
 
         # Convert to generator and insert parts
@@ -789,6 +791,63 @@ def main():
     # Default: just show children
     return None
 '''
+
+    def _collect_annotated_parameters(self):
+        """
+        Introspect class annotations to auto-create UserData parameters.
+
+        This enables the canonical type-hinted parameter syntax:
+
+            class MindVirus(Holon):
+                fold: Bipolar = 0
+                color: Color = BLUE
+                size: Length = 100
+
+        These annotations are automatically translated to C4D UserData
+        with appropriate type, range, and unit settings.
+
+        Parameters defined here are merged with those from specify_parameters().
+        Type-hinted parameters should NOT be duplicated in specify_parameters().
+        """
+        from DreamTalk.xpresso.types import (
+            ParameterType, get_default_value, create_userdata_from_type
+        )
+
+        # Get annotations from the class (not instance)
+        annotations = getattr(self.__class__, '__annotations__', {})
+
+        for name, type_hint in annotations.items():
+            # Determine the actual type class
+            type_class = None
+
+            if isinstance(type_hint, type) and issubclass(type_hint, ParameterType):
+                # Type hint is a class: `fold: Bipolar`
+                type_class = type_hint
+            elif isinstance(type_hint, ParameterType):
+                # Type hint is an instance (unusual but supported)
+                type_class = type_hint.__class__
+
+            if type_class is None:
+                # Not a parameter type annotation - skip
+                continue
+
+            # Get default value from class attribute
+            class_default = getattr(self.__class__, name, None)
+            default_value = get_default_value(type_hint, class_default)
+
+            # Create the UserData parameter
+            try:
+                param = create_userdata_from_type(name, type_class, default_value)
+            except ValueError:
+                # Unknown type - skip (could be a non-parameter annotation)
+                continue
+
+            # Add to parameters list
+            self.parameters.append(param)
+
+            # Set as instance attribute with _parameter suffix for binding access
+            # e.g., self.fold_parameter = param
+            setattr(self, f"{name}_parameter", param)
 
     def insert_parameters(self):
         """Insert parameters as UserData."""
