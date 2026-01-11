@@ -4,6 +4,9 @@
 __pycache__/
 *.pyc
 
+# MCP configuration (contains API keys)
+.mcp.json
+
 # MCP servers - virtual environments only
 mcp-servers/*/.venv/
 
