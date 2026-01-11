@@ -61,6 +61,10 @@ def main():
     if not child:
         return None
 
+    # Hide the source spline in editor - stroke geometry replaces it visually
+    # 0=visible (on), 1=hidden (off), 2=default
+    child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
     # Get spline - handle generators, primitives, and MoGraph context
     spline = child.GetCache()
     if spline is None:

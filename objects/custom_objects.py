@@ -1726,6 +1726,9 @@ def main():
             stroke_targets.append(child)
 
         for stroke_child in stroke_targets:
+            # Hide source spline in editor - stroke geometry replaces it visually
+            stroke_child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
             spline = stroke_child.GetCache()
             if spline is None:
                 spline = stroke_child.GetDeformCache()

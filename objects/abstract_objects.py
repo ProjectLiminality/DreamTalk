@@ -1109,6 +1109,9 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
 
     def process_spline_child(child, stroke_width):
         """Generate strokes from a spline/LineObject child."""
+        # Hide source spline in editor - stroke geometry replaces it visually
+        child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
         spline = child.GetCache()
         if spline is None:
             spline = child.GetDeformCache()
