@@ -179,9 +179,9 @@ class ThreeDCamera(CustomObject):
         Compute camera orbital position and orientation.
 
         The orbit system uses spherical coordinates:
-        - Origin rotates by (phi=H, theta=-P, tilt=B)
-        - OrbitPoint sits at (0, 0, -radius) in Origin's local space
-        - Camera interpolates between OrbitPoint and FocusPoint
+        - Camera orbits around focus point at given radius
+        - Phi rotates around Y axis, Theta elevates
+        - Camera always looks at focus point
         """
         return '''
 def main():
@@ -195,31 +195,23 @@ def main():
     focus_y = get_userdata_by_name(op, "FocusPointY") or 0.0
     focus_z = get_userdata_by_name(op, "FocusPointZ") or 0.0
 
-    # Compute zoom_factor from frame_width and radius
-    if radius > 0:
-        zoom_factor = 1.0 - (frame_width / radius)
-    else:
-        zoom_factor = 0.0
-    zoom_factor = max(0.0, min(1.0, zoom_factor))
+    focus_pos = c4d.Vector(focus_x, focus_y, focus_z)
 
-    # Calculate orbit point position in world space
+    # Calculate camera position on sphere around focus point
+    # Spherical to Cartesian: camera orbits focus_pos
+    # phi = azimuth (rotation around Y), theta = elevation
     cos_phi = math.cos(phi)
     sin_phi = math.sin(phi)
     cos_theta = math.cos(theta)
     sin_theta = math.sin(theta)
 
-    orbit_local_z = -radius
-    orbit_after_theta_y = orbit_local_z * sin_theta
-    orbit_after_theta_z = orbit_local_z * cos_theta
-    orbit_world_x = -orbit_after_theta_z * sin_phi
-    orbit_world_y = orbit_after_theta_y
-    orbit_world_z = orbit_after_theta_z * cos_phi
+    # Camera offset from focus point (spherical coords)
+    # At phi=0, theta=0: camera is at (0, 0, -radius) relative to focus (looking at focus from front)
+    cam_offset_x = radius * cos_theta * sin_phi
+    cam_offset_y = radius * sin_theta
+    cam_offset_z = -radius * cos_theta * cos_phi
 
-    orbit_pos = c4d.Vector(orbit_world_x, orbit_world_y, orbit_world_z)
-    focus_pos = c4d.Vector(focus_x, focus_y, focus_z)
-
-    # Camera position: interpolate between orbit and focus
-    camera_pos = orbit_pos + (focus_pos - orbit_pos) * zoom_factor
+    camera_pos = focus_pos + c4d.Vector(cam_offset_x, cam_offset_y, cam_offset_z)
 
     # Apply transformations to children
     child = op.GetDown()
@@ -230,20 +222,35 @@ def main():
             child.SetRelRot(c4d.Vector(-theta, phi, tilt))
 
         elif name == "FocusPoint":
-            child.SetRelPos(c4d.Vector(focus_x, focus_y, focus_z))
+            child.SetRelPos(focus_pos)
 
         elif name == "Camera":
             child.SetAbsPos(camera_pos)
-            # Make camera look at focus point
+
+            # Make camera look at focus point using C4D's built-in matrix utilities
             dir_vec = focus_pos - camera_pos
             if dir_vec.GetLength() > 0.001:
-                # Calculate rotation from direction vector
-                # Heading from XZ plane
-                h = math.atan2(dir_vec.x, dir_vec.z)
-                # Pitch from XZ distance
-                xz_dist = math.sqrt(dir_vec.x**2 + dir_vec.z**2)
-                p = -math.atan2(dir_vec.y, xz_dist)
-                child.SetAbsRot(c4d.Vector(p, h, tilt))
+                # Build a look-at matrix
+                # Z axis points from camera toward target (C4D cameras look down +Z after rotation)
+                z_axis = dir_vec.GetNormalized()
+
+                # Use world up as reference for right vector
+                world_up = c4d.Vector(0, 1, 0)
+                x_axis = world_up.Cross(z_axis).GetNormalized()
+
+                # Recalculate up to be orthogonal
+                y_axis = z_axis.Cross(x_axis).GetNormalized()
+
+                # Build rotation matrix (camera looks down +Z in its local space after this)
+                look_matrix = c4d.Matrix()
+                look_matrix.v1 = x_axis  # right
+                look_matrix.v2 = y_axis  # up
+                look_matrix.v3 = z_axis  # forward (toward target)
+
+                # Convert matrix to HPB and apply tilt
+                hpb = c4d.utils.MatrixToHPB(look_matrix)
+                hpb.z = tilt  # Apply bank/tilt
+                child.SetAbsRot(hpb)
 
         child = child.GetNext()
 

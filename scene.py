@@ -178,6 +178,7 @@ class Scene(ABC):
                 continue
             else:
                 print("Unknown animator input!", animator.__class__)
+                continue
             animations.append(animation)
         return animations
 
