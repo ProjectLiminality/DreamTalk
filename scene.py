@@ -184,7 +184,11 @@ class Scene(ABC):
                 scalar_animations = animator.scalar_animations
                 animations += scalar_animations
                 continue
-            # ProtoAnimator wraps animations
+            # AnimationGroup - check BEFORE 'animations' attribute since AnimationGroup has that attribute
+            elif class_name == "AnimationGroup":
+                animations.append(animator)
+                continue
+            # ProtoAnimator wraps animations (check after AnimationGroup to avoid mishandling)
             elif hasattr(animator, 'animations'):
                 animation = animator.animations
                 if hasattr(animation, 'scalar_animations') and animation.scalar_animations:
@@ -194,10 +198,6 @@ class Scene(ABC):
                 else:
                     animations.append(animation)
                     continue
-            # AnimationGroup
-            elif class_name == "AnimationGroup":
-                animations.append(animator)
-                continue
             # Direct animation objects (ScalarAnimation, etc.)
             elif hasattr(animator, 'execute'):
                 animations.append(animator)
