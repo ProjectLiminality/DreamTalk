@@ -37,6 +37,26 @@ DreamTalk encodes a metaphysical framework into its syntax:
 - **Kronos**: Sequential time. Events unfold in order.
 - **DreamWeaving**: The act of pulling Kairos into Kronos.
 
+### The Observer
+
+The **Observer** is the consciousness perceiving the dream. There is no fundamental
+distinction between 2D and 3D - just different configurations of observation.
+
+```python
+class MyDream(Dream):
+    def unfold(self):
+        # 2D-style work (subset of 3D)
+        self.observer.pan(x=100, y=50)
+        self.observer.zoom(factor=0.5)
+
+        # 3D-style work
+        self.observer.orbit(phi=PI/4, theta=PI/6)
+        self.observer.dolly(radius=1500)
+```
+
+A "2D scene" is simply an Observer looking straight at the XY plane.
+A "3D scene" uses the same Observer with orbital controls.
+
 ---
 
 ## File Structure

@@ -16,7 +16,7 @@ import DreamTalk.animation.animation
 importlib.reload(DreamTalk.animation.animation)
 from DreamTalk.animation.animation import ScalarAnimation, VectorAnimation
 from DreamTalk.animation.abstract_animators import ProtoAnimator, AnimationGroup
-from DreamTalk.objects.camera_objects import TwoDCamera, ThreeDCamera
+from DreamTalk.objects.camera_objects import TwoDCamera, ThreeDCamera, Observer
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from DreamTalk.constants import *
@@ -413,11 +413,61 @@ class ThreeDScene(Scene):
 
 
 # =============================================================================
-# ALIASES - Canonical DreamTalk Syntax
+# UNIFIED DREAM - Canonical DreamTalk Syntax
 # =============================================================================
 
-# Dream is the philosophical name for a Scene
-# A Dream is where timeless holons unfold through Kronos (time)
-Dream = Scene
-TwoDDream = TwoDScene
-ThreeDDream = ThreeDScene
+class Dream(Scene):
+    """
+    Where holons unfold through time (Kronos domain).
+
+    Dream is the unified scene class for all DreamTalk work.
+    There is no fundamental distinction between 2D and 3D - just different
+    observer configurations.
+
+    The observer can be configured for:
+    - 2D work: looking at XY plane, using pan() and zoom()
+    - 3D work: orbital controls with orbit(), dolly(), move_focus()
+
+    Args:
+        resolution: Render resolution preset (default: "default")
+        alpha: Enable alpha channel (default: True)
+        save: Save render output (default: False)
+        observer_theta: Initial elevation angle (default: 0 for 2D-style)
+
+    Example:
+        class MyDream(Dream):
+            def unfold(self):
+                circle = Circle(radius=100)
+                self.play(Create(circle), run_time=1)
+
+                # 2D-style navigation
+                self.play(self.observer.pan(x=100), run_time=0.5)
+                self.play(self.observer.zoom(factor=0.5), run_time=0.5)
+
+                # 3D-style navigation
+                self.play(self.observer.orbit(theta=PI/6), run_time=1)
+    """
+
+    def __init__(self, observer_theta=0, **kwargs):
+        self._observer_theta = observer_theta
+        super().__init__(**kwargs)
+
+    def set_camera(self):
+        """Set up the unified observer."""
+        self.observer = Observer(theta=self._observer_theta)
+        bd = self.document.GetActiveBaseDraw()
+        bd.SetSceneCamera(self.observer.camera.obj)
+
+        # Legacy alias
+        self.camera = self.observer
+
+
+# =============================================================================
+# LEGACY ALIASES - For backward compatibility
+# =============================================================================
+
+# TwoDScene and ThreeDScene are kept for backward compatibility
+# New code should use Dream directly
+
+TwoDDream = TwoDScene   # Legacy
+ThreeDDream = ThreeDScene  # Legacy

@@ -89,5 +89,6 @@ from DreamTalk.animation.abstract_animators import *
 # Canonical DreamTalk syntax - philosophical naming
 from DreamTalk.objects.abstract_objects import Holon
 from DreamTalk.scene import Dream, TwoDDream, ThreeDDream
+from DreamTalk.objects.camera_objects import Observer
 from DreamTalk.xpresso.types import Length, Angle, Bipolar, Completion, Color, Integer, Bool
 from DreamTalk.xpresso.states import State
