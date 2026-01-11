@@ -160,26 +160,33 @@ class Scene(ABC):
         """Extract animations from animators."""
         animations = []
         for animator in animators:
-            if isinstance(animator, DreamTalk.animation.abstract_animators.ProtoAnimator):
+            class_name = animator.__class__.__name__
+            # Check VectorAnimation first (it has scalar_animations to extract)
+            if class_name == "VectorAnimation" or (hasattr(animator, 'scalar_animations') and animator.scalar_animations):
+                scalar_animations = animator.scalar_animations
+                animations += scalar_animations
+                continue
+            # ProtoAnimator wraps animations
+            elif hasattr(animator, 'animations'):
                 animation = animator.animations
-                if issubclass(animation.__class__, DreamTalk.animation.animation.VectorAnimation):
-                    vector_animation = animator
-                    scalar_animations = vector_animation.scalar_animations
+                if hasattr(animation, 'scalar_animations') and animation.scalar_animations:
+                    scalar_animations = animation.scalar_animations
                     animations += scalar_animations
                     continue
-            elif issubclass(animator.__class__, DreamTalk.animation.animation.ProtoAnimation):
-                animation = animator
-            elif animator.__class__.__name__ == "AnimationGroup":
-                animation = animator
-            elif issubclass(animator.__class__, DreamTalk.animation.animation.VectorAnimation):
-                vector_animation = animator
-                scalar_animations = vector_animation.scalar_animations
-                animations += scalar_animations
+                else:
+                    animations.append(animation)
+                    continue
+            # AnimationGroup
+            elif class_name == "AnimationGroup":
+                animations.append(animator)
+                continue
+            # Direct animation objects (ScalarAnimation, etc.)
+            elif hasattr(animator, 'execute'):
+                animations.append(animator)
                 continue
             else:
                 print("Unknown animator input!", animator.__class__)
                 continue
-            animations.append(animation)
         return animations
 
     def play(self, *animators, run_time=1):
