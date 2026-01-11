@@ -415,7 +415,19 @@ def main():
         Changes the target of the camera's TargetTag so it looks at
         the specified object instead of the default focus_point Null.
 
+        In generator_mode, TargetTag is not available, so this sets the
+        focus point to the target's current position instead.
+
         Args:
             target: A DreamTalk object to follow
         """
-        self.target_tag.set_target(target)
+        if self.generator_mode:
+            # In generator mode, we can't use TargetTag (expression tag)
+            # Instead, set focus point to target's position
+            # Note: This won't dynamically follow - position is set once
+            pos = target.obj.GetAbsPos()
+            self.obj[self.focus_point_x_parameter.desc_id] = pos.x
+            self.obj[self.focus_point_y_parameter.desc_id] = pos.y
+            self.obj[self.focus_point_z_parameter.desc_id] = pos.z
+        else:
+            self.target_tag.set_target(target)

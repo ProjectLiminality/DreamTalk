@@ -490,9 +490,14 @@ class CustomObject(VisibleObject):
             self.specify_position_inheritance()
             self.sort_relations_by_priority()
         else:
-            # Generator mode: convert to Python Generator
+            # Generator mode: still need creation_parameter for keyframe animations
             self.action_parameters = []
+            self.specify_creation_parameter()
             self.diameter = diameter
+            self.insert_action_parameters()
+            # Note: Subclasses with custom _convert_to_generator (like FoldableCube)
+            # will override this. Otherwise, use the generic GeneratorMixin conversion.
+            # The conversion happens AFTER all parameters are set up.
             self._convert_to_generator()
 
     def _convert_to_generator(self):

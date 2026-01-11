@@ -1580,13 +1580,14 @@ class FoldableCube(CustomObject, GeneratorMixin):
         self.null_obj = self.obj  # Keep reference to original null
         self.obj = self.gen  # Now self.obj is the generator
 
-        # Update fold_parameter desc_id to point to new generator's UserData
-        # Find the Fold parameter by name in the generator's UserData
+        # Update parameter desc_ids to point to new generator's UserData
         ud = self.gen.GetUserDataContainer()
         for desc_id, bc in ud:
-            if bc[c4d.DESC_NAME] == "Fold":
+            name = bc[c4d.DESC_NAME]
+            if name == "Fold":
                 self.fold_parameter.desc_id = desc_id
-                break
+            elif name == "Creation":
+                self.creation_parameter.desc_id = desc_id
 
     def create(self, completion=1):
         """Keyframe-based creation animation for generator mode.
