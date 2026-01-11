@@ -1464,21 +1464,37 @@ class FoldableCube(CustomObject, GeneratorMixin):
         super().__init__(**kwargs)
 
     def specify_parts(self):
-        # Define the rectangles without positions
+        # Rectangles positioned at their hinge points (y=50 for all wall faces)
+        # The Rectangle Generator itself serves as the pivot - no separate Axis null needed
+        # Each rectangle is in the xz plane, positioned at edge of cube, with y=50 as hinge
         sw = self.stroke_width
-        self.front_rectangle = Rectangle(z=50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="FrontRectangle")
-        self.back_rectangle = Rectangle(z=-50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="BackRectangle")
-        self.right_rectangle = Rectangle(x=50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="RightRectangle")
-        self.left_rectangle = Rectangle(x=-50, plane="xz", creation=True, color=self.color, stroke_width=sw, name="LeftRectangle")
 
-        # Define groups with position attributes for transformations
-        self.front_axis = Group(self.front_rectangle, z=50, name="FrontAxis")
-        self.back_axis = Group(self.back_rectangle, z=-50, name="BackAxis")
-        self.right_axis = Group(self.right_rectangle, x=50, name="RightAxis")
-        self.left_axis = Group(self.left_rectangle, x=-50, name="LeftAxis")
+        # Front/Back rotate around P (pitch/Y), Right/Left rotate around B (bank/Z)
+        # Initial rotation puts them upright (fold=1 state)
+        self.front_rectangle = Rectangle(
+            x=0, y=50, z=50, plane="xz",
+            p=PI/2,  # Rotated up around Y axis
+            creation=True, color=self.color, stroke_width=sw, name="FrontRectangle"
+        )
+        self.back_rectangle = Rectangle(
+            x=0, y=50, z=-50, plane="xz",
+            p=-PI/2,  # Rotated up around Y axis (opposite direction)
+            creation=True, color=self.color, stroke_width=sw, name="BackRectangle"
+        )
+        self.right_rectangle = Rectangle(
+            x=50, y=50, z=0, plane="xz",
+            b=-PI/2,  # Rotated up around Z axis
+            creation=True, color=self.color, stroke_width=sw, name="RightRectangle"
+        )
+        self.left_rectangle = Rectangle(
+            x=-50, y=50, z=0, plane="xz",
+            b=PI/2,  # Rotated up around Z axis (opposite direction)
+            creation=True, color=self.color, stroke_width=sw, name="LeftRectangle"
+        )
 
-        # Add all parts to the parts list
-        self.parts += [self.front_axis, self.back_axis, self.right_axis, self.left_axis]
+        # Add rectangles directly as parts (they are their own pivots)
+        self.parts += [self.front_rectangle, self.back_rectangle,
+                       self.right_rectangle, self.left_rectangle]
 
         if self.bottom:
             self.bottom_rectangle = Rectangle(plane="xz", creation=True, color=self.color, stroke_width=sw, name="BottomRectangle")
@@ -1487,7 +1503,9 @@ class FoldableCube(CustomObject, GeneratorMixin):
     def specify_parameters(self):
         # UBipolar allows -1 to 1 range: positive folds upward, negative folds downward
         self.fold_parameter = UBipolar(name="Fold", default_value=0)
-        self.parameters += [self.fold_parameter]
+        # Stroke width for the consolidated stroke generation
+        self.stroke_width_parameter = ULength(name="Stroke Width", default_value=self.stroke_width or 1.0)
+        self.parameters += [self.fold_parameter, self.stroke_width_parameter]
 
     def specify_relations(self):
         # Python Generator handles fold relations via specify_generator_code()
@@ -1619,37 +1637,132 @@ class FoldableCube(CustomObject, GeneratorMixin):
         return AnimationGroup(*animations)
 
     def specify_generator_code(self):
-        """Generator code for MoGraph Cloner compatibility.
+        """Generator code that handles BOTH folding AND stroke generation.
 
-        This code runs inside the Python Generator and modifies children
-        based on the Fold parameter. Each clone gets unique values via op.GetMg().
+        Consolidates logic that was previously split across multiple generators:
+        - Fold parameter controls child rectangle rotations
+        - Stroke generation creates camera-facing geometry for all child splines
+        - Returns combined polygon geometry for rendering
+
+        The Rectangle children are raw splines (no wrapper generators).
+        fold=0 -> flat (all walls lying down), fold=1 -> upright (90° walls)
         """
-        # Use name-based lookup for robustness (UserData IDs vary based on other parameters)
-        # Rotation axes match XPresso relations: Front/Back use ROT_P (Y), Right/Left use ROT_B (Z)
         return '''
 def main():
-    # Read Fold parameter by name (robust to UserData ID changes)
+    doc = c4d.documents.GetActiveDocument()
+
+    # === FOLD LOGIC ===
     fold = get_userdata_by_name(op, "Fold")
     if fold is None:
         fold = 0.0
-    angle = fold * PI / 2  # -90 to +90 degrees
+    angle = fold * PI / 2  # 0 to 90 degrees (fold 0->1)
 
-    # Modify axis children based on fold
-    # Front/Back rotate around Y (pitch), Right/Left rotate around Z (bank)
+    # === STROKE PARAMETERS ===
+    stroke_width = get_userdata_by_name(op, "Stroke Width")
+    if stroke_width is None:
+        stroke_width = 1.0
+
+    # === GET CAMERA ===
+    bd = doc.GetActiveBaseDraw()
+    cam = bd.GetSceneCamera(doc) if bd else None
+    if not cam:
+        obj = doc.GetFirstObject()
+        while obj:
+            if obj.GetType() == c4d.Ocamera:
+                cam = obj
+                break
+            obj = obj.GetNext()
+
+    if not cam:
+        return None
+
+    cam_world = cam.GetMg().off
+    gen_mg = op.GetMg()
+    gen_mg_inv = ~gen_mg
+
+    # Accumulators for combined stroke geometry
+    all_stroke_points = []
+    all_stroke_polys = []
+
+    # === PROCESS EACH CHILD ===
     child = op.GetDown()
     while child:
         name = child.GetName()
-        if name == "FrontAxis":
-            child.SetRelRot(c4d.Vector(0, angle, 0))   # ROT_P (Y)
-        elif name == "BackAxis":
-            child.SetRelRot(c4d.Vector(0, -angle, 0))  # ROT_P (Y)
-        elif name == "RightAxis":
-            child.SetRelRot(c4d.Vector(0, 0, -angle))  # ROT_B (Z)
-        elif name == "LeftAxis":
-            child.SetRelRot(c4d.Vector(0, 0, angle))   # ROT_B (Z)
+
+        # Apply fold rotation based on rectangle name
+        if name == "FrontRectangle":
+            child.SetRelRot(c4d.Vector(0, angle, 0))
+        elif name == "BackRectangle":
+            child.SetRelRot(c4d.Vector(0, -angle, 0))
+        elif name == "RightRectangle":
+            child.SetRelRot(c4d.Vector(0, 0, -angle))
+        elif name == "LeftRectangle":
+            child.SetRelRot(c4d.Vector(0, 0, angle))
+        # BottomRectangle stays flat (no rotation)
+
+        # === STROKE GENERATION FOR THIS CHILD ===
+        # Get spline data
+        spline = child.GetCache()
+        if spline is None:
+            spline = child.GetDeformCache()
+        if spline is None:
+            spline = child  # Use directly if already a spline
+
+        # Check if it's a spline-like object
+        is_line_object = spline.GetType() == 5137
+        is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+
+        if is_line_object or is_spline_object:
+            child_mg = child.GetMg()
+            points = spline.GetAllPoints()
+
+            if len(points) >= 2:
+                # Transform points to world space
+                world_points = []
+                for p in points:
+                    world_p = child_mg * p
+                    world_points.append(world_p)
+
+                # Determine if closed (Rectangle type 5186 is closed)
+                is_closed = child.GetType() == 5186 or child.GetType() in [5181, 5176, 5180, 5178, 5175]
+
+                # Generate stroke quads for this spline
+                num_pts = len(world_points)
+                num_edges = num_pts if is_closed else num_pts - 1
+
+                for i in range(num_edges):
+                    p1_world = world_points[i]
+                    p2_world = world_points[(i + 1) % num_pts]
+
+                    mid = (p1_world + p2_world) * 0.5
+                    to_cam = (cam_world - mid).GetNormalized()
+                    tangent = (p2_world - p1_world).GetNormalized()
+                    perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+                    q0 = gen_mg_inv * (p1_world - perp)
+                    q1 = gen_mg_inv * (p1_world + perp)
+                    q2 = gen_mg_inv * (p2_world + perp)
+                    q3 = gen_mg_inv * (p2_world - perp)
+
+                    base_idx = len(all_stroke_points)
+                    all_stroke_points.extend([q0, q1, q2, q3])
+                    all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+
         child = child.GetNext()
 
-    return None
+    # === BUILD COMBINED RESULT ===
+    if not all_stroke_polys:
+        return None
+
+    result = c4d.PolygonObject(len(all_stroke_points), len(all_stroke_polys))
+    result.SetAllPoints(all_stroke_points)
+    for i, poly in enumerate(all_stroke_polys):
+        result.SetPolygon(i, poly)
+
+    result.Message(c4d.MSG_UPDATE)
+    result.SetName("FoldableCubeStrokes")
+
+    return result
 '''
 
     def specify_generator_code_position_driven(self, axis='x', range_val=300):
