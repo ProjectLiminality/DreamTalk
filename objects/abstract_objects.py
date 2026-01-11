@@ -555,6 +555,8 @@ class SolidObject(VisibleObject):
         self.fill_material[c4d.MATERIAL_USE_TRANSPARENCY] = True
         transparency = 1.0 - self.filled  # 0 fill = 1 transparency
         self.fill_material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = transparency
+        # Platonic opacity: refraction=1.0 means no light bending (pure abstract transparency)
+        self.fill_material[c4d.MATERIAL_TRANSPARENCY_REFRACTION] = 1.0
 
         self.document.InsertMaterial(self.fill_material)
 

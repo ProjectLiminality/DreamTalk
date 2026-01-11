@@ -1456,7 +1456,7 @@ class FoldableCube(CustomObject, GeneratorMixin):
     The Fold parameter controls how upright the walls are (-1 to 1 range).
     """
 
-    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, **kwargs):
+    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=1, **kwargs):
         self.color = color
         self.bottom = bottom
         self.drive_opacity = drive_opacity

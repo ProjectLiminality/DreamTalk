@@ -321,23 +321,17 @@ class ImagePlane(SolidObject):
         self._apply_texture_material()
 
     # Override SolidObject's material methods to do nothing
-    # We use our own texture material instead of sketch/fill materials
-    def set_fill_material(self):
+    # We use our own texture material instead of fill materials
+    def _setup_fill_material(self):
+        """Skip fill material - ImagePlane uses its own texture material."""
         pass
 
-    def set_fill_tag(self):
+    def _setup_fill_parameters(self):
+        """Skip fill parameters - not needed for ImagePlane."""
         pass
 
-    def set_sketch_material(self):
-        pass
-
-    def set_sketch_tag(self):
-        pass
-
-    def fill_parameter_setup(self):
-        pass
-
-    def sketch_parameter_setup(self):
+    def _store_stroke_metadata(self):
+        """Skip stroke metadata - ImagePlane doesn't need silhouette strokes."""
         pass
 
     def specify_creation(self):
