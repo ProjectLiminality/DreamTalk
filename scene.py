@@ -177,13 +177,11 @@ class Scene(ABC):
         # === Disable visual aids, keep geometry visible ===
         bc = bd.GetDataInstance()
 
-        # Hide visual aids
+        # Hide world/scene visual aids
         bc[c4d.BASEDRAW_DISPLAYFILTER_GRID] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_BASEGRID] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_HORIZON] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_WORLDAXIS] = False
-        bc[c4d.BASEDRAW_DISPLAYFILTER_HANDLES] = False
-        bc[c4d.BASEDRAW_DISPLAYFILTER_OBJECTHANDLES] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_HUD] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_NULL] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_CAMERA] = False
@@ -191,7 +189,11 @@ class Scene(ABC):
         bc[c4d.BASEDRAW_DISPLAYFILTER_JOINT] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_DEFORMER] = False
         bc[c4d.BASEDRAW_DISPLAYFILTER_FIELD] = False
-        bc[c4d.BASEDRAW_DISPLAYFILTER_HIGHLIGHTING] = False
+
+        # Keep object interaction handles visible (axis gizmo on selection)
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HANDLES] = True
+        bc[c4d.BASEDRAW_DISPLAYFILTER_OBJECTHANDLES] = True
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HIGHLIGHTING] = True
 
         # Keep geometry visible
         bc[c4d.BASEDRAW_DISPLAYFILTER_GENERATOR] = True
