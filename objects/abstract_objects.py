@@ -812,8 +812,16 @@ def main():
         Parameters defined here are merged with those from specify_parameters().
         Type-hinted parameters should NOT be duplicated in specify_parameters().
         """
+        # Runtime reload of types to ensure fresh code in C4D's persistent Python
+        import DreamTalk.xpresso.types as types_module
+        try:
+            from importlib import reload
+        except ImportError:
+            from imp import reload
+        reload(types_module)
+
         from DreamTalk.xpresso.types import (
-            ParameterType, get_default_value, create_userdata_from_type
+            get_default_value, create_userdata_from_type, PARAMETER_TYPE_NAMES
         )
 
         # Get annotations from the class (not instance)
@@ -823,12 +831,17 @@ def main():
             # Determine the actual type class
             type_class = None
 
-            if isinstance(type_hint, type) and issubclass(type_hint, ParameterType):
-                # Type hint is a class: `fold: Bipolar`
-                type_class = type_hint
-            elif isinstance(type_hint, ParameterType):
-                # Type hint is an instance (unusual but supported)
-                type_class = type_hint.__class__
+            # Use name-based check to handle module reload identity issues
+            # After reload, issubclass may fail due to different class objects
+            if isinstance(type_hint, type):
+                type_name = type_hint.__name__
+                if type_name in PARAMETER_TYPE_NAMES:
+                    type_class = type_hint
+            elif hasattr(type_hint, '__class__'):
+                # Instance of parameter type (unusual but supported)
+                type_name = type_hint.__class__.__name__
+                if type_name in PARAMETER_TYPE_NAMES:
+                    type_class = type_hint.__class__
 
             if type_class is None:
                 # Not a parameter type annotation - skip

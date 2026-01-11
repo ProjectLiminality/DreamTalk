@@ -150,11 +150,25 @@ class Bool(ParameterType):
 # Type checking utilities
 # =============================================================================
 
+# Set of valid parameter type names for name-based type checking
+# This handles module reload identity issues in Cinema 4D's persistent Python
+PARAMETER_TYPE_NAMES = {
+    'Length', 'Angle', 'Bipolar', 'Completion', 'Color', 'Integer', 'Bool'
+}
+
+
 def is_parameter_type(obj):
     """Check if an object is a parameter type instance or class."""
     if isinstance(obj, type):
         return issubclass(obj, ParameterType)
     return isinstance(obj, ParameterType)
+
+
+def _is_parameter_type_by_name(obj):
+    """Check if object is a ParameterType using name-based lookup."""
+    if isinstance(obj, type):
+        return obj.__name__ in PARAMETER_TYPE_NAMES
+    return obj.__class__.__name__ in PARAMETER_TYPE_NAMES
 
 
 def get_default_value(type_hint, class_default):
@@ -169,7 +183,8 @@ def get_default_value(type_hint, class_default):
         The resolved default value
     """
     # If class_default is a ParameterType instance, get its default
-    if isinstance(class_default, ParameterType):
+    # Use name-based check to handle module reload issues
+    if hasattr(class_default, 'default') and _is_parameter_type_by_name(class_default):
         return class_default.default
 
     # If class_default is a raw value (int, float, etc.), use it
@@ -177,9 +192,9 @@ def get_default_value(type_hint, class_default):
         return class_default
 
     # Fall back to type's default
-    if isinstance(type_hint, ParameterType):
+    if hasattr(type_hint, 'default') and _is_parameter_type_by_name(type_hint):
         return type_hint.default
-    elif isinstance(type_hint, type) and issubclass(type_hint, ParameterType):
+    elif isinstance(type_hint, type) and type_hint.__name__ in PARAMETER_TYPE_NAMES:
         return type_hint().default
 
     return None
@@ -201,19 +216,21 @@ def create_userdata_from_type(name, type_class, default_value):
         ULength, UAngle, UBipolar, UCompletion, UColor, UCount, UCheckBox
     )
 
-    # Map type classes to UserData classes
-    type_to_userdata = {
-        Length: ULength,
-        Angle: UAngle,
-        Bipolar: UBipolar,
-        Completion: UCompletion,
-        Color: UColor,
-        Integer: UCount,  # UCount is the concrete integer class
-        Bool: UCheckBox,
+    # Map type class NAMES to UserData classes
+    # Using name-based lookup to handle module reload identity issues
+    type_name_to_userdata = {
+        'Length': ULength,
+        'Angle': UAngle,
+        'Bipolar': UBipolar,
+        'Completion': UCompletion,
+        'Color': UColor,
+        'Integer': UCount,  # UCount is the concrete integer class
+        'Bool': UCheckBox,
     }
 
-    # Get the UserData class for this type
-    userdata_class = type_to_userdata.get(type_class)
+    # Get the UserData class for this type by name
+    type_name = type_class.__name__
+    userdata_class = type_name_to_userdata.get(type_name)
     if userdata_class is None:
         raise ValueError(f"Unknown parameter type: {type_class}")
 

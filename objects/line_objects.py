@@ -15,10 +15,15 @@ def _extract_bound_value(value, default):
     """
     Extract the actual value and binding from a possibly-bound value.
 
+    Uses name-based type checking to handle module reload identity issues
+    in Cinema 4D's persistent Python environment.
+
     Returns:
         (actual_value, binding_or_none)
     """
-    if isinstance(value, BoundValue):
+    # Use name-based check to handle module reload identity issues
+    # After reload, isinstance may fail due to different class objects
+    if hasattr(value, '__class__') and value.__class__.__name__ == 'BoundValue':
         return value.default, value
     return value, None
 
