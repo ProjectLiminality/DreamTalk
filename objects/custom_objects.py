@@ -1464,37 +1464,47 @@ class FoldableCube(CustomObject, GeneratorMixin):
         super().__init__(**kwargs)
 
     def specify_parts(self):
-        # Rectangles positioned at their hinge points (y=50 for all wall faces)
-        # The Rectangle Generator itself serves as the pivot - no separate Axis null needed
-        # Each rectangle is in the xz plane, positioned at edge of cube, with y=50 as hinge
+        # Each wall uses a pivot null at the hinge (edge of bottom square).
+        # Rectangle is child of pivot, offset by 50 units outward.
+        # We rotate the pivot null - the rectangle follows as child.
         sw = self.stroke_width
+        from DreamTalk.objects.helper_objects import Null
 
-        # Front/Back rotate around P (pitch/Y), Right/Left rotate around B (bank/Z)
-        # Initial rotation puts them upright (fold=1 state)
+        # Front pivot at z=50, rectangle offset +50 in local Z
+        self.front_pivot = Null(x=0, y=0, z=50, name="FrontPivot")
         self.front_rectangle = Rectangle(
-            x=0, y=50, z=50, plane="xz",
-            p=PI/2,  # Rotated up around Y axis
+            z=50, plane="xz",  # Offset from pivot
             creation=True, color=self.color, stroke_width=sw, name="FrontRectangle"
         )
+        self.front_rectangle.obj.InsertUnder(self.front_pivot.obj)
+
+        # Back pivot at z=-50, rectangle offset -50 in local Z
+        self.back_pivot = Null(x=0, y=0, z=-50, name="BackPivot")
         self.back_rectangle = Rectangle(
-            x=0, y=50, z=-50, plane="xz",
-            p=-PI/2,  # Rotated up around Y axis (opposite direction)
+            z=-50, plane="xz",  # Offset from pivot
             creation=True, color=self.color, stroke_width=sw, name="BackRectangle"
         )
+        self.back_rectangle.obj.InsertUnder(self.back_pivot.obj)
+
+        # Right pivot at x=50, rectangle offset +50 in local X
+        self.right_pivot = Null(x=50, y=0, z=0, name="RightPivot")
         self.right_rectangle = Rectangle(
-            x=50, y=50, z=0, plane="xz",
-            b=-PI/2,  # Rotated up around Z axis
+            x=50, plane="xz",  # Offset from pivot
             creation=True, color=self.color, stroke_width=sw, name="RightRectangle"
         )
+        self.right_rectangle.obj.InsertUnder(self.right_pivot.obj)
+
+        # Left pivot at x=-50, rectangle offset -50 in local X
+        self.left_pivot = Null(x=-50, y=0, z=0, name="LeftPivot")
         self.left_rectangle = Rectangle(
-            x=-50, y=50, z=0, plane="xz",
-            b=PI/2,  # Rotated up around Z axis (opposite direction)
+            x=-50, plane="xz",  # Offset from pivot
             creation=True, color=self.color, stroke_width=sw, name="LeftRectangle"
         )
+        self.left_rectangle.obj.InsertUnder(self.left_pivot.obj)
 
-        # Add rectangles directly as parts (they are their own pivots)
-        self.parts += [self.front_rectangle, self.back_rectangle,
-                       self.right_rectangle, self.left_rectangle]
+        # Add pivots as parts (rectangles are children, will be included automatically)
+        self.parts += [self.front_pivot, self.back_pivot,
+                       self.right_pivot, self.left_pivot]
 
         if self.bottom:
             self.bottom_rectangle = Rectangle(plane="xz", creation=True, color=self.color, stroke_width=sw, name="BottomRectangle")
@@ -1685,68 +1695,82 @@ def main():
     all_stroke_polys = []
 
     # === PROCESS EACH CHILD ===
+    # Children are now pivot nulls with rectangle children
     child = op.GetDown()
     while child:
         name = child.GetName()
 
-        # Apply fold rotation based on rectangle name
-        if name == "FrontRectangle":
-            child.SetRelRot(c4d.Vector(0, angle, 0))
-        elif name == "BackRectangle":
-            child.SetRelRot(c4d.Vector(0, -angle, 0))
-        elif name == "RightRectangle":
-            child.SetRelRot(c4d.Vector(0, 0, -angle))
-        elif name == "LeftRectangle":
-            child.SetRelRot(c4d.Vector(0, 0, angle))
-        # BottomRectangle stays flat (no rotation)
+        # Rotate pivot nulls - rectangles follow as children
+        # Front/Back: rotate around X axis (pitch)
+        # Right/Left: rotate around Z axis (bank)
+        if name == "FrontPivot":
+            child.SetRelRot(c4d.Vector(-angle, 0, 0))  # Negative X folds up
+        elif name == "BackPivot":
+            child.SetRelRot(c4d.Vector(angle, 0, 0))   # Positive X folds up
+        elif name == "RightPivot":
+            child.SetRelRot(c4d.Vector(0, 0, angle))   # Positive Z folds up
+        elif name == "LeftPivot":
+            child.SetRelRot(c4d.Vector(0, 0, -angle))  # Negative Z folds up
+        # BottomRectangle has no pivot, stays flat
 
-        # === STROKE GENERATION FOR THIS CHILD ===
-        # Get spline data
-        spline = child.GetCache()
-        if spline is None:
-            spline = child.GetDeformCache()
-        if spline is None:
-            spline = child  # Use directly if already a spline
+        # === STROKE GENERATION ===
+        # Handle both direct splines (BottomRectangle) and pivot nulls (with rectangle children)
+        stroke_targets = []
 
-        # Check if it's a spline-like object
-        is_line_object = spline.GetType() == 5137
-        is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+        # Check if child is a null (pivot) - if so, get its rectangle child
+        if child.GetType() == c4d.Onull:
+            rect_child = child.GetDown()
+            if rect_child:
+                stroke_targets.append(rect_child)
+        else:
+            stroke_targets.append(child)
 
-        if is_line_object or is_spline_object:
-            child_mg = child.GetMg()
-            points = spline.GetAllPoints()
+        for stroke_child in stroke_targets:
+            spline = stroke_child.GetCache()
+            if spline is None:
+                spline = stroke_child.GetDeformCache()
+            if spline is None:
+                spline = stroke_child  # Use directly if already a spline
 
-            if len(points) >= 2:
-                # Transform points to world space
-                world_points = []
-                for p in points:
-                    world_p = child_mg * p
-                    world_points.append(world_p)
+            # Check if it's a spline-like object
+            is_line_object = spline.GetType() == 5137
+            is_spline_object = spline.IsInstanceOf(c4d.Ospline)
 
-                # Determine if closed (Rectangle type 5186 is closed)
-                is_closed = child.GetType() == 5186 or child.GetType() in [5181, 5176, 5180, 5178, 5175]
+            if is_line_object or is_spline_object:
+                stroke_child_mg = stroke_child.GetMg()
+                points = spline.GetAllPoints()
 
-                # Generate stroke quads for this spline
-                num_pts = len(world_points)
-                num_edges = num_pts if is_closed else num_pts - 1
+                if len(points) >= 2:
+                    # Transform points to world space
+                    world_points = []
+                    for p in points:
+                        world_p = stroke_child_mg * p
+                        world_points.append(world_p)
 
-                for i in range(num_edges):
-                    p1_world = world_points[i]
-                    p2_world = world_points[(i + 1) % num_pts]
+                    # Determine if closed (Rectangle type 5186 is closed)
+                    is_closed = stroke_child.GetType() == 5186 or stroke_child.GetType() in [5181, 5176, 5180, 5178, 5175]
 
-                    mid = (p1_world + p2_world) * 0.5
-                    to_cam = (cam_world - mid).GetNormalized()
-                    tangent = (p2_world - p1_world).GetNormalized()
-                    perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+                    # Generate stroke quads for this spline
+                    num_pts = len(world_points)
+                    num_edges = num_pts if is_closed else num_pts - 1
 
-                    q0 = gen_mg_inv * (p1_world - perp)
-                    q1 = gen_mg_inv * (p1_world + perp)
-                    q2 = gen_mg_inv * (p2_world + perp)
-                    q3 = gen_mg_inv * (p2_world - perp)
+                    for i in range(num_edges):
+                        p1_world = world_points[i]
+                        p2_world = world_points[(i + 1) % num_pts]
 
-                    base_idx = len(all_stroke_points)
-                    all_stroke_points.extend([q0, q1, q2, q3])
-                    all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+                        mid = (p1_world + p2_world) * 0.5
+                        to_cam = (cam_world - mid).GetNormalized()
+                        tangent = (p2_world - p1_world).GetNormalized()
+                        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+                        q0 = gen_mg_inv * (p1_world - perp)
+                        q1 = gen_mg_inv * (p1_world + perp)
+                        q2 = gen_mg_inv * (p2_world + perp)
+                        q3 = gen_mg_inv * (p2_world - perp)
+
+                        base_idx = len(all_stroke_points)
+                        all_stroke_points.extend([q0, q1, q2, q3])
+                        all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
 
         child = child.GetNext()
 
