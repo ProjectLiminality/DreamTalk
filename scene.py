@@ -199,6 +199,10 @@ class Scene(ABC):
         bc[c4d.BASEDRAW_DISPLAYFILTER_SPLINE] = True
         bc[c4d.BASEDRAW_DISPLAYFILTER_HYPERNURBS] = True
 
+        # Enable supersampling for smoother edges
+        # Options: 0=none, 2, 3, 4, 5, 8, 16
+        bc[c4d.BASEDRAW_DATA_SUPERSAMPLING] = 4  # 4x anti-aliasing
+
         bd.SetData(bc)
         c4d.EventAdd()
 
