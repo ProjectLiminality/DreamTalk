@@ -1704,13 +1704,13 @@ def main():
         # Front/Back: rotate around P (pitch/Y axis)
         # Right/Left: rotate around Z axis (bank)
         if name == "FrontPivot":
-            child.SetRelRot(c4d.Vector(0, -angle, 0))  # Negative P folds up
+            child.SetRelRot(c4d.Vector(0, angle, 0))
         elif name == "BackPivot":
-            child.SetRelRot(c4d.Vector(0, angle, 0))   # Positive P folds up
+            child.SetRelRot(c4d.Vector(0, -angle, 0))
         elif name == "RightPivot":
-            child.SetRelRot(c4d.Vector(0, 0, angle))   # Positive Z folds up
+            child.SetRelRot(c4d.Vector(0, 0, -angle))
         elif name == "LeftPivot":
-            child.SetRelRot(c4d.Vector(0, 0, -angle))  # Negative Z folds up
+            child.SetRelRot(c4d.Vector(0, 0, angle))
         # BottomRectangle has no pivot, stays flat
 
         # === STROKE GENERATION ===
