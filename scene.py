@@ -49,6 +49,7 @@ class Scene(ABC):
         self.create_new_document()
         self.set_scene_name()
         self.insert_document()
+        self.setup_realtime_viewport()
         self.clear_console()
         self.set_camera()
         self.construct()
@@ -146,6 +147,60 @@ class Scene(ABC):
     def insert_document(self):
         """Insert document into C4D."""
         c4d.documents.InsertBaseDocument(self.document)
+
+    def setup_realtime_viewport(self):
+        """
+        Configure viewport for render-like real-time output.
+
+        Sets up:
+        - Black background (matches render output)
+        - No grid, horizon, world axis
+        - No handles, HUD, null objects
+        - Geometry remains visible (generators, polygons, splines)
+
+        This enables real-time preview that matches final render,
+        eliminating the need for slow renderer feedback during development.
+        """
+        bd = self.document.GetActiveBaseDraw()
+        if not bd:
+            return
+
+        # === Set background and grid colors to black ===
+        c4d.SetViewColor(c4d.VIEWCOLOR_C4DBACKGROUND, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_C4DBACKGROUND_GRAD1, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_C4DBACKGROUND_GRAD2, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_GRID_MAJOR, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_GRID_MINOR, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_BASEGRID, c4d.Vector(0, 0, 0))
+        c4d.SetViewColor(c4d.VIEWCOLOR_HORIZON, c4d.Vector(0, 0, 0))
+
+        # === Disable visual aids, keep geometry visible ===
+        bc = bd.GetDataInstance()
+
+        # Hide visual aids
+        bc[c4d.BASEDRAW_DISPLAYFILTER_GRID] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_BASEGRID] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HORIZON] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_WORLDAXIS] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HANDLES] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_OBJECTHANDLES] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HUD] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_NULL] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_CAMERA] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_LIGHT] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_JOINT] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_DEFORMER] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_FIELD] = False
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HIGHLIGHTING] = False
+
+        # Keep geometry visible
+        bc[c4d.BASEDRAW_DISPLAYFILTER_GENERATOR] = True
+        bc[c4d.BASEDRAW_DISPLAYFILTER_POLYGON] = True
+        bc[c4d.BASEDRAW_DISPLAYFILTER_SPLINE] = True
+        bc[c4d.BASEDRAW_DISPLAYFILTER_HYPERNURBS] = True
+
+        bd.SetData(bc)
+        c4d.EventAdd()
 
     def set_interactive_render_region(self):
         """Create IRR window for live preview."""
