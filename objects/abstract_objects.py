@@ -1081,8 +1081,9 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
     """
     Generate stroke geometry for all raw primitive children.
 
-    Iterates through children, detects raw splines (by StrokeColor UserData),
-    and generates camera-facing stroke quads for each.
+    Handles both:
+    - LineObjects (splines): camera-facing stroke quads along spline
+    - SolidObjects (meshes): silhouette edge detection + stroke quads
 
     Returns combined stroke points and polys.
     """
@@ -1090,20 +1091,24 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
     all_stroke_points = []
     all_stroke_polys = []
 
-    def process_child(child):
-        """Process a single child for stroke generation."""
-        # Check if this child has stroke metadata (raw primitive)
-        stroke_color = get_userdata_by_name(child, "StrokeColor")
-        stroke_width = get_userdata_by_name(child, "StrokeWidth")
+    def add_stroke_quad(p1_world, p2_world, stroke_width):
+        """Add a camera-facing stroke quad between two world points."""
+        mid = (p1_world + p2_world) * 0.5
+        to_cam = (cam_world - mid).GetNormalized()
+        tangent = (p2_world - p1_world).GetNormalized()
+        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
 
-        if stroke_color is None:
-            # Not a raw primitive - might be a sub-Holon, skip stroke gen
-            return
+        q0 = gen_mg_inv * (p1_world - perp)
+        q1 = gen_mg_inv * (p1_world + perp)
+        q2 = gen_mg_inv * (p2_world + perp)
+        q3 = gen_mg_inv * (p2_world - perp)
 
-        if stroke_width is None:
-            stroke_width = 1.0
+        base_idx = len(all_stroke_points)
+        all_stroke_points.extend([q0, q1, q2, q3])
+        all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
 
-        # Get spline data
+    def process_spline_child(child, stroke_width):
+        """Generate strokes from a spline/LineObject child."""
         spline = child.GetCache()
         if spline is None:
             spline = child.GetDeformCache()
@@ -1124,36 +1129,115 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
             return
 
         # Transform points to world space
-        world_points = []
-        for p in points:
-            world_p = child_mg * p
-            world_points.append(world_p)
+        world_points = [child_mg * p for p in points]
 
         # Determine if closed
         child_type = child.GetType()
-        is_closed = child_type in [5181, 5176, 5180, 5178, 5186, 5175]  # Circle, Flower, etc.
+        is_closed = child_type in [5181, 5176, 5180, 5178, 5186, 5175]
 
         # Generate stroke quads
         num_pts = len(world_points)
         num_edges = num_pts if is_closed else num_pts - 1
 
         for i in range(num_edges):
-            p1_world = world_points[i]
-            p2_world = world_points[(i + 1) % num_pts]
+            add_stroke_quad(world_points[i], world_points[(i + 1) % num_pts], stroke_width)
 
-            mid = (p1_world + p2_world) * 0.5
-            to_cam = (cam_world - mid).GetNormalized()
-            tangent = (p2_world - p1_world).GetNormalized()
-            perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+    def process_solid_child(child, stroke_width):
+        """Generate silhouette strokes from a SolidObject/mesh child."""
+        # Get mesh - handle cache and generators
+        mesh = child.GetCache()
+        if mesh is None:
+            mesh = child.GetDeformCache()
+        if mesh is None:
+            mesh = child
 
-            q0 = gen_mg_inv * (p1_world - perp)
-            q1 = gen_mg_inv * (p1_world + perp)
-            q2 = gen_mg_inv * (p2_world + perp)
-            q3 = gen_mg_inv * (p2_world - perp)
+        # For SweepNurbs and other generators, recurse into cache
+        if mesh.GetType() == 5118:  # Osweep
+            mesh = mesh.GetCache()
+            if mesh is None:
+                return
 
-            base_idx = len(all_stroke_points)
-            all_stroke_points.extend([q0, q1, q2, q3])
-            all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+        if not mesh.IsInstanceOf(c4d.Opolygon):
+            return
+
+        points = mesh.GetAllPoints()
+        polys = mesh.GetAllPolygons()
+
+        if len(polys) == 0:
+            return
+
+        child_mg = child.GetMg()
+
+        # Transform points to world space
+        world_points = [child_mg * p for p in points]
+
+        # Classify faces as front/back facing
+        face_facing = []
+        for poly in polys:
+            p0 = world_points[poly.a]
+            p1 = world_points[poly.b]
+            p2 = world_points[poly.c]
+
+            if poly.c == poly.d:
+                center = (p0 + p1 + p2) / 3.0
+            else:
+                p3 = world_points[poly.d]
+                center = (p0 + p1 + p2 + p3) / 4.0
+
+            edge1 = p1 - p0
+            edge2 = p2 - p0
+            normal = edge1.Cross(edge2).GetNormalized()
+            view_dir = (cam_world - center).GetNormalized()
+
+            face_facing.append(normal.Dot(view_dir) > 0)
+
+        # Build edge-to-face mapping
+        edge_faces = {}
+        for fi, poly in enumerate(polys):
+            verts = [poly.a, poly.b, poly.c]
+            if poly.c != poly.d:
+                verts.append(poly.d)
+
+            for i in range(len(verts)):
+                v1 = verts[i]
+                v2 = verts[(i + 1) % len(verts)]
+                edge_key = (min(v1, v2), max(v1, v2))
+
+                if edge_key not in edge_faces:
+                    edge_faces[edge_key] = []
+                edge_faces[edge_key].append(fi)
+
+        # Find silhouette edges and generate strokes
+        for edge_key, faces in edge_faces.items():
+            is_silhouette = False
+            if len(faces) == 2:
+                is_silhouette = face_facing[faces[0]] != face_facing[faces[1]]
+            elif len(faces) == 1:
+                is_silhouette = face_facing[faces[0]]
+
+            if is_silhouette:
+                add_stroke_quad(world_points[edge_key[0]], world_points[edge_key[1]], stroke_width)
+
+    def process_child(child):
+        """Process a single child for stroke generation."""
+        # Check if this child has stroke metadata (raw primitive)
+        stroke_color = get_userdata_by_name(child, "StrokeColor")
+        stroke_width = get_userdata_by_name(child, "StrokeWidth")
+
+        if stroke_color is None:
+            # Not a raw primitive - might be a sub-Holon, skip stroke gen
+            return
+
+        if stroke_width is None:
+            stroke_width = 1.0
+
+        # Check if it's a SolidObject (mesh) or LineObject (spline)
+        is_solid = get_userdata_by_name(child, "IsSolidObject")
+
+        if is_solid:
+            process_solid_child(child, stroke_width)
+        else:
+            process_spline_child(child, stroke_width)
 
     # Process all children
     child = op.GetDown()
@@ -1238,7 +1322,8 @@ def get_camera():
         else:
             # No bindings - fall back to manual specify_generator_code()
             user_code = self.specify_generator_code()
-            return helper_code + user_code
+            # Also inject stroke generation into custom user code
+            return helper_code + inject_stroke_generation(user_code)
 
 
 # =============================================================================
