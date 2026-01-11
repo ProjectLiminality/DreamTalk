@@ -688,8 +688,11 @@ class CustomObject(VisibleObject):
         **kwargs: Position, rotation, scale, etc.
     """
 
-    def __init__(self, diameter=None, **kwargs):
+    def __init__(self, diameter=None, generator_mode=True, **kwargs):
         self.diameter = diameter
+        # generator_mode is kept for backward compatibility with older DreamNodes
+        # Default is True since all CustomObjects now use Python Generators
+        self.generator_mode = generator_mode
         super().__init__(**kwargs)
 
         # Set up parameters FIRST so they're available in specify_parts()

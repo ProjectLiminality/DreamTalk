@@ -1452,19 +1452,16 @@ class FlowerOfLife(CustomObject):
 class FoldableCube(CustomObject, GeneratorMixin):
     """The foldable cube object consists of four individual rectangles forming the front, back, right, and left faces of a cube which can fold away using a specified parameter.
 
-    Supports two modes:
-    - Standard mode: Uses XPresso for relationships (default)
-    - Generator mode (generator_mode=True): Uses Python Generator for MoGraph Cloner compatibility
-      and XPresso-free operation
+    All CustomObjects now use Python Generators by default for MoGraph Cloner compatibility.
+    The Fold parameter controls how upright the walls are (-1 to 1 range).
     """
 
-    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, generator_mode=False, **kwargs):
+    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=None, **kwargs):
         self.color = color
         self.bottom = bottom
         self.drive_opacity = drive_opacity
         self.stroke_width = stroke_width
-        # Pass generator_mode to parent class explicitly
-        super().__init__(generator_mode=generator_mode, **kwargs)
+        super().__init__(**kwargs)
 
     def specify_parts(self):
         # Define the rectangles without positions
@@ -1493,48 +1490,12 @@ class FoldableCube(CustomObject, GeneratorMixin):
         self.parameters += [self.fold_parameter]
 
     def specify_relations(self):
-        if self.generator_mode:
-            # In generator mode, skip XPresso - Python Generator handles fold relations
-            pass
-        else:
-            # Standard mode: use XPresso for folding the rectangles
-            self.front_relation = XRelation(part=self.front_axis, whole=self, desc_ids=[ROT_P],
-                                            parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
-            self.back_relation = XRelation(part=self.back_axis, whole=self, desc_ids=[ROT_P],
-                                           parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
-            self.right_relation = XRelation(part=self.right_axis, whole=self, desc_ids=[ROT_B],
-                                            parameters=[self.fold_parameter], formula=f"-PI/2 * {self.fold_parameter.name}")
-            self.left_relation = XRelation(part=self.left_axis, whole=self, desc_ids=[ROT_B],
-                                           parameters=[self.fold_parameter], formula=f"PI/2 * {self.fold_parameter.name}")
+        # Python Generator handles fold relations via specify_generator_code()
+        pass
 
     def specify_creation(self):
-        if self.generator_mode:
-            # In generator mode, skip XAction - use keyframe-based create() instead
-            pass
-        else:
-            # Standard mode: use XAction for creation timeline
-            if self.drive_opacity:
-                movements = [
-                    Movement(self.fold_parameter, (0, 1), output=(0, 1)),
-                    Movement(self.front_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
-                    Movement(self.back_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
-                    Movement(self.right_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
-                    Movement(self.left_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
-                ]
-                if self.bottom:
-                    movements.append(Movement(self.bottom_rectangle.opacity_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
-                creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
-            else:
-                movements = [
-                    Movement(self.fold_parameter, (0, 1), output=(0, 1)),
-                    Movement(self.front_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.front_rectangle),
-                    Movement(self.back_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.back_rectangle),
-                    Movement(self.right_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.right_rectangle),
-                    Movement(self.left_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.left_rectangle)
-                ]
-                if self.bottom:
-                    movements.append(Movement(self.bottom_rectangle.creation_parameter, (1/3, 1), output=(0, 1), part=self.bottom_rectangle))
-                creation_action = XAction(*movements, target=self, completion_parameter=self.creation_parameter, name="Creation")
+        # Creation is handled via keyframe-based create() method
+        pass
 
     def _convert_to_generator(self):
         """Convert this FoldableCube to use a Python Generator instead of XPresso.
