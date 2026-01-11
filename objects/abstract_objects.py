@@ -923,6 +923,51 @@ def main():
             if not part.obj.GetUp():
                 part.obj.InsertUnder(self.obj)
                 part.parent = self
+        # Set up stroke material for raw primitive children
+        self._setup_stroke_material_for_children()
+
+    def _setup_stroke_material_for_children(self):
+        """
+        Create and apply a stroke material to the Holon based on children's colors.
+
+        Finds the first raw primitive child (has StrokeColor UserData) and creates
+        a luminance material matching that color. The material is applied to the
+        Holon's generator so it gets inherited by the generated stroke geometry.
+        """
+        # Find first raw primitive child with StrokeColor
+        stroke_color = None
+        for part in self.parts:
+            if hasattr(part, 'raw') and part.raw:
+                # This is a raw LineObject - get its color
+                stroke_color = getattr(part, 'color', None)
+                if stroke_color is not None:
+                    break
+
+        if stroke_color is None:
+            return  # No raw primitives with color
+
+        # Create luminance material
+        mat = c4d.Material()
+        mat.SetName(f"{self.name}_StrokeMat")
+
+        # Disable all channels except luminance
+        mat[c4d.MATERIAL_USE_COLOR] = False
+        mat[c4d.MATERIAL_USE_LUMINANCE] = True
+        mat[c4d.MATERIAL_USE_REFLECTION] = False
+        mat[c4d.MATERIAL_USE_SPECULAR] = False
+
+        # Set luminance to stroke color
+        mat[c4d.MATERIAL_LUMINANCE_COLOR] = stroke_color
+
+        # Insert material into document
+        self.document.InsertMaterial(mat)
+
+        # Apply material to the Holon's generator
+        tag = self.obj.MakeTag(c4d.Ttexture)
+        tag[c4d.TEXTURETAG_MATERIAL] = mat
+
+        # Store reference
+        self.stroke_material = mat
 
     def _setup_as_generator(self):
         """Configure the generator object."""
