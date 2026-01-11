@@ -503,11 +503,14 @@ class SolidObject(VisibleObject):
         draw_completion: Initial stroke draw state (default 1.0)
         fill_opacity: Fill opacity 0-1 (default 1.0)
         stroke_opacity: Stroke opacity 0-1 (default 1.0)
+        raw: If True, create raw C4D mesh without stroke generator wrapper.
+             Used when the SolidObject is a child of a Holon.
+             Default True for raw primitive mode.
     """
 
     def __init__(self, color=WHITE, fill_color=None, stroke_color=None,
                  filled=0, stroke_width=3.0, draw_completion=1.0,
-                 fill_opacity=1.0, stroke_opacity=1.0, **kwargs):
+                 fill_opacity=1.0, stroke_opacity=1.0, raw=True, **kwargs):
         self.color = color
         self.fill_color = fill_color if fill_color else color
         self.stroke_color = stroke_color if stroke_color else color
@@ -516,6 +519,7 @@ class SolidObject(VisibleObject):
         self.draw_completion = draw_completion
         self.fill_opacity = fill_opacity
         self.stroke_opacity = stroke_opacity
+        self.raw = raw
 
         super().__init__(**kwargs)
 
@@ -523,10 +527,16 @@ class SolidObject(VisibleObject):
         self._setup_fill_material()
         self._setup_fill_parameters()
 
-        # Set up stroke rendering via silhouette generator
-        self._setup_stroke_generator()
-        self._setup_stroke_parameters()
-        self._setup_stroke_material()
+        if self.raw:
+            # Raw mode: just the mesh with fill material + stroke metadata
+            # Parent Holon will handle silhouette stroke generation
+            self._store_stroke_metadata()
+            self.mesh = self.obj  # For consistency with wrapped mode
+        else:
+            # Wrapped mode: own silhouette + stroke generators
+            self._setup_stroke_generator()
+            self._setup_stroke_parameters()
+            self._setup_stroke_material()
 
     def _setup_fill_material(self):
         """Create and apply luminance material for fill."""
@@ -557,6 +567,26 @@ class SolidObject(VisibleObject):
         # Fill parameter (controls transparency inversely)
         self.fill_parameter = UCompletion(name="Fill", default_value=self.filled)
         self.fill_u_group = UGroup(self.fill_parameter, target=self.obj, name="Solid")
+
+    def _store_stroke_metadata(self):
+        """Store stroke info on the raw mesh for parent Holon to read."""
+        # Store stroke color
+        color_bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
+        color_bc[c4d.DESC_NAME] = "StrokeColor"
+        color_id = self.obj.AddUserData(color_bc)
+        self.obj[color_id] = self.stroke_color
+
+        # Store stroke width
+        width_bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        width_bc[c4d.DESC_NAME] = "StrokeWidth"
+        width_id = self.obj.AddUserData(width_bc)
+        self.obj[width_id] = self.stroke_width
+
+        # Mark this as a solid object (needs silhouette detection, not just spline strokes)
+        solid_bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_BOOL)
+        solid_bc[c4d.DESC_NAME] = "IsSolidObject"
+        solid_id = self.obj.AddUserData(solid_bc)
+        self.obj[solid_id] = True
 
     def _setup_stroke_generator(self):
         """Wrap the mesh in SilhouetteSplineGen + StrokeGen for stroke rendering."""
