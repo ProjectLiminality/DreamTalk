@@ -302,21 +302,52 @@ class LineObject(VisibleObject):
         draw_completion: Initial draw state 0-1 (default 1.0 = fully drawn)
         opacity: Stroke opacity 0-1 (default 1.0)
         plane: Spline plane "xy", "yz", "xz" (default "xy")
+        raw: If True, create raw C4D primitive without stroke generator wrapper.
+             Used when primitive is a child of a Holon (Holon handles strokes).
+             Default False for standalone primitives.
     """
 
     def __init__(self, color=WHITE, stroke_width=3.0, draw_completion=1.0,
-                 opacity=1.0, plane="xy", **kwargs):
+                 opacity=1.0, plane="xy", raw=True, **kwargs):
         self.color = color
         self.stroke_width = stroke_width
         self.draw_completion = draw_completion
         self.opacity = opacity
+        self.raw = raw
 
         super().__init__(plane=plane, **kwargs)
 
-        # Set up stroke rendering
-        self._setup_stroke_generator()
-        self._setup_stroke_parameters()
-        self._setup_stroke_material()
+        # Store reference to spline for consistency
+        self.spline = self.obj
+
+        if self.raw:
+            # Raw mode: just the C4D primitive with color/width metadata
+            # Parent Holon or Scene will handle stroke generation
+            self._store_color_metadata()
+        else:
+            # Wrapped mode: own stroke generator (for backwards compatibility)
+            self._setup_stroke_generator()
+            self._setup_stroke_parameters()
+            self._setup_stroke_material()
+
+    def _store_color_metadata(self):
+        """Store color info on the raw primitive for parent Holon to read."""
+        # Use a BaseContainer on the object to store metadata
+        # ID 1000000 is safe for custom data
+        bc = self.obj.GetDataInstance()
+        # Store color components (C4D doesn't have a direct color container field)
+        # We'll use the object's name or a custom tag approach
+        # For now, store as UserData on the raw primitive
+        color_bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
+        color_bc[c4d.DESC_NAME] = "StrokeColor"
+        color_id = self.obj.AddUserData(color_bc)
+        self.obj[color_id] = self.color
+
+        # Also store stroke width
+        width_bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
+        width_bc[c4d.DESC_NAME] = "StrokeWidth"
+        width_id = self.obj.AddUserData(width_bc)
+        self.obj[width_id] = self.stroke_width
 
     def _setup_stroke_generator(self):
         """Wrap the spline in a StrokeGen for geometry-based rendering."""
@@ -794,7 +825,19 @@ class CustomObject(VisibleObject):
         """
         return '''
 def main():
-    # Default: just show children
+    # Default Holon generator: generate strokes for all raw primitive children
+    cam = get_camera()
+    if cam is None:
+        return None
+
+    cam_world = cam.GetMg().off
+    gen_mg = op.GetMg()
+
+    stroke_points, stroke_polys = generate_strokes_for_children(op, cam_world, gen_mg)
+
+    if stroke_polys:
+        return build_stroke_geometry(stroke_points, stroke_polys, op.GetName() + "_Strokes")
+
     return None
 '''
 
@@ -957,7 +1000,135 @@ def find_child_by_name(parent, name):
         child = child.GetNext()
     return None
 
+def generate_strokes_for_children(op, cam_world, gen_mg):
+    """
+    Generate stroke geometry for all raw primitive children.
+
+    Iterates through children, detects raw splines (by StrokeColor UserData),
+    and generates camera-facing stroke quads for each.
+
+    Returns combined stroke points and polys.
+    """
+    gen_mg_inv = ~gen_mg
+    all_stroke_points = []
+    all_stroke_polys = []
+
+    def process_child(child):
+        """Process a single child for stroke generation."""
+        # Check if this child has stroke metadata (raw primitive)
+        stroke_color = get_userdata_by_name(child, "StrokeColor")
+        stroke_width = get_userdata_by_name(child, "StrokeWidth")
+
+        if stroke_color is None:
+            # Not a raw primitive - might be a sub-Holon, skip stroke gen
+            return
+
+        if stroke_width is None:
+            stroke_width = 1.0
+
+        # Get spline data
+        spline = child.GetCache()
+        if spline is None:
+            spline = child.GetDeformCache()
+        if spline is None:
+            spline = child
+
+        # Check if it's a spline-like object
+        is_line_object = spline.GetType() == 5137
+        is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+
+        if not (is_line_object or is_spline_object):
+            return
+
+        child_mg = child.GetMg()
+        points = spline.GetAllPoints()
+
+        if len(points) < 2:
+            return
+
+        # Transform points to world space
+        world_points = []
+        for p in points:
+            world_p = child_mg * p
+            world_points.append(world_p)
+
+        # Determine if closed
+        child_type = child.GetType()
+        is_closed = child_type in [5181, 5176, 5180, 5178, 5186, 5175]  # Circle, Flower, etc.
+
+        # Generate stroke quads
+        num_pts = len(world_points)
+        num_edges = num_pts if is_closed else num_pts - 1
+
+        for i in range(num_edges):
+            p1_world = world_points[i]
+            p2_world = world_points[(i + 1) % num_pts]
+
+            mid = (p1_world + p2_world) * 0.5
+            to_cam = (cam_world - mid).GetNormalized()
+            tangent = (p2_world - p1_world).GetNormalized()
+            perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+            q0 = gen_mg_inv * (p1_world - perp)
+            q1 = gen_mg_inv * (p1_world + perp)
+            q2 = gen_mg_inv * (p2_world + perp)
+            q3 = gen_mg_inv * (p2_world - perp)
+
+            base_idx = len(all_stroke_points)
+            all_stroke_points.extend([q0, q1, q2, q3])
+            all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+
+    # Process all children
+    child = op.GetDown()
+    while child:
+        process_child(child)
+        child = child.GetNext()
+
+    return all_stroke_points, all_stroke_polys
+
+def build_stroke_geometry(stroke_points, stroke_polys, name="Strokes"):
+    """Build a PolygonObject from stroke points and polys."""
+    if not stroke_polys:
+        return None
+
+    result = c4d.PolygonObject(len(stroke_points), len(stroke_polys))
+    result.SetAllPoints(stroke_points)
+    for i, poly in enumerate(stroke_polys):
+        result.SetPolygon(i, poly)
+
+    result.Message(c4d.MSG_UPDATE)
+    result.SetName(name)
+    return result
+
+def get_camera():
+    """Get the active camera from the document."""
+    doc = c4d.documents.GetActiveDocument()
+    bd = doc.GetActiveBaseDraw()
+    cam = bd.GetSceneCamera(doc) if bd else None
+    if not cam:
+        obj = doc.GetFirstObject()
+        while obj:
+            if obj.GetType() == c4d.Ocamera:
+                cam = obj
+                break
+            obj = obj.GetNext()
+    return cam
+
 '''
+        # Stroke generation code to append to main()
+        # This generates strokes for raw primitive children
+        stroke_code = '''
+    # Generate strokes for raw primitive children
+    cam = get_camera()
+    if cam:
+        cam_world = cam.GetMg().off
+        gen_mg = op.GetMg()
+        stroke_points, stroke_polys = generate_strokes_for_children(op, cam_world, gen_mg)
+        if stroke_polys:
+            return build_stroke_geometry(stroke_points, stroke_polys, op.GetName() + "_Strokes")
+    return None
+'''
+
         # Try to collect bindings from specify_relationships() first
         # This uses the declarative << syntax
         relationship_code = collect_relationships(self, self.specify_relationships)
@@ -966,18 +1137,27 @@ def find_child_by_name(parent, name):
         from DreamTalk.xpresso.bindings import collect_inline_bindings
         inline_code = collect_inline_bindings(self, self.parts)
 
+        # Helper to inject stroke generation into main()
+        def inject_stroke_generation(code):
+            """Replace 'return None' at end of main() with stroke generation."""
+            # Find the last 'return None' and replace with stroke code
+            if '    return None\n' in code:
+                # Replace the trailing return None with stroke code
+                return code.replace('    return None\n', stroke_code, 1)
+            return code
+
         # Combine relationship code and inline code if both exist
         if relationship_code and inline_code:
             # Merge the two - inline bindings add to relationship bindings
             # Both produce main() functions, so we need to combine them
             # For now, prefer relationship code if it exists
-            return helper_code + relationship_code
+            return helper_code + inject_stroke_generation(relationship_code)
         elif relationship_code:
             # Only relationship bindings
-            return helper_code + relationship_code
+            return helper_code + inject_stroke_generation(relationship_code)
         elif inline_code:
             # Only inline bindings
-            return helper_code + inline_code
+            return helper_code + inject_stroke_generation(inline_code)
         else:
             # No bindings - fall back to manual specify_generator_code()
             user_code = self.specify_generator_code()

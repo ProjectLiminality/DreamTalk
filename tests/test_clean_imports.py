@@ -8,6 +8,12 @@ This tests the canonical import pattern:
 Which provides clean, philosophical naming for all core DreamTalk concepts.
 """
 
+# Clear DreamTalk modules to ensure fresh code
+import sys
+modules_to_delete = [key for key in sys.modules.keys() if 'DreamTalk' in key]
+for mod in modules_to_delete:
+    del sys.modules[mod]
+
 # The canonical import - clean and readable
 from DreamTalk.dreamtalk import *
 
