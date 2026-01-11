@@ -27,6 +27,28 @@ class UData(ABC):
         self.name = name  # write as attribute
         self.bc[c4d.DESC_NAME] = self.name
 
+    def __rshift__(self, default_value):
+        """
+        Inline binding operator for part constructors.
+
+        Usage:
+            Circle(radius=self.size_parameter >> 100)
+
+        This creates a BoundValue that:
+        1. Uses default_value (100) for initial construction
+        2. Creates a binding to this parameter for generator code
+
+        Returns:
+            BoundValue instance
+        """
+        from DreamTalk.xpresso.bindings import BoundValue, BindingExpression
+        # Create expression that reads this parameter by name
+        expr = BindingExpression(
+            f'get_userdata_by_name(op, "{self.name}")',
+            [self.name]
+        )
+        return BoundValue(expression=expr, default=default_value, param_name=self.name)
+
 
 ### data type classes ###
 

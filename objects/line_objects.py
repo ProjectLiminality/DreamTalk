@@ -5,14 +5,34 @@ from DreamTalk.objects.abstract_objects import LineObject
 from DreamTalk.objects.helper_objects import Null, MoSpline
 from DreamTalk.constants import *
 from DreamTalk.xpresso.xpressions import XIdentity
+from DreamTalk.xpresso.bindings import BoundValue
 from DreamTalk.animation.animation import ScalarAnimation
 import c4d
 import os
 
 
+def _extract_bound_value(value, default):
+    """
+    Extract the actual value and binding from a possibly-bound value.
+
+    Returns:
+        (actual_value, binding_or_none)
+    """
+    if isinstance(value, BoundValue):
+        return value.default, value
+    return value, None
+
+
 class Circle(LineObject):
 
     def __init__(self, radius=200, ellipse_ratio=1, ring_ratio=1, **kwargs):
+        # Extract BoundValues for inline binding support
+        self._pending_bindings = []
+        radius, binding = _extract_bound_value(radius, 200)
+        if binding:
+            binding.target_property = 'radius'
+            self._pending_bindings.append(('radius', binding))
+
         self.radius = radius
         self.ellipse_ratio = ellipse_ratio
         self.ring_ratio = ring_ratio

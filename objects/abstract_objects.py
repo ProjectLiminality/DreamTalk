@@ -692,14 +692,17 @@ class CustomObject(VisibleObject):
         self.diameter = diameter
         super().__init__(**kwargs)
 
-        # Set up parts and parameters
-        self.parts = []
-        self.specify_parts()
+        # Set up parameters FIRST so they're available in specify_parts()
+        # This enables inline binding syntax: Circle(radius=self.size_parameter >> 100)
         self.parameters = []
         self.specify_parameters()
         # Collect type-hinted parameters from class annotations
         self._collect_annotated_parameters()
         self.insert_parameters()
+
+        # Now set up parts (parameters are available for inline bindings)
+        self.parts = []
+        self.specify_parts()
 
         # Convert to generator and insert parts
         self._setup_as_generator()
@@ -943,9 +946,22 @@ def find_child_by_name(parent, name):
         # This uses the declarative << syntax
         relationship_code = collect_relationships(self, self.specify_relationships)
 
-        if relationship_code:
-            # Bindings were defined - use the auto-generated code
+        # Also check for inline bindings from parts (>> syntax)
+        from DreamTalk.xpresso.bindings import collect_inline_bindings
+        inline_code = collect_inline_bindings(self, self.parts)
+
+        # Combine relationship code and inline code if both exist
+        if relationship_code and inline_code:
+            # Merge the two - inline bindings add to relationship bindings
+            # Both produce main() functions, so we need to combine them
+            # For now, prefer relationship code if it exists
             return helper_code + relationship_code
+        elif relationship_code:
+            # Only relationship bindings
+            return helper_code + relationship_code
+        elif inline_code:
+            # Only inline bindings
+            return helper_code + inline_code
         else:
             # No bindings - fall back to manual specify_generator_code()
             user_code = self.specify_generator_code()
