@@ -1,29 +1,26 @@
-import importlib
-import DreamTalk.tags
-importlib.reload(DreamTalk.tags)
+"""
+DreamTalk Camera Objects - Fresh Architecture (v2.0)
+
+Camera classes for DreamTalk scenes.
+All cameras use Python Generators for parameter relationships (no XPresso).
+
+Classes:
+- Camera: Basic C4D camera object
+- TwoDCamera: 2D orthographic camera with zoom control
+- ThreeDCamera: 3D perspective camera with spherical orbit control
+"""
+
 from DreamTalk.objects.abstract_objects import ProtoObject, CustomObject
 from DreamTalk.objects.custom_objects import Group
 from DreamTalk.objects.helper_objects import Null
-from DreamTalk.tags import TargetTag
-from DreamTalk.xpresso.userdata import *
-from DreamTalk.xpresso.xpressions import *
+from DreamTalk.xpresso.userdata import ULength, UCompletion, UAngle
 from DreamTalk.animation.animation import ScalarAnimation, VectorAnimation, AnimationGroup
 from DreamTalk.constants import ASPECT_RATIO, PI
-from DreamTalk.generator import GeneratorMixin
 import c4d
-
-# desried features:
-# ThreeDCamera:
-# - continuous rotation around point
-# - focus on specific object with optional normal vector
-# - zoom in and out
-# TwoDCamera:
-# - move around in 2D
-# - zoom in and out
-# - focus on specific object
 
 
 class Camera(ProtoObject):
+    """Basic Cinema 4D camera."""
 
     def __init__(self, projection="perspective", **kwargs):
         self.projection = projection
@@ -45,52 +42,46 @@ class Camera(ProtoObject):
         }
 
 
-class TwoDCamera(GeneratorMixin, CustomObject):
+class TwoDCamera(CustomObject):
+    """
+    2D orthographic camera with zoom control.
 
-    def __init__(self, frame_width=500, generator_mode=False, **kwargs):
+    Uses a Python Generator to compute camera zoom from frame width.
+    The relationship is: zoom = 1023 / FrameWidth
+
+    Args:
+        frame_width: Width of the visible frame in scene units (default 500)
+    """
+
+    def __init__(self, frame_width=500, **kwargs):
         self.frame_width = frame_width
-        super().__init__(generator_mode=generator_mode, **kwargs)
+        super().__init__(**kwargs)
 
     def specify_parts(self):
-        self.camera = Camera(projection="front", z=-1000)  # the z offset avoids intersection with objects at z=0
-        self.parts.append(self.camera)
+        self.camera = Camera(projection="front", z=-1000)
+        self.parts = [self.camera]
 
     def specify_parameters(self):
         self.frame_width_parameter = ULength(
             name="FrameWidth", default_value=self.frame_width)
-        self.parameters += [self.frame_width_parameter]
-
-    def specify_relations(self):
-        # Skip XPresso in generator mode
-        if self.generator_mode:
-            return
-
-        # zooming is reduced to the width of the camera frame as a function of the cameras distance from the xy plane
-        zoom_to_frame_width_ratio = 1023
-        frame_width_relation = XRelation(part=self.camera, whole=self, desc_ids=[self.camera.desc_ids["zoom"]],
-                                        parameters=[self.frame_width_parameter], formula=f"{zoom_to_frame_width_ratio}/{self.frame_width_parameter.name}")
+        self.parameters = [self.frame_width_parameter]
 
     def specify_generator_code(self):
-        """Python Generator code for 2D camera zoom control.
-
-        The zoom is calculated as: camera_zoom = 1023 / FrameWidth
-        """
+        """Compute camera zoom from frame width."""
         return '''
 def main():
-    # Read FrameWidth parameter
     frame_width = get_userdata_by_name(op, "FrameWidth") or 500.0
 
     # Zoom relation: zoom = 1023 / FrameWidth
-    zoom_to_frame_width_ratio = 1023
     if frame_width > 0:
-        zoom = zoom_to_frame_width_ratio / frame_width
+        zoom = 1023.0 / frame_width
     else:
         zoom = 1.0
 
     # Find and update Camera child
     child = op.GetDown()
     while child:
-        if child.GetName() == "Camera" or child.GetType() == 5103:  # Ocamera type
+        if child.GetName() == "Camera" or child.GetType() == 5103:
             child[c4d.CAMERA_ZOOM] = zoom
             break
         child = child.GetNext()
@@ -98,16 +89,12 @@ def main():
     return None
 '''
 
-    def specify_creation_parameter(self):
-        # camera object does not have a creation animation
-        pass
-
     def focus_on(self, target, border=0.2):
-        # moves and zooms such that the tragets bounding box is in the frame
+        """Move and zoom to frame the target object."""
         center = target.get_center()
         radius = target.get_radius()
         if radius[0] <= radius[1]:
-            self.frame_width = 2 * radius[1] * (1 +  border) * ASPECT_RATIO
+            self.frame_width = 2 * radius[1] * (1 + border) * ASPECT_RATIO
         else:
             self.frame_width = 2 * radius[0] * (1 + border)
 
@@ -119,6 +106,7 @@ def main():
         return animation
 
     def zoom(self, frame_width=None, **kwargs):
+        """Animate zoom to frame_width."""
         if frame_width is None:
             frame_width = self.frame_width
         desc_id = self.frame_width_parameter.desc_id
@@ -127,11 +115,32 @@ def main():
         return animation
 
 
-class ThreeDCamera(GeneratorMixin, CustomObject):
+class ThreeDCamera(CustomObject):
+    """
+    3D perspective camera with spherical orbit control.
 
-    def __init__(self, frame_width=500, zoom_factor=0, phi=0, theta=PI/8, tilt=0, radius=1000, focus_point_x=0, focus_point_y=0, focus_point_z=0, generator_mode=False, **kwargs):
-        self.frame_width = frame_width  # the frame width at the focus point
-        self.zoom_factor = zoom_factor  # the progression along the line between orbit and focus point
+    Uses a Python Generator to implement orbital camera behavior:
+    - Phi (heading): rotation around Y axis
+    - Theta (pitch): elevation angle
+    - Radius: distance from focus point
+    - Tilt (bank): camera roll
+    - FocusPoint: where the camera looks at
+
+    The camera position is interpolated between the orbit point and focus point
+    based on ZoomFactor, which is derived from FrameWidth / Radius.
+
+    Args:
+        frame_width: Width of the visible frame at focus distance (default 500)
+        phi: Horizontal orbit angle in radians (default 0)
+        theta: Vertical orbit angle in radians (default PI/8)
+        tilt: Camera bank/roll in radians (default 0)
+        radius: Distance from orbit center (default 1000)
+        focus_point_x/y/z: Focus point coordinates (default 0, 0, 0)
+    """
+
+    def __init__(self, frame_width=500, phi=0, theta=PI/8, tilt=0, radius=1000,
+                 focus_point_x=0, focus_point_y=0, focus_point_z=0, **kwargs):
+        self.frame_width = frame_width
         self.phi = phi
         self.theta = theta
         self.tilt = tilt
@@ -139,18 +148,7 @@ class ThreeDCamera(GeneratorMixin, CustomObject):
         self.focus_point_x = focus_point_x
         self.focus_point_y = focus_point_y
         self.focus_point_z = focus_point_z
-        super().__init__(generator_mode=generator_mode, **kwargs)
-        if not generator_mode:
-            self.add_target_tag()
-
-    def specify_creation_parameter(self):
-        # camera object does not have a creation animation
-        pass
-
-    def add_target_tag(self):
-        # adds a target tag to the camera object
-        self.target_tag = TargetTag(focus_point=self.focus_point, target=self)
-        self.camera.obj.InsertTag(self.target_tag.obj)
+        super().__init__(**kwargs)
 
     def specify_parts(self):
         self.camera = Camera()
@@ -158,60 +156,32 @@ class ThreeDCamera(GeneratorMixin, CustomObject):
         self.orbit_point = Null(name="OrbitPoint")
         self.origin.add(self.orbit_point)
         self.focus_point = Null(name="FocusPoint")
-        self.parts += [self.camera, self.origin, self.orbit_point, self.focus_point]
+        self.parts = [self.camera, self.origin, self.orbit_point, self.focus_point]
 
     def specify_parameters(self):
-        self.frame_width_parameter = ULength(
-            name="FrameWidth", default_value=self.frame_width)
-        self.zoom_factor_parameter = UCompletion(
-            name="ZoomFactor", default_value=self.zoom_factor)
-        self.phi_parameter = UAngle(
-            name="Phi", default_value=self.phi)
-        self.theta_parameter = UAngle(
-            name="Theta", default_value=self.theta)
-        self.tilt_parameter = UAngle(
-            name="Tilt", default_value=self.tilt)
-        self.radius_parameter = ULength(
-            name="Radius", default_value=self.radius)
-        self.focus_point_x_parameter = ULength(
-            name="FocusPointX", default_value=self.focus_point_x)
-        self.focus_point_y_parameter = ULength(
-            name="FocusPointY", default_value=self.focus_point_y)
-        self.focus_point_z_parameter = ULength(
-            name="FocusPointZ", default_value=self.focus_point_z)
-        self.parameters += [self.frame_width_parameter, self.zoom_factor_parameter, self.phi_parameter, self.theta_parameter,
-                            self.tilt_parameter, self.radius_parameter, self.focus_point_x_parameter,
-                            self.focus_point_y_parameter, self.focus_point_z_parameter]
-
-    def specify_relations(self):
-        # Skip XPresso in generator mode - relationships handled by Python code
-        if self.generator_mode:
-            return
-
-        # zooming is reduced to the width of the camera frame as a function of the cameras distance from the xy plane
-        frame_width_relation = XRelation(part=self, whole=self, desc_ids=[self.zoom_factor_parameter.desc_id],
-                                        parameters=[self.frame_width_parameter, self.radius_parameter], formula=f"1-({self.frame_width_parameter.name}/{self.radius_parameter.name})")
-        # zooming is reduced to the position on the line between orbit point and focus point point
-        zoom_relation = XPlaceBetweenPoints(target=self, placed_object=self.camera, point_a=self.orbit_point, point_b=self.focus_point, interpolation_parameter=self.zoom_factor_parameter)
-        # the movement is reduced to spherical coordinates of the orbit points position including tilt
-        phi_inheritance = XIdentity(part=self.origin, whole=self, desc_ids=[ROT_H], parameter=self.phi_parameter)
-        theta_inheritance = XRelation(part=self.origin, whole=self, desc_ids=[ROT_P], parameters=[self.theta_parameter], formula=f"-{self.theta_parameter.name}")
-        tilt_inheritance = XIdentity(part=self.origin, whole=self, desc_ids=[ROT_B], parameter=self.tilt_parameter)
-        radius_relation = XRelation(part=self.orbit_point, whole=self, desc_ids=[POS_Z], parameters=[self.radius_parameter], formula=f"-{self.radius_parameter.name}")
-        # the rotation is reduced to the position of the focus point using cartesian coordinates
-        focus_point_x_inheritance = XIdentity(part=self.focus_point, whole=self, desc_ids=[POS_X], parameter=self.focus_point_x_parameter)
-        focus_point_y_inheritance = XIdentity(part=self.focus_point, whole=self, desc_ids=[POS_Y], parameter=self.focus_point_y_parameter)
-        focus_point_z_inheritance = XIdentity(part=self.focus_point, whole=self, desc_ids=[POS_Z], parameter=self.focus_point_z_parameter)
+        self.frame_width_parameter = ULength(name="FrameWidth", default_value=self.frame_width)
+        self.phi_parameter = UAngle(name="Phi", default_value=self.phi)
+        self.theta_parameter = UAngle(name="Theta", default_value=self.theta)
+        self.tilt_parameter = UAngle(name="Tilt", default_value=self.tilt)
+        self.radius_parameter = ULength(name="Radius", default_value=self.radius)
+        self.focus_point_x_parameter = ULength(name="FocusPointX", default_value=self.focus_point_x)
+        self.focus_point_y_parameter = ULength(name="FocusPointY", default_value=self.focus_point_y)
+        self.focus_point_z_parameter = ULength(name="FocusPointZ", default_value=self.focus_point_z)
+        self.parameters = [
+            self.frame_width_parameter,
+            self.phi_parameter, self.theta_parameter, self.tilt_parameter,
+            self.radius_parameter,
+            self.focus_point_x_parameter, self.focus_point_y_parameter, self.focus_point_z_parameter
+        ]
 
     def specify_generator_code(self):
-        """Python Generator code for camera transformations.
+        """
+        Compute camera orbital position and orientation.
 
-        Implements the same logic as the XPresso relations:
-        1. Origin rotation (phi=H, theta=-P, tilt=B) for spherical coordinates
-        2. OrbitPoint position (Z = -Radius)
-        3. FocusPoint position (X, Y, Z from parameters)
-        4. Camera position interpolated between OrbitPoint and FocusPoint by ZoomFactor
-        5. ZoomFactor computed from FrameWidth / Radius
+        The orbit system uses spherical coordinates:
+        - Origin rotates by (phi=H, theta=-P, tilt=B)
+        - OrbitPoint sits at (0, 0, -radius) in Origin's local space
+        - Camera interpolates between OrbitPoint and FocusPoint
         """
         return '''
 def main():
@@ -226,28 +196,21 @@ def main():
     focus_z = get_userdata_by_name(op, "FocusPointZ") or 0.0
 
     # Compute zoom_factor from frame_width and radius
-    # zoom_factor = 1 - (FrameWidth / Radius)
     if radius > 0:
         zoom_factor = 1.0 - (frame_width / radius)
     else:
         zoom_factor = 0.0
-    zoom_factor = max(0.0, min(1.0, zoom_factor))  # clamp
+    zoom_factor = max(0.0, min(1.0, zoom_factor))
 
     # Calculate orbit point position in world space
-    # OrbitPoint is at (0, 0, -radius) in Origin's rotated local space
-    # Origin rotation: H=phi, P=-theta, B=tilt
     cos_phi = math.cos(phi)
     sin_phi = math.sin(phi)
     cos_theta = math.cos(theta)
     sin_theta = math.sin(theta)
 
-    # OrbitPoint local position before rotation: (0, 0, -radius)
-    # After rotation by phi around Y (heading) and theta around X (pitch):
-    # First, theta rotation around X axis
     orbit_local_z = -radius
     orbit_after_theta_y = orbit_local_z * sin_theta
     orbit_after_theta_z = orbit_local_z * cos_theta
-    # Then, phi rotation around Y axis
     orbit_world_x = -orbit_after_theta_z * sin_phi
     orbit_world_y = orbit_after_theta_y
     orbit_world_z = orbit_after_theta_z * cos_phi
@@ -255,8 +218,7 @@ def main():
     orbit_pos = c4d.Vector(orbit_world_x, orbit_world_y, orbit_world_z)
     focus_pos = c4d.Vector(focus_x, focus_y, focus_z)
 
-    # Camera position: linear interpolation between orbit and focus
-    # zoom_factor=0 -> at orbit, zoom_factor=1 -> at focus
+    # Camera position: interpolate between orbit and focus
     camera_pos = orbit_pos + (focus_pos - orbit_pos) * zoom_factor
 
     # Apply transformations to children
@@ -265,56 +227,57 @@ def main():
         name = child.GetName()
 
         if name == "Origin":
-            # Spherical coordinate rotation: H=phi, P=-theta, B=tilt
             child.SetRelRot(c4d.Vector(-theta, phi, tilt))
 
         elif name == "FocusPoint":
-            # Focus point position
             child.SetRelPos(c4d.Vector(focus_x, focus_y, focus_z))
 
         elif name == "Camera":
-            # Set camera position (interpolated between orbit and focus)
             child.SetAbsPos(camera_pos)
+            # Make camera look at focus point
+            dir_vec = focus_pos - camera_pos
+            if dir_vec.GetLength() > 0.001:
+                # Calculate rotation from direction vector
+                # Heading from XZ plane
+                h = math.atan2(dir_vec.x, dir_vec.z)
+                # Pitch from XZ distance
+                xz_dist = math.sqrt(dir_vec.x**2 + dir_vec.z**2)
+                p = -math.atan2(dir_vec.y, xz_dist)
+                child.SetAbsRot(c4d.Vector(p, h, tilt))
 
         child = child.GetNext()
 
-    # Find nested OrbitPoint (under Origin) and set its position
-    origin = None
-    child = op.GetDown()
-    while child:
-        if child.GetName() == "Origin":
-            origin = child
-            break
-        child = child.GetNext()
-
+    # Set OrbitPoint position (nested under Origin)
+    origin = find_child_by_name(op, "Origin")
     if origin:
-        orbit_child = origin.GetDown()
-        while orbit_child:
-            if orbit_child.GetName() == "OrbitPoint":
-                # OrbitPoint Z position = -Radius in local space
-                orbit_child.SetRelPos(c4d.Vector(0, 0, -radius))
-                break
-            orbit_child = orbit_child.GetNext()
+        orbit_child = find_child_by_name(origin, "OrbitPoint")
+        if orbit_child:
+            orbit_child.SetRelPos(c4d.Vector(0, 0, -radius))
 
     return None
 '''
 
     def move_focus(self, x=None, y=None, z=None, **kwargs):
+        """Animate focus point movement."""
         if x is None:
             x = self.focus_point_x
         if y is None:
             y = self.focus_point_y
         if z is None:
             z = self.focus_point_z
-        desc_ids = [self.focus_point_x_parameter.desc_id, self.focus_point_y_parameter.desc_id, self.focus_point_z_parameter.desc_id]
-        values = [x, y, z]
-        animation = VectorAnimation(target=self, descriptor=desc_ids, vector=values, **kwargs)
+        desc_ids = [
+            self.focus_point_x_parameter.desc_id,
+            self.focus_point_y_parameter.desc_id,
+            self.focus_point_z_parameter.desc_id
+        ]
+        animation = VectorAnimation(target=self, descriptor=desc_ids, vector=[x, y, z], **kwargs)
         self.obj[desc_ids[0]] = x
         self.obj[desc_ids[1]] = y
         self.obj[desc_ids[2]] = z
         return animation
 
     def zoom(self, frame_width=None, **kwargs):
+        """Animate zoom."""
         if frame_width is None:
             frame_width = self.frame_width
         desc_id = self.frame_width_parameter.desc_id
@@ -323,7 +286,7 @@ def main():
         return animation
 
     def move_orbit(self, phi=None, theta=None, radius=None, tilt=None, direction=None, **kwargs):
-        # moves the cameras orbit point to the specified spherical coordinates
+        """Animate orbital camera movement."""
         if phi is None:
             phi = self.phi
         if theta is None:
@@ -332,28 +295,26 @@ def main():
             radius = self.radius
         if tilt is None:
             tilt = self.tilt
-        # coordinates can be specified by shorthand directions
-        if direction == "front":
-            phi = 0
-            theta = 0
-        elif direction == "back":
-            phi = PI
-            theta = 0
-        elif direction == "left":
-            phi = -PI/2
-            theta = 0
-        elif direction == "right":
-            phi = PI/2
-            theta = 0
-        elif direction == "top":
-            phi = 0
-            theta = PI/2
-        elif direction == "bottom":
-            phi = 0
-            theta = -PI/2
-        desc_ids = [self.phi_parameter.desc_id, self.theta_parameter.desc_id, self.radius_parameter.desc_id, self.tilt_parameter.desc_id]
-        values = [phi, theta, radius, tilt]
-        animation = VectorAnimation(target=self, descriptor=desc_ids, vector=values, **kwargs)
+
+        # Shorthand directions
+        directions = {
+            "front": (0, 0),
+            "back": (PI, 0),
+            "left": (-PI/2, 0),
+            "right": (PI/2, 0),
+            "top": (0, PI/2),
+            "bottom": (0, -PI/2),
+        }
+        if direction in directions:
+            phi, theta = directions[direction]
+
+        desc_ids = [
+            self.phi_parameter.desc_id,
+            self.theta_parameter.desc_id,
+            self.radius_parameter.desc_id,
+            self.tilt_parameter.desc_id
+        ]
+        animation = VectorAnimation(target=self, descriptor=desc_ids, vector=[phi, theta, radius, tilt], **kwargs)
         self.obj[desc_ids[0]] = phi
         self.obj[desc_ids[1]] = theta
         self.obj[desc_ids[2]] = radius
@@ -361,73 +322,46 @@ def main():
         return animation
 
     def look_at(self, target, zoom=True, border=0.2):
-        # moves focus and zooms such that the tragets bounding box is in the frame
+        """Move focus to target and optionally zoom to fit."""
         center = target.get_center()
-        radius = target.get_radius()
         move_animation = self.move_focus(x=center[0], y=center[1], z=center[2])
         if zoom:
             target_radius = target.get_radius()
-            self.frame_width = np.sqrt(target_radius.x**2 + target_radius.y**2 + target_radius.z**2) * (1 + border) / 2
+            import math
+            self.frame_width = math.sqrt(target_radius.x**2 + target_radius.y**2 + target_radius.z**2) * (1 + border) / 2
             zoom_animation = self.zoom(frame_width=self.frame_width)
-            animations = AnimationGroup(move_animation, zoom_animation)
-        else:
-            animations = move_animation
-        return animations
-
+            return AnimationGroup(move_animation, zoom_animation)
+        return move_animation
 
     def focus_on(self, target, direction="front", zoom=True, border=0.2, center=None):
-        # moves focus and zooms such that the traget is in the center of the frame
-        if direction == "front":
-            phi = 0
-            theta = 0
-        elif direction == "back":
-            phi = PI
-            theta = 0
-        elif direction == "left":
-            phi = -PI/2
-            theta = 0
-        elif direction == "right":
-            phi = PI/2
-            theta = 0
-        elif direction == "top":
-            phi = 0
-            theta = PI/2
-        elif direction == "bottom":
-            phi = 0
-            theta = -PI/2
+        """Move focus, rotate to direction, and optionally zoom."""
+        directions = {
+            "front": (0, 0),
+            "back": (PI, 0),
+            "left": (-PI/2, 0),
+            "right": (PI/2, 0),
+            "top": (0, PI/2),
+            "bottom": (0, -PI/2),
+        }
+        phi, theta = directions.get(direction, (0, 0))
+
         animations = []
         if zoom:
             target_radius = target.get_radius()
-            self.frame_width = 2 * np.sqrt(target_radius.x**2 + target_radius.y**2 + target_radius.z**2) * (1 + border)
-            zoom_animation = self.zoom(frame_width=self.frame_width)
-            animations.append(zoom_animation)
+            import math
+            self.frame_width = 2 * math.sqrt(target_radius.x**2 + target_radius.y**2 + target_radius.z**2) * (1 + border)
+            animations.append(self.zoom(frame_width=self.frame_width))
+
         if center is None:
             center = target.get_center()
-        move_animation = self.move(x=center[0], y=center[1], z=center[2])
-        rotate_animation = self.move_orbit(phi=phi, theta=theta)
-        animations += [rotate_animation, move_animation]
-        animations = AnimationGroup(*animations)
-        return animations
+        animations.append(self.move(x=center[0], y=center[1], z=center[2]))
+        animations.append(self.move_orbit(phi=phi, theta=theta))
+
+        return AnimationGroup(*animations)
 
     def follow(self, target):
-        """Make the camera follow a target object.
-
-        Changes the target of the camera's TargetTag so it looks at
-        the specified object instead of the default focus_point Null.
-
-        In generator_mode, TargetTag is not available, so this sets the
-        focus point to the target's current position instead.
-
-        Args:
-            target: A DreamTalk object to follow
-        """
-        if self.generator_mode:
-            # In generator mode, we can't use TargetTag (expression tag)
-            # Instead, set focus point to target's position
-            # Note: This won't dynamically follow - position is set once
-            pos = target.obj.GetAbsPos()
-            self.obj[self.focus_point_x_parameter.desc_id] = pos.x
-            self.obj[self.focus_point_y_parameter.desc_id] = pos.y
-            self.obj[self.focus_point_z_parameter.desc_id] = pos.z
-        else:
-            self.target_tag.set_target(target)
+        """Set focus point to target's current position."""
+        pos = target.obj.GetAbsPos()
+        self.obj[self.focus_point_x_parameter.desc_id] = pos.x
+        self.obj[self.focus_point_y_parameter.desc_id] = pos.y
+        self.obj[self.focus_point_z_parameter.desc_id] = pos.z

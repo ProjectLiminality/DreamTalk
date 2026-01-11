@@ -1,47 +1,52 @@
-import importlib
-import DreamTalk.materials
-importlib.reload(DreamTalk.materials)
-from DreamTalk.materials import FillMaterial, SketchMaterial
-from DreamTalk.tags import FillTag, SketchTag, XPressoTag, AlignToSplineTag
-from DreamTalk.objects.stroke_objects import StrokeGen, StrokeMaterial, SilhouetteSplineGen, MeshStroke
-from DreamTalk.constants import WHITE, SCALE_X, SCALE_Y, SCALE_Z
-from DreamTalk.animation.animation import VectorAnimation, ScalarAnimation, ColorAnimation
-from DreamTalk.xpresso.userdata import *
-from DreamTalk.xpresso.xpressions import XRelation, XIdentity, XSplineLength, XBoundingBox, XAction, Movement
-# Lazy imports to avoid circular dependencies - these modules import from this file
-# Import them inside methods that need them instead of at module level
-# import DreamTalk.objects.effect_objects as effect_objects
-# import DreamTalk.objects.helper_objects as helper_objects
-# import DreamTalk.objects.custom_objects as custom_objects
+"""
+DreamTalk Abstract Objects - Fresh Architecture (v2.0)
+
+This module provides the base classes for all DreamTalk visual objects.
+Completely rebuilt without Sketch & Toon or XPresso dependencies.
+
+Key design principles:
+- Geometry-based stroke rendering (no post-effects)
+- Python Generators for all parameter relationships (no XPresso)
+- MoGraph-native from the ground up
+- Clean separation: structural (generator) vs temporal (keyframes)
+
+Base classes:
+- ProtoObject: Foundation for all objects (position, rotation, scale)
+- VisibleObject: Objects that can be seen (visibility, creation animation)
+- LineObject: Spline-based objects with stroke rendering
+- SolidObject: 3D mesh objects with fill and stroke rendering
+- CustomObject: Composite objects (holons) using Python Generators
+"""
+
 from abc import ABC, abstractmethod
-import c4d.utils
 import c4d
+import c4d.utils
+
+from DreamTalk.constants import WHITE, BLACK, PI, FPS
+from DreamTalk.animation.animation import VectorAnimation, ScalarAnimation, ColorAnimation
+from DreamTalk.xpresso.userdata import UGroup, UCompletion, UCheckBox, ULength, UVector, UColor
+from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, SILHOUETTE_SPLINE_GEN_CODE, StrokeMaterial
 
 
-def _get_effect_objects():
-    """Lazy import to avoid circular dependency"""
-    import DreamTalk.objects.effect_objects as effect_objects
-    return effect_objects
-
-
-def _get_helper_objects():
-    """Lazy import to avoid circular dependency"""
-    import DreamTalk.objects.helper_objects as helper_objects
-    return helper_objects
-
-
-def _get_custom_objects():
-    """Lazy import to avoid circular dependency"""
-    import DreamTalk.objects.custom_objects as custom_objects
-    return custom_objects
-
+# =============================================================================
+# PROTO OBJECT - Foundation
+# =============================================================================
 
 class ProtoObject(ABC):
+    """
+    Foundation for all DreamTalk objects.
 
-    def __init__(self, name=None, x=0, y=0, z=0, h=0, p=0, b=0, scale=1, position=None, rotation=None, plane="xy"):
-        self.document = c4d.documents.GetActiveDocument()  # get document
+    Provides:
+    - Document insertion
+    - Position, rotation, scale
+    - Name management
+    - Plane orientation (xy, yz, xz)
+    """
+
+    def __init__(self, name=None, x=0, y=0, z=0, h=0, p=0, b=0, scale=1,
+                 position=None, rotation=None, plane="xy"):
+        self.document = c4d.documents.GetActiveDocument()
         self.specify_object()
-        self.set_xpresso_tags()
         self.set_unique_desc_ids()
         self.insert_to_document()
         self.set_name(name=name)
@@ -51,49 +56,22 @@ class ProtoObject(ABC):
         self.set_object_properties()
         self.plane = plane
         self.set_plane()
-        self.relations = []
-        self.actions = []
-        self.xpressions = {}  # keeps track of animators, composers etc.
-        self.accessed_parameters = {}  # keeps track which parameters have AccessControl
-        self.helper_objects = {}  # keeps track of helper objects created by Animators
         self.parent = None
 
     def __repr__(self):
-        """sets the string representation for printing"""
         return self.name
 
     @abstractmethod
     def specify_object(self):
+        """Create the C4D object. Must set self.obj."""
         pass
 
-    def set_xpresso_tags(self):
-        """initializes the necessary xpresso tags on the object"""
-        # the composition tags hold the hierarchy of compositions and ensure execution from highest to lowest
-        #self.composition_tags = []
-        # the animator tag holds the acting of the animators on the actual parameters
-        # set priority to be executed last
-        # self.animator_tag = XPressoTag(
-        #    target=self, name="AnimatorTag", priority=1, priority_mode="expression")
-        # the freeze tag holds the freezing xpressions that are executed before the animators
-        # set priority to be executed after compositions and before animators
-        # self.freeze_tag = XPressoTag(
-        #    target=self, name="FreezeTag", priority=0, priority_mode="animation")
-        # inserts an xpresso tag used for custom xpressions
-        self.custom_tag = XPressoTag(
-            target=self, name="CustomTag", priority_mode="expression")
-
-    def add_composition_tag(self):
-        """adds another layer to the composition hierarchy"""
-        # set priority according to position in composition hierarchy
-        tag_name = "CompositionTag" + str(len(self.composition_tags))
-        tag_priority = -len(self.composition_tags)
-        composition_tag = XPressoTag(
-            target=self, name=tag_name, priority=tag_priority, priority_mode="initial")
-        self.composition_tags.append(composition_tag)
-        return composition_tag.obj
-
     def set_unique_desc_ids(self):
-        """optional method to make unique descIds easily accessible"""
+        """Optional: define desc_ids dict for object-specific parameters."""
+        pass
+
+    def set_object_properties(self):
+        """Optional: set object-specific properties after creation."""
         pass
 
     def set_name(self, name=None):
@@ -104,27 +82,16 @@ class ProtoObject(ABC):
         self.obj.SetName(self.name)
 
     def set_plane(self):
-        """sets the plane of the custom object"""
+        """Set the orientation plane for 2D objects."""
         if self.plane == "xy":
-            self.rotate(rotation=(0, 0, 0))
+            pass  # Default orientation
         elif self.plane == "yz":
-            self.rotate(rotation=(PI / 2, 0, 0))
+            self.obj[c4d.ID_BASEOBJECT_ROTATION] += c4d.Vector(PI / 2, 0, 0)
         elif self.plane == "xz":
-            self.rotate(rotation=(0, -PI / 2, 0))
+            self.obj[c4d.ID_BASEOBJECT_ROTATION] += c4d.Vector(0, -PI / 2, 0)
 
-    def specify_parameters(self):
-        """specifies optional parameters for the custom object"""
-        pass
-
-    def insert_parameters(self):
-        """inserts the specified parameters as userdata"""
-        if self.parameters:
-            self.parameters_u_group = UGroup(
-                *self.parameters, target=self.obj, name=self.name + "Parameters")
-
-    def specify_relations(self):
-        """specifies the relations between the part's parameters using xpresso"""
-        pass
+    def insert_to_document(self):
+        self.document.InsertObject(self.obj)
 
     def set_position(self, x=0, y=0, z=0, position=None, relative=False):
         if position is None:
@@ -146,21 +113,14 @@ class ProtoObject(ABC):
         else:
             self.obj[c4d.ID_BASEOBJECT_ROTATION] = rotation
 
-    def set_frozen_rotation(self, h=0, p=0, b=0, rotation=None, relative=False):
-        if rotation is None:
-            rotation = c4d.Vector(h, p, b)
-        if relative:
-            self.obj[c4d.ID_BASEOBJECT_FROZEN_ROTATION] += rotation
-        else:
-            self.obj[c4d.ID_BASEOBJECT_FROZEN_ROTATION] = rotation
-
     def set_scale(self, scale=1, relative=False):
         if relative:
             self.obj[c4d.ID_BASEOBJECT_SCALE] *= scale
         else:
-            scale = c4d.Vector(scale, scale, scale)
-            self.obj[c4d.ID_BASEOBJECT_SCALE] = scale
+            scale_vec = c4d.Vector(scale, scale, scale)
+            self.obj[c4d.ID_BASEOBJECT_SCALE] = scale_vec
 
+    # Animation methods
     def move(self, x=0, y=0, z=0, position=None, relative=True):
         if position is None:
             position = c4d.Vector(x, y, z)
@@ -199,188 +159,51 @@ class ProtoObject(ABC):
         self.obj[descriptor] += scale
         return animation
 
-    def insert_to_document(self):
-        self.document.InsertObject(self.obj)
 
-    def get_segment_count(self):
-        # returns the length of the spline or a specific segment
-        spline_help = c4d.utils.SplineHelp()
-        spline_help.InitSplineWith(self.obj)
-        segment_count = spline_help.GetSegmentCount()
-        return segment_count
-
-    def get_length(self, segment=None):
-        # returns the length of the spline or a specific segment
-        spline_help = c4d.utils.SplineHelp()
-        spline_help.InitSplineWith(self.obj)
-
-        if segment:
-            segment_length = spline_help.GetSegmentLength(segment)
-            return segment_length
-        else:
-            spline_length = spline_help.GetSplineLength()
-            return spline_length
-
-    def get_spline_segment_lengths(self):
-        # get the length of each segment
-        segment_lengths = []
-        for i in range(self.get_segment_count()):
-            segment_lengths.append(self.get_length(segment=i))
-        return segment_lengths
-
-    def set_object_properties(self):
-        """used to set the unique properties of a specific object"""
-        pass
-
-    def sort_relations_by_priority(self):
-        """sorts the relations by priority"""
-
-        # right now it oly ensures that the actions are inserted above the relations
-        # in the future we will implement priority and sorting by sub-xpression dependencies
-
-        # get node master
-        master = self.custom_tag.obj.GetNodeMaster()
-        parent = master.GetRoot()
-
-        """
-        # resort by parent reference
-        for relation in self.relations:
-            if relation.parent:
-                self.relations.remove(relation)
-                parent_idx = self.relations.index(relation.parent)
-                self.relations.insert(parent_idx, relation)
-        for action in self.actions:
-            if action.parent:
-                self.actions.remove(action)
-                parent_idx = self.actions.index(action.parent)
-                self.actions.insert(parent_idx, action)
-        """
-        if self.relations:
-            for relation in self.relations:
-                master.InsertFirst(parent, relation.obj)
-        if self.actions:
-            for action in self.actions:
-                master.InsertFirst(parent, action.obj)
-
+# =============================================================================
+# VISIBLE OBJECT - Objects that can be seen
+# =============================================================================
 
 class VisibleObject(ProtoObject):
-    # visible objects
+    """
+    Base class for objects that can be rendered.
+
+    Provides:
+    - Visibility parameter and control
+    - Creation parameter for animation
+    - Bounding box information
+    """
 
     def __init__(self, visible=True, creation=0, **kwargs):
         super().__init__(**kwargs)
         self.creation = creation
         self.visible = visible
-        self.specify_visibility_parameter()
-        self.insert_visibility_parameter()
-        self.specify_visibility_relation()
-        self.specify_live_bounding_box_parameters()
-        self.insert_live_bounding_box_parameters()
-        self.specify_live_bounding_box_relation()
-        self.add_bounding_box_information()
+        self._setup_visibility()
+        self._setup_creation()
+        self._update_bounding_box()
 
-    def specify_action_parameters(self):
-        pass
-
-    def specify_creation_parameter(self):
-        self.creation_parameter = UCompletion(
-            name="Creation", default_value=self.creation)
-        self.action_parameters += [self.creation_parameter]
-
-    def insert_action_parameters(self):
-        """inserts the specified action_parameters as userdata"""
-        if self.action_parameters:
-            self.actions_u_group = UGroup(
-                *self.action_parameters, target=self.obj, name=self.name + "Actions")
-
-    def specify_actions(self):
-        """specifies actions that coordinate parameters"""
-        pass
-
-    def specify_creation(self):
-        """specifies the creation action"""
-        pass
-
-    def get_clone(self):
-        """clones an object and inserts it into the scene"""
-        clone = self.obj.GetClone()
-        self.document.InsertObject(clone)
-        return clone
-
-    def get_editable(self):
-        """returns an editable clone of the object"""
-        clone = self.get_clone()
-        editable_clone = c4d.utils.SendModelingCommand(command=c4d.MCOMMAND_MAKEEDITABLE, list=[
-            clone], mode=c4d.MODELINGCOMMANDMODE_ALL, doc=self.document)[0]
-        return editable_clone
-
-    def attach_to(self, target, direction="front", offset=0):
-        """places the object such that the bounding boxes touch along a given direction and makes object child of target"""
-        bounding_box = self.obj.GetRad()
-        bounding_box_position = self.obj.GetMp()
-        bounding_box_target = target.obj.GetRad()
-        bounding_box_position_target = target.obj.GetMp()
-        new_position = bounding_box_position_target - bounding_box_position
-        if direction == "top":
-            new_position.y += bounding_box_target.y + bounding_box.y + offset
-        if direction == "bottom":
-            new_position.y -= bounding_box_target.y + bounding_box.y + offset
-        if direction == "left":
-            new_position.x -= bounding_box_target.x + bounding_box.x + offset
-        if direction == "right":
-            new_position.x += bounding_box_target.x + bounding_box.x + offset
-        if direction == "front":
-            new_position.z -= bounding_box_target.z + bounding_box.z + offset
-        if direction == "back":
-            new_position.z += bounding_box_target.z + bounding_box.z + offset
-        if direction == "center":
-            new_position = bounding_box_position_target - bounding_box_position
-        self.obj.InsertUnder(target.obj)
-        self.set_position(position=new_position)
-
-    def specify_visibility_parameter(self):
-        """specifies visibility parameter"""
+    def _setup_visibility(self):
+        """Set up visibility UserData parameter."""
         self.visibility_parameter = UCheckBox(
             name="Visibility", default_value=self.visible)
-
-    def insert_visibility_parameter(self):
-        """inserts the visibility parameter as userdata"""
         self.visibility_u_group = UGroup(
             self.visibility_parameter, target=self.obj, name="Visibility")
 
-    def specify_visibility_relation(self):
-        """link parameter to visibility"""
-        visibility_relation = XRelation(part=self, whole=self, desc_ids=[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR, c4d.ID_BASEOBJECT_VISIBILITY_RENDER],
-                                        parameters=[self.visibility_parameter], formula=f"1-{self.visibility_parameter.name}")
+        # Set initial visibility
+        if not self.visible:
+            self.obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+            self.obj[c4d.ID_BASEOBJECT_VISIBILITY_RENDER] = 1
 
-    def specify_live_bounding_box_parameters(self):
-        """specifies bounding box parameters"""
-        self.width_parameter = ULength(name="Width")
-        self.height_parameter = ULength(name="Height")
-        self.depth_parameter = ULength(name="Depth")
-        self.center_parameter = UVector(name="Center")
-        self.center_x_parameter = ULength(name="CenterX")
-        self.center_y_parameter = ULength(name="CenterY")
-        self.center_z_parameter = ULength(name="CenterZ")
-        self.live_bounding_box_parameters = [self.width_parameter,
-                                             self.height_parameter,
-                                             self.depth_parameter,
-                                             self.center_parameter,
-                                             self.center_x_parameter,
-                                             self.center_y_parameter,
-                                             self.center_z_parameter]
+    def _setup_creation(self):
+        """Set up creation parameter for animation."""
+        self.creation_parameter = UCompletion(
+            name="Creation", default_value=self.creation)
+        self.action_parameters = [self.creation_parameter]
+        self.actions_u_group = UGroup(
+            *self.action_parameters, target=self.obj, name="Actions")
 
-    def insert_live_bounding_box_parameters(self):
-        """inserts the bounding box parameters as userdata"""
-        self.live_bounding_box_u_group = UGroup(
-            *self.live_bounding_box_parameters, target=self.obj, name="LiveBoundingBox")
-
-    def specify_live_bounding_box_relation(self):
-        """feed bounding box information into parameters"""
-        live_bounding_box_relation = XBoundingBox(self, target=self, width_parameter=self.width_parameter, height_parameter=self.height_parameter,
-                                                  depth_parameter=self.depth_parameter, center_parameter=self.center_parameter,
-                                                  center_x_parameter=self.center_x_parameter, center_y_parameter=self.center_y_parameter, center_z_parameter=self.center_z_parameter)
-
-    def add_bounding_box_information(self):
+    def _update_bounding_box(self):
+        """Calculate and store bounding box information."""
         bounding_box_center, bounding_radius = c4d.utils.GetBBox(
             self.obj, self.obj.GetMg())
         self.width = bounding_radius.x * 2
@@ -389,27 +212,38 @@ class VisibleObject(ProtoObject):
         self.center = bounding_box_center
 
     def get_center(self):
-        # returns the center position from the live bounding box information
-        center_position = self.obj.GetMp() * self.obj.GetMg()
-        return center_position
+        """Return the center position in world space."""
+        return self.obj.GetMp() * self.obj.GetMg()
 
     def get_radius(self):
-        # returns the radius from the live bounding box information
+        """Return the bounding radius."""
         __, radius = c4d.utils.GetBBox(self.obj, self.obj.GetMg())
         return radius
 
     def get_diameter(self):
-        # returns the diameter from the longest radius dimension
+        """Return the longest diameter."""
         radius = self.get_radius()
-        diameter = max(radius.x, radius.y, radius.z) * 2
-        return diameter
+        return max(radius.x, radius.y, radius.z) * 2
 
-    def register_connections(self, connections):
-        # saves the connections for later functionality of UnConnect
-        self.connections = connections
+    def get_clone(self):
+        """Clone the object and insert into scene."""
+        clone = self.obj.GetClone()
+        self.document.InsertObject(clone)
+        return clone
 
+    def get_editable(self):
+        """Return an editable polygon clone."""
+        clone = self.get_clone()
+        editable = c4d.utils.SendModelingCommand(
+            command=c4d.MCOMMAND_MAKEEDITABLE,
+            list=[clone],
+            mode=c4d.MODELINGCOMMANDMODE_ALL,
+            doc=self.document)[0]
+        return editable
+
+    # Animation methods
     def create(self, completion=1):
-        """specifies the creation animation"""
+        """Animate creation from current value to completion."""
         desc_id = self.creation_parameter.desc_id
         animation = ScalarAnimation(
             target=self, descriptor=desc_id, value_fin=completion)
@@ -417,267 +251,50 @@ class VisibleObject(ProtoObject):
         return animation
 
     def un_create(self, completion=0):
-        """specifies the uncreation animation"""
+        """Animate un-creation."""
         desc_id = self.creation_parameter.desc_id
         animation = ScalarAnimation(
             target=self, descriptor=desc_id, value_fin=completion)
         self.obj[desc_id] = completion
         return animation
 
-    def align_to_spline(self, spline=None):
-        self.align_to_spline_tag = AlignToSplineTag(target=self, spline=spline)
 
-    def wrap_around(self, target=None):
-        helper_objects = _get_helper_objects()
-        self.shrink_wrap = helper_objects.ShrinkWrap(target=target)
-        self.shrink_wrap.obj.InsertUnder(self.obj)
-
-    def project_to_surface(self, projection_surface=None, **kwargs):
-        helper_objects = _get_helper_objects()
-        self.projection = helper_objects.Projection(target=self, projection_surface=projection_surface, **kwargs)
-
-    def move_axis(self, position=(0, 0, 0)):
-        """moves the axis without moving the geometry"""
-        vec = c4d.Vector(*position)
-        print(vec)
-        print(position)
-        points = self.obj.GetAllPoints()
-        for i, point in enumerate(points):
-            points[i] = point - vec
-            if i < 3:
-                print(points[i] - point)
-        self.obj.SetAbsPos(self.obj.GetAbsPos() + vec)
-        self.obj.SetAllPoints(points)
-        self.obj.Message(c4d.MSG_UPDATE)
-        c4d.EventAdd()
-
-
-class CustomObject(VisibleObject):
-    """this class is used to create custom objects that are basically
-    groups with coupling of the childrens parameters through xpresso
-
-    Supports two modes:
-    - Standard mode (default): Uses XPresso for parameter relationships
-    - Generator mode (generator_mode=True): Uses Python Generator for MoGraph compatibility
-    """
-
-    def __init__(self, diameter=None, generator_mode=False, **kwargs):
-        self.generator_mode = generator_mode
-        super().__init__(**kwargs)
-        self.parts = []
-        self.specify_parts()
-        self.insert_parts()
-        self.parameters = []
-        self.specify_parameters()
-        self.insert_parameters()
-        self.relations = []  # Initialize relations list before specify_relations
-        self.specify_relations()
-
-        # Skip XPresso setup in generator mode
-        if not self.generator_mode:
-            self.action_parameters = []
-            self.specify_action_parameters()
-            self.specify_creation_parameter()
-            self.insert_action_parameters()
-            self.specify_actions()
-            self.specify_creation()
-            self.diameter = diameter
-            self.add_bounding_box_information()
-            self.specify_bounding_box_parameters()
-            self.insert_bounding_box_parameters()
-            self.specify_bounding_box_relations()
-            self.specify_visibility_inheritance_relations()
-            self.specify_position_inheritance()
-            self.sort_relations_by_priority()
-        else:
-            # Generator mode: still need creation_parameter for keyframe animations
-            self.action_parameters = []
-            self.specify_creation_parameter()
-            self.diameter = diameter
-            self.insert_action_parameters()
-            # Note: Subclasses with custom _convert_to_generator (like FoldableCube)
-            # will override this. Otherwise, use the generic GeneratorMixin conversion.
-            # The conversion happens AFTER all parameters are set up.
-            self._convert_to_generator()
-
-    def _convert_to_generator(self):
-        """Convert this CustomObject to a Python Generator for MoGraph compatibility.
-
-        This replaces self.obj (a Null) with a Python Generator that:
-        - Has the same UserData parameters
-        - Contains the same children (recursively converted if they have GeneratorMixin)
-        - Uses Python code instead of XPresso for relationships
-        """
-        if not hasattr(self, 'create_as_generator'):
-            # No GeneratorMixin - can't convert
-            return
-
-        # Store old obj reference
-        old_obj = self.obj
-        old_parent = old_obj.GetUp()
-        old_pred = old_obj.GetPred()
-
-        # Create the generator version
-        gen = self.create_as_generator(recursive=True)
-
-        # Replace old_obj with gen in the document
-        if old_parent:
-            if old_pred:
-                gen.InsertAfter(old_pred)
-            else:
-                gen.InsertUnder(old_parent)
-        else:
-            # Was at root level
-            doc = c4d.documents.GetActiveDocument()
-            doc.InsertObject(gen)
-
-        old_obj.Remove()
-
-        # Update self.obj to point to the generator
-        self.obj = gen
-
-    def specify_creation(self):
-        """used to specify the unique creation animation for each individual custom object"""
-        pass
-
-    def inherit_creation(self):
-        """inheriting creation from parts"""
-        movements = [Movement(part.creation_parameter, (0, 1), part=part, easing=False)
-                     for part in self.parts]
-        self.creation_action = XAction(*movements,
-                                       target=self, completion_parameter=self.creation_parameter, name="Creation")
-
-    def specify_position_inheritance(self):
-        """used to specify how the position should be determined"""
-        pass
-
-    @abstractmethod
-    def specify_parts(self):
-        """save parts as attributes and write them to self.parts"""
-        pass
-
-    def insert_parts(self):
-        """inserts the parts as children"""
-        for part in self.parts:
-            # check if part is not already child so existing hierarchies won't be disturbed
-            if not part.obj.GetUp():
-                part.obj.InsertUnder(self.obj)
-                part.parent = self
-            # check for membranes
-            if hasattr(part, "membrane"):
-                part.membrane.obj.InsertUnder(self.obj)
-                part.membrane.parent = self
-
-    def specify_object(self):
-        self.obj = c4d.BaseObject(c4d.Onull)
-
-    def specify_visibility_inheritance_relations(self):
-        """inherits visibility to parts"""
-        effect_objects = _get_effect_objects()
-        visibility_relations = []
-        for part in self.parts:
-            if hasattr(part, "visibility_parameter") and not isinstance(part, effect_objects.Morpher):
-                visibility_relation = XIdentity(
-                    part=part, whole=self, desc_ids=[part.visibility_parameter.desc_id], parameter=self.visibility_parameter, name="VisibilityInheritance")
-                visibility_relations.append(visibility_relation)
-
-    def specify_bounding_box_parameters(self):
-        """specifies bounding box parameters"""
-        default_diameter = self.diameter if self.diameter else max(
-            self.width, self.height, self.depth)
-        self.diameter_parameter = ULength(
-            name="Diameter", default_value=default_diameter)
-        self.default_width_parameter = ULength(
-            name="DefaultWidth", default_value=self.width)
-        self.default_height_parameter = ULength(
-            name="DefaultHeight", default_value=self.height)
-        self.default_depth_parameter = ULength(
-            name="DefaultDepth", default_value=self.depth)
-        self.bounding_box_parameters = [self.diameter_parameter, self.default_width_parameter,
-                                        self.default_height_parameter, self.default_depth_parameter]
-
-    def insert_bounding_box_parameters(self):
-        """inserts the bounding box parameters"""
-        self.bounding_box_u_group = UGroup(
-            *self.bounding_box_parameters, target=self.obj, name="BoundingBox")
-
-    def specify_bounding_box_relations(self):
-        """gives the custom object basic control over the bounding box diameter"""
-        diameter_relation = XRelation(part=self, whole=self, desc_ids=[SCALE_X, SCALE_Y, SCALE_Z], parameters=[self.diameter_parameter, self.default_width_parameter, self.default_height_parameter, self.default_depth_parameter],
-                                      formula=f"{self.diameter_parameter.name}/max({self.default_width_parameter.name};max({self.default_height_parameter.name};{self.default_depth_parameter.name}))")
-
+# =============================================================================
+# LINE OBJECT - Spline-based stroke rendering
+# =============================================================================
 
 class LineObject(VisibleObject):
-    """line objects consist of splines and only require a sketch material
+    """
+    Base class for spline objects with geometry-based stroke rendering.
 
-    Supports two rendering modes:
-    - Sketch mode (default): Uses Sketch & Toon post-effect
-    - Stroke mode (stroke_mode=True): Uses geometry-based strokes (MoGraph compatible, faster)
+    All strokes are real 3D geometry rendered via Python Generators.
+    No Sketch & Toon dependency - MoGraph native.
+
+    Args:
+        color: Stroke color (default WHITE)
+        stroke_width: Line thickness in scene units (default 3.0)
+        draw_completion: Initial draw state 0-1 (default 1.0 = fully drawn)
+        opacity: Stroke opacity 0-1 (default 1.0)
+        plane: Spline plane "xy", "yz", "xz" (default "xy")
     """
 
-    def __init__(self, color=WHITE, plane="xy", arrow_start=False, arrow_end=False, draw_completion=0, opacity=1, helper_mode=False, draw_order="long_to_short", filled=False, fill_color=None, stroke_width=None, stroke_mode=False, **kwargs):
-        self.stroke_width = stroke_width if stroke_width is not None else 3.0
-        self.stroke_mode = stroke_mode
-        super().__init__(**kwargs)
+    def __init__(self, color=WHITE, stroke_width=3.0, draw_completion=1.0,
+                 opacity=1.0, plane="xy", **kwargs):
         self.color = color
-        self.plane = plane
-        self.arrow_start = arrow_start
-        self.arrow_end = arrow_end
+        self.stroke_width = stroke_width
         self.draw_completion = draw_completion
         self.opacity = opacity
-        self.draw_order = draw_order
-        if not helper_mode:
-            if self.stroke_mode:
-                # Geometry-based stroke rendering
-                self._setup_stroke_mode()
-                self.sketch_parameter_setup()  # Sets up Draw, Opacity, Color parameters
-            else:
-                # Traditional Sketch & Toon rendering
-                self.set_sketch_material()
-                self.set_sketch_tag()
-                self.sketch_parameter_setup()
-            self.set_plane()
-            self.spline_length_parameter_setup()
-            self.parameters = []
-            self.specify_parameters()
-            self.insert_parameters()
-            self.specify_relations()
-            self.action_parameters = []
-            self.specify_action_parameters()
-            self.specify_creation_parameter()
-            self.insert_action_parameters()
-            self.specify_actions()
-            self.specify_creation()
-            self.sort_relations_by_priority()
-        self.filled = filled
-        self.fill_color = fill_color
-        if self.filled:
-            self.create_membrane()
 
-    def create_membrane(self):
-        custom_objects = _get_custom_objects()
-        if self.fill_color:
-            color = self.fill_color
-        else:
-            color = self.color
+        super().__init__(plane=plane, **kwargs)
 
-        self.membrane = custom_objects.Membrane(
-            self, name=self.name + "Membrane", creation=True, color=color)
+        # Set up stroke rendering
+        self._setup_stroke_generator()
+        self._setup_stroke_parameters()
+        self._setup_stroke_material()
 
-    def _setup_stroke_mode(self):
-        """Set up geometry-based stroke rendering using StrokeGen.
-
-        In stroke mode:
-        - self.spline holds the original spline object
-        - self.obj becomes the StrokeGen (for position/rotation/UserData compatibility)
-        - The spline is a child of the stroke generator
-
-        This maintains the mental model that self.obj is "the thing" while
-        enabling geometry-based stroke rendering.
-        """
-        from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, StrokeMaterial
-
-        # Store spline reference
+    def _setup_stroke_generator(self):
+        """Wrap the spline in a StrokeGen for geometry-based rendering."""
+        # Store the original spline
         self.spline = self.obj
 
         # Create the stroke generator
@@ -686,7 +303,27 @@ class LineObject(VisibleObject):
         self.stroke_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
         self.stroke_gen.SetName(self.name)
 
-        # Add Stroke Width UserData
+        # Copy position/rotation from spline to generator
+        self.stroke_gen.SetAbsPos(self.spline.GetAbsPos())
+        self.stroke_gen.SetAbsRot(self.spline.GetAbsRot())
+        self.stroke_gen.SetAbsScale(self.spline.GetAbsScale())
+
+        # Reset spline transforms (now relative to generator)
+        self.spline.SetAbsPos(c4d.Vector(0, 0, 0))
+        self.spline.SetAbsRot(c4d.Vector(0, 0, 0))
+        self.spline.SetAbsScale(c4d.Vector(1, 1, 1))
+
+        # Insert generator and parent spline under it
+        self.document.InsertObject(self.stroke_gen)
+        self.spline.Remove()
+        self.spline.InsertUnder(self.stroke_gen)
+
+        # Swap obj reference - stroke_gen is now "the object"
+        self.obj = self.stroke_gen
+
+    def _setup_stroke_parameters(self):
+        """Add UserData parameters to stroke generator."""
+        # Stroke Width
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
         bc[c4d.DESC_NAME] = "Stroke Width"
         bc[c4d.DESC_DEFAULT] = 3.0
@@ -694,10 +331,10 @@ class LineObject(VisibleObject):
         bc[c4d.DESC_MAX] = 100.0
         bc[c4d.DESC_STEP] = 0.5
         bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_METER
-        self.stroke_width_id = self.stroke_gen.AddUserData(bc)
-        self.stroke_gen[self.stroke_width_id] = self.stroke_width
+        self.stroke_width_id = self.obj.AddUserData(bc)
+        self.obj[self.stroke_width_id] = self.stroke_width
 
-        # Add Draw UserData (0-1 completion for animation)
+        # Draw (0-1 completion)
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
         bc[c4d.DESC_NAME] = "Draw"
         bc[c4d.DESC_DEFAULT] = 1.0
@@ -705,73 +342,14 @@ class LineObject(VisibleObject):
         bc[c4d.DESC_MAX] = 1.0
         bc[c4d.DESC_STEP] = 0.01
         bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
-        self.stroke_draw_id = self.stroke_gen.AddUserData(bc)
-        self.stroke_gen[self.stroke_draw_id] = self.draw_completion
+        self.draw_id = self.obj.AddUserData(bc)
+        self.obj[self.draw_id] = self.draw_completion
 
-        # Insert stroke gen into document
-        self.document.InsertObject(self.stroke_gen)
+        # Create parameter object for animation compatibility
+        self.draw_parameter = UCompletion(name="Draw", default_value=self.draw_completion)
+        self.draw_parameter.desc_id = self.draw_id
 
-        # Move spline under stroke gen
-        self.spline.Remove()
-        self.spline.InsertUnder(self.stroke_gen)
-
-        # Create and apply stroke material
-        self.stroke_material = StrokeMaterial(
-            color=self.color,
-            opacity=self.opacity,
-            name=f"{self.name}_StrokeMat"
-        )
-        tag = self.stroke_gen.MakeTag(c4d.Ttexture)
-        tag[c4d.TEXTURETAG_MATERIAL] = self.stroke_material.obj
-
-        # Swap obj to be the stroke_gen - this is the "main" object now
-        self.obj = self.stroke_gen
-
-    def _stroke_sketch_parameter_setup(self):
-        """Set up parameters for stroke mode that mirror sketch parameters.
-
-        In stroke mode, Draw/Opacity/Color UserData already exists on
-        the stroke generator (self.obj). We just need to create parameter
-        wrappers that reference the existing desc_ids.
-        """
-        # Draw parameter - already on stroke_gen via _setup_stroke_mode
-        self.draw_parameter = UCompletion(
-            name="Draw", default_value=self.draw_completion)
-        self.draw_parameter.desc_id = self.stroke_draw_id  # Point to existing
-
-        # For Opacity and Color, we use the material directly
-        # Create parameter objects but they'll control the material
-        self.opacity_parameter = UCompletion(
-            name="Opacity", default_value=self.opacity)
-        self.color_parameter = UColor(
-            name="Color", default_value=self.color)
-
-        self.sketch_parameters = [self.draw_parameter,
-                                  self.opacity_parameter, self.color_parameter]
-
-    def spline_length_parameter_setup(self):
-        self.specify_spline_length_parameter()
-        self.insert_spline_length_parameter()
-        self.specify_spline_length_relation()
-
-    def sketch_parameter_setup(self):
-        if self.stroke_mode:
-            self._stroke_sketch_parameter_setup()
-            self._insert_stroke_sketch_parameters()
-            self._specify_stroke_sketch_relations()
-        else:
-            self.specify_sketch_parameters()
-            self.insert_sketch_parameters()
-            self.specify_sketch_relations()
-
-    def _insert_stroke_sketch_parameters(self):
-        """Insert additional UserData on stroke_gen for Opacity and Color.
-
-        Draw is already on the generator (read by generator code).
-        Opacity and Color are added for animation compatibility but
-        actually control the material programmatically.
-        """
-        # Opacity UserData (for animation keyframing)
+        # Opacity
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
         bc[c4d.DESC_NAME] = "Opacity"
         bc[c4d.DESC_DEFAULT] = 1.0
@@ -779,260 +357,202 @@ class LineObject(VisibleObject):
         bc[c4d.DESC_MAX] = 1.0
         bc[c4d.DESC_STEP] = 0.01
         bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
-        self.stroke_opacity_id = self.obj.AddUserData(bc)
-        self.obj[self.stroke_opacity_id] = self.opacity
-        self.opacity_parameter.desc_id = self.stroke_opacity_id
+        self.opacity_id = self.obj.AddUserData(bc)
+        self.obj[self.opacity_id] = self.opacity
 
-        # Color UserData (for animation keyframing)
+        self.opacity_parameter = UCompletion(name="Opacity", default_value=self.opacity)
+        self.opacity_parameter.desc_id = self.opacity_id
+
+        # Color
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
         bc[c4d.DESC_NAME] = "Color"
-        self.stroke_color_id = self.obj.AddUserData(bc)
-        self.obj[self.stroke_color_id] = self.color
-        self.color_parameter.desc_id = self.stroke_color_id
+        self.color_id = self.obj.AddUserData(bc)
+        self.obj[self.color_id] = self.color
 
-    def _specify_stroke_sketch_relations(self):
-        """Link UserData to stroke material.
+        self.color_parameter = UColor(name="Color", default_value=self.color)
+        self.color_parameter.desc_id = self.color_id
 
-        In stroke mode:
-        - Draw is handled by the generator code directly (reads UserData by name)
-        - Opacity and Color are set at construction time on the material
-
-        For animated opacity/color, use set_opacity() and set_color() methods
-        or animate via Python Generator code.
-        """
-        # No XPresso relations needed - generator reads Draw directly
-        # Opacity/Color are set on material at construction time
-        pass
-
-    def specify_creation(self):
-        """specifies the creation action"""
-        if self.stroke_mode:
-            # In stroke mode, creation animation is simpler - just animate the Draw UserData
-            # XAction uses XPresso which is complex; stroke_mode uses direct UserData access
-            # The Create animator will animate the creation_parameter which maps to draw
-            pass
-        else:
-            creation_action = XAction(
-                Movement(self.draw_parameter, (0, 1)),
-                target=self, completion_parameter=self.creation_parameter, name="Creation")
-            self.actions.append(creation_action)
-
-    def set_sketch_material(self):
-        self.sketch_material = SketchMaterial(
-            name=self.__class__.__name__, draw_order=self.draw_order, color=self.color, arrow_start=self.arrow_start, arrow_end=self.arrow_end, stroke_width=self.stroke_width)
-
-    def set_sketch_tag(self):
-        self.sketch_tag = SketchTag(target=self, material=self.sketch_material)
-
-    def specify_sketch_parameters(self):
-        self.draw_parameter = UCompletion(
-            name="Draw", default_value=self.draw_completion)
-        self.opacity_parameter = UCompletion(
-            name="Opacity", default_value=self.opacity)
-        self.color_parameter = UColor(
-            name="Color", default_value=self.color)
-        self.sketch_parameters = [self.draw_parameter,
-                                  self.opacity_parameter, self.color_parameter]
-
-    def insert_sketch_parameters(self):
-        self.draw_u_group = UGroup(
-            *self.sketch_parameters, target=self.obj, name="Sketch")
-
-    def specify_sketch_relations(self):
-        draw_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["draw_completion"]],
-                                  parameter=self.draw_parameter)
-        opacity_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["opacity"]],
-                                     parameter=self.opacity_parameter)
-        color_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["color"]],
-                                   parameter=self.color_parameter)
+    def _setup_stroke_material(self):
+        """Create and apply luminance material for stroke."""
+        self.stroke_material = StrokeMaterial(
+            color=self.color,
+            opacity=self.opacity,
+            name=f"{self.name}_StrokeMat"
+        )
+        tag = self.obj.MakeTag(c4d.Ttexture)
+        tag[c4d.TEXTURETAG_MATERIAL] = self.stroke_material.obj
 
     def set_plane(self):
+        """Override to set plane on spline primitive, not generator."""
         planes = {"xy": 0, "zy": 1, "xz": 2}
-        self.obj[c4d.PRIM_PLANE] = planes[self.plane]
+        if hasattr(self, 'spline'):
+            # Called after stroke setup
+            self.spline[c4d.PRIM_PLANE] = planes.get(self.plane, 0)
+        else:
+            # Called during initial setup - will set on obj which becomes spline
+            self.obj[c4d.PRIM_PLANE] = planes.get(self.plane, 0)
 
-    def specify_spline_length_parameter(self):
-        self.spline_length_parameter = ULength(name="SplineLength")
-
-    def insert_spline_length_parameter(self):
-        self.spline_length_u_group = UGroup(
-            self.spline_length_parameter, target=self.obj, name="Spline")
-
-    def specify_spline_length_relation(self):
-        self.spline_length_relation = XSplineLength(
-            spline=self, whole=self, parameter=self.spline_length_parameter)
-
+    # Animation methods
     def draw(self, completion=1):
-        """specifies the draw animation"""
-        desc_id = self.draw_parameter.desc_id
+        """Animate draw completion."""
         animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
+            target=self, descriptor=self.draw_id, value_fin=completion)
+        self.obj[self.draw_id] = completion
         return animation
 
     def un_draw(self, completion=0):
-        """specifies the undraw animation"""
-        desc_id = self.draw_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
+        """Animate undraw."""
+        return self.draw(completion)
 
     def fade_in(self, completion=1):
-        """specifies the fade in animation"""
-        desc_id = self.opacity_parameter.desc_id
+        """Animate opacity fade in."""
         animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
+            target=self, descriptor=self.opacity_id, value_fin=completion)
+        self.obj[self.opacity_id] = completion
+        self.stroke_material.set_opacity(completion)
         return animation
 
     def fade_out(self, completion=0):
-        """specifies the fade out animation"""
-        desc_id = self.opacity_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
+        """Animate opacity fade out."""
+        return self.fade_in(completion)
 
     def change_color(self, color):
-        """specifies the color change animation"""
-        desc_id = self.color_parameter.desc_id
+        """Animate color change."""
         animation = ColorAnimation(
-            target=self, descriptor=desc_id, vector=color)
-        self.obj[desc_id] = color
+            target=self, descriptor=self.color_id, vector=color)
+        self.obj[self.color_id] = color
+        self.stroke_material.set_color(color)
         return animation
 
 
-class SolidObject(VisibleObject):
-    """solid objects only require a fill material
+# =============================================================================
+# SOLID OBJECT - 3D mesh with fill and stroke
+# =============================================================================
 
-    Supports two rendering modes:
-    - Sketch mode (default): Uses Sketch & Toon post-effect for silhouette lines
-    - Stroke mode (stroke_mode=True): Uses geometry-based strokes (MoGraph compatible, faster)
+class SolidObject(VisibleObject):
+    """
+    Base class for 3D mesh objects with fill and stroke rendering.
+
+    Stroke rendering uses geometry-based silhouette detection.
+    Fill uses standard luminance materials.
+    No Sketch & Toon dependency - MoGraph native.
+
+    Args:
+        color: Base color for both fill and stroke
+        fill_color: Override fill color (default: uses color)
+        stroke_color: Override stroke color (default: uses color)
+        filled: Fill visibility 0-1 (default 0 = transparent)
+        stroke_width: Silhouette line thickness (default 3.0)
+        draw_completion: Initial stroke draw state (default 1.0)
+        fill_opacity: Fill opacity 0-1 (default 1.0)
+        stroke_opacity: Stroke opacity 0-1 (default 1.0)
     """
 
-    def __init__(self, filled=0, glowing=0, color=WHITE, fill_color=None, sketch_color=None, draw_order="long_to_short", draw_completion=0, arrow_start=False, arrow_end=False, fill_opacity=1, sketch_opacity=1, hidden_material=True, stroke_width=None, sketch_outline=True, sketch_folds=False, sketch_creases=True, sketch_border=False, sketch_contour=True, sketch_splines=True, stroke_mode=False, **kwargs):
-        """
-        Base class for 3D solid objects with fill and sketch materials.
-
-        Args:
-            filled: Fill visibility (0-1)
-            glowing: Glow intensity (0-1)
-            color: Base color (used for both fill and sketch if not specified)
-            fill_color: Override fill color
-            sketch_color: Override sketch color
-            draw_order: Sketch draw order ("long_to_short" or "short_to_long")
-            draw_completion: Initial sketch draw completion (0-1)
-            arrow_start: Add arrow at spline start
-            arrow_end: Add arrow at spline end
-            fill_opacity: Fill opacity (0-1)
-            sketch_opacity: Sketch opacity (0-1)
-            hidden_material: Control hidden line rendering:
-                - True (default): Same material for hidden lines (solid look)
-                - False/None: No hidden material (X-ray see-through effect)
-                - Material object: Custom hidden line material
-            stroke_width: Override sketch line thickness
-            sketch_outline: Enable outline rendering (default True)
-            sketch_folds: Enable fold lines (default False)
-            sketch_creases: Enable crease lines (default True)
-            sketch_border: Enable border lines (default False)
-            sketch_contour: Enable contour lines (default True)
-            sketch_splines: Enable spline rendering (default True)
-            stroke_mode: Use geometry-based strokes instead of Sketch & Toon (default False)
-            **kwargs: Parent class arguments
-        """
-        self.stroke_mode = stroke_mode
-        self.stroke_width = stroke_width if stroke_width is not None else 3.0
-        self.filled = filled
-        self.glowing = glowing
+    def __init__(self, color=WHITE, fill_color=None, stroke_color=None,
+                 filled=0, stroke_width=3.0, draw_completion=1.0,
+                 fill_opacity=1.0, stroke_opacity=1.0, **kwargs):
         self.color = color
-        self.fill_color = fill_color
-        self.sketch_color = sketch_color
-        self.draw_order = draw_order
+        self.fill_color = fill_color if fill_color else color
+        self.stroke_color = stroke_color if stroke_color else color
+        self.filled = filled
+        self.stroke_width = stroke_width
         self.draw_completion = draw_completion
-        self.arrow_start = arrow_start
-        self.arrow_end = arrow_end
-        self.sketch_opacity = sketch_opacity
         self.fill_opacity = fill_opacity
-        self.hidden_material = hidden_material
-        self.sketch_outline = sketch_outline
-        self.sketch_folds = sketch_folds
-        self.sketch_creases = sketch_creases
-        self.sketch_border = sketch_border
-        self.sketch_contour = sketch_contour
-        self.sketch_splines = sketch_splines
+        self.stroke_opacity = stroke_opacity
+
         super().__init__(**kwargs)
-        self.derive_colors()
-        # fill setup
-        self.set_fill_material()
-        self.set_fill_tag()
-        self.fill_parameter_setup()
-        # sketch setup
-        if self.stroke_mode:
-            # Geometry-based stroke rendering
-            self._setup_stroke_mode()
-            self.sketch_parameter_setup()  # Sets up Draw, Opacity, Color parameters
-        else:
-            # Traditional Sketch & Toon rendering
-            self.set_sketch_material()
-            self.set_sketch_tag()
-            self.sketch_parameter_setup()
-        self.parameters = []
-        self.specify_parameters()
-        self.insert_parameters()
-        self.specify_relations()
-        self.action_parameters = []
-        self.specify_action_parameters()
-        self.specify_creation_parameter()
-        self.insert_action_parameters()
-        self.specify_actions()
-        self.specify_creation()
-        self.sort_relations_by_priority()
 
-    def derive_colors(self):
-        if not self.fill_color:
-            self.fill_color = self.color
-        if not self.sketch_color:
-            self.sketch_color = self.color
+        # Set up fill material on the mesh
+        self._setup_fill_material()
+        self._setup_fill_parameters()
 
-    def _setup_stroke_mode(self):
-        """Set up geometry-based stroke rendering using MeshStroke.
+        # Set up stroke rendering via silhouette generator
+        self._setup_stroke_generator()
+        self._setup_stroke_parameters()
+        self._setup_stroke_material()
 
-        In stroke mode for solids:
-        - self.mesh holds the original mesh object
-        - self.obj becomes the MeshStroke wrapper (for position/rotation/UserData compatibility)
-        - The mesh is nested inside: StrokeGen > SilhouetteSplineGen > Mesh
+    def _setup_fill_material(self):
+        """Create and apply luminance material for fill."""
+        self.fill_material = c4d.Material()
+        self.fill_material.SetName(f"{self.name}_FillMat")
 
-        This extracts silhouette edges and renders them as geometry-based strokes.
-        """
-        from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, SILHOUETTE_SPLINE_GEN_CODE, StrokeMaterial
+        # Disable unused channels
+        self.fill_material[c4d.MATERIAL_USE_COLOR] = False
+        self.fill_material[c4d.MATERIAL_USE_REFLECTION] = False
 
-        # Store mesh reference
+        # Enable luminance for self-illuminated look
+        self.fill_material[c4d.MATERIAL_USE_LUMINANCE] = True
+        self.fill_material[c4d.MATERIAL_LUMINANCE_COLOR] = self.fill_color
+
+        # Enable transparency for fill control
+        self.fill_material[c4d.MATERIAL_USE_TRANSPARENCY] = True
+        transparency = 1.0 - self.filled  # 0 fill = 1 transparency
+        self.fill_material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = transparency
+
+        self.document.InsertMaterial(self.fill_material)
+
+        # Apply to mesh
+        self.fill_tag = self.obj.MakeTag(c4d.Ttexture)
+        self.fill_tag[c4d.TEXTURETAG_MATERIAL] = self.fill_material
+
+    def _setup_fill_parameters(self):
+        """Add fill UserData parameters."""
+        # Fill parameter (controls transparency inversely)
+        self.fill_parameter = UCompletion(name="Fill", default_value=self.filled)
+        self.fill_u_group = UGroup(self.fill_parameter, target=self.obj, name="Solid")
+
+    def _setup_stroke_generator(self):
+        """Wrap the mesh in SilhouetteSplineGen + StrokeGen for stroke rendering."""
+        # Store the original mesh
         self.mesh = self.obj
 
-        # Create the silhouette spline generator
+        # Create silhouette spline generator
         self.silhouette_gen = c4d.BaseObject(1023866)  # Python Generator
         self.silhouette_gen[c4d.OPYTHON_CODE] = SILHOUETTE_SPLINE_GEN_CODE
-        self.silhouette_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
+        self.silhouette_gen[c4d.OPYTHON_OPTIMIZE] = False
         self.silhouette_gen.SetName("SilhouetteSpline")
 
-        # Create the stroke generator
+        # Create stroke generator
         self.stroke_gen = c4d.BaseObject(1023866)  # Python Generator
         self.stroke_gen[c4d.OPYTHON_CODE] = STROKE_GEN_CODE
-        self.stroke_gen[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
-        self.stroke_gen.SetName(self.name)
+        self.stroke_gen[c4d.OPYTHON_OPTIMIZE] = False
+        self.stroke_gen.SetName(f"{self.name}_Stroke")
 
-        # Add Stroke Width UserData to stroke gen
+        # Copy transforms from mesh to stroke_gen
+        self.stroke_gen.SetAbsPos(self.mesh.GetAbsPos())
+        self.stroke_gen.SetAbsRot(self.mesh.GetAbsRot())
+        self.stroke_gen.SetAbsScale(self.mesh.GetAbsScale())
+
+        # Reset mesh transforms (now relative to generators)
+        self.mesh.SetAbsPos(c4d.Vector(0, 0, 0))
+        self.mesh.SetAbsRot(c4d.Vector(0, 0, 0))
+        self.mesh.SetAbsScale(c4d.Vector(1, 1, 1))
+
+        # Build hierarchy: StrokeGen > SilhouetteGen > Mesh
+        self.document.InsertObject(self.stroke_gen)
+        self.silhouette_gen.InsertUnder(self.stroke_gen)
+        self.mesh.Remove()
+        self.mesh.InsertUnder(self.silhouette_gen)
+
+        # Keep mesh as self.obj for fill material access, but stroke_gen for positioning
+        # We maintain two references:
+        # - self.mesh: the actual geometry (for fill material)
+        # - self.stroke_gen: the outer container (for positioning, stroke material)
+        # - self.obj stays as mesh for backwards compat with set_object_properties etc.
+
+    def _setup_stroke_parameters(self):
+        """Add stroke UserData to stroke generator."""
+        # Stroke Width
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
         bc[c4d.DESC_NAME] = "Stroke Width"
         bc[c4d.DESC_DEFAULT] = 3.0
         bc[c4d.DESC_MIN] = 0.1
         bc[c4d.DESC_MAX] = 100.0
         bc[c4d.DESC_STEP] = 0.5
-        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_METER
         self.stroke_width_id = self.stroke_gen.AddUserData(bc)
         self.stroke_gen[self.stroke_width_id] = self.stroke_width
 
-        # Add Draw UserData (0-1 completion for animation)
+        # Draw
         bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
         bc[c4d.DESC_NAME] = "Draw"
         bc[c4d.DESC_DEFAULT] = 1.0
@@ -1040,211 +560,245 @@ class SolidObject(VisibleObject):
         bc[c4d.DESC_MAX] = 1.0
         bc[c4d.DESC_STEP] = 0.01
         bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
-        self.stroke_draw_id = self.stroke_gen.AddUserData(bc)
-        self.stroke_gen[self.stroke_draw_id] = self.draw_completion
+        self.draw_id = self.stroke_gen.AddUserData(bc)
+        self.stroke_gen[self.draw_id] = self.draw_completion
 
-        # Insert stroke gen into document
-        self.document.InsertObject(self.stroke_gen)
+        self.draw_parameter = UCompletion(name="Draw", default_value=self.draw_completion)
+        self.draw_parameter.desc_id = self.draw_id
 
-        # Build hierarchy: StrokeGen > SilhouetteSplineGen > Mesh
-        self.silhouette_gen.InsertUnder(self.stroke_gen)
-        self.mesh.Remove()
-        self.mesh.InsertUnder(self.silhouette_gen)
-
-        # Create and apply stroke material
+    def _setup_stroke_material(self):
+        """Create and apply stroke material to stroke generator."""
         self.stroke_material = StrokeMaterial(
-            color=self.sketch_color,
-            opacity=self.sketch_opacity,
+            color=self.stroke_color,
+            opacity=self.stroke_opacity,
             name=f"{self.name}_StrokeMat"
         )
         tag = self.stroke_gen.MakeTag(c4d.Ttexture)
         tag[c4d.TEXTURETAG_MATERIAL] = self.stroke_material.obj
 
-        # Swap obj to be the stroke_gen - this is the "main" object now
-        self.obj = self.stroke_gen
+    # Override position/rotation to affect stroke_gen (outer container)
+    def set_position(self, x=0, y=0, z=0, position=None, relative=False):
+        if position is None:
+            position = c4d.Vector(x, y, z)
+        elif type(position) is not c4d.Vector:
+            position = c4d.Vector(*position)
 
-    def sketch_parameter_setup(self):
-        if self.stroke_mode:
-            self._stroke_sketch_parameter_setup()
-            self._insert_stroke_sketch_parameters()
-            self._specify_stroke_sketch_relations()
+        target = self.stroke_gen if hasattr(self, 'stroke_gen') else self.obj
+        if relative:
+            target[c4d.ID_BASEOBJECT_POSITION] += position
         else:
-            self.specify_sketch_parameters()
-            self.insert_sketch_parameters()
-            self.specify_sketch_relations()
+            target[c4d.ID_BASEOBJECT_POSITION] = position
 
-    def _stroke_sketch_parameter_setup(self):
-        """Set up parameters for stroke mode that mirror sketch parameters."""
-        # Draw parameter - already on stroke_gen via _setup_stroke_mode
-        self.draw_parameter = UCompletion(
-            name="Draw", default_value=self.draw_completion)
-        self.draw_parameter.desc_id = self.stroke_draw_id  # Point to existing
+    def set_rotation(self, h=0, p=0, b=0, rotation=None, relative=False):
+        if rotation is None:
+            rotation = c4d.Vector(h, p, b)
+        elif type(rotation) is not c4d.Vector:
+            rotation = c4d.Vector(*rotation)
 
-        # For Opacity and Color, we use the material directly
-        self.opacity_parameter = UCompletion(
-            name="SketchOpacity", default_value=self.sketch_opacity)
-        self.color_parameter = UColor(
-            name="Color", default_value=self.sketch_color)
-
-        self.sketch_parameters = [self.draw_parameter,
-                                  self.opacity_parameter, self.color_parameter]
-
-    def _insert_stroke_sketch_parameters(self):
-        """Insert additional UserData on stroke_gen for Opacity and Color."""
-        # Opacity UserData (for animation keyframing)
-        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_REAL)
-        bc[c4d.DESC_NAME] = "SketchOpacity"
-        bc[c4d.DESC_DEFAULT] = 1.0
-        bc[c4d.DESC_MIN] = 0.0
-        bc[c4d.DESC_MAX] = 1.0
-        bc[c4d.DESC_STEP] = 0.01
-        bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_PERCENT
-        self.stroke_opacity_id = self.obj.AddUserData(bc)
-        self.obj[self.stroke_opacity_id] = self.sketch_opacity
-        self.opacity_parameter.desc_id = self.stroke_opacity_id
-
-        # Color UserData (for animation keyframing)
-        bc = c4d.GetCustomDataTypeDefault(c4d.DTYPE_COLOR)
-        bc[c4d.DESC_NAME] = "Color"
-        self.stroke_color_id = self.obj.AddUserData(bc)
-        self.obj[self.stroke_color_id] = self.sketch_color
-        self.color_parameter.desc_id = self.stroke_color_id
-
-    def _specify_stroke_sketch_relations(self):
-        """Link UserData to stroke material.
-
-        In stroke mode:
-        - Draw is handled by the generator code directly (reads UserData by name)
-        - Opacity and Color are set at construction time on the material
-        """
-        # No XPresso relations needed - generator reads Draw directly
-        pass
-
-    def specify_creation(self):
-        """specifies the creation action"""
-        if self.stroke_mode:
-            # In stroke mode, skip XAction - use direct UserData access
-            # Create animator will animate the creation_parameter directly
-            pass
+        target = self.stroke_gen if hasattr(self, 'stroke_gen') else self.obj
+        if relative:
+            target[c4d.ID_BASEOBJECT_ROTATION] += rotation
         else:
-            creation_action = XAction(
-                Movement(self.fill_parameter, (1 / 3, 1),
-                         output=(0, self.fill_opacity)),
-                Movement(self.draw_parameter, (0, 2 / 3)),
-                target=self, completion_parameter=self.creation_parameter, name="Creation")
+            target[c4d.ID_BASEOBJECT_ROTATION] = rotation
 
-    def fill_parameter_setup(self):
-        self.specify_fill_parameter()
-        self.insert_fill_parameter()
-        self.specify_fill_relation()
+    def set_scale(self, scale=1, relative=False):
+        target = self.stroke_gen if hasattr(self, 'stroke_gen') else self.obj
+        if relative:
+            target[c4d.ID_BASEOBJECT_SCALE] *= scale
+        else:
+            scale_vec = c4d.Vector(scale, scale, scale)
+            target[c4d.ID_BASEOBJECT_SCALE] = scale_vec
 
-    def set_fill_material(self):
-        self.fill_material = FillMaterial(
-            name=self.name, fill=self.filled, color=self.fill_color)
-
-    def set_fill_tag(self):
-        self.fill_tag = FillTag(target=self, material=self.fill_material)
-
-    def specify_fill_parameter(self):
-        self.fill_parameter = UCompletion(
-            name="Fill", default_value=self.filled)
-        self.glow_parameter = UCompletion(
-            name="Glow", default_value=self.glowing)
-        self.fill_parameters = [self.fill_parameter, self.glow_parameter]
-
-    def insert_fill_parameter(self):
-        self.fill_u_group = UGroup(
-            *self.fill_parameters, target=self.obj, name="Solid")
-
-    def specify_fill_relation(self):
-        self.fill_relation = XRelation(part=self.fill_material, whole=self, desc_ids=[self.fill_material.desc_ids["transparency"]],
-                                       parameters=[self.fill_parameter], formula=f"1-{self.fill_parameter.name}")
-        self.glow_relation = XRelation(part=self.fill_material, whole=self, desc_ids=[self.fill_material.desc_ids["glow_brightness"]],
-                                       parameters=[self.glow_parameter], formula=f"{self.glow_parameter.name}")
-
+    # Animation methods
     def fill(self, completion=1):
-        """specifies the fill animation"""
+        """Animate fill visibility."""
         desc_id = self.fill_parameter.desc_id
         animation = ScalarAnimation(
             target=self, descriptor=desc_id, value_fin=completion)
         self.obj[desc_id] = completion
+        # Update material transparency
+        self.fill_material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = 1.0 - completion
         return animation
 
     def un_fill(self, completion=0):
-        """specifies the unfill animation"""
-        desc_id = self.fill_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
-
-    def set_sketch_material(self):
-        self.sketch_material = SketchMaterial(
-            name=self.__class__.__name__, draw_order=self.draw_order, color=self.sketch_color, arrow_start=self.arrow_start, arrow_end=self.arrow_end, stroke_width=self.stroke_width)
-
-    def set_sketch_tag(self):
-        self.sketch_tag = SketchTag(
-            target=self,
-            material=self.sketch_material,
-            outline=self.sketch_outline,
-            folds=self.sketch_folds,
-            creases=self.sketch_creases,
-            border=self.sketch_border,
-            contour=self.sketch_contour,
-            splines=self.sketch_splines,
-            hidden_material=self.hidden_material
-        )
-
-    def specify_sketch_parameters(self):
-        self.draw_parameter = UCompletion(
-            name="Draw", default_value=self.draw_completion)
-        self.opacity_parameter = UCompletion(
-            name="SketchOpacity", default_value=self.sketch_opacity)
-        self.color_parameter = UColor(
-            name="Color", default_value=self.sketch_color)
-        self.sketch_parameters = [self.draw_parameter,
-                                  self.opacity_parameter, self.color_parameter]
-
-    def insert_sketch_parameters(self):
-        self.draw_u_group = UGroup(
-            *self.sketch_parameters, target=self.obj, name="Sketch")
-
-    def specify_sketch_relations(self):
-        draw_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["draw_completion"]],
-                                  parameter=self.draw_parameter)
-        opacity_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["opacity"]],
-                                     parameter=self.opacity_parameter)
-        color_relation = XIdentity(part=self.sketch_material, whole=self, desc_ids=[self.sketch_material.desc_ids["color"]],
-                                   parameter=self.color_parameter)
+        """Animate fill removal."""
+        return self.fill(completion)
 
     def draw(self, completion=1):
-        """specifies the draw animation"""
-        desc_id = self.draw_parameter.desc_id
+        """Animate stroke draw completion."""
         animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
+            target=self.stroke_gen, descriptor=self.draw_id, value_fin=completion)
+        self.stroke_gen[self.draw_id] = completion
         return animation
 
     def un_draw(self, completion=0):
-        """specifies the undraw animation"""
-        desc_id = self.draw_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
+        """Animate stroke undraw."""
+        return self.draw(completion)
 
-    def glow(self, completion=1):
-        """specifies the glow animation"""
-        desc_id = self.glow_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
 
-    def un_glow(self, completion=0):
-        """specifies the unglow animation"""
-        desc_id = self.glow_parameter.desc_id
-        animation = ScalarAnimation(
-            target=self, descriptor=desc_id, value_fin=completion)
-        self.obj[desc_id] = completion
-        return animation
+# =============================================================================
+# CUSTOM OBJECT - Composite holons using Python Generators
+# =============================================================================
+
+class CustomObject(VisibleObject):
+    """
+    Base class for composite objects (holons) using Python Generators.
+
+    All structural relationships are handled by Python Generator code.
+    No XPresso - clean, git-friendly, MoGraph-native.
+
+    Subclasses must implement:
+    - specify_parts(): Define child objects
+    - specify_parameters(): Define UserData parameters (optional)
+    - specify_generator_code(): Return Python code string for generator
+
+    The generator code has access to:
+    - op: The generator object (read UserData from here)
+    - op.GetMg(): World matrix (unique per clone in MoGraph)
+    - op.GetDown(): First child object
+
+    Args:
+        diameter: Optional diameter override for bounding
+        **kwargs: Position, rotation, scale, etc.
+    """
+
+    def __init__(self, diameter=None, **kwargs):
+        self.diameter = diameter
+        super().__init__(**kwargs)
+
+        # Set up parts and parameters
+        self.parts = []
+        self.specify_parts()
+        self.parameters = []
+        self.specify_parameters()
+        self.insert_parameters()
+
+        # Convert to generator and insert parts
+        self._setup_as_generator()
+        self.insert_parts()
+
+        # Set up generator code
+        self._write_generator_code()
+
+    def specify_object(self):
+        """Create a Python Generator as the container."""
+        self.obj = c4d.BaseObject(1023866)  # Python Generator
+        self.obj[c4d.OPYTHON_OPTIMIZE] = False  # Critical for MoGraph!
+
+    @abstractmethod
+    def specify_parts(self):
+        """
+        Define the parts (children) of this holon.
+
+        Store parts as attributes and add to self.parts list:
+
+            def specify_parts(self):
+                self.cube = FoldableCube(...)
+                self.cable = Cable(...)
+                self.parts = [self.cube, self.cable]
+        """
+        pass
+
+    def specify_parameters(self):
+        """
+        Define UserData parameters for this holon.
+
+        Override to add custom parameters:
+
+            def specify_parameters(self):
+                self.fold_param = UCompletion(name="Fold", default_value=0)
+                self.parameters = [self.fold_param]
+        """
+        pass
+
+    def specify_generator_code(self):
+        """
+        Return Python code string for the generator.
+
+        Override to define structural relationships:
+
+            def specify_generator_code(self):
+                return '''
+        def main():
+            fold = get_userdata_by_name(op, "Fold")
+            child = op.GetDown()
+            while child:
+                if child.GetName() == "FrontAxis":
+                    child.SetRelRot(c4d.Vector(0, fold * PI/2, 0))
+                child = child.GetNext()
+            return None
+        '''
+
+        The generator should return None to make children visible,
+        or return a PolygonObject/SplineObject to generate geometry.
+        """
+        return '''
+def main():
+    # Default: just show children
+    return None
+'''
+
+    def insert_parameters(self):
+        """Insert parameters as UserData."""
+        if self.parameters:
+            self.parameters_u_group = UGroup(
+                *self.parameters, target=self.obj, name=self.name + "Parameters")
+
+    def insert_parts(self):
+        """Insert parts as children of the generator."""
+        for part in self.parts:
+            if not part.obj.GetUp():
+                part.obj.InsertUnder(self.obj)
+                part.parent = self
+
+    def _setup_as_generator(self):
+        """Configure the generator object."""
+        # Generator is already created in specify_object
+        # Just ensure settings are correct
+        self.obj[c4d.OPYTHON_OPTIMIZE] = False
+
+    def _write_generator_code(self):
+        """Write the generator code to the Python Generator."""
+        code = self._get_full_generator_code()
+        self.obj[c4d.OPYTHON_CODE] = code
+
+    def _get_full_generator_code(self):
+        """
+        Get the full generator code including helpers.
+
+        Wraps the user's specify_generator_code() with utility functions.
+        """
+        helper_code = '''import c4d
+import math
+
+PI = math.pi
+
+def get_userdata_by_name(obj, param_name):
+    """Get UserData value by parameter name."""
+    ud = obj.GetUserDataContainer()
+    for desc_id, bc in ud:
+        if bc[c4d.DESC_NAME] == param_name:
+            return obj[desc_id]
+    return None
+
+def set_userdata_by_name(obj, param_name, value):
+    """Set UserData value by parameter name."""
+    ud = obj.GetUserDataContainer()
+    for desc_id, bc in ud:
+        if bc[c4d.DESC_NAME] == param_name:
+            obj[desc_id] = value
+            return True
+    return False
+
+def find_child_by_name(parent, name):
+    """Find a child object by name."""
+    child = parent.GetDown()
+    while child:
+        if child.GetName() == name:
+            return child
+        child = child.GetNext()
+    return None
+
+'''
+        user_code = self.specify_generator_code()
+        return helper_code + user_code

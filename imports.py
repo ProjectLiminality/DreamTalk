@@ -1,17 +1,19 @@
 """
-this file is used to simplify importing the necessary modules for video scripting
-this way we just have to include "from DreamTalk.imports import *" in our scripts
+DreamTalk Imports - Fresh Architecture (v2.0)
+
+Simplified import module for DreamTalk.
+All objects use geometry-based stroke rendering and Python Generators.
+No Sketch & Toon or XPresso dependencies.
+
+Usage:
+    from DreamTalk.imports import *
 """
 
-
-# rreload function not used right now but saved for future reference
 from types import ModuleType
 
 try:
-    from importlib import reload  # Python 3.4+
+    from importlib import reload
 except ImportError:
-    # Needed for Python 3.0-3.3; harmless in Python 2.7 where imp.reload is just an
-    # alias for the builtin reload.
     from imp import reload
 
 def rreload(module):
@@ -23,8 +25,7 @@ def rreload(module):
             rreload(attribute)
 
 
-
-# first we reload the sublibraries to update the changes
+# Reload submodules to pick up changes
 import sys
 import importlib
 import DreamTalk.scene
@@ -36,44 +37,34 @@ import DreamTalk.objects.custom_objects
 import DreamTalk.objects.effect_objects
 import DreamTalk.objects.line_objects
 import DreamTalk.objects.solid_objects
-import DreamTalk.objects.sketch_objects
 import DreamTalk.objects.stroke_objects
 import DreamTalk.constants
-import DreamTalk.xpresso.xpresso
-import DreamTalk.xpresso.xpressions
 import DreamTalk.xpresso.userdata
 import DreamTalk.animation.animation
 import DreamTalk.animation.abstract_animators
-import DreamTalk.generator
 
-# Dynamically resolve DreamTalk path relative to this file
+# Resolve DreamTalk path
 import os as _os
 DreamTalk_path = _os.path.dirname(_os.path.abspath(__file__))
 
-# No need to add to path - we're already being imported from the correct location
-
+# Reload order matters - dependencies first
 reload(DreamTalk.scene)
 reload(DreamTalk.utils)
-# abstract_objects must be reloaded BEFORE line_objects and solid_objects that depend on it
 reload(DreamTalk.objects.abstract_objects)
 reload(DreamTalk.objects.helper_objects)
 reload(DreamTalk.objects.camera_objects)
 reload(DreamTalk.objects.custom_objects)
 reload(DreamTalk.objects.effect_objects)
+reload(DreamTalk.objects.stroke_objects)
 reload(DreamTalk.objects.line_objects)
 reload(DreamTalk.objects.solid_objects)
-reload(DreamTalk.objects.sketch_objects)
-reload(DreamTalk.objects.stroke_objects)
 reload(DreamTalk.constants)
-reload(DreamTalk.xpresso.xpresso)
-reload(DreamTalk.xpresso.xpressions)
 reload(DreamTalk.xpresso.userdata)
 reload(DreamTalk.animation.animation)
 reload(DreamTalk.animation.abstract_animators)
-reload(DreamTalk.generator)
 
 
-# then we import the objects from the sublibraries
+# Import public API
 from DreamTalk.scene import *
 from DreamTalk.objects.helper_objects import *
 from DreamTalk.objects.camera_objects import *
@@ -81,11 +72,7 @@ from DreamTalk.objects.custom_objects import *
 from DreamTalk.objects.effect_objects import *
 from DreamTalk.objects.line_objects import *
 from DreamTalk.objects.solid_objects import *
-from DreamTalk.objects.sketch_objects import *
 from DreamTalk.objects.stroke_objects import *
 from DreamTalk.constants import *
-from DreamTalk.xpresso.xpresso import *
-from DreamTalk.xpresso.xpressions import *
 from DreamTalk.xpresso.userdata import *
 from DreamTalk.animation.abstract_animators import *
-from DreamTalk.generator import *
