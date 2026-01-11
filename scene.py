@@ -103,12 +103,30 @@ class Scene(ABC):
         """Clear the Python console."""
         c4d.CallCommand(13957)
 
-    @abstractmethod
     def construct(self):
         """
-        Construct the scene.
+        Construct the scene (Kronos domain).
 
+        Override this method OR unfold() to create objects and animations.
+        unfold() is the preferred name in canonical DreamTalk syntax.
+        """
+        # Check if subclass defines unfold() - use that if available
+        if hasattr(self, 'unfold') and callable(getattr(self, 'unfold')) and \
+           type(self).unfold is not Scene.unfold:
+            self.unfold()
+        else:
+            # Abstract - subclass must override either construct() or unfold()
+            pass
+
+    def unfold(self):
+        """
+        Unfold the dream (Kronos domain).
+
+        The canonical name for the temporal sequence method.
         Override this method to create objects and animations.
+
+        This is the preferred method name in DreamTalk syntax.
+        construct() is maintained for backward compatibility.
         """
         pass
 
@@ -392,3 +410,14 @@ class ThreeDScene(Scene):
         self.camera = ThreeDCamera()
         bd = self.document.GetActiveBaseDraw()
         bd.SetSceneCamera(self.camera.camera.obj)
+
+
+# =============================================================================
+# ALIASES - Canonical DreamTalk Syntax
+# =============================================================================
+
+# Dream is the philosophical name for a Scene
+# A Dream is where timeless holons unfold through Kronos (time)
+Dream = Scene
+TwoDDream = TwoDScene
+ThreeDDream = ThreeDScene

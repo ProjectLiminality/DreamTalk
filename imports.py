@@ -7,6 +7,11 @@ No Sketch & Toon or XPresso dependencies.
 
 Usage:
     from DreamTalk.imports import *
+
+Canonical syntax also available:
+    from DreamTalk.imports import Holon, Dream, TwoDDream, ThreeDDream
+    from DreamTalk.imports import Length, Bipolar, Color, Completion
+    from DreamTalk.imports import State
 """
 
 from types import ModuleType
@@ -40,6 +45,8 @@ import DreamTalk.objects.solid_objects
 import DreamTalk.objects.stroke_objects
 import DreamTalk.constants
 import DreamTalk.xpresso.userdata
+import DreamTalk.xpresso.types
+import DreamTalk.xpresso.states
 import DreamTalk.animation.animation
 import DreamTalk.animation.abstract_animators
 
@@ -60,6 +67,8 @@ reload(DreamTalk.objects.line_objects)
 reload(DreamTalk.objects.solid_objects)
 reload(DreamTalk.constants)
 reload(DreamTalk.xpresso.userdata)
+reload(DreamTalk.xpresso.types)
+reload(DreamTalk.xpresso.states)
 reload(DreamTalk.animation.animation)
 reload(DreamTalk.animation.abstract_animators)
 
@@ -76,3 +85,9 @@ from DreamTalk.objects.stroke_objects import *
 from DreamTalk.constants import *
 from DreamTalk.xpresso.userdata import *
 from DreamTalk.animation.abstract_animators import *
+
+# Canonical DreamTalk syntax - philosophical naming
+from DreamTalk.objects.abstract_objects import Holon
+from DreamTalk.scene import Dream, TwoDDream, ThreeDDream
+from DreamTalk.xpresso.types import Length, Angle, Bipolar, Completion, Color, Integer, Bool
+from DreamTalk.xpresso.states import State

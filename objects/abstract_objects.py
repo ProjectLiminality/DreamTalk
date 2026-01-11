@@ -26,6 +26,8 @@ from DreamTalk.constants import WHITE, BLACK, PI, FPS
 from DreamTalk.animation.animation import VectorAnimation, ScalarAnimation, ColorAnimation
 from DreamTalk.xpresso.userdata import UGroup, UCompletion, UCheckBox, ULength, UVector, UColor
 from DreamTalk.objects.stroke_objects import STROKE_GEN_CODE, SILHOUETTE_SPLINE_GEN_CODE, StrokeMaterial
+from DreamTalk.xpresso.bindings import collect_relationships
+from DreamTalk.xpresso.states import collect_states
 
 
 # =============================================================================
@@ -680,6 +682,9 @@ class CustomObject(VisibleObject):
         # Set up generator code
         self._write_generator_code()
 
+        # Set up state machine if States class is defined
+        self._state_machine = collect_states(self)
+
     def specify_object(self):
         """Create a Python Generator as the container."""
         self.obj = c4d.BaseObject(1023866)  # Python Generator
@@ -711,11 +716,34 @@ class CustomObject(VisibleObject):
         """
         pass
 
+    def specify_relationships(self):
+        """
+        Define parameter relationships using declarative binding syntax.
+
+        This is the PREFERRED way to define relationships. Uses the << operator:
+
+            def specify_relationships(self):
+                # Simple identity binding
+                self.circle.radius << self.radius_parameter
+
+                # Formula binding with math
+                self.circle.x << self.distance * cos(PI/6)
+                self.circle.y << self.distance * sin(PI/6)
+
+        The bindings are automatically compiled to generator code.
+        Override specify_generator_code() only for complex logic that
+        can't be expressed with bindings.
+        """
+        pass  # Default: no relationships
+
     def specify_generator_code(self):
         """
         Return Python code string for the generator.
 
-        Override to define structural relationships:
+        PREFER using specify_relationships() instead - it's cleaner and
+        auto-generates the code. Only override this for complex logic.
+
+        If specify_relationships() defines bindings, this method is ignored.
 
             def specify_generator_code(self):
                 return '''
@@ -757,6 +785,33 @@ def main():
         # Just ensure settings are correct
         self.obj[c4d.OPYTHON_OPTIMIZE] = False
 
+    def transition_to(self, state):
+        """
+        Transition to a state (returns animation).
+
+        Used with the States class pattern for agentic holons:
+
+            class MindVirus(Holon):
+                class States:
+                    idle = State(fold=1)
+                    hunting = State(fold=0.5)
+
+            # In a Dream:
+            self.play(virus.transition_to(virus.States.hunting))
+
+        Args:
+            state: State instance to transition to
+
+        Returns:
+            Animation or AnimationGroup for the state transition
+        """
+        if self._state_machine is None:
+            raise ValueError(
+                f"{self.__class__.__name__} has no States class defined. "
+                "Add a States class with State() instances to use transition_to()."
+            )
+        return self._state_machine.transition_to(state)
+
     def _write_generator_code(self):
         """Write the generator code to the Python Generator."""
         code = self._get_full_generator_code()
@@ -766,7 +821,8 @@ def main():
         """
         Get the full generator code including helpers.
 
-        Wraps the user's specify_generator_code() with utility functions.
+        First tries to collect bindings from specify_relationships().
+        If no bindings, falls back to specify_generator_code().
         """
         helper_code = '''import c4d
 import math
@@ -800,5 +856,23 @@ def find_child_by_name(parent, name):
     return None
 
 '''
-        user_code = self.specify_generator_code()
-        return helper_code + user_code
+        # Try to collect bindings from specify_relationships() first
+        # This uses the declarative << syntax
+        relationship_code = collect_relationships(self, self.specify_relationships)
+
+        if relationship_code:
+            # Bindings were defined - use the auto-generated code
+            return helper_code + relationship_code
+        else:
+            # No bindings - fall back to manual specify_generator_code()
+            user_code = self.specify_generator_code()
+            return helper_code + user_code
+
+
+# =============================================================================
+# ALIASES - Canonical DreamTalk Syntax
+# =============================================================================
+
+# Holon is the philosophical name for a composite object
+# A holon is a whole that is also a part - sovereignty at every scale
+Holon = CustomObject
