@@ -1,13 +1,34 @@
 # XPresso Migration Plan
 
-## Goal
-Migrate DreamTalk from XPresso-based parameter relationships to Python Generator-based approach, enabling:
-- MoGraph Cloner compatibility
-- Faster rendering (no XPresso evaluation overhead)
-- Cleaner GLTF/USD export
-- No Sketch & Toon dependency (using geometry-based strokes)
+## Status: MIGRATION COMPLETE (v2.0)
 
-## Migration Patterns
+As of the v2.0 architecture refactor, the migration from XPresso to Python Generators is **complete**. This document now serves as historical reference and migration guide for any DreamNodes that haven't been updated.
+
+## What Changed in v2.0
+
+### Breaking Changes
+1. **No more `generator_mode` parameter** - All objects use generators by default
+2. **No more `sketch_mode` parameter** - All strokes are geometry-based
+3. **No more `stroke_mode` parameter** - All objects render with geometry strokes
+4. **No Sketch & Toon VideoPost** - Scene no longer creates one
+5. **No XPresso anywhere** - Pure Python Generator relationships
+
+### New Architecture
+- `LineObject`: Wraps spline in StrokeGen automatically
+- `SolidObject`: Wraps mesh in SilhouetteSplineGen + StrokeGen
+- `CustomObject`: Always a Python Generator container
+- `Scene`: No sketch_mode, generator_mode parameters
+
+### Legacy Files
+Old implementations preserved in `/legacy/` for reference:
+- `abstract_objects_legacy.py`
+- `scene_legacy.py`
+- `materials_legacy.py`
+- `tags_legacy.py`
+
+---
+
+## Migration Patterns (Historical Reference)
 
 ### Pattern 1: XIdentity → Direct Setting in Generator
 XIdentity links a parent parameter to a child parameter 1:1.
@@ -89,64 +110,59 @@ def create(self, completion=1):
     return AnimationGroup(fill_anim, draw_anim)
 ```
 
-## Classes to Migrate
+---
 
-### Phase 1: Camera System (COMPLETED)
-- [x] ThreeDCamera - spherical coordinates, zoom interpolation
-- [x] TwoDCamera - zoom relation
+## Updating Existing DreamNodes
 
-### Phase 2: Core Objects (PARTIALLY COMPLETED)
-- [x] FoldableCube - fold relations (uses GeneratorMixin)
-- [ ] CustomObject - XIdentity for visibility
-- [ ] Group - bounding box relations
+If you have DreamNodes written for the old architecture, update them as follows:
 
-### Phase 3: Effects/Animators (FUTURE)
-- [ ] Morpher - complex spline segment mapping (uses extensive XPresso)
-- [ ] Breathing - sinusoidal animation
-- [ ] Explosion - multi-part animation
+### Step 1: Remove Deprecated Parameters
+```python
+# Old
+class MyScene(ThreeDScene):
+    def __init__(self):
+        super().__init__(sketch_mode=False, generator_mode=True)
 
-### Phase 4: Stroke Mode Integration (COMPLETED)
-- [x] stroke_mode already in SolidObject base class
-- [x] USD class inherits stroke_mode support
-- [x] SweepNurbs class inherits stroke_mode support
-- [x] HumanMind updated with explicit stroke_mode parameter
+# New
+class MyScene(ThreeDScene):
+    def __init__(self):
+        super().__init__()  # No sketch_mode or generator_mode needed
+```
 
-## Implementation Status
+### Step 2: Remove specify_relations()
+Move all XPresso logic into `specify_generator_code()`:
 
-### Completed
-1. **FoldableCube**: `generator_mode=True` parameter uses Python Generator for fold relations
-2. **ThreeDCamera**: Generator-based spherical coordinate camera control
-3. **TwoDCamera**: Generator-based zoom control
-4. **MindVirus**: Updated with `generator_mode` support, passes to FoldableCube
-5. **HumanMind**: Added explicit `stroke_mode` parameter
-6. **Test Suite**: `test_full_migration.py` validates complete scene
+```python
+# Old
+def specify_relations(self):
+    XIdentity(part=self.part, whole=self, ...)
 
-### Remaining Work
-- CustomObject: General XIdentity patterns for visibility
-- Group: Bounding box relations
-- Morpher: Complex spline segment mapping (low priority)
-- Breathing/Explosion: Animation effects (low priority)
+# New
+def specify_generator_code(self):
+    return '''
+def main():
+    # Same logic, now in Python
+    return None
+'''
+```
 
-## Key Design Decisions
+### Step 3: Update CustomObjects
+Remove `generator_mode=True` from CustomObject instantiation:
 
-### Generator Mode Flag
-Add `generator_mode=False` parameter to CustomObject base class:
-- When `True`, wraps object in Python Generator
-- Generator code reads UserData and sets child properties
-- Enables MoGraph compatibility
+```python
+# Old
+cube = FoldableCube(generator_mode=True, ...)
 
-### Stroke Mode Flag
-Already implemented in LineObject and SolidObject:
-- When `True`, uses geometry-based strokes instead of Sketch & Toon
-- Combined with `sketch_mode=False` on Scene for full independence
+# New
+cube = FoldableCube(...)  # Generators are always used now
+```
 
-### Animation System
-Keep keyframe-based animation system (ScalarAnimation, VectorAnimation):
-- Already works without XPresso
-- Just need to ensure all creation animations use this pattern
+---
 
-### MindVirus Generator Mode
-MindVirus uses helper methods to abstract fold control:
-- `_get_fold_target_and_desc()`: Returns correct target for animations
-- `_set_fold_value(value)`: Sets fold on appropriate target
-- In generator_mode, animates cube's UserData directly (no XIdentity needed)
+## Benefits of v2.0 Architecture
+
+1. **MoGraph Compatible** - All objects work inside Cloners
+2. **Faster Rendering** - No post-effect overhead from Sketch & Toon
+3. **Simpler API** - No mode flags to worry about
+4. **Cleaner Exports** - Better GLTF/USD support
+5. **Git-Friendly** - Python code instead of binary XPresso
