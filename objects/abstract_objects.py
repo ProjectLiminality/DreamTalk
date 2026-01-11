@@ -1321,9 +1321,11 @@ def get_camera():
             return helper_code + inject_stroke_generation(inline_code)
         else:
             # No bindings - fall back to manual specify_generator_code()
+            # DON'T inject stroke generation here - the user code is responsible
+            # for its own stroke handling (the default already has it, and custom
+            # overrides like FoldableCube handle strokes themselves)
             user_code = self.specify_generator_code()
-            # Also inject stroke generation into custom user code
-            return helper_code + inject_stroke_generation(user_code)
+            return helper_code + user_code
 
 
 # =============================================================================
