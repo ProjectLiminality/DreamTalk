@@ -1515,17 +1515,14 @@ def generate_silhouette_spline(mesh_obj, cam_world, gen_mg):
         return None
 
     # Build spline with all edge segments
+    # Store points in WORLD space - generate_stroke_from_spline will handle conversion
     spline_points = []
     for v1_idx, v2_idx in silhouette_edges:
         p1_world = world_points[v1_idx]
         p2_world = world_points[v2_idx]
 
-        # Convert to generator-local coordinates
-        p1_local = gen_mg_inv * p1_world
-        p2_local = gen_mg_inv * p2_world
-
-        spline_points.append(p1_local)
-        spline_points.append(p2_local)
+        spline_points.append(p1_world)
+        spline_points.append(p2_world)
 
     # Create multi-segment spline
     spline = c4d.SplineObject(len(spline_points), c4d.SPLINETYPE_LINEAR)
