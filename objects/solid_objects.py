@@ -160,11 +160,14 @@ class Loft(SolidObject):
 
 class SweepNurbs(SolidObject):
 
-    def __init__(self, rail=None, profile=None, start_scale=1.0, end_scale=1.0, **kwargs):
+    def __init__(self, rail=None, profile=None, start_scale=1.0, end_scale=1.0,
+                 start_growth=0.0, end_growth=1.0, **kwargs):
         self.rail = rail
         self.profile = profile
         self.start_scale = start_scale
         self.end_scale = end_scale
+        self.start_growth = start_growth  # 0-1, where along rail to start
+        self.end_growth = end_growth      # 0-1, where along rail to end
         super().__init__(**kwargs)
         self.insert_children()
 
@@ -176,6 +179,8 @@ class SweepNurbs(SolidObject):
         # SWEEPOBJECT_SCALE controls end scale
         self.obj[c4d.SWEEPOBJECT_STARTGROWTH] = self.start_scale
         self.obj[c4d.SWEEPOBJECT_SCALE] = self.end_scale
+        # Growth controls how much of the rail is swept (0-1)
+        self.obj[c4d.SWEEPOBJECT_GROWTH] = self.end_growth
 
     def insert_children(self):
         self.rail.obj.InsertUnder(self.obj)
