@@ -1180,6 +1180,112 @@ def get_scene_snapshot(doc=None):
 # Module-level storage for scene snapshots
 _last_snapshot = None
 
+# Console log tracking with deduplication
+# Stores: {"messages": [{"text": str, "count": int, "first_seen": int}], "total_captured": int}
+_console_log = {"messages": [], "total_captured": 0}
+_last_console_position = 0  # Index into _console_log["messages"] for delta tracking
+
+# Safety limits for console output
+CONSOLE_MAX_MESSAGE_LENGTH = 500  # Truncate individual messages longer than this
+CONSOLE_MAX_TOTAL_CHARS = 5000   # Max total characters in delta output
+CONSOLE_MAX_UNIQUE_MESSAGES = 100  # Max unique messages to track before rotation
+
+
+def add_console_message(text):
+    """
+    Add a console message with deduplication.
+
+    Called by the plugin when capturing stdout during operations.
+    Consecutive identical messages are counted rather than repeated.
+
+    Args:
+        text: The console message text
+    """
+    global _console_log
+
+    # Truncate long messages
+    if len(text) > CONSOLE_MAX_MESSAGE_LENGTH:
+        text = text[:CONSOLE_MAX_MESSAGE_LENGTH] + f"... [truncated, {len(text)} chars total]"
+
+    messages = _console_log["messages"]
+
+    # Check if this matches the last message (deduplication)
+    if messages and messages[-1]["text"] == text:
+        messages[-1]["count"] += 1
+    else:
+        # New unique message
+        messages.append({
+            "text": text,
+            "count": 1,
+            "first_seen": _console_log["total_captured"]
+        })
+
+        # Rotate old messages if we have too many
+        if len(messages) > CONSOLE_MAX_UNIQUE_MESSAGES:
+            # Keep the most recent messages
+            messages = messages[-CONSOLE_MAX_UNIQUE_MESSAGES:]
+            _console_log["messages"] = messages
+
+    _console_log["total_captured"] += 1
+
+
+def get_console_delta():
+    """
+    Get console messages since last describe_scene call.
+
+    Returns dict with:
+    - messages: List of {"text": str, "count": int} for new messages
+    - has_new: bool indicating if there are new messages
+    - truncated: bool if output was truncated for safety
+
+    Updates the position marker so next call shows only newer messages.
+    """
+    global _last_console_position, _console_log
+
+    messages = _console_log["messages"]
+
+    # Find new messages since last position
+    new_messages = []
+    total_chars = 0
+    truncated = False
+
+    for i in range(len(messages)):
+        msg = messages[i]
+        # Include if this message appeared after our last position
+        # (based on first_seen index or if count increased)
+        if msg["first_seen"] >= _last_console_position or (
+            i == len(messages) - 1 and msg["count"] > 1
+        ):
+            msg_text = msg["text"]
+            msg_chars = len(msg_text) + 20  # Account for count display
+
+            if total_chars + msg_chars > CONSOLE_MAX_TOTAL_CHARS:
+                truncated = True
+                break
+
+            new_messages.append({
+                "text": msg_text,
+                "count": msg["count"]
+            })
+            total_chars += msg_chars
+
+    # Update position for next delta
+    _last_console_position = _console_log["total_captured"]
+
+    return {
+        "messages": new_messages,
+        "has_new": len(new_messages) > 0,
+        "truncated": truncated,
+        "total_captured": _console_log["total_captured"]
+    }
+
+
+def reset_console_log():
+    """Reset console log tracking."""
+    global _console_log, _last_console_position
+    _console_log = {"messages": [], "total_captured": 0}
+    _last_console_position = 0
+
 
 def diff_scene(doc=None):
     """
@@ -1280,14 +1386,16 @@ def describe_scene(doc=None):
     - Animation keyframes summary
     - Validation warnings
     - Changes since last call (auto-diffing)
+    - Console output delta (new messages with deduplication)
 
     Auto-snapshots after each call for change detection on next call.
+    Console messages are deduplicated and truncated for safety.
 
     Args:
         doc: Cinema 4D document (defaults to active document)
 
     Returns:
-        dict with complete scene state and any changes detected
+        dict with complete scene state, changes detected, and console delta
     """
     global _last_snapshot
 
@@ -1325,6 +1433,9 @@ def describe_scene(doc=None):
     # Validation
     validation = validate_scene(doc)
 
+    # Get console delta (new messages since last describe_scene call)
+    console_delta = get_console_delta()
+
     # Build result
     result = {
         "document_name": doc.GetDocumentName() or "Untitled",
@@ -1338,7 +1449,8 @@ def describe_scene(doc=None):
         "materials": materials,
         "animation": animation,
         "validation": validation,
-        "changes": changes
+        "changes": changes,
+        "console": console_delta
     }
 
     return result

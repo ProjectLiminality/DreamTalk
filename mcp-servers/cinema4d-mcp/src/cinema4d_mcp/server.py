@@ -207,10 +207,15 @@ async def describe_scene(ctx: Context = None) -> str:
     - Animation keyframes summary
     - Validation warnings
     - Changes since last call (auto-diffing)
+    - Console output delta (new messages with deduplication)
 
     Auto-snapshots after each call for change detection on next call.
     This enables human-in-the-loop workflows where you tweak in C4D UI
     and the AI detects exactly what changed.
+
+    Console output is captured from run_dreamtalk() and execute_python_script()
+    calls, deduplicated (repeated messages show count), and truncated for safety.
+    Only NEW console messages since last describe_scene() call are shown.
 
     Use this as the PRIMARY introspection tool. It subsumes all granular
     introspection tools (hierarchy, materials, animation, validation, diff).

@@ -44,6 +44,10 @@ from .hierarchy import (
     get_scene_snapshot,
     diff_scene,
     reset_snapshot,
+    # Console log tracking (for describe_scene delta)
+    add_console_message,
+    get_console_delta,
+    reset_console_log,
 )
 from .formatters import format_for_ai, format_markdown, format_json, format_describe_scene
 
@@ -62,6 +66,10 @@ __all__ = [
     "get_scene_snapshot",
     "diff_scene",
     "reset_snapshot",
+    # Console log tracking
+    "add_console_message",
+    "get_console_delta",
+    "reset_console_log",
     # Formatters
     "format_for_ai",
     "format_markdown",

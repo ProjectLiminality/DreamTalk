@@ -3006,6 +3006,16 @@ class C4DSocketServer(threading.Thread):
                 # Get captured output
                 full_output = string_io.getvalue()
 
+                # Feed captured output to console log for delta tracking
+                if full_output:
+                    try:
+                        from DreamTalk.introspection.hierarchy import add_console_message
+                        for line in full_output.strip().split('\n'):
+                            if line.strip():
+                                add_console_message(line.strip())
+                    except ImportError:
+                        pass  # Console tracking not available
+
                 # Process variables to make them serializable
                 processed_vars = {}
                 for k, v in result_vars.items():
@@ -3034,6 +3044,17 @@ class C4DSocketServer(threading.Thread):
 
                 # Get any output captured before the error
                 captured = string_io.getvalue()
+
+                # Feed captured output and error to console log
+                try:
+                    from DreamTalk.introspection.hierarchy import add_console_message
+                    if captured:
+                        for line in captured.strip().split('\n'):
+                            if line.strip():
+                                add_console_message(line.strip())
+                    add_console_message(f"ERROR: {str(e)}")
+                except ImportError:
+                    pass  # Console tracking not available
 
                 # Return error with details
                 return {
@@ -6879,6 +6900,8 @@ Frame {current_frame}/{doc_end} @ {fps}fps
         def run_task():
             import runpy
             import os
+            import sys
+            from io import StringIO
 
             if not os.path.exists(path):
                 return {"error": f"File not found: {path}"}
@@ -6886,6 +6909,10 @@ Frame {current_frame}/{doc_end} @ {fps}fps
             doc = c4d.documents.GetActiveDocument()
             if not doc:
                 return {"error": "No active document"}
+
+            # Capture stdout to feed into console log
+            original_stdout = sys.stdout
+            captured = StringIO()
 
             try:
                 # Clear scene if requested
@@ -6897,12 +6924,27 @@ Frame {current_frame}/{doc_end} @ {fps}fps
                     c4d.EventAdd()
                     self.log("[C4D] Scene cleared")
 
+                # Redirect stdout to capture print statements
+                sys.stdout = captured
+
                 # Execute the DreamTalk script as __main__
                 self.log(f"[C4D] Executing DreamTalk: {path}")
                 runpy.run_path(path, run_name='__main__')
 
                 c4d.EventAdd()
                 self.log(f"[C4D] DreamTalk execution completed: {path}")
+
+                # Get captured output and feed to console log
+                sys.stdout = original_stdout
+                output = captured.getvalue()
+                if output:
+                    try:
+                        from DreamTalk.introspection.hierarchy import add_console_message
+                        for line in output.strip().split('\n'):
+                            if line.strip():
+                                add_console_message(line.strip())
+                    except ImportError:
+                        pass  # Console tracking not available
 
                 # Get fresh document reference (script may have changed it)
                 doc = c4d.documents.GetActiveDocument()
@@ -6922,16 +6964,37 @@ Frame {current_frame}/{doc_end} @ {fps}fps
                     "success": True,
                     "path": path,
                     "objects_created": obj_count,
-                    "message": f"Executed {os.path.basename(path)}, created {obj_count} object(s)"
+                    "message": f"Executed {os.path.basename(path)}, created {obj_count} object(s)",
+                    "output": output if output else None
                 }
 
             except Exception as e:
                 import traceback
+                # Restore stdout before logging
+                sys.stdout = original_stdout
+
+                # Capture any output before the error and feed to console log
+                output = captured.getvalue()
+                if output:
+                    try:
+                        from DreamTalk.introspection.hierarchy import add_console_message
+                        for line in output.strip().split('\n'):
+                            if line.strip():
+                                add_console_message(line.strip())
+                        # Also add the error
+                        add_console_message(f"ERROR: {str(e)}")
+                    except ImportError:
+                        pass
+
                 self.log(f"[**ERROR**] DreamTalk execution failed: {str(e)}")
                 return {
                     "error": f"DreamTalk execution failed: {str(e)}",
-                    "traceback": traceback.format_exc()
+                    "traceback": traceback.format_exc(),
+                    "output": output if output else None
                 }
+            finally:
+                sys.stdout = original_stdout
+                captured.close()
 
         return self.execute_on_main_thread(run_task, _timeout=60)
 

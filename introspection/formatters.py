@@ -462,6 +462,22 @@ def format_describe_scene(result):
             lines.append(f"- ⚠️ {warning}")
         lines.append("")
 
+    # Console output delta (only if there are new messages)
+    console = result.get("console", {})
+    if console.get("has_new"):
+        lines.append("## Console Output")
+        if console.get("truncated"):
+            lines.append("*Output truncated for safety*")
+        for msg in console.get("messages", []):
+            text = msg.get("text", "")
+            count = msg.get("count", 1)
+            # Format with repetition count if repeated
+            if count > 1:
+                lines.append(f"- `{text}` (×{count})")
+            else:
+                lines.append(f"- `{text}`")
+        lines.append("")
+
     return "\n".join(lines)
 
 
