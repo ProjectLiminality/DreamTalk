@@ -647,10 +647,35 @@ class Text(LineObject):
         return self.fill(completion)
 
     def set_depth(self, depth):
-        """Set the extrusion depth."""
+        """Set the extrusion depth (instant, no animation)."""
         if hasattr(self, 'fill_gen'):
             self.fill_gen[self.depth_id] = depth
         self.depth = depth
+
+    def extrude(self, depth):
+        """
+        Animate extrusion depth.
+
+        Args:
+            depth: Target extrusion depth in scene units
+
+        Returns:
+            Animation for the depth parameter
+        """
+        if not hasattr(self, 'fill_gen'):
+            # Set up fill generator if not already done
+            self._setup_fill_generator()
+
+        from DreamTalk.animation.animation import ScalarAnimation
+
+        # Wrap the raw C4D object for animation system compatibility
+        wrapper = Text._FillGenWrapper(self.fill_gen)
+        animation = ScalarAnimation(
+            target=wrapper, descriptor=self.depth_id, value_fin=depth)
+        self.fill_gen[self.depth_id] = depth
+        self.depth = depth
+
+        return animation
 
 
 class SplineMask(LineObject):
