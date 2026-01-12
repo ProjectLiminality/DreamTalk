@@ -2,6 +2,51 @@
 
 This file is the soul of the DreamTalk agent — everything it needs to work effectively.
 
+## Documentation Map
+
+| Document | Location | Contents |
+|----------|----------|----------|
+| **CLAUDE.md** | `/CLAUDE.md` | This file - operational guide, philosophy, architecture overview, current horizons |
+| **README.md** | `/README.md` | Public-facing intro, philosophical meaning, known limitations, future vision summary |
+| **SYNTAX.md** | `/docs/SYNTAX.md` | Canonical DreamTalk syntax specification (Kairos/Kronos, parameter types, bindings, verbs, state machines) |
+| **VISION_AGENTIC_ANIMATION.md** | `/docs/VISION_AGENTIC_ANIMATION.md` | North star for agentic animation (digital spirits, holonic agency, steering behaviors, formations, cable physics) |
+| **mograph-generator-rnd.md** | `/docs/mograph-generator-rnd.md` | Technical R&D log for MoGraph integration, geometry-based strokes, performance analysis |
+| **xpresso-migration-plan.md** | `/docs/xpresso-migration-plan.md` | Historical reference - XPresso to Python Generator migration (complete) |
+
+## Current Horizons
+
+Active projects using MindVirus as the testing vehicle for DreamTalk capabilities:
+
+### 1. Double Wall / Labyrinth
+MindViruses self-assemble into a labyrinth structure with hidden corridor.
+- **Tests**: Formation system, slot-finding, MoGraph integration, swarm orchestration
+- **Key challenge**: 90° turn animation as MindVirus exits corridor and becomes brick in wall
+
+### 2. Invisible Hand
+A hand releases 5 MindViruses that pursue a target, cables anchored to fingertips.
+- **Tests**: Cable anchoring to external points, pursuit steering, swarm coordination
+- **Key challenge**: Puppet-master aesthetic with organic cable physics
+
+### 3. MindVirus Infection
+MindVirus pursues and wraps around a target (human head silhouette).
+- **Tests**: Pursuit behavior, arrival, wrap animation (fold to -1)
+- **Key challenge**: Satisfying "capture" moment
+
+### 4. Symbol ↔ Word Morph
+MindVirus symbol morphs into the written word "Mind Virus" and back.
+- **Tests**: Universal morph capability for line-based objects
+- **Philosophical point**: Words are symbols of symbols, twice removed from reality. DreamTalk symbols are the universal layer beneath language.
+- **Key challenge**: Spline topology matching, cascading draw animation
+
+### 5. Write Animation (Core Library)
+Manim-style text writing with cascading outline stroke + delayed fill opacity.
+- **Tests**: LaTeX support (previously failed), C4D text primitive as basis, Python generator for draw logic
+- **Goal**: Core library capability for all text-based animations
+
+These horizons are explored through **software gardening** - ad-hoc solutions in higher-level holons, with consolidation back to MindVirus/core library when patterns prove themselves.
+
+---
+
 ## What is DreamTalk?
 
 DreamTalk is a programmatic animation library for Cinema 4D that creates **platonic symbols** — mathematical constructions where the source code IS the thing, not a representation of it.
