@@ -596,6 +596,11 @@ class Text(LineObject):
     # FILL ANIMATION
     # =========================================================================
 
+    class _FillGenWrapper:
+        """Simple wrapper to make raw C4D object compatible with animation system."""
+        def __init__(self, obj):
+            self.obj = obj
+
     def fill(self, completion=1):
         """
         Animate fill opacity.
@@ -610,17 +615,32 @@ class Text(LineObject):
             # Set up fill generator if not already done
             self._setup_fill_generator()
 
-        from DreamTalk.animation.animation import ScalarAnimation
+        from DreamTalk.animation.animation import ScalarAnimation, AnimationGroup
 
-        animation = ScalarAnimation(
-            target=self.fill_gen, descriptor=self.fill_id, value_fin=completion)
+        # Wrap the raw C4D object for animation system compatibility
+        wrapper = Text._FillGenWrapper(self.fill_gen)
+
+        # Animation for UserData Fill parameter
+        fill_anim = ScalarAnimation(
+            target=wrapper, descriptor=self.fill_id, value_fin=completion)
+
+        # Animation for material transparency (inverted: 0 fill = 1 transparency)
+        # Enable transparency channel for the animation
+        self.fill_material[c4d.MATERIAL_USE_TRANSPARENCY] = True
+
+        # Wrap material for animation system
+        mat_wrapper = Text._FillGenWrapper(self.fill_material)
+        transparency_anim = ScalarAnimation(
+            target=mat_wrapper,
+            descriptor=c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS,
+            value_fin=1.0 - completion)
+
+        # Set final values
         self.fill_gen[self.fill_id] = completion
-
-        # Update material transparency
-        self.fill_material[c4d.MATERIAL_USE_TRANSPARENCY] = completion < 1.0
         self.fill_material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS] = 1.0 - completion
 
-        return animation
+        # Return both animations as a group
+        return AnimationGroup(fill_anim, transparency_anim)
 
     def un_fill(self, completion=0):
         """Animate fill removal."""
