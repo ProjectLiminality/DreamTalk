@@ -246,6 +246,21 @@ Nested DreamTalk submodules remain as pointers (sovereignty preserved) but aren'
 
 Always use Standard renderer (not Redshift) for Sketch & Toon.
 
+## Agentic Animation (Future Vision)
+
+DreamTalk is evolving from keyframe animation toward **digital spirits** - holons with agency that understand intent and manifest appropriate behavior.
+
+**See [docs/VISION_AGENTIC_ANIMATION.md](docs/VISION_AGENTIC_ANIMATION.md) for the complete vision.**
+
+Key concepts:
+- **Verb System**: Behaviors as vocabulary (`virus.emerge_from(hole).find_place_in(wall)`)
+- **Holonic Agency**: Agency at every level, intent cascades down, emergence cascades up
+- **Steering Behaviors**: Craig Reynolds' proven algorithms (seek, flee, wander, separation, cohesion)
+- **MoGraph Bridge**: Fields integrate with agent steering, MoGraph handles rendering at scale
+- **Formations**: Self-organization into structures via slot claiming
+
+Current implementation includes physics-based jellyfish locomotion and state machines. The roadmap extends this to full agentic behavior with emergent cable physics.
+
 ## Cinema 4D Gotchas (Common Bugs)
 
 ### MoGraph Cloner Default Mode

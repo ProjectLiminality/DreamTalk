@@ -94,15 +94,19 @@ When nested CustomObjects each define `specify_creation()` with easing, the easi
 
 ### Animation State Management
 
-CustomObjects may have multiple animation "modes" (creation, thrust/locomotion, capture). Currently no standard pattern for managing state transitions.
+**Status: Partially Solved**
 
-**Desired pattern:** State machine where each CustomObject declares modes with entry/exit animations, and state changes propagate cleanly through hierarchy.
+State machines are now implemented in the syntax (`class States` with `State()` definitions). Holons like MindVirus declare states with target parameter values and can transition between them.
+
+**Remaining work:** Automatic entry/exit animations per state, state change propagation through holarchy.
 
 ### Physics vs Keyframe Animation
 
-Some animations work best as keyframes (precise choreography), others as physics (organic movement). DreamTalk focuses on keyframes.
+**Status: Active Development**
 
-**Potential approach:** Parameters that internally manage both animation AND physics-like position changes via XPresso formulas.
+The MindVirus holon now implements physics-based jellyfish locomotion with thrust, drag, and momentum. The `simulate()` method runs physics frame-by-frame and bakes to keyframes.
+
+**Next phase:** Full agentic animation system with steering behaviors. See [docs/VISION_AGENTIC_ANIMATION.md](docs/VISION_AGENTIC_ANIMATION.md).
 
 ### Holarchic Animation Inheritance
 
@@ -110,11 +114,29 @@ When a symbol is used in a higher holon, the parent may need to trigger child an
 
 The "software gardening" philosophy suggests: implement in the higher holon first, then extract reusable parts back to the child only if they prove generally useful.
 
-### Organic Motion Patterns
+### MoGraph vs Agentic Animation
 
-Natural movement (jellyfish pulse, breathing) requires specific timing curves hard to express with standard ease functions.
+**Status: Architecture Clarified**
 
-**Potential implementation:**
-- `UPulse` parameter type with frequency, attack, decay
-- XPresso formula linking pulse phase to position delta
-- Optional noise/variation overlay
+MoGraph clones are stateless - they cannot move themselves or remember state between frames. For true agentic behavior (self-directed movement, neighbor awareness, goal pursuit), we use Python simulation with MoGraph optionally handling rendering at scale.
+
+See [docs/VISION_AGENTIC_ANIMATION.md](docs/VISION_AGENTIC_ANIMATION.md) for the complete architecture.
+
+---
+
+## Future Vision: Agentic Animation
+
+Beyond keyframe animation, DreamTalk is evolving toward **digital spirits** - holons with agency that understand verbs like `emerge_from()`, `wander()`, `find_place_in()`, and manifest appropriate behavior.
+
+**Core concepts:**
+- **Verb System**: Behaviors as vocabulary the holon understands
+- **Holonic Agency**: Agency at every level of the holarchy
+- **Steering Behaviors**: Proven algorithms (seek, arrive, separation, cohesion)
+- **Formations**: Self-organization into structures
+- **Emergent Cable Physics**: Organic motion as consequence of movement
+
+**Target scenes:**
+- Invisible Hand: 5 MindViruses with puppet-string cables swarm toward target
+- Double Wall: 100+ MindViruses self-assemble into labyrinth structure
+
+See [docs/VISION_AGENTIC_ANIMATION.md](docs/VISION_AGENTIC_ANIMATION.md) for the complete vision and roadmap.
