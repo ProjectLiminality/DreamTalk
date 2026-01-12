@@ -108,6 +108,19 @@ if __name__ == "__main__":
 
 **We do NOT predict or pre-engineer.** We work the cleanest, most elegant path of least resistance toward the vision. Problems get solved as they arise, and solutions get consolidated into the correct DreamNode at the correct level of the holarchy.
 
+This counters **paralysis by analysis** - the tendency to speculate about what a holon might need in hypothetical future contexts, leading to over-engineering and bloat.
+
+### Sovereign Holons: No Codependency
+
+Each holon should be **centered in itself**, serving its own purpose completely. A holon should NOT:
+- Try to predict what higher-level holons might want from it
+- Pre-build abilities for speculative future contexts
+- "People-please" by anticipating demands that don't yet exist
+
+This mirrors healthy relational dynamics in human systems. Codependency patterns (trying to please potential future demands) create friction and complexity. Sovereignty (being complete in your own context) creates clarity and simplicity.
+
+**The MindVirus serves MindVirus.** If DoubleWall needs MindVirus to do something new, that need is expressed through actual use - and then MindVirus can learn that ability. But MindVirus doesn't speculatively build abilities hoping to please hypothetical future scenes.
+
 ### The Pattern
 
 1. Create what's needed NOW for the current context
@@ -122,18 +135,32 @@ Everything grows organically. We're gardening, not engineering.
 ### DreamNode Enrichment Flow
 
 ```
-MindVirus (standalone symbol)
+MindVirus (standalone symbol - sovereign, complete in itself)
     ↓ used in
-DoubleWall (discovers: need back-to-back construction)
-    ↓ enriches
-MindVirus (gains: back-to-back variant)
+DoubleWall (discovers: need 90° turn + brick-in-wall animation)
+    ↓ ad-hoc solution in DoubleWall works
+    ↓ consolidation phase: enrich MindVirus
+MindVirus (gains: wall-placement ability - because it was actually needed)
     ↓ used in
-Labyrinth (discovers: need performance-optimized version)
-    ↓ enriches
-MindVirus (gains: simplified/instanced variant)
+InvisibleHand (discovers: need cable anchoring to external point)
+    ↓ ad-hoc solution in InvisibleHand works
+    ↓ consolidation phase: enrich MindVirus
+MindVirus (gains: external cable anchor - because it was actually needed)
 ```
 
-Each higher context enriches the lower holons with new construction variants. The DreamNode becomes more versatile precisely in the measure that it is actually necessary.
+Each higher context enriches the lower holons with new abilities. The DreamNode becomes more versatile **precisely in the measure that it is actually necessary** - not speculatively.
+
+### The Submodule Workflow
+
+Since holons are git repos used as submodules:
+
+1. **Work in higher-level holon** (e.g., DoubleWall)
+2. **Give the submodule (MindVirus) ad-hoc abilities** as needed for this context
+3. **When consolidating**: commit changes to the submodule
+4. **Push from submodule**: the sovereign repo (MindVirus/) receives the enrichment
+5. **Other holons pulling MindVirus** get the new ability
+
+The digital spirit adapts to new environments and learns new skills through actual relationship, not speculation. The core holon becomes richer through emergent realization of what's actually required.
 
 ### Where Changes Go (Critical Rule)
 
@@ -141,7 +168,7 @@ Each higher context enriches the lower holons with new construction variants. Th
 
 When iterating on a symbol (e.g., MindVirus):
 - Adjustments to geometry, positioning, parameters → `MindVirus/MindVirus.py`
-- New construction variants → `MindVirus/MindVirus.py`
+- New abilities discovered through use → `MindVirus/MindVirus.py`
 - Bug fixes discovered during use → `MindVirus/MindVirus.py`
 
 **NOT** into:
@@ -165,6 +192,18 @@ One concept, multiple abilities.
 ### The Thumbnail Test
 
 At each holon level, the goal is: **create a beautiful DreamTalk render that can serve as the thumbnail** — the sovereign face of that DreamNode.
+
+### When To Consolidate
+
+Consolidation isn't continuous - it happens in deliberate phases:
+
+1. **Build phase**: Work in higher-level holon, create ad-hoc solutions
+2. **Satisfaction**: The animation/symbol works and looks good
+3. **Pattern recognition**: Notice the same need appearing across multiple contexts
+4. **Consolidation phase**: Deliberately refactor, enriching lower holons
+5. **Resume building**: Return to creative work with cleaner primitives
+
+Don't consolidate prematurely. Let patterns prove themselves through repeated need.
 
 ## MCP Tools
 
