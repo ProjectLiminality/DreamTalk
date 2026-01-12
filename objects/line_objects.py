@@ -333,19 +333,87 @@ class SplineText(LineObject):
 # Python Generator code for filling closed splines with polygons
 TEXT_FILL_GEN_CODE = '''import c4d
 
+def triangulate_segment(points, is_closed):
+    """
+    Simple ear-clipping triangulation for a 2D polygon.
+    Points should be in XY plane. Returns list of triangle indices.
+    """
+    if len(points) < 3:
+        return []
+
+    # Work with indices
+    indices = list(range(len(points)))
+    triangles = []
+
+    def cross_2d(o, a, b):
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+
+    def point_in_triangle(p, a, b, c):
+        d1 = cross_2d(p, a, b)
+        d2 = cross_2d(p, b, c)
+        d3 = cross_2d(p, c, a)
+        has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+        has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+        return not (has_neg and has_pos)
+
+    def is_ear(i, indices, points):
+        n = len(indices)
+        if n < 3:
+            return False
+
+        prev_i = indices[(i - 1) % n]
+        curr_i = indices[i]
+        next_i = indices[(i + 1) % n]
+
+        a, b, c = points[prev_i], points[curr_i], points[next_i]
+
+        # Check if convex (positive cross product for CCW)
+        if cross_2d(a, b, c) <= 0:
+            return False
+
+        # Check no other point inside triangle
+        for j, idx in enumerate(indices):
+            if j in [(i - 1) % n, i, (i + 1) % n]:
+                continue
+            if point_in_triangle(points[idx], a, b, c):
+                return False
+
+        return True
+
+    # Ear clipping
+    safety = len(indices) * 2
+    while len(indices) > 2 and safety > 0:
+        safety -= 1
+        ear_found = False
+
+        for i in range(len(indices)):
+            if is_ear(i, indices, points):
+                n = len(indices)
+                prev_i = indices[(i - 1) % n]
+                curr_i = indices[i]
+                next_i = indices[(i + 1) % n]
+
+                triangles.append((prev_i, curr_i, next_i))
+                indices.pop(i)
+                ear_found = True
+                break
+
+        if not ear_found:
+            break
+
+    return triangles
+
 def main():
     """
-    Fill closed splines with polygon caps.
+    Fill closed splines with polygon geometry.
 
-    Takes the text spline child and generates polygon geometry that fills
-    the letterforms. Works with any closed spline (text, circles, etc.).
+    Generates fill polygons directly from spline points using triangulation.
+    If depth > 0, creates front cap, back cap, and side walls.
 
     UserData:
-    - Fill: 0-1 opacity of fill (controls material transparency)
-    - Depth: Extrusion depth (0 = flat cap, >0 = 3D extrusion)
+    - Fill: 0-1 opacity (controls material transparency)
+    - Depth: Extrusion depth (0 = flat, >0 = 3D)
     """
-    doc = c4d.documents.GetActiveDocument()
-
     # Get UserData
     fill_amount = 1.0
     depth = 0.0
@@ -362,54 +430,145 @@ def main():
     if not child:
         return None
 
-    # Get spline cache
-    spline = child.GetCache()
-    if spline is None:
-        spline = child.GetDeformCache()
-    if spline is None:
-        spline = child
-
-    # Check if it's a spline
-    is_line_object = spline.GetType() == 5137
-    is_spline_object = spline.IsInstanceOf(c4d.Ospline)
-
-    if not (is_line_object or is_spline_object):
-        return None
-
-    # Create extrude object to cap the spline
-    extrude = c4d.BaseObject(c4d.Oextrude)
-
-    # Set extrusion depth via MOVE vector
-    extrude[c4d.EXTRUDEOBJECT_MOVE] = c4d.Vector(0, 0, depth)
-
-    # Enable caps using correct DescIDs
-    # 2999 = Start cap, 3000 = End cap
-    extrude[c4d.DescID(c4d.DescLevel(2999))] = True  # Start cap always on
-    extrude[c4d.DescID(c4d.DescLevel(3000))] = depth > 0  # End cap only if depth
-
-    # Clone and insert spline under extrude
-    spline_clone = spline.GetClone()
-    spline_clone.InsertUnder(extrude)
-
-    # Use SendModelingCommand to convert extrude to polygons
-    # This works without document insertion
+    # Always use CurrentStateToObject to get a proper SplineObject (5101)
+    # GetCache() returns LineObject (5137) which lacks GetSegment() method
+    doc = c4d.documents.GetActiveDocument()
+    child_clone = child.GetClone()
     result = c4d.utils.SendModelingCommand(
         command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
-        list=[extrude],
+        list=[child_clone],
         doc=doc
     )
+    if result and len(result) > 0:
+        spline = result[0]
+    else:
+        # Fallback to cache if CSTO fails
+        spline = child.GetCache()
+        if spline is None:
+            spline = child.GetDeformCache()
+        if spline is None:
+            spline = child
 
-    if not result or len(result) == 0:
+    # Verify it's a spline-like object
+    if not (spline.GetType() == 5137 or spline.IsInstanceOf(c4d.Ospline)):
         return None
 
-    poly_result = result[0]
-
-    # Verify it's a polygon object
-    if not poly_result.IsInstanceOf(c4d.Opolygon):
+    all_points = spline.GetAllPoints()
+    if len(all_points) < 3:
         return None
 
-    poly_result.SetName("TextFill")
-    return poly_result
+    # Get segments
+    seg_count = spline.GetSegmentCount() if hasattr(spline, 'GetSegmentCount') else 0
+
+    # Collect all geometry
+    result_points = []
+    result_polys = []
+
+    if seg_count <= 1:
+        # Single segment - triangulate as one polygon
+        triangles = triangulate_segment(all_points, True)
+
+        # Front cap (Z = 0)
+        base_idx = len(result_points)
+        for p in all_points:
+            result_points.append(c4d.Vector(p.x, p.y, 0))
+
+        for tri in triangles:
+            result_polys.append(c4d.CPolygon(
+                base_idx + tri[0],
+                base_idx + tri[1],
+                base_idx + tri[2]
+            ))
+
+        if depth > 0:
+            # Back cap (Z = depth)
+            back_base = len(result_points)
+            for p in all_points:
+                result_points.append(c4d.Vector(p.x, p.y, depth))
+
+            # Back cap triangles (reversed winding)
+            for tri in triangles:
+                result_polys.append(c4d.CPolygon(
+                    back_base + tri[2],
+                    back_base + tri[1],
+                    back_base + tri[0]
+                ))
+
+            # Side walls
+            n = len(all_points)
+            for i in range(n):
+                next_i = (i + 1) % n
+                # Quad: front[i], front[next], back[next], back[i]
+                result_polys.append(c4d.CPolygon(
+                    base_idx + i,
+                    base_idx + next_i,
+                    back_base + next_i,
+                    back_base + i
+                ))
+    else:
+        # Multiple segments - process each
+        pt_idx = 0
+        for seg_i in range(seg_count):
+            seg_info = spline.GetSegment(seg_i)
+            seg_cnt = seg_info["cnt"]
+            seg_closed = seg_info["closed"]
+
+            seg_points = all_points[pt_idx:pt_idx + seg_cnt]
+            pt_idx += seg_cnt
+
+            if len(seg_points) < 3:
+                continue
+
+            triangles = triangulate_segment(seg_points, seg_closed)
+
+            # Front cap
+            base_idx = len(result_points)
+            for p in seg_points:
+                result_points.append(c4d.Vector(p.x, p.y, 0))
+
+            for tri in triangles:
+                result_polys.append(c4d.CPolygon(
+                    base_idx + tri[0],
+                    base_idx + tri[1],
+                    base_idx + tri[2]
+                ))
+
+            if depth > 0:
+                # Back cap
+                back_base = len(result_points)
+                for p in seg_points:
+                    result_points.append(c4d.Vector(p.x, p.y, depth))
+
+                for tri in triangles:
+                    result_polys.append(c4d.CPolygon(
+                        back_base + tri[2],
+                        back_base + tri[1],
+                        back_base + tri[0]
+                    ))
+
+                # Side walls
+                n = len(seg_points)
+                for i in range(n):
+                    next_i = (i + 1) % n
+                    result_polys.append(c4d.CPolygon(
+                        base_idx + i,
+                        base_idx + next_i,
+                        back_base + next_i,
+                        back_base + i
+                    ))
+
+    if not result_polys:
+        return None
+
+    # Create polygon object
+    poly_obj = c4d.PolygonObject(len(result_points), len(result_polys))
+    poly_obj.SetAllPoints(result_points)
+    for i, poly in enumerate(result_polys):
+        poly_obj.SetPolygon(i, poly)
+
+    poly_obj.Message(c4d.MSG_UPDATE)
+    poly_obj.SetName("TextFill")
+    return poly_obj
 '''
 
 
@@ -463,14 +622,15 @@ class Text(LineObject):
         self.align = align
         self.filled = filled
         self.fill_color = fill_color
-        self.depth = depth
+        # Use extrusion_depth to avoid collision with VisibleObject.depth (bounding box)
+        self.extrusion_depth = depth
         self.separate_letters = separate_letters
 
         # Initialize as LineObject (handles stroke)
         super().__init__(name=text, **kwargs)
 
         # Set up fill generator if filled or depth
-        if self.filled > 0 or self.depth > 0:
+        if self.filled > 0 or self.extrusion_depth > 0:
             self._setup_fill_generator()
 
     def specify_object(self):
@@ -541,7 +701,7 @@ class Text(LineObject):
         bc[c4d.DESC_STEP] = 1.0
         bc[c4d.DESC_UNIT] = c4d.DESC_UNIT_METER
         self.depth_id = self.fill_gen.AddUserData(bc)
-        self.fill_gen[self.depth_id] = self.depth
+        self.fill_gen[self.depth_id] = self.extrusion_depth
 
         # Copy position from spline to generator
         self.fill_gen.SetAbsPos(self.spline.GetAbsPos())
@@ -650,7 +810,7 @@ class Text(LineObject):
         """Set the extrusion depth (instant, no animation)."""
         if hasattr(self, 'fill_gen'):
             self.fill_gen[self.depth_id] = depth
-        self.depth = depth
+        self.extrusion_depth = depth
 
     def extrude(self, depth):
         """
@@ -673,7 +833,7 @@ class Text(LineObject):
         animation = ScalarAnimation(
             target=wrapper, descriptor=self.depth_id, value_fin=depth)
         self.fill_gen[self.depth_id] = depth
-        self.depth = depth
+        self.extrusion_depth = depth
 
         return animation
 
