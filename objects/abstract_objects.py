@@ -449,6 +449,179 @@ class LineObject(VisibleObject):
             # Called during initial setup - will set on obj which becomes spline
             self.obj[c4d.PRIM_PLANE] = planes.get(self.plane, 0)
 
+    # =========================================================================
+    # GENERATOR CODE ABILITIES
+    # =========================================================================
+    # These methods return Python code snippets that can be composed into
+    # a Holon's generator. They implement visual behaviors.
+
+    @staticmethod
+    def stroke_generator_code():
+        """
+        Returns generator code for rendering any spline as camera-facing stroke geometry.
+
+        This is THE universal spline→stroke conversion. It:
+        - Takes any spline (primitive, calculated, or generated)
+        - Creates camera-facing quad strips along the spline
+        - Hides the source spline in editor (stroke replaces it visually)
+        - Handles closed/open splines, segmented splines, draw completion
+
+        The spline remains a first-class object for:
+        - Morphing between shapes
+        - Cloning objects along the path
+        - Draw-on animations
+        - Any MoGraph operations
+
+        Usage in a Holon's specify_generator_code():
+
+            def specify_generator_code(self):
+                code = LineObject.stroke_generator_code()
+                code += self._main_code()
+                return code
+
+        The generated function signature:
+            generate_stroke_from_spline(spline_obj, cam_world, gen_mg, stroke_width=1.0)
+            → Returns (stroke_points, stroke_polys)
+        """
+        return '''
+def generate_stroke_from_spline(spline_obj, cam_world, gen_mg, stroke_width=1.0, draw_completion=1.0):
+    """
+    Generate camera-facing stroke geometry from a spline.
+
+    This is the universal spline→stroke conversion. The spline is preserved
+    as a first-class object (for morphing, cloning, etc.) while this function
+    creates the visible stroke geometry.
+
+    Args:
+        spline_obj: The spline object (LineObject, calculated silhouette, etc.)
+        cam_world: Camera world position
+        gen_mg: Generator's global matrix
+        stroke_width: Width of stroke quads
+        draw_completion: 0-1 how much of the spline to draw
+
+    Returns:
+        (stroke_points, stroke_polys) lists for building stroke geometry
+    """
+    gen_mg_inv = ~gen_mg
+    stroke_points = []
+    stroke_polys = []
+
+    # Hide source spline in editor - stroke geometry replaces it visually
+    spline_obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
+    # Get spline cache (handles primitives, generators, etc.)
+    spline = spline_obj.GetCache()
+    if spline is None:
+        spline = spline_obj.GetDeformCache()
+    if spline is None:
+        spline = spline_obj
+
+    # Verify it's a spline type
+    is_line_object = spline.GetType() == 5137
+    is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+
+    if not (is_line_object or is_spline_object):
+        return stroke_points, stroke_polys
+
+    spline_mg = spline_obj.GetMg()
+    points = spline.GetAllPoints()
+
+    if len(points) < 2:
+        return stroke_points, stroke_polys
+
+    # Transform points to world space
+    world_points = [spline_mg * p for p in points]
+
+    # Determine if closed - check for known closed primitive types
+    is_closed = False
+    obj_type = spline_obj.GetType()
+    # Circle=5181, Flower=5176, 4Side=5180, Cogwheel=5178, Rectangle=5186, Star=5175
+    if obj_type in [5181, 5176, 5180, 5178, 5186, 5175]:
+        is_closed = True
+    elif is_spline_object:
+        try:
+            is_closed = spline.IsClosed()
+        except:
+            pass
+
+    # Handle segmented splines (e.g., silhouette output has multiple segments)
+    seg_count = 0
+    if hasattr(spline, 'GetSegmentCount'):
+        seg_count = spline.GetSegmentCount()
+
+    def add_stroke_quad(p1_world, p2_world):
+        """Add a camera-facing stroke quad between two world points."""
+        mid = (p1_world + p2_world) * 0.5
+        to_cam = (cam_world - mid).GetNormalized()
+        tangent = (p2_world - p1_world).GetNormalized()
+        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+
+        q0 = gen_mg_inv * (p1_world - perp)
+        q1 = gen_mg_inv * (p1_world + perp)
+        q2 = gen_mg_inv * (p2_world + perp)
+        q3 = gen_mg_inv * (p2_world - perp)
+
+        base_idx = len(stroke_points)
+        stroke_points.extend([q0, q1, q2, q3])
+        stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+
+    if seg_count <= 1:
+        # Single segment or no segments - simple case
+        num_pts = len(world_points)
+        total_edges = num_pts if is_closed else num_pts - 1
+
+        # Limit edges based on draw completion
+        num_edges = max(0, int(total_edges * draw_completion))
+        if num_edges == 0 and draw_completion > 0:
+            num_edges = 1
+
+        for i in range(num_edges):
+            add_stroke_quad(world_points[i], world_points[(i + 1) % num_pts])
+    else:
+        # Multi-segment spline (e.g., silhouette with separate edge segments)
+        point_idx = 0
+        total_edges = 0
+
+        # Count total edges first
+        for seg_idx in range(seg_count):
+            seg_info = spline.GetSegment(seg_idx)
+            if seg_info:
+                seg_cnt = seg_info['cnt']
+                seg_closed = seg_info['closed']
+                total_edges += seg_cnt if seg_closed else seg_cnt - 1
+
+        # Calculate how many edges to draw
+        edges_to_draw = max(0, int(total_edges * draw_completion))
+        if edges_to_draw == 0 and draw_completion > 0:
+            edges_to_draw = 1
+
+        edges_drawn = 0
+        point_idx = 0
+
+        for seg_idx in range(seg_count):
+            if edges_drawn >= edges_to_draw:
+                break
+
+            seg_info = spline.GetSegment(seg_idx)
+            if not seg_info:
+                continue
+
+            seg_cnt = seg_info['cnt']
+            seg_closed = seg_info['closed']
+            seg_points = world_points[point_idx:point_idx + seg_cnt]
+            point_idx += seg_cnt
+
+            num_seg_edges = seg_cnt if seg_closed else seg_cnt - 1
+
+            for i in range(num_seg_edges):
+                if edges_drawn >= edges_to_draw:
+                    break
+                add_stroke_quad(seg_points[i], seg_points[(i + 1) % seg_cnt])
+                edges_drawn += 1
+
+    return stroke_points, stroke_polys
+'''
+
     # Animation methods
     def draw(self, completion=1):
         """Animate draw completion."""
@@ -697,6 +870,173 @@ class SolidObject(VisibleObject):
         else:
             scale_vec = c4d.Vector(scale, scale, scale)
             target[c4d.ID_BASEOBJECT_SCALE] = scale_vec
+
+    # =========================================================================
+    # GENERATOR CODE ABILITIES
+    # =========================================================================
+    # These methods return Python code snippets that can be composed into
+    # a Holon's generator. They implement visual behaviors like silhouettes.
+
+    @staticmethod
+    def silhouette_spline_generator_code():
+        """
+        Returns generator code for extracting silhouette splines from polygon meshes.
+
+        This is a core library ability available to all SolidObjects.
+        The code detects silhouette edges (where front-facing meets back-facing
+        polygons) and outputs them as a SPLINE - not stroke geometry directly.
+
+        The spline is a first-class object that can be:
+        - Morphed between shapes
+        - Used as a cloner path
+        - Animated with draw-on effects
+        - Fed into LineObject.stroke_generator_code() for rendering
+
+        Ontological flow:
+            Mesh → silhouette_spline_generator_code() → Spline
+            Spline → stroke_generator_code() → Stroke Geometry
+
+        Usage in a Holon's specify_generator_code():
+
+            def specify_generator_code(self):
+                code = SolidObject.silhouette_spline_generator_code()
+                code += LineObject.stroke_generator_code()
+                code += self._main_code()
+                return code
+
+        The generated function signature:
+            generate_silhouette_spline(mesh_obj, cam_world, gen_mg)
+            → Returns SplineObject (multi-segment, one segment per silhouette edge)
+        """
+        return '''
+def generate_silhouette_spline(mesh_obj, cam_world, gen_mg):
+    """
+    Extract silhouette edges from a polygon mesh as a spline.
+
+    Silhouette edges are where front-facing polygons meet back-facing ones,
+    or boundary edges of single-sided geometry.
+
+    The output is a multi-segment spline where each segment is one silhouette
+    edge. This spline can then be fed into generate_stroke_from_spline() for
+    rendering, or used directly for morphing, cloning, etc.
+
+    Args:
+        mesh_obj: The mesh object (or object with polygon cache)
+        cam_world: Camera world position
+        gen_mg: Generator's global matrix
+
+    Returns:
+        SplineObject with silhouette edges as segments, or None if no silhouette
+    """
+    gen_mg_inv = ~gen_mg
+
+    # Get polygon cache
+    mesh = mesh_obj.GetCache()
+    if mesh is None:
+        mesh = mesh_obj.GetDeformCache()
+    if mesh is None:
+        mesh = mesh_obj
+
+    # Handle generators like SweepNurbs
+    if mesh.GetType() == 5118:  # Osweep
+        mesh = mesh.GetCache()
+        if mesh is None:
+            return None
+
+    if not mesh.IsInstanceOf(c4d.Opolygon):
+        return None
+
+    points = mesh.GetAllPoints()
+    polys = mesh.GetAllPolygons()
+
+    if len(polys) == 0:
+        return None
+
+    mesh_mg = mesh_obj.GetMg()
+
+    # Transform points to world space
+    world_points = [mesh_mg * p for p in points]
+
+    # Classify faces as front/back facing
+    face_facing = []
+    for poly in polys:
+        p0 = world_points[poly.a]
+        p1 = world_points[poly.b]
+        p2 = world_points[poly.c]
+
+        if poly.c == poly.d:
+            center = (p0 + p1 + p2) / 3.0
+        else:
+            p3 = world_points[poly.d]
+            center = (p0 + p1 + p2 + p3) / 4.0
+
+        edge1 = p1 - p0
+        edge2 = p2 - p0
+        normal = edge1.Cross(edge2).GetNormalized()
+        view_dir = (cam_world - center).GetNormalized()
+
+        face_facing.append(normal.Dot(view_dir) > 0)
+
+    # Build edge-to-face mapping
+    edge_faces = {}
+    for fi, poly in enumerate(polys):
+        verts = [poly.a, poly.b, poly.c]
+        if poly.c != poly.d:
+            verts.append(poly.d)
+
+        for i in range(len(verts)):
+            v1 = verts[i]
+            v2 = verts[(i + 1) % len(verts)]
+            edge_key = (min(v1, v2), max(v1, v2))
+
+            if edge_key not in edge_faces:
+                edge_faces[edge_key] = []
+            edge_faces[edge_key].append(fi)
+
+    # Find silhouette edges
+    silhouette_edges = []
+    for edge_key, faces in edge_faces.items():
+        is_silhouette = False
+        if len(faces) == 2:
+            is_silhouette = face_facing[faces[0]] != face_facing[faces[1]]
+        elif len(faces) == 1:
+            is_silhouette = face_facing[faces[0]]
+
+        if is_silhouette:
+            silhouette_edges.append(edge_key)
+
+    if not silhouette_edges:
+        return None
+
+    # Build spline with all edge segments
+    # Each silhouette edge becomes a 2-point segment
+    spline_points = []
+    for v1_idx, v2_idx in silhouette_edges:
+        p1_world = world_points[v1_idx]
+        p2_world = world_points[v2_idx]
+
+        # Convert to generator-local coordinates
+        p1_local = gen_mg_inv * p1_world
+        p2_local = gen_mg_inv * p2_world
+
+        spline_points.append(p1_local)
+        spline_points.append(p2_local)
+
+    # Create multi-segment spline
+    spline = c4d.SplineObject(len(spline_points), c4d.SPLINETYPE_LINEAR)
+    spline.SetAllPoints(spline_points)
+
+    # Set segments - each edge is a separate segment of 2 points
+    num_segments = len(silhouette_edges)
+    spline.ResizeObject(len(spline_points), num_segments)
+    for i in range(num_segments):
+        spline.SetSegment(i, 2, False)  # 2 points, not closed
+
+    spline.Message(c4d.MSG_UPDATE)
+    spline.SetName("SilhouetteSpline")
+
+    return spline
+'''
 
     # Animation methods
     def fill(self, completion=1):
@@ -1077,21 +1417,196 @@ def find_child_by_name(parent, name):
         child = child.GetNext()
     return None
 
-def generate_strokes_for_children(op, cam_world, gen_mg):
+def generate_silhouette_spline(mesh_obj, cam_world, gen_mg):
     """
-    Generate stroke geometry for all raw primitive children.
+    Extract silhouette edges from a polygon mesh as a spline.
 
-    Handles both:
-    - LineObjects (splines): camera-facing stroke quads along spline
-    - SolidObjects (meshes): silhouette edge detection + stroke quads
+    This is Layer 1 of the stroke pipeline:
+        Mesh -> Silhouette Spline -> Stroke Geometry
 
-    Returns combined stroke points and polys.
+    The spline is a first-class object that can be morphed, cloned along, etc.
+
+    Args:
+        mesh_obj: The mesh object (or object with polygon cache)
+        cam_world: Camera world position
+        gen_mg: Generator's global matrix
+
+    Returns:
+        SplineObject with silhouette edges as segments, or None if no silhouette
     """
     gen_mg_inv = ~gen_mg
-    all_stroke_points = []
-    all_stroke_polys = []
 
-    def add_stroke_quad(p1_world, p2_world, stroke_width):
+    # Get polygon cache
+    mesh = mesh_obj.GetCache()
+    if mesh is None:
+        mesh = mesh_obj.GetDeformCache()
+    if mesh is None:
+        mesh = mesh_obj
+
+    # Handle generators like SweepNurbs
+    if mesh.GetType() == 5118:  # Osweep
+        mesh = mesh.GetCache()
+        if mesh is None:
+            return None
+
+    if not mesh.IsInstanceOf(c4d.Opolygon):
+        return None
+
+    points = mesh.GetAllPoints()
+    polys = mesh.GetAllPolygons()
+
+    if len(polys) == 0:
+        return None
+
+    mesh_mg = mesh_obj.GetMg()
+
+    # Transform points to world space
+    world_points = [mesh_mg * p for p in points]
+
+    # Classify faces as front/back facing
+    face_facing = []
+    for poly in polys:
+        p0 = world_points[poly.a]
+        p1 = world_points[poly.b]
+        p2 = world_points[poly.c]
+
+        if poly.c == poly.d:
+            center = (p0 + p1 + p2) / 3.0
+        else:
+            p3 = world_points[poly.d]
+            center = (p0 + p1 + p2 + p3) / 4.0
+
+        edge1 = p1 - p0
+        edge2 = p2 - p0
+        normal = edge1.Cross(edge2).GetNormalized()
+        view_dir = (cam_world - center).GetNormalized()
+
+        face_facing.append(normal.Dot(view_dir) > 0)
+
+    # Build edge-to-face mapping
+    edge_faces = {}
+    for fi, poly in enumerate(polys):
+        verts = [poly.a, poly.b, poly.c]
+        if poly.c != poly.d:
+            verts.append(poly.d)
+
+        for i in range(len(verts)):
+            v1 = verts[i]
+            v2 = verts[(i + 1) % len(verts)]
+            edge_key = (min(v1, v2), max(v1, v2))
+
+            if edge_key not in edge_faces:
+                edge_faces[edge_key] = []
+            edge_faces[edge_key].append(fi)
+
+    # Find silhouette edges
+    silhouette_edges = []
+    for edge_key, faces in edge_faces.items():
+        is_silhouette = False
+        if len(faces) == 2:
+            is_silhouette = face_facing[faces[0]] != face_facing[faces[1]]
+        elif len(faces) == 1:
+            is_silhouette = face_facing[faces[0]]
+
+        if is_silhouette:
+            silhouette_edges.append(edge_key)
+
+    if not silhouette_edges:
+        return None
+
+    # Build spline with all edge segments
+    spline_points = []
+    for v1_idx, v2_idx in silhouette_edges:
+        p1_world = world_points[v1_idx]
+        p2_world = world_points[v2_idx]
+
+        # Convert to generator-local coordinates
+        p1_local = gen_mg_inv * p1_world
+        p2_local = gen_mg_inv * p2_world
+
+        spline_points.append(p1_local)
+        spline_points.append(p2_local)
+
+    # Create multi-segment spline
+    spline = c4d.SplineObject(len(spline_points), c4d.SPLINETYPE_LINEAR)
+    spline.SetAllPoints(spline_points)
+
+    # Set segments - each edge is a separate segment of 2 points
+    num_segments = len(silhouette_edges)
+    spline.ResizeObject(len(spline_points), num_segments)
+    for i in range(num_segments):
+        spline.SetSegment(i, 2, False)
+
+    spline.Message(c4d.MSG_UPDATE)
+    spline.SetName("SilhouetteSpline")
+
+    return spline
+
+def generate_stroke_from_spline(spline_obj, cam_world, gen_mg, stroke_width=1.0, draw_completion=1.0):
+    """
+    Generate camera-facing stroke geometry from a spline.
+
+    This is Layer 2 of the stroke pipeline (universal for all splines):
+        Any Spline -> Stroke Geometry
+
+    Args:
+        spline_obj: The spline object (LineObject, calculated silhouette, etc.)
+        cam_world: Camera world position
+        gen_mg: Generator's global matrix
+        stroke_width: Width of stroke quads
+        draw_completion: 0-1 how much of the spline to draw
+
+    Returns:
+        (stroke_points, stroke_polys) lists for building stroke geometry
+    """
+    gen_mg_inv = ~gen_mg
+    stroke_points = []
+    stroke_polys = []
+
+    # Hide source spline in editor - stroke geometry replaces it visually
+    spline_obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
+    # Get spline cache (handles primitives, generators, etc.)
+    spline = spline_obj.GetCache()
+    if spline is None:
+        spline = spline_obj.GetDeformCache()
+    if spline is None:
+        spline = spline_obj
+
+    # Verify it's a spline type
+    is_line_object = spline.GetType() == 5137
+    is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+
+    if not (is_line_object or is_spline_object):
+        return stroke_points, stroke_polys
+
+    spline_mg = spline_obj.GetMg()
+    points = spline.GetAllPoints()
+
+    if len(points) < 2:
+        return stroke_points, stroke_polys
+
+    # Transform points to world space
+    world_points = [spline_mg * p for p in points]
+
+    # Determine if closed - check for known closed primitive types
+    is_closed = False
+    obj_type = spline_obj.GetType()
+    # Circle=5181, Flower=5176, 4Side=5180, Cogwheel=5178, Rectangle=5186, Star=5175
+    if obj_type in [5181, 5176, 5180, 5178, 5186, 5175]:
+        is_closed = True
+    elif is_spline_object:
+        try:
+            is_closed = spline.IsClosed()
+        except:
+            pass
+
+    # Handle segmented splines (e.g., silhouette output has multiple segments)
+    seg_count = 0
+    if hasattr(spline, 'GetSegmentCount'):
+        seg_count = spline.GetSegmentCount()
+
+    def add_stroke_quad(p1_world, p2_world):
         """Add a camera-facing stroke quad between two world points."""
         mid = (p1_world + p2_world) * 0.5
         to_cam = (cam_world - mid).GetNormalized()
@@ -1103,123 +1618,92 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
         q2 = gen_mg_inv * (p2_world + perp)
         q3 = gen_mg_inv * (p2_world - perp)
 
-        base_idx = len(all_stroke_points)
-        all_stroke_points.extend([q0, q1, q2, q3])
-        all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+        base_idx = len(stroke_points)
+        stroke_points.extend([q0, q1, q2, q3])
+        stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
 
-    def process_spline_child(child, stroke_width):
-        """Generate strokes from a spline/LineObject child."""
-        # Hide source spline in editor - stroke geometry replaces it visually
-        child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
-
-        spline = child.GetCache()
-        if spline is None:
-            spline = child.GetDeformCache()
-        if spline is None:
-            spline = child
-
-        # Check if it's a spline-like object
-        is_line_object = spline.GetType() == 5137
-        is_spline_object = spline.IsInstanceOf(c4d.Ospline)
-
-        if not (is_line_object or is_spline_object):
-            return
-
-        child_mg = child.GetMg()
-        points = spline.GetAllPoints()
-
-        if len(points) < 2:
-            return
-
-        # Transform points to world space
-        world_points = [child_mg * p for p in points]
-
-        # Determine if closed
-        child_type = child.GetType()
-        is_closed = child_type in [5181, 5176, 5180, 5178, 5186, 5175]
-
-        # Generate stroke quads
+    if seg_count <= 1:
+        # Single segment or no segments - simple case
         num_pts = len(world_points)
-        num_edges = num_pts if is_closed else num_pts - 1
+        total_edges = num_pts if is_closed else num_pts - 1
+
+        # Limit edges based on draw completion
+        num_edges = max(0, int(total_edges * draw_completion))
+        if num_edges == 0 and draw_completion > 0:
+            num_edges = 1
 
         for i in range(num_edges):
-            add_stroke_quad(world_points[i], world_points[(i + 1) % num_pts], stroke_width)
+            add_stroke_quad(world_points[i], world_points[(i + 1) % num_pts])
+    else:
+        # Multi-segment spline (e.g., silhouette with separate edge segments)
+        total_edges = 0
 
-    def process_solid_child(child, stroke_width):
-        """Generate silhouette strokes from a SolidObject/mesh child."""
-        # Get mesh - handle cache and generators
-        mesh = child.GetCache()
-        if mesh is None:
-            mesh = child.GetDeformCache()
-        if mesh is None:
-            mesh = child
+        # Count total edges first
+        for seg_idx in range(seg_count):
+            seg_info = spline.GetSegment(seg_idx)
+            if seg_info:
+                seg_cnt = seg_info['cnt']
+                seg_closed = seg_info['closed']
+                total_edges += seg_cnt if seg_closed else seg_cnt - 1
 
-        # For SweepNurbs and other generators, recurse into cache
-        if mesh.GetType() == 5118:  # Osweep
-            mesh = mesh.GetCache()
-            if mesh is None:
-                return
+        # Calculate how many edges to draw
+        edges_to_draw = max(0, int(total_edges * draw_completion))
+        if edges_to_draw == 0 and draw_completion > 0:
+            edges_to_draw = 1
 
-        if not mesh.IsInstanceOf(c4d.Opolygon):
+        edges_drawn = 0
+        point_idx = 0
+
+        for seg_idx in range(seg_count):
+            if edges_drawn >= edges_to_draw:
+                break
+
+            seg_info = spline.GetSegment(seg_idx)
+            if not seg_info:
+                continue
+
+            seg_cnt = seg_info['cnt']
+            seg_closed = seg_info['closed']
+            seg_points = world_points[point_idx:point_idx + seg_cnt]
+            point_idx += seg_cnt
+
+            num_seg_edges = seg_cnt if seg_closed else seg_cnt - 1
+
+            for i in range(num_seg_edges):
+                if edges_drawn >= edges_to_draw:
+                    break
+                add_stroke_quad(seg_points[i], seg_points[(i + 1) % seg_cnt])
+                edges_drawn += 1
+
+    return stroke_points, stroke_polys
+
+def generate_strokes_for_children(op, cam_world, gen_mg):
+    """
+    Generate stroke geometry for all raw primitive children.
+
+    Uses the layered stroke pipeline:
+    - LineObjects (splines): Spline -> Stroke Geometry
+    - SolidObjects (meshes): Mesh -> Silhouette Spline -> Stroke Geometry
+
+    The silhouette spline is an intermediate first-class object that could
+    be used for morphing, cloning, etc. (though currently we just stroke it).
+
+    Returns combined stroke points and polys.
+    """
+    all_stroke_points = []
+    all_stroke_polys = []
+
+    def extend_strokes(pts, polys):
+        """Add strokes to the collection, adjusting polygon indices."""
+        if not polys:
             return
-
-        points = mesh.GetAllPoints()
-        polys = mesh.GetAllPolygons()
-
-        if len(polys) == 0:
-            return
-
-        child_mg = child.GetMg()
-
-        # Transform points to world space
-        world_points = [child_mg * p for p in points]
-
-        # Classify faces as front/back facing
-        face_facing = []
+        offset = len(all_stroke_points)
+        all_stroke_points.extend(pts)
         for poly in polys:
-            p0 = world_points[poly.a]
-            p1 = world_points[poly.b]
-            p2 = world_points[poly.c]
-
-            if poly.c == poly.d:
-                center = (p0 + p1 + p2) / 3.0
-            else:
-                p3 = world_points[poly.d]
-                center = (p0 + p1 + p2 + p3) / 4.0
-
-            edge1 = p1 - p0
-            edge2 = p2 - p0
-            normal = edge1.Cross(edge2).GetNormalized()
-            view_dir = (cam_world - center).GetNormalized()
-
-            face_facing.append(normal.Dot(view_dir) > 0)
-
-        # Build edge-to-face mapping
-        edge_faces = {}
-        for fi, poly in enumerate(polys):
-            verts = [poly.a, poly.b, poly.c]
-            if poly.c != poly.d:
-                verts.append(poly.d)
-
-            for i in range(len(verts)):
-                v1 = verts[i]
-                v2 = verts[(i + 1) % len(verts)]
-                edge_key = (min(v1, v2), max(v1, v2))
-
-                if edge_key not in edge_faces:
-                    edge_faces[edge_key] = []
-                edge_faces[edge_key].append(fi)
-
-        # Find silhouette edges and generate strokes
-        for edge_key, faces in edge_faces.items():
-            is_silhouette = False
-            if len(faces) == 2:
-                is_silhouette = face_facing[faces[0]] != face_facing[faces[1]]
-            elif len(faces) == 1:
-                is_silhouette = face_facing[faces[0]]
-
-            if is_silhouette:
-                add_stroke_quad(world_points[edge_key[0]], world_points[edge_key[1]], stroke_width)
+            all_stroke_polys.append(c4d.CPolygon(
+                poly.a + offset, poly.b + offset,
+                poly.c + offset, poly.d + offset
+            ))
 
     def process_child(child):
         """Process a single child for stroke generation."""
@@ -1238,9 +1722,16 @@ def generate_strokes_for_children(op, cam_world, gen_mg):
         is_solid = get_userdata_by_name(child, "IsSolidObject")
 
         if is_solid:
-            process_solid_child(child, stroke_width)
+            # Layer 1: Mesh -> Silhouette Spline
+            silhouette = generate_silhouette_spline(child, cam_world, gen_mg)
+            if silhouette:
+                # Layer 2: Silhouette Spline -> Stroke Geometry
+                pts, polys = generate_stroke_from_spline(silhouette, cam_world, gen_mg, stroke_width)
+                extend_strokes(pts, polys)
         else:
-            process_spline_child(child, stroke_width)
+            # LineObject: Spline -> Stroke Geometry (Layer 2 only)
+            pts, polys = generate_stroke_from_spline(child, cam_world, gen_mg, stroke_width)
+            extend_strokes(pts, polys)
 
     # Process all children
     child = op.GetDown()
