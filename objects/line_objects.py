@@ -367,16 +367,6 @@ def main():
     if spline is None:
         spline = child.GetDeformCache()
     if spline is None:
-        # Try CurrentStateToObject for primitives
-        child_clone = child.GetClone()
-        result = c4d.utils.SendModelingCommand(
-            command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
-            list=[child_clone],
-            doc=doc
-        )
-        if result and len(result) > 0:
-            spline = result[0]
-    if spline is None:
         spline = child
 
     # Check if it's a spline
@@ -389,34 +379,37 @@ def main():
     # Create extrude object to cap the spline
     extrude = c4d.BaseObject(c4d.Oextrude)
 
-    # Set extrusion depth
-    extrude[c4d.EXTRUDEOBJECT_MOVE, c4d.VECTOR_Z] = depth
+    # Set extrusion depth via MOVE vector
+    extrude[c4d.EXTRUDEOBJECT_MOVE] = c4d.Vector(0, 0, depth)
 
-    # Enable caps
-    extrude[c4d.EXTRUDEOBJECT_STARTCAP] = True
-    extrude[c4d.EXTRUDEOBJECT_ENDCAP] = True if depth > 0 else False
+    # Enable caps using correct DescIDs
+    # 2999 = Start cap, 3000 = End cap
+    extrude[c4d.DescID(c4d.DescLevel(2999))] = True  # Start cap always on
+    extrude[c4d.DescID(c4d.DescLevel(3000))] = depth > 0  # End cap only if depth
 
     # Clone and insert spline under extrude
     spline_clone = spline.GetClone()
     spline_clone.InsertUnder(extrude)
 
-    # Get the polygon result from extrude
-    extrude_cache = extrude.GetCache()
-    if extrude_cache is None:
-        # Build cache manually
-        doc.InsertObject(extrude)
-        doc.ExecutePasses(None, False, False, True, c4d.BUILDFLAGS_NONE)
-        extrude_cache = extrude.GetCache()
-        extrude.Remove()
+    # Use SendModelingCommand to convert extrude to polygons
+    # This works without document insertion
+    result = c4d.utils.SendModelingCommand(
+        command=c4d.MCOMMAND_CURRENTSTATETOOBJECT,
+        list=[extrude],
+        doc=doc
+    )
 
-    if extrude_cache is None:
+    if not result or len(result) == 0:
         return None
 
-    # Return the polygon object
-    result = extrude_cache.GetClone()
-    result.SetName("TextFill")
+    poly_result = result[0]
 
-    return result
+    # Verify it's a polygon object
+    if not poly_result.IsInstanceOf(c4d.Opolygon):
+        return None
+
+    poly_result.SetName("TextFill")
+    return poly_result
 '''
 
 
