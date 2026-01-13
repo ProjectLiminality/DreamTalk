@@ -331,322 +331,474 @@ class SplineText(LineObject):
 # =============================================================================
 
 # Python Generator code for filling closed splines with polygons
-# Uses Non-Zero Winding Number Rule (TrueType/OpenType standard) for hole detection
-# and Bridge Edge Algorithm for triangulation with holes
+# Uses Earcut algorithm - the industry standard used by Mapbox/Google Maps
+# Based on: https://github.com/mapbox/earcut (JS) and https://github.com/joshuaskelly/earcut-python
 TEXT_FILL_GEN_CODE = '''import c4d
+import math
 
-def signed_area_2d(points):
-    """Calculate signed area of polygon. Positive = CCW, Negative = CW."""
-    area = 0.0
-    n = len(points)
-    for i in range(n):
-        j = (i + 1) % n
-        area += points[i].x * points[j].y
-        area -= points[j].x * points[i].y
-    return area / 2.0
+# =============================================================================
+# EARCUT ALGORITHM - Industry standard polygon triangulation with holes
+# Ported from Mapbox's earcut library (used in production by Google Maps, etc.)
+# =============================================================================
 
-def point_in_polygon(pt, polygon_pts):
-    """Test if point is inside polygon using ray casting."""
-    n = len(polygon_pts)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        pi, pj = polygon_pts[i], polygon_pts[j]
-        if ((pi.y > pt.y) != (pj.y > pt.y)) and \
-           (pt.x < (pj.x - pi.x) * (pt.y - pi.y) / (pj.y - pi.y) + pi.x):
-            inside = not inside
-        j = i
-    return inside
+class Node:
+    """Doubly-linked list node for polygon vertices."""
+    def __init__(self, i, x, y):
+        self.i = i          # vertex index in flat array
+        self.x = x
+        self.y = y
+        self.prev = None
+        self.next = None
+        self.z = None       # z-order curve value
+        self.prevZ = None
+        self.nextZ = None
+        self.steiner = False
 
-def segments_intersect(a1, a2, b1, b2):
-    """Check if line segment a1-a2 intersects with b1-b2 (excluding endpoints)."""
-    def ccw(A, B, C):
-        return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
-
-    if ccw(a1, b1, b2) != ccw(a2, b1, b2) and ccw(a1, a2, b1) != ccw(a1, a2, b2):
-        # They intersect - but exclude if sharing endpoints
-        eps = 0.0001
-        for p1 in [a1, a2]:
-            for p2 in [b1, b2]:
-                if abs(p1.x - p2.x) < eps and abs(p1.y - p2.y) < eps:
-                    return False
-        return True
-    return False
-
-def find_bridge_point(outer_pts, hole_pts, all_contours):
+def earcut(data, holeIndices=None, dim=2):
     """
-    Find valid bridge connection between outer contour and hole.
-    Returns (outer_idx, hole_idx) for the bridge vertices.
-    Uses rightmost point of hole as starting point (standard algorithm).
-    """
-    # Find rightmost point of hole
-    hole_idx = 0
-    for i, p in enumerate(hole_pts):
-        if p.x > hole_pts[hole_idx].x:
-            hole_idx = i
-
-    hole_pt = hole_pts[hole_idx]
-
-    # Find closest valid connection to outer contour
-    best_outer_idx = -1
-    best_dist = float('inf')
-
-    for outer_idx, outer_pt in enumerate(outer_pts):
-        # Check distance
-        dx = outer_pt.x - hole_pt.x
-        dy = outer_pt.y - hole_pt.y
-        dist = dx * dx + dy * dy
-
-        if dist >= best_dist:
-            continue
-
-        # Check if bridge crosses any contour edge
-        valid = True
-
-        # Check against all contour edges
-        for contour in all_contours:
-            n = len(contour)
-            for i in range(n):
-                e1 = contour[i]
-                e2 = contour[(i + 1) % n]
-                if segments_intersect(hole_pt, outer_pt, e1, e2):
-                    valid = False
-                    break
-            if not valid:
-                break
-
-        if valid:
-            best_dist = dist
-            best_outer_idx = outer_idx
-
-    return (best_outer_idx, hole_idx)
-
-def merge_contour_with_hole(outer_pts, hole_pts, outer_start, hole_start):
-    """
-    Merge outer contour with hole using bridge edges.
-    Creates single polygon: outer -> bridge -> hole (reversed) -> bridge -> continue outer
-    """
-    merged = []
-    n_outer = len(outer_pts)
-    n_hole = len(hole_pts)
-
-    # Traverse outer from 0 to bridge point (inclusive)
-    for i in range(outer_start + 1):
-        merged.append(outer_pts[i])
-
-    # Bridge to hole, traverse hole in reverse (CW becomes CCW)
-    for i in range(n_hole):
-        idx = (hole_start - i) % n_hole
-        merged.append(hole_pts[idx])
-
-    # Bridge back to outer (duplicate bridge points for proper topology)
-    merged.append(hole_pts[hole_start])
-    merged.append(outer_pts[outer_start])
-
-    # Continue outer from bridge point to end
-    for i in range(outer_start + 1, n_outer):
-        merged.append(outer_pts[i])
-
-    return merged
-
-def ear_clip_triangulate(points):
-    """
-    Ear-clipping triangulation for a simple polygon (no holes).
-    Points should be in CCW order.
-    """
-    if len(points) < 3:
-        return []
-
-    # Ensure CCW
-    area = signed_area_2d(points)
-    if area < 0:
-        points = points[::-1]
-
-    indices = list(range(len(points)))
-    triangles = []
-
-    def cross_2d(o, a, b):
-        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-
-    def point_in_triangle(p, a, b, c):
-        d1 = cross_2d(p, a, b)
-        d2 = cross_2d(p, b, c)
-        d3 = cross_2d(p, c, a)
-        has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
-        has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
-        return not (has_neg and has_pos)
-
-    def is_ear(i):
-        n = len(indices)
-        if n < 3:
-            return False
-
-        prev_i = indices[(i - 1) % n]
-        curr_i = indices[i]
-        next_i = indices[(i + 1) % n]
-
-        a, b, c = points[prev_i], points[curr_i], points[next_i]
-
-        # Must be convex (positive cross for CCW)
-        if cross_2d(a, b, c) <= 0:
-            return False
-
-        # No other point inside
-        for j in range(n):
-            if j in [(i - 1) % n, i, (i + 1) % n]:
-                continue
-            if point_in_triangle(points[indices[j]], a, b, c):
-                return False
-
-        return True
-
-    safety = len(indices) * 2
-    while len(indices) > 2 and safety > 0:
-        safety -= 1
-        ear_found = False
-
-        for i in range(len(indices)):
-            if is_ear(i):
-                n = len(indices)
-                triangles.append((
-                    indices[(i - 1) % n],
-                    indices[i],
-                    indices[(i + 1) % n]
-                ))
-                indices.pop(i)
-                ear_found = True
-                break
-
-        if not ear_found:
-            break
-
-    return triangles
-
-def triangulate_with_holes(outer_pts, holes):
-    """
-    Triangulate polygon with holes using bridge edge algorithm.
+    Triangulate a polygon with holes using earcut algorithm.
 
     Args:
-        outer_pts: List of points for outer contour (should be CCW)
-        holes: List of hole contours (each should be CW for proper winding)
+        data: flat list of coordinates [x0,y0, x1,y1, ...]
+        holeIndices: list of hole start indices (in vertex count, not coord count)
+        dim: dimensions per vertex (default 2)
 
     Returns:
-        List of triangles as (i, j, k) tuples indexing into merged point list,
-        and the merged point list
+        List of triangle indices [a,b,c, d,e,f, ...]
     """
-    if not holes:
-        return ear_clip_triangulate(outer_pts), outer_pts
+    hasHoles = holeIndices and len(holeIndices)
+    outerLen = holeIndices[0] * dim if hasHoles else len(data)
+    outerNode = linkedList(data, 0, outerLen, dim, True)
+    triangles = []
 
-    # Ensure outer is CCW
-    if signed_area_2d(outer_pts) < 0:
-        outer_pts = outer_pts[::-1]
+    if not outerNode or outerNode.next == outerNode.prev:
+        return triangles
 
-    # Process holes - ensure each is CW (negative area)
-    processed_holes = []
-    for hole in holes:
-        if signed_area_2d(hole) > 0:
-            hole = hole[::-1]
-        processed_holes.append(hole)
+    if hasHoles:
+        outerNode = eliminateHoles(data, holeIndices, outerNode, dim)
 
-    # Sort holes by rightmost x (process from right to left)
-    processed_holes.sort(key=lambda h: -max(p.x for p in h))
+    # Use z-order for large polygons
+    minX = minY = maxX = maxY = None
+    size = None
 
-    # Merge holes one by one
-    merged = list(outer_pts)
-    all_contours = [merged] + processed_holes
+    if len(data) > 80 * dim:
+        minX = maxX = data[0]
+        minY = maxY = data[1]
+        for i in range(dim, outerLen, dim):
+            x, y = data[i], data[i + 1]
+            if x < minX: minX = x
+            if y < minY: minY = y
+            if x > maxX: maxX = x
+            if y > maxY: maxY = y
+        size = max(maxX - minX, maxY - minY)
 
-    for hole in processed_holes:
-        bridge = find_bridge_point(merged, hole, all_contours)
-        if bridge[0] >= 0:
-            merged = merge_contour_with_hole(merged, hole, bridge[0], bridge[1])
-            # Update all_contours with merged result
-            all_contours[0] = merged
+    earcutLinked(outerNode, triangles, dim, minX, minY, size)
+    return triangles
 
-    # Triangulate the merged polygon
-    triangles = ear_clip_triangulate(merged)
-    return triangles, merged
+def linkedList(data, start, end, dim, clockwise):
+    """Create circular doubly-linked list from polygon points."""
+    last = None
+    if clockwise == (signedArea(data, start, end, dim) > 0):
+        for i in range(start, end, dim):
+            last = insertNode(i, data[i], data[i + 1], last)
+    else:
+        for i in range(end - dim, start - 1, -dim):
+            last = insertNode(i, data[i], data[i + 1], last)
 
-def process_glyph_contours(all_points, segments):
-    """
-    Process font glyph contours using Non-Zero Winding Number Rule.
+    if last and equals(last, last.next):
+        removeNode(last)
+        last = last.next
 
-    Determines which contours are outer boundaries vs holes based on:
-    - Winding direction (CCW = outer, CW = hole in standard coords)
-    - Containment (holes must be inside an outer contour)
+    if last:
+        last.next.prev = last
+        last.prev.next = last
+    return last
 
-    Returns list of (outer_pts, [hole_pts, ...]) tuples for each glyph shape.
-    """
-    # Extract individual contours
-    contours = []
-    pt_idx = 0
-    for seg in segments:
-        seg_pts = all_points[pt_idx:pt_idx + seg["cnt"]]
-        pt_idx += seg["cnt"]
-        if len(seg_pts) >= 3:
-            area = signed_area_2d(seg_pts)
-            contours.append({
-                "pts": seg_pts,
-                "area": area,
-                "is_ccw": area > 0,
-                "bbox": (
-                    min(p.x for p in seg_pts), min(p.y for p in seg_pts),
-                    max(p.x for p in seg_pts), max(p.y for p in seg_pts)
-                )
-            })
+def filterPoints(start, end=None):
+    """Remove duplicate/collinear points."""
+    if not start: return start
+    if not end: end = start
 
-    if not contours:
-        return []
+    p = start
+    again = True
+    while again or p != end:
+        again = False
+        if not p.steiner and (equals(p, p.next) or area(p.prev, p, p.next) == 0):
+            removeNode(p)
+            p = end = p.prev
+            if p == p.next: return None
+            again = True
+        else:
+            p = p.next
+    return end
 
-    # Sort by absolute area (largest first = outer contours)
-    contours.sort(key=lambda c: -abs(c["area"]))
+def earcutLinked(ear, triangles, dim, minX, minY, size, _pass=0):
+    """Main ear slicing loop."""
+    if not ear: return
 
-    # Group contours: find which holes belong to which outer
-    shapes = []
-    used = set()
+    if not _pass and size:
+        indexCurve(ear, minX, minY, size)
 
-    for i, cont in enumerate(contours):
-        if i in used:
+    stop = ear
+
+    while ear.prev != ear.next:
+        prev = ear.prev
+        next = ear.next
+
+        if (isEarHashed(ear, minX, minY, size) if size else isEar(ear)):
+            triangles.extend([prev.i // dim, ear.i // dim, next.i // dim])
+            removeNode(ear)
+            ear = next.next
+            stop = next.next
             continue
 
-        # This should be an outer contour (largest remaining)
-        outer_pts = cont["pts"]
+        ear = next
 
-        # Ensure outer is CCW
-        if not cont["is_ccw"]:
-            outer_pts = outer_pts[::-1]
+        if ear == stop:
+            if _pass == 0:
+                earcutLinked(filterPoints(ear), triangles, dim, minX, minY, size, 1)
+            elif _pass == 1:
+                ear = cureLocalIntersections(filterPoints(ear), triangles, dim)
+                earcutLinked(ear, triangles, dim, minX, minY, size, 2)
+            elif _pass == 2:
+                splitEarcut(ear, triangles, dim, minX, minY, size)
+            break
 
-        used.add(i)
-        holes = []
+def isEar(ear):
+    """Check if triangle at ear is valid."""
+    a, b, c = ear.prev, ear, ear.next
+    if area(a, b, c) >= 0: return False
 
-        # Find holes contained in this outer
-        for j, other in enumerate(contours):
-            if j in used:
-                continue
+    p = ear.next.next
+    while p != ear.prev:
+        if pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) and area(p.prev, p, p.next) >= 0:
+            return False
+        p = p.next
+    return True
 
-            # Check if other's centroid is inside outer
-            cx = sum(p.x for p in other["pts"]) / len(other["pts"])
-            cy = sum(p.y for p in other["pts"]) / len(other["pts"])
-            test_pt = c4d.Vector(cx, cy, 0)
+def isEarHashed(ear, minX, minY, size):
+    """Check ear with z-order optimization."""
+    a, b, c = ear.prev, ear, ear.next
+    if area(a, b, c) >= 0: return False
 
-            if point_in_polygon(test_pt, outer_pts):
-                # This is a hole in the current outer
-                hole_pts = other["pts"]
-                # Ensure hole is CW (opposite of outer)
-                if other["is_ccw"]:
-                    hole_pts = hole_pts[::-1]
-                holes.append(hole_pts)
-                used.add(j)
+    minTX = min(a.x, b.x, c.x)
+    minTY = min(a.y, b.y, c.y)
+    maxTX = max(a.x, b.x, c.x)
+    maxTY = max(a.y, b.y, c.y)
 
-        shapes.append((outer_pts, holes))
+    minZ = zOrder(minTX, minTY, minX, minY, size)
+    maxZ = zOrder(maxTX, maxTY, minX, minY, size)
 
-    return shapes
+    p = ear.nextZ
+    while p and p.z <= maxZ:
+        if p != ear.prev and p != ear.next and pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) and area(p.prev, p, p.next) >= 0:
+            return False
+        p = p.nextZ
+
+    p = ear.prevZ
+    while p and p.z >= minZ:
+        if p != ear.prev and p != ear.next and pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) and area(p.prev, p, p.next) >= 0:
+            return False
+        p = p.prevZ
+
+    return True
+
+def cureLocalIntersections(start, triangles, dim):
+    """Fix small self-intersections."""
+    p = start
+    while True:
+        a, b = p.prev, p.next.next
+        if not equals(a, b) and intersects(a, p, p.next, b) and locallyInside(a, b) and locallyInside(b, a):
+            triangles.extend([a.i // dim, p.i // dim, b.i // dim])
+            removeNode(p)
+            removeNode(p.next)
+            p = start = b
+        p = p.next
+        if p == start: break
+    return filterPoints(p)
+
+def splitEarcut(start, triangles, dim, minX, minY, size):
+    """Split polygon and triangulate parts."""
+    a = start
+    while True:
+        b = a.next.next
+        while b != a.prev:
+            if a.i != b.i and isValidDiagonal(a, b):
+                c = splitPolygon(a, b)
+                a = filterPoints(a, a.next)
+                c = filterPoints(c, c.next)
+                earcutLinked(a, triangles, dim, minX, minY, size)
+                earcutLinked(c, triangles, dim, minX, minY, size)
+                return
+            b = b.next
+        a = a.next
+        if a == start: break
+
+def eliminateHoles(data, holeIndices, outerNode, dim):
+    """Link holes into outer loop using bridge edges."""
+    queue = []
+    _len = len(holeIndices)
+
+    for i in range(_len):
+        start = holeIndices[i] * dim
+        end = holeIndices[i + 1] * dim if i < _len - 1 else len(data)
+        lst = linkedList(data, start, end, dim, False)
+        if lst == lst.next: lst.steiner = True
+        queue.append(getLeftmost(lst))
+
+    queue.sort(key=lambda n: n.x)
+
+    for q in queue:
+        outerNode = eliminateHole(q, outerNode)
+        outerNode = filterPoints(outerNode, outerNode.next)
+
+    return outerNode
+
+def eliminateHole(hole, outerNode):
+    """Find bridge and link hole to outer."""
+    bridge = findHoleBridge(hole, outerNode)
+    if bridge:
+        b = splitPolygon(bridge, hole)
+        filterPoints(bridge, bridge.next)
+        filterPoints(b, b.next)
+    return outerNode
+
+def findHoleBridge(hole, outerNode):
+    """David Eberly's algorithm for finding bridge between hole and outer."""
+    p = outerNode
+    hx, hy = hole.x, hole.y
+    qx = -math.inf
+    m = None
+
+    while True:
+        if hy <= p.y and hy >= p.next.y and p.next.y != p.y:
+            x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
+            if x <= hx and x > qx:
+                qx = x
+                if x == hx:
+                    if hy == p.y: return p
+                    if hy == p.next.y: return p.next
+                m = p if p.x < p.next.x else p.next
+        p = p.next
+        if p == outerNode: break
+
+    if not m: return None
+    if hx == qx: return m
+
+    stop = m
+    mx, my = m.x, m.y
+    tanMin = math.inf
+
+    p = m
+    while True:
+        if hx >= p.x and p.x >= mx and hx != p.x:
+            tan = abs(hy - p.y) / (hx - p.x)
+            if locallyInside(p, hole) and (tan < tanMin or (tan == tanMin and (p.x > m.x or sectorContainsSector(m, p)))):
+                m = p
+                tanMin = tan
+        p = p.next
+        if p == stop: break
+
+    return m
+
+def sectorContainsSector(m, p):
+    return area(m.prev, m, p.prev) < 0 and area(p.next, m, m.next) < 0
+
+def indexCurve(start, minX, minY, size):
+    """Interlink polygon nodes in z-order."""
+    p = start
+    while True:
+        if p.z is None:
+            p.z = zOrder(p.x, p.y, minX, minY, size)
+        p.prevZ = p.prev
+        p.nextZ = p.next
+        p = p.next
+        if p == start: break
+
+    p.prevZ.nextZ = None
+    p.prevZ = None
+    sortLinked(p)
+
+def sortLinked(lst):
+    """Merge sort for z-ordered linked list."""
+    inSize = 1
+    numMerges = 0
+
+    while True:
+        p = lst
+        lst = None
+        tail = None
+        numMerges = 0
+
+        while p:
+            numMerges += 1
+            q = p
+            pSize = 0
+            for _ in range(inSize):
+                pSize += 1
+                q = q.nextZ
+                if not q: break
+
+            qSize = inSize
+
+            while pSize > 0 or (qSize > 0 and q):
+                if pSize == 0:
+                    e = q; q = q.nextZ; qSize -= 1
+                elif qSize == 0 or not q:
+                    e = p; p = p.nextZ; pSize -= 1
+                elif p.z <= q.z:
+                    e = p; p = p.nextZ; pSize -= 1
+                else:
+                    e = q; q = q.nextZ; qSize -= 1
+
+                if tail: tail.nextZ = e
+                else: lst = e
+                e.prevZ = tail
+                tail = e
+
+            p = q
+
+        tail.nextZ = None
+        if numMerges <= 1: break
+        inSize *= 2
+
+    return lst
+
+def zOrder(x, y, minX, minY, size):
+    """Z-order curve value for spatial hashing."""
+    x = int(32767 * (x - minX) / size)
+    y = int(32767 * (y - minY) / size)
+    x = (x | (x << 8)) & 0x00FF00FF
+    x = (x | (x << 4)) & 0x0F0F0F0F
+    x = (x | (x << 2)) & 0x33333333
+    x = (x | (x << 1)) & 0x55555555
+    y = (y | (y << 8)) & 0x00FF00FF
+    y = (y | (y << 4)) & 0x0F0F0F0F
+    y = (y | (y << 2)) & 0x33333333
+    y = (y | (y << 1)) & 0x55555555
+    return x | (y << 1)
+
+def getLeftmost(start):
+    """Find leftmost node of polygon ring."""
+    p = start
+    leftmost = start
+    while True:
+        if p.x < leftmost.x or (p.x == leftmost.x and p.y < leftmost.y):
+            leftmost = p
+        p = p.next
+        if p == start: break
+    return leftmost
+
+def pointInTriangle(ax, ay, bx, by, cx, cy, px, py):
+    return (cx - px) * (ay - py) - (ax - px) * (cy - py) >= 0 and \
+           (ax - px) * (by - py) - (bx - px) * (ay - py) >= 0 and \
+           (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0
+
+def isValidDiagonal(a, b):
+    return a.next.i != b.i and a.prev.i != b.i and not intersectsPolygon(a, b) and \
+           locallyInside(a, b) and locallyInside(b, a) and middleInside(a, b)
+
+def area(p, q, r):
+    return (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y)
+
+def equals(p1, p2):
+    return p1.x == p2.x and p1.y == p2.y
+
+def intersects(p1, q1, p2, q2):
+    o1 = sign(area(p1, q1, p2))
+    o2 = sign(area(p1, q1, q2))
+    o3 = sign(area(p2, q2, p1))
+    o4 = sign(area(p2, q2, q1))
+    if o1 != o2 and o3 != o4: return True
+    if o1 == 0 and onSegment(p1, p2, q1): return True
+    if o2 == 0 and onSegment(p1, q2, q1): return True
+    if o3 == 0 and onSegment(p2, p1, q2): return True
+    if o4 == 0 and onSegment(p2, q1, q2): return True
+    return False
+
+def onSegment(p, q, r):
+    return q.x <= max(p.x, r.x) and q.x >= min(p.x, r.x) and q.y <= max(p.y, r.y) and q.y >= min(p.y, r.y)
+
+def sign(num):
+    return 1 if num > 0 else (-1 if num < 0 else 0)
+
+def intersectsPolygon(a, b):
+    p = a
+    while True:
+        if p.i != a.i and p.next.i != a.i and p.i != b.i and p.next.i != b.i and intersects(p, p.next, a, b):
+            return True
+        p = p.next
+        if p == a: break
+    return False
+
+def locallyInside(a, b):
+    if area(a.prev, a, a.next) < 0:
+        return area(a, b, a.next) >= 0 and area(a, a.prev, b) >= 0
+    return area(a, b, a.prev) < 0 or area(a, a.next, b) < 0
+
+def middleInside(a, b):
+    p = a
+    inside = False
+    px, py = (a.x + b.x) / 2, (a.y + b.y) / 2
+    while True:
+        if ((p.y > py) != (p.next.y > py)) and px < (p.next.x - p.x) * (py - p.y) / (p.next.y - p.y) + p.x:
+            inside = not inside
+        p = p.next
+        if p == a: break
+    return inside
+
+def splitPolygon(a, b):
+    """Create bridge between two polygon vertices."""
+    a2 = Node(a.i, a.x, a.y)
+    b2 = Node(b.i, b.x, b.y)
+    an, bp = a.next, b.prev
+
+    a.next = b
+    b.prev = a
+    a2.next = an
+    an.prev = a2
+    b2.next = a2
+    a2.prev = b2
+    bp.next = b2
+    b2.prev = bp
+
+    return b2
+
+def insertNode(i, x, y, last):
+    """Create node and link to list."""
+    p = Node(i, x, y)
+    if not last:
+        p.prev = p
+        p.next = p
+    else:
+        p.next = last.next
+        p.prev = last
+        last.next.prev = p
+        last.next = p
+    return p
+
+def removeNode(p):
+    p.next.prev = p.prev
+    p.prev.next = p.next
+    if p.prevZ: p.prevZ.nextZ = p.nextZ
+    if p.nextZ: p.nextZ.prevZ = p.prevZ
+
+def signedArea(data, start, end, dim):
+    """Calculate signed polygon area."""
+    sum = 0
+    j = end - dim
+    for i in range(start, end, dim):
+        sum += (data[j] - data[i]) * (data[i + 1] + data[j + 1])
+        j = i
+    return sum
+
+# =============================================================================
+# MAIN GENERATOR FUNCTION
+# =============================================================================
 
 def main():
     """
-    Fill closed splines with polygon geometry.
-
-    Uses Non-Zero Winding Number Rule (TrueType/OpenType standard) for
-    proper handling of nested contours (like letter O with inner hole).
+    Fill closed splines with polygon geometry using Earcut algorithm.
 
     UserData:
     - Fill: 0-1 opacity (controls material transparency)
@@ -668,7 +820,7 @@ def main():
     if not child:
         return None
 
-    # Use CurrentStateToObject to get proper SplineObject with GetSegment()
+    # Use CurrentStateToObject to get proper SplineObject
     doc = c4d.documents.GetActiveDocument()
     child_clone = child.GetClone()
     result = c4d.utils.SendModelingCommand(
@@ -676,10 +828,7 @@ def main():
         list=[child_clone],
         doc=doc
     )
-    if result and len(result) > 0:
-        spline = result[0]
-    else:
-        spline = child.GetCache() or child.GetDeformCache() or child
+    spline = result[0] if result else (child.GetCache() or child.GetDeformCache() or child)
 
     if not (spline.GetType() == 5137 or spline.IsInstanceOf(c4d.Ospline)):
         return None
@@ -690,98 +839,95 @@ def main():
 
     seg_count = spline.GetSegmentCount() if hasattr(spline, 'GetSegmentCount') else 0
 
+    # Convert spline to earcut format: flat array + hole indices
+    flat_coords = []
+    hole_indices = []
+    segment_ranges = []  # Track original segment boundaries for side walls
+
+    if seg_count <= 1:
+        # Single segment
+        for p in all_points:
+            flat_coords.extend([p.x, p.y])
+        segment_ranges.append((0, len(all_points)))
+    else:
+        # Multiple segments - detect outer vs holes by area
+        segments = []
+        pt_idx = 0
+        for i in range(seg_count):
+            seg = spline.GetSegment(i)
+            seg_pts = all_points[pt_idx:pt_idx + seg["cnt"]]
+            pt_idx += seg["cnt"]
+
+            # Calculate signed area
+            area = 0.0
+            n = len(seg_pts)
+            for j in range(n):
+                k = (j + 1) % n
+                area += seg_pts[j].x * seg_pts[k].y
+                area -= seg_pts[k].x * seg_pts[j].y
+            area /= 2.0
+
+            segments.append({"pts": seg_pts, "area": area, "abs_area": abs(area)})
+
+        # Sort by absolute area (largest = outer)
+        segments.sort(key=lambda s: -s["abs_area"])
+
+        # First segment is outer, rest are holes
+        vertex_count = 0
+        for i, seg in enumerate(segments):
+            start_idx = vertex_count
+            for p in seg["pts"]:
+                flat_coords.extend([p.x, p.y])
+            vertex_count += len(seg["pts"])
+            segment_ranges.append((start_idx, start_idx + len(seg["pts"])))
+
+            if i > 0:  # This is a hole
+                hole_indices.append(start_idx)
+
+    # Triangulate using earcut
+    triangles = earcut(flat_coords, hole_indices if hole_indices else None, 2)
+
+    if not triangles:
+        return None
+
+    # Build polygon geometry
     result_points = []
     result_polys = []
 
-    if seg_count <= 1:
-        # Single segment - simple triangulation
-        triangles = ear_clip_triangulate(list(all_points))
+    # Convert flat coords back to 3D points
+    num_verts = len(flat_coords) // 2
+    for i in range(num_verts):
+        result_points.append(c4d.Vector(flat_coords[i*2], flat_coords[i*2+1], 0))
 
-        base_idx = len(result_points)
-        for p in all_points:
-            result_points.append(c4d.Vector(p.x, p.y, 0))
+    # Front cap triangles
+    for i in range(0, len(triangles), 3):
+        result_polys.append(c4d.CPolygon(triangles[i], triangles[i+1], triangles[i+2]))
 
-        for tri in triangles:
-            result_polys.append(c4d.CPolygon(base_idx + tri[0], base_idx + tri[1], base_idx + tri[2]))
+    if depth > 0:
+        # Back cap points
+        back_base = len(result_points)
+        for i in range(num_verts):
+            result_points.append(c4d.Vector(flat_coords[i*2], flat_coords[i*2+1], depth))
 
-        if depth > 0:
-            back_base = len(result_points)
-            for p in all_points:
-                result_points.append(c4d.Vector(p.x, p.y, depth))
+        # Back cap triangles (reversed winding)
+        for i in range(0, len(triangles), 3):
+            result_polys.append(c4d.CPolygon(
+                back_base + triangles[i+2],
+                back_base + triangles[i+1],
+                back_base + triangles[i]
+            ))
 
-            for tri in triangles:
-                result_polys.append(c4d.CPolygon(back_base + tri[2], back_base + tri[1], back_base + tri[0]))
-
-            n = len(all_points)
+        # Side walls for each segment
+        for seg_start, seg_end in segment_ranges:
+            n = seg_end - seg_start
             for i in range(n):
-                next_i = (i + 1) % n
-                result_polys.append(c4d.CPolygon(base_idx + i, base_idx + next_i, back_base + next_i, back_base + i))
-    else:
-        # Multiple segments - use winding rule to detect holes
-        segments = [spline.GetSegment(i) for i in range(seg_count)]
-        shapes = process_glyph_contours(list(all_points), segments)
-
-        for outer_pts, holes in shapes:
-            # Triangulate this shape (outer + holes)
-            triangles, merged_pts = triangulate_with_holes(outer_pts, holes)
-
-            # Front cap (Z = 0)
-            base_idx = len(result_points)
-            for p in merged_pts:
-                result_points.append(c4d.Vector(p.x, p.y, 0))
-
-            for tri in triangles:
+                curr = seg_start + i
+                next_v = seg_start + ((i + 1) % n)
+                # Quad connecting front and back
                 result_polys.append(c4d.CPolygon(
-                    base_idx + tri[0],
-                    base_idx + tri[1],
-                    base_idx + tri[2]
+                    curr, next_v,
+                    back_base + next_v, back_base + curr
                 ))
-
-            if depth > 0:
-                # Back cap (Z = depth)
-                back_base = len(result_points)
-                for p in merged_pts:
-                    result_points.append(c4d.Vector(p.x, p.y, depth))
-
-                # Reversed winding for back face
-                for tri in triangles:
-                    result_polys.append(c4d.CPolygon(
-                        back_base + tri[2],
-                        back_base + tri[1],
-                        back_base + tri[0]
-                    ))
-
-                # Side walls - need to use original contour edges, not merged
-                # Process outer contour sides
-                n_outer = len(outer_pts)
-                outer_base = base_idx
-                outer_back = back_base
-                for i in range(n_outer):
-                    next_i = (i + 1) % n_outer
-                    result_polys.append(c4d.CPolygon(
-                        outer_base + i,
-                        outer_base + next_i,
-                        outer_back + next_i,
-                        outer_back + i
-                    ))
-
-                # Process hole contour sides (with reversed winding for inner faces)
-                hole_offset = n_outer
-                for hole in holes:
-                    n_hole = len(hole)
-                    for i in range(n_hole):
-                        next_i = (i + 1) % n_hole
-                        # Holes have reversed winding for correct face direction
-                        result_polys.append(c4d.CPolygon(
-                            base_idx + hole_offset + next_i,
-                            base_idx + hole_offset + i,
-                            back_base + hole_offset + i,
-                            back_base + hole_offset + next_i
-                        ))
-                    hole_offset += n_hole + 2  # +2 for bridge duplicate points
-
-    if not result_polys:
-        return None
 
     # Create polygon object
     poly_obj = c4d.PolygonObject(len(result_points), len(result_polys))
