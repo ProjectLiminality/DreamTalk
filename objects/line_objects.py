@@ -333,16 +333,36 @@ class SplineText(LineObject):
 # Python Generator code for filling closed splines with polygons
 TEXT_FILL_GEN_CODE = '''import c4d
 
+def signed_area_2d(points):
+    """Calculate signed area of polygon. Positive = CCW, Negative = CW."""
+    area = 0.0
+    n = len(points)
+    for i in range(n):
+        j = (i + 1) % n
+        area += points[i].x * points[j].y
+        area -= points[j].x * points[i].y
+    return area / 2.0
+
 def triangulate_segment(points, is_closed):
     """
     Simple ear-clipping triangulation for a 2D polygon.
     Points should be in XY plane. Returns list of triangle indices.
+    Automatically detects and handles CW/CCW winding.
     """
     if len(points) < 3:
         return []
 
-    # Work with indices
-    indices = list(range(len(points)))
+    # Check winding order via signed area
+    # Positive = CCW (what ear-clipping expects), Negative = CW (need to reverse)
+    area = signed_area_2d(points)
+    is_ccw = area > 0
+
+    # Work with indices - reverse if CW to make CCW
+    if is_ccw:
+        indices = list(range(len(points)))
+    else:
+        indices = list(range(len(points) - 1, -1, -1))
+
     triangles = []
 
     def cross_2d(o, a, b):
