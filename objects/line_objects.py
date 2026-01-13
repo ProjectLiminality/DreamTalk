@@ -331,6 +331,8 @@ class SplineText(LineObject):
 # =============================================================================
 
 # Python Generator code for filling closed splines with polygons
+# Uses Non-Zero Winding Number Rule (TrueType/OpenType standard) for hole detection
+# and Bridge Edge Algorithm for triangulation with holes
 TEXT_FILL_GEN_CODE = '''import c4d
 
 def signed_area_2d(points):
@@ -343,26 +345,124 @@ def signed_area_2d(points):
         area -= points[j].x * points[i].y
     return area / 2.0
 
-def triangulate_segment(points, is_closed):
+def point_in_polygon(pt, polygon_pts):
+    """Test if point is inside polygon using ray casting."""
+    n = len(polygon_pts)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        pi, pj = polygon_pts[i], polygon_pts[j]
+        if ((pi.y > pt.y) != (pj.y > pt.y)) and \
+           (pt.x < (pj.x - pi.x) * (pt.y - pi.y) / (pj.y - pi.y) + pi.x):
+            inside = not inside
+        j = i
+    return inside
+
+def segments_intersect(a1, a2, b1, b2):
+    """Check if line segment a1-a2 intersects with b1-b2 (excluding endpoints)."""
+    def ccw(A, B, C):
+        return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
+
+    if ccw(a1, b1, b2) != ccw(a2, b1, b2) and ccw(a1, a2, b1) != ccw(a1, a2, b2):
+        # They intersect - but exclude if sharing endpoints
+        eps = 0.0001
+        for p1 in [a1, a2]:
+            for p2 in [b1, b2]:
+                if abs(p1.x - p2.x) < eps and abs(p1.y - p2.y) < eps:
+                    return False
+        return True
+    return False
+
+def find_bridge_point(outer_pts, hole_pts, all_contours):
     """
-    Simple ear-clipping triangulation for a 2D polygon.
-    Points should be in XY plane. Returns list of triangle indices.
-    Automatically detects and handles CW/CCW winding.
+    Find valid bridge connection between outer contour and hole.
+    Returns (outer_idx, hole_idx) for the bridge vertices.
+    Uses rightmost point of hole as starting point (standard algorithm).
+    """
+    # Find rightmost point of hole
+    hole_idx = 0
+    for i, p in enumerate(hole_pts):
+        if p.x > hole_pts[hole_idx].x:
+            hole_idx = i
+
+    hole_pt = hole_pts[hole_idx]
+
+    # Find closest valid connection to outer contour
+    best_outer_idx = -1
+    best_dist = float('inf')
+
+    for outer_idx, outer_pt in enumerate(outer_pts):
+        # Check distance
+        dx = outer_pt.x - hole_pt.x
+        dy = outer_pt.y - hole_pt.y
+        dist = dx * dx + dy * dy
+
+        if dist >= best_dist:
+            continue
+
+        # Check if bridge crosses any contour edge
+        valid = True
+
+        # Check against all contour edges
+        for contour in all_contours:
+            n = len(contour)
+            for i in range(n):
+                e1 = contour[i]
+                e2 = contour[(i + 1) % n]
+                if segments_intersect(hole_pt, outer_pt, e1, e2):
+                    valid = False
+                    break
+            if not valid:
+                break
+
+        if valid:
+            best_dist = dist
+            best_outer_idx = outer_idx
+
+    return (best_outer_idx, hole_idx)
+
+def merge_contour_with_hole(outer_pts, hole_pts, outer_start, hole_start):
+    """
+    Merge outer contour with hole using bridge edges.
+    Creates single polygon: outer -> bridge -> hole (reversed) -> bridge -> continue outer
+    """
+    merged = []
+    n_outer = len(outer_pts)
+    n_hole = len(hole_pts)
+
+    # Traverse outer from 0 to bridge point (inclusive)
+    for i in range(outer_start + 1):
+        merged.append(outer_pts[i])
+
+    # Bridge to hole, traverse hole in reverse (CW becomes CCW)
+    for i in range(n_hole):
+        idx = (hole_start - i) % n_hole
+        merged.append(hole_pts[idx])
+
+    # Bridge back to outer (duplicate bridge points for proper topology)
+    merged.append(hole_pts[hole_start])
+    merged.append(outer_pts[outer_start])
+
+    # Continue outer from bridge point to end
+    for i in range(outer_start + 1, n_outer):
+        merged.append(outer_pts[i])
+
+    return merged
+
+def ear_clip_triangulate(points):
+    """
+    Ear-clipping triangulation for a simple polygon (no holes).
+    Points should be in CCW order.
     """
     if len(points) < 3:
         return []
 
-    # Check winding order via signed area
-    # Positive = CCW (what ear-clipping expects), Negative = CW (need to reverse)
+    # Ensure CCW
     area = signed_area_2d(points)
-    is_ccw = area > 0
+    if area < 0:
+        points = points[::-1]
 
-    # Work with indices - reverse if CW to make CCW
-    if is_ccw:
-        indices = list(range(len(points)))
-    else:
-        indices = list(range(len(points) - 1, -1, -1))
-
+    indices = list(range(len(points)))
     triangles = []
 
     def cross_2d(o, a, b):
@@ -376,7 +476,7 @@ def triangulate_segment(points, is_closed):
         has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
         return not (has_neg and has_pos)
 
-    def is_ear(i, indices, points):
+    def is_ear(i):
         n = len(indices)
         if n < 3:
             return False
@@ -387,33 +487,32 @@ def triangulate_segment(points, is_closed):
 
         a, b, c = points[prev_i], points[curr_i], points[next_i]
 
-        # Check if convex (positive cross product for CCW)
+        # Must be convex (positive cross for CCW)
         if cross_2d(a, b, c) <= 0:
             return False
 
-        # Check no other point inside triangle
-        for j, idx in enumerate(indices):
+        # No other point inside
+        for j in range(n):
             if j in [(i - 1) % n, i, (i + 1) % n]:
                 continue
-            if point_in_triangle(points[idx], a, b, c):
+            if point_in_triangle(points[indices[j]], a, b, c):
                 return False
 
         return True
 
-    # Ear clipping
     safety = len(indices) * 2
     while len(indices) > 2 and safety > 0:
         safety -= 1
         ear_found = False
 
         for i in range(len(indices)):
-            if is_ear(i, indices, points):
+            if is_ear(i):
                 n = len(indices)
-                prev_i = indices[(i - 1) % n]
-                curr_i = indices[i]
-                next_i = indices[(i + 1) % n]
-
-                triangles.append((prev_i, curr_i, next_i))
+                triangles.append((
+                    indices[(i - 1) % n],
+                    indices[i],
+                    indices[(i + 1) % n]
+                ))
                 indices.pop(i)
                 ear_found = True
                 break
@@ -423,12 +522,131 @@ def triangulate_segment(points, is_closed):
 
     return triangles
 
+def triangulate_with_holes(outer_pts, holes):
+    """
+    Triangulate polygon with holes using bridge edge algorithm.
+
+    Args:
+        outer_pts: List of points for outer contour (should be CCW)
+        holes: List of hole contours (each should be CW for proper winding)
+
+    Returns:
+        List of triangles as (i, j, k) tuples indexing into merged point list,
+        and the merged point list
+    """
+    if not holes:
+        return ear_clip_triangulate(outer_pts), outer_pts
+
+    # Ensure outer is CCW
+    if signed_area_2d(outer_pts) < 0:
+        outer_pts = outer_pts[::-1]
+
+    # Process holes - ensure each is CW (negative area)
+    processed_holes = []
+    for hole in holes:
+        if signed_area_2d(hole) > 0:
+            hole = hole[::-1]
+        processed_holes.append(hole)
+
+    # Sort holes by rightmost x (process from right to left)
+    processed_holes.sort(key=lambda h: -max(p.x for p in h))
+
+    # Merge holes one by one
+    merged = list(outer_pts)
+    all_contours = [merged] + processed_holes
+
+    for hole in processed_holes:
+        bridge = find_bridge_point(merged, hole, all_contours)
+        if bridge[0] >= 0:
+            merged = merge_contour_with_hole(merged, hole, bridge[0], bridge[1])
+            # Update all_contours with merged result
+            all_contours[0] = merged
+
+    # Triangulate the merged polygon
+    triangles = ear_clip_triangulate(merged)
+    return triangles, merged
+
+def process_glyph_contours(all_points, segments):
+    """
+    Process font glyph contours using Non-Zero Winding Number Rule.
+
+    Determines which contours are outer boundaries vs holes based on:
+    - Winding direction (CCW = outer, CW = hole in standard coords)
+    - Containment (holes must be inside an outer contour)
+
+    Returns list of (outer_pts, [hole_pts, ...]) tuples for each glyph shape.
+    """
+    # Extract individual contours
+    contours = []
+    pt_idx = 0
+    for seg in segments:
+        seg_pts = all_points[pt_idx:pt_idx + seg["cnt"]]
+        pt_idx += seg["cnt"]
+        if len(seg_pts) >= 3:
+            area = signed_area_2d(seg_pts)
+            contours.append({
+                "pts": seg_pts,
+                "area": area,
+                "is_ccw": area > 0,
+                "bbox": (
+                    min(p.x for p in seg_pts), min(p.y for p in seg_pts),
+                    max(p.x for p in seg_pts), max(p.y for p in seg_pts)
+                )
+            })
+
+    if not contours:
+        return []
+
+    # Sort by absolute area (largest first = outer contours)
+    contours.sort(key=lambda c: -abs(c["area"]))
+
+    # Group contours: find which holes belong to which outer
+    shapes = []
+    used = set()
+
+    for i, cont in enumerate(contours):
+        if i in used:
+            continue
+
+        # This should be an outer contour (largest remaining)
+        outer_pts = cont["pts"]
+
+        # Ensure outer is CCW
+        if not cont["is_ccw"]:
+            outer_pts = outer_pts[::-1]
+
+        used.add(i)
+        holes = []
+
+        # Find holes contained in this outer
+        for j, other in enumerate(contours):
+            if j in used:
+                continue
+
+            # Check if other's centroid is inside outer
+            cx = sum(p.x for p in other["pts"]) / len(other["pts"])
+            cy = sum(p.y for p in other["pts"]) / len(other["pts"])
+            test_pt = c4d.Vector(cx, cy, 0)
+
+            if point_in_polygon(test_pt, outer_pts):
+                # This is a hole in the current outer
+                hole_pts = other["pts"]
+                # Ensure hole is CW (opposite of outer)
+                if other["is_ccw"]:
+                    hole_pts = hole_pts[::-1]
+                holes.append(hole_pts)
+                used.add(j)
+
+        shapes.append((outer_pts, holes))
+
+    return shapes
+
 def main():
     """
     Fill closed splines with polygon geometry.
 
-    Generates fill polygons directly from spline points using triangulation.
-    If depth > 0, creates front cap, back cap, and side walls.
+    Uses Non-Zero Winding Number Rule (TrueType/OpenType standard) for
+    proper handling of nested contours (like letter O with inner hole).
 
     UserData:
     - Fill: 0-1 opacity (controls material transparency)
@@ -450,8 +668,7 @@ def main():
     if not child:
         return None
 
-    # Always use CurrentStateToObject to get a proper SplineObject (5101)
-    # GetCache() returns LineObject (5137) which lacks GetSegment() method
+    # Use CurrentStateToObject to get proper SplineObject with GetSegment()
     doc = c4d.documents.GetActiveDocument()
     child_clone = child.GetClone()
     result = c4d.utils.SendModelingCommand(
@@ -462,14 +679,8 @@ def main():
     if result and len(result) > 0:
         spline = result[0]
     else:
-        # Fallback to cache if CSTO fails
-        spline = child.GetCache()
-        if spline is None:
-            spline = child.GetDeformCache()
-        if spline is None:
-            spline = child
+        spline = child.GetCache() or child.GetDeformCache() or child
 
-    # Verify it's a spline-like object
     if not (spline.GetType() == 5137 or spline.IsInstanceOf(c4d.Ospline)):
         return None
 
@@ -477,73 +688,46 @@ def main():
     if len(all_points) < 3:
         return None
 
-    # Get segments
     seg_count = spline.GetSegmentCount() if hasattr(spline, 'GetSegmentCount') else 0
 
-    # Collect all geometry
     result_points = []
     result_polys = []
 
     if seg_count <= 1:
-        # Single segment - triangulate as one polygon
-        triangles = triangulate_segment(all_points, True)
+        # Single segment - simple triangulation
+        triangles = ear_clip_triangulate(list(all_points))
 
-        # Front cap (Z = 0)
         base_idx = len(result_points)
         for p in all_points:
             result_points.append(c4d.Vector(p.x, p.y, 0))
 
         for tri in triangles:
-            result_polys.append(c4d.CPolygon(
-                base_idx + tri[0],
-                base_idx + tri[1],
-                base_idx + tri[2]
-            ))
+            result_polys.append(c4d.CPolygon(base_idx + tri[0], base_idx + tri[1], base_idx + tri[2]))
 
         if depth > 0:
-            # Back cap (Z = depth)
             back_base = len(result_points)
             for p in all_points:
                 result_points.append(c4d.Vector(p.x, p.y, depth))
 
-            # Back cap triangles (reversed winding)
             for tri in triangles:
-                result_polys.append(c4d.CPolygon(
-                    back_base + tri[2],
-                    back_base + tri[1],
-                    back_base + tri[0]
-                ))
+                result_polys.append(c4d.CPolygon(back_base + tri[2], back_base + tri[1], back_base + tri[0]))
 
-            # Side walls
             n = len(all_points)
             for i in range(n):
                 next_i = (i + 1) % n
-                # Quad: front[i], front[next], back[next], back[i]
-                result_polys.append(c4d.CPolygon(
-                    base_idx + i,
-                    base_idx + next_i,
-                    back_base + next_i,
-                    back_base + i
-                ))
+                result_polys.append(c4d.CPolygon(base_idx + i, base_idx + next_i, back_base + next_i, back_base + i))
     else:
-        # Multiple segments - process each
-        pt_idx = 0
-        for seg_i in range(seg_count):
-            seg_info = spline.GetSegment(seg_i)
-            seg_cnt = seg_info["cnt"]
-            seg_closed = seg_info["closed"]
+        # Multiple segments - use winding rule to detect holes
+        segments = [spline.GetSegment(i) for i in range(seg_count)]
+        shapes = process_glyph_contours(list(all_points), segments)
 
-            seg_points = all_points[pt_idx:pt_idx + seg_cnt]
-            pt_idx += seg_cnt
+        for outer_pts, holes in shapes:
+            # Triangulate this shape (outer + holes)
+            triangles, merged_pts = triangulate_with_holes(outer_pts, holes)
 
-            if len(seg_points) < 3:
-                continue
-
-            triangles = triangulate_segment(seg_points, seg_closed)
-
-            # Front cap
+            # Front cap (Z = 0)
             base_idx = len(result_points)
-            for p in seg_points:
+            for p in merged_pts:
                 result_points.append(c4d.Vector(p.x, p.y, 0))
 
             for tri in triangles:
@@ -554,11 +738,12 @@ def main():
                 ))
 
             if depth > 0:
-                # Back cap
+                # Back cap (Z = depth)
                 back_base = len(result_points)
-                for p in seg_points:
+                for p in merged_pts:
                     result_points.append(c4d.Vector(p.x, p.y, depth))
 
+                # Reversed winding for back face
                 for tri in triangles:
                     result_polys.append(c4d.CPolygon(
                         back_base + tri[2],
@@ -566,16 +751,34 @@ def main():
                         back_base + tri[0]
                     ))
 
-                # Side walls
-                n = len(seg_points)
-                for i in range(n):
-                    next_i = (i + 1) % n
+                # Side walls - need to use original contour edges, not merged
+                # Process outer contour sides
+                n_outer = len(outer_pts)
+                outer_base = base_idx
+                outer_back = back_base
+                for i in range(n_outer):
+                    next_i = (i + 1) % n_outer
                     result_polys.append(c4d.CPolygon(
-                        base_idx + i,
-                        base_idx + next_i,
-                        back_base + next_i,
-                        back_base + i
+                        outer_base + i,
+                        outer_base + next_i,
+                        outer_back + next_i,
+                        outer_back + i
                     ))
+
+                # Process hole contour sides (with reversed winding for inner faces)
+                hole_offset = n_outer
+                for hole in holes:
+                    n_hole = len(hole)
+                    for i in range(n_hole):
+                        next_i = (i + 1) % n_hole
+                        # Holes have reversed winding for correct face direction
+                        result_polys.append(c4d.CPolygon(
+                            base_idx + hole_offset + next_i,
+                            base_idx + hole_offset + i,
+                            back_base + hole_offset + i,
+                            back_base + hole_offset + next_i
+                        ))
+                    hole_offset += n_hole + 2  # +2 for bridge duplicate points
 
     if not result_polys:
         return None
