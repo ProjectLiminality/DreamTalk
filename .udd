@@ -5,14 +5,12 @@
   "dreamTalk": "DreamTalk.gif",
   "submodules": [],
   "supermodules": [
-    "71e713b2-e701-4a45-97b5-248aad4fc122",
-    "bbcdb28a-6143-419c-a20e-744776fa5258",
     "cb78fc3b-aa09-4662-9df8-ea0128dba7dc",
-    "0d171ec7-1873-4e8d-bb34-85d0ebae7664",
     "8320f3ba-2364-4897-a2cf-6f4ab7bcd853",
     "cebb0d2b-f4d8-4a10-9533-2a493458a610",
     "1021d9dd-a0b2-47f1-8324-f6547b2db518",
     "fc58bd54-55fd-4e66-9219-2d61ced64d21",
-    "1a3e1412-04ec-4fd2-a0d9-aa18a842c676"
+    "1a3e1412-04ec-4fd2-a0d9-aa18a842c676",
+    "b03cbf36-ccbd-4f9c-86ae-699531d38c2e"
   ]
 }
