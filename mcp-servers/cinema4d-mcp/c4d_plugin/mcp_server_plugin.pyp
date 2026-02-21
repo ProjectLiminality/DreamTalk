@@ -6832,6 +6832,11 @@ class C4DSocketServer(threading.Thread):
                 return {"error": "No active document"}
 
             try:
+                import importlib
+                import DreamTalk.introspection.hierarchy as _h
+                import DreamTalk.introspection.formatters as _f
+                importlib.reload(_h)
+                importlib.reload(_f)
                 from DreamTalk.introspection import describe_scene, format_describe_scene
                 result = describe_scene(doc)
                 description = format_describe_scene(result)

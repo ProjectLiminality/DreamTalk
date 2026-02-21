@@ -1125,10 +1125,30 @@ def get_scene_snapshot(doc=None):
             # Native C4D params (silent - only surfaced on delta)
             native_params = _capture_native_params(obj)
 
+            # Capture ALL tag parameters universally
+            tags_data = {}
+            for tag in obj.GetTags():
+                tag_type = tag.GetType()
+                tag_name = tag.GetName() or f"Tag_{tag_type}"
+                # Create a unique key if multiple tags share a name
+                tag_key = tag_name
+                suffix = 2
+                while tag_key in tags_data:
+                    tag_key = f"{tag_name}_{suffix}"
+                    suffix += 1
+                try:
+                    tags_data[tag_key] = {
+                        "type": tag_type,
+                        "native": _capture_native_params(tag)
+                    }
+                except:
+                    pass  # Skip tags that can't be introspected
+
             snapshot["objects"][obj_guid] = {
                 "name": obj_name,
                 "dreamtalk": dreamtalk_data,
-                "native": native_params
+                "native": native_params,
+                "tags": tags_data
             }
 
             # Recurse
@@ -1344,6 +1364,13 @@ def diff_scene(doc=None):
             for desc_id, vals in params.items():
                 summary_parts.append(f"{obj} [DescID {desc_id}]: {vals['old']} → {vals['new']}")
 
+    if obj_changes.get("tags_modified"):
+        for obj, params in obj_changes["tags_modified"].items():
+            for param_key, vals in params.items():
+                tag_name = vals.get('tag', '')
+                name = vals.get('name', '')
+                summary_parts.append(f"{obj} tag '{tag_name}' {name}: {vals['old']} → {vals['new']}")
+
     if obj_changes.get("added"):
         summary_parts.append(f"Added objects: {', '.join(obj_changes['added'])}")
     if obj_changes.get("removed"):
@@ -1470,6 +1497,7 @@ def _compute_diff(old_snapshot, current_snapshot):
         "objects": {
             "dreamtalk_modified": {},  # DreamTalk param changes (always important)
             "native_modified": {},      # Native C4D param changes (only on delta)
+            "tags_modified": {},        # Tag param changes (only on delta)
             "added": [],
             "removed": []
         },
@@ -1542,6 +1570,39 @@ def _compute_diff(old_snapshot, current_snapshot):
             if native_changes:
                 changes["objects"]["native_modified"][obj_name] = native_changes
 
+            # Compare tag parameters
+            current_tags = obj_data.get("tags", {})
+            old_tags = old_obj_data.get("tags", {})
+
+            obj_tag_changes = {}
+            for tag_key, tag_data in current_tags.items():
+                if tag_key not in old_tags:
+                    continue  # New tag, skip
+                old_tag_data = old_tags[tag_key]
+                current_tag_values = tag_data.get("native", {}).get("values", {})
+                old_tag_values = old_tag_data.get("native", {}).get("values", {})
+                current_tag_meta = tag_data.get("native", {}).get("meta", {})
+
+                for param, value in current_tag_values.items():
+                    if param in old_tag_values and old_tag_values[param] != value:
+                        change_info = {"old": old_tag_values[param], "new": value, "tag": tag_key}
+                        if param in current_tag_meta:
+                            meta = current_tag_meta[param]
+                            if "name" in meta:
+                                change_info["name"] = meta["name"]
+                            if "ident" in meta:
+                                change_info["ident"] = meta["ident"]
+                            if "options" in meta:
+                                options = meta["options"]
+                                if old_tag_values[param] in options:
+                                    change_info["old_label"] = options[old_tag_values[param]]
+                                if value in options:
+                                    change_info["new_label"] = options[value]
+                        obj_tag_changes[f"{tag_key}.{param}"] = change_info
+
+            if obj_tag_changes:
+                changes["objects"]["tags_modified"][obj_name] = obj_tag_changes
+
     # Find removed objects
     for guid in old_objects:
         if guid not in current_objects:
@@ -1574,6 +1635,7 @@ def _compute_diff(old_snapshot, current_snapshot):
     total_changes = (
         len(changes["objects"]["dreamtalk_modified"]) +
         len(changes["objects"]["native_modified"]) +
+        len(changes["objects"]["tags_modified"]) +
         len(changes["objects"]["added"]) +
         len(changes["objects"]["removed"]) +
         len(changes["materials"]["modified"]) +

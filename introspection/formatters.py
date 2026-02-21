@@ -543,6 +543,41 @@ def _format_changes(changes_result, lines):
 
                 lines.append(f"- **{obj_name}**.{param_display}: `{old_display}` → `{new_display}`")
 
+    # Tag param changes
+    if obj_changes.get("tags_modified"):
+        for obj_name, params in obj_changes["tags_modified"].items():
+            for param_key, vals in params.items():
+                old_val = vals.get('old')
+                new_val = vals.get('new')
+                tag_name = vals.get('tag', '')
+                param_name = vals.get('name', '')
+                ident = vals.get('ident', '')
+                old_label = vals.get('old_label')
+                new_label = vals.get('new_label')
+
+                if isinstance(old_val, float):
+                    old_val = round(old_val, 3)
+                if isinstance(new_val, float):
+                    new_val = round(new_val, 3)
+
+                if old_label and new_label:
+                    old_display = f"{old_label} ({old_val})"
+                    new_display = f"{new_label} ({new_val})"
+                else:
+                    old_display = str(old_val)
+                    new_display = str(new_val)
+
+                if param_name and ident:
+                    param_display = f"{param_name} ({ident})"
+                elif param_name:
+                    param_display = param_name
+                elif ident:
+                    param_display = ident
+                else:
+                    param_display = param_key
+
+                lines.append(f"- **{obj_name}** tag **{tag_name}**.{param_display}: `{old_display}` → `{new_display}`")
+
     # Added/removed objects
     if obj_changes.get("added"):
         for name in obj_changes["added"]:
