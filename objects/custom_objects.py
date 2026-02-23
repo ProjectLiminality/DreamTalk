@@ -1456,11 +1456,14 @@ class FoldableCube(CustomObject, GeneratorMixin):
     The Fold parameter controls how upright the walls are (-1 to 1 range).
     """
 
-    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=1, **kwargs):
+    def __init__(self, color=BLUE, bottom=True, drive_opacity=True, stroke_width=1,
+                 filled=False, fill_faces=None, **kwargs):
         self.color = color
         self.bottom = bottom
         self.drive_opacity = drive_opacity
         self.stroke_width = stroke_width
+        self.filled = filled  # Whether to generate fill polygons for closed splines
+        self.fill_faces = fill_faces  # List of face names to fill, e.g. ["back", "left", "right"]; None = all
         super().__init__(**kwargs)
 
     def specify_parts(self):
@@ -1647,17 +1650,38 @@ class FoldableCube(CustomObject, GeneratorMixin):
         return AnimationGroup(*animations)
 
     def specify_generator_code(self):
-        """Generator code that handles BOTH folding AND stroke generation.
+        """Generator code that handles folding, stroke generation, and fill for closed splines.
 
-        Consolidates logic that was previously split across multiple generators:
         - Fold parameter controls child rectangle rotations
         - Stroke generation creates camera-facing geometry for all child splines
+        - For closed splines: optionally generates fill polygons from the same points
         - Returns combined polygon geometry for rendering
 
-        The Rectangle children are raw splines (no wrapper generators).
+        Fill is controlled by the `filled` and `fill_faces` params baked into the code.
         fold=0 -> flat (all walls lying down), fold=1 -> upright (90° walls)
         """
-        return '''
+        # Bake fill config into generator code
+        if self.filled:
+            if self.fill_faces:
+                fill_set = set(f.lower() for f in self.fill_faces)
+            else:
+                fill_set = {"front", "back", "left", "right", "bottom"}
+        else:
+            fill_set = set()
+        fill_set_str = repr(fill_set)
+
+        return f'''
+FILL_FACES = {fill_set_str}
+
+# Map child names to face keys for fill lookup
+FACE_KEY_MAP = {{
+    "FrontRectangle": "front",
+    "BackRectangle": "back",
+    "RightRectangle": "right",
+    "LeftRectangle": "left",
+    "BottomRectangle": "bottom",
+}}
+
 def main():
     doc = c4d.documents.GetActiveDocument()
 
@@ -1690,19 +1714,18 @@ def main():
     gen_mg = op.GetMg()
     gen_mg_inv = ~gen_mg
 
-    # Accumulators for combined stroke geometry
+    # Accumulators for stroke and fill geometry (separate for material assignment)
     all_stroke_points = []
     all_stroke_polys = []
+    all_fill_points = []
+    all_fill_polys = []
 
     # === PROCESS EACH CHILD ===
-    # Children are now pivot nulls with rectangle children
     child = op.GetDown()
     while child:
         name = child.GetName()
 
-        # Rotate pivot nulls - rectangles follow as children
-        # Front/Back: rotate around P (pitch/Y axis)
-        # Right/Left: rotate around Z axis (bank)
+        # Rotate pivot nulls
         if name == "FrontPivot":
             child.SetRelRot(c4d.Vector(0, angle, 0))
         elif name == "BackPivot":
@@ -1711,85 +1734,138 @@ def main():
             child.SetRelRot(c4d.Vector(0, 0, -angle))
         elif name == "LeftPivot":
             child.SetRelRot(c4d.Vector(0, 0, angle))
-        # BottomRectangle has no pivot, stays flat
 
-        # === STROKE GENERATION ===
-        # Handle both direct splines (BottomRectangle) and pivot nulls (with rectangle children)
-        stroke_targets = []
-
-        # Check if child is a null (pivot) - if so, get its rectangle child
+        # Collect spline children (from pivot or direct)
+        spline_children = []
         if child.GetType() == c4d.Onull:
-            rect_child = child.GetDown()
-            if rect_child:
-                stroke_targets.append(rect_child)
+            sub = child.GetDown()
+            while sub:
+                spline_children.append(sub)
+                sub = sub.GetNext()
         else:
-            stroke_targets.append(child)
+            spline_children.append(child)
 
-        for stroke_child in stroke_targets:
-            # Hide source spline in editor - stroke geometry replaces it visually
-            stroke_child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+        for sub_child in spline_children:
+            sub_name = sub_child.GetName()
 
-            spline = stroke_child.GetCache()
+            # Hide source spline - stroke geometry replaces it
+            sub_child[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR] = 1
+
+            spline = sub_child.GetCache()
             if spline is None:
-                spline = stroke_child.GetDeformCache()
-            if spline is None:
-                spline = stroke_child  # Use directly if already a spline
+                spline = sub_child
 
-            # Check if it's a spline-like object
-            is_line_object = spline.GetType() == 5137
-            is_spline_object = spline.IsInstanceOf(c4d.Ospline)
+            is_spline = spline.GetType() == 5137 or spline.IsInstanceOf(c4d.Ospline)
+            if not is_spline:
+                continue
 
-            if is_line_object or is_spline_object:
-                stroke_child_mg = stroke_child.GetMg()
-                points = spline.GetAllPoints()
+            stroke_child_mg = sub_child.GetMg()
+            points = spline.GetAllPoints()
+            if len(points) < 2:
+                continue
 
-                if len(points) >= 2:
-                    # Transform points to world space
-                    world_points = []
-                    for p in points:
-                        world_p = stroke_child_mg * p
-                        world_points.append(world_p)
+            # Transform to world space
+            world_points = [stroke_child_mg * p for p in points]
 
-                    # Determine if closed (Rectangle type 5186 is closed)
-                    is_closed = stroke_child.GetType() == 5186 or stroke_child.GetType() in [5181, 5176, 5180, 5178, 5175]
+            # Closed spline types: Rectangle(5186), Circle(5181), 4-Side(5176),
+            # Flower(5180), Cogwheel(5178), Star(5175)
+            is_closed = sub_child.GetType() in (5186, 5181, 5176, 5180, 5178, 5175)
 
-                    # Generate stroke quads for this spline
-                    num_pts = len(world_points)
-                    num_edges = num_pts if is_closed else num_pts - 1
+            # === STROKE QUADS ===
+            num_pts = len(world_points)
+            num_edges = num_pts if is_closed else num_pts - 1
 
-                    for i in range(num_edges):
-                        p1_world = world_points[i]
-                        p2_world = world_points[(i + 1) % num_pts]
+            for i in range(num_edges):
+                p1 = world_points[i]
+                p2 = world_points[(i + 1) % num_pts]
+                mid = (p1 + p2) * 0.5
+                to_cam = (cam_world - mid).GetNormalized()
+                tangent = (p2 - p1).GetNormalized()
+                perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
 
-                        mid = (p1_world + p2_world) * 0.5
-                        to_cam = (cam_world - mid).GetNormalized()
-                        tangent = (p2_world - p1_world).GetNormalized()
-                        perp = tangent.Cross(to_cam).GetNormalized() * stroke_width
+                base_idx = len(all_stroke_points)
+                all_stroke_points.extend([
+                    gen_mg_inv * (p1 - perp),
+                    gen_mg_inv * (p1 + perp),
+                    gen_mg_inv * (p2 + perp),
+                    gen_mg_inv * (p2 - perp),
+                ])
+                all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
 
-                        q0 = gen_mg_inv * (p1_world - perp)
-                        q1 = gen_mg_inv * (p1_world + perp)
-                        q2 = gen_mg_inv * (p2_world + perp)
-                        q3 = gen_mg_inv * (p2_world - perp)
-
-                        base_idx = len(all_stroke_points)
-                        all_stroke_points.extend([q0, q1, q2, q3])
-                        all_stroke_polys.append(c4d.CPolygon(base_idx, base_idx+1, base_idx+2, base_idx+3))
+            # === FILL POLYGON for closed splines ===
+            face_key = FACE_KEY_MAP.get(sub_name, "")
+            if is_closed and face_key in FILL_FACES and num_pts >= 3:
+                # Triangle fan from first point to all others
+                base_idx = len(all_fill_points)
+                for p in world_points:
+                    all_fill_points.append(gen_mg_inv * p)
+                for i in range(1, num_pts - 1):
+                    all_fill_polys.append(c4d.CPolygon(base_idx, base_idx + i, base_idx + i + 1, base_idx + i + 1))
 
         child = child.GetNext()
 
-    # === BUILD COMBINED RESULT ===
-    if not all_stroke_polys:
+    # === BUILD RESULT ===
+    has_strokes = len(all_stroke_polys) > 0
+    has_fills = len(all_fill_polys) > 0
+
+    if not has_strokes and not has_fills:
         return None
 
-    result = c4d.PolygonObject(len(all_stroke_points), len(all_stroke_polys))
-    result.SetAllPoints(all_stroke_points)
-    for i, poly in enumerate(all_stroke_polys):
-        result.SetPolygon(i, poly)
+    # No fills: single PolygonObject (backward compatible)
+    if has_strokes and not has_fills:
+        result = c4d.PolygonObject(len(all_stroke_points), len(all_stroke_polys))
+        result.SetAllPoints(all_stroke_points)
+        for i, poly in enumerate(all_stroke_polys):
+            result.SetPolygon(i, poly)
+        result.Message(c4d.MSG_UPDATE)
+        result.SetName("FoldableCubeStrokes")
+        return result
 
-    result.Message(c4d.MSG_UPDATE)
-    result.SetName("FoldableCubeStrokes")
+    # Both strokes and fills: Null with two children (separate materials)
+    root = c4d.BaseObject(c4d.Onull)
+    root.SetName("FoldableCubeGeo")
 
-    return result
+    if has_strokes:
+        stroke_obj = c4d.PolygonObject(len(all_stroke_points), len(all_stroke_polys))
+        stroke_obj.SetAllPoints(all_stroke_points)
+        for i, poly in enumerate(all_stroke_polys):
+            stroke_obj.SetPolygon(i, poly)
+        stroke_obj.Message(c4d.MSG_UPDATE)
+        stroke_obj.SetName("Strokes")
+        stroke_obj.InsertUnder(root)
+
+    if has_fills:
+        fill_obj = c4d.PolygonObject(len(all_fill_points), len(all_fill_polys))
+        fill_obj.SetAllPoints(all_fill_points)
+        for i, poly in enumerate(all_fill_polys):
+            fill_obj.SetPolygon(i, poly)
+        fill_obj.Message(c4d.MSG_UPDATE)
+        fill_obj.SetName("Fills")
+
+        # Find or create fill material (black luminance, shared across all instances)
+        fill_mat_name = "DreamTalk_FillMat"
+        fill_mat = None
+        m = doc.GetFirstMaterial()
+        while m:
+            if m.GetName() == fill_mat_name:
+                fill_mat = m
+                break
+            m = m.GetNext()
+        if fill_mat is None:
+            fill_mat = c4d.Material()
+            fill_mat.SetName(fill_mat_name)
+            fill_mat[c4d.MATERIAL_USE_COLOR] = False
+            fill_mat[c4d.MATERIAL_USE_LUMINANCE] = True
+            fill_mat[c4d.MATERIAL_LUMINANCE_COLOR] = c4d.Vector(0, 0, 0)
+            fill_mat[c4d.MATERIAL_USE_REFLECTION] = False
+            doc.InsertMaterial(fill_mat)
+
+        tag = c4d.TextureTag()
+        tag.SetMaterial(fill_mat)
+        fill_obj.InsertTag(tag)
+        fill_obj.InsertUnder(root)
+
+    return root
 '''
 
     def specify_generator_code_position_driven(self, axis='x', range_val=300):

@@ -6832,11 +6832,6 @@ class C4DSocketServer(threading.Thread):
                 return {"error": "No active document"}
 
             try:
-                import importlib
-                import DreamTalk.introspection.hierarchy as _h
-                import DreamTalk.introspection.formatters as _f
-                importlib.reload(_h)
-                importlib.reload(_f)
                 from DreamTalk.introspection import describe_scene, format_describe_scene
                 result = describe_scene(doc)
                 description = format_describe_scene(result)
@@ -6932,9 +6927,22 @@ Frame {current_frame}/{doc_end} @ {fps}fps
                 # Redirect stdout to capture print statements
                 sys.stdout = captured
 
+                # Add the script's parent directory to sys.path so local
+                # submodules (MindVirus/, DreamTalk/) are found before standalone copies
+                script_dir = os.path.dirname(os.path.abspath(path))
+                path_inserted = False
+                if script_dir not in sys.path:
+                    sys.path.insert(0, script_dir)
+                    path_inserted = True
+
                 # Execute the DreamTalk script as __main__
                 self.log(f"[C4D] Executing DreamTalk: {path}")
-                runpy.run_path(path, run_name='__main__')
+                try:
+                    runpy.run_path(path, run_name='__main__')
+                finally:
+                    # Restore sys.path
+                    if path_inserted and script_dir in sys.path:
+                        sys.path.remove(script_dir)
 
                 c4d.EventAdd()
                 self.log(f"[C4D] DreamTalk execution completed: {path}")
@@ -6964,6 +6972,15 @@ Frame {current_frame}/{doc_end} @ {fps}fps
                         obj = obj.GetNext()
                 if doc:
                     count_objects(doc.GetFirstObject())
+
+                # Auto-snapshot for change detection on next describe_scene
+                try:
+                    from DreamTalk.introspection.hierarchy import get_scene_snapshot
+                    import DreamTalk.introspection.hierarchy as _hier
+                    _hier._last_snapshot = get_scene_snapshot(doc)
+                    self.log("[C4D] Auto-snapshot captured after run_dreamtalk")
+                except Exception as snap_err:
+                    self.log(f"[C4D] Auto-snapshot failed: {snap_err}")
 
                 return {
                     "success": True,
