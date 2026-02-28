@@ -3,6 +3,7 @@
   "title": "DreamTalk",
   "type": "dream",
   "dreamTalk": "DreamTalk.gif",
+  "radicleId": "rad:zuPiXejbtFFCdDDs7usyJUSQvwaS",
   "submodules": [],
   "supermodules": [
     "cb78fc3b-aa09-4662-9df8-ea0128dba7dc",
