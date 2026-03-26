@@ -122,6 +122,41 @@ DreamTalk's own authoring environment will itself be a DreamSong — the tool cr
 
 You don't need to finish DreamTalk before making animations. Building the tool IS making the animations. The creative process and the tool development are one movement — each animation reveals what the framework needs next, and each framework capability enables the next animation.
 
+### DreamTalk as Visual Programming Language (HyperCard + Plan 9 Synthesis)
+
+DreamTalk is a visual programming language where the program IS the interface. Every symbol IS its functionality. The scene graph IS the program. This is the synthesis of HyperCard (1987) and Plan 9 (1990) — the human-first visual authoring of HyperCard merged with the everything-is-a-file philosophy of Plan 9.
+
+HyperCard's lineage fragmented into AppleScript (kept language, lost visual), Keynote (kept cards, lost scripting), the Web (kept linking, lost everything else). DreamTalk reunifies what was broken.
+
+**The UDD file format**: A DreamTalk script that evaluates to a scene graph. Being and doing in one file. The scene description IS executable code. Change the script, the world changes.
+
+**The triple scene graph**: Three projections of one structure:
+- **Geometric** (what you see) — symbols in space, rendered by the GPU
+- **Linguistic** (what you read) — names in the filesystem namespace
+- **Semantic** (what AI understands) — both together, readable as text
+
+**DreamTalk language**: English-like, deterministic parsing (~300 lines), no LLM needed. `set the color of title to blue`. Same syntax creates and operates. The Message Box (Cmd+Space AURYN overlay) accepts DreamTalk commands directly — the same input field that talks to AURYN also accepts direct DreamTalk commands for precise manipulation.
+
+### Event Bubbling: Symbols as Conversation Targets
+
+Every symbol in DreamTalk participates in an event bubbling model. Clicking a symbol without a handler doesn't produce silence — it bubbles up: symbol → scene → DreamNode → AURYN. Nothing ever goes unhandled. AURYN is the universal fallback handler, like HyperCard's Home stack.
+
+In creator mode, ALL game handlers deactivate. Every click goes to AURYN. The entire scene becomes a conversation through pointing — you don't describe what you mean, you click it. AURYN receives the click plus the symbol's full context (name, type, properties, position).
+
+This means each symbol only needs to know about itself. Parents catch unhandled child events. Add new elements — they work without wiring. The scene graph IS the component tree, and bubbling IS the communication protocol. No React-style component/props/state management needed.
+
+### The Cursor as Soul
+
+The cursor has two incarnations that map to DreamOS's creator and game loops:
+
+**Creator mode (infinite game)**: The cursor is free — a glowing dot, your presence hovering above the scene. You point at anything, click anything, talk to AURYN about anything. You are the observer. The AURYN symbol is visible.
+
+**Game mode (finite game)**: The cursor incarnates into a character. The glowing dot moves to the character's heart chakra. WASD controls movement. You are IN the world, playing by its rules. The AURYN symbol disappears.
+
+**Transition**: Press Cmd+Space → cursor lifts out of character → creator mode. Click a character → cursor incarnates → game mode. Like putting on and taking off the Neverending Story's AURYN amulet.
+
+The glowing dot at the heart is the universal cursor symbol across all of DreamTalk — the irreducible mark of presence, whether hovering above or embodied within.
+
 ---
 
 ## Known Limitations & Challenges
