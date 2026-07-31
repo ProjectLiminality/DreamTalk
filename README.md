@@ -2,6 +2,8 @@
 ![](DreamTalk/DreamTalk.png)
 ![](DreamTalk/DreamTalk.gif)
 
+> **At a glance (for engineers):** A Python procedural-animation framework for Cinema 4D — a code-first system for mathematically precise symbolic animation (inspired by manim, with C4D as the rendering backend). Custom object model and keyframe animation system built on an abstract class hierarchy (ProtoObject → VisibleObject → line/solid/composite objects), declarative parameter bindings, and Python code-generation that replaces C4D's XPresso node graph. Includes an **MCP server** that lets an LLM drive the library end-to-end — edit the Python source, re-render, and inspect the scene via an introspection layer. Holarchic architecture: symbols compose to arbitrary depth as git submodules. Python · Cinema 4D API · FastMCP. Solo-built, developed in the open since 2023.
+
 ## Philosophical Meaning
 
 DreamTalk represents the extension of the ancient indigenous modality of SandTalk, popularised through [Tyson Yunkapurta's book](https://www.amazon.com/Sand-Talk-Indigenous-Thinking-World/dp/0062975641), into the digital domain.
