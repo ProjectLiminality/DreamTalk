@@ -65,6 +65,27 @@ old code is archaeology, not authority.
 - Symbols cannot be meaningfully AI-generated. AI may hold placeholder
   geometry; human creative resonance fills symbols with meaning.
 
+## The Editor (settled — David, 2026-08-22)
+- The DreamTalk editor is part of the framework, not tooling around it:
+  a minimalist editor view with the scene viewport, a timeline, and
+  **realtime playback — never async render preview**. (Claude Design's
+  animation UI is a reasonable reference point.) Web-first, packaged as
+  a Tauri app.
+- **Backdrop system**: a reference image or an entire mp4 can be set as
+  the scene backdrop, timeline-synced with scene t. A toggle switches
+  overlay/blend modes that exploit the black background as transparency,
+  so reference strokes and reproduced strokes overlap directly — this is
+  the fidelity instrument. Claude screenshots the editor and evaluates
+  the overlap itself; aesthetic gates go to David only after Claude's
+  own evaluation passes.
+- **Bidirectional UI ↔ code**: every UI gesture writes the corresponding
+  line in the scene source (drag a backdrop video onto the scene → the
+  backdrop line appears in the script), and every source edit updates
+  the UI live. One source of truth: the file. AI writes code; the human
+  "tweaks parameters" in the expanded sense.
+- The UI exposes **only the truly meaningful minimal set of parameters**
+  a human needs in an AI-native workflow. No parameter dumps.
+
 ## Ontology (vocabulary — use these words)
 - **DreamNode**: the holon (repo). **DreamTalk**: the distilled symbol
   face. **DreamSong**: a woven composition. **DreamSpace**: the arena

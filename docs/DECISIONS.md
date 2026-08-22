@@ -19,12 +19,35 @@ operational decisions are entered by the working agent. Format:
   troika-three-text 0.52.5, `three-text` (countertype) 0.6.5 as text
   fallback candidate — verified against npm/web, not memory.
 
-## Pending David's sign-off (see docs/ANALYSIS.md)
-
-- Q1 composition terminology (proposed: weaving — `strands`/weave between
-  repos; scene-graph terms within a scene; genealogy at social layer only).
-- Q2 SDF role (proposed: mesh-first; SDFs as TSL stroke technique, analytic
-  primitive silhouettes, build-time CSG).
-- Q3 host coupling (proposed: vanilla-Three core owning t; thin adapters).
-- TASTE.md troika amendment (proposed: troika glyph/layout engine + our own
-  TSL node material; stock troika material path breaks under WebGPURenderer).
+- 2026-08-22 · **Composition terminology: holonic whole/part** (David;
+  weaving-as-schema rejected) — `parts` is the manifest field; it's the
+  holon vocabulary itself, already native via `specify_parts()`, and part-of
+  naturally forms the rootless graph that keeps cycles legal.
+- 2026-08-22 · **SDF role: mesh-first, SDF as technique** (David) — baking
+  is vertex data, so meshes must be native; SDFs serve stroke AA, analytic
+  primitive silhouettes, and build-time CSG only.
+- 2026-08-22 · **Host coupling: vanilla-Three core owns t; thin adapters**
+  (David) — the headless gauntlet needs deterministic `renderFrame(t)`, and
+  hosts request time rather than tick it.
+- 2026-08-22 · **TS core lives in `core/` of this repo** (David) — the repo
+  stays the Layer-1 DreamTalk holon; Python remains as C4D authoring backend
+  until the gauntlet proves the core, then moves to `legacy/`.
+- 2026-08-22 · **Text = troika glyph/layout engine + our own TSL node
+  material** (TASTE.md amended) — troika's stock material path breaks under
+  WebGPURenderer; `three-text` 0.6.5 is the recorded fallback.
+- 2026-08-22 · Tree-vs-rootless-graph standing problem closed by the Q1
+  verdict — part-of is a rootless associative graph; each scene's transform
+  hierarchy is a tree.
+- 2026-08-22 · **Founding holons build local-first, publish on approval**
+  (David) — Square/Circle/Cylinder iterate as local git repos; public repos
+  under ProjectLiminality are created only after the cylinder passes TASTE.
+- 2026-08-22 · **GitHub authority: ask before creating any new repo**
+  (David) — pushes to this existing repo stay autonomous; new public repos
+  always wait for a go.
+- 2026-08-22 · **Evaluation is editor-centric and Claude-evaluated first**
+  (David) — the DreamTalk editor (TASTE: The Editor) with timeline-synced
+  mp4/image backdrops and black-as-transparency stroke overlays is the
+  fidelity instrument; Claude screenshots and judges before anything
+  reaches David. Async batch rendering is plumbing, not the workflow.
+- 2026-08-22 · **Runtime: Bun** (David) — matches the wider ecosystem;
+  headless Chrome only where the editor screenshot loop needs driving.
