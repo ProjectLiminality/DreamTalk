@@ -366,7 +366,7 @@ line: solved (with pointer) or parked (with trigger condition).
 | 4 | Stroke rendering & draw-on grammar | [ ] |
 | 5 | Parameter system & promotion | [ ] |
 | 6 | Compute unit & baking | [ ] |
-| 7 | DreamTalk Editor | [ ] |
+| 7 | DreamTalk Editor | [~] v0 live 2026-08-22 (`core/editor/`): viewport w/ realtime playback, timeline scrub + clip marks, live param panel, backdrop instrument (image/video, under + red/green overlay modes, drag-drop, URL-driven for headless evaluation via `scripts/editor-shot.ts`). Remaining: EDITOR.md bidirectional-sync design + implementation, mp4 timeline-sync polish, Tauri spike, TASTE pass. |
 | 8 | Founding holon (Square+Circle→Cylinder) | [ ] |
 | 9 | Video-01 gauntlet | [ ] |
 | 10 | Corpus T2 (symbol library) | [ ] |
