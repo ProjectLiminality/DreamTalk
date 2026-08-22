@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>DreamTalk — FoundingSmoke</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #stage { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; margin: 0 auto; }
+    #readout { position: fixed; bottom: 10px; left: 12px; color: #555; font: 12px monospace; }
+  </style>
+</head>
+<body>
+  <canvas id="stage" width="1280" height="720"></canvas>
+  <div id="readout">booting…</div>
+  <script type="module" src="./dist/main.js"></script>
+</body>
+</html>

@@ -1,9 +1,9 @@
 # ANALYSIS.md — Resolving the TASTE.md open questions
 
-Status: **PROPOSED — awaiting David's sign-off** (TASTE decisions).
-Each question gets: the options, explicit trade-offs, a recommendation, and
-what evidence would change the recommendation. On sign-off, the verdicts move
-to docs/DECISIONS.md as one-liners and this file becomes the rationale record.
+Status: **RESOLVED — signed off by David 2026-08-22.** Verdicts recorded in
+docs/DECISIONS.md; this file is the rationale record. Note: Q1's original
+recommendation (weaving vocabulary) was **rejected** by David in favor of
+plain holonic whole/part language — see the Q1 verdict below.
 
 ---
 
@@ -21,27 +21,28 @@ scene-graph containment (parent/child nodes), weaving (strands → weave).
 | **Containment** (scene-graph parent/child) | Familiar to every graphics engineer; maps 1:1 to Three.js `Object3D` hierarchy and the transform hierarchy in the manifest. | Presupposes a strict tree — silently answers the still-open tree-vs-rootless-graph question the wrong way. A holon used in two compositions is "contained" in neither. Bureaucratic flavor (the Finder metaphor TASTE rejects). |
 | **Weaving** (strands → weave) | Already the ontology: Dream**Weaving**, Dream**Song**, the 2025 canonical definition ("DreamNodes woven into larger wholes"). A strand can appear in many weaves; a weave can serve as a strand in a larger weave — this models shared use and recursion *natively*, and is agnostic on tree-vs-graph. | Unfamiliar as engineering vocabulary; contributors and LLMs need a glossary. Doesn't by itself name the *transform* hierarchy inside one scene. |
 
-### Recommendation: **weaving as the structural vocabulary, two-level**
+### VERDICT (David, 2026-08-22): **holonic whole/part language**
 
-- **Between repos** (composition of holons): weaving language. A composed
-  holon is a **weave**; the holons it draws in are its **strands**; the
-  manifest field listing them is `strands`. The act is **weaving**.
-- **Within one scene** (the transform hierarchy a manifest describes):
-  plain scene-graph terms (`children`, transforms) — because there it *is*
-  a containment tree and pretending otherwise costs clarity.
-- **Genealogical language survives at the social layer only** (Coherence
-  Beacon: the weave is offered to peers who hold its strands) — it is a story
-  about people, not a schema field.
+Weaving-as-schema-vocabulary was rejected (taste call). The settled
+terminology is the holon vocabulary itself:
 
-This also quietly resolves the standing tree-vs-rootless-graph problem in the
-only consistent way: **the strand graph is a rootless associative graph**
-(any holon may be woven into any number of weaves, cycles legal via lazy
-resolution), while **each individual scene's transform hierarchy is a tree**.
-Kairos = the strand graph; a manifest = one tree-shaped reading of it.
+- **Between repos**: every holon is simultaneously a whole and a part —
+  the manifest field listing the holons a composition draws in is
+  **`parts`**. The old pydeation grammar already said `specify_parts()`,
+  and CLAUDE.md's sovereign-symbol structure already describes submodules
+  as "other sovereign symbols as parts". Zero new metaphor; nobody
+  misreads it.
+- **Within one scene**: plain scene-graph terms (`children`, transforms) —
+  there it *is* a containment tree and pretending otherwise costs clarity.
+- **DreamWeaving / DreamSong remain product-level names** (the act and the
+  artifact, culturally), just not schema words. Genealogical language stays
+  at the social layer (Coherence Beacon).
 
-**Would change the recommendation**: if in practice LLM agents driving the
-framework misuse `strands` at a rate that plain `dependencies` would prevent
-(measurable during the video-01 gauntlet).
+This resolves the standing tree-vs-rootless-graph problem the same way the
+weaving proposal did: **part-of is a rootless associative graph** (a part
+can belong to many wholes; cycles legal via lazy resolution), while **each
+scene's transform hierarchy is a tree**. Kairos = the part graph; a
+manifest = one tree-shaped reading of it.
 
 ---
 
@@ -171,14 +172,18 @@ WebGPURenderer)."
 
 ---
 
-## Sign-off checklist (TASTE — David)
+## Sign-off checklist (TASTE — David) — completed 2026-08-22
 
-- [ ] Q1: weaving vocabulary (`strands`/weave between repos; plain scene-graph
-      terms within a scene; genealogy reserved for the social layer) — and
-      with it, tree-vs-rootless-graph resolved as "strand graph is rootless;
-      each scene's transform hierarchy is a tree"
-- [ ] Q2: mesh-first; SDFs only as TSL stroke technique, analytic primitive
+- [x] Q1: **whole/part** vocabulary (`parts` between repos; plain scene-graph
+      terms within a scene; weaving/genealogy at the product/social layer) —
+      and with it, tree-vs-rootless-graph resolved as "part graph is
+      rootless; each scene's transform hierarchy is a tree"
+- [x] Q2: mesh-first; SDFs only as TSL stroke technique, analytic primitive
       silhouettes, and build-time CSG
-- [ ] Q3: vanilla-Three core owning t; R3F/Obsidian/Claude-Design as thin
+- [x] Q3: vanilla-Three core owning t; R3F/Obsidian/Claude-Design as thin
       adapters over `mount/advance/renderFrame`
-- [ ] Troika amendment to TASTE.md as proposed above
+- [x] Additionally signed off: new TS core lives in `core/` in this repo;
+      Python library stays as C4D authoring backend until the gauntlet
+      proves the core, then relocates to `legacy/`
+- [x] Troika amendment applied to TASTE.md as proposed above (technical
+      necessity; fallback `three-text` recorded)

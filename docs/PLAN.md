@@ -361,7 +361,7 @@ line: solved (with pointer) or parked (with trigger condition).
 |----|-------|--------|
 | 0 | Reconnaissance & governing docs | [x] done 2026-08-22 |
 | 1 | Foundations sign-off | [x] done 2026-08-22 |
-| 2 | Core scaffold & time contract | [ ] |
+| 2 | Core scaffold & time contract | [~] built+verified 2026-08-22; REVIEW pending. `core/` lives: params/timeline/holon/dream (26 tests green, tsc clean), ThreeHost (WebGPU) renders FoundingSmoke, headless capture byte-identical ×3 (docs/reports/harness.md). SYNTAX-TS.md defines the target syntax. |
 | 3 | Manifest schema & part resolution | [ ] |
 | 4 | Stroke rendering & draw-on grammar | [ ] |
 | 5 | Parameter system & promotion | [ ] |
