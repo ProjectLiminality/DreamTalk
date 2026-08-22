@@ -47534,6 +47534,7 @@ var YELLOW = rgb(218, 218, 88);
 var GREEN = rgb(71, 196, 143);
 var WHITE = rgb(255, 255, 255);
 var BLACK = rgb(0, 0, 0);
+var PI3 = Math.PI;
 var TAU = 2 * Math.PI;
 var ASPECT_RATIO = 16 / 9;
 var isColor = (v) => typeof v === "object" && v !== null && typeof v.r === "number" && typeof v.g === "number" && typeof v.b === "number";
@@ -47788,20 +47789,28 @@ class Holon {
 }
 
 // src/parts/index.ts
-class Circle extends Holon {
+class Stroke extends Holon {
+  tint = color2(WHITE);
+  stroke = length2(3);
+}
+
+class Circle extends Stroke {
   radius = length2(100);
-  tint = color2(WHITE);
 }
 
-class Square extends Holon {
+class Square extends Stroke {
   size = length2(200);
-  tint = color2(WHITE);
 }
 
-class Polygon extends Holon {
+class Polygon extends Stroke {
   radius = length2(100);
   sides = integer(6);
-  tint = color2(WHITE);
+}
+
+class Arc extends Stroke {
+  radius = length2(100);
+  startAngle = angle(0);
+  endAngle = angle(PI3 / 2);
 }
 
 // src/render/three-host.ts
@@ -47834,7 +47843,23 @@ var polyline = (holon) => {
     }
     return pts;
   }
+  if (holon instanceof Arc) {
+    const pts = [];
+    const a0 = holon.startAngle.value;
+    const a1 = holon.endAngle.value;
+    for (let i = 0;i <= STROKE_SEGMENTS; i++) {
+      const a = a0 + i / STROKE_SEGMENTS * (a1 - a0);
+      pts.push(new Vector3(Math.cos(a) * holon.radius.value, Math.sin(a) * holon.radius.value, 0));
+    }
+    return pts;
+  }
   return;
+};
+var arcLength = (pts) => {
+  let sum = 0;
+  for (let i = 1;i < pts.length; i++)
+    sum += pts[i].distanceTo(pts[i - 1]);
+  return sum;
 };
 
 class ThreeHost {
@@ -47864,26 +47889,27 @@ class ThreeHost {
     const group = new Group;
     parent.add(group);
     this.groups.push({ holon, group });
-    const pts = polyline(holon);
-    if (pts) {
-      const geometry = new LineGeometry;
-      geometry.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]));
-      const material = new Line2NodeMaterial({
-        color: 16777215,
-        linewidth: 3,
-        worldUnits: false,
-        transparent: true
-      });
-      const line = new Line2(geometry, material);
-      group.add(line);
-      const tintParam = holon.tint;
-      this.strokes.push({
-        holon,
-        line,
-        material,
-        totalSegments: pts.length - 1,
-        tint: () => tintParam.value
-      });
+    if (holon instanceof Stroke) {
+      const pts = polyline(holon);
+      if (pts) {
+        const geometry = new LineGeometry;
+        geometry.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]));
+        const totalLength = arcLength(pts);
+        const material = new Line2NodeMaterial({
+          color: 16777215,
+          linewidth: holon.stroke.value,
+          worldUnits: false,
+          transparent: true,
+          dashed: true
+        });
+        material.dashSize = totalLength;
+        material.gapSize = totalLength * 2;
+        material.scale = 1;
+        const line = new Line2(geometry, material);
+        line.computeLineDistances();
+        group.add(line);
+        this.strokes.push({ holon, line, material, totalLength });
+      }
     }
     for (const part of holon.parts)
       this.attach(part, group);
@@ -47900,13 +47926,12 @@ class ThreeHost {
       const s = holon.scale.value;
       group.scale.set(s, s, s);
     }
-    for (const { holon, line, material, totalSegments, tint } of this.strokes) {
-      const drawn = Math.round(holon.creation.value * totalSegments);
-      const geo = line.geometry;
-      geo.instanceCount = drawn;
-      line.visible = drawn > 0 && holon.opacity.value > 0;
+    for (const { holon, line, material, totalLength } of this.strokes) {
+      const creation = holon.creation.value;
+      material.dashSize = creation * totalLength;
+      line.visible = creation > 0 && holon.opacity.value > 0;
       material.opacity = holon.opacity.value;
-      const c = tint();
+      const c = holon.tint.value;
       material.color.setRGB(c.r, c.g, c.b);
     }
     const obs = this.dream.observer;
@@ -48150,25 +48175,74 @@ if (false)
 
 // editor/main.ts
 var $ = (id) => document.getElementById(id);
-var canvas = $("stage");
-var frame = $("frame");
-var viewport2 = $("viewport");
-var scrub = $("scrub");
-var timecode = $("timecode");
-var playpause = $("playpause");
-var paramsRoot = $("params");
-var clipsBar = $("clips");
-var bdMode = $("bdmode");
-var bdOffset = $("bdoffset");
-var bdSource = $("bdsource");
 var SCRUB_MAX = 1000;
-var main = async () => {
+var SCENE_FILE = "core/demo/FoundingSmoke.ts";
+var ensureWs = () => {
+  const existing = window.__dtWs;
+  if (existing && existing.readyState <= WebSocket.OPEN)
+    return;
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  window.__dtWs = ws;
+  ws.addEventListener("message", (e) => {
+    let msg;
+    try {
+      msg = JSON.parse(String(e.data));
+    } catch {
+      return;
+    }
+    if (msg.type === "reload")
+      window.__dtRemount?.();
+    else if (msg.type === "opRejected")
+      console.warn("[dreamtalk] op rejected:", msg.reason);
+  });
+  ws.addEventListener("close", () => {
+    window.__dtWs = undefined;
+    setTimeout(ensureWs, 1000);
+  });
+};
+var sendOp = (op) => {
+  const ws = window.__dtWs;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.warn("[dreamtalk] daemon not connected — op dropped");
+    return;
+  }
+  ws.send(JSON.stringify(op));
+};
+var boot = async (resume) => {
+  const staleCanvas = $("stage");
+  const canvas = document.createElement("canvas");
+  canvas.id = "stage";
+  canvas.width = 1280;
+  canvas.height = 720;
+  staleCanvas.replaceWith(canvas);
+  const staleBackdrop = $("backdrop");
+  const freshBackdrop = document.createElement("video");
+  freshBackdrop.id = "backdrop";
+  freshBackdrop.muted = true;
+  freshBackdrop.playsInline = true;
+  staleBackdrop.replaceWith(freshBackdrop);
+  const frame = $("frame");
+  const viewport2 = $("viewport");
+  const scrub = $("scrub");
+  const timecode = $("timecode");
+  const playpause = $("playpause");
+  const paramsRoot = $("params");
+  const clipsBar = $("clips");
+  const bdMode = $("bdmode");
+  const bdOffset = $("bdoffset");
+  const bdSource = $("bdsource");
+  const bdRef = $("bdref");
+  paramsRoot.textContent = "";
+  clipsBar.textContent = "";
+  frame.className = "";
+  const ac = new AbortController;
+  const listen = { signal: ac.signal };
   const dream = new FoundingSmokeDream;
   const host = await ThreeHost.mount(dream, canvas);
   const duration = dream.duration;
   $("scenename").textContent = dream.constructor.name.replace(/Dream$/, "");
   $("scenemeta").textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`;
-  let backdropEl = $("backdrop");
+  let backdropEl = freshBackdrop;
   let backdropIsVideo = false;
   const setBackdrop = (url, mode = "under", offset = 0) => {
     const isVideo = /\.(mp4|mkv|webm|mov)(\?|$)/i.test(url) || url.startsWith("blob:video");
@@ -48191,7 +48265,7 @@ var main = async () => {
   const applyBackdropMode = () => {
     frame.className = bdMode.value === "off" ? "" : `mode-${bdMode.value}`;
   };
-  bdMode.addEventListener("change", applyBackdropMode);
+  bdMode.addEventListener("change", applyBackdropMode, listen);
   const syncBackdrop = (t, playing2) => {
     if (!backdropIsVideo)
       return;
@@ -48208,11 +48282,51 @@ var main = async () => {
       video.currentTime = Math.max(0, target);
     }
   };
+  const spec = dream.backdropSpec;
+  if (spec)
+    setBackdrop(`/${spec.path}`, resume?.bdMode ?? "under", spec.offset);
+  const populateRefs = async () => {
+    const res = await fetch("/api/refs");
+    if (!res.ok)
+      return;
+    const refs = await res.json();
+    bdRef.textContent = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "—";
+    bdRef.appendChild(blank);
+    for (const path of refs) {
+      const option = document.createElement("option");
+      option.value = path;
+      option.textContent = path.replace(/^refs\//, "");
+      bdRef.appendChild(option);
+    }
+    if (spec)
+      bdRef.value = spec.path;
+  };
+  populateRefs().catch(() => {});
+  const commitBackdrop = async (path, offset) => {
+    const res = await fetch(`/api/source?file=${encodeURIComponent(SCENE_FILE)}`);
+    const baseHash = res.ok ? (await res.json()).hash : undefined;
+    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: SCENE_FILE });
+  };
+  bdRef.addEventListener("change", () => {
+    const path = bdRef.value;
+    if (!path)
+      return;
+    const offset = Number(bdOffset.value) || 0;
+    setBackdrop(`/${path}`, bdMode.value === "off" ? "under" : bdMode.value, offset);
+    commitBackdrop(path, offset);
+  }, listen);
+  bdOffset.addEventListener("change", () => {
+    if (bdRef.value)
+      commitBackdrop(bdRef.value, Number(bdOffset.value) || 0);
+  }, listen);
   viewport2.addEventListener("dragover", (e) => {
     e.preventDefault();
     viewport2.classList.add("dragging");
-  });
-  viewport2.addEventListener("dragleave", () => viewport2.classList.remove("dragging"));
+  }, listen);
+  viewport2.addEventListener("dragleave", () => viewport2.classList.remove("dragging"), listen);
   viewport2.addEventListener("drop", (e) => {
     e.preventDefault();
     viewport2.classList.remove("dragging");
@@ -48224,7 +48338,9 @@ var main = async () => {
     setBackdrop(isVideo ? `${url}#video` : url, "under");
     if (isVideo)
       backdropIsVideo = true;
-  });
+    bdSource.textContent = `${file.name} · preview only`;
+    bdRef.value = "";
+  }, listen);
   for (const clip of dream.clips) {
     if (clip.duration <= 0)
       continue;
@@ -48320,6 +48436,7 @@ var main = async () => {
   let playing = false;
   let current = 0;
   let anchor = performance.now();
+  let alive = true;
   const paint = async (t) => {
     current = t;
     await host.renderFrame(t);
@@ -48338,18 +48455,20 @@ var main = async () => {
     playpause.textContent = "▶";
     syncBackdrop(current, false);
   };
-  playpause.addEventListener("click", () => playing ? pause() : play());
+  playpause.addEventListener("click", () => playing ? pause() : play(), listen);
   document.addEventListener("keydown", (e) => {
     if (e.code === "Space") {
       e.preventDefault();
       playing ? pause() : play();
     }
-  });
+  }, listen);
   scrub.addEventListener("input", () => {
     pause();
     paint(Number(scrub.value) / SCRUB_MAX * duration);
-  });
+  }, listen);
   const loop = async (now) => {
+    if (!alive)
+      return;
     if (playing) {
       const t = (now - anchor) / 1000 % duration;
       await paint(t);
@@ -48357,13 +48476,28 @@ var main = async () => {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
-  const q = new URLSearchParams(location.search);
-  if (q.has("backdrop")) {
-    setBackdrop(q.get("backdrop"), q.get("mode") ?? "under", Number(q.get("offset") ?? 0));
+  window.__dtRemount = () => {
+    window.__dtRemount = undefined;
+    window.__dtTransport = { t: current, playing, bdMode: bdMode.value };
+    alive = false;
+    ac.abort();
+    host.dispose();
+    const next = `./main.js?v=${Date.now()}`;
+    import(next).catch((err) => console.error("[dreamtalk] remount failed:", err));
+  };
+  if (resume) {
+    await paint(resume.t);
+    if (resume.playing)
+      play();
+  } else {
+    const q = new URLSearchParams(location.search);
+    if (q.has("backdrop")) {
+      setBackdrop(q.get("backdrop"), q.get("mode") ?? "under", Number(q.get("offset") ?? 0));
+    }
+    await paint(Number(q.get("t") ?? 0));
+    if (q.get("autoplay") !== "0" && !q.has("t"))
+      play();
   }
-  await paint(Number(q.get("t") ?? 0));
-  if (q.get("autoplay") !== "0" && !q.has("t"))
-    play();
   window.__dt = {
     ready: true,
     duration,
@@ -48376,7 +48510,10 @@ var main = async () => {
     setBackdrop
   };
 };
-main().catch((err) => {
+ensureWs();
+var resume = window.__dtTransport;
+window.__dtTransport = undefined;
+boot(resume).catch((err) => {
   window.__dt = {
     ready: false,
     duration: 0,

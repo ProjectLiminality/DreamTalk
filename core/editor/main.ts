@@ -1,10 +1,16 @@
 /**
- * The DreamTalk editor v0 (PLAN Ch 7, first breath).
+ * The DreamTalk editor v1 (EDITOR.md, build order v1 — the loop exists).
  *
  * Viewport (realtime playback) · timeline (scrub, clip marks) · minimal
- * parameter panel (live values; drags are live-only until bidirectional
- * sync lands) · the backdrop instrument (image/video, timeline-synced,
- * overlay modes exploiting black-as-transparency).
+ * parameter panel (live values; persisted commits land in v2) · the
+ * backdrop instrument (image/video, timeline-synced, overlay modes).
+ *
+ * Served by scripts/daemon.ts: code edits rebuild the bundle and arrive
+ * as {type:"reload"} over /ws — the editor re-imports itself cache-busted
+ * and remounts, preserving transport state. Choosing a reference in the
+ * Backdrop panel sends the setBackdrop semantic op, which writes the
+ * `this.backdrop(...)` line into the DreamWeaving; the loop closes back
+ * through the file. Drag-drop stays an ephemeral preview.
  *
  * Claude drives this same page headless for overlay evaluation via
  * window.__dt (setT / setBackdrop / play / pause).
@@ -15,6 +21,12 @@ import { Holon } from "../src/holon"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { FoundingSmokeDream } from "../demo/FoundingSmoke"
+
+interface Transport {
+  t: number
+  playing: boolean
+  bdMode?: string
+}
 
 declare global {
   interface Window {
@@ -27,26 +39,89 @@ declare global {
       pause: () => void
       setBackdrop: (url: string, mode?: string, offset?: number) => void
     }
+    /** Transport state handed from the outgoing module to the incoming one. */
+    __dtTransport?: Transport
+    /** The current mount's teardown-and-reimport, called on daemon reloads. */
+    __dtRemount?: () => void
+    /** The daemon link — a singleton that survives remounts. */
+    __dtWs?: WebSocket
   }
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
-const canvas = $<HTMLCanvasElement>("stage")
-const frame = $<HTMLDivElement>("frame")
-const viewport = $<HTMLDivElement>("viewport")
-const scrub = $<HTMLInputElement>("scrub")
-const timecode = $<HTMLDivElement>("timecode")
-const playpause = $<HTMLButtonElement>("playpause")
-const paramsRoot = $<HTMLDivElement>("params")
-const clipsBar = $<HTMLDivElement>("clips")
-const bdMode = $<HTMLSelectElement>("bdmode")
-const bdOffset = $<HTMLInputElement>("bdoffset")
-const bdSource = $<HTMLSpanElement>("bdsource")
-
 const SCRUB_MAX = 1000
+const SCENE_FILE = "core/demo/FoundingSmoke.ts"
 
-const main = async () => {
+// --- Daemon link (module-independent singleton) ----------------------------
+
+const ensureWs = () => {
+  const existing = window.__dtWs
+  if (existing && existing.readyState <= WebSocket.OPEN) return
+  const ws = new WebSocket(`ws://${location.host}/ws`)
+  window.__dtWs = ws
+  ws.addEventListener("message", (e) => {
+    let msg: { type?: string; reason?: string }
+    try {
+      msg = JSON.parse(String(e.data)) as { type?: string; reason?: string }
+    } catch {
+      return
+    }
+    if (msg.type === "reload") window.__dtRemount?.()
+    else if (msg.type === "opRejected") console.warn("[dreamtalk] op rejected:", msg.reason)
+  })
+  ws.addEventListener("close", () => {
+    window.__dtWs = undefined
+    setTimeout(ensureWs, 1000)
+  })
+}
+
+const sendOp = (op: Record<string, unknown>) => {
+  const ws = window.__dtWs
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.warn("[dreamtalk] daemon not connected — op dropped")
+    return
+  }
+  ws.send(JSON.stringify(op))
+}
+
+// --- The (re)mountable editor ----------------------------------------------
+
+const boot = async (resume?: Transport) => {
+  // Fresh stage + backdrop nodes: WebGPU contexts and media elements don't
+  // carry across remounts, and the rest of the DOM re-derives below.
+  const staleCanvas = $<HTMLCanvasElement>("stage")
+  const canvas = document.createElement("canvas")
+  canvas.id = "stage"
+  canvas.width = 1280
+  canvas.height = 720
+  staleCanvas.replaceWith(canvas)
+
+  const staleBackdrop = $<HTMLElement>("backdrop")
+  const freshBackdrop = document.createElement("video")
+  freshBackdrop.id = "backdrop"
+  freshBackdrop.muted = true
+  freshBackdrop.playsInline = true
+  staleBackdrop.replaceWith(freshBackdrop)
+
+  const frame = $<HTMLDivElement>("frame")
+  const viewport = $<HTMLDivElement>("viewport")
+  const scrub = $<HTMLInputElement>("scrub")
+  const timecode = $<HTMLDivElement>("timecode")
+  const playpause = $<HTMLButtonElement>("playpause")
+  const paramsRoot = $<HTMLDivElement>("params")
+  const clipsBar = $<HTMLDivElement>("clips")
+  const bdMode = $<HTMLSelectElement>("bdmode")
+  const bdOffset = $<HTMLInputElement>("bdoffset")
+  const bdSource = $<HTMLSpanElement>("bdsource")
+  const bdRef = $<HTMLSelectElement>("bdref")
+  paramsRoot.textContent = ""
+  clipsBar.textContent = ""
+  frame.className = ""
+
+  const ac = new AbortController()
+  const listen = { signal: ac.signal }
+
   const dream = new FoundingSmokeDream()
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
@@ -54,7 +129,7 @@ const main = async () => {
   $("scenemeta").textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`
 
   // --- Backdrop instrument -------------------------------------------------
-  let backdropEl: HTMLVideoElement | HTMLImageElement = $<HTMLVideoElement>("backdrop")
+  let backdropEl: HTMLVideoElement | HTMLImageElement = freshBackdrop
   let backdropIsVideo = false
 
   const setBackdrop = (url: string, mode = "under", offset = 0) => {
@@ -81,7 +156,7 @@ const main = async () => {
   const applyBackdropMode = () => {
     frame.className = bdMode.value === "off" ? "" : `mode-${bdMode.value}`
   }
-  bdMode.addEventListener("change", applyBackdropMode)
+  bdMode.addEventListener("change", applyBackdropMode, listen)
 
   const syncBackdrop = (t: number, playing: boolean) => {
     if (!backdropIsVideo) return
@@ -96,23 +171,83 @@ const main = async () => {
     }
   }
 
-  // Drag & drop a reference file (in-memory for now; the bidirectional
-  // write-into-the-DreamWeaving arrives with EDITOR.md).
-  viewport.addEventListener("dragover", (e) => {
-    e.preventDefault()
-    viewport.classList.add("dragging")
-  })
-  viewport.addEventListener("dragleave", () => viewport.classList.remove("dragging"))
-  viewport.addEventListener("drop", (e) => {
-    e.preventDefault()
-    viewport.classList.remove("dragging")
-    const file = e.dataTransfer?.files?.[0]
-    if (!file) return
-    const url = URL.createObjectURL(file)
-    const isVideo = file.type.startsWith("video/")
-    setBackdrop(isVideo ? `${url}#video` : url, "under")
-    if (isVideo) backdropIsVideo = true
-  })
+  // Code → UI: the backdrop line in unfold() is the truth.
+  const spec = dream.backdropSpec
+  if (spec) setBackdrop(`/${spec.path}`, resume?.bdMode ?? "under", spec.offset)
+
+  // The reference list — choosing here commits to code (UI → code).
+  const populateRefs = async () => {
+    const res = await fetch("/api/refs")
+    if (!res.ok) return
+    const refs = (await res.json()) as string[]
+    bdRef.textContent = ""
+    const blank = document.createElement("option")
+    blank.value = ""
+    blank.textContent = "—"
+    bdRef.appendChild(blank)
+    for (const path of refs) {
+      const option = document.createElement("option")
+      option.value = path
+      option.textContent = path.replace(/^refs\//, "")
+      bdRef.appendChild(option)
+    }
+    if (spec) bdRef.value = spec.path
+  }
+  void populateRefs().catch(() => {})
+
+  const commitBackdrop = async (path: string, offset: number) => {
+    const res = await fetch(`/api/source?file=${encodeURIComponent(SCENE_FILE)}`)
+    const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
+    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: SCENE_FILE })
+  }
+
+  bdRef.addEventListener(
+    "change",
+    () => {
+      const path = bdRef.value
+      if (!path) return
+      const offset = Number(bdOffset.value) || 0
+      // Instant preview; the op loops through the file and re-derives it.
+      setBackdrop(`/${path}`, bdMode.value === "off" ? "under" : bdMode.value, offset)
+      void commitBackdrop(path, offset)
+    },
+    listen,
+  )
+  bdOffset.addEventListener(
+    "change",
+    () => {
+      if (bdRef.value) void commitBackdrop(bdRef.value, Number(bdOffset.value) || 0)
+    },
+    listen,
+  )
+
+  // Drag & drop stays an ephemeral preview — only the reference list writes
+  // into the DreamWeaving.
+  viewport.addEventListener(
+    "dragover",
+    (e) => {
+      e.preventDefault()
+      viewport.classList.add("dragging")
+    },
+    listen,
+  )
+  viewport.addEventListener("dragleave", () => viewport.classList.remove("dragging"), listen)
+  viewport.addEventListener(
+    "drop",
+    (e) => {
+      e.preventDefault()
+      viewport.classList.remove("dragging")
+      const file = e.dataTransfer?.files?.[0]
+      if (!file) return
+      const url = URL.createObjectURL(file)
+      const isVideo = file.type.startsWith("video/")
+      setBackdrop(isVideo ? `${url}#video` : url, "under")
+      if (isVideo) backdropIsVideo = true
+      bdSource.textContent = `${file.name} · preview only`
+      bdRef.value = ""
+    },
+    listen,
+  )
 
   // --- Clip marks ----------------------------------------------------------
   for (const clip of dream.clips) {
@@ -214,6 +349,7 @@ const main = async () => {
   let playing = false
   let current = 0
   let anchor = performance.now()
+  let alive = true
 
   const paint = async (t: number) => {
     current = t
@@ -235,19 +371,28 @@ const main = async () => {
     syncBackdrop(current, false)
   }
 
-  playpause.addEventListener("click", () => (playing ? pause() : play()))
-  document.addEventListener("keydown", (e) => {
-    if (e.code === "Space") {
-      e.preventDefault()
-      playing ? pause() : play()
-    }
-  })
-  scrub.addEventListener("input", () => {
-    pause()
-    void paint((Number(scrub.value) / SCRUB_MAX) * duration)
-  })
+  playpause.addEventListener("click", () => (playing ? pause() : play()), listen)
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.code === "Space") {
+        e.preventDefault()
+        playing ? pause() : play()
+      }
+    },
+    listen,
+  )
+  scrub.addEventListener(
+    "input",
+    () => {
+      pause()
+      void paint((Number(scrub.value) / SCRUB_MAX) * duration)
+    },
+    listen,
+  )
 
   const loop = async (now: number) => {
+    if (!alive) return
     if (playing) {
       const t = ((now - anchor) / 1000) % duration
       await paint(t)
@@ -256,13 +401,30 @@ const main = async () => {
   }
   requestAnimationFrame(loop)
 
-  // --- Boot ---------------------------------------------------------------
-  const q = new URLSearchParams(location.search)
-  if (q.has("backdrop")) {
-    setBackdrop(q.get("backdrop")!, q.get("mode") ?? "under", Number(q.get("offset") ?? 0))
+  // Code → UI closes here: tear down, hand transport to the fresh module,
+  // re-import the rebuilt bundle cache-busted.
+  window.__dtRemount = () => {
+    window.__dtRemount = undefined
+    window.__dtTransport = { t: current, playing, bdMode: bdMode.value }
+    alive = false
+    ac.abort()
+    host.dispose()
+    const next = `./main.js?v=${Date.now()}`
+    void import(next).catch((err) => console.error("[dreamtalk] remount failed:", err))
   }
-  await paint(Number(q.get("t") ?? 0))
-  if (q.get("autoplay") !== "0" && !q.has("t")) play()
+
+  // --- Boot ---------------------------------------------------------------
+  if (resume) {
+    await paint(resume.t)
+    if (resume.playing) play()
+  } else {
+    const q = new URLSearchParams(location.search)
+    if (q.has("backdrop")) {
+      setBackdrop(q.get("backdrop")!, q.get("mode") ?? "under", Number(q.get("offset") ?? 0))
+    }
+    await paint(Number(q.get("t") ?? 0))
+    if (q.get("autoplay") !== "0" && !q.has("t")) play()
+  }
 
   window.__dt = {
     ready: true,
@@ -277,7 +439,11 @@ const main = async () => {
   }
 }
 
-main().catch((err) => {
+ensureWs()
+const resume = window.__dtTransport
+window.__dtTransport = undefined
+
+boot(resume).catch((err) => {
   window.__dt = {
     ready: false,
     duration: 0,

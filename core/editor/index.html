@@ -82,7 +82,7 @@
         <video id="backdrop" muted playsinline></video>
         <canvas id="stage" width="1280" height="720"></canvas>
       </div>
-      <div id="drophint">drop a reference image or video to backdrop the scene</div>
+      <div id="drophint">preview only — pick from the reference list to write into the DreamWeaving</div>
     </div>
     <div id="panel">
       <h1 id="scenename">DreamTalk</h1>
@@ -90,6 +90,11 @@
       <div id="params"></div>
       <div class="section">
         <h2>Backdrop</h2>
+        <div class="row"><label>reference</label>
+          <select id="bdref" title="commits to code — writes the backdrop line into the DreamWeaving">
+            <option value="">—</option>
+          </select>
+        </div>
         <div class="row"><label>mode</label>
           <select id="bdmode">
             <option value="off">off</option>
