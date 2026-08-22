@@ -54,10 +54,14 @@ export abstract class Dream {
   /** The temporal unfolding — override this. */
   abstract unfold(): void
 
-  /** Append an Anim at the cursor, occupying runTime seconds; advance the cursor. */
-  play(anim: Anim, runTime = 1): void {
-    this.#clips.push({ anim, start: this.#cursor, duration: runTime })
+  /** Append an Anim at the cursor, occupying runTime seconds; advance the cursor.
+   *  Returns the Clip record so build-time anchors (__dt) can attach source
+   *  spans to it — the editor's timeline edits (setRunTime) depend on this. */
+  play(anim: Anim, runTime = 1): Clip {
+    const clip: Clip = { anim, start: this.#cursor, duration: runTime }
+    this.#clips.push(clip)
     this.#cursor += runTime
+    return clip
   }
 
   /** Set values instantly at the cursor (a zero-duration step). */
