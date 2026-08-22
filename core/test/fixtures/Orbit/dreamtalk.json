@@ -1,0 +1,7 @@
+{
+  "manifest": 1,
+  "name": "Orbit",
+  "version": "0.1.0",
+  "entry": "Orbit.ts",
+  "parts": {}
+}

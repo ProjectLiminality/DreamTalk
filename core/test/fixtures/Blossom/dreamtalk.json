@@ -1,0 +1,14 @@
+{
+  "manifest": 1,
+  "name": "Blossom",
+  "version": "0.1.0",
+  "entry": "Blossom.ts",
+  "thumbnail": "Blossom.png",
+  "parts": {
+    "ring": { "path": "../Ring" }
+  },
+  "params": [
+    { "name": "petals", "kind": "integer", "default": 5 },
+    { "name": "bloom", "kind": "completion", "default": 0, "min": 0, "max": 1 }
+  ]
+}

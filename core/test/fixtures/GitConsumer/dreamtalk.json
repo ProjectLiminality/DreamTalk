@@ -1,0 +1,10 @@
+{
+  "manifest": 1,
+  "name": "GitConsumer",
+  "version": "0.1.0",
+  "entry": "GitConsumer.ts",
+  "parts": {
+    "orbit": { "git": "https://example.com/dreams/Orbit.git", "rev": "v0.1.0" },
+    "ghost": { "git": "https://example.com/dreams/NeverCloned.git" }
+  }
+}

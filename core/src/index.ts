@@ -28,4 +28,13 @@ export {
   type Readable,
 } from "./params"
 export { Create, UnCreate, Draw, FadeIn, FadeOut, Move, Scale, Rotate } from "./verbs"
+export {
+  loadManifest,
+  parseManifest,
+  serializeManifest,
+  clearManifestCache,
+  type Manifest,
+  type LoadedManifest,
+  type PartHandle,
+} from "./manifest"
 export * from "./constants"

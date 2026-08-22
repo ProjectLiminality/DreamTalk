@@ -1,0 +1,12 @@
+{
+  "manifest": 1,
+  "name": "Ring",
+  "version": "0.1.0",
+  "entry": "Ring.ts",
+  "parts": {
+    "blossom": { "path": "../Blossom" }
+  },
+  "params": [
+    { "name": "radius", "kind": "length", "default": 100 }
+  ]
+}
