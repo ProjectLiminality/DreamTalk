@@ -384,7 +384,7 @@ line: solved (with pointer) or parked (with trigger condition).
 | 4 | Stroke rendering & draw-on grammar | [ ] |
 | 5 | Parameter system & promotion | [ ] |
 | 6 | Compute unit & baking | [ ] |
-| 7 | DreamTalk Editor | [~] v0 live 2026-08-22 (`core/editor/`): viewport w/ realtime playback, timeline scrub + clip marks, live param panel, backdrop instrument (image/video, under + red/green overlay modes, drag-drop, URL-driven for headless evaluation via `scripts/editor-shot.ts`). Remaining: EDITOR.md bidirectional-sync design + implementation, mp4 timeline-sync polish, Tauri spike, TASTE pass. |
+| 7 | DreamTalk Editor | [~] v0 live 2026-08-22 (`core/editor/`): viewport w/ realtime playback, timeline scrub + clip marks, live param panel, backdrop instrument (image/video, under + red/green overlay modes, drag-drop, URL-driven for headless evaluation via `scripts/editor-shot.ts`). EDITOR.md designed; **v1 sync loop live** (subagent, 2026-08-23): daemon (`core/scripts/daemon.ts`, port 4174 — watch/rebuild/WS-reload, echo suppression, op queue) + setBackdrop semantic op end-to-end (UI reference-select → AST write into unfold() → watcher → remount preserving t), 7 op tests. v1 deviation: structural re-location instead of __dt span anchors (fine while ops target unique forms; anchors become load-bearing at v2 setOverride). Remaining: v2 param commits, v3 timeline edits, mp4 sync polish, Tauri spike, TASTE pass. |
 | 8 | Founding holon (Square+Circle→Cylinder) | [ ] |
 | 9 | Video-01 gauntlet | [ ] |
 | 10 | Corpus T2 (symbol library) | [ ] |
