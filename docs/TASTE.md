@@ -9,8 +9,10 @@ old code is archaeology, not authority.
 - Three.js with the WebGPU renderer (`three/webgpu`) is the base.
 - TSL is the single language for all custom shading and compute.
   One source, compiling to WGSL and GLSL.
-- troika-three-text for text. Three.js curve classes as the 3D
-  generalization of SVG primitives.
+- Text: troika-three-text's glyph/layout engine, rendered through our own
+  TSL node material (troika's stock WebGL material path is incompatible
+  with WebGPURenderer — verified 2026-08-22; fallback: `three-text`).
+  Three.js curve classes as the 3D generalization of SVG primitives.
 - No Vue.js. No Vello. No USD (git-repo holons already provide its
   composition value). No Manim (conceptual reference only — its reuse
   model is horizontal/PyPI; ours is vertical/submodule).
@@ -71,18 +73,19 @@ old code is archaeology, not authority.
   one instance per room.
 - Software gardening, not software engineering.
 
-## Open questions — resolve in docs/ANALYSIS.md with explicit trade-offs
-1. **Composition terminology.** Candidate framings: genealogical
-   (many parents birth a child), standard scene-graph containment,
-   or weaving language (strands → weave). Propose one and justify;
-   consistency with the ontology above matters more than convention.
-2. **SDF role.** Fields as the native geometry primitive vs. mesh-first
-   with SDFs for CSG/benchmark/silhouettes. Weigh against: the crisp
-   aesthetic, the silhouette open problem, baking, text/stroke needs.
-3. **Host coupling.** Pure vanilla-Three core with thin adapters
-   (Obsidian/R3F/Claude Design) vs. R3F-native. The R3F useFrame
-   clock conflict with external time ownership (HISTORY.md) must be
-   addressed either way: the framework owns t; hosts request it.
+## Formerly open questions — RESOLVED 2026-08-22 (rationale: docs/ANALYSIS.md)
+1. **Composition terminology: holonic whole/part.** The manifest field is
+   `parts`; within a scene, plain scene-graph terms (`children`,
+   transforms). DreamWeaving/DreamSong stay product-level names; genealogy
+   stays at the social layer. Part-of is a rootless associative graph;
+   each scene's transform hierarchy is a tree.
+2. **SDF role: mesh-first; SDF as technique** in exactly three places —
+   TSL stroke anti-aliasing, analytic silhouettes for parametric
+   primitives, build-time CSG. Morphing stays in parameter space.
+3. **Host coupling: vanilla-Three core owning t**, with thin adapters
+   (Obsidian/R3F, Claude Design, headless harness) over
+   `mount / advance / renderFrame(t) / dispose`. Hosts request time;
+   they never tick it.
 
 ## Standing open problems (inherited — don't pretend they're solved)
 - Perspective-dependent silhouette extraction as real stroke geometry.
