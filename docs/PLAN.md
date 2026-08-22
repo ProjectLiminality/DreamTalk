@@ -369,7 +369,7 @@ line: solved (with pointer) or parked (with trigger condition).
 | 0 | Reconnaissance & governing docs | [x] done 2026-08-22 |
 | 1 | Foundations sign-off | [x] done 2026-08-22 |
 | 2 | Core scaffold & time contract | [~] built+verified 2026-08-22; REVIEW pending. `core/` lives: params/timeline/holon/dream (26 tests green, tsc clean), ThreeHost (WebGPU) renders FoundingSmoke, headless capture byte-identical ×3 (docs/reports/harness.md). SYNTAX-TS.md defines the target syntax. |
-| 3 | Manifest schema & part resolution | [ ] |
+| 3 | Manifest schema & part resolution | [~] built 2026-08-22 (subagent); REVIEW of MANIFEST.md pending. `dreamtalk.json` (separate from `.udd`), lazy loader with proven legal cycles, 20 tests. Open threads for Ch 5: promotion metadata in the face?, internals-enforcement point (build transform vs lint), manifest-regen trigger, shared-core rule for git parts. |
 | 4 | Stroke rendering & draw-on grammar | [ ] |
 | 5 | Parameter system & promotion | [ ] |
 | 6 | Compute unit & baking | [ ] |
