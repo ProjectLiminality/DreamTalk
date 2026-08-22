@@ -51,6 +51,11 @@ operational decisions are entered by the working agent. Format:
   reaches David. Async batch rendering is plumbing, not the workflow.
 - 2026-08-22 · **Runtime: Bun** (David) — matches the wider ecosystem;
   headless Chrome only where the editor screenshot loop needs driving.
+- 2026-08-23 · **Parametric silhouette case solved** — analytic
+  view-dependent cylinder silhouette (θ = φ ± acos(r/|d|)) as real
+  per-frame stroke geometry, tangency unit-proven; the TASTE standing
+  problem remains open only for arbitrary meshes (compute-shader path,
+  PLAN Ch 14).
 - 2026-08-22 · **Multi-agent orchestration opted in** (David) — parallel
   subagents for heterogeneous build chapters now; the dynamic
   workflow/gauntlet harness deploys at Chapter 9 (builder / evaluator /
