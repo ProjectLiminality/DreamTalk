@@ -256,6 +256,13 @@ template for all symbol repos.
 evaluation passes — the framework's trial by fire.
 **Involvement**: AUTONOMOUS (the loop), TASTE (final full-video verdict).
 
+**Orchestration**: this chapter runs as a dynamic multi-agent workflow
+(David opted in 2026-08-22): per scene, a builder agent, a separate
+overlay-evaluator agent (never the builder), and adversarial verification
+of "delta acceptable" verdicts; a loop-until-dry pass sweeps missed
+details across the whole video before the final TASTE gate. Chapter 10
+reuses the same harness fanned out over symbols.
+
 **Method** (per scene, 10 scenes):
 1. Translate the pydeation scene (source in `refs/video-01-source-2022/`,
    working assets in `refs/PydeationProjects/.../dialectical_thinking/`)
