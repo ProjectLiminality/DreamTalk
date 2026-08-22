@@ -12,11 +12,27 @@ consume answered items into DECISIONS.md and clear them here.
 2. **[Ch 0/3] Doc reviews (light)** — MANIFEST.md (schema spec) and
    docs/reports/harness.md await a skim; nothing blocks on them unless
    something reads wrong to you.
-3. **[Ch 8] Cylinder TASTE gate** — PENDING BUILD: the founding-holon
-   agent is producing the parable choreography draft + renders; this
-   entry gets evidence paths when it lands. The gate: approve the look,
-   the choreography direction, and the holon-repo structure as the
-   template for all symbol repos.
+3. **[Ch 8] Cylinder TASTE gate** — READY (2026-08-23). Claude's own
+   overlay/visual evaluation passed; silhouette tangency unit-proven
+   (<1e-6) and visually exact in renders. Evidence:
+   `docs/reports/founding/` (cylinder-34-view.png — the frame_020 echo;
+   cylinder-steep-orbit.png; thesis-antithesis.png; Cylinder-thumb.png);
+   live: `bun core/scripts/daemon.ts` → `/demo/?scene=founding`.
+   Three sub-decisions:
+   a. **Choreography** (draft v0, ~15.6s): BLUE circle draws (thesis) →
+      RED square draws (antithesis) → both turn WHITE taking their
+      places (circle lies flat as top cap, square as mantle profile) →
+      cylinder completes them (synthesis) → orbit + push-in proving the
+      silhouette lives → 3/4 hold echoing frame_020. Approve/redirect.
+   b. **The parable's proportions**: literal square-ness requires
+      height = 2·radius, so the founding dream uses 100×200 (side view
+      exactly the square) while the Cylinder class defaults stay 50×200
+      (2021 canon, gauntlet-ready). Bless or choose one canon.
+   c. **Repo template**: sovereign class = *identity subclass* of the
+      core vocabulary part (`export class Square extends SquarePart {}`)
+      — repo-owned consolidation point for future enrichment, geometry
+      stays Layer-1, DreamWeaving reads pure SYNTAX-TS. Bless as the
+      template for all symbol repos.
 
 ## Answered (consumed into DECISIONS.md)
 
