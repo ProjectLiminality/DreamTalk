@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>DreamTalk</title>
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #0c0c0e;
+      --line: #1e1e22;
+      --text: #b8b8c0;
+      --dim: #55555e;
+      --blue: #00a2ff;
+      --red: #ff644e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font: 13px/1.4 -apple-system, "SF Pro", Inter, sans-serif; overflow: hidden; }
+    #app { display: grid; grid-template-columns: 1fr 264px; grid-template-rows: 1fr 88px;
+      height: 100%; }
+    /* Viewport */
+    #viewport { position: relative; grid-row: 1; grid-column: 1; overflow: hidden;
+      display: flex; align-items: center; justify-content: center; }
+    #frame { position: relative; aspect-ratio: 16/9; width: min(100%, calc((100vh - 88px) * 16 / 9)); }
+    #backdrop { position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; display: none; pointer-events: none; }
+    #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #frame.mode-under #backdrop { display: block; opacity: 0.55; }
+    #frame.mode-under #stage { mix-blend-mode: screen; }
+    #frame.mode-overlay #backdrop { display: block; opacity: 0.9;
+      filter: grayscale(1) sepia(1) saturate(6) hue-rotate(-35deg); } /* reference → red */
+    #frame.mode-overlay #stage { mix-blend-mode: screen;
+      filter: grayscale(1) sepia(1) saturate(6) hue-rotate(65deg); } /* ours → green */
+    #drophint { position: absolute; inset: 0; display: none; align-items: center;
+      justify-content: center; color: var(--dim); border: 1px dashed var(--line);
+      background: rgba(0,0,0,0.6); font-size: 15px; pointer-events: none; }
+    #viewport.dragging #drophint { display: flex; }
+    /* Right panel */
+    #panel { grid-row: 1 / 3; grid-column: 2; background: var(--panel);
+      border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; }
+    #panel h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+      color: var(--text); margin: 0 0 2px; }
+    #panel .sub { color: var(--dim); font-size: 11px; margin-bottom: 14px; }
+    .holon { margin-bottom: 12px; }
+    .holon > .hname { color: var(--blue); font-weight: 600; font-size: 12px;
+      margin-bottom: 4px; }
+    .param { display: grid; grid-template-columns: 76px 1fr 44px; gap: 8px;
+      align-items: center; margin: 3px 0; }
+    .param label { color: var(--dim); font-size: 11px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    .param input[type=range] { width: 100%; accent-color: var(--blue); height: 3px; }
+    .param .val { color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums;
+      text-align: right; }
+    .swatch { width: 100%; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+    .section { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+    .section h2 { font-size: 11px; font-weight: 600; color: var(--dim);
+      letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; }
+    .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+    .row label { color: var(--dim); font-size: 11px; flex: 0 0 52px; }
+    select, input[type=number] { background: #131318; color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
+      font-size: 11px; width: 100%; }
+    /* Timeline */
+    #timeline { grid-row: 2; grid-column: 1; background: var(--panel);
+      border-top: 1px solid var(--line); display: flex; align-items: center;
+      gap: 14px; padding: 0 16px; }
+    #playpause { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
+      background: #131318; color: var(--text); cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; justify-content: center; }
+    #playpause:hover { border-color: var(--blue); color: var(--blue); }
+    #scrubwrap { flex: 1; position: relative; height: 34px; display: flex; align-items: center; }
+    #scrub { width: 100%; accent-color: var(--blue); }
+    #clips { position: absolute; left: 0; right: 0; top: 26px; height: 4px; pointer-events: none; }
+    .clipmark { position: absolute; top: 0; height: 4px; background: #1c3b52; border-radius: 2px; }
+    #timecode { color: var(--text); font: 12px monospace; min-width: 110px; text-align: right; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="viewport">
+      <div id="frame">
+        <video id="backdrop" muted playsinline></video>
+        <canvas id="stage" width="1280" height="720"></canvas>
+      </div>
+      <div id="drophint">drop a reference image or video to backdrop the scene</div>
+    </div>
+    <div id="panel">
+      <h1 id="scenename">DreamTalk</h1>
+      <div class="sub" id="scenemeta"></div>
+      <div id="params"></div>
+      <div class="section">
+        <h2>Backdrop</h2>
+        <div class="row"><label>mode</label>
+          <select id="bdmode">
+            <option value="off">off</option>
+            <option value="under">under</option>
+            <option value="overlay">overlay (red = ref · green = ours)</option>
+          </select>
+        </div>
+        <div class="row"><label>offset s</label>
+          <input id="bdoffset" type="number" step="0.1" value="0" />
+        </div>
+        <div class="row"><label>source</label><span id="bdsource" style="font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span></div>
+      </div>
+    </div>
+    <div id="timeline">
+      <button id="playpause" title="space">▶</button>
+      <div id="scrubwrap">
+        <input id="scrub" type="range" min="0" max="1000" value="0" />
+        <div id="clips"></div>
+      </div>
+      <div id="timecode">0.00 / 0.00</div>
+    </div>
+  </div>
+  <script type="module" src="./dist/main.js"></script>
+</body>
+</html>

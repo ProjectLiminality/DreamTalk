@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
+    "@types/three": "^0.185.4",
     "puppeteer-core": "^25.8.0",
     "typescript": "^5.6.0"
   },

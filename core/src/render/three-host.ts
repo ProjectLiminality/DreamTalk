@@ -122,7 +122,7 @@ export class ThreeHost {
   async renderFrame(t: number): Promise<void> {
     this.dream.applyAt(t)
     this.sync()
-    await this.renderer.renderAsync(this.scene, this.camera)
+    await this.renderer.render(this.scene, this.camera)
   }
 
   private sync(): void {

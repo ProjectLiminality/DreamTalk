@@ -110,6 +110,12 @@ export abstract class Dream {
     return roots
   }
 
+  /** The raw clip layout — the editor's timeline markers read this. */
+  get clips(): readonly Clip[] {
+    this.build()
+    return this.#clips
+  }
+
   /** Build (once) and return the pure timeline. */
   build(): Timeline {
     if (!this.#built) {
