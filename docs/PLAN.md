@@ -44,10 +44,14 @@ DECISIONS.md, then the current chapter).
 **Goal**: ground the journey in verified reality.
 **Involvement**: AUTONOMOUS (done) + REVIEW (this plan) + TASTE (ANALYSIS).
 
-- [x] Repo surveyed: Python/C4D library at root (`objects/`, `animation/`,
-      `xpresso/`, `scene.py`, `introspection/`, `mcp-servers/`, `legacy/`);
-      no TS/web code exists anywhere yet. Per TASTE: archaeology + authoring
-      backend, not authority.
+- [x] Repo surveyed → **docs/SURVEY.md** (~21k LOC Python, zero TS; verdicts
+      per component). Headlines: `xpresso/types.py`+`states.py` port
+      near-mechanically; `docs/reference/MindVirus_canonical.py` is the
+      target-syntax design brief; the animation grammar's relative-time
+      algebra and the introspection diff loop are the key design prior art;
+      and a **working CPU-side silhouette implementation exists**
+      (`abstract_objects.py:881-1041` + `stroke_objects.py`) for the
+      standing open problem. Housekeeping backlog recorded in SURVEY.md.
 - [x] Video-01 source recovered: `InterfaceGuy/dialectical-thinking` (2022,
       10 scenes) + `pydeation-legacy` + private archives `PydeationProjects`
       (working project incl. per-scene audio) and `PydeationContent` — all
@@ -66,20 +70,14 @@ DECISIONS.md, then the current chapter).
 
 **Goal**: lock the decisions everything downstream builds on.
 **Involvement**: TASTE.
-**Batched questions for David** (answer all at once):
+**Resolved 2026-08-22** (see DECISIONS.md): whole/part terminology
+(`parts`); mesh-first SDF-as-technique; vanilla core owning t with thin
+adapters; TS core in `core/` of this repo; troika amendment applied.
+**Still open, deferred to Chapter 7 start** (TASTE): founding-holon repos —
+fresh `Square`/`Circle`/`Cylinder` under `ProjectLiminality` vs. continuing
+the May-2026 `InterfaceGuy/Cylinder3` numbered-variant prototypes.
 
-1. ANALYSIS Q1/Q2/Q3 verdicts + troika TASTE.md amendment.
-2. **Where the TS core lives** — proposal: new top-level `core/` package in
-   THIS repo (repo stays the Layer-1 DreamTalk holon; the Python library
-   remains in place as the C4D authoring backend until the gauntlet proves
-   the TS core, then relocates to `legacy/`). Alternative: fresh repo.
-3. **Founding-holon repos** — proposal: create fresh `Square`, `Circle`,
-   `Cylinder` repos under `ProjectLiminality` (studying, not reusing, the
-   May-2026 `InterfaceGuy/Cylinder3` prototypes). Alternative: continue the
-   existing numbered-variant repos.
-
-**Deliverables**: verdicts recorded in DECISIONS.md; TASTE.md amended.
-**Definition of done**: zero open questions blocking Chapter 2.
+**Definition of done**: met — zero open questions blocking Chapter 2.
 
 ## Chapter 2 — Core scaffold & the time contract
 
@@ -91,6 +89,9 @@ render harness the whole gauntlet depends on.
 - `core/` TypeScript package (strict, relative imports, plain fs): renderer
   bootstrap (`three/webgpu`), scene root, the host contract
   `mount / advance / renderFrame(t) / dispose / params` (framework owns t).
+- First semantic ports (per SURVEY.md): the parameter types
+  (`Length`/`Angle`/`Bipolar`/`Completion`/`Color`…) and
+  `State`/`StateMachine` from `xpresso/types.py`/`states.py`.
 - Headless harness: CLI that renders frame(s) at given t values to PNG via
   headless Chrome (puppeteer) — deterministic-output measurement across 3
   runs and 2 machines documented in `docs/reports/harness.md`.
@@ -99,20 +100,20 @@ render harness the whole gauntlet depends on.
 **Definition of done**: `dreamtalk render --scene <manifest> --t 0..5 --fps 1`
 emits PNGs; determinism report exists; REVIEW passed.
 
-## Chapter 3 — Manifest schema & weave resolution
+## Chapter 3 — Manifest schema & part resolution
 
 **Goal**: the scene format (TASTE: thin JSON manifest) and holon loading.
 **Involvement**: AUTONOMOUS, then REVIEW (schema doc).
 
 **Deliverables**:
-- Manifest JSON schema: `strands` (repo references), parameters, transform
+- Manifest JSON schema: `parts` (repo references), parameters, transform
   hierarchy (`children` within a scene), versioned.
-- Loader with lazy strand resolution (nothing instantiates until used;
-  cycles legal — dream.lock spirit), local-path and git-URL strands.
+- Loader with lazy part resolution (nothing instantiates until used;
+  cycles legal — dream.lock spirit), local-path and git-URL parts.
 - `docs/MANIFEST.md` — the schema spec, written for both humans and LLMs.
 
-**Definition of done**: a manifest referencing a strand renders through the
-Chapter-2 harness; a deliberately circular strand pair loads without
+**Definition of done**: a manifest referencing a part renders through the
+Chapter-2 harness; a deliberately circular part pair loads without
 infinite regress; REVIEW of MANIFEST.md.
 
 ## Chapter 4 — Stroke rendering & the draw-on grammar
@@ -142,6 +143,10 @@ three test shapes (this calibrates every later benchmark).
 - Promotion as manifest editing, designed agent-drivable ("happiness
   slider" flow): `docs/PARAMETERS.md` specifying the protocol + the
   animation layer (keyframing a param over t; easing; the `play()` grammar).
+- Design sources (SURVEY.md): `MindVirus_canonical.py` as the target-syntax
+  brief; the `AnimationGroup` relative-time algebra (nested renormalizing
+  `rel_start`/`rel_stop`) ported as design; the introspection snapshot/diff
+  loop as the model for agent-driven promotion.
 
 **Definition of done**: a composed scene animates a promoted strand
 parameter via manifest-only edits; REVIEW of PARAMETERS.md.
@@ -172,7 +177,7 @@ star and the first real DreamNodes).
 
 **Deliverables**:
 - `Square`, `Circle` holon repos (manifest + curve construction + README —
-  the three faces); `Cylinder` weave repo with both as strands; construction
+  the three faces); `Cylinder` repo with both as parts; construction
   animation (square extrudes to the mantle, circles cap it — final
   choreography is a TASTE conversation); analytic view-dependent silhouette
   for the cylinder (ANALYSIS Q2 technique #2).
@@ -272,7 +277,9 @@ TASTE sign-off on the resulting symbol's repo quality.
 **Involvement**: AUTONOMOUS research spikes, TASTE on any aesthetic calls.
 
 - General mesh silhouette extraction (compute-shader edge method) — build
-  when a corpus symbol actually needs it; spike report first.
+  when a corpus symbol actually needs it; spike report first. Reference
+  implementation exists CPU-side in C4D
+  (`objects/abstract_objects.py:881-1041`, `objects/stroke_objects.py`).
 - GS fallback renderer — parked unless a scene exceeds real-time mesh
   budgets (TASTE: never default).
 - Performance passes, WGSL constraint audits, cross-browser verification.
@@ -286,8 +293,8 @@ line: solved (with pointer) or parked (with trigger condition).
 
 | Ch | Title | Status |
 |----|-------|--------|
-| 0 | Reconnaissance & governing docs | [~] awaiting sign-off |
-| 1 | Foundations sign-off | [ ] blocked on David (batch of 3) |
+| 0 | Reconnaissance & governing docs | [x] done 2026-08-22 |
+| 1 | Foundations sign-off | [x] done 2026-08-22 (founding-holon repo question deferred to Ch 7 start) |
 | 2 | Core scaffold & time contract | [ ] |
 | 3 | Manifest schema & weave resolution | [ ] |
 | 4 | Stroke rendering & draw-on grammar | [ ] |
