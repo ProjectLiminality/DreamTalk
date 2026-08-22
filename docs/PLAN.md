@@ -256,6 +256,17 @@ template for all symbol repos.
 evaluation passes — the framework's trial by fire.
 **Involvement**: AUTONOMOUS (the loop), TASTE (final full-video verdict).
 
+**Ground truth**: docs/reports/video-01-vocabulary.md (2026-08-22) — scene
+boundaries solved via per-scene audio durations (intro [0-6s] + S01..S10,
+no editing gaps), all constructions extracted with exact numbers, verb
+semantics pinned, build order: stroke draw-on → Circle/Rectangle →
+Cylinder silhouette (gates 7 of 10 scenes) → Axes/Grid → Eye →
+Text/Write → intersection curves → Connection. Difficulty: S04 easiest →
+S08 hardest. 12 risks with resolution paths in §5.
+**Batched TASTE question**: the video opens with a Project Liminality
+Logo intro (pydeation Logo class, construction in the report) that is not
+part of the 10-scene source — in gauntlet scope or not?
+
 **Orchestration**: this chapter runs as a dynamic multi-agent workflow
 (David opted in 2026-08-22): per scene, a builder agent, a separate
 overlay-evaluator agent (never the builder), and adversarial verification
