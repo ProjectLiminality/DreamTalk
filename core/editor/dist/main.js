@@ -52220,6 +52220,11 @@ class Arc extends Stroke {
   endAngle = angle(PI5 / 2);
 }
 
+class Cylinder extends Stroke {
+  radius = length3(50);
+  height = length3(200);
+}
+
 // src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var polyline = (holon) => {
@@ -52355,6 +52360,23 @@ class ThreeHost {
     this.renderer.dispose();
   }
 }
+
+// editor/anchors.ts
+var anchors = new WeakMap;
+var __dt = (value, anchor) => {
+  if (value !== null && typeof value === "object") {
+    const sep2 = anchor.lastIndexOf(":");
+    const sep1 = anchor.lastIndexOf(":", sep2 - 1);
+    const file = anchor.slice(0, sep1);
+    const start = Number(anchor.slice(sep1 + 1, sep2));
+    const end = Number(anchor.slice(sep2 + 1));
+    if (file && Number.isFinite(start) && Number.isFinite(end)) {
+      anchors.set(value, { file, start, end });
+    }
+  }
+  return value;
+};
+var anchorOf = (value) => anchors.get(value);
 // src/timeline.ts
 var ease = (easing, u) => easing === "linear" ? u : u * u * (3 - 2 * u);
 var lerpValue = (a, b, u) => {
@@ -52568,13 +52590,13 @@ var deep = (holon, f) => together(...[...holon.walk()].map(f));
 var Create = (holon) => deep(holon, (h) => h.creation.sequence(0, 1));
 // demo/FoundingSmoke.ts
 class FoundingSmokeDream extends Dream {
-  square = new Square({ size: 200, tint: RED, x: -300 });
-  circle = new Circle({ radius: 100, tint: BLUE, x: 300 });
+  square = __dt(new Square({ size: 200, tint: RED, x: -300 }), "core/demo/FoundingSmoke.ts:518:563");
+  circle = __dt(new Circle({ radius: 100, tint: BLUE, x: 300 }), "core/demo/FoundingSmoke.ts:575:622");
   unfold() {
-    this.play(Create(this.square), 2);
-    this.play(Create(this.circle), 2);
-    this.play(together(this.square.x.to(0), this.circle.x.to(0)), 1.5);
-    this.play(together(this.square.scale.to(1.2), this.circle.scale.to(1.2)), 1);
+    __dt(this.play(Create(this.square), 2), "core/demo/FoundingSmoke.ts:641:674");
+    __dt(this.play(Create(this.circle), 2), "core/demo/FoundingSmoke.ts:679:712");
+    __dt(this.play(together(this.square.x.to(0), this.circle.x.to(0)), 1.5), "core/demo/FoundingSmoke.ts:717:802");
+    __dt(this.play(together(this.square.scale.to(1.2), this.circle.scale.to(1.2)), 1), "core/demo/FoundingSmoke.ts:807:902");
     this.wait(1);
   }
 }
@@ -52770,9 +52792,25 @@ var boot = async (resume) => {
       return [0, 600, 1];
     return [-600, 600, 1];
   };
+  let drag = null;
+  const commitOverride = async (holon, anchor2, name, value) => {
+    const res = await fetch(`/api/source?file=${encodeURIComponent(anchor2.file)}`);
+    const baseHash = res.ok ? (await res.json()).hash : undefined;
+    sendOp({
+      type: "op",
+      op: "setOverride",
+      file: anchor2.file,
+      span: { start: anchor2.start, end: anchor2.end },
+      className: holon.constructor.name,
+      name,
+      value,
+      baseHash
+    });
+  };
   const INTERESTING = new Set(["x", "y", "z", "scale", "creation", "opacity"]);
   for (const root of dream.roots) {
     for (const holon of root.walk()) {
+      const anchor2 = anchorOf(holon);
       const box = document.createElement("div");
       box.className = "holon";
       const title = document.createElement("div");
@@ -52807,11 +52845,32 @@ var boot = async (resume) => {
           slider.min = String(min3);
           slider.max = String(max3);
           slider.step = String(step3);
+          const target = param.isBound ? undefined : anchor2;
+          if (!target) {
+            row.classList.add("liveonly");
+            row.title = "live only — not written to code";
+          }
+          let pending;
           slider.addEventListener("input", () => {
             pause();
+            if (drag?.slider !== slider)
+              drag = { row, slider, param, before: param.value, reverted: false };
             if (!param.isBound)
               param.value = Number(slider.value);
+            if (target)
+              row.classList.add("diverged");
             host.renderFrame(current).then(() => syncPanel());
+          });
+          slider.addEventListener("change", () => {
+            const d = drag;
+            drag = null;
+            if (d?.reverted || !target)
+              return;
+            if (pending !== undefined)
+              clearTimeout(pending);
+            pending = setTimeout(() => {
+              commitOverride(holon, target, name, Number(slider.value));
+            }, 300);
           });
           row.appendChild(slider);
           row.appendChild(val);
@@ -52868,6 +52927,15 @@ var boot = async (resume) => {
     if (e.code === "Space") {
       e.preventDefault();
       playing ? pause() : play();
+    }
+    if (e.code === "Escape" && drag && !drag.reverted) {
+      const d = drag;
+      d.reverted = true;
+      if (!d.param.isBound)
+        d.param.value = d.before;
+      d.slider.value = String(d.before);
+      d.row.classList.remove("diverged");
+      host.renderFrame(current).then(() => syncPanel());
     }
   }, listen);
   scrub.addEventListener("input", () => {

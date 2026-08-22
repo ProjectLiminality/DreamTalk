@@ -19,3 +19,6 @@ generated-images/
 # large reference material (videos, frames, cloned source repos)
 refs/
 logs/
+
+# sovereign holon repos (each its own local git repo — Ch 8, local-first)
+holons/
