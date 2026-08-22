@@ -20,6 +20,7 @@ import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
+import { anchorOf, type SourceAnchor } from "./anchors"
 import { FoundingSmokeDream } from "../demo/FoundingSmoke"
 
 interface Transport {
@@ -276,9 +277,43 @@ const boot = async (resume?: Transport) => {
     return [-600, 600, 1]
   }
 
+  // Live/persisted split (EDITOR.md): a drag writes the in-memory param
+  // only, with the row marked diverged; release commits one setOverride
+  // op at the holon's anchored construction site; Escape drops the
+  // gesture. The divergence clears when the reload round-trip remounts.
+  interface Drag {
+    row: HTMLDivElement
+    slider: HTMLInputElement
+    param: Param<ParamValue>
+    before: number
+    reverted: boolean
+  }
+  let drag: Drag | null = null
+
+  const commitOverride = async (
+    holon: Holon,
+    anchor: SourceAnchor,
+    name: string,
+    value: number,
+  ) => {
+    const res = await fetch(`/api/source?file=${encodeURIComponent(anchor.file)}`)
+    const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
+    sendOp({
+      type: "op",
+      op: "setOverride",
+      file: anchor.file,
+      span: { start: anchor.start, end: anchor.end },
+      className: holon.constructor.name,
+      name,
+      value,
+      baseHash,
+    })
+  }
+
   const INTERESTING = new Set(["x", "y", "z", "scale", "creation", "opacity"])
   for (const root of dream.roots) {
     for (const holon of root.walk()) {
+      const anchor = anchorOf(holon)
       const box = document.createElement("div")
       box.className = "holon"
       const title = document.createElement("div")
@@ -311,10 +346,30 @@ const boot = async (resume?: Transport) => {
           slider.min = String(min)
           slider.max = String(max)
           slider.step = String(step)
+          // Committable = the construction site is anchored and the param
+          // accepts writes; everything else stays live-only, marked so.
+          const target = param.isBound ? undefined : anchor
+          if (!target) {
+            row.classList.add("liveonly")
+            row.title = "live only — not written to code"
+          }
+          let pending: ReturnType<typeof setTimeout> | undefined
           slider.addEventListener("input", () => {
             pause()
+            if (drag?.slider !== slider)
+              drag = { row, slider, param, before: param.value as number, reverted: false }
             if (!param.isBound) param.value = Number(slider.value)
+            if (target) row.classList.add("diverged")
             void host.renderFrame(current).then(() => syncPanel())
+          })
+          slider.addEventListener("change", () => {
+            const d = drag
+            drag = null
+            if (d?.reverted || !target) return
+            if (pending !== undefined) clearTimeout(pending)
+            pending = setTimeout(() => {
+              void commitOverride(holon, target, name, Number(slider.value))
+            }, 300)
           })
           row.appendChild(slider)
           row.appendChild(val)
@@ -378,6 +433,15 @@ const boot = async (resume?: Transport) => {
       if (e.code === "Space") {
         e.preventDefault()
         playing ? pause() : play()
+      }
+      if (e.code === "Escape" && drag && !drag.reverted) {
+        // Drop the live override — nothing was ever written.
+        const d = drag
+        d.reverted = true
+        if (!d.param.isBound) d.param.value = d.before
+        d.slider.value = String(d.before)
+        d.row.classList.remove("diverged")
+        void host.renderFrame(current).then(() => syncPanel())
       }
     },
     listen,

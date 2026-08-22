@@ -51,6 +51,12 @@
     .param input[type=range] { width: 100%; accent-color: var(--blue); height: 3px; }
     .param .val { color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums;
       text-align: right; }
+    /* Live value diverged from the file — cleared by the reload round-trip */
+    .param.diverged label { color: var(--red); }
+    .param.diverged input[type=range] { accent-color: var(--red); }
+    .param.diverged .val { color: var(--red); }
+    /* No anchored construction site — tweaks stay live-only */
+    .param.liveonly label::after { content: "·"; margin-left: 3px; color: var(--dim); }
     .swatch { width: 100%; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
     .section { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
     .section h2 { font-size: 11px; font-weight: 600; color: var(--dim);

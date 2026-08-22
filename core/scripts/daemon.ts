@@ -12,8 +12,14 @@
 
 import { watch } from "node:fs"
 import { readdir, rename } from "node:fs/promises"
-import type { ServerWebSocket } from "bun"
-import { applySetBackdrop, type SetBackdropOp } from "./ops"
+import type { BunPlugin, ServerWebSocket } from "bun"
+import {
+  applySetBackdrop,
+  applySetOverride,
+  injectAnchors,
+  type SetBackdropOp,
+  type SetOverrideOp,
+} from "./ops"
 
 const port = Number(process.argv[2] ?? 4174)
 const repoRoot = new URL("../../", import.meta.url).pathname
@@ -75,6 +81,28 @@ const sourceResponse = async (file: string | null): Promise<Response> => {
 
 // --- Build + reload --------------------------------------------------------
 
+/**
+ * DreamWeaving directories whose files get __dt span anchors at build
+ * time (EDITOR.md "Anchoring"). Holon repos join this list later.
+ */
+const ANCHORED_DIRS = ["core/demo/"]
+
+const anchorPlugin: BunPlugin = {
+  name: "dreamtalk-anchors",
+  setup(build) {
+    build.onLoad({ filter: /\.ts$/ }, async (args) => {
+      if (!args.path.startsWith(repoRoot)) return undefined
+      const relFile = args.path.slice(repoRoot.length)
+      if (!ANCHORED_DIRS.some((dir) => relFile.startsWith(dir))) return undefined
+      const source = await Bun.file(args.path).text()
+      return {
+        contents: injectAnchors(source, relFile, `${repoRoot}core/editor/anchors.ts`),
+        loader: "ts" as const,
+      }
+    })
+  },
+}
+
 const buildEditor = async (): Promise<boolean> => {
   const started = performance.now()
   try {
@@ -83,6 +111,7 @@ const buildEditor = async (): Promise<boolean> => {
       outdir: `${repoRoot}core/editor/dist`,
       target: "browser",
       format: "esm",
+      plugins: [anchorPlugin],
     })
     if (!result.success) {
       for (const message of result.logs) console.error(message)
@@ -142,7 +171,7 @@ for (const dir of ["core/demo", "core/src"]) {
 
 // --- Semantic ops (one queue, atomic writes) -------------------------------
 
-interface OpMessage extends SetBackdropOp {
+type OpMessage = (SetBackdropOp | SetOverrideOp) & {
   type: "op"
   file?: string
   baseHash?: string
@@ -155,7 +184,8 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     log("op rejected:", reason)
     ws.send(JSON.stringify({ type: "opRejected", reason }))
   }
-  if (msg.op !== "setBackdrop") return reject(`unknown op: ${String(msg.op)}`)
+  if (msg.op !== "setBackdrop" && msg.op !== "setOverride")
+    return reject(`unknown op: ${String((msg as { op?: string }).op)}`)
 
   const file = msg.file ?? "core/demo/FoundingSmoke.ts"
   const abs = resolveSourcePath(file)
@@ -168,7 +198,16 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     log("op base hash stale — rebasing onto current content")
   }
 
-  const result = applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
+  const result =
+    msg.op === "setBackdrop"
+      ? applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
+      : applySetOverride(current, {
+          op: "setOverride",
+          span: msg.span,
+          className: msg.className,
+          name: msg.name,
+          value: msg.value,
+        })
   if (!result.ok) return reject(result.reason)
 
   if (result.text !== current) {
@@ -176,7 +215,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     await Bun.write(tmp, result.text)
     await rename(tmp, abs)
     pendingEchoes.set(abs, sha256(result.text))
-    log(`op setBackdrop → ${file}`)
+    log(`op ${msg.op} → ${file}`)
   }
   ws.send(JSON.stringify({ type: "opApplied", file, hash: sha256(result.text) }))
   // The write's own watcher event is the suppressed echo; reload explicitly
