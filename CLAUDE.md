@@ -2,6 +2,17 @@
 
 This file is the soul of the DreamTalk agent — everything it needs to work effectively.
 
+## ⚠️ START HERE — The new TypeScript framework (2026)
+
+DreamTalk is being rebuilt as a TypeScript/WebGPU framework in `core/`.
+**Before any work, read in order: docs/TASTE.md (law) → docs/PLAN.md
+(roadmap + status ledger) → docs/DECISIONS.md → docs/GATES.md.**
+Autonomous/unattended sessions additionally follow **docs/AUTONOMY.md**
+(the work protocol: fitness function, one deliverable per session, drift
+guards, stop conditions) exactly. The Python/C4D library documented below
+remains the authoring backend and prior art — per TASTE.md it is
+archaeology, not authority.
+
 ## What is DreamTalk?
 
 DreamTalk is a programmatic animation library for Cinema 4D that creates **platonic symbols** — mathematical constructions where the source code IS the thing, not a representation of it.

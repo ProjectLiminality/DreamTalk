@@ -85,6 +85,16 @@ old code is archaeology, not authority.
   "tweaks parameters" in the expanded sense.
 - The UI exposes **only the truly meaningful minimal set of parameters**
   a human needs in an AI-native workflow. No parameter dumps.
+- **UI/UX guidance (David, 2026-08-23): Keynote is the reference vibe** —
+  its calm, confident, direct-manipulation feel — applied to what makes
+  sense for DreamTalk, not its feature surface. The editor should be
+  neither more nor less complex than Keynote; it should be *as minimalist
+  as is meaningful*, ever more complete AND ever more minimal at once
+  (completeness through fewer, better elements — not more chrome).
+- **UI palette is law: David's flat red/blue/white on black.** RED
+  #FF644E, BLUE #00A2FF, white, black, and quiet grays for chrome —
+  flat, no gradients, no decoration. The same palette as the symbols
+  themselves; the editor is of the same world as what it edits.
 
 ## Ontology (vocabulary — use these words)
 - **DreamNode**: the holon (repo). **DreamTalk**: the distilled symbol
