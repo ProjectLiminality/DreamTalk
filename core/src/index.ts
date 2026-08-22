@@ -28,13 +28,7 @@ export {
   type Readable,
 } from "./params"
 export { Create, UnCreate, Draw, FadeIn, FadeOut, Move, Scale, Rotate } from "./verbs"
-export {
-  loadManifest,
-  parseManifest,
-  serializeManifest,
-  clearManifestCache,
-  type Manifest,
-  type LoadedManifest,
-  type PartHandle,
-} from "./manifest"
+// NOTE: the manifest loader is deliberately NOT re-exported here — it is
+// node-side (fs/path) and this barrel is reached by browser bundles.
+// Import it via the "dreamtalk/manifest" subpath in node contexts.
 export * from "./constants"
