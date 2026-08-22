@@ -4,7 +4,7 @@
  */
 
 import { ThreeHost } from "../src/render/three-host"
-import { FoundingSmokeDream } from "./FoundingSmoke"
+import { scenes, defaultScene } from "./scenes"
 
 declare global {
   interface Window {
@@ -23,7 +23,9 @@ const canvas = document.getElementById("stage") as HTMLCanvasElement
 const readout = document.getElementById("readout") as HTMLDivElement
 
 const main = async () => {
-  const dream = new FoundingSmokeDream()
+  const sceneName = new URLSearchParams(location.search).get("scene") ?? defaultScene
+  const DreamCtor = scenes[sceneName] ?? scenes[defaultScene]!
+  const dream = new DreamCtor()
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
 
@@ -40,6 +42,7 @@ const main = async () => {
   }
   requestAnimationFrame(frame)
 
+  ;(window as unknown as Record<string, unknown>).__dtHost = host
   window.__dt = {
     ready: true,
     duration,

@@ -3,28 +3,56 @@
  * contract (mount / renderFrame(t) / dispose). The framework owns t;
  * whoever mounts this requests frames.
  *
- * v0 scope (PLAN Ch 2 smoke): holon transforms → THREE.Group hierarchy;
- * Circle/Square/Polygon → wide-line polylines (Line2NodeMaterial);
- * creation → segment-wise draw-on via geometry.instanceCount;
- * opacity/tint live-bound. The TSL ribbon stroke replaces this in Ch 4.
+ * Stroke rendering (PLAN Ch 4 groundwork): Circle/Square/Polygon/Arc →
+ * wide-line polylines (Line2NodeMaterial, screen-px width from the
+ * holon's `stroke` param — the 2021 Sketch & Toon look is constant
+ * pixel width regardless of depth, see parts/index.ts).
+ *
+ * Draw-on technique — DASHED, not instanceCount. Verified against
+ * three 0.185.1 sources: Line2NodeMaterial with `dashed: true` reads
+ * the `instanceDistanceStart/End` attributes (written by
+ * LineSegments2.computeLineDistances(), webgpu variant included) and
+ * discards fragments where `lineDistance mod (dashSize + gapSize) >
+ * dashSize`. With gapSize > totalLength there is exactly one dash
+ * starting at arc length 0, so animating the dash length = creation ×
+ * totalLength is a CONTINUOUS arc-length draw-on — sub-segment smooth,
+ * unlike the old geometry.instanceCount route which popped whole
+ * segments. Two dash-mode tradeoffs (both acceptable at 2–3px):
+ * round endcaps are discarded (butt caps), and the dash front edge is
+ * a hard discard (no AA across the cut) — a crisp perpendicular wipe,
+ * which is exactly what a draw-on tip should look like.
+ *
+ * GOTCHA (cost a debugging session): the dash length must be driven
+ * through a per-material TSL uniform (`material.dashSizeNode`), NOT the
+ * plain `material.dashSize` property. NodeMaterialObserver's
+ * refreshUniforms list does not monitor the dash properties, and all
+ * identically-configured stroke materials share one observer (one
+ * cacheKey), so a stroke whose transform is static never re-uploads a
+ * changed `dashSize` — it renders frozen at its first visible frame.
+ * Setting any node property flips the observer's `hasNode`, forcing a
+ * refresh every frame, and gives each material its own uniform besides.
+ *
+ * The full TSL ribbon (caps/joins control, variable width) remains Ch 4.
  */
 
 import * as THREE from "three/webgpu"
+import { uniform } from "three/tsl"
 import { Line2 } from "three/addons/lines/webgpu/Line2.js"
 import { LineGeometry } from "three/addons/lines/LineGeometry.js"
 import type { Dream } from "../dream"
 import { Holon } from "../holon"
-import { Circle, Polygon, Square } from "../parts/index"
+import { Arc, Circle, Polygon, Square, Stroke } from "../parts/index"
 import type { Color } from "../constants"
 
 const STROKE_SEGMENTS = 128
 
 interface StrokeBinding {
-  holon: Holon
+  holon: Stroke
   line: Line2
   material: THREE.Line2NodeMaterial
-  totalSegments: number
-  tint: () => Color
+  totalLength: number
+  /** The per-material dash-length uniform: drawn arc length in local units. */
+  drawn: { value: number }
 }
 
 interface GroupBinding {
@@ -32,7 +60,7 @@ interface GroupBinding {
   group: THREE.Group
 }
 
-const polyline = (holon: Holon): THREE.Vector3[] | undefined => {
+const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
   if (holon instanceof Circle) {
     const pts: THREE.Vector3[] = []
     for (let i = 0; i <= STROKE_SEGMENTS; i++) {
@@ -60,7 +88,23 @@ const polyline = (holon: Holon): THREE.Vector3[] | undefined => {
     }
     return pts
   }
+  if (holon instanceof Arc) {
+    const pts: THREE.Vector3[] = []
+    const a0 = holon.startAngle.value
+    const a1 = holon.endAngle.value
+    for (let i = 0; i <= STROKE_SEGMENTS; i++) {
+      const a = a0 + (i / STROKE_SEGMENTS) * (a1 - a0)
+      pts.push(new THREE.Vector3(Math.cos(a) * holon.radius.value, Math.sin(a) * holon.radius.value, 0))
+    }
+    return pts
+  }
   return undefined
+}
+
+const arcLength = (pts: THREE.Vector3[]): number => {
+  let sum = 0
+  for (let i = 1; i < pts.length; i++) sum += pts[i]!.distanceTo(pts[i - 1]!)
+  return sum
 }
 
 export class ThreeHost {
@@ -93,26 +137,32 @@ export class ThreeHost {
     parent.add(group)
     this.groups.push({ holon, group })
 
-    const pts = polyline(holon)
-    if (pts) {
-      const geometry = new LineGeometry()
-      geometry.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]))
-      const material = new THREE.Line2NodeMaterial({
-        color: 0xffffff,
-        linewidth: 3,
-        worldUnits: false,
-        transparent: true,
-      })
-      const line = new Line2(geometry, material)
-      group.add(line)
-      const tintParam = (holon as Circle).tint
-      this.strokes.push({
-        holon,
-        line,
-        material,
-        totalSegments: pts.length - 1,
-        tint: () => tintParam.value,
-      })
+    if (holon instanceof Stroke) {
+      const pts = polyline(holon)
+      if (pts) {
+        const geometry = new LineGeometry()
+        geometry.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]))
+        const totalLength = arcLength(pts)
+        const material = new THREE.Line2NodeMaterial({
+          color: 0xffffff,
+          linewidth: holon.stroke.value,
+          worldUnits: false,
+          transparent: true,
+          dashed: true,
+        })
+        // One dash covering [0, drawn]; gap longer than the whole
+        // stroke so no second dash ever appears. Distances are in the
+        // geometry's local units (pre-transform), so draw-on fraction is
+        // independent of holon scale.
+        const drawn = uniform(totalLength)
+        material.dashSizeNode = drawn
+        material.gapSize = totalLength * 2
+        material.scale = 1
+        const line = new Line2(geometry, material)
+        line.computeLineDistances()
+        group.add(line)
+        this.strokes.push({ holon, line, material, totalLength, drawn })
+      }
     }
 
     for (const part of holon.parts) this.attach(part, group)
@@ -132,13 +182,12 @@ export class ThreeHost {
       const s = holon.scale.value
       group.scale.set(s, s, s)
     }
-    for (const { holon, line, material, totalSegments, tint } of this.strokes) {
-      const drawn = Math.round(holon.creation.value * totalSegments)
-      const geo = line.geometry as THREE.InstancedBufferGeometry
-      geo.instanceCount = drawn
-      line.visible = drawn > 0 && holon.opacity.value > 0
+    for (const { holon, line, material, totalLength, drawn } of this.strokes) {
+      const creation = holon.creation.value
+      drawn.value = creation * totalLength
+      line.visible = creation > 0 && holon.opacity.value > 0
       material.opacity = holon.opacity.value
-      const c = tint()
+      const c: Color = holon.tint.value
       material.color.setRGB(c.r, c.g, c.b)
     }
     const obs = this.dream.observer
