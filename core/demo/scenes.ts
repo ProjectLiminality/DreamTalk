@@ -9,6 +9,7 @@
 import type { DreamClass } from "../src/dream"
 import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
+import { VocabShowcaseDream } from "./VocabShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -19,6 +20,7 @@ export const scenes: Record<string, DreamClass> = {
   square: SquareDream,
   smoke: FoundingSmokeDream,
   calibration: StrokeCalibrationDream,
+  vocab: VocabShowcaseDream,
 }
 
 export const defaultScene = "founding"

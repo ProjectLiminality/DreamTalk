@@ -2,22 +2,54 @@
  * The classic animation verbs, operating on the standard params.
  * Abilities belong to objects, not stuntman classes — these are just
  * convenient spellings of param animations, applied holon-deep.
+ *
+ * Create dispatches per class: a holon that owns a choreography
+ * (`createAnim()` — Eye's lids-then-iris, Axes' domino cascade)
+ * creates by it; everything else draws on deep-parallel. UnDraw and
+ * Erase are the video-01 asymmetry: UnDraw retracts the draw front
+ * (back-to-front), Erase advances the consume front (front-to-back —
+ * grids "sweep away").
  */
 
 import { together, type Anim } from "./anim"
 import type { Holon } from "./holon"
+import { Stroke } from "./parts/index"
 
 const deep = (holon: Holon, f: (h: Holon) => Anim): Anim =>
   together(...[...holon.walk()].map(f))
 
-/** Emerge from nothing: draw-on 0 → 1, holon-deep. */
-export const Create = (holon: Holon): Anim =>
-  deep(holon, (h) => h.creation.sequence(0, 1))
+const none: Anim = { tracks: [] }
 
+/**
+ * Emerge from nothing. Consults the holon's own choreography
+ * (`createAnim()`), recursively per part; the default is draw-on
+ * 0 → 1, deep-parallel.
+ */
+export const Create = (holon: Holon): Anim => {
+  const custom = holon.createAnim()
+  if (custom) return custom
+  return together(holon.creation.sequence(0, 1), ...holon.parts.map((part) => Create(part)))
+}
+
+/** Retract into nothing: the draw front runs back to the start, holon-deep. */
 export const UnCreate = (holon: Holon): Anim =>
   deep(holon, (h) => h.creation.to(0))
 
 export const Draw = Create
+
+/** The report's vocabulary: UnDraw IS the retract (completion → 0). */
+export const UnDraw = UnCreate
+
+/**
+ * Consume front-to-back: the stroke disappears in draw direction — the
+ * drawn front stays put while the tail retreats after it. Distinct
+ * from UnDraw by design (video-01 grids erase; primitives un-draw).
+ * Applies to strokes; other holons in the tree are untouched. Note:
+ * an erased stroke stays consumed (erasure holds 1) — re-Creating it
+ * needs its erasure animated back to 0 first.
+ */
+export const Erase = (holon: Holon): Anim =>
+  deep(holon, (h) => (h instanceof Stroke ? h.erasure.sequence(0, 1) : none))
 
 export const FadeIn = (holon: Holon): Anim =>
   deep(holon, (h) => h.opacity.sequence(0, 1))

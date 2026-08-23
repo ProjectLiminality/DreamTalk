@@ -27,7 +27,7 @@ export {
   type Source,
   type Readable,
 } from "./params"
-export { Create, UnCreate, Draw, FadeIn, FadeOut, Move, Scale, Rotate } from "./verbs"
+export { Create, UnCreate, Draw, UnDraw, Erase, FadeIn, FadeOut, Move, Scale, Rotate } from "./verbs"
 // NOTE: the manifest loader is deliberately NOT re-exported here — it is
 // node-side (fs/path) and this barrel is reached by browser bundles.
 // Import it via the "dreamtalk/manifest" subpath in node contexts.

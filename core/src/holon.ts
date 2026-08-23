@@ -157,6 +157,17 @@ export class Holon {
   /** Optional hook for conditional/repeated parts; use this.add(). */
   protected compose(): void {}
 
+  /**
+   * Optional per-class Create choreography. `Create(holon)` consults this
+   * before falling back to the default deep-parallel draw-on — the classic
+   * grammar's per-class dispatch (CreateEye, CreateAxes, …), owned by the
+   * class itself. Return an Anim covering self and parts, or undefined
+   * for the default.
+   */
+  createAnim(): Anim | undefined {
+    return undefined
+  }
+
   /** Register a dynamically composed part. */
   protected add<T extends Holon>(part: T): T {
     const int = internalsOf(this)

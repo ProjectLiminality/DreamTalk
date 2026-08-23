@@ -24,9 +24,22 @@
 import * as THREE from "three/webgpu"
 import type { Dream } from "../dream"
 import { Holon } from "../holon"
-import { Arc, Circle, Cylinder, Polygon, Square, Stroke } from "../parts/index"
+import {
+  Arc,
+  Circle,
+  Cylinder,
+  Ellipse,
+  Line,
+  Polygon,
+  Rectangle,
+  Square,
+  Stroke,
+  rectanglePolyline,
+  type Vec3Like,
+} from "../parts/index"
 import type { Color } from "../constants"
 import { RibbonStroke } from "./ribbon"
+import { FillShape, ellipsePolygon } from "./fill"
 import { generatorPoint, silhouetteAngles } from "./silhouette"
 
 const STROKE_SEGMENTS = 128
@@ -35,6 +48,27 @@ interface StrokeBinding {
   holon: Stroke
   ribbon: RibbonStroke
   /** Shape-param signature for the geometry-regen dirty-check. */
+  shapeKey: number[]
+}
+
+/** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
+interface FillBinding {
+  holon: Ellipse
+  fill: FillShape
+  shapeKey: number[]
+}
+
+/**
+ * An arrowhead riding a Line endpoint — a small filled triangle sized
+ * from the stroke width (the S&T end-cap look, ~5×w long by ~4.4×w
+ * wide, calibrated against refs/video-01/frame_084.png). It fades in
+ * as the draw front arrives at its endpoint and out as the erase
+ * front consumes it.
+ */
+interface ArrowBinding {
+  holon: Line
+  fill: FillShape
+  atStart: boolean
   shapeKey: number[]
 }
 
@@ -108,7 +142,68 @@ const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
     }
     return pts
   }
+  if (holon instanceof Rectangle) {
+    return rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value).map(
+      (p) => new THREE.Vector3(p.x, p.y, p.z),
+    )
+  }
+  if (holon instanceof Ellipse) {
+    if (holon.filled.value) return undefined // rendered by its FillShape
+    const pts: THREE.Vector3[] = []
+    for (let i = 0; i <= STROKE_SEGMENTS; i++) {
+      const a = (i / STROKE_SEGMENTS) * Math.PI * 2
+      pts.push(
+        new THREE.Vector3(Math.cos(a) * holon.radiusX.value, Math.sin(a) * holon.radiusY.value, 0),
+      )
+    }
+    return pts
+  }
+  if (holon instanceof Line) {
+    if (holon.points.length < 2) return undefined
+    return holon.points.map((p) => new THREE.Vector3(p.x, p.y, p.z))
+  }
   return undefined
+}
+
+/**
+ * The arrowhead triangle for one Line endpoint, in the line's local
+ * space, pointing outward along the end segment. Size follows the
+ * stroke width (screen px) at a fixed world multiple — honest at the
+ * canonical camera distances; a true screen-space cap is future work.
+ */
+const arrowPolygon = (
+  points: readonly Vec3Like[],
+  atStart: boolean,
+  widthPx: number,
+): Vec3Like[] | undefined => {
+  if (points.length < 2) return undefined
+  const ordered = atStart ? [...points].reverse() : points
+  const tipPt = ordered[ordered.length - 1]!
+  const tip = new THREE.Vector3(tipPt.x, tipPt.y, tipPt.z)
+  let dir: THREE.Vector3 | undefined
+  for (let i = ordered.length - 2; i >= 0; i--) {
+    const p = ordered[i]!
+    const candidate = new THREE.Vector3(p.x, p.y, p.z)
+    const delta = tip.clone().sub(candidate)
+    if (delta.lengthSq() > 1e-12) {
+      dir = delta.normalize()
+      break
+    }
+  }
+  if (!dir) return undefined
+  const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1))
+  if (side.lengthSq() < 1e-12) side.crossVectors(dir, new THREE.Vector3(0, 1, 0))
+  side.normalize()
+  const length = widthPx * 5
+  const halfWidth = widthPx * 2.2
+  const base = tip.clone().addScaledVector(dir, -length)
+  const a = base.clone().addScaledVector(side, halfWidth)
+  const b = base.clone().addScaledVector(side, -halfWidth)
+  return [
+    { x: tip.x, y: tip.y, z: tip.z },
+    { x: a.x, y: a.y, z: a.z },
+    { x: b.x, y: b.y, z: b.z },
+  ]
 }
 
 /** The params whose change requires re-sampling the polyline. */
@@ -118,8 +213,17 @@ const shapeKey = (holon: Stroke): number[] => {
   if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value]
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value]
+  if (holon instanceof Rectangle)
+    return [holon.width.value, holon.height.value, holon.rounding.value]
+  if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value]
+  if (holon instanceof Line) return holon.points.flatMap((p) => [p.x, p.y, p.z])
   return []
 }
+
+/** Arrow geometry depends on the endpoints and the stroke width. */
+const arrowKey = (holon: Line): number[] => [...shapeKey(holon), holon.stroke.value]
+
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
 const keysEqual = (a: number[], b: number[]): boolean =>
   a.length === b.length && a.every((v, i) => v === b[i])
@@ -132,6 +236,10 @@ export class ThreeHost {
   private readonly groups: GroupBinding[] = []
   private readonly strokes: StrokeBinding[] = []
   private readonly cylinders: CylinderBinding[] = []
+  private readonly fills: FillBinding[] = []
+  private readonly arrows: ArrowBinding[] = []
+  /** Fills stack over strokes and over earlier fills — see fill.ts. */
+  private nextFillOrder = 1
 
   private constructor(dream: Dream, canvas: HTMLCanvasElement) {
     this.dream = dream
@@ -173,6 +281,11 @@ export class ThreeHost {
       binding.bottomCap.setPoints(capPolyline(r, -h / 2))
       group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh)
       this.cylinders.push(binding)
+    } else if (holon instanceof Ellipse && holon.filled.value) {
+      const fill = new FillShape(this.nextFillOrder++)
+      fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
+      group.add(fill.mesh)
+      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
     } else if (holon instanceof Stroke) {
       const pts = polyline(holon)
       if (pts) {
@@ -180,6 +293,17 @@ export class ThreeHost {
         ribbon.setPoints(pts)
         group.add(ribbon.mesh)
         this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) })
+      }
+      if (holon instanceof Line) {
+        for (const atStart of [false, true]) {
+          if (!(atStart ? holon.arrowStart : holon.arrowEnd).value) continue
+          const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value)
+          if (!polygon) continue
+          const fill = new FillShape(this.nextFillOrder++)
+          fill.setPolygon(polygon)
+          group.add(fill.mesh)
+          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon) })
+        }
       }
     }
 
@@ -209,7 +333,40 @@ export class ThreeHost {
         if (pts) ribbon.setPoints(pts)
       }
       const tint: Color = holon.tint.value
-      ribbon.style(holon.creation.value, holon.opacity.value, tint, holon.stroke.value)
+      ribbon.style(
+        holon.creation.value,
+        holon.opacity.value,
+        tint,
+        holon.stroke.value,
+        holon.erasure.value,
+      )
+    }
+    for (const binding of this.fills) {
+      const { holon, fill } = binding
+      const key = shapeKey(holon)
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key
+        fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
+      }
+      // Fill semantics: creation IS the fill-in, composed with fade.
+      fill.style(holon.creation.value * holon.opacity.value, holon.tint.value)
+    }
+    for (const binding of this.arrows) {
+      const { holon, fill, atStart } = binding
+      const key = arrowKey(holon)
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key
+        const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value)
+        if (polygon) fill.setPolygon(polygon)
+      }
+      // The head lives at its endpoint's share of the windows: it fades
+      // in as the draw front reaches it, out as the erase front does.
+      const creation = holon.creation.value
+      const erasure = holon.erasure.value
+      const present = atStart
+        ? clamp01(creation / 0.08) * (1 - clamp01(erasure / 0.08))
+        : clamp01((creation - 0.92) / 0.08) * (1 - clamp01((erasure - 0.92) / 0.08))
+      fill.style(present * holon.opacity.value, holon.tint.value)
     }
     const obs = this.dream.observer
     const r = obs.radius.value
@@ -260,20 +417,24 @@ export class ThreeHost {
     // Draw-on: the four strokes run sequentially within the holon's one
     // creation param, windows proportioned by arc length (S&T "single"
     // stroke method): top cap → bottom cap → generator A → generator B.
+    // The erase front consumes them through the same partition.
     const cap = 2 * Math.PI * radius
     const total = 2 * cap + 2 * height
     const bounds = [0, cap / total, (2 * cap) / total, (2 * cap + height) / total, 1]
     const creation = holon.creation.value
+    const erasure = holon.erasure.value
     const opacity = holon.opacity.value
     const tint: Color = holon.tint.value
     const width = holon.stroke.value
-    const window = (a: number, b: number) =>
-      Math.min(1, Math.max(0, (creation - a) / (b - a)))
-    topCap.style(window(bounds[0]!, bounds[1]!), opacity, tint, width)
-    bottomCap.style(window(bounds[1]!, bounds[2]!), opacity, tint, width)
+    const window = (v: number, a: number, b: number) =>
+      Math.min(1, Math.max(0, (v - a) / (b - a)))
+    const sub = (line: RibbonStroke, drawn: number, a: number, b: number) =>
+      line.style(drawn, opacity, tint, width, window(erasure, a, b))
+    sub(topCap, window(creation, bounds[0]!, bounds[1]!), bounds[0]!, bounds[1]!)
+    sub(bottomCap, window(creation, bounds[1]!, bounds[2]!), bounds[1]!, bounds[2]!)
     const mantleVisible = angles !== undefined
-    lineA.style(mantleVisible ? window(bounds[2]!, bounds[3]!) : 0, opacity, tint, width)
-    lineB.style(mantleVisible ? window(bounds[3]!, bounds[4]!) : 0, opacity, tint, width)
+    sub(lineA, mantleVisible ? window(creation, bounds[2]!, bounds[3]!) : 0, bounds[2]!, bounds[3]!)
+    sub(lineB, mantleVisible ? window(creation, bounds[3]!, bounds[4]!) : 0, bounds[3]!, bounds[4]!)
   }
 
   dispose(): void {

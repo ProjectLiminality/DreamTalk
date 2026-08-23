@@ -26,6 +26,13 @@
  * the front discard; the segment before it paints the shared cap in
  * its overlap pad, so the hand-off is seamless.
  *
+ * Erase (the video-01 asymmetry): the `erased` uniform is a second
+ * arc length — the consume front. The visible window is
+ * [erased, drawn]: Erase advances the tail in draw direction while
+ * the drawn front stays, mirroring the pen tip with a round
+ * retreating tail. Segments fully consumed discard; erased = 0 is
+ * bit-identical to the pre-erase pipeline.
+ *
  * Overlap/blending: strokes render with MAX blending (color and
  * alpha). For same-color overlaps — adjacent-segment joins, caps on
  * closed curves, tangencies — max is exactly idempotent: no double
@@ -99,6 +106,8 @@ export class RibbonMaterial extends THREE.NodeMaterial {
   readonly widthPx = uniform(3)
   /** Draw front as arc length in the polyline's local units. */
   readonly drawn = uniform(0)
+  /** Erase (consume) front as arc length — visible window is [erased, drawn]. */
+  readonly erased = uniform(0)
   /** Stroke color (same working-space semantics as the old material.color). */
   readonly tint = uniform(new THREE.Color(1, 1, 1))
   /** Fade opacity, orthogonal to creation. */
@@ -217,10 +226,19 @@ export class RibbonMaterial extends THREE.NodeMaterial {
       // cap (its forward pad covers it) — draw nothing here.
       uFront.lessThan(0.0).discard()
 
-      // Capsule from the segment start to min(segment end, draw front):
-      // round caps at both ends, and a round pen tip at the front.
-      const uEnd = min(lenPx, uFront)
-      const d = length(vec2(u.sub(clamp(u, 0.0, uEnd)), v))
+      // Erase front: segments fully consumed draw nothing; the segment
+      // holding it starts its capsule there — a round retreating tail.
+      const uTail = this.erased.sub(distStart).mul(pxPerUnit).toVar()
+      uTail.greaterThan(lenPx).discard()
+
+      // Capsule over the visible window [max(0, erase front),
+      // min(segment end, draw front)]: round caps at both ends, a
+      // round pen tip at the draw front, a round tail at the erase
+      // front. (While the mesh is visible the window is non-inverted;
+      // the max() guard only shields the degenerate hidden case.)
+      const uBegin = max(uTail, 0.0)
+      const uEnd = max(min(lenPx, uFront), uBegin)
+      const d = length(vec2(u.sub(clamp(u, uBegin, uEnd)), v))
 
       const hw = halfWidth()
       const coverage = smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
@@ -299,10 +317,17 @@ export class RibbonStroke {
     this.geometry.instanceCount = packed.count
   }
 
-  /** Sync visibility/draw fraction/style from the owning holon. */
-  style(fraction: number, opacity: number, tint: Color, widthPx: number): void {
+  /** Sync visibility/draw fraction/erase fraction/style from the owning holon. */
+  style(
+    fraction: number,
+    opacity: number,
+    tint: Color,
+    widthPx: number,
+    erasedFraction = 0,
+  ): void {
     this.material.drawn.value = fraction * this.totalLength
-    this.mesh.visible = fraction > 0 && opacity > 0
+    this.material.erased.value = erasedFraction * this.totalLength
+    this.mesh.visible = fraction > erasedFraction && opacity > 0
     this.material.fade.value = opacity
     this.material.tint.value.setRGB(tint.r, tint.g, tint.b)
     this.material.widthPx.value = widthPx
