@@ -46,6 +46,28 @@ S05, S01, S03, S02, S06, S08.
 | Section curves (S03/S06) + Connection (S10) | in progress |
 | Overlay comparator + gauntlet harness | done |
 
+## Round-1 findings (2026-08-23)
+
+**Harness bug, fixed mid-round** (found by the S04 builder): the demo page
+letterboxed the canvas into the top 720px of a 1280×760 viewport, and
+overlay.py then resized 760→720, squashing our geometry by 5.3%. Every
+composite scored before the fix understated fidelity badly (S04 mean
+coverage went 0.37 → 0.85 on the fix alone, 4 of 6 frames flipping to
+PASS). Fix: the demo canvas fills the viewport and the comparator's
+resize undoes the stretch exactly (core/demo/index.html). **Any
+calibration measured against pre-fix composites must be re-measured.**
+
+**Open: the lens question.** Four independent measurements off the
+reference (tick pitch, two object centres, rectangle extents) all give
+1.280 px/world-unit at the rig's 1000-unit distance; our rig projects
+1.600 — i.e. the 2021 camera behaves like a 36mm lens (hfov 53.13°), not
+the 45mm the ported rig assumes. CameraCal.ts independently flagged the
+same ~0.83 factor on the S01 cylinder. Deliberately NOT changed during a
+live round (it would invalidate every scene's in-flight calibration);
+scenes compensate scene-locally via dolly, which is how pydeation
+expressed zoom anyway. **Decide between rounds, then re-score all scenes
+together.**
+
 ## Per-scene records
 
 _(Each scene gets its metrics table, composite paths, and the list of
