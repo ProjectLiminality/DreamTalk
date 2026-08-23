@@ -5,7 +5,13 @@
   <title>DreamTalk — FoundingSmoke</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    #stage { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; display: block; margin: 0 auto; }
+    /* The canvas fills the viewport exactly. The scene is always rendered
+       16:9 (three-host aspect()), so a viewport that is not 16:9 stretches
+       it — and the gauntlet's comparator resizes the whole screenshot back
+       to the reference's 1280x720 before scoring, which undoes the stretch
+       exactly. Letterboxing here instead would survive that resize as a
+       real geometric squash. */
+    #stage { width: 100vw; height: 100vh; display: block; }
     #readout { position: fixed; bottom: 10px; left: 12px; color: #555; font: 12px monospace; }
   </style>
 </head>

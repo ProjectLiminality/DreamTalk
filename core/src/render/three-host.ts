@@ -35,6 +35,7 @@ import {
   Square,
   Stroke,
   rectanglePolyline,
+  rephasePolyline,
   type Vec3Like,
 } from "../parts/index"
 import type { Color } from "../constants"
@@ -104,7 +105,7 @@ const capPolyline = (radius: number, y: number): THREE.Vector3[] => {
   return pts
 }
 
-const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
+const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
   if (holon instanceof Circle) {
     const pts: THREE.Vector3[] = []
     for (let i = 0; i <= STROKE_SEGMENTS; i++) {
@@ -166,41 +167,101 @@ const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
 }
 
 /**
- * The arrowhead triangle for one Line endpoint, in the line's local
- * space, pointing outward along the end segment. Size follows the
- * stroke width (screen px) at a fixed world multiple — honest at the
- * canonical camera distances; a true screen-space cap is future work.
+ * The stroke's outline as the pen actually walks it: the primitive's own
+ * geometry, re-phased to its `drawStart` and wound to its `drawReversed`
+ * (parts/index.ts: rephasePolyline). Open strokes pass through untouched.
  */
+const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
+  const pts = basePolyline(holon)
+  if (!pts) return undefined
+  const phase = holon.drawStart.value
+  const reversed = holon.drawReversed.value
+  if (phase === 0 && !reversed) return pts
+  return rephasePolyline(pts, phase, reversed).map((p) => new THREE.Vector3(p.x, p.y, p.z))
+}
+
+/**
+ * The arrowhead triangle for one Line endpoint, in the line's local
+ * space, pointing outward along the end segment.
+ *
+ * Sketch & Toon's arrow line-end is a cap of "7 x 5" in the same pixel
+ * units the thickness is stated in, i.e. a triangle 5*T/2 long and
+ * 7*T/2 across for a stroke of thickness T, sitting with its BASE on the
+ * line's endpoint and its tip beyond it — the line stops where the head
+ * begins. refs/video-01/frames5/f0428 measures exactly that: the S04
+ * gradient's axis runs to x = 960 (world +250) and the head occupies
+ * 960..972 with an 18px base, against the 12.9px / 17.9px those
+ * factors predict at the 1.28 px-per-unit of that scene's camera.
+ *
+ * Sized in WORLD units at that same 1.28 px/unit, since the polygon is
+ * world geometry and has no camera here; a true screen-space cap is
+ * still future work, and off-canonical distances will read a little
+ * large or small.
+ */
+const ARROW_PX_PER_UNIT = 1.28
+/** S&T cap length, in stroke widths: 5/2 pixel units per width. */
+const ARROW_LENGTH_FACTOR = 2.5 / ARROW_PX_PER_UNIT
+/** S&T cap half-width, in stroke widths: 7/2 pixel units across. */
+const ARROW_HALF_WIDTH_FACTOR = 1.75 / ARROW_PX_PER_UNIT
+
+/**
+ * Walk a polyline to `progress` of its arc length, returning the point
+ * there and the unit direction of travel at it.
+ */
+const walkTo = (
+  points: readonly Vec3Like[],
+  progress: number,
+): { tip: THREE.Vector3; dir: THREE.Vector3 } | undefined => {
+  const vec = (p: Vec3Like) => new THREE.Vector3(p.x, p.y, p.z)
+  const seg: number[] = []
+  let total = 0
+  for (let i = 0; i < points.length - 1; i++) {
+    const d = vec(points[i + 1]!).sub(vec(points[i]!)).length()
+    seg.push(d)
+    total += d
+  }
+  if (total <= 0) return undefined
+  let target = progress * total
+  let i = 0
+  while (i < seg.length - 1 && target > seg[i]!) {
+    target -= seg[i]!
+    i++
+  }
+  const a = vec(points[i]!)
+  const b = vec(points[i + 1]!)
+  const delta = b.clone().sub(a)
+  if (delta.lengthSq() <= 1e-12) return undefined
+  const u = seg[i]! > 0 ? Math.min(1, target / seg[i]!) : 0
+  return { tip: a.clone().addScaledVector(delta, u), dir: delta.normalize() }
+}
 const arrowPolygon = (
   points: readonly Vec3Like[],
   atStart: boolean,
   widthPx: number,
+  progress = 1,
 ): Vec3Like[] | undefined => {
   if (points.length < 2) return undefined
   const ordered = atStart ? [...points].reverse() : points
-  const tipPt = ordered[ordered.length - 1]!
-  const tip = new THREE.Vector3(tipPt.x, tipPt.y, tipPt.z)
-  let dir: THREE.Vector3 | undefined
-  for (let i = ordered.length - 2; i >= 0; i--) {
-    const p = ordered[i]!
-    const candidate = new THREE.Vector3(p.x, p.y, p.z)
-    const delta = tip.clone().sub(candidate)
-    if (delta.lengthSq() > 1e-12) {
-      dir = delta.normalize()
-      break
-    }
-  }
-  if (!dir) return undefined
+  // The head rides the PEN, not the endpoint: Sketch & Toon draws a
+  // line-end cap on the stroke's current end, so while a line draws on,
+  // its arrow travels with the front and only settles when the front
+  // arrives. refs/video-01/frames5 f0419-f0427 track the S04 gradient's
+  // head across x = 326, 377, 466, 577, 694, 805, 897, 952, 960 as the
+  // line advances — always at the tip, never parked at the destination.
+  const walked = walkTo(ordered, Math.min(1, Math.max(0, progress)))
+  if (!walked) return undefined
+  const { tip, dir } = walked
   const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1))
   if (side.lengthSq() < 1e-12) side.crossVectors(dir, new THREE.Vector3(0, 1, 0))
   side.normalize()
-  const length = widthPx * 5
-  const halfWidth = widthPx * 2.2
-  const base = tip.clone().addScaledVector(dir, -length)
-  const a = base.clone().addScaledVector(side, halfWidth)
-  const b = base.clone().addScaledVector(side, -halfWidth)
+  // The endpoint is the BASE of the head; the apex sits beyond it.
+  const length = widthPx * ARROW_LENGTH_FACTOR
+  const halfWidth = widthPx * ARROW_HALF_WIDTH_FACTOR
+  const apex = tip.clone().addScaledVector(dir, length)
+  const a = tip.clone().addScaledVector(side, halfWidth)
+  const b = tip.clone().addScaledVector(side, -halfWidth)
   return [
-    { x: tip.x, y: tip.y, z: tip.z },
+    { x: apex.x, y: apex.y, z: apex.z },
     { x: a.x, y: a.y, z: a.z },
     { x: b.x, y: b.y, z: b.z },
   ]
@@ -208,14 +269,15 @@ const arrowPolygon = (
 
 /** The params whose change requires re-sampling the polyline. */
 const shapeKey = (holon: Stroke): number[] => {
-  if (holon instanceof Circle) return [holon.radius.value]
-  if (holon instanceof Square) return [holon.size.value]
-  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value]
+  const phase = [holon.drawStart.value, holon.drawReversed.value ? 1 : 0]
+  if (holon instanceof Circle) return [holon.radius.value, ...phase]
+  if (holon instanceof Square) return [holon.size.value, ...phase]
+  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value, ...phase]
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value]
   if (holon instanceof Rectangle)
-    return [holon.width.value, holon.height.value, holon.rounding.value]
-  if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value]
+    return [holon.width.value, holon.height.value, holon.rounding.value, ...phase]
+  if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value, ...phase]
   if (holon instanceof Line) return holon.points.flatMap((p) => [p.x, p.y, p.z])
   return []
 }
@@ -359,18 +421,26 @@ export class ThreeHost {
     for (const binding of this.arrows) {
       const { holon, fill, atStart } = binding
       const key = arrowKey(holon)
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key
-        const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value)
-        if (polygon) fill.setPolygon(polygon)
-      }
-      // The head lives at its endpoint's share of the windows: it fades
-      // in as the draw front reaches it, out as the erase front does.
+      // The head rides the pen: it sits at whatever fraction of the line
+      // is currently drawn, so it travels with the draw front and, as the
+      // erase front eats the tail, keeps station at the surviving end.
+      // Its position changes every frame, so the shapeKey cache cannot
+      // gate the rebuild — only the visibility can.
       const creation = holon.creation.value
       const erasure = holon.erasure.value
+      // Only the DRAW front carries the head. The erase front does not:
+      // f0430/f0432/f0434 keep the S04 gradient's head parked at its
+      // destination (cols 960-967) while the tail retreats behind it —
+      // the head belongs to the stroke's end, and erasing eats the start.
+      const progress = atStart ? 0 : creation
       const present = atStart
-        ? clamp01(creation / 0.08) * (1 - clamp01(erasure / 0.08))
-        : clamp01((creation - 0.92) / 0.08) * (1 - clamp01((erasure - 0.92) / 0.08))
+        ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02))
+        : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08))
+      if (present > 0) {
+        binding.shapeKey = key
+        const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value, progress)
+        if (polygon) fill.setPolygon(polygon)
+      }
       fill.style(present * holon.opacity.value, holon.tint.value)
     }
     this.syncCamera()

@@ -37,6 +37,109 @@ export class Stroke extends Holon {
   stroke = length(3)
   /** Front-to-back consume front (the Erase verb) — 0 = nothing eaten. */
   erasure = completion(0)
+  /**
+   * Where along a CLOSED outline the pen starts, as a fraction of its
+   * perimeter. C4D's spline primitives each carry their own start point,
+   * and Sketch & Toon draws from it — so a circle that begins its arc at
+   * 1/8 of the way round is not a stylistic choice but the primitive's
+   * own construction. Ignored by open strokes (a Line has a real start).
+   */
+  drawStart = completion(0)
+  /**
+   * Draw the outline the other way round. pydeation builds its primitives
+   * in the XZ plane; seen from a camera that looks along -Z at our XY
+   * plane, that winding reads REVERSED — which is why every video-01
+   * circle and rectangle draws clockwise on screen while ours, built
+   * natively in XY, run counterclockwise. A winding flag rather than a
+   * second set of generators: same geometry, opposite pen direction.
+   */
+  drawReversed = bool(false)
+}
+
+/**
+ * Re-phase a CLOSED polyline so the pen starts `drawStart` of the way
+ * around it and walks it in the given direction. Pure — the host's
+ * geometry pass and the tests share it.
+ *
+ * The input's first and last point must coincide (that is what makes it
+ * closed); the output keeps that property, so arc-length draw-on still
+ * covers the whole outline exactly once. Two properties make this usable
+ * as a scene parameter rather than a puzzle:
+ *
+ *  - phase is measured in ARC LENGTH, not point index, so an unevenly
+ *    sampled outline (a rounded rectangle, whose corners carry more
+ *    points than its sides) starts where the phase geometrically says;
+ *  - phase is measured along the ORIGINAL winding and applied BEFORE the
+ *    reversal, so the start POINT is the same place whichever way the pen
+ *    then travels — and it does not shift when the sampling density
+ *    changes. `drawStart` names a location; `drawReversed` names a
+ *    direction; the two are independent.
+ */
+export const rephasePolyline = (
+  points: readonly Vec3Like[],
+  drawStart: number,
+  reversed: boolean,
+): Vec3Like[] => {
+  if (points.length < 3) return [...points]
+  const first = points[0]!
+  const last = points[points.length - 1]!
+  const closed =
+    Math.abs(first.x - last.x) < 1e-9 &&
+    Math.abs(first.y - last.y) < 1e-9 &&
+    Math.abs(first.z - last.z) < 1e-9
+  if (!closed) return [...points]
+
+  // Drop the duplicated closing point; the loop is cyclic from here on.
+  const loop = points.slice(0, -1)
+  const n = loop.length
+  const dist = (a: Vec3Like, b: Vec3Like): number =>
+    Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
+  const seg: number[] = []
+  let total = 0
+  for (let i = 0; i < n; i++) {
+    const d = dist(loop[i]!, loop[(i + 1) % n]!)
+    seg.push(d)
+    total += d
+  }
+  if (total <= 0) return [...loop, loop[0]!]
+
+  // Walk the ORIGINAL winding to the target arc length; split the
+  // segment it lands inside, so the start point is exact.
+  const phase = ((drawStart % 1) + 1) % 1
+  let target = phase * total
+  let i = 0
+  while (i < n - 1 && target > seg[i]!) {
+    target -= seg[i]!
+    i++
+  }
+  let u = seg[i]! > 0 ? Math.min(1, target / seg[i]!) : 0
+  // Snap to a vertex when the phase lands on one, so the walk below never
+  // emits the start point twice in a row.
+  const EPS = 1e-9
+  if (u >= 1 - EPS) {
+    i = (i + 1) % n
+    u = 0
+  } else if (u <= EPS) {
+    u = 0
+  }
+  const a = loop[i]!
+  const b = loop[(i + 1) % n]!
+  const startPt: Vec3Like =
+    u === 0 ? a : { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u }
+
+  // From that point, walk the loop the requested way and close.
+  // Forward: startPt, loop[i+1], loop[i+2], … back round to startPt.
+  // Backward: startPt, loop[i], loop[i-1], … back round to startPt.
+  // On a vertex start the first step would repeat startPt, so skip it.
+  const at = (k: number): Vec3Like => loop[((k % n) + n) % n]!
+  const onVertex = u === 0
+  const steps = onVertex ? n - 1 : n
+  const out: Vec3Like[] = [startPt]
+  for (let k = 0; k < steps; k++) {
+    out.push(reversed ? at(i - k - (onVertex ? 1 : 0)) : at(i + k + 1))
+  }
+  out.push(startPt)
+  return out
 }
 
 /** A circle — radius and stroke color. */
@@ -220,6 +323,16 @@ const cascade = (lines: readonly Stroke[]): Anim => {
   )
 }
 
+/** The same cascade running the erase front instead of the draw front. */
+const consume = (lines: readonly Stroke[]): Anim => {
+  const windows = dominoWindows(lines.length)
+  return together(
+    ...lines.map(
+      (line, i): Windowed => [line.erasure.sequence(0, 1), windows[i]![0], windows[i]![1]],
+    ),
+  )
+}
+
 /**
  * Axes with optional grid and ticks — generated entirely from Line
  * parts (symbolic holon: the CPU decides what exists; compose() runs
@@ -351,6 +464,22 @@ export class Axes extends Stroke {
     ]
     for (const group of this.gridGroups) items.push([cascade(group), 0, 1])
     for (const group of this.tickGroups) items.push([cascade(group), 0.3, 1])
+    return together(...items)
+  }
+
+  /**
+   * UnCreateAxes: built on Erase, not UnDraw (animator.py:881-912) — the
+   * axes are consumed from their start over the whole span while the tick
+   * dominoes are eaten inside the first 70% of it, so the lattice sweeps
+   * away ahead of the line rather than retracting back along it.
+   */
+  override unCreateAnim(): Anim {
+    void this.parts // ensure compose() has generated the line set
+    const items: Windowed[] = [
+      [together(...this.axisLines.map((l) => l.erasure.sequence(0, 1))), 0, 1],
+    ]
+    for (const group of this.gridGroups) items.push([consume(group), 0, 1])
+    for (const group of this.tickGroups) items.push([consume(group), 0, 0.7])
     return together(...items)
   }
 }

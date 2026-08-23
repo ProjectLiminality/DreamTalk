@@ -168,6 +168,18 @@ export class Holon {
     return undefined
   }
 
+  /**
+   * Optional per-class UnCreate choreography — the mirror of createAnim().
+   * The classic grammar dispatches destruction too (UnCreateEye's
+   * iris-then-lids, UnCreateAxes' erase-from-the-start), and the two are
+   * genuinely different verbs: UnCreateAxes is built on Erase, not on
+   * UnDraw, so a grid sweeps away rather than retracting. Return an Anim
+   * covering self and parts, or undefined for the default retract.
+   */
+  unCreateAnim(): Anim | undefined {
+    return undefined
+  }
+
   /** Register a dynamically composed part. */
   protected add<T extends Holon>(part: T): T {
     const int = internalsOf(this)

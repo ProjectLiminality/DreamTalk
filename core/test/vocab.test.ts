@@ -14,7 +14,7 @@ import {
   dominoWindows,
   rectanglePolyline,
 } from "../src/parts/index"
-import { Create, Erase, UnDraw } from "../src/verbs"
+import { Create, Erase, UnCreate, UnDraw } from "../src/verbs"
 import { Dream } from "../src/dream"
 import { PI } from "../src/constants"
 import type { Track } from "../src/anim"
@@ -183,5 +183,77 @@ describe("Erase vs UnDraw", () => {
     expect(dream.line.erasure.value).toBeLessThan(1)
     dream.applyAt(2)
     expect(dream.line.erasure.value).toBe(1)
+  })
+})
+
+describe("UnCreate dispatch", () => {
+  test("default: the draw front retracts, nothing is erased", () => {
+    const square = new Square({})
+    const tracks = UnCreate(square).tracks
+    expect(tracksFor(tracks, square.creation)).toHaveLength(1)
+    expect(tracksFor(tracks, square.erasure)).toHaveLength(0)
+  })
+
+  test("UnCreateAxes erases instead, ticks inside the first 70%", () => {
+    const axes = new Axes({ mode: "x", xStart: -250, xEnd: 250, gridSpacing: 30, drawTicks: true })
+    const tracks = UnCreate(axes).tracks
+    // Every stroke is consumed by its erase front, never by un-drawing.
+    expect(tracks.every((t) => t.param.name === "erasure")).toBe(true)
+    const axis = tracksFor(tracks, axes.axisLines[0]!.erasure)[0]!
+    expect(axis.relStart).toBe(0)
+    expect(axis.relStop).toBe(1)
+    // 15 ticks at -210..210, all done by 0.7 of the span.
+    const ticks = axes.tickGroups[0]!
+    expect(ticks).toHaveLength(15)
+    for (const tick of ticks) {
+      const track = tracksFor(tracks, tick.erasure)[0]!
+      expect(track.relStop).toBeLessThanOrEqual(0.7 + 1e-9)
+    }
+  })
+})
+
+describe("C4D auto-tangent easing", () => {
+  /** A single param driven 0 → 1 over exactly 1s, sampled off the timeline. */
+  class EaseDream extends Dream {
+    line = new Line({ points: [{ x: 0, y: 0, z: 0 }, { x: 100, y: 0, z: 0 }] })
+    unfold() {
+      this.play(Create(this.line), 1)
+    }
+  }
+  const at = (t: number): number => {
+    const dream = new EaseDream()
+    dream.applyAt(t)
+    return dream.line.creation.value
+  }
+
+  test("endpoints are exact and the curve is monotone", () => {
+    expect(at(0)).toBe(0)
+    expect(at(1)).toBe(1)
+    let prev = -1
+    for (let i = 0; i <= 20; i++) {
+      const v = at(i / 20)
+      expect(v).toBeGreaterThanOrEqual(prev)
+      prev = v
+    }
+  })
+
+  test("symmetric about the midpoint, which sits at 1/2", () => {
+    expect(at(0.5)).toBeCloseTo(0.5, 9)
+    for (const u of [0.1, 0.25, 0.4]) {
+      expect(at(u) + at(1 - u)).toBeCloseTo(1, 9)
+    }
+  })
+
+  test("it is the smoothing-0.25 curve, not smoothstep", () => {
+    // Smoothstep is the s = 1/3 member of the same family; at the ends
+    // the two separate by ~30%, which is what the video-01 reference
+    // measures (see timeline.ts). Pin the difference so a silent revert
+    // to smoothstep fails here.
+    const smoothstep = (u: number) => u * u * (3 - 2 * u)
+    expect(at(0.1)).toBeGreaterThan(smoothstep(0.1) * 1.2)
+    expect(1 - at(0.9)).toBeGreaterThan((1 - smoothstep(0.9)) * 1.2)
+    // The values the reference fit implies, to 3dp.
+    expect(at(0.1)).toBeCloseTo(0.0396, 3)
+    expect(at(0.9)).toBeCloseTo(0.9604, 3)
   })
 })

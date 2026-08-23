@@ -31,9 +31,17 @@ export const Create = (holon: Holon): Anim => {
   return together(holon.creation.sequence(0, 1), ...holon.parts.map((part) => Create(part)))
 }
 
-/** Retract into nothing: the draw front runs back to the start, holon-deep. */
-export const UnCreate = (holon: Holon): Anim =>
-  deep(holon, (h) => h.creation.to(0))
+/**
+ * Retract into nothing. Consults the holon's own choreography
+ * (`unCreateAnim()`) — the destructive half of the classic dispatch,
+ * where UnCreateAxes erases and UnCreateEye unfills before it undraws —
+ * and otherwise runs the draw front back to the start, holon-deep.
+ */
+export const UnCreate = (holon: Holon): Anim => {
+  const custom = holon.unCreateAnim()
+  if (custom) return custom
+  return deep(holon, (h) => h.creation.to(0))
+}
 
 export const Draw = Create
 

@@ -34,8 +34,47 @@ interface Segment {
   easing: Easing
 }
 
+/**
+ * C4D's auto-tangent ease, which is what the 2021 corpus was authored
+ * with: a cubic Bezier value curve with FLAT value tangents whose
+ * horizontal lengths are `smoothing * run_time` on each side, i.e.
+ * control points at (s, 0) and (1 - s, 1) in normalized time/value.
+ * pydeation's default smoothing is 0.25 (animation/animation.py).
+ *
+ * This replaces the smoothstep that stood here as an approximation.
+ * Smoothstep is the s = 1/3 member of the same family, and the video-01
+ * reference rules against it: reading the drawn fraction of Scene 04's
+ * circle straight off frames5 f0409-f0418 (.017 .081 .182 .302 .432
+ * .568 .700 .825 .930 .998) and fitting the 2s draw, s = 0.25 lands a
+ * sum-squared error of 2.5e-4 against smoothstep's 2.4e-3 — an order of
+ * magnitude, on ten independent samples, at the same fitted start time.
+ * The gap is widest exactly where reproduction is judged: in the first
+ * and last fifth of a span, smoothstep runs ~30% short.
+ */
+const C4D_SMOOTHING = 0.25
+
+/** Solve the Bezier's time coordinate for u, then read its value. */
+const c4dEase = (u: number): number => {
+  if (u <= 0) return 0
+  if (u >= 1) return 1
+  const s = C4D_SMOOTHING
+  const timeAt = (p: number): number =>
+    3 * (1 - p) * (1 - p) * p * s + 3 * (1 - p) * p * p * (1 - s) + p * p * p
+  // The curve is monotone in p, so bisection is exact enough and has no
+  // failure modes; 40 halvings put p within 1e-12.
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (timeAt(mid) < u) lo = mid
+    else hi = mid
+  }
+  const p = (lo + hi) / 2
+  return 3 * (1 - p) * p * p + p * p * p
+}
+
 const ease = (easing: Easing, u: number): number =>
-  easing === "linear" ? u : u * u * (3 - 2 * u) // smoothstep ≈ C4D auto-tangents
+  easing === "linear" ? u : c4dEase(u)
 
 const lerpValue = (a: ParamValue, b: ParamValue, u: number): ParamValue => {
   if (typeof a === "number" && typeof b === "number") return a + (b - a) * u
