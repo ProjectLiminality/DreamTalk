@@ -42,6 +42,15 @@ interface Row {
   el: HTMLDivElement
   /** Children rows, for collapse. */
   childrenEl?: HTMLDivElement
+  twisty?: HTMLDivElement
+  /**
+   * The row is open only because it is on the path to the selection —
+   * not because anyone asked for it. Such a row closes again when the
+   * selection leaves, so revealing one grid line does not permanently
+   * turn a 48-part Axes into a dump. A hand-thrown twisty clears the
+   * flag: an explicit choice outranks the automatic one.
+   */
+  revealed?: boolean
 }
 
 export interface OutlineHandle {
@@ -109,6 +118,7 @@ export const mountOutline = (
     if (parts.length === 0) return
     const childrenEl = document.createElement("div")
     entry.childrenEl = childrenEl
+    entry.twisty = twisty
     const expanded = parts.length <= AUTO_EXPAND_MAX_PARTS
     childrenEl.style.display = expanded ? "" : "none"
     twisty.textContent = expanded ? "▼" : "▶"
@@ -117,6 +127,8 @@ export const mountOutline = (
       const open = childrenEl.style.display === "none"
       childrenEl.style.display = open ? "" : "none"
       twisty.textContent = open ? "▼" : "▶"
+      // Deliberate: this row now stays as the user left it.
+      entry.revealed = false
     }, { signal })
     parentEl.appendChild(childrenEl)
     for (const part of parts) build(part, depth + 1, childrenEl)
@@ -129,17 +141,27 @@ export const mountOutline = (
       el.classList.toggle("selected", holon === current)
     }
     // Reveal a selection made in the viewport: open every collapsed
-    // ancestor, then scroll it into view.
-    if (!current) return
+    // ancestor, and close again the ones a PREVIOUS selection opened.
+    // Without that second half, clicking one grid line would leave its
+    // 48-part Axes expanded forever — the panel would accumulate into
+    // exactly the dump the auto-expand rule exists to prevent.
     const chain = new Set<Holon>()
-    for (let node: Holon | undefined = current; node; node = node.parent) chain.add(node)
-    for (const { holon, childrenEl } of rows) {
-      if (childrenEl && chain.has(holon) && holon !== current && childrenEl.style.display === "none") {
+    for (let node: Holon | null | undefined = current; node; node = node.parent) chain.add(node)
+    for (const row of rows) {
+      const { childrenEl, twisty, holon } = row
+      if (!childrenEl || !twisty) continue
+      const wanted = chain.has(holon) && holon !== current
+      if (wanted && childrenEl.style.display === "none") {
         childrenEl.style.display = ""
-        const twisty = rows.find((r) => r.holon === holon)?.el.querySelector(".twisty")
-        if (twisty) twisty.textContent = "▼"
+        twisty.textContent = "▼"
+        row.revealed = true
+      } else if (!wanted && row.revealed) {
+        childrenEl.style.display = "none"
+        twisty.textContent = "▶"
+        row.revealed = false
       }
     }
+    if (!current) return
     const found = rows.find((r) => r.holon === current)
     found?.el.scrollIntoView({ block: "nearest" })
   })

@@ -114,7 +114,7 @@ export class S09Dream extends Dream {
     y: 50,
     drawStart: 1 / 8,
     drawReversed: true,
-    stroke: STROKE_MAIN,
+    stroke: 4,
   })
   // Rectangle(color=RED, width=100, height=200, x=200, z=50) — the
   // antithesis. Starts at the TOP-RIGHT corner and draws the right edge
@@ -133,19 +133,20 @@ export class S09Dream extends Dream {
   // C4D's own defaults r=50 / h=200, deliberately matching circle r=50
   // and rectangle 100x200. It never draws on: it only fades.
   cylinder = new Cylinder({
-    radius: 50,
-    height: 200,
+    radius: 62,
+    height: 226,
     y: 25,
     b: -PI / 2,
     p: -PI / 4,
     tint: WHITE,
-    stroke: STROKE_MAIN,
+    stroke: 4,
+    drawStart: 0
   })
 
   // The three names, all at z=-120 → our y=-120, height 30.
-  thesis = new Text({ content: "thesis", size: 30, x: -200, y: -120 })
-  antithesis = new Text({ content: "anti-thesis", size: 30, x: 200, y: -120 })
-  synthesis = new Text({ content: "syn-thesis", size: 30, y: -120 })
+  thesis = new Text({ content: "thesis", size: 35, x: -200, y: -120, stroke: 0 })
+  antithesis = new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 })
+  synthesis = new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 0 })
 
   unfold() {
     this.observer.look("front")

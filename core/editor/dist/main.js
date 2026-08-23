@@ -61448,12 +61448,14 @@ class ThreeHost {
       group.add(fill.mesh);
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
     } else if (holon instanceof Stroke) {
+      let strokeBinding;
       const pts = polyline(holon);
       if (pts || holon instanceof Line2) {
         const ribbon = new RibbonStroke(holon.stroke.value);
         ribbon.setPoints(pts ?? []);
         group.add(ribbon.mesh);
-        this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) });
+        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) };
+        this.strokes.push(strokeBinding);
       }
       if (holon instanceof Line2) {
         for (const atStart of [false, true]) {
@@ -61465,7 +61467,14 @@ class ThreeHost {
           const fill = new FillShape(this.nextFillOrder++);
           fill.setPolygon(polygon);
           group.add(fill.mesh);
-          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon), group });
+          this.arrows.push({
+            holon,
+            fill,
+            atStart,
+            shapeKey: arrowKey(holon),
+            group,
+            stroke: strokeBinding
+          });
         }
       }
     }
@@ -61521,7 +61530,8 @@ class ThreeHost {
     const { holon, fill, atStart, group } = binding;
     const creation = holon.creation.value;
     const erasure = holon.erasure.value;
-    const progress = atStart ? 0 : creation;
+    const drawn = binding.stroke ? this.screenArc(binding.stroke, creation) : creation;
+    const progress = atStart ? 0 : drawn;
     const present = atStart ? clamp013(creation / 0.02) * (1 - clamp013(erasure / 0.02)) : clamp013(creation / 0.02) * (1 - clamp013((erasure - 0.92) / 0.08));
     if (present > 0) {
       binding.shapeKey = arrowKey(holon);
@@ -63114,8 +63124,8 @@ class S09Dream extends Dream {
     y: 50,
     drawStart: 1 / 8,
     drawReversed: true,
-    stroke: STROKE_MAIN
-  }), "core/demo/video01/S09.ts:5625:5769");
+    stroke: 4
+  }), "core/demo/video01/S09.ts:5625:5759");
   rectangle = __dt(new Rectangle({
     width: 100,
     height: 200,
@@ -63125,36 +63135,37 @@ class S09Dream extends Dream {
     drawStart: 5 / 12,
     drawReversed: true,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S09.ts:5998:6161");
+  }), "core/demo/video01/S09.ts:5988:6151");
   cylinder = __dt(new Cylinder({
-    radius: 50,
-    height: 200,
+    radius: 62,
+    height: 226,
     y: 25,
     b: -PI3 / 2,
     p: -PI3 / 4,
     tint: WHITE,
-    stroke: STROKE_MAIN
-  }), "core/demo/video01/S09.ts:6383:6520");
-  thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120 }), "core/demo/video01/S09.ts:6594:6653");
-  antithesis = __dt(new Text({ content: "anti-thesis", size: 30, x: 200, y: -120 }), "core/demo/video01/S09.ts:6669:6732");
-  synthesis = __dt(new Text({ content: "syn-thesis", size: 30, y: -120 }), "core/demo/video01/S09.ts:6747:6801");
+    stroke: 4,
+    drawStart: 0
+  }), "core/demo/video01/S09.ts:6373:6517");
+  thesis = __dt(new Text({ content: "thesis", size: 35, x: -200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:6591:6661");
+  antithesis = __dt(new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:6677:6751");
+  synthesis = __dt(new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:6766:6831");
   unfold() {
     this.observer.look("front");
     this.set(...this.observer.dolly(distanceForZoom(CAMERA_ZOOM)));
     this.set(FadeOut(this.cylinder));
     this.wait(START_OFFSET7);
     this.wait(2);
-    __dt(this.play(together(Create(this.circle), Create(this.thesis)), 1), "core/demo/video01/S09.ts:7001:7065");
+    __dt(this.play(together(Create(this.circle), Create(this.thesis)), 1), "core/demo/video01/S09.ts:7031:7095");
     this.wait(3 / 2);
-    __dt(this.play(together(Create(this.rectangle), Create(this.antithesis)), 1), "core/demo/video01/S09.ts:7091:7162");
+    __dt(this.play(together(Create(this.rectangle), Create(this.antithesis)), 1), "core/demo/video01/S09.ts:7121:7192");
     __dt(this.play(together([together(this.circle.x.to(0), this.circle.y.to(25), this.circle.h.to(-PI3 / 4)), 1 / 4, 1], [
       together(this.rectangle.x.to(0), this.rectangle.y.to(25), this.rectangle.b.to(PI3 / 2), this.rectangle.p.to(PI3 / 4)),
       1 / 4,
       1
-    ], [together(UnCreate(this.thesis), UnCreate(this.antithesis)), 1 / 3, 1]), 3), "core/demo/video01/S09.ts:7167:7636");
-    __dt(this.play(together(FadeIn(this.cylinder), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], Create(this.synthesis)), 1), "core/demo/video01/S09.ts:7641:7831");
+    ], [together(UnCreate(this.thesis), UnCreate(this.antithesis)), 1 / 3, 1]), 3), "core/demo/video01/S09.ts:7197:7666");
+    __dt(this.play(together(FadeIn(this.cylinder), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], Create(this.synthesis)), 1), "core/demo/video01/S09.ts:7671:7861");
     this.wait(1);
-    __dt(this.play(together([UnWrite(this.synthesis), 1 / 3, 1], FadeOut(this.cylinder)), 1), "core/demo/video01/S09.ts:7853:7936");
+    __dt(this.play(together([UnWrite(this.synthesis), 1 / 3, 1], FadeOut(this.cylinder)), 1), "core/demo/video01/S09.ts:7883:7966");
     this.wait(0.5);
   }
 }
@@ -63587,6 +63598,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
       return;
     const childrenEl = document.createElement("div");
     entry.childrenEl = childrenEl;
+    entry.twisty = twisty;
     const expanded = parts.length <= AUTO_EXPAND_MAX_PARTS;
     childrenEl.style.display = expanded ? "" : "none";
     twisty.textContent = expanded ? "▼" : "▶";
@@ -63595,6 +63607,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
       const open = childrenEl.style.display === "none";
       childrenEl.style.display = open ? "" : "none";
       twisty.textContent = open ? "▼" : "▶";
+      entry.revealed = false;
     }, { signal });
     parentEl.appendChild(childrenEl);
     for (const part of parts)
@@ -63606,19 +63619,26 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     for (const { holon, el } of rows) {
       el.classList.toggle("selected", holon === current);
     }
-    if (!current)
-      return;
     const chain2 = new Set;
     for (let node = current;node; node = node.parent)
       chain2.add(node);
-    for (const { holon, childrenEl } of rows) {
-      if (childrenEl && chain2.has(holon) && holon !== current && childrenEl.style.display === "none") {
+    for (const row of rows) {
+      const { childrenEl, twisty, holon } = row;
+      if (!childrenEl || !twisty)
+        continue;
+      const wanted = chain2.has(holon) && holon !== current;
+      if (wanted && childrenEl.style.display === "none") {
         childrenEl.style.display = "";
-        const twisty = rows.find((r2) => r2.holon === holon)?.el.querySelector(".twisty");
-        if (twisty)
-          twisty.textContent = "▼";
+        twisty.textContent = "▼";
+        row.revealed = true;
+      } else if (!wanted && row.revealed) {
+        childrenEl.style.display = "none";
+        twisty.textContent = "▶";
+        row.revealed = false;
       }
     }
+    if (!current)
+      return;
     const found = rows.find((r2) => r2.holon === current);
     found?.el.scrollIntoView({ block: "nearest" });
   });
