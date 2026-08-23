@@ -24,6 +24,7 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "three": "^0.185.0"
+    "three": "^0.185.0",
+    "three-text": "0.6.5"
   }
 }
