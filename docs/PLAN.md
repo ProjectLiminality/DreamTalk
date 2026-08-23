@@ -274,6 +274,18 @@ of "delta acceptable" verdicts; a loop-until-dry pass sweeps missed
 details across the whole video before the final TASTE gate. Chapter 10
 reuses the same harness fanned out over symbols.
 
+**Vocabulary batch 1 done 2026-08-23** (subagent): Rectangle(+rounding
+morphs, S03-ready), Axes/Grid(domino cascade, faithful port), Eye(lids/
+arc/iris/pupil with animatable `opening`; fill capability entered via
+render/fill.ts — normal blending, explicit renderOrder), Line + Ellipse
+parts, arrowheads, Create per-class dispatch (`createAnim()` hook),
+Erase(front-to-back, ribbon `erased` window)/UnDraw asymmetry. Founding
+scene proven bit-identical pre/post. Evidence:
+docs/reports/vocab-fidelity-compare.png; `/demo/?scene=vocab`. Still
+missing for scenes: Text/Write (troika), camera calibration (risk #1),
+2021-stroke-width calibration, Connection/bezier tracer, plane
+intersection curves (S03/S06), UnCreate mirror choreographies.
+
 **Method** (per scene, 10 scenes):
 1. Translate the pydeation scene (source in `refs/video-01-source-2022/`,
    working assets in `refs/PydeationProjects/.../dialectical_thinking/`)
