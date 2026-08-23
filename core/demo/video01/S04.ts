@@ -61,23 +61,22 @@ import { BLUE, RED, STROKE_MAIN } from "./palette"
 const START_OFFSET = -0.29
 
 /**
- * The front-view dolly.
+ * The front-view distance.
  *
  * observer.look("front") carries the whole 2021 rig — azimuth 0,
- * elevation 0, the 45mm lens — and CameraCal.ts settles those against
- * Scene 01. Its 1000-unit distance, though, projects this scene's flat
- * XY geometry 25% too large: the reference's tick spacing is 38.4px for
- * a 30-unit pitch (1.280 px/unit), its circle centres land at x 319.5
- * and 960.0 for world x = ∓250, and its rectangle measures 132 x 260px
- * for 100 x 200 units — four independent readings all on 1.28, against
- * the rig's 1.60. pydeation expresses zoom purely as distance
- * (camera.py: pos_y = 1000 / zoom), so the honest correction is a dolly,
- * not a lens change: 1000 * 1.60 / 1.28 = 1250 puts all four back on
- * the reference. Left as a scene-local number rather than a change to
- * PERSPECTIVES, since only a flat scene measures the projection this
- * cleanly and Scene 01's calibration is not mine to move.
+ * elevation 0, and (since the lens correction) C4D's factory 36mm lens,
+ * which projects 1.280 px/world-unit at the rig's own 1000 units. That
+ * is exactly what the reference measures: tick spacing 38.4px for a
+ * 30-unit pitch, circle centres at x 319.5 / 960.0 for world x = ∓250,
+ * rectangle 132 x 260px for 100 x 200 units — four independent readings
+ * all on 1.28. This scene originally carried a 1250 dolly to correct a
+ * rig that assumed 45mm; with the lens itself fixed (DECISIONS
+ * 2026-08-23) that compensation would double-count, so the distance is
+ * the rig's native one. pydeation expresses zoom purely as distance
+ * (camera.py: pos_y = 1000 / zoom), so a scene that wants a different
+ * framing still dollies — this one does not.
  */
-const FRONT_DISTANCE = 1250
+const FRONT_DISTANCE = 1000
 
 export class S04Dream extends Dream {
   // Circle(color=BLUE, radius=50, z=50, x=-250) — the thesis.
