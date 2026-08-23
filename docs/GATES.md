@@ -3,6 +3,11 @@
 Append-only queue (see AUTONOMY.md). Answer inline or in chat; sessions
 consume answered items into DECISIONS.md and clear them here.
 
+> **Paused 2026-08-23**: the gauntlet workflow and the autonomy cron are
+> stopped at David's request (usage limits). Resume instructions are at
+> the top of `docs/reports/video-01.md`. To re-enable unattended work,
+> ask a session to "set up the autonomy cron per AUTONOMY.md".
+
 ## Open
 
 1. **[Ch 9] Logo intro scope** — the video opens with a ~5.5s Project
