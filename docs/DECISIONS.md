@@ -51,6 +51,15 @@ operational decisions are entered by the working agent. Format:
   reaches David. Async batch rendering is plumbing, not the workflow.
 - 2026-08-22 · **Runtime: Bun** (David) — matches the wider ecosystem;
   headless Chrome only where the editor screenshot loop needs driving.
+- 2026-08-23 · **Reproduction uses the CANONICAL palette** (David:
+  "canonical colors pls") — video-01 scenes render in today's TASTE
+  colors (#00A2FF/#FF644E); the overlay evaluator treats the reference's
+  2021 hues (#0099CC/#FF7E79) as equivalent (hue-tolerant comparison on
+  the blue/red channels; geometry/timing/line-quality remain strict).
+  Stroke widths still calibrate to the 2021 values. GATES #5 answered.
+- 2026-08-23 · **Video-01 scenes live in core/demo/video01/** until the
+  repo-template gate (GATES #3c) is answered — graduation to sovereign
+  holon repos is a later mechanical move.
 - 2026-08-23 · **Parametric silhouette case solved** — analytic
   view-dependent cylinder silhouette (θ = φ ± acos(r/|d|)) as real
   per-frame stroke geometry, tangency unit-proven; the TASTE standing

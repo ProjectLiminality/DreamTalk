@@ -45,14 +45,11 @@ consume answered items into DECISIONS.md and clear them here.
    one-line knob), overall pen feel. This calibrates every later
    benchmark.
 
-5. **[Ch 9] Reproduction palette** — the 2021 video's colors were BLUE
-   #0099CC / RED #FF7E79; the TASTE palette is #00A2FF / #FF644E. For
-   video-01 reproduction, do we match the historical colors (higher
-   overlay fidelity) or render in today's canonical palette (the symbols
-   as they ARE now)? Recommendation: canonical palette, with the overlay
-   evaluator instructed to ignore hue deltas of this magnitude — but
-   it's your call.
-
 ## Answered (consumed into DECISIONS.md)
+
+- ~~[Ch 9] Reproduction palette~~ — **David 2026-08-23: canonical
+  colors.** Scenes render in #00A2FF/#FF644E; the evaluator is
+  hue-tolerant against the 2021 reference hues, strict on everything
+  else.
 
 - (none yet)
