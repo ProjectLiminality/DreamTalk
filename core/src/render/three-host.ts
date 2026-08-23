@@ -3,159 +3,44 @@
  * contract (mount / renderFrame(t) / dispose). The framework owns t;
  * whoever mounts this requests frames.
  *
- * Stroke rendering (PLAN Ch 4 groundwork): Circle/Square/Polygon/Arc →
- * wide-line polylines (Line2NodeMaterial, screen-px width from the
- * holon's `stroke` param — the 2021 Sketch & Toon look is constant
- * pixel width regardless of depth, see parts/index.ts).
+ * Stroke rendering (PLAN Ch 4): every stroke — Circle/Square/Polygon/
+ * Arc and the cylinder's caps + silhouette generators — renders
+ * through the TSL ribbon pipeline (render/ribbon.ts): instanced
+ * segment quads expanded to constant SCREEN-PIXEL width (the 2021
+ * Sketch & Toon look), analytic capsule-SDF anti-aliasing, round
+ * caps/joins, and arc-length draw-on with an AA'd round pen tip.
+ * The Line2/dash era is gone; its hard-won lesson lives on in
+ * ribbon.ts (animated material values must be TSL uniform nodes —
+ * NodeMaterialObserver never watches plain props).
  *
- * Draw-on technique — DASHED, not instanceCount. Verified against
- * three 0.185.1 sources: Line2NodeMaterial with `dashed: true` reads
- * the `instanceDistanceStart/End` attributes (written by
- * LineSegments2.computeLineDistances(), webgpu variant included) and
- * discards fragments where `lineDistance mod (dashSize + gapSize) >
- * dashSize`. With gapSize > totalLength there is exactly one dash
- * starting at arc length 0, so animating the dash length = creation ×
- * totalLength is a CONTINUOUS arc-length draw-on — sub-segment smooth,
- * unlike the old geometry.instanceCount route which popped whole
- * segments. Two dash-mode tradeoffs (both acceptable at 2–3px):
- * round endcaps are discarded (butt caps), and the dash front edge is
- * a hard discard (no AA across the cut) — a crisp perpendicular wipe,
- * which is exactly what a draw-on tip should look like.
- *
- * GOTCHA (cost a debugging session): the dash length must be driven
- * through a per-material TSL uniform (`material.dashSizeNode`), NOT the
- * plain `material.dashSize` property. NodeMaterialObserver's
- * refreshUniforms list does not monitor the dash properties, and all
- * identically-configured stroke materials share one observer (one
- * cacheKey), so a stroke whose transform is static never re-uploads a
- * changed `dashSize` — it renders frozen at its first visible frame.
- * Setting any node property flips the observer's `hasNode`, forcing a
- * refresh every frame, and gives each material its own uniform besides.
- *
- * The full TSL ribbon (caps/joins control, variable width) remains Ch 4.
+ * Param-driven geometry regen: static stroke polylines are rebuilt
+ * when their shape params change (editor sliders) via a cheap
+ * per-frame dirty-check — a few floats compared per stroke in sync();
+ * a rebuild costs one O(segments) repack + buffer upload. Stroke
+ * width/tint/opacity/creation are uniforms and cost nothing to
+ * animate.
  */
 
 import * as THREE from "three/webgpu"
-import { uniform } from "three/tsl"
-import { Line2 } from "three/addons/lines/webgpu/Line2.js"
-import { LineGeometry } from "three/addons/lines/LineGeometry.js"
 import type { Dream } from "../dream"
 import { Holon } from "../holon"
 import { Arc, Circle, Cylinder, Polygon, Square, Stroke } from "../parts/index"
 import type { Color } from "../constants"
+import { RibbonStroke } from "./ribbon"
 import { generatorPoint, silhouetteAngles } from "./silhouette"
 
 const STROKE_SEGMENTS = 128
 
 interface StrokeBinding {
   holon: Stroke
-  line: Line2
-  material: THREE.Line2NodeMaterial
-  totalLength: number
-  /** The per-material dash-length uniform: drawn arc length in local units. */
-  drawn: { value: number }
+  ribbon: RibbonStroke
+  /** Shape-param signature for the geometry-regen dirty-check. */
+  shapeKey: number[]
 }
 
 interface GroupBinding {
   holon: Holon
   group: THREE.Group
-}
-
-/**
- * A wide-line polyline whose points can be rewritten per frame — the
- * mechanism for view-dependent strokes (first user: the cylinder's
- * analytic mantle silhouette; any future silhouette/intersection stroke
- * reuses it). Same dashed draw-on material as the static path.
- *
- * Update cost: when the point count is unchanged, setPoints() writes the
- * segment-pair positions (6 floats/segment) and cumulative arc-length
- * distances (2 floats/segment) in place into the existing
- * InstancedInterleavedBuffers and flags them for re-upload — for a
- * 2-point silhouette generator that is 8 floats per line per frame, and
- * for a 129-point cap only on radius/height change. A changed point
- * count falls back to LineGeometry.setPositions (fresh buffer
- * allocation). Dynamic lines are never frustum-culled: their bounding
- * sphere is not recomputed on the fast path.
- */
-class DynamicPolyline {
-  readonly line: Line2
-  readonly material: THREE.Line2NodeMaterial
-  /** The per-material dash-length uniform: drawn arc length in local units. */
-  readonly drawn: { value: number }
-  totalLength = 0
-
-  constructor(widthPx: number) {
-    this.material = new THREE.Line2NodeMaterial({
-      color: 0xffffff,
-      linewidth: widthPx,
-      worldUnits: false,
-      transparent: true,
-      dashed: true,
-    })
-    // One dash covering [0, drawn]; the gap is kept longer than the whole
-    // stroke (setPoints refreshes it) so a second dash never appears. See
-    // the module header: the dash length MUST flow through a TSL uniform.
-    const drawn = uniform(0)
-    this.material.dashSizeNode = drawn
-    this.drawn = drawn
-    this.material.scale = 1
-    this.line = new Line2(new LineGeometry(), this.material)
-    this.line.frustumCulled = false
-  }
-
-  setPoints(pts: THREE.Vector3[]): void {
-    const segs = pts.length - 1
-    if (segs < 1) return
-    const positions = new Float32Array(segs * 6)
-    const distances = new Float32Array(segs * 2)
-    let acc = 0
-    for (let i = 0; i < segs; i++) {
-      const a = pts[i]!
-      const b = pts[i + 1]!
-      positions[i * 6] = a.x
-      positions[i * 6 + 1] = a.y
-      positions[i * 6 + 2] = a.z
-      positions[i * 6 + 3] = b.x
-      positions[i * 6 + 4] = b.y
-      positions[i * 6 + 5] = b.z
-      distances[i * 2] = acc
-      acc += a.distanceTo(b)
-      distances[i * 2 + 1] = acc
-    }
-    this.totalLength = acc
-    this.material.gapSize = acc * 2
-
-    const geometry = this.line.geometry as LineGeometry
-    const start = geometry.getAttribute("instanceStart") as
-      | THREE.InterleavedBufferAttribute
-      | undefined
-    if (start && start.data.array.length === positions.length) {
-      ;(start.data.array as Float32Array).set(positions)
-      start.data.needsUpdate = true
-      const dist = geometry.getAttribute(
-        "instanceDistanceStart",
-      ) as THREE.InterleavedBufferAttribute
-      ;(dist.data.array as Float32Array).set(distances)
-      dist.data.needsUpdate = true
-    } else {
-      const flat = new Float32Array(pts.length * 3)
-      pts.forEach((p, i) => {
-        flat[i * 3] = p.x
-        flat[i * 3 + 1] = p.y
-        flat[i * 3 + 2] = p.z
-      })
-      geometry.setPositions(flat)
-      this.line.computeLineDistances()
-    }
-  }
-
-  /** Sync visibility/draw fraction/style from the owning holon. */
-  style(fraction: number, opacity: number, tint: Color): void {
-    this.drawn.value = fraction * this.totalLength
-    this.line.visible = fraction > 0 && opacity > 0
-    this.material.opacity = opacity
-    this.material.color.setRGB(tint.r, tint.g, tint.b)
-  }
 }
 
 /**
@@ -167,10 +52,10 @@ class DynamicPolyline {
 interface CylinderBinding {
   holon: Cylinder
   group: THREE.Group
-  topCap: DynamicPolyline
-  bottomCap: DynamicPolyline
-  lineA: DynamicPolyline
-  lineB: DynamicPolyline
+  topCap: RibbonStroke
+  bottomCap: RibbonStroke
+  lineA: RibbonStroke
+  lineB: RibbonStroke
   /** Cap geometry cache key — regenerate only when radius/height change. */
   capRadius: number
   capHeight: number
@@ -226,11 +111,18 @@ const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
   return undefined
 }
 
-const arcLength = (pts: THREE.Vector3[]): number => {
-  let sum = 0
-  for (let i = 1; i < pts.length; i++) sum += pts[i]!.distanceTo(pts[i - 1]!)
-  return sum
+/** The params whose change requires re-sampling the polyline. */
+const shapeKey = (holon: Stroke): number[] => {
+  if (holon instanceof Circle) return [holon.radius.value]
+  if (holon instanceof Square) return [holon.size.value]
+  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value]
+  if (holon instanceof Arc)
+    return [holon.radius.value, holon.startAngle.value, holon.endAngle.value]
+  return []
 }
+
+const keysEqual = (a: number[], b: number[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i])
 
 export class ThreeHost {
   readonly renderer: THREE.WebGPURenderer
@@ -270,42 +162,24 @@ export class ThreeHost {
       const binding: CylinderBinding = {
         holon,
         group,
-        topCap: new DynamicPolyline(width),
-        bottomCap: new DynamicPolyline(width),
-        lineA: new DynamicPolyline(width),
-        lineB: new DynamicPolyline(width),
+        topCap: new RibbonStroke(width),
+        bottomCap: new RibbonStroke(width),
+        lineA: new RibbonStroke(width),
+        lineB: new RibbonStroke(width),
         capRadius: r,
         capHeight: h,
       }
       binding.topCap.setPoints(capPolyline(r, h / 2))
       binding.bottomCap.setPoints(capPolyline(r, -h / 2))
-      group.add(binding.topCap.line, binding.bottomCap.line, binding.lineA.line, binding.lineB.line)
+      group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh)
       this.cylinders.push(binding)
     } else if (holon instanceof Stroke) {
       const pts = polyline(holon)
       if (pts) {
-        const geometry = new LineGeometry()
-        geometry.setPositions(pts.flatMap((p) => [p.x, p.y, p.z]))
-        const totalLength = arcLength(pts)
-        const material = new THREE.Line2NodeMaterial({
-          color: 0xffffff,
-          linewidth: holon.stroke.value,
-          worldUnits: false,
-          transparent: true,
-          dashed: true,
-        })
-        // One dash covering [0, drawn]; gap longer than the whole
-        // stroke so no second dash ever appears. Distances are in the
-        // geometry's local units (pre-transform), so draw-on fraction is
-        // independent of holon scale.
-        const drawn = uniform(totalLength)
-        material.dashSizeNode = drawn
-        material.gapSize = totalLength * 2
-        material.scale = 1
-        const line = new Line2(geometry, material)
-        line.computeLineDistances()
-        group.add(line)
-        this.strokes.push({ holon, line, material, totalLength, drawn })
+        const ribbon = new RibbonStroke(holon.stroke.value)
+        ribbon.setPoints(pts)
+        group.add(ribbon.mesh)
+        this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) })
       }
     }
 
@@ -326,13 +200,16 @@ export class ThreeHost {
       const s = holon.scale.value
       group.scale.set(s, s, s)
     }
-    for (const { holon, line, material, totalLength, drawn } of this.strokes) {
-      const creation = holon.creation.value
-      drawn.value = creation * totalLength
-      line.visible = creation > 0 && holon.opacity.value > 0
-      material.opacity = holon.opacity.value
-      const c: Color = holon.tint.value
-      material.color.setRGB(c.r, c.g, c.b)
+    for (const binding of this.strokes) {
+      const { holon, ribbon } = binding
+      const key = shapeKey(holon)
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key
+        const pts = polyline(holon)
+        if (pts) ribbon.setPoints(pts)
+      }
+      const tint: Color = holon.tint.value
+      ribbon.style(holon.creation.value, holon.opacity.value, tint, holon.stroke.value)
     }
     const obs = this.dream.observer
     const r = obs.radius.value
@@ -371,7 +248,7 @@ export class ThreeHost {
     const camLocal = group.worldToLocal(this.camera.position.clone())
     const angles = silhouetteAngles(camLocal.x, camLocal.z, radius)
     if (angles) {
-      const set = (line: DynamicPolyline, theta: number) => {
+      const set = (line: RibbonStroke, theta: number) => {
         const lo = generatorPoint(theta, radius, -height / 2)
         const hi = generatorPoint(theta, radius, height / 2)
         line.setPoints([new THREE.Vector3(...lo), new THREE.Vector3(...hi)])
@@ -389,13 +266,14 @@ export class ThreeHost {
     const creation = holon.creation.value
     const opacity = holon.opacity.value
     const tint: Color = holon.tint.value
+    const width = holon.stroke.value
     const window = (a: number, b: number) =>
       Math.min(1, Math.max(0, (creation - a) / (b - a)))
-    topCap.style(window(bounds[0]!, bounds[1]!), opacity, tint)
-    bottomCap.style(window(bounds[1]!, bounds[2]!), opacity, tint)
+    topCap.style(window(bounds[0]!, bounds[1]!), opacity, tint, width)
+    bottomCap.style(window(bounds[1]!, bounds[2]!), opacity, tint, width)
     const mantleVisible = angles !== undefined
-    lineA.style(mantleVisible ? window(bounds[2]!, bounds[3]!) : 0, opacity, tint)
-    lineB.style(mantleVisible ? window(bounds[3]!, bounds[4]!) : 0, opacity, tint)
+    lineA.style(mantleVisible ? window(bounds[2]!, bounds[3]!) : 0, opacity, tint, width)
+    lineB.style(mantleVisible ? window(bounds[3]!, bounds[4]!) : 0, opacity, tint, width)
   }
 
   dispose(): void {
