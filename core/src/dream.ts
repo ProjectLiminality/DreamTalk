@@ -25,23 +25,28 @@ export interface BackdropSpec {
  * Reading those two numbers as spherical ORBIT angles — not as a camera
  * roll — is what the reference frames actually show. The frozen bank is
  * applied to the camera's parent null, so it swings the camera around the
- * scene's vertical axis: it is an AZIMUTH, not a tilt. Two independent
- * checks in refs/video-01/frames5 confirm it:
+ * scene's vertical axis: it is an AZIMUTH, not a tilt. Composing the 2021
+ * rig symbolically — camera at local (0, 1000, 0) pitched -PI/2 inside a
+ * null with p = -PI/8 and a frozen bank of PI/4, in C4D's top-view world
+ * mapped to ours by (X, Y, Z)c4d -> (x, z, y) — collapses to exactly a
+ * spherical orbit with plain +y up and NO roll: azimuth 45 degrees,
+ * elevation 22.5 degrees, camera at (653.3, 382.7, 653.3) looking at the
+ * origin. The C4D composition's own up-vector lands on what lookAt(+y up)
+ * chooses, so the rig never rolls.
  *
- *   - f0100 (S01 with the grids up) has one white axis standing exactly
- *     vertical on screen. A rolled camera cannot leave any world axis
- *     vertical; a level camera at 45 degrees of azimuth does.
- *   - f0080 (cylinder + both Eyes settled) puts the two Eyes at the same
- *     screen height, symmetric about the frame center — which a 45-degree
- *     azimuth on a level camera produces exactly, and a 45-degree roll
- *     does not.
+ * The SIGNS are pinned by the reference, which kills the antipodal
+ * solution (phi = -3PI/4, theta = -PI/8 — same eye symmetry, same axis
+ * verticality, mirrored handedness) that an unordered centroid fit cannot
+ * distinguish. On the raw f0080.png (no harness in the loop):
  *
- * Fitting the f0080 Eye centroids over the whole (phi, theta, focal) space
- * lands on an azimuth of 45 degrees off the -Z axis and an elevation of
- * -22.5 degrees, with sub-pixel residuals: exactly the source's PI/4 and
- * -PI/8. Expressed in the framework's own spherical convention (phi = 0
- * puts the camera on +Z; see syncCamera in render/three-host.ts) that is
- * phi = -3PI/4, theta = -PI/8, which is what these constants hold.
+ *   - the BLUE Eye (source: x=300) sits screen RIGHT — measured apex
+ *     x=979 vs 977.7 predicted; the antipode puts it LEFT (356);
+ *   - the RED Eye (source: y=300, out-of-plane) sits screen LEFT —
+ *     measured apex x=302 vs 302.3 predicted;
+ *   - the source-exact cylinder (r=50, h=200, axis +z) projects to a
+ *     screen bbox of x[499.6, 771.5] y[268.8, 462.1] against the
+ *     measured x[498, 773] y[267, 463]; the antipode misses the top
+ *     edge by 35px.
  *
  * "front" stays phi = 0: the camera on +Z looking back at the origin.
  */
@@ -50,7 +55,7 @@ export type Perspective = "front" | "default"
 /** phi (azimuth) and theta (elevation) per named perspective. */
 export const PERSPECTIVES: Record<Perspective, { phi: number; theta: number }> = {
   front: { phi: 0, theta: 0 },
-  default: { phi: (-3 * PI) / 4, theta: -PI / 8 },
+  default: { phi: PI / 4, theta: PI / 8 },
 }
 
 /**
@@ -77,18 +82,29 @@ export const distanceForZoom = (zoom: number): number => DEFAULT_DISTANCE / zoom
 
 /**
  * The 2021 lens. pydeation never sets a focal length, so the camera keeps
- * C4D's own default: 36mm aperture with a 45mm focal length, i.e. a
- * HORIZONTAL field of view of 2*atan(18/45) = 43.60 degrees.
+ * C4D's default: 36mm focal at 36mm aperture, i.e. a HORIZONTAL field of
+ * view of 2*atan(18/36) = 53.13 degrees — a projection focal length of
+ * exactly 1280px across a 1280px frame, or 1.28 px per world unit at the
+ * rig's 1000-unit distance.
  *
- * The reference frames confirm the number rather than assume it. Solving
- * for the focal length that puts the two f0080 Eye centroids on their
- * measured pixels (at the phi/theta established above) gives 1580.65px
- * across a 1280px frame — a 44.46mm lens, within 1.2% of the 45mm preset,
- * which is comfortably inside the error of centroid measurement on a
- * YouTube encode. 36mm (the OTHER common default, hfov 53.13) would put
- * the Eyes ~90px off and is firmly excluded.
+ * The reference frames confirm the number twice over, independently:
+ *
+ *   - S04 (front view, flat objects, no orbit ambiguity) measures
+ *     1.280 px/unit four separate ways on f0428: axis tick pitch
+ *     38.4px per 30 units, shape centres at ±250 units = ±320px,
+ *     rectangle 100x200 units = 132x260px incl. stroke, circle
+ *     diameter 100 units = 131px.
+ *   - S01 (default view): the f0080 landmark set above lands within
+ *     ~2px at focal 1280 with the SOURCE-exact geometry.
+ *
+ * An earlier 45mm conclusion here came from an Eye-centroid solve run
+ * against harness composites carrying a 5.3% vertical squash (since
+ * fixed in core/demo/index.html) and an underdetermined theta/focal
+ * trade — it also forced the CameraCal cylinder to a fictitious
+ * r=42/h=166 at p=60deg. The 36mm lens restores the source's nominal
+ * r=50/h=200 at p=PI/2 exactly.
  */
-export const CAMERA_FOCAL_MM = 45
+export const CAMERA_FOCAL_MM = 36
 export const CAMERA_APERTURE_MM = 36
 /** The 2021 lens, HORIZONTAL — 43.60 degrees. */
 export const CAMERA_FOV = 2 * Math.atan(CAMERA_APERTURE_MM / (2 * CAMERA_FOCAL_MM))
@@ -128,10 +144,11 @@ export class Observer extends Holon {
    * VERTICAL field of view in radians — three.js's own convention, which is
    * what the host has always fed its PerspectiveCamera.
    *
-   * The default is the 53.13 degrees every existing scene was framed
-   * against. video-01 scenes take CAMERA_FOV_VERTICAL instead: the 2021
-   * renders were shot on C4D's 45mm lens, whose 43.60-degree HORIZONTAL
-   * angle is 25.36 degrees vertically at 16:9.
+   * The default is the 53.13 degrees VERTICAL every existing scene was
+   * framed against. video-01 scenes take CAMERA_FOV_VERTICAL instead: the
+   * 2021 renders were shot on C4D's 36mm lens, whose 53.13 degrees are
+   * HORIZONTAL — 31.42 degrees vertically at 16:9. Same number, different
+   * axis; the coincidence is exactly why the two must not be conflated.
    */
   fov = angle((53.13 * Math.PI) / 180)
   /** Sketch & Toon's pixel-unit reference height (scene/scene.py:74). */
@@ -139,7 +156,7 @@ export class Observer extends Holon {
 
   /**
    * Adopt a named 2021 perspective: its azimuth and elevation, the rig's
-   * 1000-unit distance, and the 45mm lens it was shot on. Taking the whole
+   * 1000-unit distance, and the 36mm lens it was shot on. Taking the whole
    * rig together is the point — the angles alone would frame differently
    * under the framework's default lens.
    */

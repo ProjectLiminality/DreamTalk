@@ -56,17 +56,20 @@ describe("perspective zoom is distance (pydeation ThreeDCamera pos_y = 1000/zoom
 })
 
 describe("the 2021 lens", () => {
-  test("fov is the horizontal angle of a 45mm lens on a 36mm aperture", () => {
+  test("fov is the horizontal angle of C4D's default 36mm lens on a 36mm aperture", () => {
     expect(CAMERA_FOV).toBeCloseTo(2 * Math.atan(CAMERA_APERTURE_MM / (2 * CAMERA_FOCAL_MM)), 12)
-    expect((CAMERA_FOV * 180) / PI).toBeCloseTo(43.6028, 3)
+    expect((CAMERA_FOV * 180) / PI).toBeCloseTo(53.1301, 3)
   })
 
-  test("it is not C4D's other common default (36mm, hfov 53.13)", () => {
-    expect((CAMERA_FOV * 180) / PI).not.toBeCloseTo(53.13, 1)
+  test("its projection focal length is exactly the frame width", () => {
+    // 1.28 px per world unit at the rig's 1000-unit distance — the number
+    // S04's front-view frames measure four independent ways.
+    const focalPx = 1280 / 2 / Math.tan(CAMERA_FOV / 2)
+    expect(focalPx).toBeCloseTo(1280, 6)
   })
 
   test("the vertical form is the same lens at 16:9", () => {
-    expect((CAMERA_FOV_VERTICAL * 180) / PI).toBeCloseTo(25.361, 3)
+    expect((CAMERA_FOV_VERTICAL * 180) / PI).toBeCloseTo(31.4172, 3)
     expect(CAMERA_FOV_VERTICAL).toBeLessThan(CAMERA_FOV)
   })
 })
@@ -77,10 +80,10 @@ describe("named perspectives (pydeation camera_perspective)", () => {
   })
 
   test('"default" is the frozen bank as azimuth and the pitch as elevation', () => {
-    // 45 degrees of azimuth off the -Z axis, expressed in the framework's
-    // convention where phi = 0 puts the camera on +Z.
-    expect(PERSPECTIVES.default.phi).toBeCloseTo((-3 * PI) / 4, 12)
-    expect(PERSPECTIVES.default.theta).toBeCloseTo(-PI / 8, 12)
+    // Camera at (653.3, 382.7, 653.3): the sign choice that puts the BLUE
+    // Eye (source x=300) on the screen's right, as f0080 shows it.
+    expect(PERSPECTIVES.default.phi).toBeCloseTo(PI / 4, 12)
+    expect(PERSPECTIVES.default.theta).toBeCloseTo(PI / 8, 12)
   })
 
   test("neither perspective rolls the camera", () => {
@@ -109,8 +112,8 @@ describe("Observer", () => {
   test("look() sets both angles, and is switchable back and forth", () => {
     const observer = new Observer()
     observer.look("default")
-    expect(observer.phi.value).toBeCloseTo((-3 * PI) / 4, 12)
-    expect(observer.theta.value).toBeCloseTo(-PI / 8, 12)
+    expect(observer.phi.value).toBeCloseTo(PI / 4, 12)
+    expect(observer.theta.value).toBeCloseTo(PI / 8, 12)
     observer.look("front")
     expect(observer.phi.value).toBe(0)
     expect(observer.theta.value).toBe(0)
@@ -126,8 +129,8 @@ describe("Observer", () => {
   test("look() moves the DEFAULT too, so the pose survives a timeline reset", () => {
     const observer = new Observer()
     observer.look("default")
-    expect(observer.phi.defaultValue).toBeCloseTo((-3 * PI) / 4, 12)
-    expect(observer.theta.defaultValue).toBeCloseTo(-PI / 8, 12)
+    expect(observer.phi.defaultValue).toBeCloseTo(PI / 4, 12)
+    expect(observer.theta.defaultValue).toBeCloseTo(PI / 8, 12)
   })
 
   test("orbit() animates only the angles it is given", () => {
