@@ -45,6 +45,12 @@ consume answered items into DECISIONS.md and clear them here.
    one-line knob), overall pen feel. This calibrates every later
    benchmark.
 
+6. **[TASTE amendment] Text engine** — TASTE.md mandates troika's glyph
+   engine + our TSL material. In practice troika proved unusable under
+   WebGPURenderer, so the recorded fallback (`three-text` 0.6.5,
+   WebGPU/NodeMaterial-native) is what ships. Amend the TASTE text bullet
+   at your next pass — flagged rather than edited, per the scope freeze.
+
 ## Answered (consumed into DECISIONS.md)
 
 - ~~[Ch 9] Reproduction palette~~ — **David 2026-08-23: canonical

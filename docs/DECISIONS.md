@@ -51,6 +51,11 @@ operational decisions are entered by the working agent. Format:
   reaches David. Async batch rendering is plumbing, not the workflow.
 - 2026-08-22 · **Runtime: Bun** (David) — matches the wider ecosystem;
   headless Chrome only where the editor screenshot loop needs driving.
+- 2026-08-23 · **Text renders via `three-text` 0.6.5, not troika** — the
+  ANALYSIS.md fallback (option b) taken after troika proved unusable under
+  WebGPURenderer in practice; three-text is WebGPU/NodeMaterial-native
+  (ships a HarfBuzz wasm for shaping). TASTE.md's text bullet should be
+  amended at David's next pass.
 - 2026-08-23 · **Reproduction uses the CANONICAL palette** (David:
   "canonical colors pls") — video-01 scenes render in today's TASTE
   colors (#00A2FF/#FF644E); the overlay evaluator treats the reference's
