@@ -22,7 +22,7 @@
  */
 
 import * as THREE from "three/webgpu"
-import type { Dream } from "../dream"
+import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
 import {
   Arc,
@@ -231,7 +231,10 @@ const keysEqual = (a: number[], b: number[]): boolean =>
 export class ThreeHost {
   readonly renderer: THREE.WebGPURenderer
   readonly scene: THREE.Scene
-  readonly camera: THREE.PerspectiveCamera
+  /** The active camera — whichever projection the observer currently asks for. */
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
+  private readonly perspCamera: THREE.PerspectiveCamera
+  private readonly orthoCamera: THREE.OrthographicCamera
   readonly dream: Dream
   private readonly groups: GroupBinding[] = []
   private readonly strokes: StrokeBinding[] = []
@@ -246,7 +249,9 @@ export class ThreeHost {
     this.renderer = new THREE.WebGPURenderer({ canvas, antialias: true })
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(0x000000)
-    this.camera = new THREE.PerspectiveCamera(53.13, 16 / 9, 1, 100000)
+    this.perspCamera = new THREE.PerspectiveCamera(53.13, 16 / 9, 1, 100000)
+    this.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -100000, 100000)
+    this.camera = this.perspCamera
   }
 
   static async mount(dream: Dream, canvas: HTMLCanvasElement): Promise<ThreeHost> {
@@ -368,18 +373,7 @@ export class ThreeHost {
         : clamp01((creation - 0.92) / 0.08) * (1 - clamp01((erasure - 0.92) / 0.08))
       fill.style(present * holon.opacity.value, holon.tint.value)
     }
-    const obs = this.dream.observer
-    const r = obs.radius.value
-    const phi = obs.phi.value
-    const theta = obs.theta.value
-    this.camera.position.set(
-      r * Math.sin(phi) * Math.cos(theta) + obs.x.value,
-      r * Math.sin(theta) + obs.y.value,
-      r * Math.cos(phi) * Math.cos(theta),
-    )
-    this.camera.lookAt(obs.x.value, obs.y.value, 0)
-    this.camera.zoom = obs.zoom.value
-    this.camera.updateProjectionMatrix()
+    this.syncCamera()
 
     // View-dependent strokes need finished world matrices AND the final
     // camera position for this frame — so they come last.
@@ -387,6 +381,76 @@ export class ThreeHost {
       this.scene.updateMatrixWorld(true)
       for (const binding of this.cylinders) this.syncCylinder(binding)
     }
+  }
+
+  /**
+   * The 2021 projection, rebuilt from pydeation's rig (see dream.ts for the
+   * derivation and citations). The camera orbits the focus point (observer
+   * x, y) at `radius`: `phi` azimuth about +Y, `theta` elevation, and at
+   * phi = theta = 0 it sits on -Z looking toward +Z — the convention of the
+   * modern C4D rig (objects/camera_objects.py:217-221). `tilt` then rolls
+   * it about its own view axis, which is what a FROZEN bank does: it turns
+   * the picture, it does not orbit the camera.
+   *
+   * Perspective zoom is realized as distance (radius / zoom), never as
+   * focal length; orthographic zoom is the CAMERA_ZOOM framing ratio.
+   */
+  private syncCamera(): void {
+    const obs = this.dream.observer
+    const phi = obs.phi.value
+    const theta = obs.theta.value
+    const zoom = obs.zoom.value
+    const ortho = obs.orthographic.value
+    // Pan: the observer's x/y slide the focus point across the view plane,
+    // which is what pydeation's camera_position (x, z in its top-view world)
+    // does. z stays 0, as it always has.
+    const focus = new THREE.Vector3(obs.x.value, obs.y.value, 0)
+
+    // Orthographic framing is set by zoom alone, so the distance only has to
+    // clear the geometry; perspective framing IS the distance.
+    const r = ortho ? obs.radius.value : obs.radius.value / (zoom || 1)
+    // The framework's long-standing spherical convention — unchanged, so
+    // existing scenes orbit exactly as they did.
+    const offset = new THREE.Vector3(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(theta),
+      r * Math.cos(phi) * Math.cos(theta),
+    )
+
+    const camera = this.selectCamera(ortho)
+    camera.position.copy(focus).add(offset)
+    camera.up.set(0, 1, 0)
+    camera.lookAt(focus)
+    // Roll about the view axis (applied after lookAt, in camera space).
+    if (obs.tilt.value !== 0) camera.rotateZ(obs.tilt.value)
+
+    const aspect = this.aspect()
+    if (camera instanceof THREE.OrthographicCamera) {
+      const halfH = orthoHalfHeight(zoom || 1, aspect)
+      const halfW = halfH * aspect
+      camera.left = -halfW
+      camera.right = halfW
+      camera.top = halfH
+      camera.bottom = -halfH
+      camera.zoom = 1
+    } else {
+      camera.aspect = aspect
+      // The observer states fov the way three.js does: vertically.
+      camera.fov = THREE.MathUtils.radToDeg(obs.fov.value)
+      camera.zoom = 1
+    }
+    camera.updateProjectionMatrix()
+  }
+
+  /** Scenes are composed for 16:9 and letterboxed, never re-framed. */
+  private aspect(): number {
+    return 16 / 9
+  }
+
+  /** Swap the active camera when the observer's projection mode changes. */
+  private selectCamera(ortho: boolean): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+    this.camera = ortho ? this.orthoCamera : this.perspCamera
+    return this.camera
   }
 
   private syncCylinder(binding: CylinderBinding): void {

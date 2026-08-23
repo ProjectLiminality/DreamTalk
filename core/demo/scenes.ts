@@ -10,6 +10,9 @@ import type { DreamClass } from "../src/dream"
 import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
 import { VocabShowcaseDream } from "./VocabShowcase"
+import { CameraCalDream, CameraCalCylinderDream, CameraCalGridDream } from "./video01/CameraCal"
+import { CurvesShowcaseDream } from "./CurvesShowcase"
+import { TextShowcaseDream } from "./TextShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -21,6 +24,11 @@ export const scenes: Record<string, DreamClass> = {
   smoke: FoundingSmokeDream,
   calibration: StrokeCalibrationDream,
   vocab: VocabShowcaseDream,
+  curves: CurvesShowcaseDream,
+  text: TextShowcaseDream,
+  cameracal: CameraCalDream,
+  cameracalcyl: CameraCalCylinderDream,
+  cameracalgrid: CameraCalGridDream,
 }
 
 export const defaultScene = "founding"
