@@ -60,7 +60,16 @@ const SCENE_FILES: Record<string, string> = {
   curves: "core/demo/CurvesShowcase.ts",
   text: "core/demo/TextShowcase.ts",
   cameracal: "core/demo/video01/CameraCal.ts",
+  s01: "core/demo/video01/S01.ts",
+  s02: "core/demo/video01/S02.ts",
+  s03: "core/demo/video01/S03.ts",
   s04: "core/demo/video01/S04.ts",
+  s06: "core/demo/video01/S06.ts",
+  s09: "core/demo/video01/S09.ts",
+  s05: "core/demo/video01/S05.ts",
+  s10: "core/demo/video01/S10.ts",
+  s07: "core/demo/video01/S07.ts",
+  s08: "core/demo/video01/S08.ts",
 }
 const sceneFileFor = (key: string): string =>
   SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts"

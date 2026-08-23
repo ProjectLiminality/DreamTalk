@@ -7,7 +7,8 @@
 
 import { Holon } from "../holon"
 import { color, length, angle, integer, completion, scalar, bool } from "../params"
-import { together, type Anim, type Windowed } from "../anim"
+import { eased, together, type Anim, type Windowed } from "../anim"
+import { ease } from "../timeline"
 import { WHITE, BLACK, RED, PI, TAU } from "../constants"
 
 /** A plain point — polyline data, not a param. */
@@ -186,6 +187,30 @@ export class Cylinder extends Stroke {
 export class Null extends Holon {}
 
 /**
+ * A Null that adopts holons built elsewhere — pydeation's `Group`.
+ *
+ * The ordinary way to own parts is to declare them as fields, and that
+ * stays the rule. But 2021 scenes routinely build an object at one place
+ * and then wrap it so a transform applies to the WRAPPER's pivot rather
+ * than the object's own — `Group(Eye(x=300))` turned by `b` orbits the
+ * eye around the world origin instead of spinning it where it stands.
+ * That is a real compositional act, not a naming convenience: the group
+ * contributes a frame, and the parts keep their own identities (a scene
+ * still animates `eye.tint` directly, which is why they are constructed
+ * first and handed over rather than declared inside).
+ *
+ * `members` are adopted through the same dynamic-part path `compose()`
+ * uses, so they parent, walk, and animate exactly like declared fields.
+ */
+export class Group extends Null {
+  members: Holon[] = []
+
+  protected override compose(): void {
+    for (const member of this.members) this.add(member)
+  }
+}
+
+/**
  * An open polyline — the workhorse behind axes, grids, sight lines and
  * the Eye's lids. `points` is data (local space); optional S&T-style
  * arrowheads render as small filled triangles riding the endpoints
@@ -237,10 +262,52 @@ export class Ellipse extends Stroke {
  * Video instances use scale 0.3. `tint` binds lids, eyeball and iris;
  * the pupil stays black.
  */
+/**
+ * Draw several strokes as if they were ONE — a single pen, a single
+ * ease, spread across them in order.
+ *
+ * A sub-window would ease each stroke separately inside its own slot,
+ * which is a different motion: the pen would slow down at every seam
+ * and speed up after it. What actually happens when Sketch & Toon walks
+ * a multi-segment spline is one ease over the whole arc length, so each
+ * segment's own completion is a CLIPPED, SHIFTED reading of that shared
+ * curve. Sampling the shared ease and handing each stroke its share as
+ * dense linear waypoints reproduces that exactly, and keeps the result
+ * a plain Anim.
+ *
+ * Assumes the strokes carry equal arc length, which is what the Eye's
+ * two lids do; a general version would weight the shares.
+ */
+const oneStroke = (strokes: readonly Stroke[], retract = false): Anim => {
+  const n = strokes.length
+  if (n === 0) return { tracks: [] }
+  const STEPS = 48
+  return eased(
+    "linear",
+    ...strokes.map((stroke, i) => {
+      const values: number[] = []
+      for (let k = 0; k <= STEPS; k++) {
+        const shared = ease("smooth", k / STEPS) * n
+        const drawn = Math.min(1, Math.max(0, shared - i))
+        values.push(retract ? 1 - drawn : drawn)
+      }
+      return stroke.creation.sequence(...values)
+    }),
+  )
+}
+
 export class Eye extends Stroke {
   opening = completion(1)
+  // The lids are ONE stroke in the source — a three-point Spline
+  // [upper tip, apex, lower tip] (custom_objects.py:79-80) — so the pen
+  // runs the upper lid INWARD to the apex and then the lower lid back
+  // out. Two Line parts rather than one polyline, because `opening` has
+  // to turn each lid about the apex and a rotation cannot open a
+  // three-point wedge; the stroke ORDER is what the reference cares
+  // about, and createAnim() below restores it exactly. Note the top
+  // lid's points run tip → apex, which is the direction it draws.
   lidTop = new Line({
-    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
     tint: this.tint,
     stroke: this.stroke,
     b: this.opening.times(PI / 8),
@@ -261,20 +328,49 @@ export class Eye extends Stroke {
   iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint })
   pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK })
 
-  /** CreateEye: pupil fills instantly, lids+eyeball draw 0→50%, iris fills 30→100%. */
+  /**
+   * CreateEye: pupil fills instantly, lids+eyeball draw 0→50%, iris
+   * fills 30→100% (animator.py's per-class dispatch).
+   *
+   * The two lids share that first half SEQUENTIALLY, because in the
+   * source they are one spline and Sketch & Toon's "single" stroke
+   * method walks a stroke end to end: the pen comes down the upper lid
+   * to the apex over the first quarter of the span and goes back out
+   * along the lower lid over the second. The reference is unambiguous
+   * — frames5 f0163 has a lone segment near the UPPER tip and nothing
+   * else, f0165 has the upper lid nearly whole with the lower still
+   * absent, and the lower lid only arrives from f0167 — and drawing the
+   * two in parallel from the apex, which is what a naive two-Line
+   * reading gives, gets every one of those frames wrong.
+   */
   override createAnim(): Anim {
     return together(
       [this.pupil.creation.sequence(0, 1), 0, 0.01],
-      [
-        together(
-          this.lidTop.creation.sequence(0, 1),
-          this.lidBottom.creation.sequence(0, 1),
-          this.eyeball.creation.sequence(0, 1),
-        ),
-        0,
-        0.5,
-      ],
+      [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5],
+      [this.eyeball.creation.sequence(0, 1), 0, 0.5],
       [this.iris.creation.sequence(0, 1), 0.3, 1],
+    )
+  }
+
+  /**
+   * UnCreateEye: the iris unfills 0→50%, the pupil follows 50→60%, and
+   * the lids and eyeball undraw 30→100% (animator.py's destructive
+   * dispatch — the mirror of CreateEye, and NOT createAnim reversed:
+   * the eye loses its look before it loses its shape).
+   *
+   * The lids keep the sequence they were drawn in, one after the other
+   * inside that window, so the pen retreats along the same stroke it
+   * came down.
+   */
+  override unCreateAnim(): Anim {
+    return together(
+      [this.iris.creation.to(0), 0, 0.5],
+      [this.pupil.creation.to(0), 0.5, 0.6],
+      [this.eyeball.creation.to(0), 0.3, 1],
+      // The pen retreats along the stroke it came down: the lower lid
+      // back to the apex first, then the upper lid out to its tip —
+      // one ease across both, the mirror of oneStroke().
+      [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1],
     )
   }
 }
@@ -526,4 +622,131 @@ export const rectanglePolyline = (
   arc(-w + r, -h + r, PI, (3 * PI) / 2)
   push(0, -h)
   return pts
+}
+
+/**
+ * The cross marker — video-01's contact point (§2.9 of the vocabulary
+ * report; `custom_objects.py:148`).
+ *
+ * pydeation builds it as four splines of length 200 running OUTWARD from
+ * the origin (`fromCenter`, the variant Scene 02 uses, so each arm draws
+ * from the middle out and a Glimpse blooms the mark open) or as two
+ * crossing splines through it. `size` is the arm length in world units —
+ * the source states it as a scale on the 200-unit arm, which is a
+ * construction detail, not a parameter anybody would want to turn.
+ *
+ * `b` (inherited) does the source's 45-degree turn: the marks in
+ * Scene 02 are `Cross(h=PI/4, …)`, a legacy heading, which is our bank.
+ */
+export class Cross extends Stroke {
+  size = length(6)
+  fromCenter = bool(true)
+
+  arms: Line[] = []
+
+  protected override compose(): void {
+    const s = this.size.value
+    const ends: [Vec3Like, Vec3Like][] = this.fromCenter.value
+      ? [
+          [{ x: 0, y: 0, z: 0 }, { x: 0, y: s, z: 0 }],
+          [{ x: 0, y: 0, z: 0 }, { x: s, y: 0, z: 0 }],
+          [{ x: 0, y: 0, z: 0 }, { x: 0, y: -s, z: 0 }],
+          [{ x: 0, y: 0, z: 0 }, { x: -s, y: 0, z: 0 }],
+        ]
+      : [
+          [{ x: 0, y: -s, z: 0 }, { x: 0, y: s, z: 0 }],
+          [{ x: -s, y: 0, z: 0 }, { x: s, y: 0, z: 0 }],
+        ]
+    for (const [a, b] of ends) {
+      this.arms.push(this.add(new Line({ points: [a, b], tint: this.tint, stroke: this.stroke })))
+    }
+  }
+}
+
+/**
+ * Split a segment into a dash pattern — the on-runs of a dotted line,
+ * in the segment's own space. Pure, so the tests and the holon share it.
+ *
+ * The pattern always STARTS with an on-run at the segment's start and is
+ * truncated (never stretched) at its end, which is how Sketch & Toon's
+ * line-style presets lay a pattern down: the last dash is whatever fits.
+ */
+export const dashRuns = (
+  from: Vec3Like,
+  to: Vec3Like,
+  dash: number,
+  gap: number,
+): [Vec3Like, Vec3Like][] => {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const dz = to.z - from.z
+  const total = Math.hypot(dx, dy, dz)
+  const period = dash + gap
+  if (total <= 0 || dash <= 0 || period <= 0) return [[from, to]]
+  const at = (d: number): Vec3Like => {
+    const u = d / total
+    return { x: from.x + dx * u, y: from.y + dy * u, z: from.z + dz * u }
+  }
+  const runs: [Vec3Like, Vec3Like][] = []
+  for (let d = 0; d < total - 1e-9; d += period) {
+    runs.push([at(d), at(Math.min(total, d + dash))])
+  }
+  return runs
+}
+
+/**
+ * A dotted polyline — Sketch & Toon's `line_style="dotted"`, which
+ * Scene 02's sin and cos droppers wear.
+ *
+ * The dash pattern is geometry here, not shading: the holon composes one
+ * Line per on-run, which keeps the ribbon pipeline untouched and makes
+ * the pattern editable the way every other construction is. `dash` and
+ * `gap` are WORLD lengths — the 2021 preset states them in the same
+ * screen pixel units the thickness uses, so a scene that wants the
+ * reference's exact rhythm converts once, at its own camera scale.
+ *
+ * Draw-on runs the dashes in order, each over its own share of the
+ * span, so the pen still travels the line from one end to the other.
+ */
+export class DottedLine extends Stroke {
+  points: Vec3Like[] = []
+  dash = length(2.3)
+  gap = length(3.2)
+
+  dashes: Line[] = []
+
+  protected override compose(): void {
+    for (let i = 0; i < this.points.length - 1; i++) {
+      for (const [a, b] of dashRuns(
+        this.points[i]!,
+        this.points[i + 1]!,
+        this.dash.value,
+        this.gap.value,
+      )) {
+        this.dashes.push(
+          this.add(new Line({ points: [a, b], tint: this.tint, stroke: this.stroke })),
+        )
+      }
+    }
+  }
+
+  override createAnim(): Anim {
+    void this.parts
+    const n = this.dashes.length
+    if (n === 0) return { tracks: [] }
+    return together(
+      ...this.dashes.map(
+        (d, i): Windowed => [d.creation.sequence(0, 1), i / n, (i + 1) / n],
+      ),
+    )
+  }
+
+  override unCreateAnim(): Anim {
+    void this.parts
+    const n = this.dashes.length
+    if (n === 0) return { tracks: [] }
+    return together(
+      ...this.dashes.map((d, i): Windowed => [d.creation.to(0), 1 - (i + 1) / n, 1 - i / n]),
+    )
+  }
 }

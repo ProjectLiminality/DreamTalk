@@ -66,22 +66,47 @@ const derivePoints = (
 
 // --- Pure helpers -----------------------------------------------------------
 
-const rotXYZ = (v: Vec3Like, p: number, h: number, b: number): Vec3Like => {
-  // Matches the host: group.rotation.set(p, h, b) with three's default
-  // 'XYZ' Euler order — R = Rx(p)·Ry(h)·Rz(b).
+/**
+ * Rotate by the standard h/p/b triple, in C4D's own composition order.
+ *
+ * h/p/b ARE C4D's HPB, and C4D composes them M = R_H · R_P · R_B about
+ * its own axes. Under the fixed axis dictionary (X, Y, Z)c4d → (x, z, y),
+ * legacy H turns about our z, legacy P about our x, legacy B about our y,
+ * so the same composition reads Rz(b) · Rx(p) · Ry(h) in our frame —
+ * three's 'ZXY' Euler order, which is what the host sets.
+ */
+export const rotHPB = (v: Vec3Like, p: number, h: number, b: number): Vec3Like => {
   let { x, y, z } = v
-  // Rz(b)
-  let t = x * Math.cos(b) - y * Math.sin(b)
-  y = x * Math.sin(b) + y * Math.cos(b)
-  x = t
-  // Ry(h)
-  t = x * Math.cos(h) + z * Math.sin(h)
+  // Ry(h) — innermost.
+  let t = x * Math.cos(h) + z * Math.sin(h)
   z = -x * Math.sin(h) + z * Math.cos(h)
   x = t
   // Rx(p)
   t = y * Math.cos(p) - z * Math.sin(p)
   z = y * Math.sin(p) + z * Math.cos(p)
   y = t
+  // Rz(b) — outermost.
+  t = x * Math.cos(b) - y * Math.sin(b)
+  y = x * Math.sin(b) + y * Math.cos(b)
+  x = t
+  return { x, y, z }
+}
+
+/** The inverse of rotHPB: Ry(-h)·Rx(-p)·Rz(-b), applied in that order. */
+export const invRotHPB = (v: Vec3Like, p: number, h: number, b: number): Vec3Like => {
+  let { x, y, z } = v
+  // Rz(-b)
+  let t = x * Math.cos(-b) - y * Math.sin(-b)
+  y = x * Math.sin(-b) + y * Math.cos(-b)
+  x = t
+  // Rx(-p)
+  t = y * Math.cos(-p) - z * Math.sin(-p)
+  z = y * Math.sin(-p) + z * Math.cos(-p)
+  y = t
+  // Ry(-h)
+  t = x * Math.cos(-h) + z * Math.sin(-h)
+  z = -x * Math.sin(-h) + z * Math.cos(-h)
+  x = t
   return { x, y, z }
 }
 
@@ -94,7 +119,7 @@ export const worldPosition = (holon: Holon): Vec3Like => {
   let pos: Vec3Like = { x: holon.x.value, y: holon.y.value, z: holon.z.value }
   for (let node = holon.parent; node; node = node.parent) {
     const s = node.scale.value
-    pos = rotXYZ({ x: pos.x * s, y: pos.y * s, z: pos.z * s }, node.p.value, node.h.value, node.b.value)
+    pos = rotHPB({ x: pos.x * s, y: pos.y * s, z: pos.z * s }, node.p.value, node.h.value, node.b.value)
     pos = { x: pos.x + node.x.value, y: pos.y + node.y.value, z: pos.z + node.z.value }
   }
   return pos
@@ -173,6 +198,98 @@ export const trimByArcLength = (
   return out
 }
 
+/** Right-handed elementary rotations — about +y, +x and +z respectively. */
+const yaw = (v: Vec3Like, a: number): Vec3Like => ({
+  x: v.x * Math.cos(a) + v.z * Math.sin(a),
+  y: v.y,
+  z: -v.x * Math.sin(a) + v.z * Math.cos(a),
+})
+const pitch = (v: Vec3Like, a: number): Vec3Like => ({
+  x: v.x,
+  y: v.y * Math.cos(a) - v.z * Math.sin(a),
+  z: v.y * Math.sin(a) + v.z * Math.cos(a),
+})
+const roll = (v: Vec3Like, a: number): Vec3Like => ({
+  x: v.x * Math.cos(a) - v.y * Math.sin(a),
+  y: v.x * Math.sin(a) + v.y * Math.cos(a),
+  z: v.z,
+})
+
+// --- SectionPlane -----------------------------------------------------------
+
+/**
+ * A cutting plane as a holon in its own right — pydeation's `Plane`
+ * (object.py:938) in the one role video-01 gives it: the invisible
+ * partner an `intersects_with` cylinder is cut by.
+ *
+ * It is a locator, not a stroke: nothing of it renders. What it carries
+ * is the pair a section needs — a world POINT and a world NORMAL —
+ * derived from its own transform, so a scene animates the plane the way
+ * the source does (`Transform(plane, h=2*PI, x=200)`) and the section
+ * follows for free.
+ *
+ * **The frozen bank.** C4D's *frozen* rotation is not another rotation
+ * in the same stack: it is a private parent frame. The object's own
+ * position and rotation are expressed INSIDE it, so a frozen bank swings
+ * both — an object at x = 100 with a frozen bank of PI/4 sits on the
+ * diagonal, not on the axis. Scene03 depends on exactly that: its plane
+ * is `Plane(b=PI/2, b_frozen=PI/4, scale=2, x=1)` and travels to x=201,
+ * and it is the frozen frame that keeps the cut passing through the
+ * cylinder's axis at the half-turn. Modelling the bank as an ordinary
+ * rotation puts the cut ~31 units off-axis there — visibly the wrong
+ * curve against refs/video-01/frames5/f0391.
+ *
+ * Angles are the legacy HPB triple (h about the top-view vertical, p, b),
+ * because that is what the 2021 sources state; the class maps them into
+ * our frame itself.
+ */
+export class SectionPlane extends Holon {
+  /** C4D's frozen bank — the private parent frame (see the class note). */
+  frozenB = angle(0)
+
+  /**
+   * The plane's unit normal in world space.
+   *
+   * The local normal of a C4D plane primitive is its own +Y, which under
+   * the fixed axis dictionary (X, Y, Z)c4d → (x, z, y) is our +z. The
+   * legacy triple then turns it, composed C4D's way (M = R_H · R_P · R_B),
+   * with legacy H about our z, P about our x and B about our y — and each
+   * at the SAME numeric angle, because the dictionary is a reflection and
+   * C4D is left-handed, and those two sign flips cancel.
+   *
+   * The frozen bank then frames the result — the same rotation, applied
+   * outermost, to the normal and (below) to the position alike.
+   *
+   * Calibrated against the S03 sweep, which exercises the whole family in
+   * one shot: f0388/f0394 come out as the flat circle, f0391 as the
+   * two-generator cut straight through the axis, f0386/f0396 as the low
+   * truncated arcs, and the tilted ellipses in between lean and open the
+   * way the reference does. The mirrored heading and the mirrored bank
+   * were both tried against those frames: each keeps the two circle
+   * moments and the two-generator moment (they are symmetric) but pinches
+   * the mid-sweep ellipses narrow — visible as a ~0.85 coverage ceiling
+   * on f0390/f0392 that no timing shift can lift.
+   */
+  get normal(): Vec3Like {
+    let n: Vec3Like = { x: 0, y: 0, z: 1 }
+    n = yaw(n, this.b.value)
+    n = pitch(n, this.p.value)
+    n = roll(n, this.h.value)
+    return yaw(n, this.frozenB.value)
+  }
+
+  /**
+   * The plane's origin in world space — its own position, carried out of
+   * the frozen frame the same way the normal is. This is what puts a
+   * plane at x = 100 with a PI/4 bank on the diagonal rather than the
+   * axis, and it is the whole reason S03's cut passes through the
+   * cylinder's own axis at the half-turn.
+   */
+  get origin(): Vec3Like {
+    return yaw({ x: this.x.value, y: this.y.value, z: this.z.value }, this.frozenB.value)
+  }
+}
+
 // --- SectionCurve -----------------------------------------------------------
 
 /**
@@ -198,6 +315,53 @@ export class SectionCurve extends Stroke {
   tilt = angle(PI / 4)
   spin = angle(0)
   offset = scalar(0)
+  /**
+   * Which frame `tilt`/`spin`/`offset` describe the plane in.
+   *
+   * "local" (the default) is the S03 reading: the plane is stated
+   * relative to the cylinder, so a spinning `spin` sweeps the cut around
+   * a cylinder that itself holds still.
+   *
+   * "parent" is the S06 reading, and the one pydeation's
+   * `intersects_with=[plane]` actually means: the Plane is a SEPARATE
+   * object standing still in the scene while the cylinder TURNS THROUGH
+   * it. Stating the plane in the parent frame and inverse-rotating it by
+   * the holon's own h/p/b is what makes the section morph
+   * rectangle → ellipse → circle → ellipse → rectangle for free as `p`
+   * animates — one animated parameter (the pose), no hand-computed
+   * relationship between pose and cut.
+   *
+   * Only the ROTATION is undone: the holon's own scale is uniform (it
+   * scales radius/height and the plane's distance together), and its
+   * translation is the cylinder's own, so a plane through the scene
+   * origin at offset 0 stays through the cylinder's centre — exactly
+   * S06, whose plane sits one unit off the origin the cylinder is at.
+   */
+  planeFrame: "local" | "parent" = "local"
+
+  /**
+   * Cut by an actual SectionPlane holon instead of by tilt/spin/offset.
+   *
+   * This is pydeation's `intersects_with=[plane]` said literally: the
+   * plane is a separate object in the scene, and the section is whatever
+   * falls out of the two objects' transforms. Scene03 needs it —
+   * its plane both spins and travels, through a frozen frame that no
+   * tilt/spin/offset triple states without the scene doing trigonometry
+   * of its own (which the gardening rule sends here, not there).
+   *
+   * The plane is read in WORLD space and brought into this holon's local
+   * frame (which is the cylinder's), so both objects may move. It lives
+   * inside a plain object so the holon field scan does not mistake the
+   * reference for a part and reparent the plane (the same guard
+   * Connection uses for its anchors).
+   */
+  private cutter: { plane?: SectionPlane } = {}
+
+  /** Cut by an actual plane object — see the note on `cutter`. */
+  cutBy(plane: SectionPlane): this {
+    this.cutter.plane = plane
+    return this
+  }
 
   line: Line = new Line({ tint: this.tint, stroke: this.stroke })
 
@@ -212,25 +376,57 @@ export class SectionCurve extends Stroke {
   protected override compose(): void {
     derivePoints(
       this.line,
-      () => [
-        this.radius.value,
-        this.height.value,
-        this.tilt.value,
-        this.spin.value,
-        this.offset.value,
-      ],
+      () => {
+        const cutter = this.cutter.plane
+        if (cutter) {
+          // The plane object's own state IS the input, plus wherever the
+          // cylinder itself has got to.
+          const n = cutter.normal
+          const o = cutter.origin
+          const c = worldPosition(this)
+          return [this.radius.value, this.height.value, n.x, n.y, n.z, o.x, o.y, o.z, c.x, c.y, c.z]
+        }
+        return [
+          this.radius.value,
+          this.height.value,
+          this.tilt.value,
+          this.spin.value,
+          this.offset.value,
+          // In the parent frame the pose IS an input to the cut.
+          this.planeFrame === "parent" ? this.p.value : 0,
+          this.planeFrame === "parent" ? this.h.value : 0,
+          this.planeFrame === "parent" ? this.b.value : 0,
+        ]
+      },
       () => this.refresh(),
     )
   }
 
   /** Recompute the polyline from current param values (fresh array). */
   refresh(): Vec3Like[] {
+    const cutter = this.cutter.plane
+    if (cutter) {
+      // Both objects in world space; the cut is stated relative to this
+      // holon's own origin, which is where the cylinder geometry sits.
+      const n = cutter.normal
+      const o = cutter.origin
+      const c = worldPosition(this)
+      const planePoint: Vec3Like = { x: o.x - c.x, y: o.y - c.y, z: o.z - c.z }
+      this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint, n)
+      return this.section.points
+    }
     const tilt = this.tilt.value
     const spin = this.spin.value
-    const normal: Vec3Like = {
+    let normal: Vec3Like = {
       x: Math.sin(tilt) * Math.cos(spin),
       y: Math.cos(tilt),
       z: Math.sin(tilt) * Math.sin(spin),
+    }
+    if (this.planeFrame === "parent") {
+      // Undo the holon's own rotation: R = Rz(b)·Rx(p)·Ry(h) (the host's
+      // ZXY Euler order), so the inverse is Ry(-h)·Rx(-p)·Rz(-b) — which
+      // rotHPB spells by negating every angle and reading it backwards.
+      normal = invRotHPB(normal, this.p.value, this.h.value, this.b.value)
     }
     const off = this.offset.value
     const planePoint: Vec3Like = { x: normal.x * off, y: normal.y * off, z: normal.z * off }

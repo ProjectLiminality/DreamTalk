@@ -21,7 +21,7 @@ import {
   writeWindows,
 } from "../src/parts/text"
 import { dominoWindows } from "../src/parts/index"
-import { Create } from "../src/verbs"
+import { Create, UnCreate } from "../src/verbs"
 import { WHITE } from "../src/constants"
 
 describe("letters — content → glyph grouping", () => {
@@ -219,10 +219,16 @@ describe("Write / UnWrite tracks", () => {
     expect(track.easing).toBe("linear")
   })
 
-  test("UnWrite is the mirror", () => {
+  test("UnWrite runs a SECOND forward front, not creation backwards", () => {
+    // pydeation's UnWrite is Domino(UnFillThenUnDraw) over the SAME
+    // letter order (animator.py:128-140), so the first letter goes
+    // first. Running `creation` 1 → 0 would take the LAST letter first
+    // — video-01 f0778-f0782 show the reference losing "dialectical"
+    // while "thinking" still stands.
     const text = new Text({ content: "thesis" })
     const track = UnWrite(text).tracks[0]!
-    expect(track.values).toEqual([1, 0])
+    expect(track.param).toBe(text.erasure)
+    expect(track.values).toEqual([0, 1])
     expect(track.easing).toBe("linear")
   })
 
@@ -232,5 +238,30 @@ describe("Write / UnWrite tracks", () => {
     expect(tracks).toHaveLength(1)
     expect(tracks[0]!.param).toBe(text.creation)
     expect(tracks[0]!.easing).toBe("linear")
+  })
+
+  test("UnCreate(text) dispatches to UnWrite via the erase front", () => {
+    const text = new Text({ content: "dialectical thinking" })
+    const { tracks } = UnCreate(text)
+    expect(tracks).toHaveLength(1)
+    expect(tracks[0]!.param).toBe(text.erasure)
+    expect(tracks[0]!.values).toEqual([0, 1])
+    expect(tracks[0]!.easing).toBe("linear")
+  })
+
+  test("the two fronts compose as min(write, 1 − erase), per letter", () => {
+    const text = new Text({ content: "abc" })
+    // Fully written, untouched by the erase front: every letter solid.
+    text.creation.value = 1
+    text.erasure.value = 0
+    expect(text.letterPhasesNow(0)).toEqual({ draw: 1, fill: 1 })
+    // The erase front fully past letter 0: that letter is gone while
+    // the LAST letter, whose window ends later, still stands.
+    text.erasure.value = 1
+    expect(text.letterPhasesNow(0)).toEqual({ draw: 0, fill: 0 })
+    // Halfway through the erase front, the cascade points FORWARD:
+    // the first letter is never further along than the last.
+    text.erasure.value = 0.5
+    expect(text.letterErasure(0)).toBeGreaterThanOrEqual(text.letterErasure(2))
   })
 })

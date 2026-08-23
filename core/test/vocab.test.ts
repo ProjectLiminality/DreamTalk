@@ -7,7 +7,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   Axes,
+  Circle,
   Eye,
+  Group,
   Line,
   Rectangle,
   Square,
@@ -92,7 +94,7 @@ describe("Create dispatch", () => {
     expect(track.values).toEqual([0, 1])
   })
 
-  test("Eye: pupil instant, lids+eyeball 0→50%, iris 30→100%", () => {
+  test("Eye: pupil instant, lids sequential 0→50%, eyeball 0→50%, iris 30→100%", () => {
     const eye = new Eye({})
     const anim = Create(eye)
     const pupil = tracksFor(anim.tracks, eye.pupil.creation)
@@ -102,11 +104,46 @@ describe("Create dispatch", () => {
     const iris = tracksFor(anim.tracks, eye.iris.creation)
     expect(iris[0]!.relStart).toBeCloseTo(0.3, 9)
     expect(iris[0]!.relStop).toBe(1)
-    for (const part of [eye.lidTop, eye.lidBottom, eye.eyeball]) {
-      const track = tracksFor(anim.tracks, part.creation)[0]!
+    const eyeball = tracksFor(anim.tracks, eye.eyeball.creation)[0]!
+    expect(eyeball.relStart).toBe(0)
+    expect(eyeball.relStop).toBeCloseTo(0.5, 9)
+    // The lids are ONE spline in the source, walked end to end under ONE
+    // ease: the pen comes down the upper lid to the apex and back out
+    // along the lower one, without pausing at the seam. Both tracks
+    // therefore span the whole first half and carry the shared ease as
+    // pre-sampled linear waypoints — the upper lid's finishing exactly
+    // where the lower lid's starts moving.
+    const top = tracksFor(anim.tracks, eye.lidTop.creation)[0]!
+    const bottom = tracksFor(anim.tracks, eye.lidBottom.creation)[0]!
+    for (const track of [top, bottom]) {
       expect(track.relStart).toBe(0)
       expect(track.relStop).toBeCloseTo(0.5, 9)
+      expect(track.easing).toBe("linear")
+      expect(track.mode).toBe("sequence")
     }
+    const topValues = top.values as number[]
+    const bottomValues = bottom.values as number[]
+    expect(topValues[0]).toBe(0)
+    expect(topValues[topValues.length - 1]).toBe(1)
+    expect(bottomValues[0]).toBe(0)
+    expect(bottomValues[bottomValues.length - 1]).toBe(1)
+    // Monotone, and the lower lid is still bare while the upper draws.
+    for (let i = 1; i < topValues.length; i++) {
+      expect(topValues[i]!).toBeGreaterThanOrEqual(topValues[i - 1]!)
+      expect(bottomValues[i]!).toBeGreaterThanOrEqual(bottomValues[i - 1]!)
+      if (topValues[i]! < 1) expect(bottomValues[i]!).toBe(0)
+    }
+  })
+
+  test("Eye: the upper lid's pen runs tip → apex, the lower apex → tip", () => {
+    // The 2021 spline is [upper tip, apex, lower tip] (custom_objects.py:79),
+    // so the stroke ENTERS at the upper tip. frames5 f0163 shows exactly
+    // that: a lone segment out at the tip with the apex still bare.
+    const eye = new Eye({})
+    expect(eye.lidTop.points[0]!.x).toBeCloseTo(230, 9)
+    expect(eye.lidTop.points[1]!.x).toBeCloseTo(0, 9)
+    expect(eye.lidBottom.points[0]!.x).toBeCloseTo(0, 9)
+    expect(eye.lidBottom.points[1]!.x).toBeCloseTo(230, 9)
   })
 
   test("Eye geometry follows opening (lids rotate, eyeball arc narrows)", () => {
@@ -255,5 +292,44 @@ describe("C4D auto-tangent easing", () => {
     // The values the reference fit implies, to 3dp.
     expect(at(0.1)).toBeCloseTo(0.0396, 3)
     expect(at(0.9)).toBeCloseTo(0.9604, 3)
+  })
+})
+
+describe("Group", () => {
+  test("adopts its members as parts, parented and walkable", () => {
+    const eye = new Eye({ scale: 0.3, x: 300 })
+    const disc = new Circle({ radius: 50 })
+    const group = new Group({ members: [eye, disc] })
+    expect(group.parts).toContain(eye)
+    expect(group.parts).toContain(disc)
+    expect(eye.parent).toBe(group)
+    // walk() reaches the members' own parts too — an adopted member is a
+    // full part, not a reference held to one side.
+    const walked = [...group.walk()]
+    expect(walked).toContain(eye)
+    expect(walked).toContain(eye.iris)
+  })
+
+  test("a member built outside stays animatable in its own right", () => {
+    // The reason 2021 scenes wrap: `Transform(creature, b=…)` turns the
+    // GROUP pivot (orbiting the member around the origin) while the scene
+    // still recolors the member directly. Both must reach the timeline.
+    const eye = new Eye({ scale: 0.3, x: 300 })
+    const creature = new Group({ members: [eye] })
+    class OrbitDream extends Dream {
+      unfold() {
+        this.play(creature.h.by(Math.PI), 1)
+        this.play(eye.opacity.to(0), 1)
+      }
+    }
+    const timeline = new OrbitDream().build()
+    timeline.apply(1)
+    expect(creature.h.value).toBeCloseTo(Math.PI, 6)
+    timeline.apply(2)
+    expect(eye.opacity.value).toBeCloseTo(0, 6)
+  })
+
+  test("an empty group is just a locator", () => {
+    expect(new Group({}).parts).toHaveLength(0)
   })
 })

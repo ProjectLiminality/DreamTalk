@@ -56,3 +56,48 @@ export const generatorPoint = (
   radius: number,
   y: number,
 ): [number, number, number] => [radius * Math.cos(theta), y, radius * Math.sin(theta)]
+
+/**
+ * A cap circle as a polyline that STARTS on a silhouette generator and
+ * runs the way Sketch & Toon drew it in 2021.
+ *
+ * The 2021 cylinder is a C4D parametric solid; its wireframe look is
+ * entirely S&T contour lines, and S&T chains contour segments that touch.
+ * On a cylinder the cap borders touch the two mantle generators, so the
+ * pen has only two places it can start on a cap — and the reference says
+ * which, unambiguously, in the first second of video-01 Scene 01:
+ *
+ *   - f0031 (0.2s into a 3s draw) lights 68 pixels at screen (529-534,
+ *     273-286). Projecting the cap under the calibrated camera, that is
+ *     cap angle 121.4 degrees — exactly thetaB, the LEFT generator — and
+ *     f0032/33/34/35 extend from it toward INCREASING angle (132, 142, …).
+ *   - f0038 shows the bottom cap opening from (740, 430), which is cap
+ *     angle 309.5 degrees — thetaA, the right generator — and running
+ *     toward DECREASING angle to (634, 442) at 174 degrees.
+ *
+ * Both caps therefore sweep the NEAR half of the mantle first (the arc
+ * between the two generators that faces the camera) and the far half
+ * second. Read as one pen path the whole cylinder is: top cap round from
+ * thetaB, down the right generator, bottom cap round from thetaA, back up
+ * the left generator — the contour closing on itself, which is precisely
+ * what a chained S&T contour does.
+ *
+ * `startAngle` is where the pen begins; `reversed` runs it the other way.
+ * The output's first and last point coincide, so arc-length draw-on covers
+ * the circle exactly once.
+ */
+export const capPolylineFrom = (
+  radius: number,
+  y: number,
+  startAngle: number,
+  reversed: boolean,
+  segments = 128,
+): [number, number, number][] => {
+  const pts: [number, number, number][] = []
+  for (let i = 0; i <= segments; i++) {
+    const step = (i / segments) * Math.PI * 2
+    const a = startAngle + (reversed ? -step : step)
+    pts.push([Math.cos(a) * radius, y, Math.sin(a) * radius])
+  }
+  return pts
+}

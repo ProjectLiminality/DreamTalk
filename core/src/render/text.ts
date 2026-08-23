@@ -48,15 +48,25 @@
  * `progress` uniform (the holon's `creation`) drives the per-letter
  * cascade entirely in-shader — a handful of uniforms per frame.
  *
+ * A LETTER IS TWO THINGS, not one (S07, 2026-08-23). The 2021 pipeline
+ * wraps every letter as a Spline with `thickness = 5` and
+ * `clipping = "inside"` (scene/scene.py:462-463), then runs
+ * DrawThenFillCompletely over it: the pen TRACES the letterform first
+ * and the solid arrives after. So this module renders each Text twice
+ * over —
+ *   • the SOLID, this file's glyph mesh, whose alpha is the fill phase;
+ *   • the TRACE, one RibbonStroke per boundary loop per glyph, recovered
+ *     from the triangulation by parts/outline.ts and inset by half a
+ *     stroke so the inside-clipping is honoured, whose drawn fraction is
+ *     the draw phase.
+ * The first attempt stood a left-to-right WIPE of the solid in for the
+ * trace, and it read wrong wherever a letter was mid-draw: the reference
+ * shows the whole letterform, thinly (f0577's `t` is a hook of outline,
+ * f0591's `a` a bare ring), while a wipe shows the left of it, solidly.
+ * Real strokes moved coverage_ref on those frames from 0.53 to 0.98.
+ *
  * LESSON (ribbon.ts, still law): every animated material value is a
  * TSL uniform node, never a plain material property.
- *
- * TODO(host wiring) — three-host.ts is owned elsewhere; the integrator
- * adds exactly these three lines:
- *   import { attachText, type TextBinding } from "./text"   // + Text from "../parts/text"
- *   private readonly texts: TextBinding[] = []
- *   // in attach():  if (holon instanceof Text) this.texts.push(attachText(holon, group))
- *   // in sync():    for (const b of this.texts) b.sync()
  */
 
 import * as THREE from "three/webgpu"
@@ -64,7 +74,10 @@ import { uniform } from "three/tsl"
 import * as TSLTyped from "three/tsl"
 import { Text as ThreeText } from "three-text"
 import type { Color } from "../constants"
-import { Text, writeWindows, DRAW_WINDOW, FILL_WINDOW } from "../parts/text"
+import { Text, writeWindows, writePhases, DRAW_WINDOW, FILL_WINDOW } from "../parts/text"
+import { boundaryLoops, closeLoop, insetLoop } from "../parts/outline"
+import type { Vec3Like } from "../parts/index"
+import { RibbonStroke } from "./ribbon"
 
 /**
  * Same escape hatch as ribbon.ts: @types/three's TSL typings lag the
@@ -80,6 +93,7 @@ const {
   clamp,
   float,
   max,
+  min,
   mix,
   modelViewMatrix,
   positionGeometry,
@@ -112,6 +126,15 @@ export const DEFAULT_FONT_URL = "/core/demo/fonts/Arimo-Regular.ttf"
  */
 export const DEFAULT_HARFBUZZ_URL = "/core/demo/wasm/hb.wasm"
 
+/**
+ * The projection scale a Text assumes when nobody tells it one: the
+ * 2021 rig's 1.28 screen pixels per world unit (dream.ts — C4D's factory
+ * 36mm lens at its 1000-unit distance, which is what every video-01
+ * scene is framed on). Only the contour inset reads it.
+ */
+export const DEFAULT_PIXELS_PER_UNIT = 1.28
+
+
 let harfBuzzUrl = DEFAULT_HARFBUZZ_URL
 let harfBuzzConfigured = false
 
@@ -132,12 +155,30 @@ const ensureHarfBuzz = (): void => {
 
 /** Per-vertex varyings — the glyph's own place in the cascade. */
 const vWindow = varyingProperty("vec2", "dtGlyphWindow")
-/** Position across the glyph's own width, for the left-to-right wipe. */
+/**
+ * Position across the glyph's own width, 0 at its left edge and 1 at
+ * its right. The solid no longer wipes (the trace does the drawing), so
+ * nothing reads this today; it is kept because it is the natural hook
+ * for any per-letter effect that wants a direction, and because
+ * addWriteAttributes fills it for free from data it already walks.
+ */
 const vGlyphU = varyingProperty("float", "dtGlyphU")
 
 export class TextGlyphMaterial extends THREE.NodeMaterial {
   /** The write front — the owning holon's `creation` (0 → 1). */
   readonly progress = uniform(1)
+  /**
+   * The UN-write front — the owning holon's `erasure` (0 → 1).
+   *
+   * UnWrite is NOT the time-reverse of Write. pydeation runs it as its
+   * own Domino over the SAME letter order (animator.py: UnWrite =
+   * Domino(UnFillThenUnDraw)), so the reference erases "anti-thesis"
+   * left to right, first letter first — running `creation` backwards
+   * would eat it right to left instead (verified against f0727-f0733).
+   * A second front through the same windows is what keeps the cascade
+   * pointing the same way while each letter's own phases run backwards.
+   */
+  readonly erasure = uniform(0)
   /** Fade opacity, orthogonal to creation. */
   readonly fade = uniform(1)
   /** Glyph color (same working-space semantics as the ribbon tint). */
@@ -168,15 +209,24 @@ export class TextGlyphMaterial extends THREE.NodeMaterial {
 
     this.fragmentNode = Fn(() => {
       // This letter's place under the write front: its domino window →
-      // draw (the glyph wipes on left to right) then fill (it settles to
-      // full strength). Re-derives parts/text.ts writePhases() in-shader
-      // — the tests pin the CPU side, and the two must agree.
+      // draw (the traced contour, which is real stroke geometry — see
+      // the module header) then fill (this mesh). Re-derives
+      // parts/text.ts writePhases() in-shader — the tests pin the CPU
+      // side, and the two must agree.
       const win = vec2(vWindow)
-      const p = clamp(
-        this.progress.sub(win.x).div(max(win.y.sub(win.x), 1e-6)),
-        0.0,
-        1.0,
-      ).toVar()
+      const span = max(win.y.sub(win.x), 1e-6)
+      // TWO fronts through the SAME windows, in the same direction: the
+      // write front raises this letter's phase through draw-then-fill,
+      // and the un-write front — a second forward domino, not a reversed
+      // one — lowers it back down through fill-then-draw. min() is the
+      // composition: a letter is as written as the write front has made
+      // it and as un-written as the erase front has since taken back,
+      // which is exactly UnFillThenUnDraw over the original letter order
+      // (see Text.erasure). Re-derives parts/text.ts writePhases()
+      // in-shader — the tests pin the CPU side, and the two must agree.
+      const pWrite = clamp(this.progress.sub(win.x).div(span), 0.0, 1.0)
+      const pErase = clamp(this.erasure.sub(win.x).div(span), 0.0, 1.0)
+      const p = min(pWrite, pErase.oneMinus()).toVar()
       const drawP = clamp(
         p.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]),
         0.0,
@@ -188,17 +238,23 @@ export class TextGlyphMaterial extends THREE.NodeMaterial {
         1.0,
       )
 
-      // The wipe: the letter reveals left to right across its own quad
-      // (the 2021 "left_right" stroke order per letter). It sweeps past
-      // both edges so drawP 0/1 are fully off/on.
-      const u = float(vGlyphU)
-      const wipeX = mix(float(-0.05), float(1.05), drawP)
-      const wipe = smoothstep(wipeX.sub(0.06), wipeX.add(0.06), u).oneMinus()
-
-      // Draw phase reveals the letter at partial strength; the fill
-      // phase brings it to solid — the 2021 DrawThenFillCompletely read.
-      const strength = mix(float(0.55), float(1.0), fillP)
-      const a = wipe.mul(strength).mul(this.fade)
+      // This mesh is the letter's SOLID only. The draw phase — the pen
+      // tracing the letterform — is real stroke geometry now (the
+      // contour ribbons this binding builds from the triangulation's
+      // boundary, parts/outline.ts), because that is what the reference
+      // shows: at refs/video-01/frames5/f0577 the first `t` is a hook of
+      // outline with nothing filled in, and at f0591 the last `a` is a
+      // bare ring. A left-to-right wipe of the solid stood in for that
+      // and cost ~18 points of coverage on exactly the frames where a
+      // letter is mid-draw; a wipe reveals the left of a letter while
+      // the reference has drawn the whole of it, thinly.
+      //
+      // So the solid does one thing: fade in over the fill phase, at
+      // full strength, everywhere at once. `drawP` still matters here —
+      // it gates the fade to zero before the outline has closed, which
+      // costs nothing while FILL_WINDOW starts after DRAW_WINDOW ends
+      // but keeps the two honest if that ever changes.
+      const a = fillP.mul(smoothstep(0.0, 0.001, drawP)).mul(this.fade)
       // Premultiplied on black — max-blended (see module header).
       return vec4(vec3(this.tint).mul(a), a)
     })()
@@ -211,8 +267,8 @@ export class TextGlyphMaterial extends THREE.NodeMaterial {
  * three-text gives every vertex a `glyphIndex` (which letter it belongs
  * to) when `perGlyphAttributes` is on. From that we derive, per vertex:
  *   • `glyphWindow` — that letter's domino window (the cascade timing),
- *   • `glyphU`      — its position across its own glyph's width, so the
- *                     wipe runs left to right within each letter.
+ *   • `glyphU`      — its position across its own glyph's width, left
+ *                     edge to right (see vGlyphU).
  * Both are static for the life of the geometry: the whole animation is
  * the single `progress` uniform moving through them.
  *
@@ -241,7 +297,7 @@ export const addWriteAttributes = (geometry: THREE.BufferGeometry): number => {
     return 1
   }
 
-  // How many distinct glyphs, and each glyph's x-extent (for the wipe).
+  // How many distinct glyphs, and each glyph's x-extent (for glyphU).
   let glyphCount = 0
   for (let i = 0; i < count; i++) {
     const g = indexAttr.getX(i)
@@ -271,6 +327,144 @@ export const addWriteAttributes = (geometry: THREE.BufferGeometry): number => {
 }
 
 /**
+ * One glyph's traced outline: the boundary loops of its own triangles,
+ * as ribbon strokes, plus where each loop sits in the letter's own
+ * draw phase.
+ *
+ * The 2021 pen draws a letter contour by contour ("stroke_method
+ * single"), so the loops share the letter's draw phase in sequence,
+ * proportioned by arc length — a big silhouette takes most of the
+ * phase and a small counter the rest, which is what the reference
+ * shows for `a`, `e`, `p`.
+ */
+interface GlyphOutline {
+  /** The letter's domino window within `creation` / `erasure`. */
+  window: [number, number]
+  loops: {
+    ribbon: RibbonStroke
+    /** This loop's slice of the letter's draw phase, by arc length. */
+    from: number
+    to: number
+  }[]
+}
+
+/** Arc length of a closed ring (its points, first not repeated). */
+const loopLength = (loop: readonly Vec3Like[]): number => {
+  let total = 0
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i]!
+    const b = loop[(i + 1) % loop.length]!
+    total += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
+  }
+  return total
+}
+
+/**
+ * Build the contour strokes for a laid-out text geometry: one stroke
+ * per boundary loop per glyph, in glyph order.
+ *
+ * The triangle→glyph map comes from the `glyphIndex` attribute the
+ * layout already carries (all three corners of a triangle belong to one
+ * glyph), and the per-glyph filter is what keeps neighbouring letters
+ * from welding into one another's loops.
+ */
+const buildOutlines = (
+  geometry: THREE.BufferGeometry,
+  strokePx: number,
+  pixelsPerUnit: number,
+): GlyphOutline[] => {
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute
+  const glyphIndex = geometry.getAttribute("glyphIndex") as THREE.BufferAttribute | undefined
+  const index = geometry.getIndex()
+  if (!glyphIndex || !index) return []
+
+  const positions = position.array as ArrayLike<number>
+  const indices = index.array as ArrayLike<number>
+  let glyphCount = 0
+  for (let i = 0; i < glyphIndex.count; i++) {
+    const g = glyphIndex.getX(i)
+    if (g + 1 > glyphCount) glyphCount = g + 1
+  }
+  if (glyphCount === 0) return []
+
+  const windows = writeWindows(glyphCount)
+  const outlines: GlyphOutline[] = []
+  for (let g = 0; g < glyphCount; g++) {
+    // Clipping "inside": pull each contour in by half the pen so the
+    // ribbon's outer edge lands back on the letterform's own boundary
+    // (parts/outline.ts insetLoop). Adding the ribbon's own ±1px
+    // antialiasing shoulder on top of that was tried and measured
+    // WORSE on the settled frames (coverage_ours 0.9872 -> 0.9853): the
+    // shoulder is soft and half of it falls under the reference's own
+    // encode blur, so pulling the hard edge a further pixel in only
+    // thins the stems.
+    const inset = strokePx / 2 / Math.max(pixelsPerUnit, 1e-6)
+    const loops = boundaryLoops(
+      positions,
+      indices,
+      (t) => glyphIndex.getX(indices[t * 3]!) === g,
+    ).map((loop) => insetLoop(loop, inset))
+    // NOTE (open): where along its contour the 2021 pen STARTED is not
+    // recoverable here. C4D began each stroke at its spline's first
+    // point — the font's own contour start — and three-text hands over
+    // triangles, not contours, so the point is gone by the time we see
+    // the geometry. The boundary walk starts wherever the adjacency map
+    // hands it a vertex instead. A "start at the topmost point" rule was
+    // tried against the reference (parts/outline.ts startAtTop, kept for
+    // whoever picks this up) and MEASURED WORSE on the scored frames: it
+    // fixed the `a` of f0591 (0.79 -> 0.89 coverage_ref) and broke the
+    // `s` of f0578, which the reference draws from its top RIGHT
+    // (0.98 -> 0.91). It is a guess either way, so the guess is not
+    // taken. The real fix is glyph contours from the shaper.
+    const lengths = loops.map(loopLength)
+    const total = lengths.reduce((a, b) => a + b, 0)
+    let walked = 0
+    const built: GlyphOutline["loops"] = []
+    for (let i = 0; i < loops.length; i++) {
+      const ribbon = new RibbonStroke(strokePx)
+      ribbon.setPoints(closeLoop(loops[i]!).map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+      const from = total > 0 ? walked / total : 0
+      walked += lengths[i]!
+      built.push({ ribbon, from, to: total > 0 ? walked / total : 1 })
+    }
+    outlines.push({ window: windows[g] ?? [0, 1], loops: built })
+  }
+  return outlines
+}
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
+
+/**
+ * Drive one text's outline strokes from the two fronts — the CPU mirror
+ * of TextGlyphMaterial's fragment stage, computing the very same
+ * numbers through parts/text.ts's own writePhases().
+ *
+ * Per glyph: the composed progress min(write, 1 − erase) yields this
+ * letter's `draw` phase; its loops then split that one number in
+ * sequence, by arc length, so the pen finishes the silhouette before it
+ * starts the counter — one contour at a time, which is what
+ * stroke_method "single" means, and what the reference shows for `a`,
+ * `e` and `p`.
+ */
+const syncOutlines = (outlines: readonly GlyphOutline[], holon: Text): void => {
+  const creation = holon.creation.value
+  const erasure = holon.erasure.value
+  const opacity = holon.opacity.value
+  const tint = holon.tint.value
+  const width = holon.stroke.value
+  for (const { window, loops } of outlines) {
+    const span = Math.max(window[1] - window[0], 1e-6)
+    const pWrite = clamp01((creation - window[0]) / span)
+    const pErase = clamp01((erasure - window[0]) / span)
+    const { draw } = writePhases(Math.min(pWrite, 1 - pErase))
+    for (const { ribbon, from, to } of loops) {
+      const local = to > from ? clamp01((draw - from) / (to - from)) : draw > from ? 1 : 0
+      ribbon.style(local, opacity, tint, width)
+    }
+  }
+}
+
+/**
  * One Text holon's live rendering. Layout is asynchronous (three-text
  * loads HarfBuzz and the font on first use): the mesh appears when the
  * first layout lands, and `ready` resolves after it — harnesses await
@@ -280,8 +474,18 @@ export const addWriteAttributes = (geometry: THREE.BufferGeometry): number => {
  */
 export interface TextBinding {
   readonly holon: Text
-  /** Sync uniforms/visibility from the holon — call once per frame. */
-  sync(): void
+  /**
+   * Sync uniforms/visibility from the holon — call once per frame.
+   *
+   * `pixelsPerUnit` is the frame's projection scale at the text plane.
+   * The traced contours need it because their stroke width is stated in
+   * SCREEN pixels (like every ribbon) while the inset that keeps them
+   * inside the letterform is WORLD geometry: half a stroke of pixels is
+   * `stroke / 2 / pixelsPerUnit` units. The host measures it from the
+   * live camera; a caller with no camera may leave it out and get the
+   * 2021 rig's own 1.28, which is what every video-01 scene renders at.
+   */
+  sync(pixelsPerUnit?: number): void
   dispose(): void
   /** Resolves once the first layout has been mounted. */
   readonly ready: Promise<void>
@@ -327,9 +531,32 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
   let mesh: THREE.Mesh | undefined
   let material: TextGlyphMaterial | undefined
   let handle: TextHandle | undefined
+  let outlines: GlyphOutline[] = []
+  let insetScale = DEFAULT_PIXELS_PER_UNIT
   let currentKey = ""
   let layoutToken = 0
   let disposed = false
+
+  const dropOutlines = () => {
+    for (const outline of outlines) {
+      for (const { ribbon } of outline.loops) {
+        group.remove(ribbon.mesh)
+        ribbon.geometry.dispose()
+        ribbon.material.dispose()
+      }
+    }
+    outlines = []
+  }
+
+  /** (Re)trace the contours of the mounted layout at the current inset. */
+  const rebuildOutlines = () => {
+    if (!mesh) return
+    dropOutlines()
+    outlines = buildOutlines(mesh.geometry, holon.stroke.value, insetScale)
+    for (const outline of outlines) {
+      for (const { ribbon } of outline.loops) group.add(ribbon.mesh)
+    }
+  }
 
   const relayout = (): Promise<void> => {
     currentKey = layoutKey(holon)
@@ -343,18 +570,26 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
         }
         const geometry = next.geometry
         addWriteAttributes(geometry)
-        // three-text lays the block out from its own origin; centre it
-        // so the holon's transform places it like the 2021 centered
-        // text spline.
+        // three-text lays the block out from its own origin: x already
+        // centred by `layout.align`, y on the BASELINE. Both are what
+        // the 2021 C4D text spline does (PRIM_TEXT_ALIGN = 1 centres
+        // horizontally and leaves the baseline on the object's own
+        // origin), so the holon's transform places the block exactly as
+        // pydeation placed it — the ink of "trans-perspectival" at size
+        // 50 lands on refs/video-01/frames5/f0583's rows 315-373 to
+        // within a pixel with NO vertical correction at all.
+        //
+        // Only the horizontal centring is re-derived here, from the ink
+        // bounding box rather than from the advance widths: a trailing
+        // space or a glyph with side bearing wider than its ink would
+        // otherwise shift the block off the axis the reference centres
+        // it on. The vertical is deliberately left alone — centring the
+        // ink box instead sits the word ~12 units low, because a
+        // descender is shorter than an ascender and the ink box knows
+        // nothing about the baseline.
         geometry.computeBoundingBox()
         const box = geometry.boundingBox
-        if (box) {
-          geometry.translate(
-            -(box.min.x + box.max.x) / 2,
-            -(box.min.y + box.max.y) / 2,
-            0,
-          )
-        }
+        if (box) geometry.translate(-(box.min.x + box.max.x) / 2, 0, 0)
         if (!mesh || !material) {
           material = new TextGlyphMaterial()
           mesh = new THREE.Mesh(geometry, material)
@@ -364,6 +599,10 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
         } else {
           mesh.geometry = geometry
         }
+        // The traced outlines, rebuilt for this layout. They are added
+        // AFTER the solid so a fully written letter reads as one shape
+        // rather than an outline sitting on top of its own fill.
+        rebuildOutlines()
         handle?.dispose()
         handle = next
       })
@@ -379,18 +618,29 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
   return {
     holon,
     ready,
-    sync(): void {
+    sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT): void {
       if (layoutKey(holon) !== currentKey) void relayout()
+      // The inset depends on the projection, so a camera move (or a
+      // resize) rebuilds the contours — a few hundred points repacked,
+      // and only when the number actually changes.
+      if (mesh && Math.abs(pixelsPerUnit - insetScale) > 1e-4) {
+        insetScale = pixelsPerUnit
+        rebuildOutlines()
+      }
       if (!mesh || !material) return
       material.progress.value = holon.creation.value
+      material.erasure.value = holon.erasure.value
       material.fade.value = holon.opacity.value
       const tint: Color = holon.tint.value
       material.tint.value.setRGB(tint.r, tint.g, tint.b)
-      mesh.visible = holon.opacity.value > 0 && holon.creation.value > 0
+      mesh.visible =
+        holon.opacity.value > 0 && holon.creation.value > 0 && holon.erasure.value < 1
+      syncOutlines(outlines, holon)
     },
     dispose(): void {
       disposed = true
       layoutToken++
+      dropOutlines()
       if (mesh) {
         group.remove(mesh)
         mesh = undefined

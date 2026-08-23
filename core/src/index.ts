@@ -6,7 +6,7 @@
 export { Holon, type Overrides } from "./holon"
 export { Dream, Observer, render, type DreamClass, type BackdropSpec } from "./dream"
 export { Timeline, type Clip } from "./timeline"
-export { together, chain, type Anim, type Track, type Easing, type Windowed } from "./anim"
+export { together, chain, eased, restage, type Anim, type Track, type Easing, type Windowed } from "./anim"
 export {
   Param,
   State,

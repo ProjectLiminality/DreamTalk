@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { cylinderPlaneSection, type Vec3 } from "../src/geometry/section"
-import { catmullRom, trimByArcLength, SectionCurve, Connection } from "../src/parts/curves"
+import { catmullRom, trimByArcLength, SectionCurve, SectionPlane, Connection } from "../src/parts/curves"
 import { Circle, Line, Null, type Vec3Like } from "../src/parts/index"
 import { PI } from "../src/constants"
 
@@ -273,6 +273,57 @@ describe("derived curve parts", () => {
     for (const p of shifted) expect(Math.abs(planeDist(p, p0, n))).toBeLessThan(1e-6)
   })
 
+  /**
+   * planeFrame "parent" is Scene 06's construction: the Plane stands still
+   * in the scene and the CYLINDER turns through it, so the cut is stated in
+   * the parent frame and the holon's own pose is undone before the section
+   * is computed. One animated parameter (`p`) must then walk the whole
+   * family of shapes — that is the scene's entire argument, so it is the
+   * property worth pinning.
+   */
+  test("SectionCurve planeFrame 'parent': a fixed plane, a turning cylinder", () => {
+    // S06's plane: normal (0, -1, 0) in the parent frame, through the origin.
+    const sc = new SectionCurve({
+      planeFrame: "parent",
+      radius: R,
+      height: H,
+      tilt: PI,
+      spin: 0,
+      offset: 0,
+      p: PI / 2,
+    })
+    // Axis lying IN the plane → the lengthwise cut, S06's red rectangle.
+    const lengthwise = pointsOf(sc)
+    expect(sc.section!.kind).toBe("rectangle")
+    expect(Math.max(...lengthwise.map((q) => Math.abs(q.y)))).toBeCloseTo(HALF, 6)
+
+    // A quarter turn on: the axis now stands normal to the plane → circle.
+    sc.p.value = PI
+    const round = pointsOf(sc)
+    expect(sc.section!.kind).toBe("circle")
+    for (const q of round) expect(Math.hypot(q.x, q.z)).toBeCloseTo(R, 6)
+
+    // Half a turn from the start: back to the rectangle, the other way up.
+    sc.p.value = (3 * PI) / 2
+    void pointsOf(sc)
+    expect(sc.section!.kind).toBe("rectangle")
+
+    // In between: an ellipse, and every point still on the mantle.
+    sc.p.value = PI * 0.75
+    const oval = pointsOf(sc)
+    expect(sc.section!.kind).toBe("ellipse")
+    for (const q of oval) expect(Math.hypot(q.x, q.z)).toBeCloseTo(R, 6)
+  })
+
+  test("SectionCurve planeFrame 'local' ignores the holon's own pose", () => {
+    const sc = new SectionCurve({ radius: R, height: H, tilt: 0, p: 0 })
+    const flat = pointsOf(sc).map((q) => q.y)
+    sc.p.value = PI / 3
+    // Local framing: the cut is stated relative to the cylinder, so turning
+    // the cylinder carries the cut with it — the local polyline is unchanged.
+    expect(pointsOf(sc).map((q) => q.y)).toEqual(flat)
+  })
+
   test("SectionCurve memoizes: unchanged params return the same array identity", () => {
     const sc = new SectionCurve({ radius: R, height: H, tilt: PI / 4 })
     const a = pointsOf(sc)
@@ -351,5 +402,61 @@ describe("derived curve parts", () => {
     const line = conn.parts[0] as Line
     expect(line.arrowEnd.value).toBe(true)
     expect(line.arrowStart.value).toBe(false)
+  })
+})
+
+/**
+ * SectionPlane — the 2021 `Plane(b=PI/2, b_frozen=PI/4, x=…)` of Scene03,
+ * whose sweep is the whole family of cuts in one animation. The frozen
+ * bank is the load-bearing part: it frames the plane's POSITION as well
+ * as its orientation, which is what makes the cut pass through the
+ * cylinder's own axis at the half-turn.
+ */
+describe("SectionPlane", () => {
+  /** The Scene03 plane at a given point in its sweep. */
+  const s03Plane = (h: number, x: number): SectionPlane => {
+    const plane = new SectionPlane({ b: PI / 2, frozenB: PI / 4, x })
+    plane.h.value = h
+    return plane
+  }
+
+  test("the frozen bank puts the plane on the diagonal, not the axis", () => {
+    const p = s03Plane(0, 100)
+    expect(p.origin.x).toBeCloseTo(100 / Math.SQRT2, 6)
+    expect(p.origin.z).toBeCloseTo(-100 / Math.SQRT2, 6)
+    expect(p.origin.y).toBeCloseTo(0, 12)
+  })
+
+  test("heading turns the normal from axis-parallel to axis-perpendicular", () => {
+    // h = 0: normal has no y component — the cut is parallel to the axis.
+    expect(Math.abs(s03Plane(0, 1).normal.y)).toBeCloseTo(0, 6)
+    // h = PI/2: normal IS the axis — the cut is a flat circle.
+    expect(Math.abs(s03Plane(PI / 2, 1).normal.y)).toBeCloseTo(1, 6)
+    // h = PI: back to axis-parallel, mirrored.
+    expect(Math.abs(s03Plane(PI, 1).normal.y)).toBeCloseTo(0, 6)
+  })
+
+  test("the S03 sweep's half-turn cuts through the cylinder's axis", () => {
+    // At h = PI the plane's travel has reached x = 150/sqrt2 (the source
+    // moves it 1 -> 201 while it turns 0 -> 2PI), and the cut is the
+    // two-generator case straight through the axis of the cylinder at
+    // x = 150 — the reading refs/video-01/frames5/f0391 pins.
+    const p = s03Plane(PI, 150 / Math.SQRT2)
+    const n = p.normal
+    const o = p.origin
+    const d = n.x * (o.x - 150) + n.y * o.y + n.z * o.z
+    expect(d).toBeCloseTo(0, 6)
+  })
+
+  test("a SectionCurve cut by a plane matches the same plane stated by hand", () => {
+    const plane = s03Plane(2.2, 90)
+    const curve = new SectionCurve({ radius: R, height: H, x: 150 }).cutBy(plane)
+    const pts = curve.refresh()
+    expect(pts.length).toBeGreaterThan(2)
+    const n = plane.normal
+    const o = plane.origin
+    for (const p of pts) {
+      expect(planeDist(p, { x: o.x - 150, y: o.y, z: o.z }, n)).toBeCloseTo(0, 6)
+    }
   })
 })

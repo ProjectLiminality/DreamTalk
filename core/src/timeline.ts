@@ -17,7 +17,7 @@
  */
 
 import { isColor, type Color } from "./constants"
-import type { Anim, Easing } from "./anim"
+import { SMOOTHING, type Anim, type Easing } from "./anim"
 import type { Param, ParamValue } from "./params"
 
 export interface Clip {
@@ -32,6 +32,13 @@ interface Segment {
   /** Concrete waypoints spanning t0..t1 (equally spaced). Always >= 2. */
   waypoints: ParamValue[]
   easing: Easing
+  /**
+   * The ease's tangent lengths, already renormalized into THIS segment
+   * (see anim.ts: they are stated against the whole play span, and a
+   * track occupying a fraction of its span carries a proportionally
+   * longer tangent).
+   */
+  smoothing: { left: number; right: number }
 }
 
 /**
@@ -51,15 +58,28 @@ interface Segment {
  * The gap is widest exactly where reproduction is judged: in the first
  * and last fifth of a span, smoothstep runs ~30% short.
  */
-const C4D_SMOOTHING = 0.25
+export const C4D_SMOOTHING = 0.25
 
-/** Solve the Bezier's time coordinate for u, then read its value. */
-const c4dEase = (u: number): number => {
+/**
+ * The ease, with each side's tangent length given separately — which is
+ * exactly what pydeation exposes as `smoothing_left` / `smoothing_right`
+ * on every animator (animation/animation.py). Setting one side to 0
+ * flattens that half of the Bezier into a straight ramp: the span leaves
+ * (or arrives) at full speed instead of easing.
+ *
+ * Scene 05 is what forced the asymmetry into the framework. Its axes
+ * are Created with `smoothing_right=0` and its shapes with
+ * `smoothing_left=0`, so the two halves of one 2s span butt cleanly
+ * against each other. Fitting the axes' drawn fraction off frames5
+ * f0449-f0452 (.003 .068 .206 .420), the one-sided curve lands a
+ * sum-squared error of 4.2e-4 against the symmetric ease's 3.5e-3 —
+ * an order of magnitude, at its own fitted start time.
+ */
+export const c4dEaseWith = (u: number, sl: number, sr: number): number => {
   if (u <= 0) return 0
   if (u >= 1) return 1
-  const s = C4D_SMOOTHING
   const timeAt = (p: number): number =>
-    3 * (1 - p) * (1 - p) * p * s + 3 * (1 - p) * p * p * (1 - s) + p * p * p
+    3 * (1 - p) * (1 - p) * p * sl + 3 * (1 - p) * p * p * (1 - sr) + p * p * p
   // The curve is monotone in p, so bisection is exact enough and has no
   // failure modes; 40 halvings put p within 1e-12.
   let lo = 0
@@ -73,8 +93,32 @@ const c4dEase = (u: number): number => {
   return 3 * (1 - p) * p * p + p * p * p
 }
 
-const ease = (easing: Easing, u: number): number =>
-  easing === "linear" ? u : c4dEase(u)
+/** Solve the Bezier's time coordinate for u, then read its value. */
+const c4dEase = (u: number): number => c4dEaseWith(u, C4D_SMOOTHING, C4D_SMOOTHING)
+
+export const ease = (easing: Easing, u: number): number =>
+  easing === "linear" ? u : c4dEaseWith(u, SMOOTHING[easing].left, SMOOTHING[easing].right)
+
+/**
+ * The tangent lengths an easing gives a segment that occupies `fraction`
+ * of its play span. pydeation states them against the whole span, so a
+ * shorter window carries a proportionally longer tangent — capped at the
+ * point where the two control points would cross (past that the curve
+ * stops being monotone, which C4D itself clamps).
+ */
+export const smoothingFor = (
+  easing: Easing,
+  /** The track's window, as a fraction of the play span. */
+  fraction: number,
+  /** The fraction the tangents were STATED against (Track.smoothingWindow);
+   *  equal to `fraction` for an ordinary track, wider after a restage(). */
+  statedAgainst = fraction,
+): { left: number; right: number } => {
+  const base = SMOOTHING[easing]
+  const k = fraction > 0 ? statedAgainst / fraction : 1
+  const cap = (v: number) => Math.min(v * k, 1)
+  return { left: cap(base.left), right: cap(base.right) }
+}
 
 const lerpValue = (a: ParamValue, b: ParamValue, u: number): ParamValue => {
   if (typeof a === "number" && typeof b === "number") return a + (b - a) * u
@@ -103,6 +147,7 @@ export class Timeline {
       mode: "to" | "by" | "sequence"
       values: ParamValue[]
       easing: Easing
+      smoothing: { left: number; right: number }
     }
     const placed: Placed[] = []
     let end = 0
@@ -116,6 +161,14 @@ export class Timeline {
           mode: track.mode,
           values: track.values,
           easing: track.easing,
+          // The ease's tangents are stated against a window of the span
+          // (the whole of it, unless within() narrowed it), so a track
+          // occupying less than that carries them proportionally longer.
+          smoothing: smoothingFor(
+            track.easing,
+            track.relStop - track.relStart,
+            track.smoothingWindow ?? track.relStop - track.relStart,
+          ),
         })
       }
     }
@@ -150,7 +203,7 @@ export class Timeline {
             waypoints = p.values.map((v) => param.clamp(v))
             break
         }
-        segs.push({ t0: p.t0, t1: p.t1, waypoints, easing: p.easing })
+        segs.push({ t0: p.t0, t1: p.t1, waypoints, easing: p.easing, smoothing: p.smoothing })
         prevEnd = waypoints[waypoints.length - 1]!
         first = false
       }
@@ -179,7 +232,10 @@ export class Timeline {
       if (u >= 1) return active.waypoints[n]! as T
       const scaled = u * n
       const i = Math.min(Math.floor(scaled), n - 1)
-      const local = ease(active.easing, scaled - i)
+      const local =
+        active.easing === "linear"
+          ? scaled - i
+          : c4dEaseWith(scaled - i, active.smoothing.left, active.smoothing.right)
       return lerpValue(active.waypoints[i]!, active.waypoints[i + 1]!, local) as T
     }
     if (lastEnded) return lastEnded.waypoints[lastEnded.waypoints.length - 1]! as T

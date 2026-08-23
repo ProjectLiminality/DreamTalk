@@ -29,7 +29,7 @@
  */
 
 import { Holon } from "../holon"
-import { color, length, type Param, type ParamValue } from "../params"
+import { color, completion, length, type Param, type ParamValue } from "../params"
 import { WHITE } from "../constants"
 import { dominoWindows } from "./index"
 import type { Anim, Track } from "../anim"
@@ -118,6 +118,21 @@ export class Text extends Holon {
   size = length(50)
   tint = color(WHITE)
   stroke = length(5)
+  /**
+   * The UN-write front — the same forward domino as `creation`, running
+   * a second time to take the letters away.
+   *
+   * pydeation's UnWrite is `Domino(UnFillThenUnDraw, …)`
+   * (animator.py:128-140): the SAME cascade order as Write, with each
+   * letter's own animation reversed inside its window. So un-writing is
+   * NOT `creation` running backwards — that would take the last letter
+   * first — and video-01's f0778-f0782 show the reference losing
+   * "dialectical" while "thinking" still stands, i.e. first letter out
+   * first. A separate forward front is the honest reading, and it is
+   * the same word the Stroke family already uses for a front that
+   * consumes in draw direction (`erasure`).
+   */
+  erasure = completion(0)
 
   /** The letters of `content` with their domino windows, in order. */
   get letters(): Letter[] {
@@ -143,14 +158,39 @@ export class Text extends Holon {
     return writePhases(this.letterProgress(index))
   }
 
+  /** One letter's live UN-write progress at the current `erasure`. */
+  letterErasure(index: number): number {
+    const letter = this.letters[index]
+    if (!letter) return 0
+    const [start, stop] = letter.window
+    return clamp01((this.erasure.value - start) / Math.max(stop - start, 1e-6))
+  }
+
+  /**
+   * The draw/fill phases of one letter under BOTH fronts — what the
+   * shader actually shows. The write front raises the letter's phase and
+   * the erase front lowers it back down through fill and then draw, so
+   * the two compose as min(write, 1 − erase) and the letter's own
+   * sub-phases are the ordinary writePhases() of that composed progress
+   * (render/text.ts re-derives exactly this per fragment).
+   */
+  letterPhasesNow(index: number): { draw: number; fill: number } {
+    return writePhases(Math.min(this.letterProgress(index), 1 - this.letterErasure(index)))
+  }
+
   /** Create(text) IS Write — the domino lives in the glyph shader. */
   override createAnim(): Anim {
     return linearCreation(this.creation, [0, 1])
+  }
+
+  /** UnCreate(text) IS UnWrite — the erase front, not creation reversed. */
+  override unCreateAnim(): Anim {
+    return linearCreation(this.erasure, [0, 1])
   }
 }
 
 /** The classic verb spellings (per-letter domino draw-then-fill). */
 export const Write = (text: Text): Anim => linearCreation(text.creation, [0, 1])
 
-/** UnWrite: the mirror domino — fill recedes, then the outline retracts. */
-export const UnWrite = (text: Text): Anim => linearCreation(text.creation, [1, 0])
+/** UnWrite: the same forward domino — fill recedes, then the outline retracts. */
+export const UnWrite = (text: Text): Anim => linearCreation(text.erasure, [0, 1])

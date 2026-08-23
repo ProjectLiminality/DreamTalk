@@ -11,7 +11,16 @@ import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
 import { VocabShowcaseDream } from "./VocabShowcase"
 import { CameraCalDream, CameraCalCylinderDream, CameraCalGridDream } from "./video01/CameraCal"
+import { S01Dream } from "./video01/S01"
+import { S02Dream } from "./video01/S02"
+import { S03Dream } from "./video01/S03"
 import { S04Dream } from "./video01/S04"
+import { S06Dream } from "./video01/S06"
+import { S10Dream } from "./video01/S10"
+import { S09Dream } from "./video01/S09"
+import { S07Dream } from "./video01/S07"
+import { S08Dream } from "./video01/S08"
+import { S05Dream } from "./video01/S05"
 import { CurvesShowcaseDream } from "./CurvesShowcase"
 import { TextShowcaseDream } from "./TextShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
@@ -30,7 +39,16 @@ export const scenes: Record<string, DreamClass> = {
   cameracal: CameraCalDream,
   cameracalcyl: CameraCalCylinderDream,
   cameracalgrid: CameraCalGridDream,
+  s01: S01Dream,
+  s02: S02Dream,
+  s03: S03Dream,
   s04: S04Dream,
+  s06: S06Dream,
+  s10: S10Dream,
+  s09: S09Dream,
+  s07: S07Dream,
+  s08: S08Dream,
+  s05: S05Dream,
 }
 
 export const defaultScene = "founding"

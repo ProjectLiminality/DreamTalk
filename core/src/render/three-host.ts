@@ -39,11 +39,20 @@ import {
   type Vec3Like,
 } from "../parts/index"
 import type { Color } from "../constants"
+import { Text } from "../parts/text"
 import { RibbonStroke } from "./ribbon"
 import { FillShape, ellipsePolygon } from "./fill"
-import { generatorPoint, silhouetteAngles } from "./silhouette"
+import { attachText, type TextBinding } from "./text"
+import { capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
 
 const STROKE_SEGMENTS = 128
+
+/**
+ * C4D's Ocylinder rotation-segment default — the number of edges each cap
+ * of the 2021 cylinder's contour polygon actually has. It is the unit the
+ * draw-on is proportioned in (see syncCylinder).
+ */
+const CYLINDER_ROTATION_SEGMENTS = 64
 
 interface StrokeBinding {
   holon: Stroke
@@ -71,6 +80,8 @@ interface ArrowBinding {
   fill: FillShape
   atStart: boolean
   shapeKey: number[]
+  /** The Line's own group — the frame the cap polygon is stated in. */
+  group: THREE.Group
 }
 
 interface GroupBinding {
@@ -91,18 +102,12 @@ interface CylinderBinding {
   bottomCap: RibbonStroke
   lineA: RibbonStroke
   lineB: RibbonStroke
-  /** Cap geometry cache key — regenerate only when radius/height change. */
+  /** Cap geometry cache key — the caps' seams ride the silhouette, so the
+   *  generator azimuths are part of the key, not only the size. */
   capRadius: number
   capHeight: number
-}
-
-const capPolyline = (radius: number, y: number): THREE.Vector3[] => {
-  const pts: THREE.Vector3[] = []
-  for (let i = 0; i <= STROKE_SEGMENTS; i++) {
-    const a = (i / STROKE_SEGMENTS) * Math.PI * 2
-    pts.push(new THREE.Vector3(Math.cos(a) * radius, y, Math.sin(a) * radius))
-  }
-  return pts
+  thetaA: number
+  thetaB: number
 }
 
 const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
@@ -193,16 +198,19 @@ const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
  * 960..972 with an 18px base, against the 12.9px / 17.9px those
  * factors predict at the 1.28 px-per-unit of that scene's camera.
  *
- * Sized in WORLD units at that same 1.28 px/unit, since the polygon is
- * world geometry and has no camera here; a true screen-space cap is
- * still future work, and off-canonical distances will read a little
- * large or small.
+ * The cap is a SCREEN-SPACE object, exactly like the stroke width it is
+ * stated in: Sketch & Toon draws it at a constant pixel size however far
+ * away the line runs. So the polygon is world geometry sized per frame
+ * from the projected scale at the pen (`syncArrows`), not from a fixed
+ * px-per-unit constant. Scene 05 is what forced this: its axes recede to
+ * 0.81 px/world-unit, where a cap sized for S04's 1.28 read barely wider
+ * than the line — a head that had visibly vanished (f0460: our cap's
+ * half-width measured 3.8px against the reference's 7.5px).
  */
-const ARROW_PX_PER_UNIT = 1.28
 /** S&T cap length, in stroke widths: 5/2 pixel units per width. */
-const ARROW_LENGTH_FACTOR = 2.5 / ARROW_PX_PER_UNIT
+const ARROW_LENGTH_FACTOR = 2.5
 /** S&T cap half-width, in stroke widths: 7/2 pixel units across. */
-const ARROW_HALF_WIDTH_FACTOR = 1.75 / ARROW_PX_PER_UNIT
+const ARROW_HALF_WIDTH_FACTOR = 1.75
 
 /**
  * Walk a polyline to `progress` of its arc length, returning the point
@@ -239,6 +247,19 @@ const arrowPolygon = (
   atStart: boolean,
   widthPx: number,
   progress = 1,
+  /** Local units per screen pixel ALONG the line — 1 keeps the cap in units. */
+  unitsPerPixel = 1,
+  /**
+   * The view direction in the line's own local frame. The head must fan
+   * out perpendicular to the line ON SCREEN, which is the direction
+   * `dir × view` — for a line running away from the camera any other
+   * choice foreshortens the head into the stroke, which is exactly how
+   * S05's z-arm lost its arrowhead. Omitted, the head falls back to the
+   * flat-scene assumption (perpendicular in the local xy plane).
+   */
+  viewLocal?: THREE.Vector3,
+  /** Local units per screen pixel ACROSS it; defaults to the along reading. */
+  unitsPerPixelAcross = unitsPerPixel,
 ): Vec3Like[] | undefined => {
   if (points.length < 2) return undefined
   const ordered = atStart ? [...points].reverse() : points
@@ -251,12 +272,14 @@ const arrowPolygon = (
   const walked = walkTo(ordered, Math.min(1, Math.max(0, progress)))
   if (!walked) return undefined
   const { tip, dir } = walked
-  const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1))
+  const side = new THREE.Vector3()
+  if (viewLocal) side.crossVectors(dir, viewLocal)
+  if (side.lengthSq() < 1e-12) side.crossVectors(dir, new THREE.Vector3(0, 0, 1))
   if (side.lengthSq() < 1e-12) side.crossVectors(dir, new THREE.Vector3(0, 1, 0))
   side.normalize()
   // The endpoint is the BASE of the head; the apex sits beyond it.
-  const length = widthPx * ARROW_LENGTH_FACTOR
-  const halfWidth = widthPx * ARROW_HALF_WIDTH_FACTOR
+  const length = widthPx * ARROW_LENGTH_FACTOR * unitsPerPixel
+  const halfWidth = widthPx * ARROW_HALF_WIDTH_FACTOR * unitsPerPixelAcross
   const apex = tip.clone().addScaledVector(dir, length)
   const a = tip.clone().addScaledVector(side, halfWidth)
   const b = tip.clone().addScaledVector(side, -halfWidth)
@@ -303,6 +326,13 @@ export class ThreeHost {
   private readonly cylinders: CylinderBinding[] = []
   private readonly fills: FillBinding[] = []
   private readonly arrows: ArrowBinding[] = []
+  /**
+   * Text holons — glyph geometry, the Write domino's uniforms, and the
+   * traced contours the draw phase strokes (render/text.ts). The group
+   * is kept alongside because the contours' inset is stated in screen
+   * pixels and has to be converted at this frame's projection.
+   */
+  private readonly texts: { binding: TextBinding; group: THREE.Object3D }[] = []
   /** Fills stack over strokes and over earlier fills — see fill.ts. */
   private nextFillOrder = 1
 
@@ -322,6 +352,12 @@ export class ThreeHost {
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
     dream.build()
     for (const root of dream.roots) host.attach(root, host.scene)
+    // Glyph layout is asynchronous (three-text loads HarfBuzz and the
+    // font on first use), so a host carrying Text is not frame-ready the
+    // moment it mounts. Awaiting every binding here is what makes a
+    // screenshot at an arbitrary t deterministic — without it the first
+    // frames a harness captures are silently textless.
+    await Promise.all(host.texts.map((t) => t.binding.ready))
     return host
   }
 
@@ -330,7 +366,9 @@ export class ThreeHost {
     parent.add(group)
     this.groups.push({ holon, group })
 
-    if (holon instanceof Cylinder) {
+    if (holon instanceof Text) {
+      this.texts.push({ binding: attachText(holon, group), group })
+    } else if (holon instanceof Cylinder) {
       const width = holon.stroke.value
       const r = holon.radius.value
       const h = holon.height.value
@@ -343,9 +381,10 @@ export class ThreeHost {
         lineB: new RibbonStroke(width),
         capRadius: r,
         capHeight: h,
+        // NaN so the first sync always rebuilds the seams from the live camera.
+        thetaA: NaN,
+        thetaB: NaN,
       }
-      binding.topCap.setPoints(capPolyline(r, h / 2))
-      binding.bottomCap.setPoints(capPolyline(r, -h / 2))
       group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh)
       this.cylinders.push(binding)
     } else if (holon instanceof Ellipse && holon.filled.value) {
@@ -355,9 +394,14 @@ export class ThreeHost {
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
     } else if (holon instanceof Stroke) {
       const pts = polyline(holon)
-      if (pts) {
+      // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
+      // empty at mount and non-empty later — Scene03's section curve
+      // starts with the cutting plane clear of the cylinder. Binding it
+      // anyway (and letting sync() fill it in) is what lets such a stroke
+      // ever appear; a shape holon with no polyline is a real absence.
+      if (pts || holon instanceof Line) {
         const ribbon = new RibbonStroke(holon.stroke.value)
-        ribbon.setPoints(pts)
+        ribbon.setPoints(pts ?? [])
         group.add(ribbon.mesh)
         this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) })
       }
@@ -369,7 +413,7 @@ export class ThreeHost {
           const fill = new FillShape(this.nextFillOrder++)
           fill.setPolygon(polygon)
           group.add(fill.mesh)
-          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon) })
+          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon), group })
         }
       }
     }
@@ -387,7 +431,14 @@ export class ThreeHost {
   private sync(): void {
     for (const { holon, group } of this.groups) {
       group.position.set(holon.x.value, holon.y.value, holon.z.value)
-      group.rotation.set(holon.p.value, holon.h.value, holon.b.value)
+      // h/p/b ARE C4D's HPB triple, so they must compose the way C4D
+      // composes them: M = R_H · R_P · R_B in C4D's axes, which under the
+      // fixed axis dictionary (X, Y, Z)c4d → (x, z, y) reads as
+      // Rz(b) · Rx(p) · Ry(h) in ours — three's 'ZXY' Euler order, not
+      // its 'XYZ' default. Single-axis poses are unaffected (which is why
+      // this went unnoticed until S09 turned a rectangle about two axes
+      // at once: the wrong order put its corners 43px off the reference).
+      group.rotation.set(holon.p.value, holon.h.value, holon.b.value, "ZXY")
       const s = holon.scale.value
       group.scale.set(s, s, s)
     }
@@ -396,8 +447,10 @@ export class ThreeHost {
       const key = shapeKey(holon)
       if (!keysEqual(key, binding.shapeKey)) {
         binding.shapeKey = key
+        // `undefined` from a Line means its derived polyline has emptied
+        // out this frame — pass it through so the ribbon empties too.
         const pts = polyline(holon)
-        if (pts) ribbon.setPoints(pts)
+        if (pts || holon instanceof Line) ribbon.setPoints(pts ?? [])
       }
       const tint: Color = holon.tint.value
       ribbon.style(
@@ -418,39 +471,130 @@ export class ThreeHost {
       // Fill semantics: creation IS the fill-in, composed with fade.
       fill.style(holon.creation.value * holon.opacity.value, holon.tint.value)
     }
-    for (const binding of this.arrows) {
-      const { holon, fill, atStart } = binding
-      const key = arrowKey(holon)
-      // The head rides the pen: it sits at whatever fraction of the line
-      // is currently drawn, so it travels with the draw front and, as the
-      // erase front eats the tail, keeps station at the surviving end.
-      // Its position changes every frame, so the shapeKey cache cannot
-      // gate the rebuild — only the visibility can.
-      const creation = holon.creation.value
-      const erasure = holon.erasure.value
-      // Only the DRAW front carries the head. The erase front does not:
-      // f0430/f0432/f0434 keep the S04 gradient's head parked at its
-      // destination (cols 960-967) while the tail retreats behind it —
-      // the head belongs to the stroke's end, and erasing eats the start.
-      const progress = atStart ? 0 : creation
-      const present = atStart
-        ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02))
-        : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08))
-      if (present > 0) {
-        binding.shapeKey = key
-        const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value, progress)
-        if (polygon) fill.setPolygon(polygon)
-      }
-      fill.style(present * holon.opacity.value, holon.tint.value)
-    }
     this.syncCamera()
 
-    // View-dependent strokes need finished world matrices AND the final
-    // camera position for this frame — so they come last.
-    if (this.cylinders.length > 0) {
+    // View-dependent geometry needs finished world matrices AND the final
+    // camera for this frame — so it comes last. Arrowheads are among it:
+    // an S&T end cap is a constant number of PIXELS, so its world size is
+    // a reading of the projection at the pen.
+    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0) {
       this.scene.updateMatrixWorld(true)
       for (const binding of this.cylinders) this.syncCylinder(binding)
+      for (const binding of this.arrows) this.syncArrow(binding)
+      // Text belongs here too: a letter's traced contour is inset by half
+      // a stroke, and a stroke is a count of PIXELS, so how far to pull
+      // the contour in is a reading of this frame's projection.
+      for (const { binding, group } of this.texts) {
+        binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
+      }
     }
+  }
+
+  /**
+   * One arrowhead, sized in screen pixels and parked at the pen.
+   *
+   * The cap polygon lives in the Line's local space, so its pixel size is
+   * whatever the projection makes of it there; `unitsPerPixel` inverts
+   * that reading — local units per screen pixel at the head's own
+   * position — so the same S&T factors give the same rendered cap
+   * whatever the depth or the holon's scale.
+   */
+  private syncArrow(binding: ArrowBinding): void {
+    const { holon, fill, atStart, group } = binding
+    // The head rides the pen: it sits at whatever fraction of the line
+    // is currently drawn, so it travels with the draw front and, as the
+    // erase front eats the tail, keeps station at the surviving end.
+    // Its position changes every frame, so the shapeKey cache cannot
+    // gate the rebuild — only the visibility can.
+    const creation = holon.creation.value
+    const erasure = holon.erasure.value
+    // Only the DRAW front carries the head. The erase front does not:
+    // f0430/f0432/f0434 keep the S04 gradient's head parked at its
+    // destination (cols 960-967) while the tail retreats behind it —
+    // the head belongs to the stroke's end, and erasing eats the start.
+    const progress = atStart ? 0 : creation
+    const present = atStart
+      ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02))
+      : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08))
+    if (present > 0) {
+      binding.shapeKey = arrowKey(holon)
+      const walked = walkTo(atStart ? [...holon.points].reverse() : holon.points, progress)
+      // The cap is a screen-space triangle, so its two axes are measured
+      // separately: its length runs ALONG the line (foreshortened when
+      // the line recedes) and its width across the line as seen.
+      const viewLocal = this.viewDirectionIn(group)
+      const along = walked ? this.unitsPerPixelAt(group, walked.tip, walked.dir) : 1
+      const side = walked
+        ? new THREE.Vector3().crossVectors(walked.dir, viewLocal)
+        : new THREE.Vector3()
+      const across = walked ? this.unitsPerPixelAt(group, walked.tip, side) : 1
+      const polygon = arrowPolygon(
+        holon.points,
+        atStart,
+        holon.stroke.value,
+        progress,
+        along,
+        viewLocal,
+        across,
+      )
+      if (polygon) fill.setPolygon(polygon)
+    }
+    fill.style(present * holon.opacity.value, holon.tint.value)
+  }
+
+  /** The camera's view direction expressed in a group's local frame. */
+  private viewDirectionIn(group: THREE.Object3D): THREE.Vector3 {
+    const forward = this.camera.getWorldDirection(new THREE.Vector3())
+    const inverse = new THREE.Matrix3().setFromMatrix4(group.matrixWorld).invert()
+    return forward.applyMatrix3(inverse).normalize()
+  }
+
+  /**
+   * Local units per rendered pixel at a point in a group's local space —
+   * the inverse of the projection's magnification there. Measured, not
+   * derived: step one local unit sideways in screen space and read how
+   * far the projected point moved. That covers perspective foreshortening,
+   * orthographic framing and any holon scaling on the way down, with one
+   * expression and no special cases.
+   */
+  private unitsPerPixelAt(
+    group: THREE.Object3D,
+    localPoint: THREE.Vector3,
+    /**
+     * The LOCAL direction to measure along. Omitted, the reading is taken
+     * across the view axis — the isotropic answer, right for anything
+     * facing the camera. A direction that recedes from the camera
+     * projects SHORTER, and geometry laid along it (an arrowhead on an
+     * axis running into the screen) needs that foreshortening in its
+     * reading or it renders a fraction of its intended pixel size.
+     */
+    localDir?: THREE.Vector3,
+  ): number {
+    const width = this.renderer.domElement.width || 1280
+    const height = this.renderer.domElement.height || 720
+    const world = localPoint.clone().applyMatrix4(group.matrixWorld)
+    const basis = new THREE.Matrix3().setFromMatrix4(group.matrixWorld)
+    const sideWorld = new THREE.Vector3()
+    if (localDir && localDir.lengthSq() > 1e-12) {
+      sideWorld.copy(localDir).applyMatrix3(basis)
+    }
+    if (sideWorld.lengthSq() < 1e-12) {
+      // A step whose world direction is perpendicular to the view — the
+      // isotropic reading, with no degenerate head-on case.
+      const forward = this.camera.getWorldDirection(new THREE.Vector3())
+      sideWorld.crossVectors(forward, new THREE.Vector3(0, 1, 0))
+      if (sideWorld.lengthSq() < 1e-12) sideWorld.set(1, 0, 0)
+    }
+    sideWorld.normalize()
+    const a = world.clone().project(this.camera)
+    const b = world.clone().add(sideWorld).project(this.camera)
+    // NDC spans 2 units across each viewport axis.
+    const pixels = Math.hypot((b.x - a.x) * (width / 2), (b.y - a.y) * (height / 2))
+    if (!Number.isFinite(pixels) || pixels <= 1e-9) return 1
+    // …and back into the group's local units, which the world step is
+    // not stated in when the holon carries a scale.
+    const scale = new THREE.Vector3().setFromMatrixScale(group.matrixWorld).x || 1
+    return 1 / (pixels * scale)
   }
 
   /**
@@ -528,33 +672,74 @@ export class ThreeHost {
     const radius = holon.radius.value
     const height = holon.height.value
 
-    if (radius !== binding.capRadius || height !== binding.capHeight) {
-      topCap.setPoints(capPolyline(radius, height / 2))
-      bottomCap.setPoints(capPolyline(radius, -height / 2))
-      binding.capRadius = radius
-      binding.capHeight = height
-    }
-
     // The silhouette generators, from the camera in cylinder-local space.
     const camLocal = group.worldToLocal(this.camera.position.clone())
     const angles = silhouetteAngles(camLocal.x, camLocal.z, radius)
+
+    // The caps begin ON the generators and run the near half of the mantle
+    // first — S&T's chained contour, measured off video-01 f0031-f0038 (see
+    // capPolylineFrom). Both cap seams are view-dependent, so they are
+    // rebuilt whenever the generators move, not only on a size change.
+    const thetaA = angles?.thetaA ?? 0
+    const thetaB = angles?.thetaB ?? Math.PI
+    if (
+      radius !== binding.capRadius ||
+      height !== binding.capHeight ||
+      thetaA !== binding.thetaA ||
+      thetaB !== binding.thetaB
+    ) {
+      topCap.setPoints(
+        capPolylineFrom(radius, height / 2, thetaB, false).map((p) => new THREE.Vector3(...p)),
+      )
+      bottomCap.setPoints(
+        capPolylineFrom(radius, -height / 2, thetaA, true).map((p) => new THREE.Vector3(...p)),
+      )
+      binding.capRadius = radius
+      binding.capHeight = height
+      binding.thetaA = thetaA
+      binding.thetaB = thetaB
+    }
+
     if (angles) {
-      const set = (line: RibbonStroke, theta: number) => {
-        const lo = generatorPoint(theta, radius, -height / 2)
-        const hi = generatorPoint(theta, radius, height / 2)
-        line.setPoints([new THREE.Vector3(...lo), new THREE.Vector3(...hi)])
+      // Generator A runs DOWN from the top cap's finish, generator B back
+      // UP to where the top cap began: the pen never lifts.
+      const set = (line: RibbonStroke, theta: number, downward: boolean) => {
+        const lo = new THREE.Vector3(...generatorPoint(theta, radius, -height / 2))
+        const hi = new THREE.Vector3(...generatorPoint(theta, radius, height / 2))
+        line.setPoints(downward ? [hi, lo] : [lo, hi])
       }
-      set(lineA, angles.thetaA)
-      set(lineB, angles.thetaB)
+      set(lineA, angles.thetaA, true)
+      set(lineB, angles.thetaB, false)
     }
 
     // Draw-on: the four strokes run sequentially within the holon's one
     // creation param, windows proportioned by arc length (S&T "single"
-    // stroke method): top cap → bottom cap → generator A → generator B.
+    // stroke method), in the chained order the reference draws them:
+    // top cap → generator A → bottom cap → generator B.
     // The erase front consumes them through the same partition.
-    const cap = 2 * Math.PI * radius
-    const total = 2 * cap + 2 * height
-    const bounds = [0, cap / total, (2 * cap) / total, (2 * cap + height) / total, 1]
+    // Proportioned by CONTOUR EDGE COUNT, not by length. The 2021
+    // cylinder is a C4D parametric solid whose contour is a polygon: each
+    // cap is CYLINDER_ROTATION_SEGMENTS edges, each mantle generator is
+    // exactly one. S&T's "single" draw walks that polygon, so a cap — a
+    // sixty-fourth of whose length is one edge — takes sixty-four times a
+    // generator's share of the span, however short it projects.
+    //
+    // The reference frames say so directly: in video-01 Scene 01's 3s
+    // cylinder draw, the top cap closes at t≈1.35 (creation 0.44) and the
+    // right generator finishes by t≈1.55 (creation 0.55) — a cap:generator
+    // time ratio far above the 1.57:1 their arc lengths would give. Scored
+    // against the whole scene, edge-count proportioning lifts mean
+    // coverage_ours from 0.957 to 0.975 with no frame regressions.
+    const cap = CYLINDER_ROTATION_SEGMENTS
+    const gen = 1
+    const total = 2 * cap + 2 * gen
+    const bounds = [
+      0,
+      cap / total,
+      (cap + gen) / total,
+      (2 * cap + gen) / total,
+      1,
+    ]
     const creation = holon.creation.value
     const erasure = holon.erasure.value
     const opacity = holon.opacity.value
@@ -564,14 +749,16 @@ export class ThreeHost {
       Math.min(1, Math.max(0, (v - a) / (b - a)))
     const sub = (line: RibbonStroke, drawn: number, a: number, b: number) =>
       line.style(drawn, opacity, tint, width, window(erasure, a, b))
-    sub(topCap, window(creation, bounds[0]!, bounds[1]!), bounds[0]!, bounds[1]!)
-    sub(bottomCap, window(creation, bounds[1]!, bounds[2]!), bounds[1]!, bounds[2]!)
     const mantleVisible = angles !== undefined
-    sub(lineA, mantleVisible ? window(creation, bounds[2]!, bounds[3]!) : 0, bounds[2]!, bounds[3]!)
+    sub(topCap, window(creation, bounds[0]!, bounds[1]!), bounds[0]!, bounds[1]!)
+    sub(lineA, mantleVisible ? window(creation, bounds[1]!, bounds[2]!) : 0, bounds[1]!, bounds[2]!)
+    sub(bottomCap, window(creation, bounds[2]!, bounds[3]!), bounds[2]!, bounds[3]!)
     sub(lineB, mantleVisible ? window(creation, bounds[3]!, bounds[4]!) : 0, bounds[3]!, bounds[4]!)
   }
 
   dispose(): void {
+    for (const { binding } of this.texts) binding.dispose()
+    this.texts.length = 0
     this.renderer.dispose()
   }
 }

@@ -265,6 +265,37 @@ export class RibbonStroke {
   readonly material: RibbonMaterial
   readonly geometry: THREE.InstancedBufferGeometry
   totalLength = 0
+  /**
+   * Segments the instance buffers can currently hold.
+   *
+   * The buffers are allocated by CAPACITY, not by the exact segment
+   * count, and only `instanceCount` varies frame to frame. That is not
+   * an optimization: a polyline whose length changes every frame — the
+   * cylinder–plane section sweeping through its own cases, which goes
+   * 0 → 97 → 21 → 57 points as the cut turns — silently stopped
+   * rendering when each new count replaced the geometry's attributes,
+   * because the WebGPU backend binds a pipeline to the attribute
+   * objects it first saw. Keeping the same buffer objects for the
+   * mesh's whole life keeps that binding valid.
+   */
+  private capacity = 0
+
+  /** (Re)allocate the instance buffers to hold `segments` segments. */
+  private allocate(segments: number): void {
+    this.capacity = Math.max(1, segments)
+    const posBuf = new THREE.InstancedInterleavedBuffer(new Float32Array(this.capacity * 6), 6, 1)
+    this.geometry.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(posBuf, 3, 0))
+    this.geometry.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(posBuf, 3, 3))
+    const distBuf = new THREE.InstancedInterleavedBuffer(new Float32Array(this.capacity * 2), 2, 1)
+    this.geometry.setAttribute(
+      "instanceDistanceStart",
+      new THREE.InterleavedBufferAttribute(distBuf, 1, 0),
+    )
+    this.geometry.setAttribute(
+      "instanceDistanceEnd",
+      new THREE.InterleavedBufferAttribute(distBuf, 1, 1),
+    )
+  }
 
   constructor(widthPx: number) {
     this.material = new RibbonMaterial()
@@ -276,6 +307,13 @@ export class RibbonStroke {
       new THREE.Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3),
     )
     this.geometry.setIndex([0, 2, 1, 2, 3, 1])
+    // The instance attributes exist from birth, even for a stroke whose
+    // polyline is still empty. A geometry that reaches the WebGPU
+    // backend without them is compiled into a pipeline that has no
+    // instance bindings, and attributes added afterwards are never seen —
+    // which is exactly how a derived curve that starts empty stayed
+    // invisible for its whole life (Scene03's section, verified).
+    this.allocate(1)
     this.geometry.instanceCount = 0
     this.mesh = new THREE.Mesh(this.geometry, this.material)
     this.mesh.frustumCulled = false
@@ -286,34 +324,30 @@ export class RibbonStroke {
 
   setPoints(pts: readonly THREE.Vector3[]): void {
     const packed = packSegments(pts)
-    if (packed.count < 1) return
+    if (packed.count < 1) {
+      // A stroke whose polyline is DERIVED can legitimately become empty
+      // and non-empty again over t — Scene03's section curve is empty
+      // whenever the cutting plane misses the cylinder. Emptying the
+      // instance buffer is what makes that frame draw nothing, instead
+      // of leaving the last computed curve hanging in the air.
+      this.geometry.instanceCount = 0
+      this.totalLength = 0
+      return
+    }
     this.totalLength = packed.totalLength
 
-    const start = this.geometry.getAttribute("instanceStart") as
-      | THREE.InterleavedBufferAttribute
-      | undefined
-    if (start && start.data.array.length === packed.positions.length) {
-      ;(start.data.array as Float32Array).set(packed.positions)
-      start.data.needsUpdate = true
-      const dist = this.geometry.getAttribute(
-        "instanceDistanceStart",
-      ) as THREE.InterleavedBufferAttribute
-      ;(dist.data.array as Float32Array).set(packed.distances)
-      dist.data.needsUpdate = true
-    } else {
-      const posBuf = new THREE.InstancedInterleavedBuffer(packed.positions, 6, 1)
-      this.geometry.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(posBuf, 3, 0))
-      this.geometry.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(posBuf, 3, 3))
-      const distBuf = new THREE.InstancedInterleavedBuffer(packed.distances, 2, 1)
-      this.geometry.setAttribute(
-        "instanceDistanceStart",
-        new THREE.InterleavedBufferAttribute(distBuf, 1, 0),
-      )
-      this.geometry.setAttribute(
-        "instanceDistanceEnd",
-        new THREE.InterleavedBufferAttribute(distBuf, 1, 1),
-      )
-    }
+    // Grow only — a shrink just draws fewer instances. Round up to a
+    // power of two so a curve that breathes in size reallocates a handful
+    // of times at most, not once per frame.
+    if (packed.count > this.capacity) this.allocate(1 << Math.ceil(Math.log2(packed.count)))
+    const start = this.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute
+    ;(start.data.array as Float32Array).set(packed.positions)
+    start.data.needsUpdate = true
+    const dist = this.geometry.getAttribute(
+      "instanceDistanceStart",
+    ) as THREE.InterleavedBufferAttribute
+    ;(dist.data.array as Float32Array).set(packed.distances)
+    dist.data.needsUpdate = true
     this.geometry.instanceCount = packed.count
   }
 
