@@ -34,6 +34,17 @@ consume answered items into DECISIONS.md and clear them here.
       stays Layer-1, DreamWeaving reads pure SYNTAX-TS. Bless as the
       template for all symbol repos.
 
+4. **[Ch 4] Stroke look TASTE gate** — READY (2026-08-23). The TSL
+   ribbon replaced Line2: capsule-SDF anti-aliasing, round caps/joins,
+   pen-like draw-front. Claude's 4× comparison vs the 2021 reference
+   passed (docs/reports/strokes/: crop-ours-aa1.png vs
+   crop-ref-circle.png, tip-251.png, tangency.png). Live:
+   `bun core/scripts/daemon.ts` → `/demo/?scene=calibration` (and the
+   founding scene now renders through the ribbon). The gate: approve the
+   stroke look at 1080p — width default (3px), AA softness (AA_PX=1.0,
+   one-line knob), overall pen feel. This calibrates every later
+   benchmark.
+
 ## Answered (consumed into DECISIONS.md)
 
 - (none yet)
