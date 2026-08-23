@@ -45784,6 +45784,7 @@ var length2 = (v = 0) => new Param("length", v, 0);
 var angle = (v = 0) => new Param("angle", v);
 var completion = (v = 0) => new Param("completion", v, 0, 1);
 var integer = (v = 0) => new Param("integer", v);
+var bool2 = (v = false) => new Param("bool", v);
 var color2 = (v) => new Param("color", v);
 
 // src/holon.ts
@@ -45887,6 +45888,12 @@ class Holon {
     return proxy;
   }
   compose() {}
+  createAnim() {
+    return;
+  }
+  unCreateAnim() {
+    return;
+  }
   add(part) {
     const int2 = internalsOf(this);
     part.parent = int2.self ?? this;
@@ -45926,11 +45933,324 @@ class Holon {
   }
 }
 
+// src/timeline.ts
+var C4D_SMOOTHING = 0.25;
+var c4dEase = (u) => {
+  if (u <= 0)
+    return 0;
+  if (u >= 1)
+    return 1;
+  const s = C4D_SMOOTHING;
+  const timeAt = (p2) => 3 * (1 - p2) * (1 - p2) * p2 * s + 3 * (1 - p2) * p2 * p2 * (1 - s) + p2 * p2 * p2;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0;i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (timeAt(mid) < u)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const p = (lo + hi) / 2;
+  return 3 * (1 - p) * p * p + p * p * p;
+};
+var ease = (easing, u) => easing === "linear" ? u : c4dEase(u);
+var lerpValue = (a, b, u) => {
+  if (typeof a === "number" && typeof b === "number")
+    return a + (b - a) * u;
+  if (typeof a === "boolean" || typeof b === "boolean")
+    return u >= 1 ? b : a;
+  if (isColor(a) && isColor(b)) {
+    return {
+      r: a.r + (b.r - a.r) * u,
+      g: a.g + (b.g - a.g) * u,
+      b: a.b + (b.b - a.b) * u
+    };
+  }
+  throw new Error("cannot interpolate between mismatched value types");
+};
+
+class Timeline {
+  duration;
+  params;
+  segments = new Map;
+  constructor(clips, minDuration = 0) {
+    const placed = [];
+    let end = 0;
+    for (const clip of clips) {
+      end = Math.max(end, clip.start + clip.duration);
+      for (const track of clip.anim.tracks) {
+        placed.push({
+          param: track.param,
+          t0: clip.start + track.relStart * clip.duration,
+          t1: clip.start + track.relStop * clip.duration,
+          mode: track.mode,
+          values: track.values,
+          easing: track.easing
+        });
+      }
+    }
+    this.duration = Math.max(end, minDuration);
+    const byParam = new Map;
+    for (const p of placed) {
+      const list = byParam.get(p.param) ?? [];
+      list.push(p);
+      byParam.set(p.param, list);
+    }
+    for (const [param, list] of byParam) {
+      list.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
+      const segs = [];
+      let prevEnd = param.defaultValue;
+      let first = true;
+      for (const p of list) {
+        let waypoints;
+        switch (p.mode) {
+          case "to":
+            waypoints = [prevEnd, param.clamp(p.values[0])];
+            break;
+          case "by": {
+            if (typeof prevEnd !== "number" || typeof p.values[0] !== "number") {
+              throw new Error(`'.by()' needs numeric values on '${param.name ?? param.id}'`);
+            }
+            waypoints = [prevEnd, param.clamp(prevEnd + p.values[0])];
+            break;
+          }
+          case "sequence":
+            waypoints = p.values.map((v) => param.clamp(v));
+            break;
+        }
+        segs.push({ t0: p.t0, t1: p.t1, waypoints, easing: p.easing });
+        prevEnd = waypoints[waypoints.length - 1];
+        first = false;
+      }
+      this.segments.set(param, segs);
+    }
+    this.params = [...this.segments.keys()];
+  }
+  valueAt(param, t) {
+    const segs = this.segments.get(param);
+    if (!segs || segs.length === 0)
+      return param.defaultValue;
+    const firstSeg = segs[0];
+    if (t < firstSeg.t0)
+      return firstSeg.waypoints[0];
+    let active;
+    let lastEnded;
+    for (const seg of segs) {
+      if (t >= seg.t0 && t <= seg.t1)
+        active = seg;
+      if (seg.t1 <= t && (!lastEnded || seg.t1 >= lastEnded.t1))
+        lastEnded = seg;
+    }
+    if (active) {
+      const span = active.t1 - active.t0;
+      const u = span <= 0 ? 1 : (t - active.t0) / span;
+      const n = active.waypoints.length - 1;
+      if (u >= 1)
+        return active.waypoints[n];
+      const scaled = u * n;
+      const i = Math.min(Math.floor(scaled), n - 1);
+      const local = ease(active.easing, scaled - i);
+      return lerpValue(active.waypoints[i], active.waypoints[i + 1], local);
+    }
+    if (lastEnded)
+      return lastEnded.waypoints[lastEnded.waypoints.length - 1];
+    return firstSeg.waypoints[0];
+  }
+  apply(t) {
+    for (const param of this.params) {
+      param.value = this.valueAt(param, t);
+    }
+  }
+}
+
+// src/dream.ts
+var PERSPECTIVES = {
+  front: { phi: 0, theta: 0 },
+  default: { phi: PI3 / 4, theta: PI3 / 8 }
+};
+var ZOOM_REFERENCE_WIDTH = 1023;
+var orthoHalfHeight = (zoom, aspect2) => ZOOM_REFERENCE_WIDTH / (2 * zoom * aspect2);
+var DEFAULT_DISTANCE = 1000;
+var CAMERA_FOCAL_MM = 36;
+var CAMERA_APERTURE_MM = 36;
+var CAMERA_FOV = 2 * Math.atan(CAMERA_APERTURE_MM / (2 * CAMERA_FOCAL_MM));
+var verticalFov = (horizontal, aspect2) => 2 * Math.atan(Math.tan(horizontal / 2) / aspect2);
+var CAMERA_FOV_VERTICAL = verticalFov(CAMERA_FOV, 16 / 9);
+
+class Observer extends Holon {
+  phi = angle(0);
+  theta = angle(0);
+  tilt = angle(0);
+  radius = scalar(1500);
+  zoom = scalar(1);
+  orthographic = bool2(false);
+  fov = angle(53.13 * Math.PI / 180);
+  baseHeight = length2(700);
+  look(perspective) {
+    const { phi, theta } = PERSPECTIVES[perspective];
+    this.phi.defaultValue = phi;
+    this.phi.value = phi;
+    this.theta.defaultValue = theta;
+    this.theta.value = theta;
+    this.radius.defaultValue = DEFAULT_DISTANCE;
+    this.radius.value = DEFAULT_DISTANCE;
+    this.fov.defaultValue = CAMERA_FOV_VERTICAL;
+    this.fov.value = CAMERA_FOV_VERTICAL;
+    return this;
+  }
+  orbit(cfg) {
+    const anims = [];
+    if (cfg.phi !== undefined)
+      anims.push(this.phi.to(cfg.phi));
+    if (cfg.theta !== undefined)
+      anims.push(this.theta.to(cfg.theta));
+    if (cfg.tilt !== undefined)
+      anims.push(this.tilt.to(cfg.tilt));
+    return anims;
+  }
+  pan(cfg) {
+    const anims = [];
+    if (cfg.x !== undefined)
+      anims.push(this.x.to(cfg.x));
+    if (cfg.y !== undefined)
+      anims.push(this.y.to(cfg.y));
+    return anims;
+  }
+  dolly(radius) {
+    return [this.radius.to(radius)];
+  }
+}
+
+class Dream {
+  observer = new Observer;
+  #cursor = 0;
+  #clips = [];
+  #backdrop;
+  #roots = [];
+  #built;
+  play(anim, runTime = 1) {
+    const clip = { anim, start: this.#cursor, duration: runTime };
+    this.#clips.push(clip);
+    this.#cursor += runTime;
+    return clip;
+  }
+  set(...anims) {
+    for (const anim of anims) {
+      this.#clips.push({ anim, start: this.#cursor, duration: 0 });
+    }
+  }
+  wait(dt = 1) {
+    this.#cursor += dt;
+  }
+  backdrop(path, opts = {}) {
+    this.#backdrop = { path, offset: opts.offset ?? 0 };
+  }
+  stage(holon) {
+    this.#roots.push(holon);
+    return holon;
+  }
+  get backdropSpec() {
+    this.build();
+    return this.#backdrop;
+  }
+  get roots() {
+    this.build();
+    const seen = new Set;
+    const roots = [];
+    const consider = (h) => {
+      const r = h.root;
+      if (!seen.has(r) && !(r instanceof Observer)) {
+        seen.add(r);
+        roots.push(r);
+      }
+    };
+    for (const r of this.#roots)
+      consider(r);
+    for (const clip of this.#clips) {
+      for (const track of clip.anim.tracks) {
+        const owner = track.param.owner;
+        if (owner instanceof Holon)
+          consider(owner);
+      }
+    }
+    return roots;
+  }
+  get clips() {
+    this.build();
+    return this.#clips;
+  }
+  build() {
+    if (!this.#built) {
+      this.unfold();
+      this.#built = new Timeline(this.#clips, this.#cursor);
+    }
+    return this.#built;
+  }
+  get duration() {
+    return this.build().duration;
+  }
+  applyAt(t) {
+    this.build().apply(t);
+  }
+}
+
 // src/parts/index.ts
 class Stroke extends Holon {
   tint = color2(WHITE);
   stroke = length2(3);
+  erasure = completion(0);
+  drawStart = completion(0);
+  drawReversed = bool2(false);
 }
+var rephasePolyline = (points, drawStart, reversed) => {
+  if (points.length < 3)
+    return [...points];
+  const first = points[0];
+  const last = points[points.length - 1];
+  const closed = Math.abs(first.x - last.x) < 0.000000001 && Math.abs(first.y - last.y) < 0.000000001 && Math.abs(first.z - last.z) < 0.000000001;
+  if (!closed)
+    return [...points];
+  const loop = points.slice(0, -1);
+  const n = loop.length;
+  const dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+  const seg = [];
+  let total = 0;
+  for (let i2 = 0;i2 < n; i2++) {
+    const d = dist(loop[i2], loop[(i2 + 1) % n]);
+    seg.push(d);
+    total += d;
+  }
+  if (total <= 0)
+    return [...loop, loop[0]];
+  const phase = (drawStart % 1 + 1) % 1;
+  let target = phase * total;
+  let i = 0;
+  while (i < n - 1 && target > seg[i]) {
+    target -= seg[i];
+    i++;
+  }
+  let u = seg[i] > 0 ? Math.min(1, target / seg[i]) : 0;
+  const EPS = 0.000000001;
+  if (u >= 1 - EPS) {
+    i = (i + 1) % n;
+    u = 0;
+  } else if (u <= EPS) {
+    u = 0;
+  }
+  const a = loop[i];
+  const b = loop[(i + 1) % n];
+  const startPt = u === 0 ? a : { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u };
+  const at = (k) => loop[(k % n + n) % n];
+  const onVertex = u === 0;
+  const steps = onVertex ? n - 1 : n;
+  const out = [startPt];
+  for (let k = 0;k < steps; k++) {
+    out.push(reversed ? at(i - k - (onVertex ? 1 : 0)) : at(i + k + 1));
+  }
+  out.push(startPt);
+  return out;
+};
 
 class Circle extends Stroke {
   radius = length2(100);
@@ -45955,6 +46275,235 @@ class Cylinder extends Stroke {
   radius = length2(50);
   height = length2(200);
 }
+class Line2 extends Stroke {
+  points = [];
+  arrowStart = bool2(false);
+  arrowEnd = bool2(false);
+}
+
+class Rectangle extends Stroke {
+  width = length2(100);
+  height = length2(200);
+  rounding = completion(0);
+  tint = color2(RED);
+}
+
+class Ellipse extends Stroke {
+  radiusX = length2(100);
+  radiusY = length2(50);
+  filled = bool2(false);
+}
+
+class Eye extends Stroke {
+  opening = completion(1);
+  lidTop = new Line2({
+    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(PI3 / 8)
+  });
+  lidBottom = new Line2({
+    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(-PI3 / 8)
+  });
+  eyeball = new Arc({
+    radius: 200,
+    startAngle: this.opening.times(-PI3 / 8),
+    endAngle: this.opening.times(PI3 / 8),
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
+  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
+  createAnim() {
+    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [
+      together(this.lidTop.creation.sequence(0, 1), this.lidBottom.creation.sequence(0, 1), this.eyeball.creation.sequence(0, 1)),
+      0,
+      0.5
+    ], [this.iris.creation.sequence(0, 1), 0.3, 1]);
+  }
+}
+var dominoWindows = (count, relDuration = 0.3, globalSmoothing = 0.5) => {
+  if (count <= 0)
+    return [];
+  const invSmoothstep = (x) => 0.5 - Math.sin(Math.asin(1 - 2 * x) / 3);
+  const windows2 = [];
+  for (let i = 0;i < count; i++) {
+    const mid = invSmoothstep(1 / 2 * (1 / count) + i / count);
+    const dur = relDuration * (1 + globalSmoothing * Math.cos(TAU * i / count));
+    windows2.push([mid - dur / 2, mid + dur / 2]);
+  }
+  const shift = Math.abs(windows2[0][0]);
+  for (const w of windows2) {
+    w[0] += shift;
+    w[1] += shift;
+  }
+  const rescale = 1 + (1 - windows2[windows2.length - 1][1]);
+  for (const w of windows2) {
+    w[0] = Math.min(1, Math.max(0, w[0] * rescale));
+    w[1] = Math.min(1, Math.max(0, w[1] * rescale));
+  }
+  return windows2;
+};
+var cascade = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i) => [line.creation.sequence(0, 1), windows2[i][0], windows2[i][1]]));
+};
+var consume = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i) => [line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1]]));
+};
+
+class Axes extends Stroke {
+  mode = "xy";
+  xStart = scalar(-200);
+  xEnd = scalar(200);
+  yStart = scalar(-200);
+  yEnd = scalar(200);
+  zStart = scalar(-200);
+  zEnd = scalar(200);
+  gridSpacing = length2(30);
+  gridLineLength = length2(1000);
+  drawGrid = bool2(false);
+  drawTicks = bool2(false);
+  arrowEnd = bool2(true);
+  gridTint = color2(WHITE);
+  axisLines = [];
+  gridGroups = [];
+  tickGroups = [];
+  compose() {
+    const spacing = this.gridSpacing.value;
+    const halfGrid = this.gridLineLength.value / 2;
+    const extents = {
+      x: [this.xStart.value, this.xEnd.value],
+      y: [this.yStart.value, this.yEnd.value],
+      z: [this.zStart.value, this.zEnd.value]
+    };
+    const frames = {
+      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
+      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
+      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
+    };
+    const at = (v, k) => ({ x: v.x * k, y: v.y * k, z: v.z * k });
+    const sum = (a, b) => ({
+      x: a.x + b.x,
+      y: a.y + b.y,
+      z: a.z + b.z
+    });
+    const positions = (start, end) => {
+      const out = [];
+      const negCount = Math.round(Math.abs(start) / spacing);
+      const posCount = Math.round(end / spacing);
+      for (let i = negCount - 1;i >= 1; i--)
+        out.push(-i * spacing);
+      for (let i = 1;i < posCount; i++)
+        out.push(i * spacing);
+      return out;
+    };
+    for (const axis of this.mode) {
+      const frame = frames[axis];
+      const extent = extents[axis];
+      if (!frame || !extent)
+        continue;
+      const [start, end] = extent;
+      this.axisLines.push(this.add(new Line2({
+        points: [at(frame.dir, start), at(frame.dir, end)],
+        tint: this.tint,
+        stroke: this.stroke,
+        arrowEnd: this.arrowEnd.value
+      })));
+      if (this.drawGrid.value) {
+        const group = [];
+        for (const pos of positions(start, end)) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at(frame.dir, pos), at(frame.perp, -halfGrid)),
+              sum(at(frame.dir, pos), at(frame.perp, halfGrid))
+            ],
+            tint: this.gridTint,
+            stroke: this.stroke.times(0.5)
+          })));
+        }
+        this.gridGroups.push(group);
+      }
+      if (this.drawTicks.value) {
+        const group = [];
+        const tickHalf = 5;
+        const posCount = Math.round(end / spacing);
+        const negCount = Math.round(Math.abs(start) / spacing);
+        for (let i = -(negCount - 1);i < posCount; i++) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at(frame.dir, i * spacing), at(frame.perp, -tickHalf)),
+              sum(at(frame.dir, i * spacing), at(frame.perp, tickHalf))
+            ],
+            tint: this.tint,
+            stroke: this.stroke
+          })));
+        }
+        this.tickGroups.push(group);
+      }
+    }
+  }
+  createAnim() {
+    this.parts;
+    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
+    const items = [
+      [together(...this.axisLines.map((l) => l.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([cascade(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([cascade(group), 0.3, 1]);
+    return together(...items);
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = [
+      [together(...this.axisLines.map((l) => l.erasure.sequence(0, 1))), 0, 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([consume(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([consume(group), 0, 0.7]);
+    return together(...items);
+  }
+}
+var rectanglePolyline = (width, height, rounding, cornerSegments = 8) => {
+  const w = width / 2;
+  const h = height / 2;
+  const r = Math.min(w, h) * Math.min(1, Math.max(0, rounding));
+  const pts = [];
+  const push = (x, y) => pts.push({ x, y, z: 0 });
+  if (r <= 0) {
+    push(0, -h);
+    push(w, -h);
+    push(w, h);
+    push(-w, h);
+    push(-w, -h);
+    push(0, -h);
+    return pts;
+  }
+  const arc = (cx, cy, a0, a1) => {
+    for (let i = 1;i <= cornerSegments; i++) {
+      const a = a0 + (a1 - a0) * i / cornerSegments;
+      push(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    }
+  };
+  push(0, -h);
+  push(w - r, -h);
+  arc(w - r, -h + r, -PI3 / 2, 0);
+  push(w, h - r);
+  arc(w - r, h - r, 0, PI3 / 2);
+  push(-w + r, h);
+  arc(-w + r, h - r, PI3 / 2, PI3);
+  push(-w, -h + r);
+  arc(-w + r, -h + r, PI3, 3 * PI3 / 2);
+  push(0, -h);
+  return pts;
+};
 
 // node_modules/three/build/three.tsl.js
 var exports_three_tsl = {};
@@ -46497,7 +47046,7 @@ __export(exports_three_tsl, {
   builtin: () => builtin2,
   bufferAttribute: () => bufferAttribute2,
   buffer: () => buffer2,
-  bool: () => bool2,
+  bool: () => bool3,
   blur: () => blur2,
   blendScreen: () => blendScreen2,
   blendOverlay: () => blendOverlay2,
@@ -46693,7 +47242,7 @@ var blendDodge2 = TSL.blendDodge;
 var blendOverlay2 = TSL.blendOverlay;
 var blendScreen2 = TSL.blendScreen;
 var blur2 = TSL.blur;
-var bool2 = TSL.bool;
+var bool3 = TSL.bool;
 var buffer2 = TSL.buffer;
 var bufferAttribute2 = TSL.bufferAttribute;
 var bumpMap2 = TSL.bumpMap;
@@ -47291,6 +47840,7 @@ var vDist = varyingProperty3("vec2", "dtRibbonDist");
 class RibbonMaterial extends NodeMaterial {
   widthPx = uniform2(3);
   drawn = uniform2(0);
+  erased = uniform2(0);
   tint = uniform2(new Color(1, 1, 1));
   fade = uniform2(1);
   constructor() {
@@ -47368,8 +47918,11 @@ class RibbonMaterial extends NodeMaterial {
       const pxPerUnit = lenPx.div(max3(distEnd.sub(distStart), 0.0000001));
       const uFront = this.drawn.sub(distStart).mul(pxPerUnit).toVar();
       uFront.lessThan(0).discard();
-      const uEnd = min3(lenPx, uFront);
-      const d = length4(vec23(u.sub(clamp4(u, 0, uEnd)), v));
+      const uTail = this.erased.sub(distStart).mul(pxPerUnit).toVar();
+      uTail.greaterThan(lenPx).discard();
+      const uBegin = max3(uTail, 0);
+      const uEnd = max3(min3(lenPx, uFront), uBegin);
+      const d = length4(vec23(u.sub(clamp4(u, uBegin, uEnd)), v));
       const hw = halfWidth();
       const coverage = smoothstep4(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus();
       const a = coverage.mul(this.fade);
@@ -47416,12 +47969,65 @@ class RibbonStroke {
     }
     this.geometry.instanceCount = packed.count;
   }
-  style(fraction, opacity, tint, widthPx) {
+  style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
     this.material.drawn.value = fraction * this.totalLength;
-    this.mesh.visible = fraction > 0 && opacity > 0;
+    this.material.erased.value = erasedFraction * this.totalLength;
+    this.mesh.visible = fraction > erasedFraction && opacity > 0;
     this.material.fade.value = opacity;
     this.material.tint.value.setRGB(tint.r, tint.g, tint.b);
     this.material.widthPx.value = widthPx;
+  }
+}
+
+// src/render/fill.ts
+var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
+  const pts = [{ x: 0, y: 0, z: 0 }];
+  for (let i = 0;i <= segments; i++) {
+    const a = i / segments * Math.PI * 2;
+    pts.push({ x: Math.cos(a) * radiusX, y: Math.sin(a) * radiusY, z: 0 });
+  }
+  return pts;
+};
+
+class FillShape {
+  mesh;
+  material;
+  tint = uniform2(new Color(1, 1, 1));
+  fade = uniform2(1);
+  constructor(renderOrder) {
+    this.material = new MeshBasicNodeMaterial;
+    this.material.transparent = true;
+    this.material.depthWrite = false;
+    this.material.side = DoubleSide;
+    this.material.colorNode = this.tint;
+    this.material.opacityNode = this.fade;
+    this.mesh = new Mesh(new BufferGeometry, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = renderOrder;
+    this.mesh.visible = false;
+  }
+  setPolygon(pts) {
+    if (pts.length < 3)
+      return;
+    const positions = new Float32Array(pts.length * 3);
+    for (let i = 0;i < pts.length; i++) {
+      positions[i * 3] = pts[i].x;
+      positions[i * 3 + 1] = pts[i].y;
+      positions[i * 3 + 2] = pts[i].z;
+    }
+    const indices = [];
+    for (let i = 1;i < pts.length - 1; i++)
+      indices.push(0, i, i + 1);
+    const geometry = new BufferGeometry;
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geometry;
+  }
+  style(opacity, tint) {
+    this.fade.value = opacity;
+    this.tint.value.setRGB(tint.r, tint.g, tint.b);
+    this.mesh.visible = opacity > 0;
   }
 }
 
@@ -47446,7 +48052,7 @@ var capPolyline = (radius, y) => {
   }
   return pts;
 };
-var polyline = (holon) => {
+var basePolyline = (holon) => {
   if (holon instanceof Circle) {
     const pts = [];
     for (let i = 0;i <= STROKE_SEGMENTS; i++) {
@@ -47484,35 +48090,130 @@ var polyline = (holon) => {
     }
     return pts;
   }
+  if (holon instanceof Rectangle) {
+    return rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value).map((p) => new Vector3(p.x, p.y, p.z));
+  }
+  if (holon instanceof Ellipse) {
+    if (holon.filled.value)
+      return;
+    const pts = [];
+    for (let i = 0;i <= STROKE_SEGMENTS; i++) {
+      const a = i / STROKE_SEGMENTS * Math.PI * 2;
+      pts.push(new Vector3(Math.cos(a) * holon.radiusX.value, Math.sin(a) * holon.radiusY.value, 0));
+    }
+    return pts;
+  }
+  if (holon instanceof Line2) {
+    if (holon.points.length < 2)
+      return;
+    return holon.points.map((p) => new Vector3(p.x, p.y, p.z));
+  }
   return;
 };
+var polyline = (holon) => {
+  const pts = basePolyline(holon);
+  if (!pts)
+    return;
+  const phase = holon.drawStart.value;
+  const reversed = holon.drawReversed.value;
+  if (phase === 0 && !reversed)
+    return pts;
+  return rephasePolyline(pts, phase, reversed).map((p) => new Vector3(p.x, p.y, p.z));
+};
+var ARROW_PX_PER_UNIT = 1.28;
+var ARROW_LENGTH_FACTOR = 2.5 / ARROW_PX_PER_UNIT;
+var ARROW_HALF_WIDTH_FACTOR = 1.75 / ARROW_PX_PER_UNIT;
+var walkTo = (points, progress) => {
+  const vec = (p) => new Vector3(p.x, p.y, p.z);
+  const seg = [];
+  let total = 0;
+  for (let i2 = 0;i2 < points.length - 1; i2++) {
+    const d = vec(points[i2 + 1]).sub(vec(points[i2])).length();
+    seg.push(d);
+    total += d;
+  }
+  if (total <= 0)
+    return;
+  let target = progress * total;
+  let i = 0;
+  while (i < seg.length - 1 && target > seg[i]) {
+    target -= seg[i];
+    i++;
+  }
+  const a = vec(points[i]);
+  const b = vec(points[i + 1]);
+  const delta = b.clone().sub(a);
+  if (delta.lengthSq() <= 0.000000000001)
+    return;
+  const u = seg[i] > 0 ? Math.min(1, target / seg[i]) : 0;
+  return { tip: a.clone().addScaledVector(delta, u), dir: delta.normalize() };
+};
+var arrowPolygon = (points, atStart, widthPx, progress = 1) => {
+  if (points.length < 2)
+    return;
+  const ordered = atStart ? [...points].reverse() : points;
+  const walked = walkTo(ordered, Math.min(1, Math.max(0, progress)));
+  if (!walked)
+    return;
+  const { tip, dir } = walked;
+  const side = new Vector3().crossVectors(dir, new Vector3(0, 0, 1));
+  if (side.lengthSq() < 0.000000000001)
+    side.crossVectors(dir, new Vector3(0, 1, 0));
+  side.normalize();
+  const length5 = widthPx * ARROW_LENGTH_FACTOR;
+  const halfWidth = widthPx * ARROW_HALF_WIDTH_FACTOR;
+  const apex = tip.clone().addScaledVector(dir, length5);
+  const a = tip.clone().addScaledVector(side, halfWidth);
+  const b = tip.clone().addScaledVector(side, -halfWidth);
+  return [
+    { x: apex.x, y: apex.y, z: apex.z },
+    { x: a.x, y: a.y, z: a.z },
+    { x: b.x, y: b.y, z: b.z }
+  ];
+};
 var shapeKey = (holon) => {
+  const phase = [holon.drawStart.value, holon.drawReversed.value ? 1 : 0];
   if (holon instanceof Circle)
-    return [holon.radius.value];
+    return [holon.radius.value, ...phase];
   if (holon instanceof Square)
-    return [holon.size.value];
+    return [holon.size.value, ...phase];
   if (holon instanceof Polygon)
-    return [holon.radius.value, holon.sides.value];
+    return [holon.radius.value, holon.sides.value, ...phase];
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value];
+  if (holon instanceof Rectangle)
+    return [holon.width.value, holon.height.value, holon.rounding.value, ...phase];
+  if (holon instanceof Ellipse)
+    return [holon.radiusX.value, holon.radiusY.value, ...phase];
+  if (holon instanceof Line2)
+    return holon.points.flatMap((p) => [p.x, p.y, p.z]);
   return [];
 };
+var arrowKey = (holon) => [...shapeKey(holon), holon.stroke.value];
+var clamp01 = (v) => Math.min(1, Math.max(0, v));
 var keysEqual = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 class ThreeHost {
   renderer;
   scene;
   camera;
+  perspCamera;
+  orthoCamera;
   dream;
   groups = [];
   strokes = [];
   cylinders = [];
+  fills = [];
+  arrows = [];
+  nextFillOrder = 1;
   constructor(dream, canvas) {
     this.dream = dream;
     this.renderer = new WebGPURenderer({ canvas, antialias: true });
     this.scene = new Scene;
     this.scene.background = new Color(0);
-    this.camera = new PerspectiveCamera(53.13, 16 / 9, 1, 1e5);
+    this.perspCamera = new PerspectiveCamera(53.13, 16 / 9, 1, 1e5);
+    this.orthoCamera = new OrthographicCamera(-1, 1, 1, -1, -1e5, 1e5);
+    this.camera = this.perspCamera;
   }
   static async mount(dream, canvas) {
     const host = new ThreeHost(dream, canvas);
@@ -47545,6 +48246,11 @@ class ThreeHost {
       binding.bottomCap.setPoints(capPolyline(r, -h / 2));
       group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh);
       this.cylinders.push(binding);
+    } else if (holon instanceof Ellipse && holon.filled.value) {
+      const fill = new FillShape(this.nextFillOrder++);
+      fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
+      group.add(fill.mesh);
+      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
     } else if (holon instanceof Stroke) {
       const pts = polyline(holon);
       if (pts) {
@@ -47552,6 +48258,19 @@ class ThreeHost {
         ribbon.setPoints(pts);
         group.add(ribbon.mesh);
         this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) });
+      }
+      if (holon instanceof Line2) {
+        for (const atStart of [false, true]) {
+          if (!(atStart ? holon.arrowStart : holon.arrowEnd).value)
+            continue;
+          const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value);
+          if (!polygon)
+            continue;
+          const fill = new FillShape(this.nextFillOrder++);
+          fill.setPolygon(polygon);
+          group.add(fill.mesh);
+          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon) });
+        }
       }
     }
     for (const part of holon.parts)
@@ -47579,21 +48298,76 @@ class ThreeHost {
           ribbon.setPoints(pts);
       }
       const tint = holon.tint.value;
-      ribbon.style(holon.creation.value, holon.opacity.value, tint, holon.stroke.value);
+      ribbon.style(holon.creation.value, holon.opacity.value, tint, holon.stroke.value, holon.erasure.value);
     }
-    const obs = this.dream.observer;
-    const r = obs.radius.value;
-    const phi = obs.phi.value;
-    const theta = obs.theta.value;
-    this.camera.position.set(r * Math.sin(phi) * Math.cos(theta) + obs.x.value, r * Math.sin(theta) + obs.y.value, r * Math.cos(phi) * Math.cos(theta));
-    this.camera.lookAt(obs.x.value, obs.y.value, 0);
-    this.camera.zoom = obs.zoom.value;
-    this.camera.updateProjectionMatrix();
+    for (const binding of this.fills) {
+      const { holon, fill } = binding;
+      const key = shapeKey(holon);
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key;
+        fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
+      }
+      fill.style(holon.creation.value * holon.opacity.value, holon.tint.value);
+    }
+    for (const binding of this.arrows) {
+      const { holon, fill, atStart } = binding;
+      const key = arrowKey(holon);
+      const creation = holon.creation.value;
+      const erasure = holon.erasure.value;
+      const progress = atStart ? 0 : creation;
+      const present = atStart ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02)) : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08));
+      if (present > 0) {
+        binding.shapeKey = key;
+        const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value, progress);
+        if (polygon)
+          fill.setPolygon(polygon);
+      }
+      fill.style(present * holon.opacity.value, holon.tint.value);
+    }
+    this.syncCamera();
     if (this.cylinders.length > 0) {
       this.scene.updateMatrixWorld(true);
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
     }
+  }
+  syncCamera() {
+    const obs = this.dream.observer;
+    const phi = obs.phi.value;
+    const theta = obs.theta.value;
+    const zoom = obs.zoom.value;
+    const ortho = obs.orthographic.value;
+    const focus = new Vector3(obs.x.value, obs.y.value, 0);
+    const r = ortho ? obs.radius.value : obs.radius.value / (zoom || 1);
+    const offset = new Vector3(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(theta), r * Math.cos(phi) * Math.cos(theta));
+    const camera = this.selectCamera(ortho);
+    camera.position.copy(focus).add(offset);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(focus);
+    if (obs.tilt.value !== 0)
+      camera.rotateZ(obs.tilt.value);
+    const aspect2 = this.aspect();
+    if (camera instanceof OrthographicCamera) {
+      const halfH = orthoHalfHeight(zoom || 1, aspect2);
+      const halfW = halfH * aspect2;
+      camera.left = -halfW;
+      camera.right = halfW;
+      camera.top = halfH;
+      camera.bottom = -halfH;
+      camera.zoom = 1;
+    } else {
+      camera.aspect = aspect2;
+      camera.fov = MathUtils.radToDeg(obs.fov.value);
+      camera.zoom = 1;
+    }
+    camera.updateProjectionMatrix();
+  }
+  aspect() {
+    return 16 / 9;
+  }
+  selectCamera(ortho) {
+    this.camera = ortho ? this.orthoCamera : this.perspCamera;
+    return this.camera;
   }
   syncCylinder(binding) {
     const { holon, group, topCap, bottomCap, lineA, lineB } = binding;
@@ -47620,15 +48394,17 @@ class ThreeHost {
     const total = 2 * cap + 2 * height;
     const bounds = [0, cap / total, 2 * cap / total, (2 * cap + height) / total, 1];
     const creation = holon.creation.value;
+    const erasure = holon.erasure.value;
     const opacity = holon.opacity.value;
     const tint = holon.tint.value;
     const width = holon.stroke.value;
-    const window2 = (a, b) => Math.min(1, Math.max(0, (creation - a) / (b - a)));
-    topCap.style(window2(bounds[0], bounds[1]), opacity, tint, width);
-    bottomCap.style(window2(bounds[1], bounds[2]), opacity, tint, width);
+    const window2 = (v, a, b) => Math.min(1, Math.max(0, (v - a) / (b - a)));
+    const sub3 = (line, drawn, a, b) => line.style(drawn, opacity, tint, width, window2(erasure, a, b));
+    sub3(topCap, window2(creation, bounds[0], bounds[1]), bounds[0], bounds[1]);
+    sub3(bottomCap, window2(creation, bounds[1], bounds[2]), bounds[1], bounds[2]);
     const mantleVisible = angles !== undefined;
-    lineA.style(mantleVisible ? window2(bounds[2], bounds[3]) : 0, opacity, tint, width);
-    lineB.style(mantleVisible ? window2(bounds[3], bounds[4]) : 0, opacity, tint, width);
+    sub3(lineA, mantleVisible ? window2(creation, bounds[2], bounds[3]) : 0, bounds[2], bounds[3]);
+    sub3(lineB, mantleVisible ? window2(creation, bounds[3], bounds[4]) : 0, bounds[3], bounds[4]);
   }
   dispose() {
     this.renderer.dispose();
@@ -47651,219 +48427,24 @@ var __dt = (value, anchor) => {
   return value;
 };
 var anchorOf = (value) => anchors.get(value);
-// src/timeline.ts
-var ease = (easing, u) => easing === "linear" ? u : u * u * (3 - 2 * u);
-var lerpValue = (a, b, u) => {
-  if (typeof a === "number" && typeof b === "number")
-    return a + (b - a) * u;
-  if (typeof a === "boolean" || typeof b === "boolean")
-    return u >= 1 ? b : a;
-  if (isColor(a) && isColor(b)) {
-    return {
-      r: a.r + (b.r - a.r) * u,
-      g: a.g + (b.g - a.g) * u,
-      b: a.b + (b.b - a.b) * u
-    };
-  }
-  throw new Error("cannot interpolate between mismatched value types");
-};
-
-class Timeline {
-  duration;
-  params;
-  segments = new Map;
-  constructor(clips, minDuration = 0) {
-    const placed = [];
-    let end = 0;
-    for (const clip of clips) {
-      end = Math.max(end, clip.start + clip.duration);
-      for (const track of clip.anim.tracks) {
-        placed.push({
-          param: track.param,
-          t0: clip.start + track.relStart * clip.duration,
-          t1: clip.start + track.relStop * clip.duration,
-          mode: track.mode,
-          values: track.values,
-          easing: track.easing
-        });
-      }
-    }
-    this.duration = Math.max(end, minDuration);
-    const byParam = new Map;
-    for (const p of placed) {
-      const list = byParam.get(p.param) ?? [];
-      list.push(p);
-      byParam.set(p.param, list);
-    }
-    for (const [param, list] of byParam) {
-      list.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
-      const segs = [];
-      let prevEnd = param.defaultValue;
-      let first = true;
-      for (const p of list) {
-        let waypoints;
-        switch (p.mode) {
-          case "to":
-            waypoints = [prevEnd, param.clamp(p.values[0])];
-            break;
-          case "by": {
-            if (typeof prevEnd !== "number" || typeof p.values[0] !== "number") {
-              throw new Error(`'.by()' needs numeric values on '${param.name ?? param.id}'`);
-            }
-            waypoints = [prevEnd, param.clamp(prevEnd + p.values[0])];
-            break;
-          }
-          case "sequence":
-            waypoints = p.values.map((v) => param.clamp(v));
-            break;
-        }
-        segs.push({ t0: p.t0, t1: p.t1, waypoints, easing: p.easing });
-        prevEnd = waypoints[waypoints.length - 1];
-        first = false;
-      }
-      this.segments.set(param, segs);
-    }
-    this.params = [...this.segments.keys()];
-  }
-  valueAt(param, t) {
-    const segs = this.segments.get(param);
-    if (!segs || segs.length === 0)
-      return param.defaultValue;
-    const firstSeg = segs[0];
-    if (t < firstSeg.t0)
-      return firstSeg.waypoints[0];
-    let active;
-    let lastEnded;
-    for (const seg of segs) {
-      if (t >= seg.t0 && t <= seg.t1)
-        active = seg;
-      if (seg.t1 <= t && (!lastEnded || seg.t1 >= lastEnded.t1))
-        lastEnded = seg;
-    }
-    if (active) {
-      const span = active.t1 - active.t0;
-      const u = span <= 0 ? 1 : (t - active.t0) / span;
-      const n = active.waypoints.length - 1;
-      if (u >= 1)
-        return active.waypoints[n];
-      const scaled = u * n;
-      const i = Math.min(Math.floor(scaled), n - 1);
-      const local = ease(active.easing, scaled - i);
-      return lerpValue(active.waypoints[i], active.waypoints[i + 1], local);
-    }
-    if (lastEnded)
-      return lastEnded.waypoints[lastEnded.waypoints.length - 1];
-    return firstSeg.waypoints[0];
-  }
-  apply(t) {
-    for (const param of this.params) {
-      param.value = this.valueAt(param, t);
-    }
-  }
-}
-
-// src/dream.ts
-class Observer extends Holon {
-  phi = angle(0);
-  theta = angle(0);
-  radius = scalar(1500);
-  zoom = scalar(1);
-  orbit(cfg) {
-    const anims = [];
-    if (cfg.phi !== undefined)
-      anims.push(this.phi.to(cfg.phi));
-    if (cfg.theta !== undefined)
-      anims.push(this.theta.to(cfg.theta));
-    return anims;
-  }
-  pan(cfg) {
-    const anims = [];
-    if (cfg.x !== undefined)
-      anims.push(this.x.to(cfg.x));
-    if (cfg.y !== undefined)
-      anims.push(this.y.to(cfg.y));
-    return anims;
-  }
-  dolly(radius) {
-    return [this.radius.to(radius)];
-  }
-}
-
-class Dream {
-  observer = new Observer;
-  #cursor = 0;
-  #clips = [];
-  #backdrop;
-  #roots = [];
-  #built;
-  play(anim, runTime = 1) {
-    const clip = { anim, start: this.#cursor, duration: runTime };
-    this.#clips.push(clip);
-    this.#cursor += runTime;
-    return clip;
-  }
-  set(...anims) {
-    for (const anim of anims) {
-      this.#clips.push({ anim, start: this.#cursor, duration: 0 });
-    }
-  }
-  wait(dt = 1) {
-    this.#cursor += dt;
-  }
-  backdrop(path, opts = {}) {
-    this.#backdrop = { path, offset: opts.offset ?? 0 };
-  }
-  stage(holon) {
-    this.#roots.push(holon);
-    return holon;
-  }
-  get backdropSpec() {
-    this.build();
-    return this.#backdrop;
-  }
-  get roots() {
-    this.build();
-    const seen = new Set;
-    const roots = [];
-    const consider = (h) => {
-      const r = h.root;
-      if (!seen.has(r) && !(r instanceof Observer)) {
-        seen.add(r);
-        roots.push(r);
-      }
-    };
-    for (const r of this.#roots)
-      consider(r);
-    for (const clip of this.#clips) {
-      for (const track of clip.anim.tracks) {
-        const owner = track.param.owner;
-        if (owner instanceof Holon)
-          consider(owner);
-      }
-    }
-    return roots;
-  }
-  get clips() {
-    this.build();
-    return this.#clips;
-  }
-  build() {
-    if (!this.#built) {
-      this.unfold();
-      this.#built = new Timeline(this.#clips, this.#cursor);
-    }
-    return this.#built;
-  }
-  get duration() {
-    return this.build().duration;
-  }
-  applyAt(t) {
-    this.build().apply(t);
-  }
-}
 // src/verbs.ts
 var deep = (holon, f) => together(...[...holon.walk()].map(f));
-var Create = (holon) => deep(holon, (h) => h.creation.sequence(0, 1));
+var none = { tracks: [] };
+var Create = (holon) => {
+  const custom = holon.createAnim();
+  if (custom)
+    return custom;
+  return together(holon.creation.sequence(0, 1), ...holon.parts.map((part) => Create(part)));
+};
+var UnCreate = (holon) => {
+  const custom = holon.unCreateAnim();
+  if (custom)
+    return custom;
+  return deep(holon, (h) => h.creation.to(0));
+};
+var UnDraw = UnCreate;
+var Erase = (holon) => deep(holon, (h) => h instanceof Stroke ? h.erasure.sequence(0, 1) : none);
+var FadeOut = (holon) => deep(holon, (h) => h.opacity.to(0));
 // demo/FoundingSmoke.ts
 class FoundingSmokeDream extends Dream {
   square = __dt(new Square({ size: 200, tint: RED, x: -300 }), "core/demo/FoundingSmoke.ts:518:563");
@@ -47879,10 +48460,664 @@ class FoundingSmokeDream extends Dream {
 if (false)
   ;
 
+// demo/StrokeCalibration.ts
+var FRACTIONS = [0.25, 0.5, 0.75, 1];
+var COLUMN_X = [-900, -300, 300, 900];
+
+class StrokeCalibrationDream extends Dream {
+  drawing = __dt(new Circle({ radius: 130, y: -520 }), "core/demo/StrokeCalibration.ts:688:724");
+  unfold() {
+    FRACTIONS.forEach((creation, i) => {
+      const x = COLUMN_X[i];
+      this.stage(__dt(new Circle({ radius: 100, x, y: 480, creation }), "core/demo/StrokeCalibration.ts:826:874"));
+      this.stage(__dt(new Square({ size: 200, x, y: 160, creation }), "core/demo/StrokeCalibration.ts:893:939"));
+      this.stage(__dt(new Arc({ radius: 100, startAngle: PI3 / 2, endAngle: 2 * PI3, x, y: -180, creation }), "core/demo/StrokeCalibration.ts:958:1042"));
+    });
+    __dt(this.play(Create(this.drawing), 10), "core/demo/StrokeCalibration.ts:1055:1090");
+  }
+}
+if (false)
+  ;
+
+// demo/VocabShowcase.ts
+class VocabShowcaseDream extends Dream {
+  axes = __dt(new Axes({
+    mode: "xy",
+    xStart: -450,
+    xEnd: 450,
+    yStart: -260,
+    yEnd: 260,
+    gridSpacing: 100,
+    gridLineLength: 1000,
+    drawGrid: true,
+    gridTint: BLUE
+  }), "core/demo/VocabShowcase.ts:839:1024");
+  blueEye = __dt(new Eye({ tint: BLUE, x: 300, y: -40, h: PI3, scale: 0.3 }), "core/demo/VocabShowcase.ts:1037:1095");
+  redEye = __dt(new Eye({ tint: RED, x: -300, y: -40, scale: 0.3 }), "core/demo/VocabShowcase.ts:1107:1158");
+  rectangle = __dt(new Rectangle({ width: 100, height: 200 }), "core/demo/VocabShowcase.ts:1173:1215");
+  unfold() {
+    this.set(...this.observer.dolly(560));
+    __dt(this.play(Create(this.axes), 3), "core/demo/VocabShowcase.ts:1276:1307");
+    this.wait(0.3);
+    __dt(this.play(together(Create(this.blueEye), Create(this.redEye)), 2.5), "core/demo/VocabShowcase.ts:1331:1398");
+    this.wait(0.3);
+    __dt(this.play(Create(this.rectangle), 2), "core/demo/VocabShowcase.ts:1422:1458");
+    this.wait(0.2);
+    __dt(this.play(this.rectangle.rounding.to(1), 1.5), "core/demo/VocabShowcase.ts:1482:1527");
+    this.wait(0.2);
+    __dt(this.play(this.rectangle.rounding.to(0), 1), "core/demo/VocabShowcase.ts:1551:1594");
+    this.wait(0.3);
+    __dt(this.play(Erase(this.axes), 2.5), "core/demo/VocabShowcase.ts:1618:1650");
+    __dt(this.play(UnDraw(this.rectangle), 1.5), "core/demo/VocabShowcase.ts:1655:1693");
+    __dt(this.play(together(UnCreate(this.blueEye), UnCreate(this.redEye)), 1), "core/demo/VocabShowcase.ts:1698:1767");
+    this.wait(0.5);
+  }
+}
+if (false)
+  ;
+
+// demo/video01/palette.ts
+var PIXEL_UNITS_BASE_HEIGHT = 700;
+var strokePx = (thickness3, frameHeight) => thickness3 * (frameHeight / PIXEL_UNITS_BASE_HEIGHT);
+var THICKNESS_MAIN = 5;
+var THICKNESS_GRID = 3;
+var STROKE_MAIN_720 = strokePx(THICKNESS_MAIN, 720);
+var STROKE_GRID_720 = strokePx(THICKNESS_GRID, 720);
+var STROKE_MAIN_1080 = strokePx(THICKNESS_MAIN, 1080);
+var STROKE_GRID_1080 = strokePx(THICKNESS_GRID, 1080);
+var STROKE_MAIN = STROKE_MAIN_720;
+var STROKE_GRID = STROKE_GRID_720;
+
+// demo/video01/CameraCal.ts
+class CameraCalDream extends Dream {
+  cylinder = __dt(new Cylinder({
+    radius: 50,
+    height: 200,
+    p: PI3 / 2,
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/CameraCal.ts:2207:2299");
+  circler = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:2976:3047");
+  rectangler = __dt(new Eye({ scale: 0.3, z: 300, h: PI3 / 2, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:3212:3286");
+  unfold() {
+    this.observer.look("default");
+    this.stage(this.cylinder);
+    this.stage(this.circler);
+    this.stage(this.rectangler);
+    this.wait(1);
+  }
+}
+
+class CameraCalCylinderDream extends Dream {
+  cylinder = __dt(new Cylinder({
+    radius: 50,
+    height: 200,
+    p: PI3 / 2,
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/CameraCal.ts:3802:3894");
+  unfold() {
+    this.observer.look("default");
+    this.stage(this.cylinder);
+    this.wait(1);
+  }
+}
+
+class CameraCalGridDream extends Dream {
+  planeCircler = __dt(new Axes({
+    mode: "xy",
+    h: PI3,
+    drawGrid: true,
+    drawTicks: false,
+    gridTint: BLUE,
+    tint: WHITE,
+    gridSpacing: 100,
+    gridLineLength: 5000,
+    xStart: -500,
+    xEnd: 2100,
+    yStart: -2000,
+    yEnd: 400,
+    stroke: STROKE_GRID * 2
+  }), "core/demo/video01/CameraCal.ts:4954:5257");
+  planeRectangler = __dt(new Axes({
+    mode: "xy",
+    h: PI3 / 2,
+    drawGrid: true,
+    drawTicks: false,
+    gridTint: RED,
+    tint: WHITE,
+    gridSpacing: 100,
+    gridLineLength: 5000,
+    xStart: -500,
+    xEnd: 2100,
+    yStart: -2000,
+    yEnd: 400,
+    stroke: STROKE_GRID * 2
+  }), "core/demo/video01/CameraCal.ts:5485:5754");
+  unfold() {
+    this.observer.look("default");
+    this.stage(this.planeCircler);
+    this.stage(this.planeRectangler);
+    this.wait(1);
+  }
+}
+if (false)
+  ;
+
+// demo/video01/S04.ts
+var START_OFFSET = -0.29;
+var FRONT_DISTANCE = 1250;
+
+class S04Dream extends Dream {
+  circle = __dt(new Circle({
+    radius: 50,
+    tint: BLUE,
+    x: -250,
+    y: 50,
+    drawStart: 1 / 8,
+    drawReversed: true,
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S04.ts:4500:4644");
+  rectangle = __dt(new Rectangle({
+    width: 100,
+    height: 200,
+    tint: RED,
+    x: 250,
+    y: 50,
+    drawStart: 5 / 12,
+    drawReversed: true,
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S04.ts:5086:5249");
+  gradient = __dt(new Axes({
+    mode: "x",
+    xStart: -250,
+    xEnd: 250,
+    y: -100,
+    gridSpacing: 30,
+    drawTicks: true,
+    drawGrid: false,
+    arrowEnd: true,
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S04.ts:5376:5560");
+  unfold() {
+    this.observer.look("front");
+    this.set(...this.observer.dolly(FRONT_DISTANCE));
+    this.wait(START_OFFSET);
+    __dt(this.play(together(Create(this.circle), Create(this.rectangle)), 2), "core/demo/video01/S04.ts:5692:5759");
+    __dt(this.play(Create(this.gradient), 2), "core/demo/video01/S04.ts:5764:5799");
+    __dt(this.play(together([UnCreate(this.gradient), 0, 3 / 4], [together(UnCreate(this.circle), UnCreate(this.rectangle)), 1 / 2, 1]), 2), "core/demo/video01/S04.ts:5804:5978");
+    this.wait(1);
+  }
+}
+if (false)
+  ;
+
+// src/geometry/section.ts
+var EPS = 0.000000001;
+var clamp5 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+var mantlePoint = (theta, radius, y) => ({
+  x: radius * Math.cos(theta),
+  y,
+  z: radius * Math.sin(theta)
+});
+var empty = { kind: "empty", points: [], closed: false };
+var cylinderPlaneSection = (radius, height, planePoint, planeNormal, segments = 96) => {
+  const halfH = height / 2;
+  const mag = Math.hypot(planeNormal.x, planeNormal.y, planeNormal.z);
+  if (!(mag > EPS) || !(radius > EPS) || !(height > EPS))
+    return empty;
+  const flip = planeNormal.y < 0 ? -1 : 1;
+  const nx = flip * planeNormal.x / mag;
+  const ny = flip * planeNormal.y / mag;
+  const nz = flip * planeNormal.z / mag;
+  const d = nx * planePoint.x + ny * planePoint.y + nz * planePoint.z;
+  const rho = Math.hypot(nx, nz);
+  const alpha = Math.atan2(nz, nx);
+  if (rho < EPS) {
+    const y = d / ny;
+    if (Math.abs(y) > halfH + EPS)
+      return empty;
+    const points2 = [];
+    for (let i = 0;i <= segments; i++) {
+      points2.push(mantlePoint(i / segments * 2 * Math.PI, radius, clamp5(y, -halfH, halfH)));
+    }
+    return { kind: "circle", points: points2, closed: true };
+  }
+  if (ny < EPS) {
+    const c = d / (radius * rho);
+    if (c > 1 + EPS || c < -1 - EPS)
+      return empty;
+    if (Math.abs(c) > 1 - EPS) {
+      const theta = alpha + (c > 0 ? 0 : Math.PI);
+      return {
+        kind: "line",
+        points: [mantlePoint(theta, radius, -halfH), mantlePoint(theta, radius, halfH)],
+        closed: false
+      };
+    }
+    const u = Math.acos(c);
+    const thetaA = alpha - u;
+    const thetaB = alpha + u;
+    const points2 = [
+      mantlePoint(thetaA, radius, -halfH),
+      mantlePoint(thetaA, radius, halfH),
+      mantlePoint(thetaB, radius, halfH),
+      mantlePoint(thetaB, radius, -halfH),
+      mantlePoint(thetaA, radius, -halfH)
+    ];
+    return { kind: "rectangle", points: points2, closed: true };
+  }
+  const cTop = (d - ny * halfH) / (radius * rho);
+  const cBot = (d + ny * halfH) / (radius * rho);
+  if (cTop > 1 - EPS || cBot < -1 + EPS)
+    return empty;
+  const clippedTop = cTop > -1;
+  const clippedBot = cBot < 1;
+  const aTop = Math.acos(clamp5(cTop, -1, 1));
+  const aBot = Math.acos(clamp5(cBot, -1, 1));
+  const yAt = (u) => clamp5((d - radius * rho * Math.cos(u)) / ny, -halfH, halfH);
+  const at = (u) => mantlePoint(alpha + u, radius, yAt(u));
+  if (!clippedTop && !clippedBot) {
+    const points2 = [];
+    for (let i = 0;i <= segments; i++)
+      points2.push(at(-Math.PI + i / segments * 2 * Math.PI));
+    return { kind: "ellipse", points: points2, closed: true };
+  }
+  const span = aTop - aBot;
+  const arcSteps = Math.max(2, Math.round(segments * span / (2 * Math.PI)));
+  const points = [];
+  const push = (p) => {
+    const prev = points[points.length - 1];
+    if (prev && Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z) < 0.0000001)
+      return;
+    points.push(p);
+  };
+  for (let i = 0;i <= arcSteps; i++)
+    push(at(aBot + span * i / arcSteps));
+  for (let i = arcSteps;i >= 0; i--)
+    push(at(-(aBot + span * i / arcSteps)));
+  points.push(points[0]);
+  return { kind: "truncated", points, closed: true };
+};
+
+// src/parts/curves.ts
+var derivePoints = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v, i) => v !== key[i])) {
+        key = next;
+        memo = compute3();
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+var rotXYZ = (v, p, h, b) => {
+  let { x, y, z } = v;
+  let t = x * Math.cos(b) - y * Math.sin(b);
+  y = x * Math.sin(b) + y * Math.cos(b);
+  x = t;
+  t = x * Math.cos(h) + z * Math.sin(h);
+  z = -x * Math.sin(h) + z * Math.cos(h);
+  x = t;
+  t = y * Math.cos(p) - z * Math.sin(p);
+  z = y * Math.sin(p) + z * Math.cos(p);
+  y = t;
+  return { x, y, z };
+};
+var worldPosition = (holon) => {
+  let pos = { x: holon.x.value, y: holon.y.value, z: holon.z.value };
+  for (let node = holon.parent;node; node = node.parent) {
+    const s = node.scale.value;
+    pos = rotXYZ({ x: pos.x * s, y: pos.y * s, z: pos.z * s }, node.p.value, node.h.value, node.b.value);
+    pos = { x: pos.x + node.x.value, y: pos.y + node.y.value, z: pos.z + node.z.value };
+  }
+  return pos;
+};
+var catmullRom = (anchors2, samplesPerSegment = 24) => {
+  if (anchors2.length < 2)
+    return [...anchors2];
+  const pts = [];
+  const P = (i) => anchors2[Math.min(anchors2.length - 1, Math.max(0, i))];
+  for (let seg = 0;seg < anchors2.length - 1; seg++) {
+    const p0 = P(seg - 1);
+    const p1 = P(seg);
+    const p2 = P(seg + 1);
+    const p3 = P(seg + 2);
+    const last = seg === anchors2.length - 2;
+    const end = last ? samplesPerSegment : samplesPerSegment - 1;
+    for (let i = 0;i <= end; i++) {
+      const t = i / samplesPerSegment;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const co = (a, b, c, d) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - 3 * c + d - a) * t3);
+      pts.push({
+        x: co(p0.x, p1.x, p2.x, p3.x),
+        y: co(p0.y, p1.y, p2.y, p3.y),
+        z: co(p0.z, p1.z, p2.z, p3.z)
+      });
+    }
+  }
+  return pts;
+};
+var trimByArcLength = (points, startFrac, endFrac) => {
+  if (points.length < 2)
+    return [...points];
+  const lens = [0];
+  for (let i = 1;i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    lens.push(lens[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  const total = lens[lens.length - 1];
+  if (!(total > 0))
+    return [...points];
+  const s0 = Math.max(0, Math.min(1, startFrac)) * total;
+  const s1 = (1 - Math.max(0, Math.min(1, endFrac))) * total;
+  if (!(s1 > s0))
+    return [];
+  const pointAt = (s) => {
+    let i = 1;
+    while (i < lens.length - 1 && lens[i] < s)
+      i++;
+    const a = points[i - 1];
+    const b = points[i];
+    const seg = lens[i] - lens[i - 1];
+    const t = seg > 0 ? (s - lens[i - 1]) / seg : 0;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+  };
+  const out = [pointAt(s0)];
+  for (let i = 0;i < points.length; i++) {
+    if (lens[i] > s0 && lens[i] < s1)
+      out.push(points[i]);
+  }
+  out.push(pointAt(s1));
+  return out;
+};
+
+class SectionCurve extends Stroke {
+  radius = length2(50);
+  height = length2(200);
+  tilt = angle(PI3 / 4);
+  spin = angle(0);
+  offset = scalar(0);
+  line = new Line2({ tint: this.tint, stroke: this.stroke });
+  section;
+  compose() {
+    derivePoints(this.line, () => [
+      this.radius.value,
+      this.height.value,
+      this.tilt.value,
+      this.spin.value,
+      this.offset.value
+    ], () => this.refresh());
+  }
+  refresh() {
+    const tilt = this.tilt.value;
+    const spin = this.spin.value;
+    const normal2 = {
+      x: Math.sin(tilt) * Math.cos(spin),
+      y: Math.cos(tilt),
+      z: Math.sin(tilt) * Math.sin(spin)
+    };
+    const off = this.offset.value;
+    const planePoint = { x: normal2.x * off, y: normal2.y * off, z: normal2.z * off };
+    this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint, normal2);
+    return this.section.points;
+  }
+}
+
+class Connection extends Stroke {
+  via = [];
+  offsetStart = completion(0.1);
+  offsetEnd = completion(0.1);
+  line = new Line2({ tint: this.tint, stroke: this.stroke, arrowEnd: true });
+  anchors;
+  constructor(source, target, overrides = {}) {
+    super(overrides);
+    this.anchors = { source, target };
+  }
+  compose() {
+    derivePoints(this.line, () => {
+      const a = worldPosition(this.anchors.source);
+      const b = worldPosition(this.anchors.target);
+      return [a.x, a.y, a.z, b.x, b.y, b.z, this.offsetStart.value, this.offsetEnd.value];
+    }, () => this.refresh());
+  }
+  refresh() {
+    const anchors2 = [
+      worldPosition(this.anchors.source),
+      ...this.via,
+      worldPosition(this.anchors.target)
+    ];
+    return trimByArcLength(catmullRom(anchors2), this.offsetStart.value, this.offsetEnd.value);
+  }
+}
+
+// demo/CurvesShowcase.ts
+var R = 60;
+var H = 240;
+
+class CurvesShowcaseDream extends Dream {
+  cylinder = __dt(new Cylinder({ x: 260, radius: R, height: H, p: 0.35, b: 0.25 }), "core/demo/CurvesShowcase.ts:1738:1802");
+  section = __dt(new SectionCurve({
+    x: 260,
+    radius: R,
+    height: H,
+    p: 0.35,
+    b: 0.25,
+    tilt: 1.2,
+    spin: PI3 / 2,
+    tint: BLUE
+  }), "core/demo/CurvesShowcase.ts:1815:2418");
+  thesis = __dt(new Circle({ x: -420, y: -120, radius: 46, tint: BLUE }), "core/demo/CurvesShowcase.ts:2505:2561");
+  antithesis = __dt(new Circle({ x: -140, y: -120, radius: 46, tint: RED }), "core/demo/CurvesShowcase.ts:2577:2632");
+  synthesis = __dt(new Circle({ x: -280, y: 150, radius: 46 }), "core/demo/CurvesShowcase.ts:2647:2690");
+  fromThesis = __dt(new Connection(this.thesis, this.synthesis, {
+    via: [{ x: -280, y: -120, z: 0 }],
+    offsetStart: 0.15,
+    offsetEnd: 0.2
+  }), "core/demo/CurvesShowcase.ts:2840:2972");
+  fromAntithesis = __dt(new Connection(this.antithesis, this.synthesis, {
+    via: [{ x: -280, y: -120, z: 0 }],
+    offsetStart: 0.15,
+    offsetEnd: 0.2
+  }), "core/demo/CurvesShowcase.ts:2992:3128");
+  unfold() {
+    this.set(...this.observer.dolly(1150));
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/CurvesShowcase.ts:3191:3226");
+    __dt(this.play(Create(this.section), 1.5), "core/demo/CurvesShowcase.ts:3231:3267");
+    this.wait(0.4);
+    __dt(this.play(Create(this.thesis), 0.8), "core/demo/CurvesShowcase.ts:3359:3394");
+    __dt(this.play(Create(this.antithesis), 0.8), "core/demo/CurvesShowcase.ts:3399:3438");
+    __dt(this.play(Create(this.fromThesis), 0.9), "core/demo/CurvesShowcase.ts:3443:3482");
+    __dt(this.play(Create(this.fromAntithesis), 0.9), "core/demo/CurvesShowcase.ts:3487:3530");
+    __dt(this.play(Create(this.synthesis), 0.8), "core/demo/CurvesShowcase.ts:3535:3573");
+    this.wait(0.5);
+    __dt(this.play(this.section.offset.to(70), 2), "core/demo/CurvesShowcase.ts:4088:4128");
+    __dt(this.play(this.section.offset.to(-70), 2.5), "core/demo/CurvesShowcase.ts:4133:4176");
+    __dt(this.play(this.section.offset.to(0), 1.5), "core/demo/CurvesShowcase.ts:4181:4222");
+    __dt(this.play(this.section.tilt.to(0.001), 2), "core/demo/CurvesShowcase.ts:4368:4409");
+    __dt(this.play(this.section.tilt.to(1.2), 2), "core/demo/CurvesShowcase.ts:4414:4453");
+    this.wait(0.3);
+    __dt(this.play(together(...this.observer.orbit({ phi: PI3 / 2.4 })), 3), "core/demo/CurvesShowcase.ts:4541:4606");
+    this.wait(0.6);
+  }
+}
+if (false)
+  ;
+
+// src/parts/text.ts
+var WRITE_REL_OVERLAP = 0.7;
+var WRITE_GLOBAL_SMOOTHING = 0.7;
+var DRAW_WINDOW = [0, 0.6];
+var FILL_WINDOW = [0.5, 1];
+var clamp012 = (v) => Math.min(1, Math.max(0, v));
+var writeWindows = (glyphCount) => dominoWindows(glyphCount, 1 / (glyphCount * (1 - WRITE_REL_OVERLAP) + 1), WRITE_GLOBAL_SMOOTHING);
+var writePhases = (p) => ({
+  draw: clamp012((p - DRAW_WINDOW[0]) / (DRAW_WINDOW[1] - DRAW_WINDOW[0])),
+  fill: clamp012((p - FILL_WINDOW[0]) / (FILL_WINDOW[1] - FILL_WINDOW[0]))
+});
+var letters = (content) => [...content].filter((c) => !/\s/.test(c));
+var linearCreation = (param, values) => {
+  const track = {
+    param,
+    mode: "sequence",
+    values,
+    relStart: 0,
+    relStop: 1,
+    easing: "linear"
+  };
+  return { tracks: [track] };
+};
+
+class Text extends Holon {
+  content = "Text";
+  font = undefined;
+  size = length2(50);
+  tint = color2(WHITE);
+  stroke = length2(5);
+  get letters() {
+    const chars = letters(this.content);
+    const windows2 = writeWindows(chars.length);
+    return chars.map((char, index) => ({ char, index, window: windows2[index] }));
+  }
+  letterProgress(index) {
+    const letter = this.letters[index];
+    if (!letter)
+      return 0;
+    const [start, stop] = letter.window;
+    return clamp012((this.creation.value - start) / Math.max(stop - start, 0.000001));
+  }
+  letterPhases(index) {
+    return writePhases(this.letterProgress(index));
+  }
+  createAnim() {
+    return linearCreation(this.creation, [0, 1]);
+  }
+}
+var Write = (text) => linearCreation(text.creation, [0, 1]);
+var UnWrite = (text) => linearCreation(text.creation, [1, 0]);
+
+// demo/TextShowcase.ts
+class TextShowcaseDream extends Dream {
+  transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
+  thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120, tint: BLUE }), "core/demo/TextShowcase.ts:1245:1316");
+  antithesis = __dt(new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, tint: RED }), "core/demo/TextShowcase.ts:1332:1406");
+  synthesis = __dt(new Text({ content: "syn-thesis", size: 30, y: -120 }), "core/demo/TextShowcase.ts:1421:1475");
+  caption = __dt(new Text({ content: "dialectical thinking", size: 30, y: -150 }), "core/demo/TextShowcase.ts:1488:1552");
+  unfold() {
+    this.set(...this.observer.dolly(560));
+    __dt(this.play(Write(this.transPerspectival), 2), "core/demo/TextShowcase.ts:1672:1715");
+    this.wait(1);
+    __dt(this.play(UnWrite(this.transPerspectival), 1.5), "core/demo/TextShowcase.ts:1737:1784");
+    this.wait(0.3);
+    __dt(this.play(Write(this.thesis), 1.5), "core/demo/TextShowcase.ts:1871:1905");
+    __dt(this.play(Write(this.antithesis), 1.5), "core/demo/TextShowcase.ts:1910:1948");
+    this.wait(0.5);
+    __dt(this.play(together(UnWrite(this.thesis), UnWrite(this.antithesis)), 1.2), "core/demo/TextShowcase.ts:1972:2044");
+    __dt(this.play(Write(this.synthesis), 1.5), "core/demo/TextShowcase.ts:2049:2086");
+    this.wait(0.5);
+    __dt(this.play(UnWrite(this.synthesis), 1.2), "core/demo/TextShowcase.ts:2110:2149");
+    this.wait(0.3);
+    __dt(this.play(Write(this.caption), 2), "core/demo/TextShowcase.ts:2211:2244");
+    this.wait(1);
+    __dt(this.play(FadeOut(this.caption), 1), "core/demo/TextShowcase.ts:2266:2301");
+  }
+}
+if (false)
+  ;
+
+// ../holons/Circle/Circle.ts
+class Circle2 extends Circle {
+}
+
+class CircleDream extends Dream {
+  circle = new Circle2({ radius: 250, tint: BLUE, stroke: 4 });
+  unfold() {
+    this.set(...this.observer.dolly(750));
+    this.play(Create(this.circle), 2.5);
+    this.wait(1.5);
+  }
+}
+if (false)
+  ;
+
+// ../holons/Square/Square.ts
+class Square2 extends Square {
+}
+
+class SquareDream extends Dream {
+  square = new Square2({ size: 440, tint: RED, stroke: 4 });
+  unfold() {
+    this.set(...this.observer.dolly(750));
+    this.play(Create(this.square), 2.5);
+    this.wait(1.5);
+  }
+}
+if (false)
+  ;
+
+// ../holons/Cylinder/Cylinder.ts
+class Cylinder2 extends Cylinder {
+  radius = length2(50);
+  height = length2(200);
+}
+
+class CylinderDream extends Dream {
+  circle = new Circle2({ radius: 100, tint: BLUE, x: -220 });
+  square = new Square2({ size: 200, tint: RED, x: 220 });
+  cylinder = new Cylinder2({ radius: 100, height: 200 });
+  unfold() {
+    this.set(...this.observer.dolly(750));
+    this.play(Create(this.circle), 2);
+    this.wait(0.3);
+    this.play(Create(this.square), 2);
+    this.wait(0.5);
+    this.play(together(this.circle.x.to(0), this.circle.y.to(100), this.circle.p.to(PI3 / 2), this.circle.tint.to(WHITE), this.square.x.to(0), this.square.tint.to(WHITE)), 2.5);
+    this.wait(0.3);
+    this.play(together(Create(this.cylinder), [together(FadeOut(this.circle), FadeOut(this.square)), 0.4, 1]), 2.5);
+    this.play(together(...this.observer.orbit({ phi: 0.9, theta: 0.35 }), ...this.observer.dolly(600), this.cylinder.p.to(PI3 / 2)), 4);
+    this.wait(1.5);
+  }
+}
+if (false)
+  ;
+
+// demo/scenes.ts
+var scenes = {
+  founding: CylinderDream,
+  circle: CircleDream,
+  square: SquareDream,
+  smoke: FoundingSmokeDream,
+  calibration: StrokeCalibrationDream,
+  vocab: VocabShowcaseDream,
+  curves: CurvesShowcaseDream,
+  text: TextShowcaseDream,
+  cameracal: CameraCalDream,
+  cameracalcyl: CameraCalCylinderDream,
+  cameracalgrid: CameraCalGridDream,
+  s04: S04Dream
+};
+var defaultScene = "founding";
+
 // editor/main.ts
 var $ = (id) => document.getElementById(id);
 var SCRUB_MAX = 1000;
-var SCENE_FILE = "core/demo/FoundingSmoke.ts";
+var SCENE_FILES = {
+  smoke: "core/demo/FoundingSmoke.ts",
+  calibration: "core/demo/StrokeCalibration.ts",
+  vocab: "core/demo/VocabShowcase.ts",
+  curves: "core/demo/CurvesShowcase.ts",
+  text: "core/demo/TextShowcase.ts",
+  cameracal: "core/demo/video01/CameraCal.ts",
+  s04: "core/demo/video01/S04.ts"
+};
+var sceneFileFor = (key) => SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts";
 var ensureWs = () => {
   const existing = window.__dtWs;
   if (existing && existing.readyState <= WebSocket.OPEN)
@@ -47943,7 +49178,9 @@ var boot = async (resume) => {
   frame.className = "";
   const ac = new AbortController;
   const listen = { signal: ac.signal };
-  const dream = new FoundingSmokeDream;
+  const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene;
+  const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene];
+  const dream = new DreamCtor;
   const host = await ThreeHost.mount(dream, canvas);
   const duration = dream.duration;
   $("scenename").textContent = dream.constructor.name.replace(/Dream$/, "");
@@ -48012,9 +49249,9 @@ var boot = async (resume) => {
   };
   populateRefs().catch(() => {});
   const commitBackdrop = async (path, offset) => {
-    const res = await fetch(`/api/source?file=${encodeURIComponent(SCENE_FILE)}`);
+    const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFileFor(sceneKey))}`);
     const baseHash = res.ok ? (await res.json()).hash : undefined;
-    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: SCENE_FILE });
+    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: sceneFileFor(sceneKey) });
   };
   bdRef.addEventListener("change", () => {
     const path = bdRef.value;

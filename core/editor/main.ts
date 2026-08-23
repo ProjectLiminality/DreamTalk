@@ -21,7 +21,7 @@ import { Holon } from "../src/holon"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
-import { FoundingSmokeDream } from "../demo/FoundingSmoke"
+import { scenes, defaultScene } from "../demo/scenes"
 
 interface Transport {
   t: number
@@ -52,7 +52,18 @@ declare global {
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
 const SCRUB_MAX = 1000
-const SCENE_FILE = "core/demo/FoundingSmoke.ts"
+/** Source file per registry key — semantic ops (setBackdrop/setOverride) target this. */
+const SCENE_FILES: Record<string, string> = {
+  smoke: "core/demo/FoundingSmoke.ts",
+  calibration: "core/demo/StrokeCalibration.ts",
+  vocab: "core/demo/VocabShowcase.ts",
+  curves: "core/demo/CurvesShowcase.ts",
+  text: "core/demo/TextShowcase.ts",
+  cameracal: "core/demo/video01/CameraCal.ts",
+  s04: "core/demo/video01/S04.ts",
+}
+const sceneFileFor = (key: string): string =>
+  SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts"
 
 // --- Daemon link (module-independent singleton) ----------------------------
 
@@ -123,7 +134,11 @@ const boot = async (resume?: Transport) => {
   const ac = new AbortController()
   const listen = { signal: ac.signal }
 
-  const dream = new FoundingSmokeDream()
+  // Which DreamWeaving the editor is editing: /?scene=s04 (registry in
+  // demo/scenes.ts). Reproduction scenes carry their own backdrop line.
+  const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene
+  const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene]!
+  const dream = new DreamCtor()
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
   $("scenename").textContent = dream.constructor.name.replace(/Dream$/, "")
@@ -197,9 +212,9 @@ const boot = async (resume?: Transport) => {
   void populateRefs().catch(() => {})
 
   const commitBackdrop = async (path: string, offset: number) => {
-    const res = await fetch(`/api/source?file=${encodeURIComponent(SCENE_FILE)}`)
+    const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFileFor(sceneKey))}`)
     const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
-    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: SCENE_FILE })
+    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: sceneFileFor(sceneKey) })
   }
 
   bdRef.addEventListener(
