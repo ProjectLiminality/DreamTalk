@@ -57,7 +57,16 @@ PASS). Fix: the demo canvas fills the viewport and the comparator's
 resize undoes the stretch exactly (core/demo/index.html). **Any
 calibration measured against pre-fix composites must be re-measured.**
 
-**Open: the lens question.** Four independent measurements off the
+**RESOLVED 2026-08-23 (see DECISIONS): the lens is 36mm.**
+`refs/pydeation-legacy/camera/camera.py` builds a bare
+`c4d.CameraObject()` and never sets focal length → C4D's factory 36mm
+(hfov 53.13°) → 1.280 px/unit at d=1000, exactly the measured value.
+Our rig's 45mm was imported from the modern C4D port. Apply between
+rounds (`Observer.fov` default) and re-score every scene together;
+scene-local dollies that compensated for the old scale must be removed
+in the same pass. Original finding below.
+
+**The lens question (as first observed).** Four independent measurements off the
 reference (tick pitch, two object centres, rectangle extents) all give
 1.280 px/world-unit at the rig's 1000-unit distance; our rig projects
 1.600 — i.e. the 2021 camera behaves like a 36mm lens (hfov 53.13°), not

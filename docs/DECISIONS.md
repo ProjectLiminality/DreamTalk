@@ -51,6 +51,16 @@ operational decisions are entered by the working agent. Format:
   reaches David. Async batch rendering is plumbing, not the workflow.
 - 2026-08-22 · **Runtime: Bun** (David) — matches the wider ecosystem;
   headless Chrome only where the editor screenshot loop needs driving.
+- 2026-08-23 · **The 2021 lens is 36mm (hfov 53.13°), not 45mm** — settled
+  by source + arithmetic, not estimation: `refs/pydeation-legacy/camera/
+  camera.py` constructs a bare `c4d.CameraObject()` and never touches
+  focal length, so it runs C4D's factory 36mm default; 36mm at d=1000
+  projects 1.280 px/world-unit, matching the S04 builder's four
+  independent reference measurements (1.280) and CameraCal's independent
+  ~0.83 flag. The 45mm in our rig came from the MODERN C4D port
+  (objects/camera_objects.py), not the 2021 code. Apply BETWEEN rounds
+  (Observer.fov default → 2·atan(0.5)) and re-score all scenes together;
+  never mid-round, which would invalidate in-flight calibrations.
 - 2026-08-23 · **Text renders via `three-text` 0.6.5, not troika** — the
   ANALYSIS.md fallback (option b) taken after troika proved unusable under
   WebGPURenderer in practice; three-text is WebGPU/NodeMaterial-native
