@@ -89,8 +89,14 @@ const {
 
 /**
  * Half-width of the analytic AA band in device pixels: coverage falls
- * from 1 to 0 over [halfWidth − AA_PX, halfWidth + AA_PX]. 0.75 gives
- * a ~1.5px skirt — calibrated against refs/video-01 line falloff.
+ * from 1 to 0 over [halfWidth − AA_PX, halfWidth + AA_PX].
+ *
+ * The band is ABSORBED, not added: it straddles the nominal edge rather
+ * than sitting outside it, so coverage is exactly 0.5 at d = halfWidth
+ * and the skirt's two halves cancel. That is what makes `stroke = N`
+ * deposit N pixels of ink — see the width contract on RibbonMaterial.
+ * Widening this softens the edge without fattening the line; it only
+ * costs the full-brightness core, which vanishes at N <= 2 * AA_PX.
  */
 const AA_PX = 1.0
 
@@ -102,7 +108,27 @@ const vEndPx = varyingProperty("vec2", "dtRibbonEndPx")
 const vDist = varyingProperty("vec2", "dtRibbonDist")
 
 export class RibbonMaterial extends THREE.NodeMaterial {
-  /** Stroke width in CSS pixels (holon `stroke` param). */
+  /**
+   * Stroke width in CSS pixels (holon `stroke` param), as a DIAMETER —
+   * the full width of the line, not a radius.
+   *
+   * THE WIDTH CONTRACT, and how to check it. `stroke = N` deposits N
+   * pixels of ink: take a cross-section of the rendered line, convert
+   * the samples to LINEAR light, and sum them divided by the peak — that
+   * area/peak is N, verified to within 0.01px for N in 1..12
+   * (core/test/ribbon-width.test.ts pins the same identity on the
+   * analytic coverage the shader evaluates).
+   *
+   * Measure it that way and no other. Half-max width (FWHM) read off
+   * sRGB pixels is NOT this number — it runs ~0.7px high here, because
+   * sRGB encoding lifts the AA skirt and the half-max crossing of a
+   * plateau-plus-skirt profile sits outside the nominal edge. A whole
+   * round of "our lines are too fat" was chased on FWHM readings before
+   * the linear-light measurement showed the renderer had been exact all
+   * along and the error was in the caller's unit mapping
+   * (demo/video01/palette.ts, which was missing S&T's 0.6 distance
+   * attenuation).
+   */
   readonly widthPx = uniform(3)
   /** Draw front as arc length in the polyline's local units. */
   readonly drawn = uniform(0)
