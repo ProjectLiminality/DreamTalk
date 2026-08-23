@@ -44,6 +44,7 @@ import { RibbonStroke } from "./ribbon"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
+import { screenArcRemap, type ProjectedPoint } from "./screen-arc"
 
 const STROKE_SEGMENTS = 128
 
@@ -189,28 +190,47 @@ const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
  * The arrowhead triangle for one Line endpoint, in the line's local
  * space, pointing outward along the end segment.
  *
- * Sketch & Toon's arrow line-end is a cap of "7 x 5" in the same pixel
- * units the thickness is stated in, i.e. a triangle 5*T/2 long and
- * 7*T/2 across for a stroke of thickness T, sitting with its BASE on the
- * line's endpoint and its tip beyond it — the line stops where the head
- * begins. refs/video-01/frames5/f0428 measures exactly that: the S04
- * gradient's axis runs to x = 960 (world +250) and the head occupies
- * 960..972 with an 18px base, against the 12.9px / 17.9px those
- * factors predict at the 1.28 px-per-unit of that scene's camera.
+ * Sketch & Toon states the cap in its OWN fields, not as a multiple of
+ * the rendered line:
  *
- * The cap is a SCREEN-SPACE object, exactly like the stroke width it is
- * stated in: Sketch & Toon draws it at a constant pixel size however far
- * away the line runs. So the polygon is world geometry sized per frame
- * from the projected scale at the pen (`syncArrows`), not from a fixed
- * px-per-unit constant. Scene 05 is what forced this: its axes recede to
- * 0.81 px/world-unit, where a cap sized for S04's 1.28 read barely wider
- * than the line — a head that had visibly vanished (f0460: our cap's
- * half-width measured 3.8px against the reference's 7.5px).
+ *   sketch_mat[c4d.OUTLINEMAT_ENDCAP_WIDTH]  = 7
+ *   sketch_mat[c4d.OUTLINEMAT_ENDCAP_HEIGHT] = 5
+ *      — refs/pydeation-legacy/object/object.py:215-218
+ *
+ * Those 7 and 5 are the same PIXEL UNITS the thickness is stated in
+ * (scene.py's PIXELUNITS_BASEH = 700), and they are HALF-extents, so the
+ * drawn cap is 2*7 pixel units across and 2*5 pixel units long. That is
+ * `arrowSize` — one pixel unit in rendered pixels, frameHeight / 700 —
+ * times the two factors below.
+ *
+ * They live in a field of their own, which is the whole point: the cap
+ * does NOT carry `OUTLINEMAT_THICKNESS_DISTANCE`'s 0.6 attenuation. That
+ * strength multiplies the THICKNESS field alone, so when the palette
+ * finally applied it (c0a9cc6) every arrowhead in the reproduction
+ * shrank by 0.6 along with the lines — while the reference's did not.
+ *
+ * Measured on refs/video-01/frames5/f0428, where S04's gradient axis
+ * runs dead horizontal and the head is unforeshortened (linear light,
+ * area/peak per column): shaft 2.90px, head base 14.95px at x = 961
+ * tapering linearly to zero at x = 971.6 — a clean triangle 10.9px long
+ * and 14.95px across. This mapping predicts 2*5*720/700 = 10.29 and
+ * 2*7*720/700 = 14.40; both readings sit ~0.5px high, which is one AA
+ * skirt on each measured extent. The old mapping (2.5 and 1.75 STROKE
+ * widths) fitted the same numbers only while the stroke was still
+ * unattenuated at 5.14px — a coincidence of 5/2 and 7/2, and the reason
+ * it survived so long.
+ *
+ * The cap is a SCREEN-SPACE object, exactly like the stroke width: S&T
+ * draws it at a constant pixel size however far away the line runs. So
+ * the polygon is world geometry sized per frame from the projected scale
+ * at the pen (`syncArrow`), not from a fixed px-per-unit constant. Scene
+ * 05 is what forced this: its axes recede to 0.85 px/world-unit, where a
+ * cap sized for S04's 1.28 read barely wider than the line.
  */
-/** S&T cap length, in stroke widths: 5/2 pixel units per width. */
-const ARROW_LENGTH_FACTOR = 2.5
-/** S&T cap half-width, in stroke widths: 7/2 pixel units across. */
-const ARROW_HALF_WIDTH_FACTOR = 1.75
+/** S&T cap length, in pixel units: 2 * ENDCAP_HEIGHT. */
+const ARROW_LENGTH_FACTOR = 10
+/** S&T cap half-width, in pixel units: ENDCAP_WIDTH (the half-extent). */
+const ARROW_HALF_WIDTH_FACTOR = 7
 
 /**
  * Walk a polyline to `progress` of its arc length, returning the point
@@ -245,7 +265,8 @@ const walkTo = (
 const arrowPolygon = (
   points: readonly Vec3Like[],
   atStart: boolean,
-  widthPx: number,
+  /** One S&T pixel unit in rendered pixels — `Line.arrowSize`. */
+  unitPx: number,
   progress = 1,
   /** Local units per screen pixel ALONG the line — 1 keeps the cap in units. */
   unitsPerPixel = 1,
@@ -278,8 +299,8 @@ const arrowPolygon = (
   if (side.lengthSq() < 1e-12) side.crossVectors(dir, new THREE.Vector3(0, 1, 0))
   side.normalize()
   // The endpoint is the BASE of the head; the apex sits beyond it.
-  const length = widthPx * ARROW_LENGTH_FACTOR * unitsPerPixel
-  const halfWidth = widthPx * ARROW_HALF_WIDTH_FACTOR * unitsPerPixelAcross
+  const length = unitPx * ARROW_LENGTH_FACTOR * unitsPerPixel
+  const halfWidth = unitPx * ARROW_HALF_WIDTH_FACTOR * unitsPerPixelAcross
   const apex = tip.clone().addScaledVector(dir, length)
   const a = tip.clone().addScaledVector(side, halfWidth)
   const b = tip.clone().addScaledVector(side, -halfWidth)
@@ -306,7 +327,7 @@ const shapeKey = (holon: Stroke): number[] => {
 }
 
 /** Arrow geometry depends on the endpoints and the stroke width. */
-const arrowKey = (holon: Line): number[] => [...shapeKey(holon), holon.stroke.value]
+const arrowKey = (holon: Line): number[] => [...shapeKey(holon), holon.arrowSize.value]
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
@@ -408,7 +429,7 @@ export class ThreeHost {
       if (holon instanceof Line) {
         for (const atStart of [false, true]) {
           if (!(atStart ? holon.arrowStart : holon.arrowEnd).value) continue
-          const polygon = arrowPolygon(holon.points, atStart, holon.stroke.value)
+          const polygon = arrowPolygon(holon.points, atStart, holon.arrowSize.value)
           if (!polygon) continue
           const fill = new FillShape(this.nextFillOrder++)
           fill.setPolygon(polygon)
@@ -454,11 +475,11 @@ export class ThreeHost {
       }
       const tint: Color = holon.tint.value
       ribbon.style(
-        holon.creation.value,
+        this.screenArc(binding, holon.creation.value),
         holon.opacity.value,
         tint,
         holon.stroke.value,
-        holon.erasure.value,
+        this.screenArc(binding, holon.erasure.value),
       )
     }
     for (const binding of this.fills) {
@@ -531,7 +552,7 @@ export class ThreeHost {
       const polygon = arrowPolygon(
         holon.points,
         atStart,
-        holon.stroke.value,
+        holon.arrowSize.value,
         progress,
         along,
         viewLocal,
@@ -756,9 +777,401 @@ export class ThreeHost {
     sub(lineB, mantleVisible ? window(creation, bounds[3]!, bounds[4]!) : 0, bounds[3]!, bounds[4]!)
   }
 
+  // --- Picking (EDITOR-V3 decision 1: "what holon is under this pixel?") ---
+  //
+  // The host already knows the answer and nobody else can: a DreamTalk
+  // stroke has NO pickable geometry in the ordinary sense. Its mesh is a
+  // unit quad expanded to a constant SCREEN-PIXEL ribbon entirely inside
+  // the vertex shader (ribbon.ts), so a THREE.Raycaster against it
+  // reports either nothing or a 2-unit square at the origin. Picking is
+  // therefore done where the ink actually is: in screen space, against
+  // the very segment buffers the shader reads, at this frame's
+  // projection — the same arithmetic the fragment stage does, on the CPU.
+  //
+  // That is not a workaround, it is the accurate answer: a hit means the
+  // cursor is within `stroke/2 + PICK_SLOP` pixels of drawn ink, which is
+  // exactly what the eye sees. Thin strokes (video-01 runs 1.4-2.9px) get
+  // the slop as a fat, forgiving target without the *deep* choice below
+  // ever becoming imprecise.
+
+  /** Extra pixels of forgiveness around a stroke's own half-width. */
+  private static readonly PICK_SLOP = 7
+
+  /**
+   * The holon under a viewport point, or undefined over empty space.
+   *
+   * `ndcX`/`ndcY` are normalized device coordinates (-1..1, y up) — what
+   * a click on the canvas converts to. Only ink that is actually visible
+   * at the current t can be hit: invisible meshes, un-drawn spans and
+   * erased spans are all skipped, so clicking where a stroke *will be*
+   * selects nothing, which is what direct manipulation means.
+   *
+   * Ties break toward the DEEPEST holon (a part over its whole) and then
+   * toward the closest ink, so clicking an Eye's pupil selects the pupil
+   * and clicking one grid line of an Axes selects that Line.
+   */
+  pick(ndcX: number, ndcY: number): Holon | undefined {
+    const width = this.renderer.domElement.width || 1280
+    const height = this.renderer.domElement.height || 720
+    const px = ((ndcX + 1) / 2) * width
+    const py = ((1 - ndcY) / 2) * height
+    this.scene.updateMatrixWorld(true)
+
+    let best: { holon: Holon; depth: number; distance: number } | undefined
+    const consider = (holon: Holon, distance: number, tolerance: number) => {
+      if (distance > tolerance) return
+      const depth = this.depthOf(holon)
+      // Deeper wins outright; at equal depth, nearer ink wins.
+      if (best && (best.depth > depth || (best.depth === depth && best.distance <= distance))) return
+      best = { holon, depth, distance }
+    }
+
+    for (const binding of this.strokes) {
+      consider(
+        binding.holon,
+        this.ribbonDistance(binding.ribbon, px, py, width, height),
+        binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP,
+      )
+    }
+    for (const binding of this.cylinders) {
+      const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP
+      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+        consider(binding.holon, this.ribbonDistance(ribbon, px, py, width, height), tolerance)
+      }
+    }
+    // Fills are real triangles, so they pick as areas: inside = distance 0.
+    for (const binding of this.fills) {
+      consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
+    }
+    for (const binding of this.arrows) {
+      consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
+    }
+    for (const { binding, group } of this.texts) {
+      consider(binding.holon, this.groupScreenDistance(group, px, py, width, height), 0)
+    }
+    return best?.holon
+  }
+
+  /**
+   * A holon's screen-space bounding box, in pixels, as a Box3 whose z is
+   * unused — what a selection affordance is drawn from. Covers the holon
+   * and everything below it, so selecting a whole frames all its parts.
+   * Undefined when nothing of it is currently on screen.
+   */
+  boundsOf(holon: Holon): THREE.Box3 | undefined {
+    this.scene.updateMatrixWorld(true)
+    const width = this.renderer.domElement.width || 1280
+    const height = this.renderer.domElement.height || 720
+    const wanted = new Set<Holon>()
+    for (const h of holon.walk()) wanted.add(h)
+
+    const box = new THREE.Box3()
+    box.makeEmpty()
+    const point = new THREE.Vector3()
+    const add = (world: THREE.Vector3) => {
+      point.copy(world).project(this.camera)
+      box.expandByPoint(
+        new THREE.Vector3(((point.x + 1) / 2) * width, ((1 - point.y) / 2) * height, 0),
+      )
+    }
+    const addRibbon = (ribbon: RibbonStroke, object: THREE.Object3D) => {
+      for (const world of this.ribbonWorldPoints(ribbon, object)) add(world)
+    }
+
+    for (const binding of this.strokes) {
+      if (wanted.has(binding.holon)) addRibbon(binding.ribbon, binding.ribbon.mesh)
+    }
+    for (const binding of this.cylinders) {
+      if (!wanted.has(binding.holon)) continue
+      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+        addRibbon(ribbon, ribbon.mesh)
+      }
+    }
+    for (const binding of [...this.fills, ...this.arrows]) {
+      if (!wanted.has(binding.holon)) continue
+      for (const world of this.meshWorldPoints(binding.fill.mesh)) add(world)
+    }
+    for (const { binding, group } of this.texts) {
+      if (!wanted.has(binding.holon)) continue
+      for (const world of this.meshWorldPoints(group)) add(world)
+    }
+    // A holon with no ink of its own (a Null, a Group, an empty whole) is
+    // still selectable — fall back to its origin so the affordance has
+    // somewhere to sit.
+    if (box.isEmpty()) {
+      const found = this.groups.find((g) => g.holon === holon)
+      if (!found) return undefined
+      add(new THREE.Vector3().setFromMatrixPosition(found.group.matrixWorld))
+    }
+    return box
+  }
+
+  /** Depth in the part tree — how many wholes a holon sits inside. */
+  private depthOf(holon: Holon): number {
+    let depth = 0
+    let node: Holon | undefined = holon.parent
+    while (node) {
+      depth++
+      node = node.parent
+    }
+    return depth
+  }
+
+  /**
+   * Pixel distance from (px, py) to a ribbon's currently VISIBLE ink.
+   *
+   * Reads the packed instance buffers directly — the shader's own view of
+   * the polyline — and honours the [erased, drawn] arc-length window, so
+   * a half-drawn stroke is only pickable where the pen has been.
+   */
+  private ribbonDistance(
+    ribbon: RibbonStroke,
+    px: number,
+    py: number,
+    width: number,
+    height: number,
+  ): number {
+    if (!ribbon.mesh.visible) return Infinity
+    const count = ribbon.geometry.instanceCount
+    if (count < 1) return Infinity
+    const start = ribbon.geometry.getAttribute("instanceStart") as
+      | THREE.InterleavedBufferAttribute
+      | undefined
+    const dist = ribbon.geometry.getAttribute("instanceDistanceStart") as
+      | THREE.InterleavedBufferAttribute
+      | undefined
+    if (!start || !dist) return Infinity
+    const positions = start.data.array as Float32Array
+    const distances = dist.data.array as Float32Array
+    const drawn = ribbon.material.drawn.value
+    const erased = ribbon.material.erased.value
+
+    const matrix = ribbon.mesh.matrixWorld
+    const a = new THREE.Vector3()
+    const b = new THREE.Vector3()
+    let best = Infinity
+    for (let i = 0; i < count; i++) {
+      // Skip segments entirely outside the visible arc-length window.
+      const d0 = distances[i * 2]!
+      const d1 = distances[i * 2 + 1]!
+      if (d0 >= drawn || d1 <= erased) continue
+      a.set(positions[i * 6]!, positions[i * 6 + 1]!, positions[i * 6 + 2]!).applyMatrix4(matrix)
+      b.set(positions[i * 6 + 3]!, positions[i * 6 + 4]!, positions[i * 6 + 5]!).applyMatrix4(matrix)
+      // Clip the segment to the drawn window so the pen tip is honest.
+      const span = d1 - d0
+      if (span > 1e-9) {
+        const from = Math.max(0, Math.min(1, (erased - d0) / span))
+        const to = Math.max(0, Math.min(1, (drawn - d0) / span))
+        if (to <= from) continue
+        const delta = b.clone().sub(a)
+        b.copy(a).addScaledVector(delta, to)
+        a.addScaledVector(delta, from)
+      }
+      const pa = this.toScreen(a, width, height)
+      const pb = this.toScreen(b, width, height)
+      if (!pa || !pb) continue
+      const d = segmentDistance2D(px, py, pa.x, pa.y, pb.x, pb.y)
+      if (d < best) best = d
+    }
+    return best
+  }
+
+  /** 0 inside a visible fill's triangles, Infinity outside. */
+  private fillDistance(
+    fill: FillShape,
+    px: number,
+    py: number,
+    width: number,
+    height: number,
+  ): number {
+    if (!fill.mesh.visible) return Infinity
+    const geometry = fill.mesh.geometry
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+    const index = geometry.getIndex()
+    if (!position || !index) return Infinity
+    const matrix = fill.mesh.matrixWorld
+    const v = new THREE.Vector3()
+    const project = (vertex: number): { x: number; y: number } | undefined => {
+      v.fromBufferAttribute(position, vertex).applyMatrix4(matrix)
+      return this.toScreen(v, width, height)
+    }
+    for (let i = 0; i < index.count; i += 3) {
+      const p0 = project(index.getX(i))
+      const p1 = project(index.getX(i + 1))
+      const p2 = project(index.getX(i + 2))
+      if (!p0 || !p1 || !p2) continue
+      if (pointInTriangle2D(px, py, p0, p1, p2)) return 0
+    }
+    return Infinity
+  }
+
+  /** 0 inside any visible mesh under an object (text glyph quads). */
+  private groupScreenDistance(
+    object: THREE.Object3D,
+    px: number,
+    py: number,
+    width: number,
+    height: number,
+  ): number {
+    let hit = Infinity
+    object.traverse((child) => {
+      if (hit === 0) return
+      if (!(child instanceof THREE.Mesh) || !child.visible) return
+      const position = child.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+      if (!position) return
+      // Glyph quads are small and numerous; their screen AABB is the
+      // honest, cheap answer for "did the cursor land on this text".
+      const box = new THREE.Box2()
+      const v = new THREE.Vector3()
+      for (let i = 0; i < position.count; i++) {
+        v.fromBufferAttribute(position, i).applyMatrix4(child.matrixWorld)
+        const screen = this.toScreen(v, width, height)
+        if (screen) box.expandByPoint(new THREE.Vector2(screen.x, screen.y))
+      }
+      if (!box.isEmpty() && box.containsPoint(new THREE.Vector2(px, py))) hit = 0
+    })
+    return hit
+  }
+
+  /** World-space points of a ribbon's current segment buffers. */
+  private ribbonWorldPoints(ribbon: RibbonStroke, object: THREE.Object3D): THREE.Vector3[] {
+    const count = ribbon.geometry.instanceCount
+    const start = ribbon.geometry.getAttribute("instanceStart") as
+      | THREE.InterleavedBufferAttribute
+      | undefined
+    if (count < 1 || !start) return []
+    const positions = start.data.array as Float32Array
+    const out: THREE.Vector3[] = []
+    for (let i = 0; i < count; i++) {
+      out.push(
+        new THREE.Vector3(positions[i * 6]!, positions[i * 6 + 1]!, positions[i * 6 + 2]!)
+          .applyMatrix4(object.matrixWorld),
+      )
+      out.push(
+        new THREE.Vector3(positions[i * 6 + 3]!, positions[i * 6 + 4]!, positions[i * 6 + 5]!)
+          .applyMatrix4(object.matrixWorld),
+      )
+    }
+    return out
+  }
+
+  /** World-space vertices of every mesh under an object. */
+  private meshWorldPoints(object: THREE.Object3D): THREE.Vector3[] {
+    const out: THREE.Vector3[] = []
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.visible) return
+      const position = child.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+      if (!position) return
+      for (let i = 0; i < position.count; i++) {
+        out.push(new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(child.matrixWorld))
+      }
+    })
+    return out
+  }
+
+  /**
+   * Creation/erasure fraction → the WORLD-arc fraction the ribbon wants,
+   * under Sketch & Toon's actual draw model: the pen advances by SCREEN
+   * pixels of VISIBLE stroke (render/screen-arc.ts carries the derivation
+   * and the reference measurement).
+   *
+   * Why the host and not the shader: the map depends on this frame's
+   * projection of this stroke, is different for every stroke, and is
+   * needed as a scalar, not per-fragment. That is CPU work by TASTE's
+   * own split rule ("work that decides what elements exist runs on CPU";
+   * here, where the pen IS). The ribbon keeps its world-arc uniforms
+   * untouched, so nothing about the stroke pipeline changes — only the
+   * number handed to it.
+   *
+   * Cost: one projection pass per stroke per frame over
+   * SCREEN_ARC_SAMPLES points. A straight Line needs the subdivision
+   * because screen position is NOT affine in world position under
+   * perspective — the whole effect being reproduced is that
+   * non-affinity — so two endpoints would measure a chord and miss it.
+   */
+  private screenArc(binding: StrokeBinding, fraction: number): number {
+    if (fraction <= 0) return 0
+    if (fraction >= 1) return 1
+    const pts = binding.ribbon.worldPoints()
+    if (pts.length < 2) return fraction
+    const width = this.renderer.domElement.width || 1280
+    const height = this.renderer.domElement.height || 720
+    const matrix = binding.ribbon.mesh.matrixWorld
+    const projected: ProjectedPoint[] = []
+    const v = new THREE.Vector3()
+    let world = 0
+    let previous: THREE.Vector3 | undefined
+    for (const local of pts) {
+      v.copy(local).applyMatrix4(matrix)
+      if (previous) world += v.distanceTo(previous)
+      const screen = this.toScreen(v, width, height)
+      projected.push({
+        x: screen?.x ?? 0,
+        y: screen?.y ?? 0,
+        world,
+        onCamera: screen !== undefined,
+      })
+      previous = v.clone()
+    }
+    const total = world
+    if (total <= 0) return fraction
+    const remap = screenArcRemap(projected, total, { width, height })
+    // A stroke with no visible ink has no screen parametrisation; the
+    // remap already falls back to the identity, so this is just the
+    // cheap early out.
+    if (remap.screenLength <= 0) return fraction
+    return Math.max(0, Math.min(1, remap.worldAt(fraction) / total))
+  }
+
+  /** World point → device pixels (y down), or undefined behind the camera. */
+  private toScreen(
+    world: THREE.Vector3,
+    width: number,
+    height: number,
+  ): { x: number; y: number } | undefined {
+    const ndc = world.clone().project(this.camera)
+    if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y)) return undefined
+    if (this.camera instanceof THREE.PerspectiveCamera && ndc.z > 1) return undefined
+    return { x: ((ndc.x + 1) / 2) * width, y: ((1 - ndc.y) / 2) * height }
+  }
+
   dispose(): void {
     for (const { binding } of this.texts) binding.dispose()
     this.texts.length = 0
     this.renderer.dispose()
   }
+}
+
+/** Pixel distance from a point to a 2D segment. */
+const segmentDistance2D = (
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number => {
+  const dx = bx - ax
+  const dy = by - ay
+  const lenSq = dx * dx + dy * dy
+  const u = lenSq > 1e-12 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq)) : 0
+  return Math.hypot(px - (ax + dx * u), py - (ay + dy * u))
+}
+
+/** Whether a 2D point lies inside a triangle (any winding). */
+const pointInTriangle2D = (
+  px: number,
+  py: number,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+): boolean => {
+  const cross = (ox: number, oy: number, ux: number, uy: number, vx: number, vy: number) =>
+    (ux - ox) * (vy - oy) - (uy - oy) * (vx - ox)
+  const d1 = cross(a.x, a.y, b.x, b.y, px, py)
+  const d2 = cross(b.x, b.y, c.x, c.y, px, py)
+  const d3 = cross(c.x, c.y, a.x, a.y, px, py)
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0
+  return !(hasNeg && hasPos)
 }

@@ -1,19 +1,29 @@
 /**
- * The DreamTalk editor v1 (EDITOR.md, build order v1 — the loop exists).
+ * The DreamTalk editor (EDITOR.md v1-v2 + EDITOR-V3 step 1 — SELECTION).
  *
- * Viewport (realtime playback) · timeline (scrub, clip marks) · minimal
- * parameter panel (live values; persisted commits land in v2) · the
- * backdrop instrument (image/video, timeline-synced, overlay modes).
+ * Four Keynote regions: holarchy outline (left, cmd+shift+L) · viewport
+ * with click-to-select · inspector showing ONLY the selected holon
+ * (right) · timeline (bottom). The backdrop instrument lives with the
+ * scene-level properties, which is what the inspector falls back to when
+ * nothing is selected.
+ *
+ * Selection is shared editor state (EDITOR-V3 decision 1): one
+ * `Selection` store that the viewport, the outline and the inspector all
+ * read and all write. The host answers "what holon is under this pixel?"
+ * (three-host pick/boundsOf); every holon carries its source anchor, so a
+ * selection is also a file and a byte range — the bridge between the
+ * visual and the code.
  *
  * Served by scripts/daemon.ts: code edits rebuild the bundle and arrive
  * as {type:"reload"} over /ws — the editor re-imports itself cache-busted
- * and remounts, preserving transport state. Choosing a reference in the
- * Backdrop panel sends the setBackdrop semantic op, which writes the
- * `this.backdrop(...)` line into the DreamWeaving; the loop closes back
- * through the file. Drag-drop stays an ephemeral preview.
+ * and remounts, preserving transport state AND the selection (matched by
+ * part path, since holon identities do not survive a rebuild). Choosing a
+ * reference in the Backdrop panel sends the setBackdrop semantic op,
+ * which writes the `this.backdrop(...)` line into the DreamWeaving; the
+ * loop closes back through the file. Drag-drop stays an ephemeral preview.
  *
  * Claude drives this same page headless for overlay evaluation via
- * window.__dt (setT / setBackdrop / play / pause).
+ * window.__dt (setT / setBackdrop / play / pause / select / pick).
  */
 
 import { ThreeHost } from "../src/render/three-host"
@@ -22,11 +32,20 @@ import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
 import { scenes, defaultScene } from "../demo/scenes"
+import { Selection, pathOf, type SelectionPath } from "./selection"
+import { mountOutline, identityOf, rootIdentityOf } from "./outline"
+import { Marquee } from "./marquee"
+import { formatValue, inspectorGroups, sliderRange } from "./inspector"
+import { classNameOf } from "./classname"
 
 interface Transport {
   t: number
   playing: boolean
   bdMode?: string
+  /** Where the selection sat, as a part path (holon identities are fresh). */
+  selection?: SelectionPath
+  /** Whether the holarchy outline was open. */
+  outline?: boolean
 }
 
 declare global {
@@ -39,6 +58,16 @@ declare global {
       play: () => void
       pause: () => void
       setBackdrop: (url: string, mode?: string, offset?: number) => void
+      /** Selection, for headless verification and for agent-driven editing. */
+      pick?: (ndcX: number, ndcY: number) => string | undefined
+      selectAt?: (ndcX: number, ndcY: number) => string | undefined
+      selected?: () => { className: string; identity?: string; anchor?: SourceAnchor } | undefined
+      clearSelection?: () => void
+      /** The selection's screen bounds in render pixels — headless checks. */
+      bounds?: () => { minX: number; minY: number; maxX: number; maxY: number } | undefined
+      /** Suppress the selection affordance entirely (never in a render). */
+      setAffordance?: (on: boolean) => void
+      toggleOutline?: () => boolean
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -131,6 +160,9 @@ const boot = async (resume?: Transport) => {
   const timecode = $<HTMLDivElement>("timecode")
   const playpause = $<HTMLButtonElement>("playpause")
   const paramsRoot = $<HTMLDivElement>("params")
+  const treeRoot = $<HTMLDivElement>("tree")
+  const app = $<HTMLDivElement>("app")
+  const marquee = new Marquee($<HTMLCanvasElement>("marquee"))
   const clipsBar = $<HTMLDivElement>("clips")
   const bdMode = $<HTMLSelectElement>("bdmode")
   const bdOffset = $<HTMLInputElement>("bdoffset")
@@ -150,8 +182,10 @@ const boot = async (resume?: Transport) => {
   const dream = new DreamCtor()
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
-  $("scenename").textContent = dream.constructor.name.replace(/Dream$/, "")
-  $("scenemeta").textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`
+  const sceneName = dream.constructor.name.replace(/Dream$/, "")
+
+  // --- Selection: one store, read and written by every panel ---------------
+  const selection = new Selection()
 
   // --- Backdrop instrument -------------------------------------------------
   let backdropEl: HTMLVideoElement | HTMLImageElement = freshBackdrop
@@ -284,22 +318,19 @@ const boot = async (resume?: Transport) => {
     clipsBar.appendChild(mark)
   }
 
-  // --- Parameter panel -----------------------------------------------------
+  // --- Inspector: the SELECTED holon's properties, and nothing else --------
+  //
+  // With a selection: exactly what the promotion protocol exposes for it
+  // (editor/inspector.ts — declared params + standard params the timeline
+  // animates, grouped). With none: the scene's own properties, which is
+  // where the backdrop instrument lives.
   interface Row {
     param: Param<ParamValue>
     slider?: HTMLInputElement
     val: HTMLElement
     swatch?: HTMLElement
   }
-  const rows: Row[] = []
-
-  const sliderRange = (p: Param<ParamValue>): [number, number, number] => {
-    if (p.kind === "bipolar") return [-1, 1, 0.01]
-    if (p.kind === "completion") return [0, 1, 0.01]
-    if (p.kind === "angle") return [-Math.PI, Math.PI, 0.01]
-    if (p.kind === "length") return [0, 600, 1]
-    return [-600, 600, 1]
-  }
+  let rows: Row[] = []
 
   // Live/persisted split (EDITOR.md): a drag writes the in-memory param
   // only, with the row marked diverged; release commits one setOverride
@@ -334,76 +365,148 @@ const boot = async (resume?: Transport) => {
     })
   }
 
-  const INTERESTING = new Set(["x", "y", "z", "scale", "creation", "opacity"])
-  for (const root of dream.roots) {
-    for (const holon of root.walk()) {
-      const anchor = anchorOf(holon)
+  /** One param row, with the live/persisted split intact. */
+  const buildRow = (
+    holon: Holon,
+    anchor: SourceAnchor | undefined,
+    name: string,
+    param: Param<ParamValue>,
+  ): HTMLDivElement => {
+    const row = document.createElement("div")
+    row.className = "param"
+    const label = document.createElement("label")
+    label.textContent = name
+    label.title = `${name} · ${param.kind}`
+    row.appendChild(label)
+    const val = document.createElement("div")
+    val.className = "val"
+
+    if (param.isBound) {
+      // PARAMETERS rule: a bound param is read-only, and the panel says so.
+      row.classList.add("bound")
+      const bind = document.createElement("div")
+      bind.className = "bind"
+      bind.textContent = "bound"
+      bind.title = "follows a derived binding — animate its source"
+      row.appendChild(bind)
+      val.textContent = formatValue(param.value)
+      row.appendChild(val)
+      rows.push({ param, val })
+      return row
+    }
+
+    if (isColor(param.value)) {
+      const swatch = document.createElement("div")
+      swatch.className = "swatch"
+      row.appendChild(swatch)
+      val.textContent = ""
+      row.appendChild(val)
+      rows.push({ param, val, swatch })
+      return row
+    }
+
+    if (typeof param.value === "number") {
+      const slider = document.createElement("input")
+      slider.type = "range"
+      const [min, max, step] = sliderRange(param)
+      slider.min = String(min)
+      slider.max = String(max)
+      slider.step = String(step)
+      // Committable = the construction site is anchored; everything else
+      // stays live-only, marked so.
+      const target = anchor
+      if (!target) {
+        row.classList.add("liveonly")
+        row.title = "live only — not written to code"
+      }
+      let pending: ReturnType<typeof setTimeout> | undefined
+      slider.addEventListener("input", () => {
+        pause()
+        if (drag?.slider !== slider)
+          drag = { row, slider, param, before: param.value as number, reverted: false }
+        param.value = Number(slider.value)
+        if (target) row.classList.add("diverged")
+        void host.renderFrame(current).then(() => syncPanel())
+      }, listen)
+      slider.addEventListener("change", () => {
+        const d = drag
+        drag = null
+        if (d?.reverted || !target) return
+        if (pending !== undefined) clearTimeout(pending)
+        pending = setTimeout(() => {
+          void commitOverride(holon, target, name, Number(slider.value))
+        }, 300)
+      }, listen)
+      row.appendChild(slider)
+      row.appendChild(val)
+      rows.push({ param, slider, val })
+      return row
+    }
+
+    // Booleans and anything else: shown, read, not yet editable.
+    row.appendChild(document.createElement("span"))
+    val.textContent = formatValue(param.value)
+    row.appendChild(val)
+    rows.push({ param, val })
+    return row
+  }
+
+  const backdropPanel = $<HTMLDivElement>("backdroppanel")
+  const nameEl = $<HTMLHeadingElement>("scenename")
+  const metaEl = $<HTMLDivElement>("scenemeta")
+
+  /** Rebuild the whole inspector from the current selection. */
+  const renderInspector = (holon: Holon | null) => {
+    rows = []
+    paramsRoot.textContent = ""
+    // The backdrop instrument is a SCENE property (its line lives in
+    // unfold()), so it belongs to the no-selection state — and it is
+    // load-bearing for the gauntlet, so it must always be reachable.
+    backdropPanel.style.display = holon ? "none" : ""
+
+    if (!holon) {
+      nameEl.textContent = sceneName
+      nameEl.classList.remove("selected")
+      metaEl.textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`
+      metaEl.title = sceneFileFor(sceneKey)
+      const hint = document.createElement("div")
+      hint.className = "empty"
+      hint.textContent = "Nothing selected — click an object in the viewport."
+      paramsRoot.appendChild(hint)
+      return
+    }
+
+    const identity = holon.parent
+      ? identityOf(holon)
+      : rootIdentityOf(dream as unknown as object, holon)
+    const anchor = anchorOf(holon)
+    nameEl.textContent = classNameOf(holon)
+    nameEl.classList.add("selected")
+    // A selection knows its file and byte range — the bridge to the code.
+    metaEl.textContent = identity
+      ? `${identity}${anchor ? ` · ${anchor.file.split("/").pop()}` : ""}`
+      : anchor
+        ? anchor.file.split("/").pop()!
+        : "—"
+    metaEl.title = anchor ? `${anchor.file}:${anchor.start}:${anchor.end}` : ""
+
+    const animated = dream.build().params
+    const groups = inspectorGroups(holon, animated)
+    if (groups.length === 0) {
+      const hint = document.createElement("div")
+      hint.className = "empty"
+      hint.textContent = "No exposed parameters."
+      paramsRoot.appendChild(hint)
+      return
+    }
+    for (const group of groups) {
       const box = document.createElement("div")
-      box.className = "holon"
-      const title = document.createElement("div")
-      title.className = "hname"
-      title.textContent = holon.constructor.name
+      box.className = "group"
+      const title = document.createElement("h3")
+      title.textContent = group.title
       box.appendChild(title)
-      for (const [name, param] of holon.params) {
-        const custom = !INTERESTING.has(name) && !["h", "p", "b"].includes(name)
-        const animated = dream.build().params.includes(param)
-        if (!custom && !animated && !INTERESTING.has(name)) continue
-        if (["h", "p", "b"].includes(name) && !animated) continue
-        const row = document.createElement("div")
-        row.className = "param"
-        const label = document.createElement("label")
-        label.textContent = name
-        row.appendChild(label)
-        const val = document.createElement("div")
-        val.className = "val"
-        if (isColor(param.value)) {
-          const swatch = document.createElement("div")
-          swatch.className = "swatch"
-          row.appendChild(swatch)
-          val.textContent = ""
-          row.appendChild(val)
-          rows.push({ param, val, swatch })
-        } else if (typeof param.value === "number") {
-          const slider = document.createElement("input")
-          slider.type = "range"
-          const [min, max, step] = sliderRange(param)
-          slider.min = String(min)
-          slider.max = String(max)
-          slider.step = String(step)
-          // Committable = the construction site is anchored and the param
-          // accepts writes; everything else stays live-only, marked so.
-          const target = param.isBound ? undefined : anchor
-          if (!target) {
-            row.classList.add("liveonly")
-            row.title = "live only — not written to code"
-          }
-          let pending: ReturnType<typeof setTimeout> | undefined
-          slider.addEventListener("input", () => {
-            pause()
-            if (drag?.slider !== slider)
-              drag = { row, slider, param, before: param.value as number, reverted: false }
-            if (!param.isBound) param.value = Number(slider.value)
-            if (target) row.classList.add("diverged")
-            void host.renderFrame(current).then(() => syncPanel())
-          })
-          slider.addEventListener("change", () => {
-            const d = drag
-            drag = null
-            if (d?.reverted || !target) return
-            if (pending !== undefined) clearTimeout(pending)
-            pending = setTimeout(() => {
-              void commitOverride(holon, target, name, Number(slider.value))
-            }, 300)
-          })
-          row.appendChild(slider)
-          row.appendChild(val)
-          rows.push({ param, slider, val })
-        } else {
-          row.appendChild(document.createElement("span"))
-          row.appendChild(val)
-          rows.push({ param, val })
-        }
-        box.appendChild(row)
+      for (const entry of group.entries) {
+        box.appendChild(buildRow(holon, anchor, entry.name, entry.param))
       }
       paramsRoot.appendChild(box)
     }
@@ -417,12 +520,63 @@ const boot = async (resume?: Transport) => {
           swatch.style.background = `rgb(${v.r * 255 | 0},${v.g * 255 | 0},${v.b * 255 | 0})`
       } else if (typeof v === "number") {
         if (slider && document.activeElement !== slider) slider.value = String(v)
-        val.textContent = Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2)
+        val.textContent = formatValue(v)
       } else {
-        val.textContent = String(v)
+        val.textContent = formatValue(v)
       }
     }
   }
+
+  // --- Holarchy outline (cmd+shift+L) --------------------------------------
+  mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
+
+  let outlineOpen = resume?.outline ?? true
+  const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen)
+  applyOutline()
+  const toggleOutline = (): boolean => {
+    outlineOpen = !outlineOpen
+    applyOutline()
+    return outlineOpen
+  }
+
+  // --- Click-to-select in the viewport -------------------------------------
+  //
+  // The canvas's CSS box maps to NDC; the host answers from its own
+  // drawing buffer, so a scaled/letterboxed viewport picks correctly.
+  const pickAt = (clientX: number, clientY: number): Holon | undefined => {
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return undefined
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1)
+    return host.pick(ndcX, ndcY)
+  }
+
+  canvas.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button !== 0) return
+      // Empty space clears — direct manipulation's own affordance.
+      selection.set(pickAt(e.clientX, e.clientY) ?? null)
+    },
+    listen,
+  )
+
+  // The affordance rides the selection AND every repaint (a selected
+  // holon that moves keeps its mark).
+  const paintMarquee = () => {
+    const holon = selection.current
+    marquee.draw(
+      holon ? host.boundsOf(holon) : undefined,
+      host.renderer.domElement.width,
+      host.renderer.domElement.height,
+    )
+  }
+
+  selection.subscribe((holon) => {
+    renderInspector(holon)
+    syncPanel()
+    paintMarquee()
+  })
 
   // --- Transport -----------------------------------------------------------
   let playing = false
@@ -437,6 +591,9 @@ const boot = async (resume?: Transport) => {
     scrub.value = String((t / duration) * SCRUB_MAX)
     timecode.textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`
     syncPanel()
+    // The mark follows the object, so a selected holon stays marked as
+    // the scene animates. Drawn on its own canvas — never in the render.
+    paintMarquee()
   }
 
   const play = () => {
@@ -458,14 +615,24 @@ const boot = async (resume?: Transport) => {
         e.preventDefault()
         playing ? pause() : play()
       }
-      if (e.code === "Escape" && drag && !drag.reverted) {
-        // Drop the live override — nothing was ever written.
-        const d = drag
-        d.reverted = true
-        if (!d.param.isBound) d.param.value = d.before
-        d.slider.value = String(d.before)
-        d.row.classList.remove("diverged")
-        void host.renderFrame(current).then(() => syncPanel())
+      // Keynote's outline toggle, on Keynote's chord.
+      if (e.code === "KeyL" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        toggleOutline()
+      }
+      if (e.code === "Escape") {
+        if (drag && !drag.reverted) {
+          // Drop the live override — nothing was ever written.
+          const d = drag
+          d.reverted = true
+          if (!d.param.isBound) d.param.value = d.before
+          d.slider.value = String(d.before)
+          d.row.classList.remove("diverged")
+          void host.renderFrame(current).then(() => syncPanel())
+        } else {
+          // …otherwise Escape means "nothing selected".
+          selection.clear()
+        }
       }
     },
     listen,
@@ -493,7 +660,17 @@ const boot = async (resume?: Transport) => {
   // re-import the rebuilt bundle cache-busted.
   window.__dtRemount = () => {
     window.__dtRemount = undefined
-    window.__dtTransport = { t: current, playing, bdMode: bdMode.value }
+    // The selection travels as a PART PATH: a rebuild makes fresh Holon
+    // instances, so identity cannot survive, but "the third part of the
+    // second root, still a Circle" can.
+    const held = selection.current
+    window.__dtTransport = {
+      t: current,
+      playing,
+      bdMode: bdMode.value,
+      selection: held ? pathOf(dream.roots, held) : undefined,
+      outline: outlineOpen,
+    }
     alive = false
     ac.abort()
     host.dispose()
@@ -502,6 +679,9 @@ const boot = async (resume?: Transport) => {
   }
 
   // --- Boot ---------------------------------------------------------------
+  // Nothing selected is the honest opening state (the inspector shows the
+  // scene) — unless a remount is handing a selection back.
+  selection.rehydrate(dream.roots, resume?.selection)
   if (resume) {
     await paint(resume.t)
     if (resume.playing) play()
@@ -524,6 +704,38 @@ const boot = async (resume?: Transport) => {
     play,
     pause,
     setBackdrop,
+    pick: (ndcX, ndcY) => {
+      const holon = host.pick(ndcX, ndcY)
+      return holon ? classNameOf(holon) : undefined
+    },
+    selectAt: (ndcX, ndcY) => {
+      const holon = host.pick(ndcX, ndcY) ?? null
+      selection.set(holon)
+      return holon ? classNameOf(holon) : undefined
+    },
+    selected: () => {
+      const holon = selection.current
+      if (!holon) return undefined
+      return {
+        className: classNameOf(holon),
+        identity: holon.parent
+          ? identityOf(holon)
+          : rootIdentityOf(dream as unknown as object, holon),
+        anchor: anchorOf(holon),
+      }
+    },
+    clearSelection: () => selection.clear(),
+    bounds: () => {
+      const holon = selection.current
+      const box = holon ? host.boundsOf(holon) : undefined
+      if (!box) return undefined
+      return { minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y }
+    },
+    setAffordance: (on: boolean) => {
+      marquee.enabled = on
+      paintMarquee()
+    },
+    toggleOutline,
   }
 }
 

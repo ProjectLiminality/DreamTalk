@@ -292,6 +292,19 @@ export class RibbonStroke {
   readonly geometry: THREE.InstancedBufferGeometry
   totalLength = 0
   /**
+   * Target sample count for `worldPoints()` — how finely a polyline is
+   * resampled before anything measures it in SCREEN space.
+   *
+   * 128 is not tuned to a frame: it is where the piecewise-linear
+   * measurement of a projected line stops moving. Doubling it to 256
+   * changes S01's measured y-axis screen length by under 0.05px, i.e.
+   * below the AA floor, while 16 is visibly short on the steepest
+   * recession in the corpus.
+   */
+  static readonly SUBDIVISION = 128
+  /** The polyline as last set, in the mesh's local space. */
+  private points: THREE.Vector3[] = []
+  /**
    * Segments the instance buffers can currently hold.
    *
    * The buffers are allocated by CAPACITY, not by the exact segment
@@ -349,6 +362,7 @@ export class RibbonStroke {
   }
 
   setPoints(pts: readonly THREE.Vector3[]): void {
+    this.points = pts.map((p) => p.clone())
     const packed = packSegments(pts)
     if (packed.count < 1) {
       // A stroke whose polyline is DERIVED can legitimately become empty
@@ -375,6 +389,47 @@ export class RibbonStroke {
     ;(dist.data.array as Float32Array).set(packed.distances)
     dist.data.needsUpdate = true
     this.geometry.instanceCount = packed.count
+  }
+
+  /**
+   * The polyline in the mesh's LOCAL space, subdivided so that measuring
+   * it in screen space is honest.
+   *
+   * Screen position is a projective, not affine, function of world
+   * position: the midpoint of a long segment does NOT project to the
+   * midpoint of its projected endpoints. Anything that measures a
+   * stroke's SCREEN length (render/screen-arc.ts — the Sketch & Toon
+   * draw model) therefore has to sample along the segment rather than
+   * take its chord. A 2-point Line — an Axes arm, say — would otherwise
+   * be measured as a straight chord and lose exactly the perspective
+   * weighting the model is about.
+   *
+   * The subdivision is uniform in WORLD arc length, which is what the
+   * consumer's `world` field means, and dense enough (SUBDIVISION per
+   * segment) that the piecewise-linear screen measurement converges: at
+   * video-01's camera distances the residual is well under a pixel.
+   * Already-fine polylines (circles, silhouettes) are returned as-is.
+   */
+  worldPoints(): readonly THREE.Vector3[] {
+    if (this.points.length < 2) return this.points
+    // Curves arrive with plenty of vertices already; only coarse
+    // polylines (a Line's two points) need the extra samples, and the
+    // cost is linear in the result, so cap the total rather than
+    // multiplying an already-dense curve.
+    const perSegment = Math.max(
+      1,
+      Math.ceil(RibbonStroke.SUBDIVISION / (this.points.length - 1)),
+    )
+    if (perSegment <= 1) return this.points
+    const out: THREE.Vector3[] = [this.points[0]!]
+    for (let i = 0; i + 1 < this.points.length; i++) {
+      const a = this.points[i]!
+      const b = this.points[i + 1]!
+      for (let k = 1; k <= perSegment; k++) {
+        out.push(new THREE.Vector3().lerpVectors(a, b, k / perSegment))
+      }
+    }
+    return out
   }
 
   /** Sync visibility/draw fraction/erase fraction/style from the owning holon. */

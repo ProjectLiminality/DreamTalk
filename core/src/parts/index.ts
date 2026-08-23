@@ -53,9 +53,48 @@ export class Stroke extends Holon {
    * circle and rectangle draws clockwise on screen while ours, built
    * natively in XY, run counterclockwise. A winding flag rather than a
    * second set of generators: same geometry, opposite pen direction.
+   *
+   * On an OPEN stroke (a Line) the same flag says the same thing — the
+   * pen enters from the polyline's LAST point instead of its first — and
+   * it carries one further consequence, because a Line has two distinct
+   * ends and the two fronts do not share one:
+   *
+   *   the reversed stroke is ANCHORED AT ITS LAST POINT.
+   *   Draw grows backward from that anchor; Erase eats forward from the
+   *   first point, back towards it. The anchor is the first ink laid
+   *   down and the last ink to survive.
+   *
+   * That is a reading of the reference, not a preference. Scene 08's grid
+   * lines are Splines from (pos, 0, -L/2) to (pos, 0, +L/2)
+   * (refs/pydeation-legacy/object/custom_objects.py:283-290) and the
+   * plane's bank puts the +L/2 end at the TOP of the frame. In
+   * refs/video-01/frames5, band x∈[80,200]:
+   *
+   *   DRAW   f0609 spans screen y 20…457, f0610-f0613 y 20…713
+   *          — the top end is fixed, the pen travels DOWN.
+   *   ERASE  f0642 y 0…575, f0643 y 0…341, f0644 y 0…95
+   *          — the top end is again what survives; the bottom is eaten.
+   *
+   * Both fronts therefore move relative to the SAME fixed end, and that
+   * end is pydeation's LAST point. Unreversed strokes are the mirror
+   * statement (anchor at the first point), which is what the framework
+   * already did — so this generalises the old behaviour rather than
+   * replacing it, and a fully drawn stroke erases identically either way.
    */
   drawReversed = bool(false)
 }
+
+/**
+ * An OPEN polyline walked from its last point to its first — the open
+ * counterpart of `rephasePolyline`'s `reversed` (which only ever applies
+ * to closed loops, where a start phase also has to be honoured).
+ *
+ * Pure, and separate on purpose: a closed loop's reversal has to preserve
+ * the start POINT while flipping the direction, an open stroke's simply
+ * swaps its ends.
+ */
+export const reverseOpenPolyline = (points: readonly Vec3Like[]): Vec3Like[] =>
+  [...points].reverse()
 
 /**
  * Re-phase a CLOSED polyline so the pen starts `drawStart` of the way
@@ -221,6 +260,20 @@ export class Line extends Stroke {
   points: Vec3Like[] = []
   arrowStart = bool(false)
   arrowEnd = bool(false)
+  /**
+   * ONE Sketch & Toon pixel unit, in rendered pixels — the scale the
+   * arrowhead is sized in. S&T states the cap in its own fields
+   * (ENDCAP_WIDTH 7, ENDCAP_HEIGHT 5, object.py:215-218), in the pixel
+   * units of scene.py's 700-line reference height, so this is
+   * frameHeight / 700 and NOT a multiple of `stroke`: the cap is
+   * untouched by the 0.6 distance-thickness attenuation that the
+   * THICKNESS field carries. Default 1.029 = 720/700, the reference
+   * frame height; a scene rendering at 1080p sets 1.543.
+   *
+   * See the arrowPolygon header in render/three-host.ts for the
+   * measurement this is fitted to (f0428: a 10.9 x 14.95px head).
+   */
+  arrowSize = length(720 / 700)
 }
 
 /**
@@ -454,6 +507,8 @@ export class Axes extends Stroke {
   drawGrid = bool(false)
   drawTicks = bool(false)
   arrowEnd = bool(true)
+  /** Forwarded to each axis Line — see Line.arrowSize. */
+  arrowSize = length(720 / 700)
   gridTint = color(WHITE)
 
   axisLines: Line[] = []
@@ -506,6 +561,7 @@ export class Axes extends Stroke {
             tint: this.tint,
             stroke: this.stroke,
             arrowEnd: this.arrowEnd.value,
+            arrowSize: this.arrowSize,
           }),
         ),
       )

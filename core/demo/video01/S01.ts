@@ -61,7 +61,7 @@ import { together } from "../../src/anim"
 import { Create, UnCreate, FadeIn, FadeOut } from "../../src/verbs"
 import { PI } from "../../src/constants"
 import { Axes, Circle, Cylinder, Eye, Rectangle } from "../../src/parts/index"
-import { BLUE, RED, WHITE, STROKE_GRID, STROKE_MAIN } from "./palette"
+import { BLUE, RED, WHITE, STROKE_MAIN } from "./palette"
 
 /**
  * The cylinder's two poses, converted from the source's C4D HPB.
@@ -161,7 +161,13 @@ export class S01Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2, // Axes halves it again for the grid lines
+    // Axes(thickness=5) is the pydeation default the source never overrides
+    // (custom_objects.py:186), and Axes derives grid_thickness = thickness/2
+    // (:221-222) — so this is STROKE_MAIN, and the grid falls out at
+    // strokePx(2.5, 720) = 1.54px. Measured on f0100/f0105 (perpendicular
+    // area/peak in linear light, near-vertical runs only): 1.60px median,
+    // p25 1.44 — while STROKE_GRID*2 put it at 1.85px, a fifth too fat.
+    stroke: STROKE_MAIN,
   })
 
   // Axes(b=PI/2, …) — the rectangler's world, a quarter-turn instead of a
@@ -180,7 +186,7 @@ export class S01Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2,
+    stroke: STROKE_MAIN,
   })
 
   unfold() {

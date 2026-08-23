@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <title>DreamTalk</title>
   <style>
+    /* David's flat palette (TASTE): red/blue/white on black, quiet grays
+       for chrome. No gradients, no decoration — the editor is of the same
+       world as what it edits. */
     :root {
       --bg: #000;
       --panel: #0c0c0e;
@@ -12,19 +15,31 @@
       --dim: #55555e;
       --blue: #00a2ff;
       --red: #ff644e;
+      --outline-w: 232px;
+      --inspector-w: 264px;
+      --timeline-h: 88px;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
       font: 13px/1.4 -apple-system, "SF Pro", Inter, sans-serif; overflow: hidden; }
-    #app { display: grid; grid-template-columns: 1fr 264px; grid-template-rows: 1fr 88px;
+    /* Keynote's four regions. The left column holds the holarchy outline;
+       the scene navigator (build order 2) takes its upper half later. */
+    #app { display: grid;
+      grid-template-columns: var(--outline-w) 1fr var(--inspector-w);
+      grid-template-rows: 1fr var(--timeline-h);
       height: 100%; }
+    #app.no-outline { grid-template-columns: 0 1fr var(--inspector-w); }
     /* Viewport */
-    #viewport { position: relative; grid-row: 1; grid-column: 1; overflow: hidden;
+    #viewport { position: relative; grid-row: 1; grid-column: 2; overflow: hidden;
       display: flex; align-items: center; justify-content: center; }
-    #frame { position: relative; aspect-ratio: 16/9; width: min(100%, calc((100vh - 88px) * 16 / 9)); }
+    #frame { position: relative; aspect-ratio: 16/9;
+      width: min(100%, calc((100vh - var(--timeline-h)) * 16 / 9)); }
     #backdrop { position: absolute; inset: 0; width: 100%; height: 100%;
       object-fit: contain; display: none; pointer-events: none; }
     #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    /* The selection affordance — its own layer, over the render, never in it. */
+    #marquee { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+      pointer-events: none; }
     #frame.mode-under #backdrop { display: block; opacity: 0.55; }
     #frame.mode-under #stage { mix-blend-mode: screen; }
     #frame.mode-overlay #backdrop { display: block; opacity: 0.9;
@@ -35,16 +50,38 @@
       justify-content: center; color: var(--dim); border: 1px dashed var(--line);
       background: rgba(0,0,0,0.6); font-size: 15px; pointer-events: none; }
     #viewport.dragging #drophint { display: flex; }
-    /* Right panel */
-    #panel { grid-row: 1 / 3; grid-column: 2; background: var(--panel);
-      border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; }
-    #panel h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+    /* Panels share one calm skin */
+    .pane { background: var(--panel); overflow-y: auto; }
+    .pane h2 { font-size: 10px; font-weight: 600; color: var(--dim);
+      letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 8px; }
+    /* Holarchy outline (cmd+shift+L) */
+    #outline { grid-row: 1 / 3; grid-column: 1; border-right: 1px solid var(--line);
+      padding: 14px 0 14px 0; }
+    #app.no-outline #outline { display: none; }
+    #outline h2 { padding: 0 14px; }
+    .node { display: flex; align-items: center; gap: 6px; cursor: default;
+      padding: 3px 14px 3px 0; white-space: nowrap; user-select: none; }
+    .node:hover { background: #131318; }
+    .node.selected { background: #0d2233; }
+    .node.selected .nclass { color: var(--blue); }
+    .twisty { width: 12px; flex: 0 0 12px; text-align: center; color: var(--dim);
+      font-size: 8px; cursor: pointer; }
+    .twisty.leaf { visibility: hidden; }
+    .nclass { color: var(--text); font-size: 12px; }
+    .nident { color: var(--dim); font-size: 11px; overflow: hidden;
+      text-overflow: ellipsis; }
+    /* Inspector */
+    #panel { grid-row: 1 / 3; grid-column: 3; border-left: 1px solid var(--line);
+      padding: 14px; }
+    #panel h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
       color: var(--text); margin: 0 0 2px; }
-    #panel .sub { color: var(--dim); font-size: 11px; margin-bottom: 14px; }
-    .holon { margin-bottom: 12px; }
-    .holon > .hname { color: var(--blue); font-weight: 600; font-size: 12px;
-      margin-bottom: 4px; }
-    .param { display: grid; grid-template-columns: 76px 1fr 44px; gap: 8px;
+    #panel h1.selected { color: var(--blue); }
+    #panel .sub { color: var(--dim); font-size: 11px; margin-bottom: 14px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group { margin-bottom: 14px; }
+    .group > h3 { font-size: 10px; font-weight: 600; color: var(--dim);
+      letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 5px; }
+    .param { display: grid; grid-template-columns: 68px 1fr 44px; gap: 8px;
       align-items: center; margin: 3px 0; }
     .param label { color: var(--dim); font-size: 11px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
@@ -57,17 +94,22 @@
     .param.diverged .val { color: var(--red); }
     /* No anchored construction site — tweaks stay live-only */
     .param.liveonly label::after { content: "·"; margin-left: 3px; color: var(--dim); }
+    /* Bound: read-only, its binding shown in place of a control */
+    .param.bound label { color: var(--dim); }
+    .param .bind { color: var(--dim); font-size: 10px; font-style: italic;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .swatch { width: 100%; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+    .empty { color: var(--dim); font-size: 11px; font-style: italic; }
     .section { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
-    .section h2 { font-size: 11px; font-weight: 600; color: var(--dim);
-      letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; }
+    .section h2 { font-size: 10px; font-weight: 600; color: var(--dim);
+      letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 8px; }
     .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
     .row label { color: var(--dim); font-size: 11px; flex: 0 0 52px; }
     select, input[type=number] { background: #131318; color: var(--text);
       border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
       font-size: 11px; width: 100%; }
     /* Timeline */
-    #timeline { grid-row: 2; grid-column: 1; background: var(--panel);
+    #timeline { grid-row: 2; grid-column: 2; background: var(--panel);
       border-top: 1px solid var(--line); display: flex; align-items: center;
       gap: 14px; padding: 0 16px; }
     #playpause { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
@@ -83,18 +125,23 @@
 </head>
 <body>
   <div id="app">
+    <div id="outline" class="pane">
+      <h2>Holarchy</h2>
+      <div id="tree"></div>
+    </div>
     <div id="viewport">
       <div id="frame">
         <video id="backdrop" muted playsinline></video>
         <canvas id="stage" width="1280" height="720"></canvas>
+        <canvas id="marquee" width="1280" height="720"></canvas>
       </div>
       <div id="drophint">preview only — pick from the reference list to write into the DreamWeaving</div>
     </div>
-    <div id="panel">
+    <div id="panel" class="pane">
       <h1 id="scenename">DreamTalk</h1>
       <div class="sub" id="scenemeta"></div>
       <div id="params"></div>
-      <div class="section">
+      <div class="section" id="backdroppanel">
         <h2>Backdrop</h2>
         <div class="row"><label>reference</label>
           <select id="bdref" title="commits to code — writes the backdrop line into the DreamWeaving">
