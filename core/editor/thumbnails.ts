@@ -50,6 +50,8 @@ import {
   Square,
   Stroke,
 } from "../src/parts/index"
+import { Text } from "../src/parts/text"
+import type { Dream, DreamClass } from "../src/dream"
 import { isColor, type Color } from "../src/constants"
 import { classNameOf } from "./classname"
 
@@ -353,3 +355,212 @@ export const thumbnailEl = (holon: Holon, size = THUMB_SIZE): HTMLImageElement =
 
 /** Drop the cache — a rebuild may have changed what a class looks like. */
 export const clearThumbnailCache = (): void => cache.clear()
+
+// --- Scene tiles (EDITOR-V3 step 2: the navigator's slide thumbnails) ------
+//
+// A scene's tile is drawn the same way a holon's glyph is — the scene's
+// own polylines, flattened to the screen plane — but framed by the
+// scene's OWN camera rather than fit to its bounds, so ten tiles in the
+// rail share one visual scale the way ten Keynote slides do. The scene
+// is sampled at 60% of its duration (t=0 is usually a blank stage; by
+// 0.6·d the cast has arrived and nothing has been struck yet).
+//
+// Text is the one holon whose geometry lives in a shader, not in parts
+// (parts/text.ts): its tile contribution is the string itself, drawn
+// with the canvas's own text — an approximation in exactly the sense
+// every tile is one, and far more honest than an empty rectangle where
+// "trans-perspectival" should be.
+
+/** Tile size in CSS pixels — 16:9, the stage's own ratio. */
+export const TILE_W = 176
+export const TILE_H = 99
+
+/** Past this many outlines a 176px tile is a smear — stop and draw what reads. */
+const TILE_MAX_PATHS = 240
+
+interface TilePath {
+  path: Path
+  color: string
+  /** A text marker: path is [origin, origin + size·ŷ]; draw the string. */
+  text?: string
+}
+
+/** Whether a drawable front (creation up, erasure down) leaves ink at this t. */
+const inkAlive = (holon: Stroke | Text): boolean =>
+  holon.creation.value > 0.02 && holon.erasure.value < 0.98
+
+/** The tile colour of a stroke/text: its real tint; white stays white here. */
+const tileTint = (holon: Holon): string => {
+  const tint = (holon as Partial<Stroke>).tint
+  const v = tint?.value
+  if (v !== undefined && isColor(v)) return toCss(v)
+  return "#9a9aa4"
+}
+
+/**
+ * Every outline a holon's subtree contributes at the CURRENT param
+ * values, with colours — the scene-tile sibling of `collect()`. Skips
+ * what the frame would not show: faded subtrees, strokes not yet created
+ * or already erased.
+ */
+const collectTile = (holon: Holon, depth = 0): TilePath[] => {
+  if (holon.opacity.value < 0.04) return []
+  const out: TilePath[] = []
+  if (holon instanceof Text) {
+    if (inkAlive(holon)) {
+      const size = holon.size.value
+      const marker: Path = [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: size, z: 0 },
+      ]
+      out.push({ path: placed(holon, marker), color: tileTint(holon), text: holon.content })
+    }
+  } else if (!(holon instanceof Stroke) || inkAlive(holon)) {
+    for (const p of outlinesOf(holon) ?? []) {
+      out.push({ path: placed(holon, p), color: tileTint(holon) })
+    }
+  }
+  if (depth > 7) return out
+  for (const part of holon.parts) {
+    if (out.length >= TILE_MAX_PATHS) break
+    for (const tp of collectTile(part, depth + 1)) {
+      if (out.length >= TILE_MAX_PATHS) break
+      out.push({ ...tp, path: placed(holon, tp.path) })
+    }
+  }
+  return out
+}
+
+/**
+ * The world-space window the scene's camera frames at the focus plane —
+ * the tile's viewport. Perspective: frustum height at the focus distance;
+ * orthographic: the rig's reference height. Falls back to undefined when
+ * the numbers are degenerate, in which case the tile fits its bounds.
+ */
+const cameraWindow = (
+  dream: Dream,
+  aspect: number,
+): { cx: number; cy: number; w: number; h: number } | undefined => {
+  const obs = dream.observer
+  const h = obs.orthographic.value
+    ? obs.baseHeight.value / Math.max(obs.zoom.value, 1e-6)
+    : 2 * obs.radius.value * Math.tan(obs.fov.value / 2)
+  if (!Number.isFinite(h) || h <= 0) return undefined
+  return { cx: obs.x.value, cy: obs.y.value, w: h * aspect, h }
+}
+
+const drawTile = (
+  ctx: CanvasRenderingContext2D,
+  paths: TilePath[],
+  w: number,
+  h: number,
+  win: { cx: number; cy: number; w: number; h: number } | undefined,
+) => {
+  // Project world → tile. With a camera window, one shared scale; without
+  // (or when nothing lands inside it), fit the drawing's own bounds.
+  let scale: number
+  let cx: number
+  let cy: number
+  if (win) {
+    scale = h / win.h
+    cx = win.cx
+    cy = win.cy
+  } else {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const { path } of paths) {
+      for (const p of path) {
+        if (p.x < minX) minX = p.x
+        if (p.x > maxX) maxX = p.x
+        if (p.y < minY) minY = p.y
+        if (p.y > maxY) maxY = p.y
+      }
+    }
+    if (!Number.isFinite(minX)) return
+    const span = Math.max(maxX - minX, (maxY - minY) * (w / h), 1e-6)
+    scale = (w * 0.8) / span
+    cx = (minX + maxX) / 2
+    cy = (minY + maxY) / 2
+  }
+  const px = (p: Pt) => ({ x: w / 2 + (p.x - cx) * scale, y: h / 2 - (p.y - cy) * scale })
+
+  ctx.lineWidth = 1
+  ctx.lineJoin = "round"
+  ctx.lineCap = "round"
+  for (const { path, color, text } of paths) {
+    if (text !== undefined) {
+      const a = px(path[0]!)
+      const b = px(path[1]!)
+      const size = Math.max(3, Math.hypot(b.x - a.x, b.y - a.y))
+      ctx.fillStyle = color
+      ctx.font = `${size}px -apple-system, "SF Pro", Inter, sans-serif`
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText(text, a.x, a.y)
+      continue
+    }
+    if (path.length < 2) continue
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    const first = px(path[0]!)
+    ctx.moveTo(first.x, first.y)
+    for (let i = 1; i < path.length; i++) {
+      const p = px(path[i]!)
+      ctx.lineTo(p.x, p.y)
+    }
+    ctx.stroke()
+  }
+}
+
+const tileCache = new Map<string, string>()
+
+/**
+ * The navigator tile for a registered scene, as a data URL. Cached by
+ * key for the life of the module — a remount re-imports the module, so
+ * a rebuild that changed a scene also refreshes its tile.
+ */
+export const sceneThumbnail = (key: string, DreamCtor: DreamClass): string => {
+  const hit = tileCache.get(key)
+  if (hit !== undefined) return hit
+
+  let url = ""
+  try {
+    const dream = new DreamCtor()
+    dream.applyAt(dream.duration * 0.6)
+    const paths: TilePath[] = []
+    for (const root of dream.roots) {
+      if (paths.length >= TILE_MAX_PATHS) break
+      for (const tp of collectTile(root)) {
+        if (paths.length >= TILE_MAX_PATHS) break
+        paths.push(tp)
+      }
+    }
+    const dpr = Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)))
+    const canvas = document.createElement("canvas")
+    canvas.width = TILE_W * dpr
+    canvas.height = TILE_H * dpr
+    const ctx = canvas.getContext("2d")
+    if (ctx) {
+      ctx.scale(dpr, dpr)
+      ctx.fillStyle = "#000"
+      ctx.fillRect(0, 0, TILE_W, TILE_H)
+      // Whether the camera window actually contains any of the drawing —
+      // a scene staged far off-centre falls back to bounds rather than
+      // presenting an empty black tile.
+      let win = cameraWindow(dream, TILE_W / TILE_H)
+      if (win) {
+        const inside = paths.some(({ path }) =>
+          path.some(
+            (p) => Math.abs(p.x - win!.cx) < win!.w / 2 && Math.abs(p.y - win!.cy) < win!.h / 2,
+          ),
+        )
+        if (!inside) win = undefined
+      }
+      drawTile(ctx, paths, TILE_W, TILE_H, win)
+      url = canvas.toDataURL()
+    }
+  } catch (err) {
+    console.warn(`[dreamtalk] tile for "${key}" failed:`, err)
+  }
+  tileCache.set(key, url)
+  return url
+}

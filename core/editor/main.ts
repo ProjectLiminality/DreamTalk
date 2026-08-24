@@ -44,6 +44,8 @@ import { anchorOf, type SourceAnchor } from "./anchors"
 import { scenes, defaultScene } from "../demo/scenes"
 import { Selection, pathOf, type SelectionPath } from "./selection"
 import { mountOutline, identityOf, rootIdentityOf } from "./outline"
+import { mountNavigator } from "./navigator"
+import { mountCast } from "./cast"
 import { Marquee } from "./marquee"
 import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
 import type { NumericFieldHandle } from "./numeric"
@@ -93,6 +95,11 @@ declare global {
       /** Suppress the selection affordance entirely (never in a render). */
       setAffordance?: (on: boolean) => void
       toggleOutline?: () => boolean
+      /** The open scene's registry key, and the rail's switch — headless. */
+      sceneKey?: string
+      openScene?: (key: string) => void
+      /** The cast bar's members (sovereign classes), for verification. */
+      cast?: () => string[]
       // --- The live layer (EDITOR-V4), exposed for headless verification ---
       /** Overlay a value on a named param of the selected holon. */
       setOverride?: (name: string, value: number) => boolean
@@ -137,6 +144,7 @@ const SCENE_FILES: Record<string, string> = {
   s10: "core/demo/video01/S10.ts",
   s07: "core/demo/video01/S07.ts",
   s08: "core/demo/video01/S08.ts",
+  video01: "core/demo/video01/DialecticalThinking.ts",
 }
 const sceneFileFor = (key: string): string =>
   SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts"
@@ -560,6 +568,38 @@ const boot = async (resume?: Transport) => {
   // --- Holarchy outline (cmd+shift+L) --------------------------------------
   mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
 
+  // --- Scene navigator + cast bar (EDITOR-V3 step 2) ------------------------
+  //
+  // Switching scenes is the daemon-reload remount minus the handover:
+  // same teardown, fresh boot, and NOTHING resumes — a different scene
+  // means fresh transport, selection and backdrop. The URL is kept
+  // honest via history.replaceState, so ?scene= deep links keep working
+  // and a browser reload lands where the rail left you.
+  const teardown = () => {
+    alive = false
+    ac.abort()
+    navigator.dispose()
+    castBar.dispose()
+    host.dispose()
+  }
+
+  const switchScene = (key: string) => {
+    if (key === sceneKey || !scenes[key]) return
+    const q = new URLSearchParams(location.search)
+    q.set("scene", key)
+    q.delete("t")
+    q.delete("backdrop")
+    q.delete("mode")
+    q.delete("offset")
+    history.replaceState(null, "", `${location.pathname}?${q.toString()}`)
+    window.__dtRemount = undefined
+    teardown()
+    void boot().catch((err) => console.error("[dreamtalk] scene switch failed:", err))
+  }
+
+  const navigator = mountNavigator($("rail"), scenes, sceneKey, switchScene, ac.signal)
+  const castBar = mountCast($("cast"), dream.roots, selection, ac.signal)
+
   let outlineOpen = resume?.outline ?? true
   const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen)
   applyOutline()
@@ -972,9 +1012,7 @@ const boot = async (resume?: Transport) => {
       outline: outlineOpen,
       code: code.open,
     }
-    alive = false
-    ac.abort()
-    host.dispose()
+    teardown()
     const next = `./main.js?v=${Date.now()}`
     void import(next).catch((err) => console.error("[dreamtalk] remount failed:", err))
   }
@@ -1044,6 +1082,10 @@ const boot = async (resume?: Transport) => {
     },
     toggleOutline,
     toggleCode,
+    sceneKey,
+    openScene: switchScene,
+    cast: () =>
+      Array.from($("cast").querySelectorAll(".castname"), (el) => el.textContent ?? ""),
     selectClip: (index: number) => {
       const row = timeline?.rows[index]
       if (!row) return undefined

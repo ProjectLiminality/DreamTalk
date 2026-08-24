@@ -218,6 +218,8 @@ export class Arc extends Stroke {
  * Toon's "single" stroke method: top cap → bottom cap → the two lines.
  */
 export class Cylinder extends Stroke {
+  /** ONTOLOGY.md: a sovereign symbol (pre-pop-out) — cast, not asset. */
+  static sovereign = true
   radius = length(50)
   height = length(200)
 }
@@ -350,6 +352,8 @@ const oneStroke = (strokes: readonly Stroke[], retract = false): Anim => {
 }
 
 export class Eye extends Stroke {
+  /** ONTOLOGY.md: a sovereign symbol (pre-pop-out) — cast, not asset. */
+  static sovereign = true
   opening = completion(1)
   // The lids are ONE stroke in the source — a three-point Spline
   // [upper tip, apex, lower tip] (custom_objects.py:79-80) — so the pen
@@ -517,6 +521,8 @@ const consume = (lines: readonly Stroke[]): Anim => {
  * lines running in x (rotate the holon for walls and floors).
  */
 export class Axes extends Stroke {
+  /** ONTOLOGY.md: a sovereign symbol (pre-pop-out) — cast, not asset. */
+  static sovereign = true
   mode = "xy"
   xStart = scalar(-200)
   xEnd = scalar(200)
