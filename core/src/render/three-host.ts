@@ -868,6 +868,45 @@ export class ThreeHost {
       // are only being read differently about which half comes first,
       // and Scene 01 is the cleaner read of the two because its near cap
       // is the only thing on screen while it is drawn.)
+      //
+      // KNOWN OPEN CONFLICT — the two readings are BOTH measurements, and
+      // they disagree because the POSES disagree. Scene 06's cylinder is
+      // p=PI/2 (lying along the depth axis); Scene 01's is p=0.4 b=0.1
+      // (nearly upright). Scene 06's read is at least as clean as Scene
+      // 01's — its cylinder is static, alone on black for eleven frames
+      // (f0494-f0504), and the calibrated camera reproduces its pose to
+      // the pixel — and it says the CAMERA-FACING arc goes first: walking
+      // both cap circles at 0.5-degree steps, the near cap lights indices
+      // 332->0 over f0494-f0498 (decreasing theta, the short arc through
+      // the camera azimuth), FREEZES at 338 through f0501 while the far
+      // cap runs 70->721, then jumps to 655 (f0502) and 721 (f0503).
+      //
+      // Scored on Scene 06 at step 1 (68 frames), the two choices trade
+      // the SAME pass rate for very different quality:
+      //
+      //   away-facing first (this code) 61/68, mean cov ref 0.930
+      //   camera-facing first           61/68, mean cov ref 0.9999
+      //
+      // — i.e. with Scene 06's own reading every reference pixel is
+      // reproduced on every frame of the scene, and its seven failures
+      // are purely the pen running ahead (coverage_ours 0.53-0.81 on
+      // f0495-f0501), whereas this code's seven failures are the arc
+      // drawn on the wrong side of the ellipse (coverage_ref 0.02-0.15).
+      //
+      // Neither reading is wrong about its own scene, so the rule that
+      // separates them has NOT been found. pydeation's stroke_order
+      // default "bottom_top" (object.py:90) was tested as that rule by
+      // every screen-y key available — bottom-most point, centre, start
+      // point — and none reproduces either observed sequence, let alone
+      // both. The likely place it hides is one level earlier, in how
+      // CONNECTIIONZ=3 / JOIN_ANGLE_LIMIT=PI / CLOSECONNECTION=True
+      // (object.py:203-205) chain the six contour edges into strokes
+      // BEFORE stroke_order sequences them: at a silhouette junction the
+      // generator meets the cap tangentially on screen (measured 0.5
+      // degrees of turn against the cap's own 1.0), so the join prefers
+      // the generator, and which arc that orphans depends on the pose.
+      // Deriving that properly is the fix; fitting a pose-dependent
+      // switch to two scenes would encode nothing and is refused.
       const nearSweep = thetaB - thetaA
       nearFront.setPoints(
         capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),

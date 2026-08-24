@@ -126,6 +126,20 @@ operational decisions are entered by the working agent. Format:
   of the cap's projected ellipse, exactly what a screen-space join rule
   would flip on. Next round: derive the chaining rule from S&T's contour
   join behaviour; do NOT fit it.
+  **FINAL MEASUREMENT 2026-08-24 (integrator, both scenes, both rules,
+  full spans at step 5):**
+    away-facing first — S01 23/25 mean 0.9818/0.9684 · S06 12/13 0.9341/0.9275
+    camera-facing first — S01 23/25 mean 0.9433/0.9503 (f35 drops to 0.047)
+                          S06 12/13 0.9998/0.9614
+  PASS COUNTS ARE IDENTICAL either way, which is why a step-5 read called
+  it indifferent; mean coverage moves in OPPOSITE directions, which is why
+  a step-1 read of a Create phase called it decisive. Both were right about
+  what they measured. Away-facing SHIPS: it is S01's calibrated reading,
+  S01 is the more exposed scene (its near cap is alone on screen while
+  drawn, and camera-facing puts one S01 frame at 0.047), and S06 loses only
+  mean coverage, no frames. The S06 builder's full measurement is preserved
+  in S06.ts as an open question so the next session inherits the evidence
+  rather than the conclusion.
 - 2026-08-24 · **Grid thickness derives from ONE thickness, not two** —
   the source computes `grid_thickness = thickness/2` from
   `PRIM_THICKNESS = 5` (custom_objects.py:221-222, constants.py:51), i.e.

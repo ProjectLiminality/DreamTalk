@@ -128,36 +128,43 @@ export class S06Dream extends Dream {
     stroke: STROKE_MAIN,
   })
 
-  // KNOWN GAP (2026-08-24, adjudicated): the cylinder's Create draws its
-  // near cap's two arcs in an order the framework does not yet derive
-  // from the pose, and S06 is the scene that pays for it. The five-stroke
-  // structure is settled — two generators cut each cap, the NEAR cap's
-  // arcs are strokes in their own right, the FAR cap stays one closed
-  // loop, and "near" is camera-relative (render/three-host.ts) — but
-  // WHICH near arc goes first was measured differently by two scenes:
+  // OPEN, and it costs this scene its one remaining frame. The cylinder's
+  // Create draws its near cap as TWO strokes; which of them goes first was
+  // measured differently by two scenes, and render/three-host.ts has been
+  // held to Scene 01's reading by adjudication:
   //
-  //   Scene 01 (p=0.4 b=0.1, near-upright)  the AWAY-facing arc first
-  //   Scene 06 (p=PI/2, lying in view)      the CAMERA-facing arc first
+  //   Scene 01 (p=0.4 b=0.1, near-upright)  AWAY-facing arc first
+  //   Scene 06 (p=PI/2, lying in view)      CAMERA-facing arc first
   //
-  // Both readings were re-derived independently and both are correct for
-  // their own pose, so the missing rule is pose-dependent — the leading
-  // hypothesis is S&T's contour-edge chaining (CONNECTIIONZ=3,
-  // JOIN_ANGLE_LIMIT=PI, CLOSECONNECTION=True, object.py:203-205) joining
-  // edges BEFORE stroke_order sequences whole strokes, since stroke_order
-  // maps to OUTLINEMAT_ANIMATE_STROKES and cannot decide which arc
-  // becomes the first stroke. The ruling keeps Scene 01's version, so
-  // this scene renders the wrong arc for the ~1.5s its near cap is drawn
-  // alone. Scored at --step 1 over the Create, the cost is explicit:
+  // Both were re-derived independently and both are right for their own
+  // pose, so the missing rule is pose-dependent. The leading hypothesis is
+  // S&T's contour-edge chaining (CONNECTIIONZ=3, JOIN_ANGLE_LIMIT=PI,
+  // CLOSECONNECTION=True — object.py:203-205) joining edges BEFORE
+  // stroke_order sequences whole strokes: stroke_order maps to
+  // OUTLINEMAT_ANIMATE_STROKES and so cannot decide which arc becomes the
+  // first stroke at all.
   //
-  //   Scene 01's rule  mean cov_ref 0.559  worst frame 0.017, chamfer 13.7px
-  //   Scene 06's rule  mean cov_ref 0.960  cov_ref = 1.000 from f0496 on
+  // The cost here, scored at --step 1 across this scene's Create:
   //
-  // Under Scene 06's own rule every reference pixel is covered and the
-  // only residual is a pen ~0.3s ahead; under Scene 01's the two arcs sit
-  // on opposite sides of the same ellipse. At --step 5 this costs exactly
-  // one frame (f0498), which is why the scene still scores 12/13. Do NOT
-  // "fix" it here — it belongs in render/three-host.ts once the chaining
+  //   camera-facing first  mean cov_ref 0.960, cov_ref = 1.000 from f0496
+  //                        on — every reference pixel covered, the only
+  //                        residual a pen slightly ahead
+  //   away-facing first    mean cov_ref 0.559, worst frame 0.017 at a
+  //                        13.7px chamfer — the arcs sit on opposite
+  //                        sides of the same ellipse
+  //
+  // Scene 01 measured indifferent between the two (23/25, 0.9818/0.9684
+  // either way). At --step 5 the difference costs exactly one frame here
+  // (f0498), which is why this scene still scores 12/13. Do NOT patch it
+  // in this file — it belongs in render/three-host.ts once the chaining
   // rule is derived, and a scene-local override would encode nothing.
+  //
+  // The five-stroke structure underneath is settled either way: the two
+  // silhouette generators cut each cap, the NEAR cap's arcs are strokes in
+  // their own right, the FAR cap stays one closed loop, and "near" is
+  // camera-relative. A single closed cap stroke can never reproduce the
+  // 2021 draw — the reference plainly leaves the near cap half-finished
+  // and comes back for it.
 
   // Cylinder(p=PI/2, scale=2) — the body. p=PI/2 pitches its +y axis to
   // +z: it lies along the depth axis, which the 45-degree default view

@@ -63055,7 +63055,7 @@ class S06Dream extends Dream {
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:8329:8415");
+  }), "core/demo/video01/S06.ts:8545:8631");
   section = __dt(new SectionCurve({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
@@ -63067,16 +63067,16 @@ class S06Dream extends Dream {
     offset: -1 / CYLINDER_SCALE,
     tint: RED,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:9504:9728");
+  }), "core/demo/video01/S06.ts:9720:9944");
   unfold() {
     this.observer.look("default");
     this.set(...this.observer.dolly(DEFAULT_DISTANCE2));
     this.wait(START_OFFSET5);
-    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:9864:9899");
-    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:9904:9935");
-    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:9940:9974");
-    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:9979:10093");
-    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:10098:10164");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:10080:10115");
+    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:10120:10151");
+    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:10156:10190");
+    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:10195:10309");
+    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:10314:10380");
     this.wait(1);
   }
 }
