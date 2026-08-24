@@ -154,3 +154,19 @@ operational decisions are entered by the working agent. Format:
   makes exactly the calls the renderer makes and pins which arc is drawn
   FIRST. Generalise: when a test and its subject use different conventions
   for the same helper, the test proves nothing about the subject.
+- 2026-08-24 · **Ontology transmission recorded → docs/ONTOLOGY.md**
+  (David). Headline decisions, all David-sourced: (a) **Dream = Holon +
+  chronology** as direction — new machinery treats scenes as
+  holons-with-chronologies; the class unification itself rides Ch 12;
+  (b) **a DreamSong is ONE file** with relative imports, scenes as
+  non-sovereign chapters; dreamsong.json demoted to manifest face;
+  (c) **vocabulary rule**: core Layer-1 primitives are invisible assets,
+  anything imported from outside core is vocabulary (shown in the
+  editor's cast bar), overridable; (d) **Magic Move = one operator**
+  — interpolation between two States over the pure timeline; within a
+  scene via captured checkpoints (posed with the live layer, committed
+  as States), across scenes as the identical operation one holon level
+  up with matching instead of identity; (e) **baking scoped honestly**:
+  never for render cost, only to make history-dependent holons samplable
+  at arbitrary t; (f) **pop-out** named as the first-class holon-birth
+  operation (asset/chapter/symbol → own repo, import rewritten).

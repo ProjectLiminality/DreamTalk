@@ -408,3 +408,15 @@ line: solved (with pointer) or parked (with trigger condition).
 Dependencies: 2+3 pair, then 4+5+6 in parallel; 7 (editor) needs 2–5 and
 informs 3's write-format design early — start EDITOR.md's design doc during
 Chapter 3. 8 needs 4–7; 9 needs 8; 10–12 need 9; 13 needs 10; 14 floats.
+
+
+## Post-transmission queue (2026-08-24, see docs/ONTOLOGY.md)
+
+1. Scene navigator + vocabulary/cast bar (one window).
+2. DreamSong pilot: DialecticalThinking.ts — ten chapters, cuts, 157s
+   composite timeline, full MP4 exported beside the original.
+3. Checkpoint capture: pose via live layer → State → semantic op →
+   transitionTo clip (Magic Move within scenes).
+4. Cross-scene Magic Move v1 (matching; morphs later).
+5. Dream/Holon unification with Ch 12; until then, new code treats
+   scenes as holons-with-chronologies.
