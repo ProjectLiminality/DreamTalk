@@ -35,12 +35,28 @@ export const Create = (holon: Holon): Anim => {
  * Retract into nothing. Consults the holon's own choreography
  * (`unCreateAnim()`) — the destructive half of the classic dispatch,
  * where UnCreateAxes erases and UnCreateEye unfills before it undraws —
- * and otherwise runs the draw front back to the start, holon-deep.
+ * and otherwise runs the draw front back to the start, recursing PER
+ * PART so a nested holon's own choreography is consulted too.
+ *
+ * That recursion is the whole point, and it used to be missing: the
+ * fallback flattened the tree with `walk()` and stamped
+ * `creation.to(0)` on every descendant, which silently overrode the
+ * custom `unCreateAnim()` of anything below the top. pydeation's
+ * dispatch does the opposite — `UnCreateEye` is chosen for an Eye
+ * wherever it sits, because `Animator.flatten_input` stops at a
+ * CustomObject and the class-specific animator takes over
+ * (animator.py:31-58, 742-772). S08's `UnCreate(creature)` is exactly
+ * that shape: a Group holding an Eye, whose UnCreateEye (iris unfills
+ * 0→50%, pupil 50→60%, lids and eyeball undraw 30→100%) was being
+ * replaced by one flat retraction, leaving the iris fill lit to the
+ * last frame (video-01 f0689-f0691).
+ *
+ * `Create` already recursed this way; the two halves are now symmetric.
  */
 export const UnCreate = (holon: Holon): Anim => {
   const custom = holon.unCreateAnim()
   if (custom) return custom
-  return deep(holon, (h) => h.creation.to(0))
+  return together(holon.creation.to(0), ...holon.parts.map((part) => UnCreate(part)))
 }
 
 export const Draw = Create

@@ -61643,8 +61643,8 @@ class ThreeHost {
     if (radius !== binding.capRadius || height !== binding.capHeight || thetaA !== binding.thetaA || thetaB !== binding.thetaB || nearY !== binding.nearY) {
       const v3 = (p2) => new Vector3(...p2);
       const nearSweep = thetaB - thetaA;
-      nearFront.setPoints(capArc(radius, nearY, thetaB, -nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
-      nearBack.setPoints(capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      nearFront.setPoints(capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      nearBack.setPoints(capArc(radius, nearY, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
       farCap.setPoints(capPolylineFrom(radius, farY, thetaA, false).map(v3));
       binding.capRadius = radius;
       binding.capHeight = height;
@@ -62022,7 +62022,7 @@ var UnCreate = (holon) => {
   const custom = holon.unCreateAnim();
   if (custom)
     return custom;
-  return deep(holon, (h2) => h2.creation.to(0));
+  return together(holon.creation.to(0), ...holon.parts.map((part) => UnCreate(part)));
 };
 var UnDraw = UnCreate;
 var Erase = (holon) => deep(holon, (h2) => h2 instanceof Stroke ? h2.erasure.sequence(0, 1) : none);
@@ -63029,7 +63029,7 @@ if (false)
   ;
 
 // demo/video01/S06.ts
-var START_OFFSET5 = 0.5;
+var START_OFFSET5 = 0.3;
 var DEFAULT_DISTANCE2 = 1000;
 var CYLINDER_SCALE = 2;
 
@@ -63050,12 +63050,12 @@ class S06Dream extends Dream {
     drawTicks: false,
     gridTint: BLUE,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:5371:6362");
+  }), "core/demo/video01/S06.ts:5144:6135");
   cylinder = __dt(new Cylinder({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:6650:6736");
+  }), "core/demo/video01/S06.ts:6423:6509");
   section = __dt(new SectionCurve({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
@@ -63067,16 +63067,16 @@ class S06Dream extends Dream {
     offset: -1 / CYLINDER_SCALE,
     tint: RED,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:7825:8049");
+  }), "core/demo/video01/S06.ts:7598:7822");
   unfold() {
     this.observer.look("default");
     this.set(...this.observer.dolly(DEFAULT_DISTANCE2));
     this.wait(START_OFFSET5);
-    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:8185:8220");
-    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:8225:8256");
-    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:8261:8295");
-    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:8300:8414");
-    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:8419:8485");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:7958:7993");
+    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:7998:8029");
+    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:8034:8068");
+    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:8073:8187");
+    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:8192:8258");
     this.wait(1);
   }
 }
@@ -64374,39 +64374,6 @@ var tokenize = (src) => {
   }
   return tokens;
 };
-var byteToIndexMapper = (src) => {
-  const marks = [];
-  let byte = 0;
-  for (let i2 = 0;i2 < src.length; ) {
-    const code3 = src.codePointAt(i2);
-    const units = code3 > 65535 ? 2 : 1;
-    const size = code3 < 128 ? 1 : code3 < 2048 ? 2 : code3 < 65536 ? 3 : 4;
-    byte += size;
-    i2 += units;
-    if (size !== units)
-      marks.push({ byte, index: i2 });
-  }
-  if (marks.length === 0)
-    return (b2) => b2;
-  return (b2) => {
-    let lo = 0;
-    let hi = marks.length - 1;
-    let found = -1;
-    while (lo <= hi) {
-      const mid = lo + hi >> 1;
-      if (marks[mid].byte <= b2) {
-        found = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    if (found < 0)
-      return b2;
-    const mark = marks[found];
-    return b2 + (mark.index - mark.byte);
-  };
-};
 var mountCodeView = (panel, body, title) => {
   const files = new Map;
   let open = false;
@@ -64426,7 +64393,7 @@ var mountCodeView = (panel, body, title) => {
       if (!res.ok)
         return;
       const { source } = await res.json();
-      const entry = { text: source, toIndex: byteToIndexMapper(source) };
+      const entry = { text: source, toIndex: (v2) => v2 };
       files.set(file, entry);
       return entry;
     } catch {
@@ -64525,6 +64492,7 @@ var mountCodeView = (panel, body, title) => {
 var CASCADE_THRESHOLD = 6;
 var ROW_HEIGHT = 19;
 var ROW_GAP = 3;
+var PACK_ABOVE = 6;
 var q = (v2) => Math.round(v2 * 1e6) / 1e6;
 var describeClip = (clip, index) => {
   const holons = [];
@@ -64592,7 +64560,29 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
     tick.appendChild(label3);
     ruler.appendChild(tick);
   }
+  const spanning = clips.filter((c2) => c2.duration > 0);
+  const packing2 = spanning.length > PACK_ABOVE;
+  const lineEnds = [];
+  const PACK_LINES = 3;
+  const lineFor = (clip, ordinal) => {
+    if (!packing2)
+      return ordinal;
+    let best = -1;
+    let bestEnd = Infinity;
+    for (let line = 0;line < PACK_LINES; line++) {
+      const end = lineEnds[line] ?? -Infinity;
+      if (clip.start >= end - 0.000000001 && end < bestEnd) {
+        best = line;
+        bestEnd = end;
+      }
+    }
+    if (best < 0)
+      best = lineEnds.length;
+    lineEnds[best] = clip.start + clip.duration;
+    return best;
+  };
   let index = 0;
+  let lines = 0;
   for (const clip of clips) {
     if (clip.duration <= 0) {
       const mark = document.createElement("div");
@@ -64607,7 +64597,9 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
     el.className = "cliprow";
     el.style.left = `${frac(clip.start) * 100}%`;
     el.style.width = `${clip.duration / span * 100}%`;
-    el.style.top = `${index * (ROW_HEIGHT + ROW_GAP)}px`;
+    const line = lineFor(clip, index);
+    lines = Math.max(lines, line + 1);
+    el.style.top = `${line * (ROW_HEIGHT + ROW_GAP)}px`;
     index++;
     el.title = `${row.label} · ${clip.duration.toFixed(2)}s at ${clip.start.toFixed(2)}s`;
     for (const w4 of row.windows) {
@@ -64633,14 +64625,19 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
       img.alt = "";
       face.appendChild(img);
     }
-    const text = document.createElement("span");
-    text.className = "cliplabel";
-    text.textContent = row.label;
-    face.appendChild(text);
-    const secs = document.createElement("span");
-    secs.className = "clipsecs";
-    secs.textContent = `${clip.duration.toFixed(clip.duration % 1 === 0 ? 0 : 1)}s`;
-    face.appendChild(secs);
+    const fraction = clip.duration / span;
+    if (fraction > 0.14) {
+      const text = document.createElement("span");
+      text.className = "cliplabel";
+      text.textContent = row.label;
+      face.appendChild(text);
+    }
+    if (fraction > 0.05) {
+      const secs = document.createElement("span");
+      secs.className = "clipsecs";
+      secs.textContent = `${clip.duration.toFixed(clip.duration % 1 === 0 ? 0 : 1)}s`;
+      face.appendChild(secs);
+    }
     el.appendChild(face);
     el.addEventListener("pointerdown", (e2) => {
       e2.stopPropagation();
@@ -64651,7 +64648,7 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
   }
   const stack3 = document.createElement("div");
   stack3.className = "clipstack";
-  stack3.style.height = `${Math.max(1, index) * (ROW_HEIGHT + ROW_GAP)}px`;
+  stack3.style.height = `${Math.max(1, lines) * (ROW_HEIGHT + ROW_GAP)}px`;
   container.insertBefore(stack3, container.firstChild);
   const playhead = document.createElement("div");
   playhead.className = "playhead";

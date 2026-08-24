@@ -845,12 +845,38 @@ export class ThreeHost {
       //
       // The `stroke_order` that then sequences the five is pydeation's
       // own default, "bottom_top" (object.py:90) — S&T mode 3.
+      // WHICH of the near cap's two arcs the pen takes first is settled
+      // by Scene 01, whose Create is the only one in the reference where
+      // the near cap is drawn alone for five clear frames (f0031-f0035,
+      // nothing else lit). It takes the AWAY-facing arc first.
+      //
+      // Projecting this cylinder's top cap under the solved camera —
+      // pose p=0.4 b=0.1, held fixed through the whole Create — the two
+      // arcs land on opposite sides of the ellipse:
+      //
+      //   thetaA -> thetaB (camera-facing)   screen y 251 -> 307  (LOWER)
+      //   thetaB -> thetaA the other way     screen y 297 -> 240  (UPPER)
+      //
+      // and the reference's ink starts at (531,277) and runs to (641,217)
+      // by f0035 — the UPPER side, i.e. the away-facing arc. Drawing the
+      // camera-facing arc first puts our ink on the far side of the same
+      // ellipse from the reference's: coverage_ref 0.83 -> 0.047 on
+      // f0035, and scene mean 0.9826/0.9888 -> 0.9433/0.9503.
+      //
+      // (Scene 06's f0494-f0497 were read the other way round. Both
+      // scenes agree the near cap SPLITS and the far cap does not; they
+      // are only being read differently about which half comes first,
+      // and Scene 01 is the cleaner read of the two because its near cap
+      // is the only thing on screen while it is drawn.)
       const nearSweep = thetaB - thetaA
       nearFront.setPoints(
-        capArc(radius, nearY, thetaB, -nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
-      )
-      nearBack.setPoints(
         capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
+      )
+      // nearFront ends on thetaA (it went the long way from thetaB), so
+      // nearBack is the SHORT way back: thetaA -> thetaB, the
+      // camera-facing arc. The two still meet at both generators.
+      nearBack.setPoints(
+        capArc(radius, nearY, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
       )
       farCap.setPoints(capPolylineFrom(radius, farY, thetaA, false).map(v3))
       binding.capRadius = radius

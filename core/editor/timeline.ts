@@ -73,6 +73,25 @@ const CASCADE_THRESHOLD = 6
 const ROW_HEIGHT = 19
 const ROW_GAP = 3
 
+/**
+ * How many rows are laid out one-per-line before the timeline PACKS them.
+ *
+ * The vertical axis wants to be order (Keynote's build list), and for a
+ * scene of a handful of clips it is. But S01 has eleven, which at one row
+ * per line is 242px of bar for a 132px region — the later clips simply
+ * fall off the bottom, and a build list you have to scroll to see the end
+ * of has stopped being a picture of the scene.
+ *
+ * Past the threshold, rows are packed into the fewest lines that keep
+ * them from overlapping (a clip goes on the first line whose last row
+ * ends before it starts). Since clips are laid out on a shared time axis
+ * and mostly run in sequence, that collapses a chain of eleven into two
+ * or three lines while keeping every row's position and width exactly
+ * true. Order is still readable — it runs left to right, which is what
+ * the time axis already meant.
+ */
+const PACK_ABOVE = 6
+
 /** Round a window bound so tracks that agree do not disagree by 1e-16. */
 const q = (v: number): number => Math.round(v * 1e6) / 1e6
 
@@ -219,7 +238,43 @@ export const mountTimeline = (
   }
 
   // --- The rows -----------------------------------------------------------
+  const spanning = clips.filter((c) => c.duration > 0)
+  const packing = spanning.length > PACK_ABOVE
+  /** The end time of the last row placed on each line, for packing. */
+  const lineEnds: number[] = []
+  /**
+   * How many lines a packed timeline uses. One line is technically enough
+   * for a strictly sequential scene, but it reads as a filmstrip: every
+   * row abuts its neighbours and the eye loses the boundaries. Dealing the
+   * rows round-robin across a few lines restores the gaps that make each
+   * clip a distinct object, while still fitting the bar. Order stays
+   * legible because the time axis carries it.
+   */
+  const PACK_LINES = 3
+  /** Which line a clip goes on: its own, or the first one it fits in. */
+  const lineFor = (clip: Clip, ordinal: number): number => {
+    if (!packing) return ordinal
+    // Prefer the line whose last row ended longest ago — that is the one
+    // that leaves the widest visible gap before this row starts.
+    let best = -1
+    let bestEnd = Infinity
+    for (let line = 0; line < PACK_LINES; line++) {
+      const end = lineEnds[line] ?? -Infinity
+      // A hair of slack, so two clips that merely abut do not stack.
+      if (clip.start >= end - 1e-9 && end < bestEnd) {
+        best = line
+        bestEnd = end
+      }
+    }
+    // Everything is occupied at this instant (genuinely overlapping
+    // clips): open a further line rather than draw one row over another.
+    if (best < 0) best = lineEnds.length
+    lineEnds[best] = clip.start + clip.duration
+    return best
+  }
+
   let index = 0
+  let lines = 0
   for (const clip of clips) {
     // A zero-duration clip is a `set()` — an instant, not a span. It is
     // real and worth showing, but it is not a row with a width; it draws
@@ -238,8 +293,12 @@ export const mountTimeline = (
     el.style.left = `${frac(clip.start) * 100}%`
     el.style.width = `${(clip.duration / span) * 100}%`
     // The vertical axis is ORDER (Keynote's build list); the horizontal is
-    // time. So each clip gets its own slot, top to bottom, in play order.
-    el.style.top = `${index * (ROW_HEIGHT + ROW_GAP)}px`
+    // time. A short scene gets one row per line, top to bottom in play
+    // order; a long one packs (see PACK_ABOVE), where left-to-right still
+    // carries the order because the time axis already did.
+    const line = lineFor(clip, index)
+    lines = Math.max(lines, line + 1)
+    el.style.top = `${line * (ROW_HEIGHT + ROW_GAP)}px`
     index++
     el.title = `${row.label} · ${clip.duration.toFixed(2)}s at ${clip.start.toFixed(2)}s`
 
@@ -268,14 +327,25 @@ export const mountTimeline = (
       img.alt = ""
       face.appendChild(img)
     }
-    const text = document.createElement("span")
-    text.className = "cliplabel"
-    text.textContent = row.label
-    face.appendChild(text)
-    const secs = document.createElement("span")
-    secs.className = "clipsecs"
-    secs.textContent = `${clip.duration.toFixed(clip.duration % 1 === 0 ? 0 : 1)}s`
-    face.appendChild(secs)
+    // A row narrower than its own label shows the glyph alone rather than
+    // one clipped letter and a full stop ("C."), which reads as damage.
+    // The full label is always in the tooltip, and in the inspector once
+    // the row is selected.
+    const fraction = clip.duration / span
+    // ~14% of a 900px bar is ~126px — about where a glyph, a label and a
+    // duration stop fighting each other for the same twenty pixels.
+    if (fraction > 0.14) {
+      const text = document.createElement("span")
+      text.className = "cliplabel"
+      text.textContent = row.label
+      face.appendChild(text)
+    }
+    if (fraction > 0.05) {
+      const secs = document.createElement("span")
+      secs.className = "clipsecs"
+      secs.textContent = `${clip.duration.toFixed(clip.duration % 1 === 0 ? 0 : 1)}s`
+      face.appendChild(secs)
+    }
     el.appendChild(face)
 
     el.addEventListener(
@@ -294,7 +364,7 @@ export const mountTimeline = (
   // clips than the bar is tall rather than clipping them silently.
   const stack = document.createElement("div")
   stack.className = "clipstack"
-  stack.style.height = `${Math.max(1, index) * (ROW_HEIGHT + ROW_GAP)}px`
+  stack.style.height = `${Math.max(1, lines) * (ROW_HEIGHT + ROW_GAP)}px`
   container.insertBefore(stack, container.firstChild)
 
   // --- The playhead -------------------------------------------------------

@@ -217,45 +217,74 @@ export class S01Dream extends Dream {
 if (import.meta.main) render(S01Dream)
 
 /**
- * ## What still misses, and why (honest ledger, 19/25 at step 5)
+ * ## What still misses, and why (honest ledger, 23/25 at step 5)
  *
- * Mean coverage ref 0.973 / ours 0.971. Six frames sit under the bar, in
- * two families, and both are FRAMEWORK questions, not scene ones:
+ * Mean coverage ref 0.982 / ours 0.969. Twenty-three of twenty-five
+ * frames pass; the two that do not are both inside the cylinder's 3s
+ * Create, and both are the SAME unsolved question.
  *
- * **t=1s and t=2s — the cylinder's draw partition.** Direction and seam
- * are now exact (the caps start on the silhouette generators and sweep
- * the near half first — see capPolylineFrom, measured off f0031-f0038),
- * and the chained order is the reference's. What is not solved is how
- * Sketch & Toon divides ONE draw parameter across the contour: by world
- * arc length our cap ran ~3x too fast, and proportioning by contour EDGE
- * COUNT (64 per cap, 1 per generator — now the host's model) fixed most
- * of it, lifting mean coverage_ours from 0.957 to 0.971. The residue is
- * that the reference SPLITS the bottom cap at the far generator: f0039
- * shows the near half drawn, then the left generator, and only in f0042
- * the far half. Reproducing that needs six strokes with view-dependent
- * bounds, and fitting their five shares against these frames drops the
- * error 40x (SSE 0.14 -> 0.003) at the cost of five numbers that mean
- * nothing outside this shot. Not worth it; left as a framework question.
+ * ### What the stroke-width fix resolved (no scene change needed)
  *
- * **t=13/14 and t=20/21 — the grid domino's phase.** Both grids fail at
- * the same two moments of their own 3s Create, symmetrically, at
- * coverage_ref 0.885-0.950 — just under the bar, never far from it. The
- * domino algebra is already a verbatim port (animator.py:61-104, incl.
- * the approximate end-rescale), and pydeation's own rel_duration is 0.3.
- * Sweeping it does not fix the shape: 0.2 saves t=13/20 and loses
- * t=14/21, 0.38-0.45 does the exact reverse, and every value plateaus at
- * 21/25 — the two families trade against each other. A fitted duration
- * would buy one frame by substituting a number for the source's own, so
- * 0.3 stays.
+ * Three of the four defects this scene carried were not scene bugs at
+ * all — they were the ~1.76x stroke over-width that palette.ts carried
+ * for ten scenes (S&T's 0.6 distance attenuation, object.py:207-209).
+ * With honest widths and nothing else changed, this scene went 19/25 ->
+ * 23/25:
  *
- * One unexplained observation, recorded for whoever takes this further:
- * at the very first frame of the first grid Create (video 12.0) the
- * reference already renders the y-axis ARROWHEAD at screen (640, 706),
- * i.e. a draw front some 70% of the way along a line whose own draw has
- * just begun. Neither world-arc-length nor screen-arc-length
- * parametrisation puts the front there at t=0. Whatever explains it
- * probably also explains why our axis lines run visibly behind the
- * reference's through the whole cascade — forcing the axes' window from
- * the source's (0, 0.8) down to 0.5 buys a frame here and costs coverage
- * on S04, so the source's value stays.
+ *   - the grid domino phase at t=13/14 and t=20/21 now passes on all
+ *     four frames. dominoWindows and rel_duration 0.3 are unchanged
+ *     pydeation; the earlier failures were fat strokes, not bad timing.
+ *   - the axis draw-front lag at every grid Create start is gone.
+ *   - the "grid extent" 36-vs-30 vertical-line gap is gone, as the
+ *     evaluator predicted: it was fat strokes merging adjacent far-horizon
+ *     lines under threshold.
+ *   - the Axes stroke is STROKE_MAIN unmodified, per the source's
+ *     thickness=5 and its grid_thickness = thickness/2. No scene-local
+ *     multiplier anywhere in this file.
+ *
+ * ### What remains: the cylinder's draw partition (t=1s, t=2s)
+ *
+ * The CONSTRUCTION is now right, and that is real progress: the
+ * cylinder's contour is five strokes, not four, because the two
+ * silhouette generators land ON the caps and cut one of them in two
+ * (render/three-host.ts, render/silhouette.ts). Splitting it recovered
+ * the shape at t=2s — before the split we drew the second cap as one
+ * closed loop and the reference plainly does not.
+ *
+ * What is NOT solved is how S&T proportions ONE draw parameter across
+ * those five strokes. Read off this scene's own new-ink deltas
+ * (refs/video-01/frames5 f0030-f0045), the eased `creation` at each
+ * stroke boundary is about
+ *
+ *     0.41, 0.52, 0.60, 0.72
+ *
+ * i.e. share vector ~[0.41, 0.11, 0.08, 0.12, 0.28]. Three principled
+ * quantities were tried against those four numbers:
+ *
+ *     contour edge count (cap 64, generator 1)   L1 error 0.298
+ *     screen arc length  (render/screen-arc.ts)  L1 error 0.313
+ *     world arc length                           L1 error 0.314
+ *
+ * None is close, and they fail differently: edge count runs the
+ * generators far too fast (1/130 of the span against the reference's
+ * ~0.12), screen and world arc run the first cap too fast. Reproducing
+ * the observed vector needs five free shares fitted to four measured
+ * boundaries, which would buy these two frames while encoding nothing
+ * that transfers to any other shot. Refused, on TASTE's terms: an
+ * honest 23/25 beats a fitted 25/25.
+ *
+ * Two negative results worth keeping, both measured on this scene:
+ *
+ *   - Screen-arc PARTITIONING between the strokes is worse than edge
+ *     count, not better, even though screen arc is demonstrably the
+ *     right rule WITHIN a stroke (screen-arc.ts, 30x error reduction on
+ *     this scene's own axes). Scene mean coverage_ours 0.985 -> 0.965.
+ *     S&T appears to meter screen pixels along a stroke but hand whole
+ *     contour edges to the stroke sequence.
+ *   - An ink-per-frame argument seems to favour screen-arc metering
+ *     within the cylinder's strokes, but new-ink PIXEL COUNT is not
+ *     proportional to screen arc on a curving stroke — successive
+ *     frames' ribbons overlap by an amount that varies with curvature —
+ *     so that measurement cannot decide the question, and the scored
+ *     frames put the two within 0.0004 of each other.
  */

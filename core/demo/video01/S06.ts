@@ -48,45 +48,38 @@ import { BLUE, RED, STROKE_GRID, STROKE_MAIN } from "./palette"
 /**
  * The measured scene-start offset.
  *
- * The gauntlet maps localT = videoSec - 98.5. The first lit pixel of the
- * cylinder arrives in frames5 f0494 (video 98.8s; f0493 is black) and the
- * last in f0563 (112.6s; f0564 is black) — 14.0s of drawing, exactly the
- * source's 2 + 3 + 1 + 5 + 3 with the leading `wait()` cut off. So the
- * source's own t = 0 sits at video ~98s — half a second before the span
- * starts, so the scene's `wait()` is already spent when scoring begins
- * and what remains of it is the wait the drawing takes after t = 0.
+ * The gauntlet maps localT = videoSec - 98.5, and the SOURCE fixes the
+ * whole span: wait, then 2 + 3 + 1 + 5 + 3 = 14s of drawing, every
+ * run_time verbatim. Two frame-accurate facts in refs/video-01/frames5
+ * then pin the offset from both ends, and they agree:
  *
- * Carrying it as the leading wait keeps every play() run_time verbatim
- * from the source; the timeline holds pre-first-segment values, so
- * nothing is lit before the draw begins.
+ *   FIRST INK   f0493 (98.6s) is black; f0494 (98.8s) lights 22 pixels.
+ *               So the Create begins in (98.6, 98.8] -> offset in (0.1, 0.3].
+ *   LAST INK    f0563 (112.6s) still holds 2464 pixels; f0564 (112.8s) is
+ *               black. So 98.5 + offset + 14 lands in (112.6, 112.8]
+ *               -> offset in (0.1, 0.3] again.
  *
- * THE NUMBER, measured. Total lit pixels in a frame is the cleanest
- * possible reading of "how much ink is down" — it needs no decomposition
- * into strokes and no assumption about which stroke is which. Over the
- * cylinder's 2s Create, alone on black (frames5 f0494-f0504), it runs
+ * Two independent readings, fourteen seconds apart, giving the same
+ * quarter-second window: the source's timings are exact and only the
+ * phase was ever in question. 0.3 sits at the window's edge and is what
+ * the interior beats prefer — the red section fades in over source t
+ * 6->7, i.e. video 104.8->105.8, and f0520 (104.0s) is where red first
+ * appears at low opacity.
  *
- *   22  267  787  1437  2141  3389  4645  6429  8401  9929  10524
- *
- * against a settled 10524. Fitting the ONE free parameter — this offset —
- * with the span held at the source's own 2s and the ease at pydeation's
- * own smoothing 0.25, the sum-squared error is
- *
- *   offset 0.30 -> 0.137     offset 0.40 -> 0.049
- *   offset 0.50 -> 0.018     (minimum at 0.506)
- *
- * so 0.5 it is, and the old 0.3 was absorbing the draw-order error that
- * render/three-host.ts's syncCylinder has since fixed: with the five
- * contour strokes in the wrong sequence, an early offset was the only way
- * to get the right amount of ink onto the right frames.
- *
- * The residual at 0.5 is the measure's own bias, not a missing parameter:
- * lit pixels saturate where the pen retraces near a cap/generator
- * junction, so late frames read slightly fuller than their arc length.
- * Sweeping the smoothing (0.0 through 0.35) moves the fitted offset by
- * less than 0.03 while never reaching zero error — a sign the residual is
- * in the ruler, not in the easing, so the source's 0.25 stands.
+ * A LATER offset was tried and is ruled out, which is worth recording
+ * because the cylinder's own draw appears to ask for one. Total lit
+ * pixels over the 2s Create (f0494-f0504: 22 267 787 1437 2141 3389 4645
+ * 6429 8401 9929 10524 against a settled 10524) fit best at offset 0.51.
+ * But lit pixels are not proportional to drawn arc: the two mantle
+ * generators are 37% of the contour's screen length and lay down ink at
+ * a far higher pixel-per-arc rate than a cap arc seen near its
+ * silhouette, and they are the LAST pieces the pen reaches — so the ink
+ * curve is back-loaded relative to the pen. Scored, offset 0.5 broke
+ * both ends at once (f0498 coverage 0.15, and the scene still lit at
+ * f0568 where the reference is black). The frame-boundary readings
+ * above are hard; the ink fit is soft. The hard ones win.
  */
-const START_OFFSET = 0.5
+const START_OFFSET = 0.3
 
 /** The 2021 rig's own distance — Scene 06's CONFIG is camera_zoom 1. */
 const DEFAULT_DISTANCE = 1000

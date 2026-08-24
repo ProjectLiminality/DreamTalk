@@ -70,6 +70,52 @@ describe("byteToIndexMapper", () => {
   })
 })
 
+/**
+ * The fact the code view's highlight depends on, pinned so it cannot
+ * change under the panel silently.
+ *
+ * anchors.ts calls its spans "byte offsets". They are not: injectAnchors
+ * takes them from ts-morph's getStart()/getEnd(), which are UTF-16 string
+ * positions. Reading them as bytes shifted S04's highlight 28 characters
+ * early — onto the tail of the comment above the construction — because
+ * that file carries fourteen non-ASCII characters before the span. If a
+ * writer ever does start emitting real byte offsets, this test fails and
+ * says which conversion to reinstate.
+ */
+describe("anchor offsets are UTF-16 indices, not bytes", () => {
+  test("injectAnchors' spans index the string directly", async () => {
+    const { injectAnchors } = await import("../scripts/ops")
+    const src = await Bun.file(new URL("../demo/video01/S04.ts", import.meta.url)).text()
+    const injected = injectAnchors(src, "core/demo/video01/S04.ts", "../../editor/anchors")
+
+    // Pull the anchors back out of the injected text and check each one
+    // names, in the ORIGINAL string, an expression that starts where it says.
+    const spans = [...injected.matchAll(/"core\/demo\/video01\/S04\.ts:(\d+):(\d+)"/g)].map((m) => ({
+      start: Number(m[1]),
+      end: Number(m[2]),
+    }))
+    expect(spans.length).toBeGreaterThan(3)
+
+    let sawNonAscii = false
+    for (const { start, end } of spans) {
+      const text = src.slice(start, end)
+      // Every anchored span is a construction or a play/backdrop call.
+      expect(text).toMatch(/^(new [A-Z]|this\.(play|backdrop)\()/)
+      // Balanced, i.e. the end index lands where the expression really ends.
+      expect(text.endsWith(")") || text.endsWith("})")).toBe(true)
+      if (/[^\x00-\x7F]/.test(src.slice(0, start))) sawNonAscii = true
+    }
+    // The test is only meaningful if some span sits after non-ASCII text.
+    expect(sawNonAscii).toBe(true)
+
+    // And concretely: the byte offset of the same point is DIFFERENT, which
+    // is exactly why treating these as bytes broke the highlight.
+    const index = src.indexOf("new Rectangle")
+    expect(spans.some((s) => s.start === index)).toBe(true)
+    expect(byteOffsetOf(src, index)).not.toBe(index)
+  })
+})
+
 describe("tokenize", () => {
   test("a line comment swallows a quote", () => {
     const src = `// it's fine\nconst a = 1`

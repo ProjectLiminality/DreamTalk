@@ -14,17 +14,25 @@
  * the file can be changed from — which is also why it never needs to
  * reconcile: the reload round-trip re-fetches it.
  *
- * ## Byte offsets, not character offsets
+ * ## The anchors' offsets are UTF-16 indices, despite what they are called
  *
- * The anchors are byte offsets into the file on disk (ops.ts targets them
- * with ts-morph). JavaScript strings are UTF-16. For a file of pure ASCII
- * the two coincide, and DreamWeavings are ASCII in practice — but the
- * comments in them are not always (this repo's own sources carry
- * en-dashes and Greek letters). So the mapping is done properly, once per
- * fetch, with a TextEncoder: a byte→UTF-16 index table built by walking
- * the string. Getting this wrong shifts every highlight after the first
- * non-ASCII character, which is exactly the kind of quietly-wrong the
- * anchors exist to avoid.
+ * `anchors.ts` documents its spans as "byte offsets into the ORIGINAL
+ * file", and this panel was written to convert them. It must not: the
+ * spans come from ts-morph's `Node.getStart()/getEnd()` (scripts/ops.ts,
+ * injectAnchors), and those are positions in a JavaScript string — UTF-16
+ * code units. The two agree only for ASCII, and a DreamWeaving's prose
+ * comments carry em-dashes and Greek letters by the dozen.
+ *
+ * Measured, on the file this was caught in: S04's `new Rectangle(...)`
+ * sits at UTF-16 index 5004 and byte offset 5032, and the editor reports
+ * its anchor as 5004 — the index. Converting it as a byte offset moved
+ * the highlight 28 characters early, onto the tail of the comment above
+ * the construction. So the offsets are used as they arrive.
+ *
+ * `byteToIndexMapper` is kept, tested, and unused by this path: the day
+ * an anchor really does carry a byte offset (a Rust or Go writer, a
+ * daemon that reads the file as bytes), the conversion is here and
+ * correct rather than reinvented under time pressure.
  *
  * ## Syntax colouring
  *
@@ -227,7 +235,8 @@ export const mountCodeView = (
       // The daemon names the field `source` (scripts/daemon.ts:sourceResponse),
       // alongside the hash the ops use as their base.
       const { source } = (await res.json()) as { source: string; hash: string }
-      const entry: Cached = { text: source, toIndex: byteToIndexMapper(source) }
+      // Identity, not a conversion — see the note at the top of the file.
+      const entry: Cached = { text: source, toIndex: (v) => v }
       files.set(file, entry)
       return entry
     } catch {
