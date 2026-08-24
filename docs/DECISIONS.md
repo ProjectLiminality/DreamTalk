@@ -85,3 +85,31 @@ operational decisions are entered by the working agent. Format:
   workflow/gauntlet harness deploys at Chapter 9 (builder / evaluator /
   adversarial-verify per scene, loop-until-dry) and fans out again for
   Chapter 10.
+
+- 2026-08-24 · **A cylinder is FIVE contour strokes, not four** — the two
+  silhouette generators cut each cap; the NEAR cap's two arcs are strokes
+  in their own right while the FAR cap survives as one closed loop, and
+  which cap is "near" is CAMERA-relative (sign of camLocal.y), not
+  local-axis relative. Independently measured by the S01 and S06 builders
+  from different poses. This is why a single closed cap stroke could never
+  reproduce the 2021 draw: a closed stroke cannot leave and return.
+- 2026-08-24 · **KNOWN GAP: near-cap arc order is pose-dependent and
+  unexplained.** S06 (static, p=PI/2) measures the CAMERA-FACING arc drawn
+  first; S01 (p=0.4, b=0.1) measures the AWAY-facing arc first. Both
+  readings were verified against their own reference frames, and each
+  builder confirmed the other's reading was correct for the other's scene.
+  pydeation's `stroke_order="bottom_top"` (object.py:90 → S&T mode 3)
+  sequences whole strokes and does NOT explain which arc becomes the first
+  stroke; that is decided earlier, when S&T chains contour edges into
+  strokes (OUTLINEMAT_JOIN_ANGLE_LIMIT=PI, CLOSECONNECTION=True —
+  object.py:204-205). The S01 rule is what ships, because it is the
+  calibrated one and the arc choice costs neither scene its remaining
+  frame (S06 fails f0498 either way, at 0.15 with S01's rule and 0.53 with
+  S06's). Both builders REFUSED to invent a fitted rule bridging the two
+  poses. Recorded as an open framework question, not papered over.
+- 2026-08-24 · **Grid thickness derives from ONE thickness, not two** —
+  the source computes `grid_thickness = thickness/2` from
+  `PRIM_THICKNESS = 5` (custom_objects.py:221-222, constants.py:51), i.e.
+  2.5 units. Scenes passing `STROKE_GRID * 2` were asking for 3. Fixing
+  S06 to `STROKE_MAIN` unmodified lifted four mid-scene frames from ~0.96
+  to 1.00. Applies to any scene still doubling its grid stroke.
