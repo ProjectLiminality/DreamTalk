@@ -192,8 +192,14 @@
     #codehead h2 { margin: 0; }
     #codefile { color: var(--text); font: 11px var(--mono); overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
-    #codebody { flex: 1 1 auto; overflow: auto; margin: 0; padding: 12px 15px 24px;
-      font: 11px/1.62 var(--mono); color: #6f6f7a; white-space: pre; tab-size: 2; }
+    /* Wrapped, not scrolled sideways: a DreamWeaving's prose comments run
+       long, and a panel that hides them behind a horizontal scrollbar
+       makes the reader work for what is right there. Continuation lines
+       are indented so a wrap still reads as one statement. */
+    #codebody { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; margin: 0;
+      padding: 12px 15px 24px 30px; font: 11px/1.62 var(--mono); color: #6f6f7a;
+      white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2;
+      text-indent: -15px; }
     .c-com { color: #3f3f48; }
     .c-str { color: #7a8f6a; }
     .c-num { color: #a8845e; }

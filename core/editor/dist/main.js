@@ -13,7 +13,7 @@ var __export = (target, all) => {
     });
 };
 
-// core/node_modules/three/build/three.core.js
+// node_modules/three/build/three.core.js
 var REVISION = "185";
 var CullFaceNone = 0;
 var CullFaceBack = 1;
@@ -11722,7 +11722,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-// core/node_modules/three/build/three.webgpu.js
+// node_modules/three/build/three.webgpu.js
 var refreshUniforms = [
   "alphaMap",
   "alphaTest",
@@ -45790,7 +45790,7 @@ class WebGPURenderer extends Renderer {
   }
 }
 
-// core/src/anim.ts
+// src/anim.ts
 var SMOOTHING = {
   smooth: { left: 0.25, right: 0.25 },
   linear: { left: 0, right: 0 },
@@ -45816,7 +45816,7 @@ var eased = (easing, ...items) => ({
   tracks: together(...items).tracks.map((t) => ({ ...t, easing }))
 });
 
-// core/src/constants.ts
+// src/constants.ts
 var rgb = (r, g, b) => ({
   r: r / 255,
   g: g / 255,
@@ -45838,7 +45838,7 @@ var TAU = 2 * Math.PI;
 var ASPECT_RATIO = 16 / 9;
 var isColor = (v) => typeof v === "object" && v !== null && typeof v.r === "number" && typeof v.g === "number" && typeof v.b === "number";
 
-// core/src/params.ts
+// src/params.ts
 var nextParamId = 1;
 
 class Param {
@@ -45948,7 +45948,7 @@ var integer = (v = 0) => new Param("integer", v);
 var bool2 = (v = false) => new Param("bool", v);
 var color2 = (v) => new Param("color", v);
 
-// core/src/holon.ts
+// src/holon.ts
 var INTERNALS = new WeakMap;
 var internalsOf = (h) => {
   const found = INTERNALS.get(h);
@@ -46094,7 +46094,7 @@ class Holon {
   }
 }
 
-// core/src/timeline.ts
+// src/timeline.ts
 var c4dEaseWith = (u, sl, sr) => {
   if (u <= 0)
     return 0;
@@ -46230,7 +46230,7 @@ class Timeline {
   }
 }
 
-// core/src/dream.ts
+// src/dream.ts
 var PERSPECTIVES = {
   front: { phi: 0, theta: 0 },
   default: { phi: PI3 / 4, theta: PI3 / 8 }
@@ -46362,7 +46362,7 @@ class Dream {
   }
 }
 
-// core/src/parts/index.ts
+// src/parts/index.ts
 var exports_parts = {};
 __export(exports_parts, {
   reverseOpenPolyline: () => reverseOpenPolyline,
@@ -46792,7 +46792,7 @@ class DottedLine extends Stroke {
   }
 }
 
-// core/src/parts/text.ts
+// src/parts/text.ts
 var exports_text = {};
 __export(exports_text, {
   writeWindows: () => writeWindows,
@@ -46873,7 +46873,7 @@ class Text extends Holon {
 var Write = (text) => linearCreation(text.creation, [0, 1]);
 var UnWrite = (text) => linearCreation(text.erasure, [0, 1]);
 
-// core/node_modules/three/build/three.tsl.js
+// node_modules/three/build/three.tsl.js
 var exports_three_tsl = {};
 __export(exports_three_tsl, {
   xor: () => xor2,
@@ -48154,7 +48154,7 @@ var workgroupId2 = TSL.workgroupId;
 var workingToColorSpace2 = TSL.workingToColorSpace;
 var xor2 = TSL.xor;
 
-// core/src/render/ribbon-math.ts
+// src/render/ribbon-math.ts
 var packSegments = (pts) => {
   const count = Math.max(0, pts.length - 1);
   const positions = new Float32Array(count * 6);
@@ -48194,7 +48194,7 @@ var resamplePolyline = (pts, target, make) => {
   return out;
 };
 
-// core/src/render/ribbon.ts
+// src/render/ribbon.ts
 var TSL2 = exports_three_tsl;
 var {
   Fn: Fn3,
@@ -48378,7 +48378,7 @@ class RibbonStroke {
   }
 }
 
-// core/src/render/fill.ts
+// src/render/fill.ts
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
   for (let i = 0;i <= segments; i++) {
@@ -48430,7 +48430,7 @@ class FillShape {
   }
 }
 
-// core/node_modules/three/build/three.module.js
+// node_modules/three/build/three.module.js
 var alphahash_fragment = `#ifdef USE_ALPHAHASH
 	if ( diffuseColor.a < getAlphaHashThreshold( vPosition ) ) discard;
 #endif`;
@@ -53378,7 +53378,7 @@ var DATA2 = new Uint16Array([
   1183
 ]);
 
-// core/node_modules/three-text/dist/index.js
+// node_modules/three-text/dist/index.js
 var __dirname = "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/core/node_modules/three-text/dist", __filename = "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/core/node_modules/three-text/dist/index.js";
 /*!
  * @license
@@ -60610,7 +60610,7 @@ class MeshGeometryBuilder {
   }
 }
 
-// core/node_modules/three-text/dist/three/index.js
+// node_modules/three-text/dist/three/index.js
 function buildThreeResult(layoutHandle, meshPipeline, options) {
   const meshResult = meshPipeline.build(layoutHandle, options);
   const geometry = new BufferGeometry;
@@ -60697,7 +60697,7 @@ class Text3 {
   }
 }
 
-// core/src/parts/outline.ts
+// src/parts/outline.ts
 var exports_outline = {};
 __export(exports_outline, {
   startAtTop: () => startAtTop,
@@ -60851,7 +60851,7 @@ var loopArea = (loop) => {
   return sum / 2;
 };
 
-// core/src/render/text.ts
+// src/render/text.ts
 var TSL3 = exports_three_tsl;
 var {
   Fn: Fn4,
@@ -61137,7 +61137,7 @@ var attachText = (holon, group) => {
   };
 };
 
-// core/src/render/silhouette.ts
+// src/render/silhouette.ts
 var silhouetteAngles = (camX, camZ, radius) => {
   const d2 = Math.hypot(camX, camZ);
   if (!(d2 > radius))
@@ -61165,7 +61165,7 @@ var capArc = (radius, y2, startAngle, sweep, segments = 64) => {
   return pts;
 };
 
-// core/src/render/screen-arc.ts
+// src/render/screen-arc.ts
 var clipToViewport = (ax, ay, bx, by, view) => {
   const dx = bx - ax;
   const dy = by - ay;
@@ -61251,7 +61251,7 @@ var screenArcRemap = (points, totalWorld, view) => {
   };
 };
 
-// core/src/render/three-host.ts
+// src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var CYLINDER_ROTATION_SEGMENTS = 64;
 var basePolyline = (holon) => {
@@ -61993,7 +61993,7 @@ var pointInTriangle2D = (px, py, a2, b2, c2) => {
   return !(hasNeg && hasPos);
 };
 
-// core/editor/anchors.ts
+// editor/anchors.ts
 var anchors = new WeakMap;
 var __dt = (value, anchor) => {
   if (value !== null && typeof value === "object") {
@@ -62009,7 +62009,7 @@ var __dt = (value, anchor) => {
   return value;
 };
 var anchorOf = (value) => anchors.get(value);
-// core/src/verbs.ts
+// src/verbs.ts
 var deep = (holon, f2) => together(...[...holon.walk()].map(f2));
 var none = { tracks: [] };
 var Create = (holon) => {
@@ -62028,7 +62028,7 @@ var UnDraw = UnCreate;
 var Erase = (holon) => deep(holon, (h2) => h2 instanceof Stroke ? h2.erasure.sequence(0, 1) : none);
 var FadeIn = (holon) => deep(holon, (h2) => h2.opacity.sequence(0, 1));
 var FadeOut = (holon) => deep(holon, (h2) => h2.opacity.to(0));
-// core/demo/FoundingSmoke.ts
+// demo/FoundingSmoke.ts
 class FoundingSmokeDream extends Dream {
   square = __dt(new Square({ size: 200, tint: RED, x: -300 }), "core/demo/FoundingSmoke.ts:518:563");
   circle = __dt(new Circle({ radius: 100, tint: BLUE, x: 300 }), "core/demo/FoundingSmoke.ts:575:622");
@@ -62043,7 +62043,7 @@ class FoundingSmokeDream extends Dream {
 if (false)
   ;
 
-// core/demo/StrokeCalibration.ts
+// demo/StrokeCalibration.ts
 var FRACTIONS = [0.25, 0.5, 0.75, 1];
 var COLUMN_X = [-900, -300, 300, 900];
 
@@ -62062,7 +62062,7 @@ class StrokeCalibrationDream extends Dream {
 if (false)
   ;
 
-// core/demo/VocabShowcase.ts
+// demo/VocabShowcase.ts
 class VocabShowcaseDream extends Dream {
   axes = __dt(new Axes({
     mode: "xy",
@@ -62099,7 +62099,7 @@ class VocabShowcaseDream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/palette.ts
+// demo/video01/palette.ts
 var PIXEL_UNITS_BASE_HEIGHT = 700;
 var THICKNESS_DISTANCE_STRENGTH = 0.6;
 var strokePx = (thickness3, frameHeight) => thickness3 * (frameHeight / PIXEL_UNITS_BASE_HEIGHT) * THICKNESS_DISTANCE_STRENGTH;
@@ -62112,7 +62112,7 @@ var STROKE_GRID_1080 = strokePx(THICKNESS_GRID, 1080);
 var STROKE_MAIN = STROKE_MAIN_720;
 var STROKE_GRID = STROKE_GRID_720;
 
-// core/demo/video01/CameraCal.ts
+// demo/video01/CameraCal.ts
 class CameraCalDream extends Dream {
   cylinder = __dt(new Cylinder({
     radius: 50,
@@ -62186,7 +62186,7 @@ class CameraCalGridDream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S01.ts
+// demo/video01/S01.ts
 var START_OFFSET = 0;
 var TILT_P = 0.4;
 var TILT_B = 0.1;
@@ -62258,7 +62258,7 @@ class S01Dream extends Dream {
 if (false)
   ;
 
-// core/src/parts/paths.ts
+// src/parts/paths.ts
 var exports_paths = {};
 __export(exports_paths, {
   byArcLength: () => byArcLength,
@@ -62347,7 +62347,7 @@ var MoveAlong = (rider, rail, opts = {}) => {
   return eased("linear", rider.x.sequence(...xs), rider.y.sequence(...ys), rider.b.sequence(...bs));
 };
 
-// core/demo/video01/S02.ts
+// demo/video01/S02.ts
 var START_OFFSET2 = 0.035;
 var CONTACT = 50 / Math.SQRT2;
 var SEPARATOR_HALF = orthoHalfHeight(1, 16 / 9);
@@ -62558,7 +62558,7 @@ class S02Dream extends Dream {
 if (false)
   ;
 
-// core/src/parts/curves.ts
+// src/parts/curves.ts
 var exports_curves = {};
 __export(exports_curves, {
   worldPosition: () => worldPosition,
@@ -62571,7 +62571,7 @@ __export(exports_curves, {
   Connection: () => Connection
 });
 
-// core/src/geometry/section.ts
+// src/geometry/section.ts
 var EPS = 0.000000001;
 var clamp6 = (v2, lo, hi) => Math.min(hi, Math.max(lo, v2));
 var mantlePoint = (theta, radius, y2) => ({
@@ -62659,7 +62659,7 @@ var cylinderPlaneSection = (radius, height, planePoint, planeNormal, segments = 
   return { kind: "truncated", points, closed: true };
 };
 
-// core/src/parts/curves.ts
+// src/parts/curves.ts
 var derivePoints = (line, sourceKey, compute3) => {
   let key;
   let memo = [];
@@ -62891,7 +62891,7 @@ class Connection extends Stroke {
   }
 }
 
-// core/demo/video01/S03.ts
+// demo/video01/S03.ts
 var START_OFFSET3 = 63.683 - 58 - 3.6;
 var FRONT_DISTANCE = 1000 / (3 / 2);
 var FLIP = 0.1;
@@ -62980,7 +62980,7 @@ class S03Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S04.ts
+// demo/video01/S04.ts
 var START_OFFSET4 = -0.29;
 var FRONT_DISTANCE2 = 1000;
 
@@ -63028,8 +63028,8 @@ class S04Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S06.ts
-var START_OFFSET5 = 0.3;
+// demo/video01/S06.ts
+var START_OFFSET5 = 0.5;
 var DEFAULT_DISTANCE2 = 1000;
 var CYLINDER_SCALE = 2;
 
@@ -63049,13 +63049,13 @@ class S06Dream extends Dream {
     drawGrid: true,
     drawTicks: false,
     gridTint: BLUE,
-    stroke: STROKE_GRID * 2
-  }), "core/demo/video01/S06.ts:4686:5017");
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S06.ts:5371:6362");
   cylinder = __dt(new Cylinder({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:5305:5391");
+  }), "core/demo/video01/S06.ts:6650:6736");
   section = __dt(new SectionCurve({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
@@ -63067,23 +63067,23 @@ class S06Dream extends Dream {
     offset: -1 / CYLINDER_SCALE,
     tint: RED,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:6480:6704");
+  }), "core/demo/video01/S06.ts:7825:8049");
   unfold() {
     this.observer.look("default");
     this.set(...this.observer.dolly(DEFAULT_DISTANCE2));
     this.wait(START_OFFSET5);
-    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:6840:6875");
-    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:6880:6911");
-    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:6916:6950");
-    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:6955:7069");
-    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:7074:7140");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:8185:8220");
+    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:8225:8256");
+    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:8261:8295");
+    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:8300:8414");
+    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:8419:8485");
     this.wait(1);
   }
 }
 if (false)
   ;
 
-// core/demo/video01/S10.ts
+// demo/video01/S10.ts
 var START_OFFSET6 = -0.53;
 var FRONT_DISTANCE3 = 800;
 
@@ -63162,7 +63162,7 @@ class S10Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S09.ts
+// demo/video01/S09.ts
 var START_OFFSET7 = -1.58;
 var CAMERA_ZOOM = 5 / 4;
 
@@ -63222,7 +63222,7 @@ class S09Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S07.ts
+// demo/video01/S07.ts
 var START_OFFSET8 = -1.67;
 
 class S07Dream extends Dream {
@@ -63240,7 +63240,7 @@ class S07Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S08.ts
+// demo/video01/S08.ts
 var START_OFFSET9 = -2.11;
 
 class S08Dream extends Dream {
@@ -63302,7 +63302,7 @@ class S08Dream extends Dream {
 if (false)
   ;
 
-// core/demo/video01/S05.ts
+// demo/video01/S05.ts
 var START_OFFSET10 = -1.26;
 
 class S05Dream extends Dream {
@@ -63354,7 +63354,7 @@ class S05Dream extends Dream {
 if (false)
   ;
 
-// core/demo/CurvesShowcase.ts
+// demo/CurvesShowcase.ts
 var R2 = 60;
 var H2 = 240;
 
@@ -63407,7 +63407,7 @@ class CurvesShowcaseDream extends Dream {
 if (false)
   ;
 
-// core/demo/TextShowcase.ts
+// demo/TextShowcase.ts
 class TextShowcaseDream extends Dream {
   transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
   thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120, tint: BLUE }), "core/demo/TextShowcase.ts:1245:1316");
@@ -63436,7 +63436,7 @@ class TextShowcaseDream extends Dream {
 if (false)
   ;
 
-// holons/Circle/Circle.ts
+// ../holons/Circle/Circle.ts
 class Circle2 extends Circle {
 }
 
@@ -63451,7 +63451,7 @@ class CircleDream extends Dream {
 if (false)
   ;
 
-// holons/Square/Square.ts
+// ../holons/Square/Square.ts
 class Square2 extends Square {
 }
 
@@ -63466,7 +63466,7 @@ class SquareDream extends Dream {
 if (false)
   ;
 
-// holons/Cylinder/Cylinder.ts
+// ../holons/Cylinder/Cylinder.ts
 class Cylinder2 extends Cylinder {
   radius = length2(50);
   height = length2(200);
@@ -63492,7 +63492,7 @@ class CylinderDream extends Dream {
 if (false)
   ;
 
-// core/demo/scenes.ts
+// demo/scenes.ts
 var scenes = {
   founding: CylinderDream,
   circle: CircleDream,
@@ -63518,7 +63518,7 @@ var scenes = {
 };
 var defaultScene = "founding";
 
-// core/editor/selection.ts
+// editor/selection.ts
 class Selection {
   #current = null;
   #listeners = new Set;
@@ -63578,7 +63578,7 @@ var resolvePath = (roots, path) => {
   return node.constructor.name === path.className ? node : null;
 };
 
-// core/editor/classname.ts
+// editor/classname.ts
 var names = new Map;
 for (const namespace of [exports_parts, exports_curves, exports_text, exports_paths, exports_outline]) {
   for (const [exported, value] of Object.entries(namespace)) {
@@ -63590,7 +63590,7 @@ for (const namespace of [exports_parts, exports_curves, exports_text, exports_pa
 }
 var classNameOf = (holon) => names.get(holon.constructor) ?? holon.constructor.name;
 
-// core/editor/thumbnails.ts
+// editor/thumbnails.ts
 var THUMB_SIZE = 18;
 var CURVE_SEGMENTS = 48;
 var circlePath = (rx, ry, from = 0, to = Math.PI * 2) => {
@@ -63811,7 +63811,7 @@ var thumbnailEl = (holon, size = THUMB_SIZE) => {
   return img;
 };
 
-// core/editor/outline.ts
+// editor/outline.ts
 var identityOf = (holon) => {
   const parent = holon.parent;
   if (!parent)
@@ -63917,7 +63917,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
   return { dispose: unsubscribe };
 };
 
-// core/editor/marquee.ts
+// editor/marquee.ts
 var BLUE2 = "#00a2ff";
 var TICK = 14;
 var PAD = 8;
@@ -63985,7 +63985,7 @@ class Marquee {
   }
 }
 
-// core/editor/numeric.ts
+// editor/numeric.ts
 var STEP_PER_PIXEL = {
   scalar: 1,
   length: 1,
@@ -64162,7 +64162,7 @@ var parseEntry = (text) => {
 };
 var wantsSlider = (param) => param.kind === "completion" || param.kind === "bipolar";
 
-// core/editor/inspector.ts
+// editor/inspector.ts
 var STANDARD_PARAMS = new Set([
   "x",
   "y",
@@ -64294,7 +64294,7 @@ var buildParamRow = (name, param, hooks) => {
   return { el, param, val };
 };
 
-// core/editor/codeview.ts
+// editor/codeview.ts
 var KEYWORDS = new Set([
   "import",
   "from",
@@ -64381,10 +64381,10 @@ var byteToIndexMapper = (src) => {
     const code3 = src.codePointAt(i2);
     const units = code3 > 65535 ? 2 : 1;
     const size = code3 < 128 ? 1 : code3 < 2048 ? 2 : code3 < 65536 ? 3 : 4;
-    if (size !== units)
-      marks.push({ byte, index: i2 });
     byte += size;
     i2 += units;
+    if (size !== units)
+      marks.push({ byte, index: i2 });
   }
   if (marks.length === 0)
     return (b2) => b2;
@@ -64404,10 +64404,7 @@ var byteToIndexMapper = (src) => {
     if (found < 0)
       return b2;
     const mark = marks[found];
-    const next = marks[found + 1];
-    const drift = mark.index - mark.byte;
-    const index = b2 + drift;
-    return next ? Math.min(index, next.index) : index;
+    return b2 + (mark.index - mark.byte);
   };
 };
 var mountCodeView = (panel, body, title) => {
@@ -64524,7 +64521,7 @@ var mountCodeView = (panel, body, title) => {
   };
 };
 
-// core/editor/timeline.ts
+// editor/timeline.ts
 var CASCADE_THRESHOLD = 6;
 var ROW_HEIGHT = 19;
 var ROW_GAP = 3;
@@ -64712,7 +64709,7 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
   };
 };
 
-// core/editor/overrides.ts
+// editor/overrides.ts
 class Overrides {
   #animated;
   #entries = new Map;
@@ -64835,7 +64832,7 @@ var ORBIT_PER_WIDTH = 2 * Math.PI;
 var DOLLY_PER_NOTCH = 0.0015;
 var dollyRadius = (radius, deltaY, min5 = 1) => Math.max(min5, radius * Math.exp(deltaY * DOLLY_PER_NOTCH));
 
-// core/editor/main.ts
+// editor/main.ts
 var $2 = (id) => document.getElementById(id);
 var SCENE_FILES = {
   smoke: "core/demo/FoundingSmoke.ts",

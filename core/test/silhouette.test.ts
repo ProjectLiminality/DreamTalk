@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { capPolylineFrom, generatorPoint, silhouetteAngles } from "../src/render/silhouette"
+import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "../src/render/silhouette"
 
 const EPS = 1e-9
 
@@ -123,5 +123,66 @@ describe("capPolylineFrom", () => {
       expect(Math.abs(fwd[i]![0] - rev[8 - i]![0])).toBeLessThan(1e-9)
       expect(Math.abs(fwd[i]![2] - rev[8 - i]![2])).toBeLessThan(1e-9)
     }
+  })
+})
+
+/**
+ * The two arcs a cap contributes to the contour, and which side of the
+ * cap each one is.
+ *
+ * This pins a measurement, not a preference. video-01 Scene 01's own
+ * cylinder draw (refs/video-01/frames5, new-ink deltas f0030-f0045)
+ * shows the pen reaching the second cap and taking its AWAY-facing arc
+ * first — at t=2.0s (f0040) the bottom ellipse's upper arc, screen
+ * y≈410-440, is inked and its lower arc is not. Building the arcs the
+ * other way round put our ink on the opposite side of the same ellipse
+ * and cost coverage_ref 0.75 -> 0.63 on that frame.
+ *
+ * The geometric content: walking from thetaA toward DECREASING angle
+ * walks AWAY from the camera azimuth phi (since thetaA = phi - spread),
+ * so that arc is the far one; the complement, from thetaB by -nearSweep,
+ * is the camera-facing one.
+ */
+describe("cap arcs: which side is which", () => {
+  const R = 50
+  const CAM: [number, number] = [700, 700]
+
+  test("the arc from thetaA by -(2pi - gap) stays FARTHER from the camera than the one from thetaB by -gap", () => {
+    const angles = silhouetteAngles(CAM[0], CAM[1], R)
+    expect(angles).toBeDefined()
+    const { thetaA, thetaB } = angles!
+    const gap = thetaB - thetaA
+    const far = capArc(R, 0, thetaA, -(Math.PI * 2 - gap), 64)
+    const near = capArc(R, 0, thetaB, -gap, 64)
+
+    const meanDist = (pts: [number, number, number][]) =>
+      pts.reduce((a, [x, , z]) => a + Math.hypot(x - CAM[0], z - CAM[1]), 0) / pts.length
+
+    expect(meanDist(far)).toBeGreaterThan(meanDist(near))
+  })
+
+  test("the two arcs meet at the generators and together cover the circle exactly once", () => {
+    const angles = silhouetteAngles(CAM[0], CAM[1], R)!
+    const { thetaA, thetaB } = angles
+    const gap = thetaB - thetaA
+    const far = capArc(R, 0, thetaA, -(Math.PI * 2 - gap), 64)
+    const near = capArc(R, 0, thetaB, -gap, 64)
+
+    // far ends where near begins, and near ends where far begins.
+    const close = (a: [number, number, number], b: [number, number, number]) =>
+      Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+    expect(close(far[far.length - 1]!, near[0]!)).toBeLessThan(1e-9)
+    expect(close(near[near.length - 1]!, far[0]!)).toBeLessThan(1e-9)
+
+    // Their sweeps sum to a full turn.
+    expect(Math.abs(-(Math.PI * 2 - gap) + -gap + Math.PI * 2)).toBeLessThan(1e-12)
+  })
+
+  test("the near arc's sweep is the generators' angular gap, and it contains the camera azimuth", () => {
+    const angles = silhouetteAngles(CAM[0], CAM[1], R)!
+    const phi = Math.atan2(CAM[1], CAM[0])
+    // phi lies strictly between the two generators.
+    expect(phi).toBeGreaterThan(angles.thetaA)
+    expect(phi).toBeLessThan(angles.thetaB)
   })
 })

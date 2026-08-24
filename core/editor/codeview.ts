@@ -76,7 +76,7 @@ const KEYWORDS = new Set([
   "undefined",
 ])
 
-interface Token {
+export interface Token {
   /** UTF-16 index range within the source. */
   start: number
   end: number
@@ -155,21 +155,29 @@ export const tokenize = (src: string): Token[] => {
  * that short list. Pure ASCII costs nothing at all.
  */
 export const byteToIndexMapper = (src: string): ((byte: number) => number) => {
-  /** Cumulative (byteOffset, utf16Index) at each divergence point. */
+  /**
+   * One mark per multi-byte character, recorded at the byte offset just
+   * AFTER it — where the accumulated drift takes its new value. Recording
+   * the position before the character instead would report the drift the
+   * previous run had, which is the same off-by-one that shifts a highlight
+   * onto the tail of the comment above it.
+   */
   const marks: { byte: number; index: number }[] = []
   let byte = 0
   for (let i = 0; i < src.length; ) {
     const code = src.codePointAt(i)!
     const units = code > 0xffff ? 2 : 1
     const size = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
-    if (size !== units) marks.push({ byte, index: i })
     byte += size
     i += units
+    if (size !== units) marks.push({ byte, index: i })
   }
   if (marks.length === 0) return (b: number) => b
 
   return (b: number): number => {
-    // The last divergence at or before b tells us the drift from there on.
+    // The last mark at or before b carries the drift that applies from
+    // there on; everything after it up to the next mark is ASCII, so bytes
+    // and UTF-16 units advance together.
     let lo = 0
     let hi = marks.length - 1
     let found = -1
@@ -184,13 +192,7 @@ export const byteToIndexMapper = (src: string): ((byte: number) => number) => {
     }
     if (found < 0) return b
     const mark = marks[found]!
-    // Bytes since that mark map 1:1 only if the region after it is ASCII;
-    // the next mark bounds how far that assumption holds, and clamping to
-    // it is what keeps a mid-multibyte offset from overshooting.
-    const next = marks[found + 1]
-    const drift = mark.index - mark.byte
-    const index = b + drift
-    return next ? Math.min(index, next.index) : index
+    return b + (mark.index - mark.byte)
   }
 }
 

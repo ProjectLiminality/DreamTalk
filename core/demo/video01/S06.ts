@@ -52,25 +52,41 @@ import { BLUE, RED, STROKE_GRID, STROKE_MAIN } from "./palette"
  * cylinder arrives in frames5 f0494 (video 98.8s; f0493 is black) and the
  * last in f0563 (112.6s; f0564 is black) — 14.0s of drawing, exactly the
  * source's 2 + 3 + 1 + 5 + 3 with the leading `wait()` cut off. So the
- * source's own t = 0 sits at video ≈ 97.7s — a second before the span
+ * source's own t = 0 sits at video ~98s — half a second before the span
  * starts, so the scene's `wait()` is already spent when scoring begins
- * and what remains of it is the +0.2s the drawing waits after t = 0.
+ * and what remains of it is the wait the drawing takes after t = 0.
  *
  * Carrying it as the leading wait keeps every play() run_time verbatim
  * from the source; the timeline holds pre-first-segment values, so
- * nothing is lit before the draw begins. The interior beats confirm
- * the fit independently: the red section fades in over source t 6→7,
- * i.e. video 103.7→104.7, and f0520 (104.0) is the frame where red first
- * appears at low opacity — 1531 red pixels against 4695 once settled.
+ * nothing is lit before the draw begins.
  *
- * 0.3 rather than the 0.2 the frame counts alone give: swept against the
- * scored frames (0.15 / 0.20 / 0.25 / 0.28 / 0.30 / 0.32 / 0.35 / 0.40),
- * mean coverage rises monotonically to a plateau at 0.28–0.32 (ref 0.987
- * / ours 0.952 at 0.30) and falls away on both sides. The extra ~100ms is
- * the residue of easing over long spans — the same effect S04 measured at
- * ~40ms over its 2s spans, here across a 3s Create and a 5s turn.
+ * THE NUMBER, measured. Total lit pixels in a frame is the cleanest
+ * possible reading of "how much ink is down" — it needs no decomposition
+ * into strokes and no assumption about which stroke is which. Over the
+ * cylinder's 2s Create, alone on black (frames5 f0494-f0504), it runs
+ *
+ *   22  267  787  1437  2141  3389  4645  6429  8401  9929  10524
+ *
+ * against a settled 10524. Fitting the ONE free parameter — this offset —
+ * with the span held at the source's own 2s and the ease at pydeation's
+ * own smoothing 0.25, the sum-squared error is
+ *
+ *   offset 0.30 -> 0.137     offset 0.40 -> 0.049
+ *   offset 0.50 -> 0.018     (minimum at 0.506)
+ *
+ * so 0.5 it is, and the old 0.3 was absorbing the draw-order error that
+ * render/three-host.ts's syncCylinder has since fixed: with the five
+ * contour strokes in the wrong sequence, an early offset was the only way
+ * to get the right amount of ink onto the right frames.
+ *
+ * The residual at 0.5 is the measure's own bias, not a missing parameter:
+ * lit pixels saturate where the pen retraces near a cap/generator
+ * junction, so late frames read slightly fuller than their arc length.
+ * Sweeping the smoothing (0.0 through 0.35) moves the fitted offset by
+ * less than 0.03 while never reaching zero error — a sign the residual is
+ * in the ruler, not in the easing, so the source's 0.25 stands.
  */
-const START_OFFSET = 0.3
+const START_OFFSET = 0.5
 
 /** The 2021 rig's own distance — Scene 06's CONFIG is camera_zoom 1. */
 const DEFAULT_DISTANCE = 1000
@@ -106,7 +122,17 @@ export class S06Dream extends Dream {
     drawGrid: true,
     drawTicks: false,
     gridTint: BLUE,
-    stroke: STROKE_GRID * 2, // Axes halves it for the grid lines
+    // The source's own thickness, unmodified. Axes takes ONE thickness —
+    // pydeation's default PRIM_THICKNESS = 5 (constants.py:51), which the
+    // source's Axes(...) call leaves alone — and derives the grid lines
+    // from it as `grid_thickness = thickness / 2`
+    // (refs/pydeation-legacy/object/custom_objects.py:221-222), i.e. 2.5
+    // units, so 2.5 * 720/700 * 0.6 = 1.54px of ink. The holon halves it
+    // the same way, so handing it STROKE_MAIN reproduces the source line
+    // for line. (It previously read STROKE_GRID * 2, which asks for 3
+    // units of grid: STROKE_GRID is the palette's name for a thickness
+    // video-01 uses elsewhere, not for what an Axes derives.)
+    stroke: STROKE_MAIN,
   })
 
   // Cylinder(p=PI/2, scale=2) — the body. p=PI/2 pitches its +y axis to
