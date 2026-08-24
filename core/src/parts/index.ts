@@ -462,12 +462,34 @@ export const dominoWindows = (
   return windows
 }
 
-/** A group of strokes drawing as a domino cascade over one span. */
+/**
+ * A group of strokes drawing as a domino cascade over one span.
+ *
+ * `restage`, not a bare window, and the reason is in the pydeation source
+ * rather than in any frame. Each child's `Animation` is constructed by
+ * `CObject.animate` with `rel_run_time = (rel_start_point, rel_end_point)
+ * = (0, 1)`, so `rel_duration` is 1 (animation.py:10-20). `Domino` then
+ * squeezes it into its window by `rescale_run_time`, which rewrites
+ * `rel_run_time` and **leaves `rel_duration` at 1** (animation.py:29-44)
+ * — and `rel_duration` is exactly what `play()` multiplies the run time
+ * by when it sets the keyframe tangents (`run_time=run_time *
+ * rel_duration`, scene.py:990, feeding `smoothing * run_time` into
+ * `SetTimeLeft/Right`, scene.py:785-786).
+ *
+ * So a grid line occupying 0.3 of a 3s draw carries a tangent stated
+ * against the whole 3s: a normalized smoothing of 0.25/0.3 = 0.83,
+ * clamped at 1 by `smoothingFor`. The cascade's children are therefore
+ * far more eased than their windows alone would suggest — many lines
+ * visibly *started* and creeping, rather than a few lines racing. That
+ * is what the reference shows (video-01 S08 f0608: 18 grid lines carry
+ * ink where a 0.25-eased cascade puts 14), and it is a property of the
+ * 2021 machinery, not a fit.
+ */
 const cascade = (lines: readonly Stroke[]): Anim => {
   const windows = dominoWindows(lines.length)
   return together(
-    ...lines.map(
-      (line, i): Windowed => [line.creation.sequence(0, 1), windows[i]![0], windows[i]![1]],
+    ...lines.map((line, i) =>
+      restage(line.creation.sequence(0, 1), windows[i]![0], windows[i]![1]),
     ),
   )
 }
@@ -476,8 +498,8 @@ const cascade = (lines: readonly Stroke[]): Anim => {
 const consume = (lines: readonly Stroke[]): Anim => {
   const windows = dominoWindows(lines.length)
   return together(
-    ...lines.map(
-      (line, i): Windowed => [line.erasure.sequence(0, 1), windows[i]![0], windows[i]![1]],
+    ...lines.map((line, i) =>
+      restage(line.erasure.sequence(0, 1), windows[i]![0], windows[i]![1]),
     ),
   )
 }

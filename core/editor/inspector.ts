@@ -231,8 +231,9 @@ export const buildParamRow = (name: string, param: Param<ParamValue>, hooks: Row
     return { el, param, field, slider }
   }
 
-  // Booleans and anything else: shown, read, not yet editable.
-  el.appendChild(document.createElement("span"))
+  // Booleans and anything else: shown, read, not yet editable. One child
+  // only — the grid is label | control, and an extra spacer would push the
+  // value into a third column that does not exist.
   const val = document.createElement("div")
   val.className = "val"
   val.textContent = formatValue(param.value)

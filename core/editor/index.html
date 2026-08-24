@@ -124,7 +124,11 @@
        that makes a dense inspector read as calm. */
     .param { display: grid; grid-template-columns: 76px 1fr;
       align-items: center; gap: 8px; margin: 2px 0; min-height: 22px; }
-    .param.ranged { grid-template-columns: 76px 1fr 62px; }
+    /* label | slider | field. The field keeps the same right-hand width a
+       bare numeric row has, so a slider row and a plain row still agree on
+       where the number sits. */
+    .param.ranged { grid-template-columns: 76px 1fr 58px; }
+    .param.ranged .num { grid-column: 3; }
     .param label { color: var(--dim); font-size: 11px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     .param input[type=range] { width: 100%; accent-color: var(--blue); height: 3px; }
@@ -231,6 +235,9 @@
       margin-left: -1px; background: var(--dim); border-radius: 1px; }
     #clips { position: relative; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
       min-height: 0; padding: 5px 0; cursor: default; }
+    /* Reserves the stack's height so the bar scrolls rather than clipping
+       a long scene's later clips. */
+    .clipstack { position: relative; pointer-events: none; }
     .cliprow { position: absolute; height: 19px; border-radius: 3px;
       background: #12222c; border: 1px solid #1b3a4d;
       overflow: hidden; cursor: default; user-select: none; }
@@ -242,6 +249,11 @@
        as the sub-spans the composition already states. */
     .window { position: absolute; top: 0; bottom: 0; background: rgba(0,162,255,0.09);
       border-left: 1px solid rgba(0,162,255,0.34); }
+    /* A domino — dozens of staggered sub-spans — said once, as a swept
+       band, instead of as dozens of unreadable hairlines. */
+    .window.cascade { border-left: none;
+      background: repeating-linear-gradient(115deg, rgba(0,162,255,0.20) 0 1px,
+        transparent 1px 6px); }
     .clipface { position: relative; display: flex; align-items: center; gap: 5px;
       height: 100%; padding: 0 6px; white-space: nowrap; }
     .clipface .thumb { opacity: 0.85; }

@@ -222,8 +222,10 @@ export const mountCodeView = (
     try {
       const res = await fetch(`/api/source?file=${encodeURIComponent(file)}`)
       if (!res.ok) return undefined
-      const { text } = (await res.json()) as { text: string; hash: string }
-      const entry: Cached = { text, toIndex: byteToIndexMapper(text) }
+      // The daemon names the field `source` (scripts/daemon.ts:sourceResponse),
+      // alongside the hash the ops use as their base.
+      const { source } = (await res.json()) as { source: string; hash: string }
+      const entry: Cached = { text: source, toIndex: byteToIndexMapper(source) }
       files.set(file, entry)
       return entry
     } catch {

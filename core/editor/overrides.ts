@@ -33,6 +33,15 @@
  * destroyed on the next. The editor got away with it only by pausing
  * first. With the overlay, tweaking-while-playing and snap-back both fall
  * out for free.
+ *
+ * The overlay's own invariant, which cost a bug to learn: releasing an
+ * override must leave NO trace. `apply()` does write into the param (the
+ * one place the layer touches the scene, so that the renderer, the picker
+ * and the inspector need know nothing about it) — and a param the timeline
+ * never animates has nothing to rewrite it on the next frame. So every
+ * entry remembers what it displaced, and every release puts it back. Flying
+ * the camera hits this immediately: most scenes never animate radius/x/y,
+ * so without the restore a flown dolly would quietly become permanent.
  */
 
 import type { Param, ParamValue } from "../src/params"
@@ -45,6 +54,14 @@ export interface OverrideEntry {
   param: Param<ParamValue>
   value: ParamValue
   origin: OverrideOrigin
+  /**
+   * What the param held the moment the override was first taken. Needed
+   * because `apply()` writes into the param, and a param the timeline
+   * never touches has nothing to rewrite it: without this, releasing such
+   * an override would leave its last live value behind forever, silently
+   * turning a temporary tweak into a permanent one.
+   */
+  displaced: ParamValue
 }
 
 export class Overrides {
@@ -95,33 +112,55 @@ export class Overrides {
         `Param '${param.name ?? param.id}' follows a derived binding; animate its source instead`,
       )
     }
+    const existing = this.#entries.get(param as Param<ParamValue>)
     this.#entries.set(param as Param<ParamValue>, {
       param: param as Param<ParamValue>,
       value: param.clamp(value),
       origin,
+      // Only the FIRST set of a run records what it displaced; every
+      // subsequent one is the same gesture continuing.
+      displaced: existing ? existing.displaced : param.value,
     })
     this.#notify()
   }
 
-  /** Drop one override (Escape during a gesture; releasing a flown pose). */
+  /**
+   * Drop one override and put back what it displaced.
+   *
+   * The restore is not cosmetic. `apply()` writes into the param, and a
+   * param the timeline never animates has nothing to rewrite it on the
+   * next frame — so dropping the entry alone would leave the live value
+   * standing forever, which is precisely the "a value written into the
+   * param survives" failure the live layer exists to prevent. For an
+   * animated param the restore is harmless: `apply(t)` overwrites it
+   * immediately with the timeline's own value.
+   */
   delete(param: Param<ParamValue>): boolean {
-    const had = this.#entries.delete(param as Param<ParamValue>)
-    if (had) this.#notify()
-    return had
+    const entry = this.#entries.get(param as Param<ParamValue>)
+    if (!entry) return false
+    this.#entries.delete(param as Param<ParamValue>)
+    if (!param.isBound) param.value = entry.displaced
+    this.#notify()
+    return true
   }
 
   /** Drop several at once, notifying once. */
   release(params: Iterable<Param<ParamValue>>): void {
     let changed = false
-    for (const p of params) changed = this.#entries.delete(p as Param<ParamValue>) || changed
+    for (const p of params) {
+      const entry = this.#entries.get(p as Param<ParamValue>)
+      if (!entry) continue
+      this.#entries.delete(p as Param<ParamValue>)
+      if (!entry.param.isBound) entry.param.value = entry.displaced
+      changed = true
+    }
     if (changed) this.#notify()
   }
 
   /** Drop everything, including the persistent ones (an explicit revert-all). */
   clearAll(): void {
     if (this.#entries.size === 0) return
-    this.#entries.clear()
-    this.#notify()
+    this.release([...this.#entries.keys()])
   }
 
   /**
@@ -142,7 +181,14 @@ export class Overrides {
     for (const [param] of this.#entries) {
       if (this.#animated.has(param) && !except?.has(param)) cleared.push(param)
     }
-    for (const param of cleared) this.#entries.delete(param)
+    // Only animated params reach here, so `apply(t)` is about to rewrite
+    // every one of them — but restoring keeps the store's one invariant
+    // (a released override leaves no trace) true without exception.
+    for (const param of cleared) {
+      const entry = this.#entries.get(param)!
+      this.#entries.delete(param)
+      if (!param.isBound) param.value = entry.displaced
+    }
     if (cleared.length) this.#notify()
     return cleared
   }

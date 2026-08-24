@@ -49,7 +49,7 @@ import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
-import { mountTimeline, type ClipRow } from "./timeline"
+import { mountTimeline, type ClipRow, type TimelineHandle } from "./timeline"
 import { thumbnailEl } from "./thumbnails"
 import {
   Overrides,
@@ -69,6 +69,8 @@ interface Transport {
   selection?: SelectionPath
   /** Whether the holarchy outline was open. */
   outline?: boolean
+  /** Whether the code view was open (its content re-fetches either way). */
+  code?: boolean
 }
 
 declare global {
@@ -101,6 +103,10 @@ declare global {
       dolly?: (deltaY: number) => void
       /** The observer's live pose — flown or from the timeline. */
       pose?: () => Pose
+      /** The code view (ctrl+/), for headless verification. */
+      toggleCode?: () => boolean
+      /** Select the nth play() clip — the timeline's rows, headlessly. */
+      selectClip?: (index: number) => string | undefined
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -113,7 +119,6 @@ declare global {
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
-const SCRUB_MAX = 1000
 /** Source file per registry key — semantic ops (setBackdrop/setOverride) target this. */
 const SCENE_FILES: Record<string, string> = {
   smoke: "core/demo/FoundingSmoke.ts",
@@ -189,7 +194,6 @@ const boot = async (resume?: Transport) => {
 
   const frame = $<HTMLDivElement>("frame")
   const viewport = $<HTMLDivElement>("viewport")
-  const scrub = $<HTMLInputElement>("scrub")
   const timecode = $<HTMLDivElement>("timecode")
   const playpause = $<HTMLButtonElement>("playpause")
   const paramsRoot = $<HTMLDivElement>("params")
@@ -197,6 +201,10 @@ const boot = async (resume?: Transport) => {
   const app = $<HTMLDivElement>("app")
   const marquee = new Marquee($<HTMLCanvasElement>("marquee"))
   const clipsBar = $<HTMLDivElement>("clips")
+  const rulerEl = $<HTMLDivElement>("ruler")
+  const codePanel = $<HTMLDivElement>("codeview")
+  const codeBody = $<HTMLPreElement>("codebody")
+  const codeFile = $<HTMLDivElement>("codefile")
   const bdMode = $<HTMLSelectElement>("bdmode")
   const bdOffset = $<HTMLInputElement>("bdoffset")
   const bdSource = $<HTMLSpanElement>("bdsource")
@@ -351,15 +359,18 @@ const boot = async (resume?: Transport) => {
     listen,
   )
 
-  // --- Clip marks ----------------------------------------------------------
-  for (const clip of dream.clips) {
-    if (clip.duration <= 0) continue
-    const mark = document.createElement("div")
-    mark.className = "clipmark"
-    mark.style.left = `${(clip.start / duration) * 100}%`
-    mark.style.width = `${(clip.duration / duration) * 100}%`
-    clipsBar.appendChild(mark)
-  }
+  // --- The code view and the timeline, which know about each other ---------
+  //
+  // Both are mounted below (they need `paint`, defined with the transport),
+  // but the clip selection they share is declared here because the
+  // inspector's header reads it too: selecting a clip is a selection in
+  // exactly the sense selecting a holon is, and only one of the two can
+  // stand at a time.
+  const code = mountCodeView(codePanel, codeBody, codeFile)
+  let selectedClip: ClipRow | null = null
+  // Mounted with the transport (it needs `paint`); referenced before then
+  // by paint() and the selection subscription, both of which run after.
+  let timeline: TimelineHandle | undefined
 
   // --- Inspector: the SELECTED holon's properties, and nothing else --------
   //
@@ -492,7 +503,11 @@ const boot = async (resume?: Transport) => {
       ? identityOf(holon)
       : rootIdentityOf(dream as unknown as object, holon)
     const anchor = anchorOf(holon)
-    nameEl.textContent = classNameOf(holon)
+    nameEl.textContent = ""
+    // The symbol's own face beside its name — the same glyph the outline
+    // row carries, so the two panels name the selection identically.
+    nameEl.appendChild(thumbnailEl(holon, 15))
+    nameEl.appendChild(document.createTextNode(classNameOf(holon)))
     nameEl.classList.add("selected")
     // A selection knows its file and byte range — the bridge to the code.
     metaEl.textContent = identity
@@ -598,6 +613,14 @@ const boot = async (resume?: Transport) => {
     renderInspector(holon)
     syncPanel()
     paintMarquee()
+    // Selecting an object un-selects any clip: one selection at a time,
+    // and the code view shows whichever it is. `new X({...})` for a holon,
+    // `this.play(...)` for a clip — the same anchor mechanism either way.
+    if (holon) {
+      selectedClip = null
+      timeline?.select(null)
+      code.show(anchorOf(holon))
+    }
   })
 
   // --- Flying the Observer (EDITOR-V4, "Flying the Observer") --------------
@@ -809,7 +832,7 @@ const boot = async (resume?: Transport) => {
     current = t
     await host.renderFrame(t)
     syncBackdrop(t, playing)
-    scrub.value = String((t / duration) * SCRUB_MAX)
+    timeline?.setPlayhead(t)
     timecode.textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`
     syncPanel()
     // The mark follows the object, so a selected holon stays marked as
@@ -847,13 +870,19 @@ const boot = async (resume?: Transport) => {
         e.preventDefault()
         toggleOutline()
       }
+      // The code view, on the chord every editor uses for "show me the
+      // source of this": ctrl+/ . Deliberately not cmd+shift+L (Keynote's
+      // outline, already taken) and not cmd+/ (the browser's own).
+      if (e.code === "Slash" && e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        toggleCode()
+      }
       if (e.code === "Escape") {
         if (drag && !drag.reverted) {
           // Drop the live override — nothing was ever written.
           const d = drag
           d.reverted = true
           overrides.delete(d.param)
-          d.slider.value = String(d.before)
           d.row.classList.remove("diverged", "live")
           void host.renderFrame(current).then(() => syncPanel())
         } else if (flown) {
@@ -868,14 +897,45 @@ const boot = async (resume?: Transport) => {
     },
     listen,
   )
-  scrub.addEventListener(
-    "input",
-    () => {
+  // --- The minimal timeline (EDITOR-V4) ------------------------------------
+  //
+  // One row per play() clip, its WIDTH its run_time. Clicking a row selects
+  // that clip, which shows its `this.play(...)` line in the code view —
+  // the same anchor bridge the object selection uses, on the other half of
+  // what the build anchors.
+  const selectClip = (row: ClipRow) => {
+    selectedClip = row
+    selection.set(null)
+    timeline?.select(row.clip)
+    code.show(anchorOf(row.clip as unknown as object))
+    // A clip is a span of time, so selecting one puts the playhead at its
+    // start: what the row describes is then what the viewport shows.
+    pause()
+    void paint(row.clip.start)
+  }
+
+  timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
+    signal: ac.signal,
+    onScrub: (t) => {
       pause()
-      void paint((Number(scrub.value) / SCRUB_MAX) * duration)
+      void paint(t)
     },
-    listen,
-  )
+    onSelect: selectClip,
+  })
+
+  const toggleCode = (): boolean => {
+    const open = code.toggle()
+    app.classList.toggle("code-open", open)
+    if (open) {
+      // Opening with something selected shows THAT; with nothing, the
+      // scene's own source, which is the honest default.
+      const holon = selection.current
+      if (holon) code.show(anchorOf(holon))
+      else if (selectedClip) code.show(anchorOf(selectedClip.clip as unknown as object))
+      else void code.load(sceneFileFor(sceneKey))
+    }
+    return open
+  }
 
   const loop = async (now: number) => {
     if (!alive) return
@@ -910,6 +970,7 @@ const boot = async (resume?: Transport) => {
       bdMode: bdMode.value,
       selection: held ? pathOf(dream.roots, held) : undefined,
       outline: outlineOpen,
+      code: code.open,
     }
     alive = false
     ac.abort()
@@ -922,6 +983,12 @@ const boot = async (resume?: Transport) => {
   // Nothing selected is the honest opening state (the inspector shows the
   // scene) — unless a remount is handing a selection back.
   selection.rehydrate(dream.roots, resume?.selection)
+  // The code view survives a rebuild as a MODE, not as content: its file
+  // is re-fetched (the daemon just rewrote it), so reopening it shows the
+  // new source rather than the bytes the anchors were taken against.
+  // ?code=1 opens it from a cold boot — headless verification, and a
+  // shareable URL for "look at this line".
+  if (resume?.code || new URLSearchParams(location.search).get("code") === "1") toggleCode()
   if (resume) {
     await paint(resume.t)
     if (resume.playing) play()
@@ -976,6 +1043,13 @@ const boot = async (resume?: Transport) => {
       paintMarquee()
     },
     toggleOutline,
+    toggleCode,
+    selectClip: (index: number) => {
+      const row = timeline?.rows[index]
+      if (!row) return undefined
+      selectClip(row)
+      return row.label
+    },
     // --- The live layer, driven headlessly ---------------------------------
     setOverride: (name: string, value: number): boolean => {
       const holon = selection.current

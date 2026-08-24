@@ -13,7 +13,7 @@ var __export = (target, all) => {
     });
 };
 
-// node_modules/three/build/three.core.js
+// core/node_modules/three/build/three.core.js
 var REVISION = "185";
 var CullFaceNone = 0;
 var CullFaceBack = 1;
@@ -11722,7 +11722,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-// node_modules/three/build/three.webgpu.js
+// core/node_modules/three/build/three.webgpu.js
 var refreshUniforms = [
   "alphaMap",
   "alphaTest",
@@ -45790,7 +45790,7 @@ class WebGPURenderer extends Renderer {
   }
 }
 
-// src/anim.ts
+// core/src/anim.ts
 var SMOOTHING = {
   smooth: { left: 0.25, right: 0.25 },
   linear: { left: 0, right: 0 },
@@ -45816,7 +45816,7 @@ var eased = (easing, ...items) => ({
   tracks: together(...items).tracks.map((t) => ({ ...t, easing }))
 });
 
-// src/constants.ts
+// core/src/constants.ts
 var rgb = (r, g, b) => ({
   r: r / 255,
   g: g / 255,
@@ -45838,7 +45838,7 @@ var TAU = 2 * Math.PI;
 var ASPECT_RATIO = 16 / 9;
 var isColor = (v) => typeof v === "object" && v !== null && typeof v.r === "number" && typeof v.g === "number" && typeof v.b === "number";
 
-// src/params.ts
+// core/src/params.ts
 var nextParamId = 1;
 
 class Param {
@@ -45948,7 +45948,7 @@ var integer = (v = 0) => new Param("integer", v);
 var bool2 = (v = false) => new Param("bool", v);
 var color2 = (v) => new Param("color", v);
 
-// src/holon.ts
+// core/src/holon.ts
 var INTERNALS = new WeakMap;
 var internalsOf = (h) => {
   const found = INTERNALS.get(h);
@@ -46094,7 +46094,7 @@ class Holon {
   }
 }
 
-// src/timeline.ts
+// core/src/timeline.ts
 var c4dEaseWith = (u, sl, sr) => {
   if (u <= 0)
     return 0;
@@ -46230,7 +46230,7 @@ class Timeline {
   }
 }
 
-// src/dream.ts
+// core/src/dream.ts
 var PERSPECTIVES = {
   front: { phi: 0, theta: 0 },
   default: { phi: PI3 / 4, theta: PI3 / 8 }
@@ -46362,7 +46362,7 @@ class Dream {
   }
 }
 
-// src/parts/index.ts
+// core/src/parts/index.ts
 var exports_parts = {};
 __export(exports_parts, {
   reverseOpenPolyline: () => reverseOpenPolyline,
@@ -46567,11 +46567,11 @@ var dominoWindows = (count, relDuration = 0.3, globalSmoothing = 0.5) => {
 };
 var cascade = (lines) => {
   const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => [line.creation.sequence(0, 1), windows2[i][0], windows2[i][1]]));
+  return together(...lines.map((line, i) => restage(line.creation.sequence(0, 1), windows2[i][0], windows2[i][1])));
 };
 var consume = (lines) => {
   const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => [line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1]]));
+  return together(...lines.map((line, i) => restage(line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1])));
 };
 
 class Axes extends Stroke {
@@ -46792,7 +46792,7 @@ class DottedLine extends Stroke {
   }
 }
 
-// src/parts/text.ts
+// core/src/parts/text.ts
 var exports_text = {};
 __export(exports_text, {
   writeWindows: () => writeWindows,
@@ -46873,7 +46873,7 @@ class Text extends Holon {
 var Write = (text) => linearCreation(text.creation, [0, 1]);
 var UnWrite = (text) => linearCreation(text.erasure, [0, 1]);
 
-// node_modules/three/build/three.tsl.js
+// core/node_modules/three/build/three.tsl.js
 var exports_three_tsl = {};
 __export(exports_three_tsl, {
   xor: () => xor2,
@@ -48154,7 +48154,7 @@ var workgroupId2 = TSL.workgroupId;
 var workingToColorSpace2 = TSL.workingToColorSpace;
 var xor2 = TSL.xor;
 
-// src/render/ribbon-math.ts
+// core/src/render/ribbon-math.ts
 var packSegments = (pts) => {
   const count = Math.max(0, pts.length - 1);
   const positions = new Float32Array(count * 6);
@@ -48194,7 +48194,7 @@ var resamplePolyline = (pts, target, make) => {
   return out;
 };
 
-// src/render/ribbon.ts
+// core/src/render/ribbon.ts
 var TSL2 = exports_three_tsl;
 var {
   Fn: Fn3,
@@ -48378,7 +48378,7 @@ class RibbonStroke {
   }
 }
 
-// src/render/fill.ts
+// core/src/render/fill.ts
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
   for (let i = 0;i <= segments; i++) {
@@ -48430,7 +48430,7 @@ class FillShape {
   }
 }
 
-// node_modules/three/build/three.module.js
+// core/node_modules/three/build/three.module.js
 var alphahash_fragment = `#ifdef USE_ALPHAHASH
 	if ( diffuseColor.a < getAlphaHashThreshold( vPosition ) ) discard;
 #endif`;
@@ -53378,7 +53378,7 @@ var DATA2 = new Uint16Array([
   1183
 ]);
 
-// node_modules/three-text/dist/index.js
+// core/node_modules/three-text/dist/index.js
 var __dirname = "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/core/node_modules/three-text/dist", __filename = "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/core/node_modules/three-text/dist/index.js";
 /*!
  * @license
@@ -60610,7 +60610,7 @@ class MeshGeometryBuilder {
   }
 }
 
-// node_modules/three-text/dist/three/index.js
+// core/node_modules/three-text/dist/three/index.js
 function buildThreeResult(layoutHandle, meshPipeline, options) {
   const meshResult = meshPipeline.build(layoutHandle, options);
   const geometry = new BufferGeometry;
@@ -60697,7 +60697,7 @@ class Text3 {
   }
 }
 
-// src/parts/outline.ts
+// core/src/parts/outline.ts
 var exports_outline = {};
 __export(exports_outline, {
   startAtTop: () => startAtTop,
@@ -60851,7 +60851,7 @@ var loopArea = (loop) => {
   return sum / 2;
 };
 
-// src/render/text.ts
+// core/src/render/text.ts
 var TSL3 = exports_three_tsl;
 var {
   Fn: Fn4,
@@ -61137,7 +61137,7 @@ var attachText = (holon, group) => {
   };
 };
 
-// src/render/silhouette.ts
+// core/src/render/silhouette.ts
 var silhouetteAngles = (camX, camZ, radius) => {
   const d2 = Math.hypot(camX, camZ);
   if (!(d2 > radius))
@@ -61165,7 +61165,7 @@ var capArc = (radius, y2, startAngle, sweep, segments = 64) => {
   return pts;
 };
 
-// src/render/screen-arc.ts
+// core/src/render/screen-arc.ts
 var clipToViewport = (ax, ay, bx, by, view) => {
   const dx = bx - ax;
   const dy = by - ay;
@@ -61251,7 +61251,7 @@ var screenArcRemap = (points, totalWorld, view) => {
   };
 };
 
-// src/render/three-host.ts
+// core/src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var CYLINDER_ROTATION_SEGMENTS = 64;
 var basePolyline = (holon) => {
@@ -61444,17 +61444,18 @@ class ThreeHost {
       const binding = {
         holon,
         group,
-        topCap: new RibbonStroke(width),
-        bottomNear: new RibbonStroke(width),
-        bottomFar: new RibbonStroke(width),
+        farCap: new RibbonStroke(width),
+        nearBack: new RibbonStroke(width),
+        nearFront: new RibbonStroke(width),
         lineA: new RibbonStroke(width),
         lineB: new RibbonStroke(width),
         capRadius: r2,
         capHeight: h2,
         thetaA: NaN,
-        thetaB: NaN
+        thetaB: NaN,
+        nearY: NaN
       };
-      group.add(binding.topCap.mesh, binding.bottomNear.mesh, binding.bottomFar.mesh, binding.lineA.mesh, binding.lineB.mesh);
+      group.add(binding.farCap.mesh, binding.nearBack.mesh, binding.nearFront.mesh, binding.lineA.mesh, binding.lineB.mesh);
       this.cylinders.push(binding);
     } else if (holon instanceof Ellipse && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++);
@@ -61630,47 +61631,51 @@ class ThreeHost {
     return this.camera;
   }
   syncCylinder(binding) {
-    const { holon, group, topCap, bottomNear, bottomFar, lineA, lineB } = binding;
+    const { holon, group, farCap, nearBack, nearFront, lineA, lineB } = binding;
     const radius = holon.radius.value;
     const height = holon.height.value;
     const camLocal = group.worldToLocal(this.camera.position.clone());
     const angles = silhouetteAngles(camLocal.x, camLocal.z, radius);
+    const nearY = camLocal.y >= 0 ? height / 2 : -height / 2;
+    const farY = -nearY;
     const thetaA = angles?.thetaA ?? 0;
     const thetaB = angles?.thetaB ?? Math.PI;
-    if (radius !== binding.capRadius || height !== binding.capHeight || thetaA !== binding.thetaA || thetaB !== binding.thetaB) {
-      topCap.setPoints(capPolylineFrom(radius, height / 2, thetaB, false).map((p2) => new Vector3(...p2)));
-      const nearSweep = thetaB - thetaA;
+    if (radius !== binding.capRadius || height !== binding.capHeight || thetaA !== binding.thetaA || thetaB !== binding.thetaB || nearY !== binding.nearY) {
       const v3 = (p2) => new Vector3(...p2);
-      bottomNear.setPoints(capArc(radius, -height / 2, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
-      bottomFar.setPoints(capArc(radius, -height / 2, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      const nearSweep = thetaB - thetaA;
+      nearFront.setPoints(capArc(radius, nearY, thetaB, -nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      nearBack.setPoints(capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      farCap.setPoints(capPolylineFrom(radius, farY, thetaA, false).map(v3));
       binding.capRadius = radius;
       binding.capHeight = height;
       binding.thetaA = thetaA;
       binding.thetaB = thetaB;
+      binding.nearY = nearY;
     }
     if (angles) {
-      const set = (line, theta, downward) => {
-        const lo = new Vector3(...generatorPoint(theta, radius, -height / 2));
-        const hi = new Vector3(...generatorPoint(theta, radius, height / 2));
-        line.setPoints(downward ? [hi, lo] : [lo, hi]);
+      const set = (line, theta, fromNear) => {
+        const nearEnd = new Vector3(...generatorPoint(theta, radius, nearY));
+        const farEnd = new Vector3(...generatorPoint(theta, radius, farY));
+        line.setPoints(fromNear ? [nearEnd, farEnd] : [farEnd, nearEnd]);
       };
       set(lineA, angles.thetaA, true);
       set(lineB, angles.thetaB, false);
     }
-    const measure = (line) => this.measureScreenArc(line)?.remap.screenLength ?? 0;
     const mantleVisible = angles !== undefined;
-    const shares = [
-      measure(topCap),
-      mantleVisible ? measure(lineA) : 0,
-      measure(bottomNear),
-      mantleVisible ? measure(lineB) : 0,
-      measure(bottomFar)
+    const w4 = [
+      this.screenLength(nearFront),
+      this.screenLength(farCap),
+      mantleVisible ? this.screenLength(lineB) : 0,
+      this.screenLength(nearBack),
+      mantleVisible ? this.screenLength(lineA) : 0
     ];
-    const chain = shares.reduce((a2, b2) => a2 + b2, 0);
-    const weights = chain > 0 ? shares.map((s2) => s2 / chain) : shares.map(() => 1 / shares.length);
+    const totalW = w4.reduce((a2, b2) => a2 + b2, 0) || 1;
     const bounds = [0];
-    for (const w4 of weights)
-      bounds.push(bounds[bounds.length - 1] + w4);
+    let acc = 0;
+    for (const x2 of w4) {
+      acc += x2 / totalW;
+      bounds.push(acc);
+    }
     bounds[bounds.length - 1] = 1;
     const creation = holon.creation.value;
     const erasure = holon.erasure.value;
@@ -61681,19 +61686,22 @@ class ThreeHost {
     const sub3 = (line, i2) => {
       const a2 = bounds[i2];
       const b2 = bounds[i2 + 1];
-      line.style(window2(creation, a2, b2), opacity, tint, width, window2(erasure, a2, b2));
+      const drawn = window2(creation, a2, b2);
+      const measured = drawn > 0 && drawn < 1 ? this.measureScreenArc(line) : undefined;
+      const world = measured ? Math.max(0, Math.min(1, measured.remap.worldAt(drawn) / measured.totalWorld)) : drawn;
+      line.style(world, opacity, tint, width, window2(erasure, a2, b2));
     };
-    sub3(topCap, 0);
+    sub3(nearFront, 0);
+    sub3(farCap, 1);
     if (mantleVisible)
-      sub3(lineA, 1);
-    else
-      lineA.style(0, opacity, tint, width, 0);
-    sub3(bottomNear, 2);
-    if (mantleVisible)
-      sub3(lineB, 3);
+      sub3(lineB, 2);
     else
       lineB.style(0, opacity, tint, width, 0);
-    sub3(bottomFar, 4);
+    sub3(nearBack, 3);
+    if (mantleVisible)
+      sub3(lineA, 4);
+    else
+      lineA.style(0, opacity, tint, width, 0);
   }
   static PICK_SLOP = 7;
   pick(ndcX, ndcY) {
@@ -61716,7 +61724,7 @@ class ThreeHost {
     }
     for (const binding of this.cylinders) {
       const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP;
-      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB]) {
         consider(binding.holon, this.ribbonDistance(ribbon, px, py, width, height), tolerance);
       }
     }
@@ -61756,7 +61764,7 @@ class ThreeHost {
     for (const binding of this.cylinders) {
       if (!wanted.has(binding.holon))
         continue;
-      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB]) {
         addRibbon(ribbon, ribbon.mesh);
       }
     }
@@ -61950,6 +61958,9 @@ class ThreeHost {
       return;
     return { remap: remap3, totalWorld: world };
   }
+  screenLength(ribbon) {
+    return this.measureScreenArc(ribbon)?.remap.screenLength ?? 0;
+  }
   toScreen(world, width, height) {
     const ndc = world.clone().project(this.camera);
     if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y))
@@ -61982,7 +61993,7 @@ var pointInTriangle2D = (px, py, a2, b2, c2) => {
   return !(hasNeg && hasPos);
 };
 
-// editor/anchors.ts
+// core/editor/anchors.ts
 var anchors = new WeakMap;
 var __dt = (value, anchor) => {
   if (value !== null && typeof value === "object") {
@@ -61998,7 +62009,7 @@ var __dt = (value, anchor) => {
   return value;
 };
 var anchorOf = (value) => anchors.get(value);
-// src/verbs.ts
+// core/src/verbs.ts
 var deep = (holon, f2) => together(...[...holon.walk()].map(f2));
 var none = { tracks: [] };
 var Create = (holon) => {
@@ -62017,7 +62028,7 @@ var UnDraw = UnCreate;
 var Erase = (holon) => deep(holon, (h2) => h2 instanceof Stroke ? h2.erasure.sequence(0, 1) : none);
 var FadeIn = (holon) => deep(holon, (h2) => h2.opacity.sequence(0, 1));
 var FadeOut = (holon) => deep(holon, (h2) => h2.opacity.to(0));
-// demo/FoundingSmoke.ts
+// core/demo/FoundingSmoke.ts
 class FoundingSmokeDream extends Dream {
   square = __dt(new Square({ size: 200, tint: RED, x: -300 }), "core/demo/FoundingSmoke.ts:518:563");
   circle = __dt(new Circle({ radius: 100, tint: BLUE, x: 300 }), "core/demo/FoundingSmoke.ts:575:622");
@@ -62032,7 +62043,7 @@ class FoundingSmokeDream extends Dream {
 if (false)
   ;
 
-// demo/StrokeCalibration.ts
+// core/demo/StrokeCalibration.ts
 var FRACTIONS = [0.25, 0.5, 0.75, 1];
 var COLUMN_X = [-900, -300, 300, 900];
 
@@ -62051,7 +62062,7 @@ class StrokeCalibrationDream extends Dream {
 if (false)
   ;
 
-// demo/VocabShowcase.ts
+// core/demo/VocabShowcase.ts
 class VocabShowcaseDream extends Dream {
   axes = __dt(new Axes({
     mode: "xy",
@@ -62088,7 +62099,7 @@ class VocabShowcaseDream extends Dream {
 if (false)
   ;
 
-// demo/video01/palette.ts
+// core/demo/video01/palette.ts
 var PIXEL_UNITS_BASE_HEIGHT = 700;
 var THICKNESS_DISTANCE_STRENGTH = 0.6;
 var strokePx = (thickness3, frameHeight) => thickness3 * (frameHeight / PIXEL_UNITS_BASE_HEIGHT) * THICKNESS_DISTANCE_STRENGTH;
@@ -62101,7 +62112,7 @@ var STROKE_GRID_1080 = strokePx(THICKNESS_GRID, 1080);
 var STROKE_MAIN = STROKE_MAIN_720;
 var STROKE_GRID = STROKE_GRID_720;
 
-// demo/video01/CameraCal.ts
+// core/demo/video01/CameraCal.ts
 class CameraCalDream extends Dream {
   cylinder = __dt(new Cylinder({
     radius: 50,
@@ -62175,7 +62186,7 @@ class CameraCalGridDream extends Dream {
 if (false)
   ;
 
-// demo/video01/S01.ts
+// core/demo/video01/S01.ts
 var START_OFFSET = 0;
 var TILT_P = 0.4;
 var TILT_B = 0.1;
@@ -62247,7 +62258,7 @@ class S01Dream extends Dream {
 if (false)
   ;
 
-// src/parts/paths.ts
+// core/src/parts/paths.ts
 var exports_paths = {};
 __export(exports_paths, {
   byArcLength: () => byArcLength,
@@ -62336,7 +62347,7 @@ var MoveAlong = (rider, rail, opts = {}) => {
   return eased("linear", rider.x.sequence(...xs), rider.y.sequence(...ys), rider.b.sequence(...bs));
 };
 
-// demo/video01/S02.ts
+// core/demo/video01/S02.ts
 var START_OFFSET2 = 0.035;
 var CONTACT = 50 / Math.SQRT2;
 var SEPARATOR_HALF = orthoHalfHeight(1, 16 / 9);
@@ -62547,7 +62558,7 @@ class S02Dream extends Dream {
 if (false)
   ;
 
-// src/parts/curves.ts
+// core/src/parts/curves.ts
 var exports_curves = {};
 __export(exports_curves, {
   worldPosition: () => worldPosition,
@@ -62560,7 +62571,7 @@ __export(exports_curves, {
   Connection: () => Connection
 });
 
-// src/geometry/section.ts
+// core/src/geometry/section.ts
 var EPS = 0.000000001;
 var clamp6 = (v2, lo, hi) => Math.min(hi, Math.max(lo, v2));
 var mantlePoint = (theta, radius, y2) => ({
@@ -62648,7 +62659,7 @@ var cylinderPlaneSection = (radius, height, planePoint, planeNormal, segments = 
   return { kind: "truncated", points, closed: true };
 };
 
-// src/parts/curves.ts
+// core/src/parts/curves.ts
 var derivePoints = (line, sourceKey, compute3) => {
   let key;
   let memo = [];
@@ -62880,7 +62891,7 @@ class Connection extends Stroke {
   }
 }
 
-// demo/video01/S03.ts
+// core/demo/video01/S03.ts
 var START_OFFSET3 = 63.683 - 58 - 3.6;
 var FRONT_DISTANCE = 1000 / (3 / 2);
 var FLIP = 0.1;
@@ -62969,7 +62980,7 @@ class S03Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S04.ts
+// core/demo/video01/S04.ts
 var START_OFFSET4 = -0.29;
 var FRONT_DISTANCE2 = 1000;
 
@@ -63017,7 +63028,7 @@ class S04Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S06.ts
+// core/demo/video01/S06.ts
 var START_OFFSET5 = 0.3;
 var DEFAULT_DISTANCE2 = 1000;
 var CYLINDER_SCALE = 2;
@@ -63072,7 +63083,7 @@ class S06Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S10.ts
+// core/demo/video01/S10.ts
 var START_OFFSET6 = -0.53;
 var FRONT_DISTANCE3 = 800;
 
@@ -63151,7 +63162,7 @@ class S10Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S09.ts
+// core/demo/video01/S09.ts
 var START_OFFSET7 = -1.58;
 var CAMERA_ZOOM = 5 / 4;
 
@@ -63211,7 +63222,7 @@ class S09Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S07.ts
+// core/demo/video01/S07.ts
 var START_OFFSET8 = -1.67;
 
 class S07Dream extends Dream {
@@ -63229,7 +63240,7 @@ class S07Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S08.ts
+// core/demo/video01/S08.ts
 var START_OFFSET9 = -2.11;
 
 class S08Dream extends Dream {
@@ -63291,7 +63302,7 @@ class S08Dream extends Dream {
 if (false)
   ;
 
-// demo/video01/S05.ts
+// core/demo/video01/S05.ts
 var START_OFFSET10 = -1.26;
 
 class S05Dream extends Dream {
@@ -63343,7 +63354,7 @@ class S05Dream extends Dream {
 if (false)
   ;
 
-// demo/CurvesShowcase.ts
+// core/demo/CurvesShowcase.ts
 var R2 = 60;
 var H2 = 240;
 
@@ -63396,7 +63407,7 @@ class CurvesShowcaseDream extends Dream {
 if (false)
   ;
 
-// demo/TextShowcase.ts
+// core/demo/TextShowcase.ts
 class TextShowcaseDream extends Dream {
   transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
   thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120, tint: BLUE }), "core/demo/TextShowcase.ts:1245:1316");
@@ -63425,7 +63436,7 @@ class TextShowcaseDream extends Dream {
 if (false)
   ;
 
-// ../holons/Circle/Circle.ts
+// holons/Circle/Circle.ts
 class Circle2 extends Circle {
 }
 
@@ -63440,7 +63451,7 @@ class CircleDream extends Dream {
 if (false)
   ;
 
-// ../holons/Square/Square.ts
+// holons/Square/Square.ts
 class Square2 extends Square {
 }
 
@@ -63455,7 +63466,7 @@ class SquareDream extends Dream {
 if (false)
   ;
 
-// ../holons/Cylinder/Cylinder.ts
+// holons/Cylinder/Cylinder.ts
 class Cylinder2 extends Cylinder {
   radius = length2(50);
   height = length2(200);
@@ -63481,7 +63492,7 @@ class CylinderDream extends Dream {
 if (false)
   ;
 
-// demo/scenes.ts
+// core/demo/scenes.ts
 var scenes = {
   founding: CylinderDream,
   circle: CircleDream,
@@ -63507,7 +63518,7 @@ var scenes = {
 };
 var defaultScene = "founding";
 
-// editor/selection.ts
+// core/editor/selection.ts
 class Selection {
   #current = null;
   #listeners = new Set;
@@ -63567,7 +63578,7 @@ var resolvePath = (roots, path) => {
   return node.constructor.name === path.className ? node : null;
 };
 
-// editor/classname.ts
+// core/editor/classname.ts
 var names = new Map;
 for (const namespace of [exports_parts, exports_curves, exports_text, exports_paths, exports_outline]) {
   for (const [exported, value] of Object.entries(namespace)) {
@@ -63579,7 +63590,7 @@ for (const namespace of [exports_parts, exports_curves, exports_text, exports_pa
 }
 var classNameOf = (holon) => names.get(holon.constructor) ?? holon.constructor.name;
 
-// editor/thumbnails.ts
+// core/editor/thumbnails.ts
 var THUMB_SIZE = 18;
 var CURVE_SEGMENTS = 48;
 var circlePath = (rx, ry, from = 0, to = Math.PI * 2) => {
@@ -63800,7 +63811,7 @@ var thumbnailEl = (holon, size = THUMB_SIZE) => {
   return img;
 };
 
-// editor/outline.ts
+// core/editor/outline.ts
 var identityOf = (holon) => {
   const parent = holon.parent;
   if (!parent)
@@ -63906,7 +63917,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
   return { dispose: unsubscribe };
 };
 
-// editor/marquee.ts
+// core/editor/marquee.ts
 var BLUE2 = "#00a2ff";
 var TICK = 14;
 var PAD = 8;
@@ -63974,7 +63985,7 @@ class Marquee {
   }
 }
 
-// editor/numeric.ts
+// core/editor/numeric.ts
 var STEP_PER_PIXEL = {
   scalar: 1,
   length: 1,
@@ -64151,7 +64162,7 @@ var parseEntry = (text) => {
 };
 var wantsSlider = (param) => param.kind === "completion" || param.kind === "bipolar";
 
-// editor/inspector.ts
+// core/editor/inspector.ts
 var STANDARD_PARAMS = new Set([
   "x",
   "y",
@@ -64276,7 +64287,6 @@ var buildParamRow = (name, param, hooks) => {
     el.appendChild(field.el);
     return { el, param, field, slider };
   }
-  el.appendChild(document.createElement("span"));
   const val = document.createElement("div");
   val.className = "val";
   val.textContent = formatValue(param.value);
@@ -64284,7 +64294,425 @@ var buildParamRow = (name, param, hooks) => {
   return { el, param, val };
 };
 
-// editor/overrides.ts
+// core/editor/codeview.ts
+var KEYWORDS = new Set([
+  "import",
+  "from",
+  "export",
+  "class",
+  "extends",
+  "const",
+  "let",
+  "new",
+  "this",
+  "return",
+  "if",
+  "else",
+  "for",
+  "of",
+  "in",
+  "function",
+  "async",
+  "await",
+  "true",
+  "false",
+  "null",
+  "undefined"
+]);
+var tokenize = (src) => {
+  const tokens = [];
+  let i2 = 0;
+  const n2 = src.length;
+  while (i2 < n2) {
+    const c2 = src[i2];
+    if (c2 === "/" && src[i2 + 1] === "/") {
+      const end = src.indexOf(`
+`, i2);
+      tokens.push({ start: i2, end: end === -1 ? n2 : end, cls: "c-com" });
+      i2 = end === -1 ? n2 : end;
+      continue;
+    }
+    if (c2 === "/" && src[i2 + 1] === "*") {
+      const end = src.indexOf("*/", i2 + 2);
+      const stop = end === -1 ? n2 : end + 2;
+      tokens.push({ start: i2, end: stop, cls: "c-com" });
+      i2 = stop;
+      continue;
+    }
+    if (c2 === '"' || c2 === "'" || c2 === "`") {
+      let j2 = i2 + 1;
+      while (j2 < n2 && src[j2] !== c2) {
+        if (src[j2] === "\\")
+          j2++;
+        j2++;
+      }
+      tokens.push({ start: i2, end: Math.min(n2, j2 + 1), cls: "c-str" });
+      i2 = Math.min(n2, j2 + 1);
+      continue;
+    }
+    if (c2 >= "0" && c2 <= "9") {
+      let j2 = i2;
+      while (j2 < n2 && /[0-9._eE]/.test(src[j2]))
+        j2++;
+      tokens.push({ start: i2, end: j2, cls: "c-num" });
+      i2 = j2;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(c2)) {
+      let j2 = i2;
+      while (j2 < n2 && /[A-Za-z0-9_$]/.test(src[j2]))
+        j2++;
+      const word = src.slice(i2, j2);
+      if (KEYWORDS.has(word))
+        tokens.push({ start: i2, end: j2, cls: "c-kw" });
+      else if (/^[A-Z]/.test(word))
+        tokens.push({ start: i2, end: j2, cls: "c-type" });
+      i2 = j2;
+      continue;
+    }
+    i2++;
+  }
+  return tokens;
+};
+var byteToIndexMapper = (src) => {
+  const marks = [];
+  let byte = 0;
+  for (let i2 = 0;i2 < src.length; ) {
+    const code3 = src.codePointAt(i2);
+    const units = code3 > 65535 ? 2 : 1;
+    const size = code3 < 128 ? 1 : code3 < 2048 ? 2 : code3 < 65536 ? 3 : 4;
+    if (size !== units)
+      marks.push({ byte, index: i2 });
+    byte += size;
+    i2 += units;
+  }
+  if (marks.length === 0)
+    return (b2) => b2;
+  return (b2) => {
+    let lo = 0;
+    let hi = marks.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = lo + hi >> 1;
+      if (marks[mid].byte <= b2) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    if (found < 0)
+      return b2;
+    const mark = marks[found];
+    const next = marks[found + 1];
+    const drift = mark.index - mark.byte;
+    const index = b2 + drift;
+    return next ? Math.min(index, next.index) : index;
+  };
+};
+var mountCodeView = (panel, body, title) => {
+  const files = new Map;
+  let open = false;
+  let shownFile;
+  let generation = 0;
+  const setOpen = (next) => {
+    open = next;
+    panel.classList.toggle("open", open);
+    document.body.classList.toggle("codeview-open", open);
+  };
+  const fetchFile = async (file) => {
+    const hit = files.get(file);
+    if (hit)
+      return hit;
+    try {
+      const res = await fetch(`/api/source?file=${encodeURIComponent(file)}`);
+      if (!res.ok)
+        return;
+      const { source } = await res.json();
+      const entry = { text: source, toIndex: byteToIndexMapper(source) };
+      files.set(file, entry);
+      return entry;
+    } catch {
+      return;
+    }
+  };
+  const render21 = (cached, span) => {
+    body.textContent = "";
+    const src = cached.text;
+    const tokens = tokenize(src);
+    const cut = (from, to, into) => {
+      let cursor = from;
+      for (const token of tokens) {
+        if (token.end <= from)
+          continue;
+        if (token.start >= to)
+          break;
+        const s2 = Math.max(token.start, from);
+        const e2 = Math.min(token.end, to);
+        if (s2 > cursor)
+          into.appendChild(document.createTextNode(src.slice(cursor, s2)));
+        const el = document.createElement("span");
+        el.className = token.cls;
+        el.textContent = src.slice(s2, e2);
+        into.appendChild(el);
+        cursor = e2;
+      }
+      if (cursor < to)
+        into.appendChild(document.createTextNode(src.slice(cursor, to)));
+    };
+    if (!span) {
+      cut(0, src.length, body);
+      return;
+    }
+    const start = Math.max(0, Math.min(src.length, span.start));
+    const end = Math.max(start, Math.min(src.length, span.end));
+    cut(0, start, body);
+    const mark = document.createElement("span");
+    mark.className = "c-mark";
+    cut(start, end, mark);
+    body.appendChild(mark);
+    cut(end, src.length, body);
+    return mark;
+  };
+  const show = (anchor) => {
+    const id = ++generation;
+    if (!anchor) {
+      const current = shownFile ? files.get(shownFile) : undefined;
+      if (current)
+        render21(current);
+      return;
+    }
+    (async () => {
+      const cached = await fetchFile(anchor.file);
+      if (!cached || id !== generation)
+        return;
+      shownFile = anchor.file;
+      title.textContent = anchor.file.split("/").pop() ?? anchor.file;
+      title.title = anchor.file;
+      const mark = render21(cached, {
+        start: cached.toIndex(anchor.start),
+        end: cached.toIndex(anchor.end)
+      });
+      mark?.scrollIntoView({ block: "center", behavior: "auto" });
+    })();
+  };
+  const load = async (file) => {
+    const cached = await fetchFile(file);
+    if (!cached) {
+      body.textContent = "— source unavailable (is the daemon running?)";
+      return;
+    }
+    shownFile = file;
+    title.textContent = file.split("/").pop() ?? file;
+    title.title = file;
+    render21(cached);
+  };
+  return {
+    show,
+    load,
+    get open() {
+      return open;
+    },
+    toggle() {
+      setOpen(!open);
+      return open;
+    },
+    setOpen,
+    dispose() {
+      files.clear();
+    }
+  };
+};
+
+// core/editor/timeline.ts
+var CASCADE_THRESHOLD = 6;
+var ROW_HEIGHT = 19;
+var ROW_GAP = 3;
+var q = (v2) => Math.round(v2 * 1e6) / 1e6;
+var describeClip = (clip, index) => {
+  const holons = [];
+  const seen = new Set;
+  const classNames = [];
+  const paramNames = [];
+  const windows2 = new Map;
+  for (const track of clip.anim.tracks) {
+    const owner = track.param.owner;
+    if (owner && typeof owner === "object" && "parts" in owner && !seen.has(owner)) {
+      seen.add(owner);
+      const subject2 = owner.root ?? owner;
+      holons.push(subject2);
+      const name = classNameOf(subject2);
+      if (!classNames.includes(name))
+        classNames.push(name);
+    }
+    const pname = track.param.name;
+    if (pname && !paramNames.includes(pname))
+      paramNames.push(pname);
+    const start = q(track.relStart);
+    const stop = q(track.relStop);
+    const key = `${start}:${stop}`;
+    const hit = windows2.get(key);
+    if (hit)
+      hit.count++;
+    else
+      windows2.set(key, { start, stop, count: 1 });
+  }
+  const subject = classNames.length === 0 ? "—" : classNames.length <= 2 ? classNames.join(" · ") : `${classNames[0]} +${classNames.length - 1}`;
+  const verb = paramNames.length === 0 ? "" : paramNames.length <= 2 ? paramNames.join(" ") : `${paramNames.length} params`;
+  const spans = [...windows2.values()].sort((a2, b2) => a2.start - b2.start || a2.stop - b2.stop);
+  const cascade2 = spans.length > CASCADE_THRESHOLD;
+  return {
+    clip,
+    index,
+    label: verb ? `${subject} ${verb}` : subject,
+    holons,
+    windows: cascade2 ? [
+      {
+        start: spans[0].start,
+        stop: spans[spans.length - 1].stop,
+        count: spans.length
+      }
+    ] : spans,
+    cascade: cascade2
+  };
+};
+var mountTimeline = (container, ruler, clips, duration, opts) => {
+  container.textContent = "";
+  ruler.textContent = "";
+  const rows = [];
+  const earliest = clips.reduce((min5, c2) => Math.min(min5, c2.start), 0);
+  const origin = earliest;
+  const span = (duration > 0 ? duration : 1) - origin;
+  const frac = (t2) => (t2 - origin) / span;
+  const width = ruler.clientWidth || 900;
+  const step3 = [1, 2, 5, 10, 30, 60].find((s2) => s2 / span * width >= 54) ?? 60;
+  for (let t2 = Math.ceil(origin / step3) * step3;t2 <= duration + 0.000001; t2 += step3) {
+    const tick = document.createElement("div");
+    tick.className = "tick";
+    tick.style.left = `${frac(t2) * 100}%`;
+    const label3 = document.createElement("span");
+    label3.textContent = `${t2.toFixed(0)}s`;
+    tick.appendChild(label3);
+    ruler.appendChild(tick);
+  }
+  let index = 0;
+  for (const clip of clips) {
+    if (clip.duration <= 0) {
+      const mark = document.createElement("div");
+      mark.className = "setmark";
+      mark.style.left = `${frac(clip.start) * 100}%`;
+      mark.title = `set() at ${clip.start.toFixed(2)}s`;
+      ruler.appendChild(mark);
+      continue;
+    }
+    const row = describeClip(clip, index);
+    const el = document.createElement("div");
+    el.className = "cliprow";
+    el.style.left = `${frac(clip.start) * 100}%`;
+    el.style.width = `${clip.duration / span * 100}%`;
+    el.style.top = `${index * (ROW_HEIGHT + ROW_GAP)}px`;
+    index++;
+    el.title = `${row.label} · ${clip.duration.toFixed(2)}s at ${clip.start.toFixed(2)}s`;
+    for (const w4 of row.windows) {
+      if (w4.start <= 0 && w4.stop >= 1 && row.windows.length === 1 && !row.cascade)
+        continue;
+      const bar = document.createElement("div");
+      bar.className = row.cascade ? "window cascade" : "window";
+      bar.style.left = `${w4.start * 100}%`;
+      bar.style.width = `${Math.max(0.5, (w4.stop - w4.start) * 100)}%`;
+      if (row.cascade)
+        bar.title = `${w4.count} staggered sub-spans (a domino)`;
+      el.appendChild(bar);
+    }
+    const face = document.createElement("div");
+    face.className = "clipface";
+    const first = row.holons[0];
+    if (first) {
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.src = thumbnailFor(first, 14);
+      img.width = 14;
+      img.height = 14;
+      img.alt = "";
+      face.appendChild(img);
+    }
+    const text = document.createElement("span");
+    text.className = "cliplabel";
+    text.textContent = row.label;
+    face.appendChild(text);
+    const secs = document.createElement("span");
+    secs.className = "clipsecs";
+    secs.textContent = `${clip.duration.toFixed(clip.duration % 1 === 0 ? 0 : 1)}s`;
+    face.appendChild(secs);
+    el.appendChild(face);
+    el.addEventListener("pointerdown", (e2) => {
+      e2.stopPropagation();
+      opts.onSelect(row);
+    }, { signal: opts.signal });
+    container.appendChild(el);
+    rows.push({ row, el });
+  }
+  const stack3 = document.createElement("div");
+  stack3.className = "clipstack";
+  stack3.style.height = `${Math.max(1, index) * (ROW_HEIGHT + ROW_GAP)}px`;
+  container.insertBefore(stack3, container.firstChild);
+  const playhead = document.createElement("div");
+  playhead.className = "playhead";
+  container.appendChild(playhead);
+  const timeAt = (clientX) => {
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0)
+      return 0;
+    return Math.max(0, Math.min(duration, origin + (clientX - rect.left) / rect.width * span));
+  };
+  let scrubbing = false;
+  const startScrub = (e2) => {
+    if (e2.button !== 0)
+      return;
+    scrubbing = true;
+    container.setPointerCapture(e2.pointerId);
+    opts.onScrub(timeAt(e2.clientX));
+  };
+  container.addEventListener("pointerdown", startScrub, { signal: opts.signal });
+  container.addEventListener("pointermove", (e2) => {
+    if (scrubbing)
+      opts.onScrub(timeAt(e2.clientX));
+  }, { signal: opts.signal });
+  const endScrub = (e2) => {
+    if (!scrubbing)
+      return;
+    scrubbing = false;
+    container.releasePointerCapture(e2.pointerId);
+  };
+  container.addEventListener("pointerup", endScrub, { signal: opts.signal });
+  container.addEventListener("pointercancel", endScrub, { signal: opts.signal });
+  ruler.addEventListener("pointerdown", (e2) => {
+    const rect = ruler.getBoundingClientRect();
+    if (rect.width > 0)
+      opts.onScrub(Math.max(0, Math.min(duration, origin + (e2.clientX - rect.left) / rect.width * span)));
+  }, { signal: opts.signal });
+  return {
+    get rows() {
+      return rows.map((r2) => r2.row);
+    },
+    select(clip) {
+      for (const { row, el } of rows)
+        el.classList.toggle("selected", row.clip === clip);
+    },
+    setPlayhead(t2) {
+      playhead.style.left = `${frac(Math.max(origin, Math.min(duration, t2))) * 100}%`;
+      for (const { row, el } of rows) {
+        const inside = t2 >= row.clip.start && t2 < row.clip.start + row.clip.duration;
+        el.classList.toggle("active", inside);
+      }
+    },
+    dispose() {
+      rows.length = 0;
+    }
+  };
+};
+
+// core/editor/overrides.ts
 class Overrides {
   #animated;
   #entries = new Map;
@@ -64311,31 +64739,43 @@ class Overrides {
     if (param.isBound) {
       throw new Error(`Param '${param.name ?? param.id}' follows a derived binding; animate its source instead`);
     }
+    const existing = this.#entries.get(param);
     this.#entries.set(param, {
       param,
       value: param.clamp(value),
-      origin
+      origin,
+      displaced: existing ? existing.displaced : param.value
     });
     this.#notify();
   }
   delete(param) {
-    const had = this.#entries.delete(param);
-    if (had)
-      this.#notify();
-    return had;
+    const entry = this.#entries.get(param);
+    if (!entry)
+      return false;
+    this.#entries.delete(param);
+    if (!param.isBound)
+      param.value = entry.displaced;
+    this.#notify();
+    return true;
   }
   release(params) {
     let changed = false;
-    for (const p2 of params)
-      changed = this.#entries.delete(p2) || changed;
+    for (const p2 of params) {
+      const entry = this.#entries.get(p2);
+      if (!entry)
+        continue;
+      this.#entries.delete(p2);
+      if (!entry.param.isBound)
+        entry.param.value = entry.displaced;
+      changed = true;
+    }
     if (changed)
       this.#notify();
   }
   clearAll() {
     if (this.#entries.size === 0)
       return;
-    this.#entries.clear();
-    this.#notify();
+    this.release([...this.#entries.keys()]);
   }
   clearOnTimeMove(except) {
     const cleared = [];
@@ -64343,8 +64783,12 @@ class Overrides {
       if (this.#animated.has(param) && !except?.has(param))
         cleared.push(param);
     }
-    for (const param of cleared)
+    for (const param of cleared) {
+      const entry = this.#entries.get(param);
       this.#entries.delete(param);
+      if (!param.isBound)
+        param.value = entry.displaced;
+    }
     if (cleared.length)
       this.#notify();
     return cleared;
@@ -64391,9 +64835,8 @@ var ORBIT_PER_WIDTH = 2 * Math.PI;
 var DOLLY_PER_NOTCH = 0.0015;
 var dollyRadius = (radius, deltaY, min5 = 1) => Math.max(min5, radius * Math.exp(deltaY * DOLLY_PER_NOTCH));
 
-// editor/main.ts
+// core/editor/main.ts
 var $2 = (id) => document.getElementById(id);
-var SCRUB_MAX = 1000;
 var SCENE_FILES = {
   smoke: "core/demo/FoundingSmoke.ts",
   calibration: "core/demo/StrokeCalibration.ts",
@@ -64459,7 +64902,6 @@ var boot = async (resume) => {
   staleBackdrop.replaceWith(freshBackdrop);
   const frame = $2("frame");
   const viewport3 = $2("viewport");
-  const scrub = $2("scrub");
   const timecode = $2("timecode");
   const playpause = $2("playpause");
   const paramsRoot = $2("params");
@@ -64467,6 +64909,10 @@ var boot = async (resume) => {
   const app = $2("app");
   const marquee = new Marquee($2("marquee"));
   const clipsBar = $2("clips");
+  const rulerEl = $2("ruler");
+  const codePanel = $2("codeview");
+  const codeBody = $2("codebody");
+  const codeFile = $2("codefile");
   const bdMode = $2("bdmode");
   const bdOffset = $2("bdoffset");
   const bdSource = $2("bdsource");
@@ -64584,15 +65030,9 @@ var boot = async (resume) => {
     bdSource.textContent = `${file.name} · preview only`;
     bdRef.value = "";
   }, listen);
-  for (const clip of dream.clips) {
-    if (clip.duration <= 0)
-      continue;
-    const mark = document.createElement("div");
-    mark.className = "clipmark";
-    mark.style.left = `${clip.start / duration * 100}%`;
-    mark.style.width = `${clip.duration / duration * 100}%`;
-    clipsBar.appendChild(mark);
-  }
+  const code3 = mountCodeView(codePanel, codeBody, codeFile);
+  let selectedClip = null;
+  let timeline;
   let rows = [];
   let drag = null;
   const commitOverride = async (holon, anchor2, name, value) => {
@@ -64667,7 +65107,9 @@ var boot = async (resume) => {
     }
     const identity = holon.parent ? identityOf(holon) : rootIdentityOf(dream, holon);
     const anchor2 = anchorOf(holon);
-    nameEl.textContent = classNameOf(holon);
+    nameEl.textContent = "";
+    nameEl.appendChild(thumbnailEl(holon, 15));
+    nameEl.appendChild(document.createTextNode(classNameOf(holon)));
     nameEl.classList.add("selected");
     metaEl.textContent = identity ? `${identity}${anchor2 ? ` · ${anchor2.file.split("/").pop()}` : ""}` : anchor2 ? anchor2.file.split("/").pop() : "—";
     metaEl.title = anchor2 ? `${anchor2.file}:${anchor2.start}:${anchor2.end}` : "";
@@ -64744,6 +65186,11 @@ var boot = async (resume) => {
     renderInspector(holon);
     syncPanel();
     paintMarquee();
+    if (holon) {
+      selectedClip = null;
+      timeline?.select(null);
+      code3.show(anchorOf(holon));
+    }
   });
   const obs = dream.observer;
   const observerParams = new Set([
@@ -64889,7 +65336,7 @@ var boot = async (resume) => {
     current = t2;
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
-    scrub.value = String(t2 / duration * SCRUB_MAX);
+    timeline?.setPlayhead(t2);
     timecode.textContent = `${t2.toFixed(2)} / ${duration.toFixed(2)}`;
     syncPanel();
     paintMarquee();
@@ -64916,12 +65363,15 @@ var boot = async (resume) => {
       e2.preventDefault();
       toggleOutline();
     }
+    if (e2.code === "Slash" && e2.ctrlKey && !e2.metaKey) {
+      e2.preventDefault();
+      toggleCode();
+    }
     if (e2.code === "Escape") {
       if (drag && !drag.reverted) {
         const d2 = drag;
         d2.reverted = true;
         overrides.delete(d2.param);
-        d2.slider.value = String(d2.before);
         d2.row.classList.remove("diverged", "live");
         host.renderFrame(current).then(() => syncPanel());
       } else if (flown) {
@@ -64932,10 +65382,36 @@ var boot = async (resume) => {
       }
     }
   }, listen);
-  scrub.addEventListener("input", () => {
+  const selectClip = (row) => {
+    selectedClip = row;
+    selection.set(null);
+    timeline?.select(row.clip);
+    code3.show(anchorOf(row.clip));
     pause();
-    paint(Number(scrub.value) / SCRUB_MAX * duration);
-  }, listen);
+    paint(row.clip.start);
+  };
+  timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
+    signal: ac.signal,
+    onScrub: (t2) => {
+      pause();
+      paint(t2);
+    },
+    onSelect: selectClip
+  });
+  const toggleCode = () => {
+    const open = code3.toggle();
+    app.classList.toggle("code-open", open);
+    if (open) {
+      const holon = selection.current;
+      if (holon)
+        code3.show(anchorOf(holon));
+      else if (selectedClip)
+        code3.show(anchorOf(selectedClip.clip));
+      else
+        code3.load(sceneFileFor(sceneKey));
+    }
+    return open;
+  };
   const loop = async (now) => {
     if (!alive)
       return;
@@ -64959,7 +65435,8 @@ var boot = async (resume) => {
       playing,
       bdMode: bdMode.value,
       selection: held ? pathOf(dream.roots, held) : undefined,
-      outline: outlineOpen
+      outline: outlineOpen,
+      code: code3.open
     };
     alive = false;
     ac.abort();
@@ -64968,17 +65445,19 @@ var boot = async (resume) => {
     import(next).catch((err) => console.error("[dreamtalk] remount failed:", err));
   };
   selection.rehydrate(dream.roots, resume?.selection);
+  if (resume?.code || new URLSearchParams(location.search).get("code") === "1")
+    toggleCode();
   if (resume) {
     await paint(resume.t);
     if (resume.playing)
       play();
   } else {
-    const q = new URLSearchParams(location.search);
-    if (q.has("backdrop")) {
-      setBackdrop(q.get("backdrop"), q.get("mode") ?? "under", Number(q.get("offset") ?? 0));
+    const q2 = new URLSearchParams(location.search);
+    if (q2.has("backdrop")) {
+      setBackdrop(q2.get("backdrop"), q2.get("mode") ?? "under", Number(q2.get("offset") ?? 0));
     }
-    await paint(Number(q.get("t") ?? 0));
-    if (q.get("autoplay") !== "0" && !q.has("t"))
+    await paint(Number(q2.get("t") ?? 0));
+    if (q2.get("autoplay") !== "0" && !q2.has("t"))
       play();
   }
   window.__dt = {
@@ -65023,6 +65502,14 @@ var boot = async (resume) => {
       paintMarquee();
     },
     toggleOutline,
+    toggleCode,
+    selectClip: (index) => {
+      const row = timeline?.rows[index];
+      if (!row)
+        return;
+      selectClip(row);
+      return row.label;
+    },
     setOverride: (name, value) => {
       const holon = selection.current;
       const param = holon?.params.get(name);

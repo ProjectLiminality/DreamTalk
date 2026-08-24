@@ -102,29 +102,40 @@ interface GroupBinding {
 }
 
 /**
- * A cylinder as four strokes: two cap circles (full circles, no
- * hidden-line removal — the 2021 look) and two mantle silhouette
- * generators recomputed analytically each frame from the camera position
- * in cylinder-local space (render/silhouette.ts).
+ * A cylinder as FIVE strokes — the contour graph S&T actually walks.
+ *
+ * Two mantle silhouette generators, recomputed analytically each frame
+ * from the camera position in cylinder-local space (render/silhouette.ts),
+ * and two cap circles that the generators cut. The cut is what makes five
+ * rather than four: the generators land ON the caps, so on the contour
+ * graph each cap is two edges, and S&T's stroke connection then decides
+ * which of those edges chain into one stroke and which stand alone.
+ *
+ * Which cap splits is CAMERA-RELATIVE, not local-axis-relative — see the
+ * derivation on syncCylinder. The nearer cap is the one whose two arcs
+ * are strokes in their own right; the farther cap survives as one closed
+ * loop.
  */
 interface CylinderBinding {
   holon: Cylinder
   group: THREE.Group
-  topCap: RibbonStroke
-  /** The bottom cap's NEAR arc — generator A round to generator B the
-   *  camera-facing way. Drawn immediately after generator A lands. */
-  bottomNear: RibbonStroke
-  /** The bottom cap's FAR arc — the pen returns for it only after it has
-   *  climbed generator B (see syncCylinder). */
-  bottomFar: RibbonStroke
+  /** The FAR cap, whole: one closed loop starting on generator A. */
+  farCap: RibbonStroke
+  /** The NEAR cap's camera-facing arc — the first ink of the whole draw. */
+  nearFront: RibbonStroke
+  /** The NEAR cap's away-facing arc — the pen returns for it near the end. */
+  nearBack: RibbonStroke
   lineA: RibbonStroke
   lineB: RibbonStroke
   /** Cap geometry cache key — the caps' seams ride the silhouette, so the
-   *  generator azimuths are part of the key, not only the size. */
+   *  generator azimuths are part of the key, not only the size. Sign of
+   *  the near cap's local y is in it too: a cylinder that turns past
+   *  edge-on swaps which cap is near, and the seams follow. */
   capRadius: number
   capHeight: number
   thetaA: number
   thetaB: number
+  nearY: number
 }
 
 const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
@@ -412,9 +423,9 @@ export class ThreeHost {
       const binding: CylinderBinding = {
         holon,
         group,
-        topCap: new RibbonStroke(width),
-        bottomNear: new RibbonStroke(width),
-        bottomFar: new RibbonStroke(width),
+        farCap: new RibbonStroke(width),
+        nearBack: new RibbonStroke(width),
+        nearFront: new RibbonStroke(width),
         lineA: new RibbonStroke(width),
         lineB: new RibbonStroke(width),
         capRadius: r,
@@ -422,11 +433,12 @@ export class ThreeHost {
         // NaN so the first sync always rebuilds the seams from the live camera.
         thetaA: NaN,
         thetaB: NaN,
+        nearY: NaN,
       }
       group.add(
-        binding.topCap.mesh,
-        binding.bottomNear.mesh,
-        binding.bottomFar.mesh,
+        binding.farCap.mesh,
+        binding.nearBack.mesh,
+        binding.nearFront.mesh,
         binding.lineA.mesh,
         binding.lineB.mesh,
       )
@@ -743,7 +755,7 @@ export class ThreeHost {
   }
 
   private syncCylinder(binding: CylinderBinding): void {
-    const { holon, group, topCap, bottomNear, bottomFar, lineA, lineB } = binding
+    const { holon, group, farCap, nearBack, nearFront, lineA, lineB } = binding
     const radius = holon.radius.value
     const height = holon.height.value
 
@@ -751,120 +763,153 @@ export class ThreeHost {
     const camLocal = group.worldToLocal(this.camera.position.clone())
     const angles = silhouetteAngles(camLocal.x, camLocal.z, radius)
 
-    // The caps begin ON the generators and run the near half of the mantle
-    // first — S&T's chained contour, measured off video-01 f0031-f0038 (see
-    // capPolylineFrom). Both cap seams are view-dependent, so they are
-    // rebuilt whenever the generators move, not only on a size change.
-    //
-    // The BOTTOM cap is two strokes, not one. The generators are where the
-    // cap contour meets the mantle contour, so on S&T's contour graph each
-    // cap is two edges; the pen chains them only when it has nowhere else
-    // to go. video-01 Scene 01's own cylinder draw shows it walking the
-    // bottom cap's near arc, LEAVING for generator B, and only then coming
-    // back for the far arc — new-ink deltas on refs/video-01/frames5:
-    //
-    //   f0038  x[634,740] y[353,444]  generator A's tail, then an arc
-    //                                 running leftward at y≈411-442 from
-    //                                 x=701 to x=635  — the NEAR arc
-    //   f0039  a straight run (line residual 3.4px over a 148px span)
-    //          from (556,332) to (626,480)            — generator B, upward
-    //   f0040  x[529,565] y[275,332]                  — generator B's tail
-    //   f0041-44  x 719 → 635 along y≈473-496         — the FAR arc
-    //
-    // (Scene 06's 2s cylinder draw says the same thing independently — see
-    // capArcs in render/silhouette.ts, which this now uses.) A single
-    // closed cap stroke cannot leave and return; two arcs can.
+    // WHICH CAP IS NEAR is what orders the whole draw, and the camera
+    // decides it: `camLocal.y` is the camera's height along the
+    // cylinder's own axis, so the cap at +h/2 is the nearer one exactly
+    // when camLocal.y > 0. Nothing about local "top" and "bottom"
+    // survives the cylinder turning — and in Scene 06 it turns a full
+    // revolution — so the roles are stated against the camera and
+    // recomputed whenever it moves.
+    const nearY = camLocal.y >= 0 ? height / 2 : -height / 2
+    const farY = -nearY
+
     const thetaA = angles?.thetaA ?? 0
     const thetaB = angles?.thetaB ?? Math.PI
     if (
       radius !== binding.capRadius ||
       height !== binding.capHeight ||
       thetaA !== binding.thetaA ||
-      thetaB !== binding.thetaB
+      thetaB !== binding.thetaB ||
+      nearY !== binding.nearY
     ) {
-      topCap.setPoints(
-        capPolylineFrom(radius, height / 2, thetaB, false).map((p) => new THREE.Vector3(...p)),
-      )
-      // thetaA = phi - spread and thetaB = phi + spread, so walking from
-      // thetaA toward INCREASING angle passes through the camera azimuth
-      // phi: that arc is the near one, and its sweep is exactly the
-      // generators' angular gap. The far arc is its complement, continued
-      // in the same direction so the pen never reverses.
-      const nearSweep = thetaB - thetaA
       const v3 = (p: [number, number, number]) => new THREE.Vector3(...p)
-      bottomNear.setPoints(
-        capArc(radius, -height / 2, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
+
+      // THE PEN PATH, measured — not fitted — off Scene 06's own 2s
+      // cylinder Create, which is the cleanest instance in the whole
+      // reference: a STATIC cylinder (nothing else is moving), at a pose
+      // the calibrated camera reproduces to the pixel, drawn alone on
+      // black over eleven frames (frames5 f0494-f0504).
+      //
+      // Method: project the cylinder's two cap circles under the solved
+      // camera, walk each at 0.5-degree steps, and ask of every frame
+      // which steps are lit. Indices run from thetaA (0) with INCREASING
+      // theta; thetaB lands at index 330 of 720. The result, per frame:
+      //
+      //   frame   near cap lit          far cap lit
+      //   f0494   [321..332]   n=12     —
+      //   f0495   [264..332]   n=69     —
+      //   f0496   [185..332]   n=148    —
+      //   f0497   [ 93..332]   n=240    —
+      //   f0498   n=338  (0..330 whole) n=70   from index 0, increasing
+      //   f0499   n=338  FROZEN         n=338
+      //   f0500   n=338  FROZEN         n=634
+      //   f0501   n=338  FROZEN         n=721  (closed)
+      //   f0502   n=655                 n=721
+      //   f0503   n=721  (closed)       n=721
+      //
+      // and, sampling the two generators along their length,
+      //
+      //   generator B fills from its FAR end toward the near cap
+      //               (f0500 -> f0502)
+      //   generator A fills from its NEAR end toward the far cap
+      //               (f0503 -> f0504)
+      //
+      // Read as a pen that is put down five times, that is:
+      //
+      //   1. near cap, thetaB -> thetaA DECREASING  (the camera-facing
+      //      arc, 165 degrees here) — the first ink of the scene
+      //   2. far cap, thetaA all the way round INCREASING (one closed
+      //      loop; it is never interrupted)
+      //   3. generator B, far end -> near end
+      //   4. near cap, thetaB -> thetaA INCREASING (the away-facing arc,
+      //      the complement, 195 degrees here)
+      //   5. generator A, near end -> far end
+      //
+      // WHY THE NEAR CAP SPLITS AND THE FAR CAP DOES NOT is S&T's own
+      // stroke connection, and it follows from the source rather than
+      // from the frames. pydeation sets CONNECTIIONZ = 3 (match in
+      // world), JOIN_ANGLE_LIMIT = PI and CLOSECONNECTION = True
+      // (refs/pydeation-legacy/object/object.py:203-205), so contour
+      // edges that touch are joined into longer strokes, preferring the
+      // smallest turn. At a silhouette junction the generator meets the
+      // cap TANGENTIALLY on screen — that is what a silhouette is — so
+      // measured at this pose the turn to the generator is 0.5 degrees
+      // against 1.0 degrees for the cap's own continuation: the join
+      // takes the generator, and it takes it on ONE side only, which is
+      // the side the cap's contour is already heading. On the far cap
+      // both junctions choose the SAME arc, so its other arc is left
+      // joined to it and the loop survives whole; on the near cap they
+      // choose opposite arcs and the loop is cut in two. The asymmetry
+      // is the two caps' opposite orientation with respect to the
+      // camera, which is why this is stated camera-relatively.
+      //
+      // The `stroke_order` that then sequences the five is pydeation's
+      // own default, "bottom_top" (object.py:90) — S&T mode 3.
+      const nearSweep = thetaB - thetaA
+      nearFront.setPoints(
+        capArc(radius, nearY, thetaB, -nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
       )
-      bottomFar.setPoints(
-        capArc(radius, -height / 2, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(
-          v3,
-        ),
+      nearBack.setPoints(
+        capArc(radius, nearY, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
       )
+      farCap.setPoints(capPolylineFrom(radius, farY, thetaA, false).map(v3))
       binding.capRadius = radius
       binding.capHeight = height
       binding.thetaA = thetaA
       binding.thetaB = thetaB
+      binding.nearY = nearY
     }
 
     if (angles) {
-      // Generator A runs DOWN from the top cap's finish, generator B back
-      // UP to where the top cap began: the pen never lifts.
-      const set = (line: RibbonStroke, theta: number, downward: boolean) => {
-        const lo = new THREE.Vector3(...generatorPoint(theta, radius, -height / 2))
-        const hi = new THREE.Vector3(...generatorPoint(theta, radius, height / 2))
-        line.setPoints(downward ? [hi, lo] : [lo, hi])
+      // Generator B runs FAR -> NEAR; generator A runs NEAR -> FAR. Both
+      // directions are read off the reference (see the pen path above).
+      const set = (line: RibbonStroke, theta: number, fromNear: boolean) => {
+        const nearEnd = new THREE.Vector3(...generatorPoint(theta, radius, nearY))
+        const farEnd = new THREE.Vector3(...generatorPoint(theta, radius, farY))
+        line.setPoints(fromNear ? [nearEnd, farEnd] : [farEnd, nearEnd])
       }
       set(lineA, angles.thetaA, true)
       set(lineB, angles.thetaB, false)
     }
 
-    // Draw-on: the FIVE strokes run sequentially within the holon's one
-    // creation param, in the chained order the reference draws them:
+    // Draw-on: the five strokes run sequentially inside the holon's one
+    // `creation`, in the pen order above:
     //
-    //   top cap → generator A → bottom NEAR arc → generator B → bottom FAR
+    //   near FRONT arc -> far cap -> generator B -> near BACK arc -> generator A
     //
     // The erase front consumes them through the same partition.
     //
-    // Proportioned by SCREEN ARC LENGTH — the same rule, and the same
-    // code, that render/screen-arc.ts established for how S&T spreads one
-    // draw parameter WITHIN a stroke. There is no reason it would use one
-    // model along a stroke and a different one between strokes: S&T is a
-    // screen-space pen throughout, and the contour it walks here is a
-    // single chain that happens to be cut into five ribbons by the
-    // silhouette. Each stroke's share is its own visible pixel length
-    // over the chain's; the pen then crosses each at that same screen
-    // rate. Nothing is chosen — the weights are measured off this frame's
-    // projection, so they follow the tilt as the cylinder turns.
-    //
-    // This replaces an earlier CONTOUR EDGE COUNT model (each cap 64
-    // edges, each generator 1), which the reference refutes outright.
-    // In Scene 01's 3s cylinder draw the two generators account for
-    // roughly half of all the ink laid down — new-ink pixel counts over
-    // refs/video-01/frames5 f0030-f0045 give topcap ~1258px, the
-    // generators ~2400px between them, the bottom cap's far arc ~619px —
-    // whereas edge counts would give the generators 2/130 of the span,
-    // about 1.5%. Under that model both generators snapped on within one
-    // frame of each other; under screen arc they take the second they
-    // visibly take.
-    const measure = (line: RibbonStroke): number =>
-      this.measureScreenArc(line)?.remap.screenLength ?? 0
+    // PROPORTIONING. pydeation animates with stroke_method "single" and
+    // sketch_speed "completion" (object.py:423, 198-199), which is S&T
+    // metering one pen across the strokes by LENGTH. The generators are
+    // the only place a rule can be got wrong, since the cap arcs are
+    // fixed multiples of one another, and the reference settles it
+    // arithmetically rather than by fitting: with the pen's speed known
+    // from the far cap (0.371 and 0.411 of a full cap circle over the
+    // eased-creation intervals f0498-99 and f0499-500, i.e. 2.85 and
+    // 3.09 circles per unit of creation) and from generator B over its
+    // own interval (0.761 of the generator over f0500-501, 5.84
+    // generators per unit), one generator is 2.97/5.84 = 0.51 cap
+    // circles. The cylinder's own geometry says 2r/(2*pi*r) = 0.318 in
+    // WORLD length and, at this pose, 0.50 in SCREEN length. Screen
+    // length it is — and that is the same rule screen-arc.ts derived for
+    // metering WITHIN a stroke, now simply applied BETWEEN them too, so
+    // the cylinder stops being the one primitive with two rules.
     const mantleVisible = angles !== undefined
-    // A stroke with no visible ink weighs nothing and is skipped by the
-    // pen entirely — that is screen-arc's own rule (off-frame geometry
-    // costs nothing), applied one level up.
-    const shares = [
-      measure(topCap),
-      mantleVisible ? measure(lineA) : 0,
-      measure(bottomNear),
-      mantleVisible ? measure(lineB) : 0,
-      measure(bottomFar),
+    const w = [
+      this.screenLength(nearFront),
+      this.screenLength(farCap),
+      mantleVisible ? this.screenLength(lineB) : 0,
+      this.screenLength(nearBack),
+      mantleVisible ? this.screenLength(lineA) : 0,
     ]
-    const chain = shares.reduce((a, b) => a + b, 0)
-    // Degenerate frame (nothing projects): fall back to equal shares so
-    // the draw still runs rather than freezing.
-    const weights = chain > 0 ? shares.map((s) => s / chain) : shares.map(() => 1 / shares.length)
+    const totalW = w.reduce((a, b) => a + b, 0) || 1
     const bounds = [0]
-    for (const w of weights) bounds.push(bounds[bounds.length - 1]! + w)
+    let acc = 0
+    for (const x of w) {
+      acc += x / totalW
+      bounds.push(acc)
+    }
     bounds[bounds.length - 1] = 1
 
     const creation = holon.creation.value
@@ -874,31 +919,36 @@ export class ThreeHost {
     const width = holon.stroke.value
     const window = (v: number, a: number, b: number) =>
       b <= a ? (v >= b ? 1 : 0) : Math.min(1, Math.max(0, (v - a) / (b - a)))
-    // WITHIN a stroke the pen advances by WORLD arc, not screen arc, and
-    // the difference is the cylinder's own geometry rather than an
-    // inconsistency. screen-arc.ts's rule is about a stroke whose SCREEN
-    // length is what S&T meters — and it is derived from, and verified
-    // on, strokes that run away from the camera (Scene 01's axes, whose
-    // far ends compress to nothing). A cylinder cap does not: it is a
-    // small circle at a near-constant depth, so its screen and world
-    // parametrisations differ only by the ellipse's foreshortening, and
-    // the contour S&T actually walks is a 64-gon of equal WORLD angles.
-    // Metering that by projected pixel length makes the pen race across
-    // the squashed near side and crawl round the wide top — measurably
-    // wrong: it drove t=1s's coverage_ours from 0.83 down to 0.48,
-    // closing the ellipse while the reference was still on its top arc.
+    // WITHIN a stroke the pen advances by SCREEN pixels, exactly as
+    // render/screen-arc.ts derived for every other stroke — the cylinder
+    // is not an exception, and the reference says so on this very draw.
+    // Through the near cap's own phase the new ink per frame, divided by
+    // the eased creation the frame advanced, is flat:
+    //
+    //     f0495  dCreation 0.056  new ink 245px
+    //     f0496            0.075          520
+    //     f0497            0.103          650
+    //
+    // A pen metering WORLD arc would vary by the ellipse's
+    // foreshortening — nearly 2:1 between its wide top and its squashed
+    // near side — and would not hold flat like that.
     const sub = (line: RibbonStroke, i: number) => {
       const a = bounds[i]!
       const b = bounds[i + 1]!
-      line.style(window(creation, a, b), opacity, tint, width, window(erasure, a, b))
+      const drawn = window(creation, a, b)
+      const measured = drawn > 0 && drawn < 1 ? this.measureScreenArc(line) : undefined
+      const world = measured
+        ? Math.max(0, Math.min(1, measured.remap.worldAt(drawn) / measured.totalWorld))
+        : drawn
+      line.style(world, opacity, tint, width, window(erasure, a, b))
     }
-    sub(topCap, 0)
-    if (mantleVisible) sub(lineA, 1)
-    else lineA.style(0, opacity, tint, width, 0)
-    sub(bottomNear, 2)
-    if (mantleVisible) sub(lineB, 3)
+    sub(nearFront, 0)
+    sub(farCap, 1)
+    if (mantleVisible) sub(lineB, 2)
     else lineB.style(0, opacity, tint, width, 0)
-    sub(bottomFar, 4)
+    sub(nearBack, 3)
+    if (mantleVisible) sub(lineA, 4)
+    else lineA.style(0, opacity, tint, width, 0)
   }
 
   // --- Picking (EDITOR-V3 decision 1: "what holon is under this pixel?") ---
@@ -959,7 +1009,7 @@ export class ThreeHost {
     }
     for (const binding of this.cylinders) {
       const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP
-      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB]) {
         consider(binding.holon, this.ribbonDistance(ribbon, px, py, width, height), tolerance)
       }
     }
@@ -1007,7 +1057,7 @@ export class ThreeHost {
     }
     for (const binding of this.cylinders) {
       if (!wanted.has(binding.holon)) continue
-      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB]) {
         addRibbon(ribbon, ribbon.mesh)
       }
     }
@@ -1260,6 +1310,16 @@ export class ThreeHost {
     // early out.
     if (remap.screenLength <= 0) return undefined
     return { remap, totalWorld: world }
+  }
+
+  /**
+   * One ribbon's ink length in SCREEN pixels at this frame, 0 when it
+   * has none — the weight the cylinder proportions its five contour
+   * strokes by (see syncCylinder). Same measurement as screenArc()'s,
+   * asked for the total rather than the map.
+   */
+  private screenLength(ribbon: RibbonStroke): number {
+    return this.measureScreenArc(ribbon)?.remap.screenLength ?? 0
   }
 
   /** World point → device pixels (y down), or undefined behind the camera. */

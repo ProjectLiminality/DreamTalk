@@ -108,6 +108,45 @@ describe("the live layer — the overlay itself", () => {
     expect(c.value).toBe(1)
   })
 
+  test("releasing an override on an UN-ANIMATED param puts back what it displaced", () => {
+    // The subtle one: apply() writes into the param, and nothing rewrites
+    // a param the timeline never touches — so dropping the entry alone
+    // would leave the live value standing forever. Flying the camera hits
+    // this on radius/x/y, which most scenes never animate.
+    const radius = scalar(1000)
+    const ov = new Overrides(new Timeline([]))
+    ov.set(anyParam(radius), 550)
+    ov.apply()
+    expect(radius.value).toBe(550)
+    ov.delete(anyParam(radius))
+    expect(radius.value).toBe(1000)
+
+    // …and the same through release() and clearAll().
+    ov.set(anyParam(radius), 300)
+    ov.apply()
+    ov.release([anyParam(radius)])
+    expect(radius.value).toBe(1000)
+    ov.set(anyParam(radius), 200)
+    ov.apply()
+    ov.clearAll()
+    expect(radius.value).toBe(1000)
+  })
+
+  test("a run of sets displaces once — the whole gesture is one override", () => {
+    const p = scalar(5)
+    const ov = new Overrides(new Timeline([]))
+    ov.set(anyParam(p), 6)
+    ov.apply()
+    ov.set(anyParam(p), 7)
+    ov.apply()
+    ov.set(anyParam(p), 8)
+    ov.apply()
+    expect(p.value).toBe(8)
+    ov.delete(anyParam(p))
+    // Back to where the gesture STARTED, not to its second-to-last step.
+    expect(p.value).toBe(5)
+  })
+
   test("delete / release / clearAll drop overrides regardless of animation", () => {
     const a = scalar(0)
     const b = scalar(0)
