@@ -128,6 +128,37 @@ export class S06Dream extends Dream {
     stroke: STROKE_MAIN,
   })
 
+  // KNOWN GAP (2026-08-24, adjudicated): the cylinder's Create draws its
+  // near cap's two arcs in an order the framework does not yet derive
+  // from the pose, and S06 is the scene that pays for it. The five-stroke
+  // structure is settled — two generators cut each cap, the NEAR cap's
+  // arcs are strokes in their own right, the FAR cap stays one closed
+  // loop, and "near" is camera-relative (render/three-host.ts) — but
+  // WHICH near arc goes first was measured differently by two scenes:
+  //
+  //   Scene 01 (p=0.4 b=0.1, near-upright)  the AWAY-facing arc first
+  //   Scene 06 (p=PI/2, lying in view)      the CAMERA-facing arc first
+  //
+  // Both readings were re-derived independently and both are correct for
+  // their own pose, so the missing rule is pose-dependent — the leading
+  // hypothesis is S&T's contour-edge chaining (CONNECTIIONZ=3,
+  // JOIN_ANGLE_LIMIT=PI, CLOSECONNECTION=True, object.py:203-205) joining
+  // edges BEFORE stroke_order sequences whole strokes, since stroke_order
+  // maps to OUTLINEMAT_ANIMATE_STROKES and cannot decide which arc
+  // becomes the first stroke. The ruling keeps Scene 01's version, so
+  // this scene renders the wrong arc for the ~1.5s its near cap is drawn
+  // alone. Scored at --step 1 over the Create, the cost is explicit:
+  //
+  //   Scene 01's rule  mean cov_ref 0.559  worst frame 0.017, chamfer 13.7px
+  //   Scene 06's rule  mean cov_ref 0.960  cov_ref = 1.000 from f0496 on
+  //
+  // Under Scene 06's own rule every reference pixel is covered and the
+  // only residual is a pen ~0.3s ahead; under Scene 01's the two arcs sit
+  // on opposite sides of the same ellipse. At --step 5 this costs exactly
+  // one frame (f0498), which is why the scene still scores 12/13. Do NOT
+  // "fix" it here — it belongs in render/three-host.ts once the chaining
+  // rule is derived, and a scene-local override would encode nothing.
+
   // Cylinder(p=PI/2, scale=2) — the body. p=PI/2 pitches its +y axis to
   // +z: it lies along the depth axis, which the 45-degree default view
   // reads as the classic two-ellipses-and-two-generators wireframe

@@ -17,6 +17,7 @@ import {
   rectanglePolyline,
 } from "../src/parts/index"
 import { Create, Erase, UnCreate, UnDraw } from "../src/verbs"
+import { smoothingFor } from "../src/timeline"
 import { Dream } from "../src/dream"
 import { PI } from "../src/constants"
 import type { Track } from "../src/anim"
@@ -245,6 +246,90 @@ describe("UnCreate dispatch", () => {
     for (const tick of ticks) {
       const track = tracksFor(tracks, tick.erasure)[0]!
       expect(track.relStop).toBeLessThanOrEqual(0.7 + 1e-9)
+    }
+  })
+
+  /**
+   * The recursion the fallback used to lack. pydeation dispatches per
+   * class at EVERY level — `Animator.flatten_input` stops at a
+   * CustomObject so `UnCreateEye` is chosen for an Eye wherever it sits
+   * (animator.py:31-58, 742-772) — so a Group holding an Eye must not
+   * flatten that Eye into one undifferentiated retraction. video-01 S08
+   * is exactly that shape: `UnCreate(creature)` on a Group whose only
+   * member is an Eye, and the flat version left the iris fill lit
+   * through the scene's last frame (f0689-f0691).
+   */
+  test("UnCreate recurses per part, so a nested Eye keeps its own choreography", () => {
+    const eye = new Eye({})
+    const group = new Group({ members: [eye] })
+    const tracks = UnCreate(group).tracks
+    // The iris unfills over the first half and the pupil follows it,
+    // exactly as UnCreateEye states — not one flat 0 → 1 retraction.
+    const iris = tracksFor(tracks, eye.iris.creation)[0]!
+    expect(iris.relStart).toBe(0)
+    expect(iris.relStop).toBeCloseTo(0.5, 12)
+    const pupil = tracksFor(tracks, eye.pupil.creation)[0]!
+    expect(pupil.relStart).toBeCloseTo(0.5, 12)
+    expect(pupil.relStop).toBeCloseTo(0.6, 12)
+    // The eyeball undraws over 30 → 100%, never over the whole span.
+    const eyeball = tracksFor(tracks, eye.eyeball.creation)[0]!
+    expect(eyeball.relStart).toBeCloseTo(0.3, 12)
+    expect(eyeball.relStop).toBe(1)
+    // Create was already recursive; the two halves now agree on shape.
+    const made = Create(group).tracks
+    expect(tracksFor(made, eye.iris.creation)[0]!.relStart).toBeCloseTo(0.3, 12)
+  })
+})
+
+/**
+ * The domino's ease is stated against the WHOLE play span, not against
+ * each child's window — a property of the 2021 machinery, read straight
+ * off the source. `CObject.animate` builds every child `Animation` with
+ * `rel_run_time = (0, 1)`, so `rel_duration` is 1 (animation.py:10-20);
+ * `rescale_run_time` then squeezes `rel_run_time` into the domino window
+ * and leaves `rel_duration` alone (animation.py:29-44); and `play()`
+ * feeds `run_time * rel_duration` — still the whole span — into
+ * `smoothing * run_time` for the keyframe tangents (scene.py:990,
+ * 785-786). A grid line owning 0.3 of the span therefore carries a
+ * tangent 0.25/0.3 of its OWN window, clamped at 1.
+ */
+describe("cascade easing (the stale rel_duration)", () => {
+  test("grid lines carry tangents stated against the whole span", () => {
+    const axes = new Axes({
+      mode: "x",
+      xStart: -500,
+      xEnd: 500,
+      gridSpacing: 100,
+      drawGrid: true,
+    })
+    const tracks = Create(axes).tracks // also forces compose()
+    const grid = axes.gridGroups[0]!
+    expect(grid.length).toBeGreaterThan(4)
+    for (const line of grid) {
+      const track = tracksFor(tracks, line.creation)[0]!
+      const own = track.relStop - track.relStart
+      expect(own).toBeGreaterThan(0)
+      expect(own).toBeLessThan(1)
+      // Stated against the full span: wider than the window it occupies.
+      expect(track.smoothingWindow).toBe(1)
+      expect(smoothingFor("smooth", own, track.smoothingWindow!).left).toBeGreaterThan(0.25)
+    }
+    // The axis line itself is an ordinary track — no restage, no stretch.
+    const axis = tracksFor(tracks, axes.axisLines[0]!.creation)[0]!
+    expect(axis.smoothingWindow).toBeUndefined()
+  })
+
+  test("the erase cascade states them the same way", () => {
+    const axes = new Axes({
+      mode: "x",
+      xStart: -500,
+      xEnd: 500,
+      gridSpacing: 100,
+      drawGrid: true,
+    })
+    const tracks = UnCreate(axes).tracks
+    for (const line of axes.gridGroups[0]!) {
+      expect(tracksFor(tracks, line.erasure)[0]!.smoothingWindow).toBe(1)
     }
   })
 })

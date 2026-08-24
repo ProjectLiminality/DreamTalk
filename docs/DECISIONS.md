@@ -107,6 +107,25 @@ operational decisions are entered by the working agent. Format:
   frame (S06 fails f0498 either way, at 0.15 with S01's rule and 0.53 with
   S06's). Both builders REFUSED to invent a fitted rule bridging the two
   poses. Recorded as an open framework question, not papered over.
+  **CORRECTION 2026-08-24 (integrator, measured):** the step-5 claim that
+  the choice is cost-neutral was WRONG — an artifact of step 5 scoring
+  only one frame inside each Create. At --step 1 the two readings separate
+  decisively, and the swap was run BOTH ways on the real tree:
+    S06 Create — S01 rule 0.559/0.530 (worst 0.017, chamfer 13.7px)
+                 S06 rule 0.960/0.872 (cov_ref pins at 1.000)
+    S01 Create — S01 rule 0.905/0.840 (worst 0.386)
+                 S06 rule 0.735/0.744 (three frames at ZERO)
+  So each scene genuinely requires the OPPOSITE arc: neither reading is
+  universally right, and whichever ships costs real frames in the other
+  scene. This is a true pose-dependent gap, not a tie. The S01 rule stays
+  (it is the calibrated one and S01 is the more exposed scene — its near
+  cap is alone on screen while drawn). The distinguishing variable, per
+  the S06 builder: S06's cylinder lies nearly perpendicular to the view
+  axis (p=PI/2, axis almost in the image plane) while S01's stands nearly
+  upright (p=0.4, b=0.1) — poses that put the generators on opposite sides
+  of the cap's projected ellipse, exactly what a screen-space join rule
+  would flip on. Next round: derive the chaining rule from S&T's contour
+  join behaviour; do NOT fit it.
 - 2026-08-24 · **Grid thickness derives from ONE thickness, not two** —
   the source computes `grid_thickness = thickness/2` from
   `PRIM_THICKNESS = 5` (custom_objects.py:221-222, constants.py:51), i.e.

@@ -63055,7 +63055,7 @@ class S06Dream extends Dream {
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:6423:6509");
+  }), "core/demo/video01/S06.ts:8329:8415");
   section = __dt(new SectionCurve({
     p: PI3 / 2,
     scale: CYLINDER_SCALE,
@@ -63067,16 +63067,16 @@ class S06Dream extends Dream {
     offset: -1 / CYLINDER_SCALE,
     tint: RED,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S06.ts:7598:7822");
+  }), "core/demo/video01/S06.ts:9504:9728");
   unfold() {
     this.observer.look("default");
     this.set(...this.observer.dolly(DEFAULT_DISTANCE2));
     this.wait(START_OFFSET5);
-    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:7958:7993");
-    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:7998:8029");
-    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:8034:8068");
-    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:8073:8187");
-    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:8192:8258");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/video01/S06.ts:9864:9899");
+    __dt(this.play(Create(this.grid), 3), "core/demo/video01/S06.ts:9904:9935");
+    __dt(this.play(FadeIn(this.section), 1), "core/demo/video01/S06.ts:9940:9974");
+    __dt(this.play(together(this.cylinder.p.by(TAU), this.section.p.by(TAU), FadeOut(this.cylinder)), 5), "core/demo/video01/S06.ts:9979:10093");
+    __dt(this.play(together(FadeOut(this.section), UnCreate(this.grid)), 3), "core/demo/video01/S06.ts:10098:10164");
     this.wait(1);
   }
 }
@@ -63244,17 +63244,17 @@ if (false)
 var START_OFFSET9 = -2.11;
 
 class S08Dream extends Dream {
-  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:6940:7013");
-  circle = __dt(new Circle({ radius: 50, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:7166:7225");
+  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:10316:10389");
+  circle = __dt(new Circle({ radius: 50, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:10542:10601");
   rectangle = __dt(new Rectangle({
     width: 200,
     height: 100,
     tint: RED,
     h: PI3 / 2,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S08.ts:7543:7651");
-  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:8397:8468");
-  creature = __dt(new Group2({ members: [this.eye] }), "core/demo/video01/S08.ts:8482:8516");
+  }), "core/demo/video01/S08.ts:10919:11027");
+  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:11773:11844");
+  creature = __dt(new Group2({ members: [this.eye] }), "core/demo/video01/S08.ts:11858:11892");
   planeCircler = __dt(new Axes({
     mode: "xy",
     h: PI3,
@@ -63269,7 +63269,7 @@ class S08Dream extends Dream {
     yStart: -2000,
     yEnd: 400,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S08.ts:8803:9433");
+  }), "core/demo/video01/S08.ts:12179:12809");
   planeRectangler = __dt(new Axes({
     mode: "xy",
     h: PI3 / 2,
@@ -63284,19 +63284,19 @@ class S08Dream extends Dream {
     yStart: -2000,
     yEnd: 400,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S08.ts:9734:9999");
+  }), "core/demo/video01/S08.ts:13110:13375");
   unfold() {
     this.observer.look("default");
     this.wait(START_OFFSET9);
     this.set(FadeOut(this.cylinder), FadeOut(this.circle), FadeOut(this.rectangle));
     this.wait(1);
-    __dt(this.play(Create(this.creature), 1), "core/demo/video01/S08.ts:10613:10648");
-    __dt(this.play(together(Create(this.planeCircler), Create(this.planeRectangler), [together(FadeIn(this.rectangle), FadeIn(this.circle)), 1 / 2, 1]), 3), "core/demo/video01/S08.ts:10653:10851");
-    __dt(this.play(this.creature.h.by(-PI3 / 2), 2), "core/demo/video01/S08.ts:10856:10897");
-    __dt(this.play(this.eye.tint.to(RED), 2), "core/demo/video01/S08.ts:10902:10937");
-    __dt(this.play(together(UnCreate(this.planeCircler), UnCreate(this.planeRectangler)), 2), "core/demo/video01/S08.ts:10942:11025");
-    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI3), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:11030:11269");
-    __dt(this.play(together(FadeOut(this.cylinder), UnCreate(this.creature)), 2), "core/demo/video01/S08.ts:11274:11345");
+    __dt(this.play(Create(this.creature), 1), "core/demo/video01/S08.ts:13989:14024");
+    __dt(this.play(together(Create(this.planeCircler), Create(this.planeRectangler), [together(FadeIn(this.rectangle), FadeIn(this.circle)), 1 / 2, 1]), 3), "core/demo/video01/S08.ts:14029:14227");
+    __dt(this.play(this.creature.h.by(-PI3 / 2), 2), "core/demo/video01/S08.ts:14232:14273");
+    __dt(this.play(this.eye.tint.to(RED), 2), "core/demo/video01/S08.ts:14278:14313");
+    __dt(this.play(together(UnCreate(this.planeCircler), UnCreate(this.planeRectangler)), 2), "core/demo/video01/S08.ts:14318:14401");
+    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI3), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:14406:14645");
+    __dt(this.play(together(FadeOut(this.cylinder), UnCreate(this.creature)), 2), "core/demo/video01/S08.ts:14650:14721");
   }
 }
 if (false)

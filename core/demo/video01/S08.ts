@@ -79,6 +79,63 @@
  * serves both the instance buffers and every screen-space reading, which
  * is why they can no longer disagree. It took f0603/f0608/f0613 (the
  * draw) and f0643 (the erase) from FAIL to PASS with nothing added here.
+ *
+ * ## …and two more, both read off the pydeation source
+ *
+ * **The domino's ease is stated against the whole span.** The grid draw
+ * still ran short of the reference — f0608 has 18 grid lines carrying
+ * ink at y=150 where we put 14, each of ours drawn further. That is the
+ * signature of an ease that is too brisk at the start, and the source
+ * says why. `CObject.animate` builds every child `Animation` with
+ * `rel_run_time = (0, 1)`, so `rel_duration` is 1 (animation.py:10-20).
+ * `rescale_run_time` then squeezes `rel_run_time` into the Domino's
+ * window and LEAVES `rel_duration` at 1 (animation.py:29-44). And
+ * `play()` feeds `run_time * rel_duration` — still the whole 3s — into
+ * `smoothing * run_time` for the keyframe tangents (scene.py:990,
+ * 785-786). So a grid line owning 0.3 of the span carries a tangent
+ * 0.83 of its own window, clamped at 1 by `smoothingFor`: many lines
+ * visibly started and creeping, which is exactly the reference. Fixed
+ * in `cascade`/`consume` (parts/index.ts) by using `restage` instead of
+ * a bare window. It took f0603 FAIL→PASS and lifted the whole grid
+ * draw and erase (f0608 0.914→0.973, f0643 0.913→1.000).
+ *
+ * **UnCreate did not recurse; Create did.** The scene ended with the
+ * eye's iris still filled through its last three frames (f0689-f0691).
+ * `UnCreate`'s fallback flattened the tree with `walk()` and stamped
+ * `creation.to(0)` on every descendant, so a Group holding an Eye lost
+ * UnCreateEye entirely. pydeation dispatches per class at every level —
+ * `Animator.flatten_input` stops at a CustomObject and the class
+ * animator takes over (animator.py:31-58, 742-772) — and `Create`
+ * already recursed that way. Made symmetric in verbs.ts; the scene's
+ * last 11 frames went to coverage 1.000/1.000.
+ *
+ * ## What is left, and why it is not fitted
+ *
+ * One frame of eighteen fails at step 5 (f0653, 0.893/0.902), and two of
+ * eighty-nine at step 1 (f0653, f0644). Both are pure timing residue of
+ * about 20ms, at the two instants where 20ms costs the most pixels: the
+ * fastest point of the orbit, and the steepest point of the grid erase.
+ *
+ * The orbit is not mis-modelled. Unprojecting the reference eye centroid
+ * through the rig gives its true world angle each frame, and fitting a
+ * C4D auto-tangent ease to that curve over three free parameters lands
+ * on start 129.35s, duration 7.03s, smoothing 0.24 — against this
+ * scene's 129.4 / 7.00 / 0.25. The source's own numbers ARE the fit.
+ *
+ * And the 20ms cannot be taken out globally: the erase wants START_OFFSET
+ * 0.02s later (f0644's both-coverages window is t = 8.32, ours is 8.30),
+ * while the orbit's second revolution wants it 0.01s earlier. Moving it
+ * to -2.09 was measured: 89% at step 1, against -2.11's 98%, with f0649
+ * collapsing to 0.699. The two ends of a 20s scene disagree by less than
+ * one fifth of a reference frame interval, which is what a 5fps sampling
+ * of a 30fps original cannot resolve. -2.11 stays.
+ *
+ * The remaining coverage_ours gap is the encode floor, not fat strokes:
+ * on the settled grid (f0630) our ink is 10% more pixels above the
+ * threshold but MEASURES THINNER in linear light (median 1.84px against
+ * the reference's 1.97px) — the YouTube encode's soft falloff crossing
+ * the threshold over more pixels while carrying the same area. Widths
+ * are honest; see palette.ts.
  */
 
 import { Dream, render } from "../../src/index"
