@@ -18,6 +18,7 @@
 import type { Holon } from "../src/holon"
 import type { Selection } from "./selection"
 import { classNameOf } from "./classname"
+import { thumbnailEl } from "./thumbnails"
 
 /** The field name a whole knows a part by — the identity a human wrote. */
 export const identityOf = (holon: Holon): string | undefined => {
@@ -86,6 +87,11 @@ export const mountOutline = (
     twisty.className = parts.length > 0 ? "twisty" : "twisty leaf"
     twisty.textContent = "▼"
     row.appendChild(twisty)
+
+    // The symbol's own face, at row scale (EDITOR-V4 "Symbol thumbnails"):
+    // a glyph drawn from this holon's geometry, so the tree can be read by
+    // shape before it is read by name.
+    row.appendChild(thumbnailEl(holon, 16))
 
     const name = document.createElement("span")
     name.className = "nclass"

@@ -22,8 +22,18 @@
  * which writes the `this.backdrop(...)` line into the DreamWeaving; the
  * loop closes back through the file. Drag-drop stays an ephemeral preview.
  *
+ * THE LIVE LAYER (EDITOR-V4.md): the frame path is
+ * `apply(t) -> overlay overrides -> sync -> render`, wired through the
+ * host's `beforeSync` hook. Tweaking a param no longer writes into the
+ * param (which `Timeline.apply(t)` would destroy on the next frame) — it
+ * writes an override, so a tweak takes effect even while PLAYING, and
+ * snaps back the moment the playhead moves. Flying the camera is the same
+ * mechanism on the Observer's spherical params, with an eased return to
+ * the timeline's pose on play. Overrides live here, never in the Dream:
+ * the gauntlet and export always sample the pure timeline.
+ *
  * Claude drives this same page headless for overlay evaluation via
- * window.__dt (setT / setBackdrop / play / pause / select / pick).
+ * window.__dt (setT / setBackdrop / play / pause / select / pick / fly).
  */
 
 import { ThreeHost } from "../src/render/three-host"
@@ -35,8 +45,21 @@ import { scenes, defaultScene } from "../demo/scenes"
 import { Selection, pathOf, type SelectionPath } from "./selection"
 import { mountOutline, identityOf, rootIdentityOf } from "./outline"
 import { Marquee } from "./marquee"
-import { formatValue, inspectorGroups, sliderRange } from "./inspector"
+import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
+import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
+import { mountCodeView } from "./codeview"
+import { mountTimeline, type ClipRow } from "./timeline"
+import { thumbnailEl } from "./thumbnails"
+import {
+  Overrides,
+  RETURN_SECONDS,
+  clampTheta,
+  dollyRadius,
+  lerpPose,
+  ORBIT_PER_WIDTH,
+  type Pose,
+} from "./overrides"
 
 interface Transport {
   t: number
@@ -68,6 +91,16 @@ declare global {
       /** Suppress the selection affordance entirely (never in a render). */
       setAffordance?: (on: boolean) => void
       toggleOutline?: () => boolean
+      // --- The live layer (EDITOR-V4), exposed for headless verification ---
+      /** Overlay a value on a named param of the selected holon. */
+      setOverride?: (name: string, value: number) => boolean
+      /** How many live overrides stand right now, and on what. */
+      overrides?: () => { name: string; value: number; animated: boolean }[]
+      /** Fly the observer as a drag/scroll would, in viewport pixels. */
+      fly?: (dx: number, dy: number, mode?: "orbit" | "pan") => void
+      dolly?: (deltaY: number) => void
+      /** The observer's live pose — flown or from the timeline. */
+      pose?: () => Pose
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -183,6 +216,16 @@ const boot = async (resume?: Transport) => {
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
   const sceneName = dream.constructor.name.replace(/Dream$/, "")
+
+  // --- The live layer (EDITOR-V4) ------------------------------------------
+  //
+  // Rule 1 made mechanical: the host samples the timeline, then calls this
+  // hook, then syncs. Everything downstream — geometry, camera, picker,
+  // the inspector's readouts — reads params that already carry the
+  // overlay, so nothing else in the editor or the renderer has to know
+  // the live layer exists. The Dream is untouched.
+  const overrides = new Overrides(dream.build())
+  host.beforeSync = () => overrides.apply()
 
   // --- Selection: one store, read and written by every panel ---------------
   const selection = new Selection()
@@ -327,18 +370,20 @@ const boot = async (resume?: Transport) => {
   interface Row {
     param: Param<ParamValue>
     slider?: HTMLInputElement
-    val: HTMLElement
+    field?: NumericFieldHandle
+    val?: HTMLElement
     swatch?: HTMLElement
+    /** The row element, so a cleared override can un-mark it. */
+    el?: HTMLDivElement
   }
   let rows: Row[] = []
 
-  // Live/persisted split (EDITOR.md): a drag writes the in-memory param
+  // Live/persisted split (EDITOR.md): a gesture writes the live layer
   // only, with the row marked diverged; release commits one setOverride
   // op at the holon's anchored construction site; Escape drops the
   // gesture. The divergence clears when the reload round-trip remounts.
   interface Drag {
     row: HTMLDivElement
-    slider: HTMLInputElement
     param: Param<ParamValue>
     before: number
     reverted: boolean
@@ -365,90 +410,57 @@ const boot = async (resume?: Transport) => {
     })
   }
 
-  /** One param row, with the live/persisted split intact. */
+  /**
+   * One param row. The row's CONSTRUCTION lives in editor/inspector.ts
+   * (which owns what a row is — a C4D numeric field, a slider only where a
+   * bounded range means something, a swatch, a bound annotation); what
+   * stays here is the only part this module can own: where the value GOES.
+   * On input it goes into the live layer; on commit it goes into the file.
+   */
   const buildRow = (
     holon: Holon,
     anchor: SourceAnchor | undefined,
     name: string,
     param: Param<ParamValue>,
   ): HTMLDivElement => {
-    const row = document.createElement("div")
-    row.className = "param"
-    const label = document.createElement("label")
-    label.textContent = name
-    label.title = `${name} · ${param.kind}`
-    row.appendChild(label)
-    const val = document.createElement("div")
-    val.className = "val"
+    const target = anchor
+    let pending: ReturnType<typeof setTimeout> | undefined
 
-    if (param.isBound) {
-      // PARAMETERS rule: a bound param is read-only, and the panel says so.
-      row.classList.add("bound")
-      const bind = document.createElement("div")
-      bind.className = "bind"
-      bind.textContent = "bound"
-      bind.title = "follows a derived binding — animate its source"
-      row.appendChild(bind)
-      val.textContent = formatValue(param.value)
-      row.appendChild(val)
-      rows.push({ param, val })
-      return row
-    }
-
-    if (isColor(param.value)) {
-      const swatch = document.createElement("div")
-      swatch.className = "swatch"
-      row.appendChild(swatch)
-      val.textContent = ""
-      row.appendChild(val)
-      rows.push({ param, val, swatch })
-      return row
-    }
-
-    if (typeof param.value === "number") {
-      const slider = document.createElement("input")
-      slider.type = "range"
-      const [min, max, step] = sliderRange(param)
-      slider.min = String(min)
-      slider.max = String(max)
-      slider.step = String(step)
-      // Committable = the construction site is anchored; everything else
-      // stays live-only, marked so.
-      const target = anchor
-      if (!target) {
-        row.classList.add("liveonly")
-        row.title = "live only — not written to code"
-      }
-      let pending: ReturnType<typeof setTimeout> | undefined
-      slider.addEventListener("input", () => {
-        pause()
-        if (drag?.slider !== slider)
-          drag = { row, slider, param, before: param.value as number, reverted: false }
-        param.value = Number(slider.value)
-        if (target) row.classList.add("diverged")
+    const built = buildParamRow(name, param, {
+      committable: target !== undefined,
+      signal: ac.signal,
+      onInput: (p, _n, value) => {
+        // No pause(): the live layer survives a frame, so a tweak takes
+        // effect WHILE PLAYING — until the playhead moves past it.
+        if (drag?.param !== p)
+          drag = { row: built.el, param: p, before: p.value as number, reverted: false }
+        overrides.set(p, value)
+        built.el.classList.add(target ? "diverged" : "live")
         void host.renderFrame(current).then(() => syncPanel())
-      }, listen)
-      slider.addEventListener("change", () => {
+      },
+      onCommit: (_p, n, value) => {
         const d = drag
         drag = null
         if (d?.reverted || !target) return
         if (pending !== undefined) clearTimeout(pending)
         pending = setTimeout(() => {
-          void commitOverride(holon, target, name, Number(slider.value))
+          void commitOverride(holon, target, n, value)
         }, 300)
-      }, listen)
-      row.appendChild(slider)
-      row.appendChild(val)
-      rows.push({ param, slider, val })
-      return row
-    }
+      },
+    })
 
-    // Booleans and anything else: shown, read, not yet editable.
-    row.appendChild(document.createElement("span"))
-    val.textContent = formatValue(param.value)
-    row.appendChild(val)
-    rows.push({ param, val })
-    return row
+    if (!target && typeof param.value === "number" && !param.isBound) {
+      built.el.title = "live only — not written to code"
+    }
+    rows.push({
+      param: built.param,
+      slider: built.slider,
+      field: built.field,
+      val: built.val,
+      swatch: built.swatch,
+      el: built.el,
+    })
+    return built.el
   }
 
   const backdropPanel = $<HTMLDivElement>("backdroppanel")
@@ -513,15 +525,18 @@ const boot = async (resume?: Transport) => {
   }
 
   const syncPanel = () => {
-    for (const { param, slider, val, swatch } of rows) {
+    for (const { param, slider, field, val, swatch } of rows) {
       const v = param.value
       if (isColor(v)) {
         if (swatch)
           swatch.style.background = `rgb(${v.r * 255 | 0},${v.g * 255 | 0},${v.b * 255 | 0})`
       } else if (typeof v === "number") {
         if (slider && document.activeElement !== slider) slider.value = String(v)
-        val.textContent = formatValue(v)
-      } else {
+        // The field refuses the write while it is being dragged or typed
+        // into, so a scrubbing timeline never fights the hand on the field.
+        field?.set(v)
+        if (val) val.textContent = formatValue(v)
+      } else if (val) {
         val.textContent = formatValue(v)
       }
     }
@@ -557,6 +572,13 @@ const boot = async (resume?: Transport) => {
       if (e.button !== 0) return
       // Empty space clears — direct manipulation's own affordance.
       selection.set(pickAt(e.clientX, e.clientY) ?? null)
+      // …and the same press begins a flight, if the scene is paused.
+      // Selection is a click; flying is a drag; one press serves both,
+      // because the flight only does anything once the pointer moves.
+      if (playing) return
+      flight = { x: e.clientX, y: e.clientY, pan: e.shiftKey }
+      canvas.setPointerCapture?.(e.pointerId)
+      canvas.classList.add("flying")
     },
     listen,
   )
@@ -578,13 +600,212 @@ const boot = async (resume?: Transport) => {
     paintMarquee()
   })
 
+  // --- Flying the Observer (EDITOR-V4, "Flying the Observer") --------------
+  //
+  // The Observer is a Holon like any other (rule 5), so flying it is just
+  // overrides on its spherical params — no camera state anywhere, no
+  // special case in the host, and the scene file is never touched.
+  //
+  //   drag        → phi / theta   (orbit)
+  //   shift+drag  → x / y         (pan the focus point)
+  //   scroll      → radius        (dolly)
+  //
+  // On play the flown pose falls back to the timeline's pose at the
+  // current t over RETURN_SECONDS, eased, and only then are the overrides
+  // released — David's "a quick interpolation of the current view towards
+  // the camera perspective and then the scene should be played further."
+  const obs = dream.observer
+  const observerParams = new Set<Param<ParamValue>>([
+    obs.phi as Param<ParamValue>,
+    obs.theta as Param<ParamValue>,
+    obs.radius as Param<ParamValue>,
+    obs.x as Param<ParamValue>,
+    obs.y as Param<ParamValue>,
+  ])
+
+  /** The pose the timeline alone would put the observer in at time t. */
+  const timelinePose = (t: number): Pose => {
+    const tl = dream.build()
+    return {
+      phi: tl.valueAt(obs.phi, t),
+      theta: tl.valueAt(obs.theta, t),
+      radius: tl.valueAt(obs.radius, t),
+      x: tl.valueAt(obs.x, t),
+      y: tl.valueAt(obs.y, t),
+    }
+  }
+
+  /** The pose actually on screen: the flown one if flying, else the timeline's. */
+  const livePose = (): Pose =>
+    flown ?? {
+      phi: obs.phi.value,
+      theta: obs.theta.value,
+      radius: obs.radius.value,
+      x: obs.x.value,
+      y: obs.y.value,
+    }
+
+  /** The flown pose, or null when the observer is following the timeline. */
+  let flown: Pose | null = null
+  /** An in-flight return, if play() started one. */
+  let returning: { from: Pose; to: Pose; startedAt: number } | null = null
+
+  const overlayPose = (pose: Pose) => {
+    overrides.set(obs.phi as Param<ParamValue>, pose.phi, "observer")
+    overrides.set(obs.theta as Param<ParamValue>, clampTheta(pose.theta), "observer")
+    overrides.set(obs.radius as Param<ParamValue>, pose.radius, "observer")
+    overrides.set(obs.x as Param<ParamValue>, pose.x, "observer")
+    overrides.set(obs.y as Param<ParamValue>, pose.y, "observer")
+  }
+
+  const releaseObserver = () => {
+    flown = null
+    returning = null
+    overrides.release(observerParams)
+  }
+
+  /** Fly by a pixel delta — the same entry point the pointer and __dt use. */
+  const fly = (dx: number, dy: number, mode: "orbit" | "pan") => {
+    returning = null
+    const pose = { ...livePose() }
+    const width = canvas.getBoundingClientRect().width || canvas.width
+    if (mode === "pan") {
+      // Pan moves the focus point across the view plane, so it must track
+      // the cursor at every distance: one screen width is the world width
+      // the frustum spans at the focus, which for a perspective rig is
+      // proportional to the radius.
+      const worldPerPixel = (2 * pose.radius * Math.tan(obs.fov.value / 2)) /
+        (canvas.getBoundingClientRect().height || canvas.height)
+      pose.x -= dx * worldPerPixel
+      pose.y += dy * worldPerPixel
+    } else {
+      // Angular rate is radius-independent — C4D orbits the sphere, not
+      // the distance, so the gesture feels identical near and far.
+      pose.phi -= (dx / width) * ORBIT_PER_WIDTH
+      pose.theta = clampTheta(pose.theta + (dy / width) * ORBIT_PER_WIDTH)
+    }
+    flown = pose
+    overlayPose(pose)
+  }
+
+  const dolly = (deltaY: number) => {
+    returning = null
+    const pose = { ...livePose() }
+    pose.radius = dollyRadius(pose.radius, deltaY)
+    flown = pose
+    overlayPose(pose)
+  }
+
+  /** Start the eased fall back to the timeline's pose. No-op if not flying. */
+  const beginReturn = () => {
+    if (!flown) return
+    returning = { from: { ...flown }, to: timelinePose(current), startedAt: performance.now() }
+  }
+
+  /**
+   * One step of the return, run from the frame loop. Returns true while
+   * the tween still owns the observer — the loop repaints for it even
+   * when nothing else would.
+   */
+  const stepReturn = (now: number, t = current): boolean => {
+    if (!returning) return false
+    const u = (now - returning.startedAt) / (RETURN_SECONDS * 1000)
+    if (u >= 1) {
+      releaseObserver()
+      return false
+    }
+    // The target keeps up with the playhead: the timeline's pose at the t
+    // about to be drawn, so the tween lands on a moving camera smoothly.
+    returning.to = timelinePose(t)
+    const pose = lerpPose(returning.from, returning.to, u)
+    flown = pose
+    overlayPose(pose)
+    return true
+  }
+
+  // Drag in the viewport orbits; shift+drag pans; the wheel dollies.
+  // Only while PAUSED — playing, the timeline owns the camera.
+  let flight: { x: number; y: number; pan: boolean } | null = null
+
+  canvas.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!flight) return
+      e.preventDefault()
+      const dx = e.clientX - flight.x
+      const dy = e.clientY - flight.y
+      flight.x = e.clientX
+      flight.y = e.clientY
+      if (dx === 0 && dy === 0) return
+      fly(dx, dy, flight.pan ? "pan" : "orbit")
+      void host.renderFrame(current).then(() => {
+        syncPanel()
+        paintMarquee()
+      })
+    },
+    listen,
+  )
+  const endFlight = (e: PointerEvent) => {
+    if (!flight) return
+    flight = null
+    canvas.releasePointerCapture?.(e.pointerId)
+    canvas.classList.remove("flying")
+  }
+  canvas.addEventListener("pointerup", endFlight, listen)
+  canvas.addEventListener("pointercancel", endFlight, listen)
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      if (playing) return
+      e.preventDefault()
+      dolly(e.deltaY)
+      void host.renderFrame(current).then(() => {
+        syncPanel()
+        paintMarquee()
+      })
+    },
+    { ...listen, passive: false },
+  )
+
   // --- Transport -----------------------------------------------------------
   let playing = false
   let current = 0
   let anchor = performance.now()
   let alive = true
 
+  /**
+   * Rule 2 + rule 3: the playhead moved, so overrides on params the
+   * timeline animates snap back; overrides on params it never touches
+   * survive. The panel's divergence marks come off with them, and a
+   * gesture still in flight is ended (its value is gone — continuing to
+   * commit it would write a number the user can no longer see).
+   */
+  const clearOverridesForTimeMove = () => {
+    if (overrides.size === 0) return
+    // A return tween owns the observer for its 0.4s: it is the snap-back,
+    // stretched, so time moving does not also yank the camera.
+    const cleared = overrides.clearOnTimeMove(returning ? observerParams : undefined)
+    if (cleared.length === 0) return
+    const gone = new Set(cleared)
+    for (const row of rows) {
+      if (row.el && gone.has(row.param)) row.el.classList.remove("diverged", "live")
+    }
+    if (drag && gone.has(drag.param)) {
+      drag.reverted = true
+      drag = null
+    }
+    if (cleared.some((p) => observerParams.has(p))) flown = null
+  }
+
+  /**
+   * Time is truth (rule 2): a repaint at a DIFFERENT t releases the live
+   * layer first, so the frame that appears is the timeline's own. The
+   * observer's own overrides are exempt while a return tween is in
+   * flight — that tween IS the snap-back, taking 0.4s instead of one
+   * frame, and it releases them itself when it lands.
+   */
   const paint = async (t: number) => {
+    if (t !== current) clearOverridesForTimeMove()
     current = t
     await host.renderFrame(t)
     syncBackdrop(t, playing)
@@ -597,6 +818,12 @@ const boot = async (resume?: Transport) => {
   }
 
   const play = () => {
+    // A flown camera does not snap: it falls back to the timeline's pose
+    // over RETURN_SECONDS, and the overrides are released at the end of
+    // that (beginReturn owns them meanwhile). Everything else clears now,
+    // because the playhead is about to move.
+    beginReturn()
+    clearOverridesForTimeMove()
     playing = true
     anchor = performance.now() - current * 1000
     playpause.textContent = "⏸"
@@ -625,9 +852,13 @@ const boot = async (resume?: Transport) => {
           // Drop the live override — nothing was ever written.
           const d = drag
           d.reverted = true
-          if (!d.param.isBound) d.param.value = d.before
+          overrides.delete(d.param)
           d.slider.value = String(d.before)
-          d.row.classList.remove("diverged")
+          d.row.classList.remove("diverged", "live")
+          void host.renderFrame(current).then(() => syncPanel())
+        } else if (flown) {
+          // …or, mid-flight, put the camera back where the scene has it.
+          releaseObserver()
           void host.renderFrame(current).then(() => syncPanel())
         } else {
           // …otherwise Escape means "nothing selected".
@@ -650,7 +881,16 @@ const boot = async (resume?: Transport) => {
     if (!alive) return
     if (playing) {
       const t = ((now - anchor) / 1000) % duration
+      // The tween runs BEFORE the frame is drawn, so the overlay it
+      // writes is what this frame renders; paint() then holds the
+      // observer back from the time-move clear while it is in flight.
+      stepReturn(now, t)
       await paint(t)
+    } else if (stepReturn(now)) {
+      // A return that outlives a pause still finishes, quietly.
+      await host.renderFrame(current)
+      syncPanel()
+      paintMarquee()
     }
     requestAnimationFrame(loop)
   }
@@ -736,6 +976,33 @@ const boot = async (resume?: Transport) => {
       paintMarquee()
     },
     toggleOutline,
+    // --- The live layer, driven headlessly ---------------------------------
+    setOverride: (name: string, value: number): boolean => {
+      const holon = selection.current
+      const param = holon?.params.get(name) as Param<ParamValue> | undefined
+      if (!param) return false
+      overrides.set(param, value)
+      for (const row of rows) {
+        if (row.param === param && row.el) row.el.classList.add("diverged")
+      }
+      void host.renderFrame(current).then(() => syncPanel())
+      return true
+    },
+    overrides: () =>
+      overrides.entries().map(({ param, value }) => ({
+        name: param.name ?? String(param.id),
+        value: typeof value === "number" ? value : NaN,
+        animated: overrides.animates(param),
+      })),
+    fly: (dx, dy, mode = "orbit") => {
+      fly(dx, dy, mode)
+      void host.renderFrame(current).then(() => syncPanel())
+    },
+    dolly: (deltaY) => {
+      dolly(deltaY)
+      void host.renderFrame(current).then(() => syncPanel())
+    },
+    pose: () => livePose(),
   }
 }
 

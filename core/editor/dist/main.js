@@ -48175,6 +48175,24 @@ var packSegments = (pts) => {
   }
   return { positions, distances, count, totalLength: acc };
 };
+var resamplePolyline = (pts, target, make) => {
+  if (pts.length < 2)
+    return pts.map((p) => make(p.x, p.y, p.z));
+  const perSegment = Math.max(1, Math.ceil(target / (pts.length - 1)));
+  if (perSegment <= 1)
+    return pts.map((p) => make(p.x, p.y, p.z));
+  const first = pts[0];
+  const out = [make(first.x, first.y, first.z)];
+  for (let i = 0;i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    for (let k = 1;k <= perSegment; k++) {
+      const u = k / perSegment;
+      out.push(make(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u));
+    }
+  }
+  return out;
+};
 
 // src/render/ribbon.ts
 var TSL2 = exports_three_tsl;
@@ -48329,8 +48347,8 @@ class RibbonStroke {
     this.mesh.visible = false;
   }
   setPoints(pts) {
-    this.points = pts.map((p) => p.clone());
-    const packed = packSegments(pts);
+    this.points = resamplePolyline(pts, RibbonStroke.SUBDIVISION, (x, y, z) => new Vector3(x, y, z));
+    const packed = packSegments(this.points);
     if (packed.count < 1) {
       this.geometry.instanceCount = 0;
       this.totalLength = 0;
@@ -48348,20 +48366,7 @@ class RibbonStroke {
     this.geometry.instanceCount = packed.count;
   }
   worldPoints() {
-    if (this.points.length < 2)
-      return this.points;
-    const perSegment = Math.max(1, Math.ceil(RibbonStroke.SUBDIVISION / (this.points.length - 1)));
-    if (perSegment <= 1)
-      return this.points;
-    const out = [this.points[0]];
-    for (let i = 0;i + 1 < this.points.length; i++) {
-      const a = this.points[i];
-      const b = this.points[i + 1];
-      for (let k = 1;k <= perSegment; k++) {
-        out.push(new Vector3().lerpVectors(a, b, k / perSegment));
-      }
-    }
-    return out;
+    return this.points;
   }
   style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
     this.material.drawn.value = fraction * this.totalLength;
@@ -61151,6 +61156,14 @@ var capPolylineFrom = (radius, y2, startAngle, reversed, segments = 128) => {
   }
   return pts;
 };
+var capArc = (radius, y2, startAngle, sweep, segments = 64) => {
+  const pts = [];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    const a2 = startAngle + sweep * i2 / segments;
+    pts.push([Math.cos(a2) * radius, y2, Math.sin(a2) * radius]);
+  }
+  return pts;
+};
 
 // src/render/screen-arc.ts
 var clipToViewport = (ax, ay, bx, by, view) => {
@@ -61432,7 +61445,8 @@ class ThreeHost {
         holon,
         group,
         topCap: new RibbonStroke(width),
-        bottomCap: new RibbonStroke(width),
+        bottomNear: new RibbonStroke(width),
+        bottomFar: new RibbonStroke(width),
         lineA: new RibbonStroke(width),
         lineB: new RibbonStroke(width),
         capRadius: r2,
@@ -61440,7 +61454,7 @@ class ThreeHost {
         thetaA: NaN,
         thetaB: NaN
       };
-      group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh);
+      group.add(binding.topCap.mesh, binding.bottomNear.mesh, binding.bottomFar.mesh, binding.lineA.mesh, binding.lineB.mesh);
       this.cylinders.push(binding);
     } else if (holon instanceof Ellipse && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++);
@@ -61481,8 +61495,10 @@ class ThreeHost {
     for (const part of holon.parts)
       this.attach(part, group);
   }
+  beforeSync;
   async renderFrame(t2) {
     this.dream.applyAt(t2);
+    this.beforeSync?.();
     this.sync();
     await this.renderer.render(this.scene, this.camera);
   }
@@ -61614,7 +61630,7 @@ class ThreeHost {
     return this.camera;
   }
   syncCylinder(binding) {
-    const { holon, group, topCap, bottomCap, lineA, lineB } = binding;
+    const { holon, group, topCap, bottomNear, bottomFar, lineA, lineB } = binding;
     const radius = holon.radius.value;
     const height = holon.height.value;
     const camLocal = group.worldToLocal(this.camera.position.clone());
@@ -61623,7 +61639,10 @@ class ThreeHost {
     const thetaB = angles?.thetaB ?? Math.PI;
     if (radius !== binding.capRadius || height !== binding.capHeight || thetaA !== binding.thetaA || thetaB !== binding.thetaB) {
       topCap.setPoints(capPolylineFrom(radius, height / 2, thetaB, false).map((p2) => new Vector3(...p2)));
-      bottomCap.setPoints(capPolylineFrom(radius, -height / 2, thetaA, true).map((p2) => new Vector3(...p2)));
+      const nearSweep = thetaB - thetaA;
+      const v3 = (p2) => new Vector3(...p2);
+      bottomNear.setPoints(capArc(radius, -height / 2, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
+      bottomFar.setPoints(capArc(radius, -height / 2, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3));
       binding.capRadius = radius;
       binding.capHeight = height;
       binding.thetaA = thetaA;
@@ -61638,28 +61657,43 @@ class ThreeHost {
       set(lineA, angles.thetaA, true);
       set(lineB, angles.thetaB, false);
     }
-    const cap = CYLINDER_ROTATION_SEGMENTS;
-    const gen = 1;
-    const total = 2 * cap + 2 * gen;
-    const bounds = [
-      0,
-      cap / total,
-      (cap + gen) / total,
-      (2 * cap + gen) / total,
-      1
+    const measure = (line) => this.measureScreenArc(line)?.remap.screenLength ?? 0;
+    const mantleVisible = angles !== undefined;
+    const shares = [
+      measure(topCap),
+      mantleVisible ? measure(lineA) : 0,
+      measure(bottomNear),
+      mantleVisible ? measure(lineB) : 0,
+      measure(bottomFar)
     ];
+    const chain = shares.reduce((a2, b2) => a2 + b2, 0);
+    const weights = chain > 0 ? shares.map((s2) => s2 / chain) : shares.map(() => 1 / shares.length);
+    const bounds = [0];
+    for (const w4 of weights)
+      bounds.push(bounds[bounds.length - 1] + w4);
+    bounds[bounds.length - 1] = 1;
     const creation = holon.creation.value;
     const erasure = holon.erasure.value;
     const opacity = holon.opacity.value;
     const tint = holon.tint.value;
     const width = holon.stroke.value;
-    const window2 = (v2, a2, b2) => Math.min(1, Math.max(0, (v2 - a2) / (b2 - a2)));
-    const sub3 = (line, drawn, a2, b2) => line.style(drawn, opacity, tint, width, window2(erasure, a2, b2));
-    const mantleVisible = angles !== undefined;
-    sub3(topCap, window2(creation, bounds[0], bounds[1]), bounds[0], bounds[1]);
-    sub3(lineA, mantleVisible ? window2(creation, bounds[1], bounds[2]) : 0, bounds[1], bounds[2]);
-    sub3(bottomCap, window2(creation, bounds[2], bounds[3]), bounds[2], bounds[3]);
-    sub3(lineB, mantleVisible ? window2(creation, bounds[3], bounds[4]) : 0, bounds[3], bounds[4]);
+    const window2 = (v2, a2, b2) => b2 <= a2 ? v2 >= b2 ? 1 : 0 : Math.min(1, Math.max(0, (v2 - a2) / (b2 - a2)));
+    const sub3 = (line, i2) => {
+      const a2 = bounds[i2];
+      const b2 = bounds[i2 + 1];
+      line.style(window2(creation, a2, b2), opacity, tint, width, window2(erasure, a2, b2));
+    };
+    sub3(topCap, 0);
+    if (mantleVisible)
+      sub3(lineA, 1);
+    else
+      lineA.style(0, opacity, tint, width, 0);
+    sub3(bottomNear, 2);
+    if (mantleVisible)
+      sub3(lineB, 3);
+    else
+      lineB.style(0, opacity, tint, width, 0);
+    sub3(bottomFar, 4);
   }
   static PICK_SLOP = 7;
   pick(ndcX, ndcY) {
@@ -61682,7 +61716,7 @@ class ThreeHost {
     }
     for (const binding of this.cylinders) {
       const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP;
-      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
         consider(binding.holon, this.ribbonDistance(ribbon, px, py, width, height), tolerance);
       }
     }
@@ -61722,7 +61756,7 @@ class ThreeHost {
     for (const binding of this.cylinders) {
       if (!wanted.has(binding.holon))
         continue;
-      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
         addRibbon(ribbon, ribbon.mesh);
       }
     }
@@ -61880,12 +61914,18 @@ class ThreeHost {
       return 0;
     if (fraction >= 1)
       return 1;
-    const pts = binding.ribbon.worldPoints();
-    if (pts.length < 2)
+    const measured = this.measureScreenArc(binding.ribbon);
+    if (!measured)
       return fraction;
+    return Math.max(0, Math.min(1, measured.remap.worldAt(fraction) / measured.totalWorld));
+  }
+  measureScreenArc(ribbon) {
+    const pts = ribbon.worldPoints();
+    if (pts.length < 2)
+      return;
     const width = this.renderer.domElement.width || 1280;
     const height = this.renderer.domElement.height || 720;
-    const matrix = binding.ribbon.mesh.matrixWorld;
+    const matrix = ribbon.mesh.matrixWorld;
     const projected = [];
     const v2 = new Vector3;
     let world = 0;
@@ -61903,13 +61943,12 @@ class ThreeHost {
       });
       previous = v2.clone();
     }
-    const total = world;
-    if (total <= 0)
-      return fraction;
-    const remap3 = screenArcRemap(projected, total, { width, height });
+    if (world <= 0)
+      return;
+    const remap3 = screenArcRemap(projected, world, { width, height });
     if (remap3.screenLength <= 0)
-      return fraction;
-    return Math.max(0, Math.min(1, remap3.worldAt(fraction) / total));
+      return;
+    return { remap: remap3, totalWorld: world };
   }
   toScreen(world, width, height) {
     const ndc = world.clone().project(this.camera);
@@ -63137,7 +63176,7 @@ class S09Dream extends Dream {
     stroke: STROKE_MAIN
   }), "core/demo/video01/S09.ts:5988:6151");
   cylinder = __dt(new Cylinder({
-    radius: 62,
+    radius: 53,
     height: 226,
     y: 25,
     b: -PI3 / 2,
@@ -63194,17 +63233,17 @@ if (false)
 var START_OFFSET9 = -2.11;
 
 class S08Dream extends Dream {
-  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:7119:7192");
-  circle = __dt(new Circle({ radius: 50, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:7345:7404");
+  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:6940:7013");
+  circle = __dt(new Circle({ radius: 50, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:7166:7225");
   rectangle = __dt(new Rectangle({
     width: 200,
     height: 100,
     tint: RED,
     h: PI3 / 2,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S08.ts:7722:7830");
-  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:8576:8647");
-  creature = __dt(new Group2({ members: [this.eye] }), "core/demo/video01/S08.ts:8661:8695");
+  }), "core/demo/video01/S08.ts:7543:7651");
+  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:8397:8468");
+  creature = __dt(new Group2({ members: [this.eye] }), "core/demo/video01/S08.ts:8482:8516");
   planeCircler = __dt(new Axes({
     mode: "xy",
     h: PI3,
@@ -63218,8 +63257,8 @@ class S08Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2
-  }), "core/demo/video01/S08.ts:8982:9291");
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S08.ts:8803:9433");
   planeRectangler = __dt(new Axes({
     mode: "xy",
     h: PI3 / 2,
@@ -63233,27 +63272,27 @@ class S08Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2
-  }), "core/demo/video01/S08.ts:9592:9861");
+    stroke: STROKE_MAIN
+  }), "core/demo/video01/S08.ts:9734:9999");
   unfold() {
     this.observer.look("default");
     this.wait(START_OFFSET9);
     this.set(FadeOut(this.cylinder), FadeOut(this.circle), FadeOut(this.rectangle));
     this.wait(1);
-    __dt(this.play(Create(this.creature), 1), "core/demo/video01/S08.ts:10475:10510");
-    __dt(this.play(together(Create(this.planeCircler), Create(this.planeRectangler), [together(FadeIn(this.rectangle), FadeIn(this.circle)), 1 / 2, 1]), 3), "core/demo/video01/S08.ts:10515:10713");
-    __dt(this.play(this.creature.h.by(-PI3 / 2), 2), "core/demo/video01/S08.ts:10718:10759");
-    __dt(this.play(this.eye.tint.to(RED), 2), "core/demo/video01/S08.ts:10764:10799");
-    __dt(this.play(together(UnCreate(this.planeCircler), UnCreate(this.planeRectangler)), 2), "core/demo/video01/S08.ts:10804:10887");
-    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI3), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:10892:11131");
-    __dt(this.play(together(FadeOut(this.cylinder), UnCreate(this.creature)), 2), "core/demo/video01/S08.ts:11136:11207");
+    __dt(this.play(Create(this.creature), 1), "core/demo/video01/S08.ts:10613:10648");
+    __dt(this.play(together(Create(this.planeCircler), Create(this.planeRectangler), [together(FadeIn(this.rectangle), FadeIn(this.circle)), 1 / 2, 1]), 3), "core/demo/video01/S08.ts:10653:10851");
+    __dt(this.play(this.creature.h.by(-PI3 / 2), 2), "core/demo/video01/S08.ts:10856:10897");
+    __dt(this.play(this.eye.tint.to(RED), 2), "core/demo/video01/S08.ts:10902:10937");
+    __dt(this.play(together(UnCreate(this.planeCircler), UnCreate(this.planeRectangler)), 2), "core/demo/video01/S08.ts:10942:11025");
+    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI3), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:11030:11269");
+    __dt(this.play(together(FadeOut(this.cylinder), UnCreate(this.creature)), 2), "core/demo/video01/S08.ts:11274:11345");
   }
 }
 if (false)
   ;
 
 // demo/video01/S05.ts
-var START_OFFSET10 = -1.23;
+var START_OFFSET10 = -1.26;
 
 class S05Dream extends Dream {
   circle = __dt(new Circle({
@@ -63263,7 +63302,7 @@ class S05Dream extends Dream {
     drawStart: 1 / 8,
     drawReversed: true,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S05.ts:3981:4114");
+  }), "core/demo/video01/S05.ts:5748:5881");
   rectangle = __dt(new Rectangle({
     width: 100,
     height: 200,
@@ -63274,8 +63313,8 @@ class S05Dream extends Dream {
     drawStart: 1 / 12,
     drawReversed: true,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S05.ts:4996:5179");
-  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S05.ts:5408:5481");
+  }), "core/demo/video01/S05.ts:6763:6946");
+  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S05.ts:7175:7248");
   axes = __dt(new Axes({
     mode: "xz",
     xStart: 0,
@@ -63287,17 +63326,17 @@ class S05Dream extends Dream {
     drawGrid: false,
     arrowEnd: true,
     stroke: STROKE_MAIN
-  }), "core/demo/video01/S05.ts:5844:6034");
+  }), "core/demo/video01/S05.ts:7611:7801");
   unfold() {
     this.observer.look("default");
     this.set(...this.observer.pan({ y: 50 }));
     this.wait(START_OFFSET10);
     this.wait(2);
-    __dt(this.play(together(restage(eased("easeIn", Create(this.axes)), 0, 1 / 2), [eased("easeOut", Create(this.circle), Create(this.rectangle)), 1 / 3, 1]), 2), "core/demo/video01/S05.ts:7483:7679");
+    __dt(this.play(together(restage(eased("easeIn", Create(this.axes)), 0, 1 / 2), [eased("easeOut", Create(this.circle), Create(this.rectangle)), 1 / 3, 1]), 2), "core/demo/video01/S05.ts:9250:9446");
     this.wait(3);
-    __dt(this.play(FadeIn(this.cylinder), 1), "core/demo/video01/S05.ts:7701:7736");
+    __dt(this.play(FadeIn(this.cylinder), 1), "core/demo/video01/S05.ts:9468:9503");
     this.wait(1);
-    __dt(this.play(together(FadeOut(this.cylinder), restage(eased("easeIn", UnCreate(this.axes)), 0, 1 / 2), [eased("easeOut", UnCreate(this.circle), UnCreate(this.rectangle)), 1 / 3, 1]), 1), "core/demo/video01/S05.ts:7758:7992");
+    __dt(this.play(together(FadeOut(this.cylinder), restage(eased("easeIn", UnCreate(this.axes)), 0, 1 / 2), [eased("easeOut", UnCreate(this.circle), UnCreate(this.rectangle)), 1 / 3, 1]), 1), "core/demo/video01/S05.ts:9525:9759");
     this.wait(2);
   }
 }
@@ -63540,6 +63579,227 @@ for (const namespace of [exports_parts, exports_curves, exports_text, exports_pa
 }
 var classNameOf = (holon) => names.get(holon.constructor) ?? holon.constructor.name;
 
+// editor/thumbnails.ts
+var THUMB_SIZE = 18;
+var CURVE_SEGMENTS = 48;
+var circlePath = (rx, ry, from = 0, to = Math.PI * 2) => {
+  const pts = [];
+  for (let i2 = 0;i2 <= CURVE_SEGMENTS; i2++) {
+    const a2 = from + i2 / CURVE_SEGMENTS * (to - from);
+    pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
+  }
+  return pts;
+};
+var outlinesOf = (holon) => {
+  if (holon instanceof Circle)
+    return [circlePath(holon.radius.value, holon.radius.value)];
+  if (holon instanceof Ellipse)
+    return [circlePath(holon.radiusX.value, holon.radiusY.value)];
+  if (holon instanceof Arc)
+    return [
+      circlePath(holon.radius.value, holon.radius.value, holon.startAngle.value, holon.endAngle.value)
+    ];
+  if (holon instanceof Square) {
+    const s2 = holon.size.value / 2;
+    return [
+      [
+        { x: -s2, y: -s2, z: 0 },
+        { x: s2, y: -s2, z: 0 },
+        { x: s2, y: s2, z: 0 },
+        { x: -s2, y: s2, z: 0 },
+        { x: -s2, y: -s2, z: 0 }
+      ]
+    ];
+  }
+  if (holon instanceof Rectangle) {
+    const w4 = holon.width.value / 2;
+    const h2 = holon.height.value / 2;
+    return [
+      [
+        { x: -w4, y: -h2, z: 0 },
+        { x: w4, y: -h2, z: 0 },
+        { x: w4, y: h2, z: 0 },
+        { x: -w4, y: h2, z: 0 },
+        { x: -w4, y: -h2, z: 0 }
+      ]
+    ];
+  }
+  if (holon instanceof Polygon) {
+    const pts = [];
+    const n2 = Math.max(3, holon.sides.value);
+    for (let i2 = 0;i2 <= n2; i2++) {
+      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
+    }
+    return [pts];
+  }
+  if (holon instanceof Cylinder) {
+    const r2 = holon.radius.value;
+    const h2 = holon.height.value / 2;
+    const cap = (y2) => circlePath(r2, r2 * 0.34).map((p2) => ({ ...p2, y: p2.y + y2 }));
+    return [
+      cap(h2),
+      cap(-h2),
+      [
+        { x: -r2, y: -h2, z: 0 },
+        { x: -r2, y: h2, z: 0 }
+      ],
+      [
+        { x: r2, y: -h2, z: 0 },
+        { x: r2, y: h2, z: 0 }
+      ]
+    ];
+  }
+  if (holon instanceof Line2) {
+    if (holon.points.length < 2)
+      return;
+    return [holon.points.map((p2) => ({ x: p2.x, y: p2.y, z: p2.z }))];
+  }
+  return;
+};
+var placed = (holon, path) => {
+  const s2 = holon.scale.value;
+  const cos3 = Math.cos(holon.h.value);
+  const sin3 = Math.sin(holon.h.value);
+  return path.map(({ x: x2, y: y2, z: z2 }) => ({
+    x: (x2 * cos3 - y2 * sin3) * s2 + holon.x.value,
+    y: (x2 * sin3 + y2 * cos3) * s2 + holon.y.value,
+    z: z2 * s2 + holon.z.value
+  }));
+};
+var collect = (holon, depth3 = 0) => {
+  const MAX_PATHS = 64;
+  const own = outlinesOf(holon) ?? [];
+  const out = own.map((p2) => placed(holon, p2));
+  if (depth3 > 6)
+    return out;
+  for (const part of holon.parts) {
+    if (out.length >= MAX_PATHS)
+      break;
+    for (const path of collect(part, depth3 + 1)) {
+      if (out.length >= MAX_PATHS)
+        break;
+      out.push(placed(holon, path));
+    }
+  }
+  return out;
+};
+var toCss = (c2) => `rgb(${Math.round(c2.r * 255)},${Math.round(c2.g * 255)},${Math.round(c2.b * 255)})`;
+var tintOf = (holon) => {
+  if (holon instanceof Stroke) {
+    const v2 = holon.tint.value;
+    if (isColor(v2) && !(v2.r > 0.95 && v2.g > 0.95 && v2.b > 0.95))
+      return toCss(v2);
+  }
+  return "#9a9aa4";
+};
+var drawPaths = (ctx, paths, size, color4) => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const path of paths) {
+    for (const p2 of path) {
+      if (p2.x < minX)
+        minX = p2.x;
+      if (p2.x > maxX)
+        maxX = p2.x;
+      if (p2.y < minY)
+        minY = p2.y;
+      if (p2.y > maxY)
+        maxY = p2.y;
+    }
+  }
+  if (!Number.isFinite(minX) || maxX === minX)
+    return false;
+  const margin = size * 0.12;
+  const box = size - margin * 2;
+  const span = Math.max(maxX - minX, maxY - minY, 0.000001);
+  const scale2 = box / span;
+  const offX = margin + (box - (maxX - minX) * scale2) / 2;
+  const offY = margin + (box - (maxY - minY) * scale2) / 2;
+  const px = (p2) => ({
+    x: offX + (p2.x - minX) * scale2,
+    y: size - (offY + (p2.y - minY) * scale2)
+  });
+  ctx.strokeStyle = color4;
+  ctx.lineWidth = Math.max(1, size / 16);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const path of paths) {
+    if (path.length < 2)
+      continue;
+    ctx.beginPath();
+    const first = px(path[0]);
+    ctx.moveTo(first.x, first.y);
+    for (let i2 = 1;i2 < path.length; i2++) {
+      const p2 = px(path[i2]);
+      ctx.lineTo(p2.x, p2.y);
+    }
+    ctx.stroke();
+  }
+  return true;
+};
+var drawMonogram = (ctx, name, size, color4) => {
+  const capitals = name.match(/[A-Z]/g);
+  const text = capitals && capitals.length > 1 ? capitals.slice(0, 2).join("") : name.slice(0, 2);
+  ctx.fillStyle = color4;
+  ctx.font = `600 ${Math.round(size * (text.length > 1 ? 0.5 : 0.62))}px -apple-system, "SF Pro", Inter, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, size / 2, size / 2 + size * 0.04);
+};
+var cache3 = new Map;
+var signatureOf = (holon) => {
+  const bits = [classNameOf(holon), String(holon.parts.length)];
+  if (holon instanceof Axes) {
+    bits.push(holon.drawGrid.value ? "grid" : "-", holon.drawTicks.value ? "ticks" : "-");
+  }
+  if (holon instanceof Polygon)
+    bits.push(String(holon.sides.value));
+  if (holon instanceof Ellipse)
+    bits.push(holon.filled.value ? "filled" : "-");
+  if (holon instanceof Line2)
+    bits.push(String(holon.points.length));
+  if (holon instanceof Stroke) {
+    const v2 = holon.tint.value;
+    if (isColor(v2))
+      bits.push(toCss(v2));
+  }
+  return bits.join(":");
+};
+var thumbnailFor = (holon, size = THUMB_SIZE) => {
+  const key = `${signatureOf(holon)}@${size}`;
+  const hit = cache3.get(key);
+  if (hit)
+    return hit;
+  const dpr = Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+  const canvas = document.createElement("canvas");
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx)
+    return "";
+  ctx.scale(dpr, dpr);
+  const color4 = tintOf(holon);
+  const paths = collect(holon);
+  if (!paths.length || !drawPaths(ctx, paths, size, color4)) {
+    drawMonogram(ctx, classNameOf(holon), size, color4);
+  }
+  const url = canvas.toDataURL();
+  cache3.set(key, url);
+  return url;
+};
+var thumbnailEl = (holon, size = THUMB_SIZE) => {
+  const img = document.createElement("img");
+  img.className = "thumb";
+  img.width = size;
+  img.height = size;
+  img.src = thumbnailFor(holon, size);
+  img.alt = "";
+  return img;
+};
+
 // editor/outline.ts
 var identityOf = (holon) => {
   const parent = holon.parent;
@@ -63571,6 +63831,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     twisty.className = parts.length > 0 ? "twisty" : "twisty leaf";
     twisty.textContent = "▼";
     row.appendChild(twisty);
+    row.appendChild(thumbnailEl(holon, 16));
     const name = document.createElement("span");
     name.className = "nclass";
     name.textContent = classNameOf(holon);
@@ -63713,6 +63974,183 @@ class Marquee {
   }
 }
 
+// editor/numeric.ts
+var STEP_PER_PIXEL = {
+  scalar: 1,
+  length: 1,
+  angle: 0.01,
+  bipolar: 0.005,
+  completion: 0.005,
+  integer: 0.1
+};
+var DECIMALS = {
+  scalar: 2,
+  length: 2,
+  angle: 3,
+  bipolar: 3,
+  completion: 3,
+  integer: 0
+};
+var stepFor = (param) => STEP_PER_PIXEL[param.kind] ?? 1;
+var decimalsFor = (param) => DECIMALS[param.kind] ?? 2;
+var formatNumber = (value, decimals) => {
+  if (!Number.isFinite(value))
+    return "—";
+  const fixed = value.toFixed(decimals);
+  return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+};
+var clamped = (param, value) => {
+  let out = value;
+  if (param.min !== undefined)
+    out = Math.max(param.min, out);
+  if (param.max !== undefined)
+    out = Math.min(param.max, out);
+  if (param.kind === "integer")
+    out = Math.round(out);
+  return out;
+};
+var numericField = (param, opts) => {
+  const el = document.createElement("div");
+  el.className = "num";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "numinput";
+  input.readOnly = true;
+  input.spellcheck = false;
+  const decimals = decimalsFor(param);
+  input.value = formatNumber(param.value, decimals);
+  el.appendChild(input);
+  let typing = false;
+  let dragging = false;
+  let travelled = 0;
+  let entry = 0;
+  let moved = false;
+  const DRAG_THRESHOLD_PX = 3;
+  const show = (value) => {
+    input.value = formatNumber(value, decimals);
+  };
+  const emit2 = (value) => {
+    show(value);
+    opts.onInput(value);
+  };
+  el.addEventListener("pointerdown", (e2) => {
+    if (typing || e2.button !== 0)
+      return;
+    e2.preventDefault();
+    dragging = true;
+    moved = false;
+    travelled = 0;
+    entry = param.value;
+    el.setPointerCapture(e2.pointerId);
+    el.classList.add("dragging");
+  }, { signal: opts.signal });
+  el.addEventListener("pointermove", (e2) => {
+    if (!dragging)
+      return;
+    travelled += e2.movementX;
+    if (!moved && Math.abs(travelled) < DRAG_THRESHOLD_PX)
+      return;
+    moved = true;
+    const gear = e2.shiftKey ? 0.1 : e2.metaKey || e2.ctrlKey ? 10 : 1;
+    emit2(clamped(param, entry + travelled * stepFor(param) * gear));
+  }, { signal: opts.signal });
+  const endDrag = (e2) => {
+    if (!dragging)
+      return;
+    dragging = false;
+    el.releasePointerCapture(e2.pointerId);
+    el.classList.remove("dragging");
+    if (moved) {
+      opts.onCommit(param.value);
+    } else {
+      typing = true;
+      input.readOnly = false;
+      el.classList.add("typing");
+      input.focus();
+      input.select();
+    }
+  };
+  el.addEventListener("pointerup", endDrag, { signal: opts.signal });
+  el.addEventListener("pointercancel", endDrag, { signal: opts.signal });
+  const stopTyping = () => {
+    typing = false;
+    input.readOnly = true;
+    el.classList.remove("typing");
+    input.blur();
+  };
+  input.addEventListener("keydown", (e2) => {
+    if (!typing)
+      return;
+    if (e2.key === "Enter") {
+      e2.preventDefault();
+      const parsed = parseEntry(input.value);
+      if (parsed !== undefined) {
+        const value = clamped(param, parsed);
+        emit2(value);
+        opts.onCommit(value);
+      } else {
+        show(param.value);
+      }
+      stopTyping();
+    } else if (e2.key === "Escape") {
+      e2.preventDefault();
+      show(param.value);
+      stopTyping();
+    } else if (e2.key === "ArrowUp" || e2.key === "ArrowDown") {
+      e2.preventDefault();
+      const dir = e2.key === "ArrowUp" ? 1 : -1;
+      const unit = stepFor(param) * (e2.shiftKey ? 10 : 1) * (param.kind === "integer" ? 10 : 1);
+      const value = clamped(param, param.value + dir * unit);
+      emit2(value);
+      opts.onCommit(value);
+      show(value);
+    }
+    e2.stopPropagation();
+  }, { signal: opts.signal });
+  input.addEventListener("blur", () => {
+    if (!typing)
+      return;
+    const parsed = parseEntry(input.value);
+    if (parsed !== undefined) {
+      const value = clamped(param, parsed);
+      emit2(value);
+      opts.onCommit(value);
+    } else {
+      show(param.value);
+    }
+    stopTyping();
+  }, { signal: opts.signal });
+  return {
+    el,
+    set(value) {
+      if (typing || dragging)
+        return;
+      show(value);
+    },
+    get busy() {
+      return typing || dragging;
+    }
+  };
+};
+var parseEntry = (text) => {
+  const trimmed = text.trim().replace(/\s+/g, "");
+  if (trimmed === "")
+    return;
+  const plain = Number(trimmed);
+  if (Number.isFinite(plain))
+    return plain;
+  const infix = /^(-?\d*\.?\d+)([+\-*/])(-?\d*\.?\d+)$/.exec(trimmed);
+  if (!infix)
+    return;
+  const a2 = Number(infix[1]);
+  const b2 = Number(infix[3]);
+  if (!Number.isFinite(a2) || !Number.isFinite(b2))
+    return;
+  const value = infix[2] === "+" ? a2 + b2 : infix[2] === "-" ? a2 - b2 : infix[2] === "*" ? a2 * b2 : a2 / b2;
+  return Number.isFinite(value) ? value : undefined;
+};
+var wantsSlider = (param) => param.kind === "completion" || param.kind === "bipolar";
+
 // editor/inspector.ts
 var STANDARD_PARAMS = new Set([
   "x",
@@ -63778,6 +64216,180 @@ var formatValue = (v2) => {
     return v2 ? "true" : "false";
   return Math.abs(v2) >= 10 ? v2.toFixed(0) : v2.toFixed(2);
 };
+var buildParamRow = (name, param, hooks) => {
+  const el = document.createElement("div");
+  el.className = "param";
+  const label3 = document.createElement("label");
+  label3.textContent = name;
+  label3.title = `${name} · ${param.kind}`;
+  el.appendChild(label3);
+  if (param.isBound) {
+    el.classList.add("bound");
+    const bind = document.createElement("div");
+    bind.className = "bind";
+    bind.textContent = "bound";
+    bind.title = "follows a derived binding — animate its source";
+    el.appendChild(bind);
+    const val2 = document.createElement("div");
+    val2.className = "val";
+    val2.textContent = formatValue(param.value);
+    el.appendChild(val2);
+    return { el, param, val: val2 };
+  }
+  if (isColor(param.value)) {
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    el.appendChild(swatch);
+    return { el, param, swatch };
+  }
+  if (typeof param.value === "number") {
+    if (!hooks.committable) {
+      el.classList.add("liveonly");
+      el.title = "live only — not written to code";
+    }
+    const slider = wantsSlider(param) ? document.createElement("input") : undefined;
+    const field = numericField(param, {
+      signal: hooks.signal,
+      onInput: (value) => {
+        if (slider)
+          slider.value = String(value);
+        hooks.onInput(param, name, value);
+      },
+      onCommit: (value) => hooks.onCommit(param, name, value)
+    });
+    if (slider) {
+      slider.type = "range";
+      const [min5, max5, step3] = sliderRange(param);
+      slider.min = String(min5);
+      slider.max = String(max5);
+      slider.step = String(step3);
+      slider.value = String(param.value);
+      slider.addEventListener("input", () => {
+        const value = Number(slider.value);
+        field.set(value);
+        hooks.onInput(param, name, value);
+      }, { signal: hooks.signal });
+      slider.addEventListener("change", () => hooks.onCommit(param, name, Number(slider.value)), { signal: hooks.signal });
+      el.classList.add("ranged");
+      el.appendChild(slider);
+    }
+    el.appendChild(field.el);
+    return { el, param, field, slider };
+  }
+  el.appendChild(document.createElement("span"));
+  const val = document.createElement("div");
+  val.className = "val";
+  val.textContent = formatValue(param.value);
+  el.appendChild(val);
+  return { el, param, val };
+};
+
+// editor/overrides.ts
+class Overrides {
+  #animated;
+  #entries = new Map;
+  #listeners = new Set;
+  constructor(timeline) {
+    this.#animated = new Set(timeline.params);
+  }
+  animates(param) {
+    return this.#animated.has(param);
+  }
+  get size() {
+    return this.#entries.size;
+  }
+  has(param) {
+    return this.#entries.has(param);
+  }
+  get(param) {
+    return this.#entries.get(param)?.value;
+  }
+  entries() {
+    return [...this.#entries.values()];
+  }
+  set(param, value, origin = "param") {
+    if (param.isBound) {
+      throw new Error(`Param '${param.name ?? param.id}' follows a derived binding; animate its source instead`);
+    }
+    this.#entries.set(param, {
+      param,
+      value: param.clamp(value),
+      origin
+    });
+    this.#notify();
+  }
+  delete(param) {
+    const had = this.#entries.delete(param);
+    if (had)
+      this.#notify();
+    return had;
+  }
+  release(params) {
+    let changed = false;
+    for (const p2 of params)
+      changed = this.#entries.delete(p2) || changed;
+    if (changed)
+      this.#notify();
+  }
+  clearAll() {
+    if (this.#entries.size === 0)
+      return;
+    this.#entries.clear();
+    this.#notify();
+  }
+  clearOnTimeMove(except) {
+    const cleared = [];
+    for (const [param] of this.#entries) {
+      if (this.#animated.has(param) && !except?.has(param))
+        cleared.push(param);
+    }
+    for (const param of cleared)
+      this.#entries.delete(param);
+    if (cleared.length)
+      this.#notify();
+    return cleared;
+  }
+  apply() {
+    for (const { param, value } of this.#entries.values()) {
+      if (param.isBound)
+        continue;
+      param.value = value;
+    }
+  }
+  subscribe(listener) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+  #notify() {
+    for (const listener of this.#listeners)
+      listener(this);
+  }
+}
+var RETURN_SECONDS = 0.4;
+var THETA_LIMIT = Math.PI / 2 - 0.087;
+var clampTheta = (theta) => Math.max(-THETA_LIMIT, Math.min(THETA_LIMIT, theta));
+var shortestAngle = (delta) => {
+  const wrapped = ((delta + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  return wrapped;
+};
+var easeInOut = (u2) => {
+  const c2 = Math.max(0, Math.min(1, u2));
+  return c2 * c2 * (3 - 2 * c2);
+};
+var lerpPose = (from, to, u2) => {
+  const k2 = easeInOut(u2);
+  const ratio = from.radius > 0 && to.radius > 0 ? Math.pow(to.radius / from.radius, k2) : 1;
+  return {
+    phi: from.phi + shortestAngle(to.phi - from.phi) * k2,
+    theta: from.theta + (to.theta - from.theta) * k2,
+    radius: from.radius > 0 && to.radius > 0 ? from.radius * ratio : from.radius + (to.radius - from.radius) * k2,
+    x: from.x + (to.x - from.x) * k2,
+    y: from.y + (to.y - from.y) * k2
+  };
+};
+var ORBIT_PER_WIDTH = 2 * Math.PI;
+var DOLLY_PER_NOTCH = 0.0015;
+var dollyRadius = (radius, deltaY, min5 = 1) => Math.max(min5, radius * Math.exp(deltaY * DOLLY_PER_NOTCH));
 
 // editor/main.ts
 var $2 = (id) => document.getElementById(id);
@@ -63870,6 +64482,8 @@ var boot = async (resume) => {
   const host = await ThreeHost.mount(dream, canvas);
   const duration = dream.duration;
   const sceneName = dream.constructor.name.replace(/Dream$/, "");
+  const overrides = new Overrides(dream.build());
+  host.beforeSync = () => overrides.apply();
   const selection = new Selection;
   let backdropEl = freshBackdrop;
   let backdropIsVideo = false;
@@ -63996,58 +64610,19 @@ var boot = async (resume) => {
     });
   };
   const buildRow = (holon, anchor2, name, param) => {
-    const row = document.createElement("div");
-    row.className = "param";
-    const label3 = document.createElement("label");
-    label3.textContent = name;
-    label3.title = `${name} · ${param.kind}`;
-    row.appendChild(label3);
-    const val = document.createElement("div");
-    val.className = "val";
-    if (param.isBound) {
-      row.classList.add("bound");
-      const bind = document.createElement("div");
-      bind.className = "bind";
-      bind.textContent = "bound";
-      bind.title = "follows a derived binding — animate its source";
-      row.appendChild(bind);
-      val.textContent = formatValue(param.value);
-      row.appendChild(val);
-      rows.push({ param, val });
-      return row;
-    }
-    if (isColor(param.value)) {
-      const swatch = document.createElement("div");
-      swatch.className = "swatch";
-      row.appendChild(swatch);
-      val.textContent = "";
-      row.appendChild(val);
-      rows.push({ param, val, swatch });
-      return row;
-    }
-    if (typeof param.value === "number") {
-      const slider = document.createElement("input");
-      slider.type = "range";
-      const [min5, max5, step3] = sliderRange(param);
-      slider.min = String(min5);
-      slider.max = String(max5);
-      slider.step = String(step3);
-      const target = anchor2;
-      if (!target) {
-        row.classList.add("liveonly");
-        row.title = "live only — not written to code";
-      }
-      let pending;
-      slider.addEventListener("input", () => {
-        pause();
-        if (drag?.slider !== slider)
-          drag = { row, slider, param, before: param.value, reverted: false };
-        param.value = Number(slider.value);
-        if (target)
-          row.classList.add("diverged");
+    const target = anchor2;
+    let pending;
+    const built = buildParamRow(name, param, {
+      committable: target !== undefined,
+      signal: ac.signal,
+      onInput: (p2, _n, value) => {
+        if (drag?.param !== p2)
+          drag = { row: built.el, param: p2, before: p2.value, reverted: false };
+        overrides.set(p2, value);
+        built.el.classList.add(target ? "diverged" : "live");
         host.renderFrame(current).then(() => syncPanel());
-      }, listen);
-      slider.addEventListener("change", () => {
+      },
+      onCommit: (_p, n2, value) => {
         const d2 = drag;
         drag = null;
         if (d2?.reverted || !target)
@@ -64055,19 +64630,22 @@ var boot = async (resume) => {
         if (pending !== undefined)
           clearTimeout(pending);
         pending = setTimeout(() => {
-          commitOverride(holon, target, name, Number(slider.value));
+          commitOverride(holon, target, n2, value);
         }, 300);
-      }, listen);
-      row.appendChild(slider);
-      row.appendChild(val);
-      rows.push({ param, slider, val });
-      return row;
+      }
+    });
+    if (!target && typeof param.value === "number" && !param.isBound) {
+      built.el.title = "live only — not written to code";
     }
-    row.appendChild(document.createElement("span"));
-    val.textContent = formatValue(param.value);
-    row.appendChild(val);
-    rows.push({ param, val });
-    return row;
+    rows.push({
+      param: built.param,
+      slider: built.slider,
+      field: built.field,
+      val: built.val,
+      swatch: built.swatch,
+      el: built.el
+    });
+    return built.el;
   };
   const backdropPanel = $2("backdroppanel");
   const nameEl = $2("scenename");
@@ -64115,7 +64693,7 @@ var boot = async (resume) => {
     }
   };
   const syncPanel = () => {
-    for (const { param, slider, val, swatch } of rows) {
+    for (const { param, slider, field, val, swatch } of rows) {
       const v2 = param.value;
       if (isColor(v2)) {
         if (swatch)
@@ -64123,8 +64701,10 @@ var boot = async (resume) => {
       } else if (typeof v2 === "number") {
         if (slider && document.activeElement !== slider)
           slider.value = String(v2);
-        val.textContent = formatValue(v2);
-      } else {
+        field?.set(v2);
+        if (val)
+          val.textContent = formatValue(v2);
+      } else if (val) {
         val.textContent = formatValue(v2);
       }
     }
@@ -64150,6 +64730,11 @@ var boot = async (resume) => {
     if (e2.button !== 0)
       return;
     selection.set(pickAt(e2.clientX, e2.clientY) ?? null);
+    if (playing)
+      return;
+    flight = { x: e2.clientX, y: e2.clientY, pan: e2.shiftKey };
+    canvas.setPointerCapture?.(e2.pointerId);
+    canvas.classList.add("flying");
   }, listen);
   const paintMarquee = () => {
     const holon = selection.current;
@@ -64160,11 +64745,147 @@ var boot = async (resume) => {
     syncPanel();
     paintMarquee();
   });
+  const obs = dream.observer;
+  const observerParams = new Set([
+    obs.phi,
+    obs.theta,
+    obs.radius,
+    obs.x,
+    obs.y
+  ]);
+  const timelinePose = (t2) => {
+    const tl = dream.build();
+    return {
+      phi: tl.valueAt(obs.phi, t2),
+      theta: tl.valueAt(obs.theta, t2),
+      radius: tl.valueAt(obs.radius, t2),
+      x: tl.valueAt(obs.x, t2),
+      y: tl.valueAt(obs.y, t2)
+    };
+  };
+  const livePose = () => flown ?? {
+    phi: obs.phi.value,
+    theta: obs.theta.value,
+    radius: obs.radius.value,
+    x: obs.x.value,
+    y: obs.y.value
+  };
+  let flown = null;
+  let returning = null;
+  const overlayPose = (pose) => {
+    overrides.set(obs.phi, pose.phi, "observer");
+    overrides.set(obs.theta, clampTheta(pose.theta), "observer");
+    overrides.set(obs.radius, pose.radius, "observer");
+    overrides.set(obs.x, pose.x, "observer");
+    overrides.set(obs.y, pose.y, "observer");
+  };
+  const releaseObserver = () => {
+    flown = null;
+    returning = null;
+    overrides.release(observerParams);
+  };
+  const fly = (dx, dy, mode) => {
+    returning = null;
+    const pose = { ...livePose() };
+    const width = canvas.getBoundingClientRect().width || canvas.width;
+    if (mode === "pan") {
+      const worldPerPixel = 2 * pose.radius * Math.tan(obs.fov.value / 2) / (canvas.getBoundingClientRect().height || canvas.height);
+      pose.x -= dx * worldPerPixel;
+      pose.y += dy * worldPerPixel;
+    } else {
+      pose.phi -= dx / width * ORBIT_PER_WIDTH;
+      pose.theta = clampTheta(pose.theta + dy / width * ORBIT_PER_WIDTH);
+    }
+    flown = pose;
+    overlayPose(pose);
+  };
+  const dolly = (deltaY) => {
+    returning = null;
+    const pose = { ...livePose() };
+    pose.radius = dollyRadius(pose.radius, deltaY);
+    flown = pose;
+    overlayPose(pose);
+  };
+  const beginReturn = () => {
+    if (!flown)
+      return;
+    returning = { from: { ...flown }, to: timelinePose(current), startedAt: performance.now() };
+  };
+  const stepReturn = (now, t2 = current) => {
+    if (!returning)
+      return false;
+    const u2 = (now - returning.startedAt) / (RETURN_SECONDS * 1000);
+    if (u2 >= 1) {
+      releaseObserver();
+      return false;
+    }
+    returning.to = timelinePose(t2);
+    const pose = lerpPose(returning.from, returning.to, u2);
+    flown = pose;
+    overlayPose(pose);
+    return true;
+  };
+  let flight = null;
+  canvas.addEventListener("pointermove", (e2) => {
+    if (!flight)
+      return;
+    e2.preventDefault();
+    const dx = e2.clientX - flight.x;
+    const dy = e2.clientY - flight.y;
+    flight.x = e2.clientX;
+    flight.y = e2.clientY;
+    if (dx === 0 && dy === 0)
+      return;
+    fly(dx, dy, flight.pan ? "pan" : "orbit");
+    host.renderFrame(current).then(() => {
+      syncPanel();
+      paintMarquee();
+    });
+  }, listen);
+  const endFlight = (e2) => {
+    if (!flight)
+      return;
+    flight = null;
+    canvas.releasePointerCapture?.(e2.pointerId);
+    canvas.classList.remove("flying");
+  };
+  canvas.addEventListener("pointerup", endFlight, listen);
+  canvas.addEventListener("pointercancel", endFlight, listen);
+  canvas.addEventListener("wheel", (e2) => {
+    if (playing)
+      return;
+    e2.preventDefault();
+    dolly(e2.deltaY);
+    host.renderFrame(current).then(() => {
+      syncPanel();
+      paintMarquee();
+    });
+  }, { ...listen, passive: false });
   let playing = false;
   let current = 0;
   let anchor = performance.now();
   let alive = true;
+  const clearOverridesForTimeMove = () => {
+    if (overrides.size === 0)
+      return;
+    const cleared = overrides.clearOnTimeMove(returning ? observerParams : undefined);
+    if (cleared.length === 0)
+      return;
+    const gone = new Set(cleared);
+    for (const row of rows) {
+      if (row.el && gone.has(row.param))
+        row.el.classList.remove("diverged", "live");
+    }
+    if (drag && gone.has(drag.param)) {
+      drag.reverted = true;
+      drag = null;
+    }
+    if (cleared.some((p2) => observerParams.has(p2)))
+      flown = null;
+  };
   const paint = async (t2) => {
+    if (t2 !== current)
+      clearOverridesForTimeMove();
     current = t2;
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
@@ -64174,6 +64895,8 @@ var boot = async (resume) => {
     paintMarquee();
   };
   const play = () => {
+    beginReturn();
+    clearOverridesForTimeMove();
     playing = true;
     anchor = performance.now() - current * 1000;
     playpause.textContent = "⏸";
@@ -64197,10 +64920,12 @@ var boot = async (resume) => {
       if (drag && !drag.reverted) {
         const d2 = drag;
         d2.reverted = true;
-        if (!d2.param.isBound)
-          d2.param.value = d2.before;
+        overrides.delete(d2.param);
         d2.slider.value = String(d2.before);
-        d2.row.classList.remove("diverged");
+        d2.row.classList.remove("diverged", "live");
+        host.renderFrame(current).then(() => syncPanel());
+      } else if (flown) {
+        releaseObserver();
         host.renderFrame(current).then(() => syncPanel());
       } else {
         selection.clear();
@@ -64216,7 +64941,12 @@ var boot = async (resume) => {
       return;
     if (playing) {
       const t2 = (now - anchor) / 1000 % duration;
+      stepReturn(now, t2);
       await paint(t2);
+    } else if (stepReturn(now)) {
+      await host.renderFrame(current);
+      syncPanel();
+      paintMarquee();
     }
     requestAnimationFrame(loop);
   };
@@ -64292,7 +65022,34 @@ var boot = async (resume) => {
       marquee.enabled = on;
       paintMarquee();
     },
-    toggleOutline
+    toggleOutline,
+    setOverride: (name, value) => {
+      const holon = selection.current;
+      const param = holon?.params.get(name);
+      if (!param)
+        return false;
+      overrides.set(param, value);
+      for (const row of rows) {
+        if (row.param === param && row.el)
+          row.el.classList.add("diverged");
+      }
+      host.renderFrame(current).then(() => syncPanel());
+      return true;
+    },
+    overrides: () => overrides.entries().map(({ param, value }) => ({
+      name: param.name ?? String(param.id),
+      value: typeof value === "number" ? value : NaN,
+      animated: overrides.animates(param)
+    })),
+    fly: (dx, dy, mode = "orbit") => {
+      fly(dx, dy, mode);
+      host.renderFrame(current).then(() => syncPanel());
+    },
+    dolly: (deltaY) => {
+      dolly(deltaY);
+      host.renderFrame(current).then(() => syncPanel());
+    },
+    pose: () => livePose()
   };
 };
 ensureWs();

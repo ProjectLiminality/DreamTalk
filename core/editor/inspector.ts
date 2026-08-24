@@ -29,6 +29,7 @@ import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { classNameOf } from "./classname"
+import { numericField, wantsSlider, type NumericFieldHandle } from "./numeric"
 
 /** The nine every holon carries by TASTE law, plus scene t implicitly. */
 export const STANDARD_PARAMS = new Set([
@@ -113,4 +114,128 @@ export const formatValue = (v: ParamValue): string => {
   if (isColor(v)) return ""
   if (typeof v === "boolean") return v ? "true" : "false"
   return Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2)
+}
+
+// --- Row construction (EDITOR-V4 "Numeric editing") -------------------------
+//
+// The panel's rows moved here from main.ts when the slider-first row became
+// a C4D numeric field: the row now has real behaviour (drag, type, revert)
+// and belongs next to the rules that decide what a row IS, rather than in
+// the editor's boot sequence. main.ts keeps what only it can own — where a
+// value GOES (the live param write and the setOverride commit) — and passes
+// it in as two callbacks.
+
+/** What a built row exposes back to the panel's per-frame sync. */
+export interface BuiltRow {
+  el: HTMLDivElement
+  param: Param<ParamValue>
+  field?: NumericFieldHandle
+  slider?: HTMLInputElement
+  val?: HTMLElement
+  swatch?: HTMLElement
+}
+
+export interface RowHooks {
+  /** The value moved (drag/type): write it live and mark divergence. */
+  onInput: (param: Param<ParamValue>, name: string, value: number) => void
+  /** The gesture ended: commit it to code, if this row is committable. */
+  onCommit: (param: Param<ParamValue>, name: string, value: number) => void
+  /** Whether this holon's construction site is anchored — i.e. committable. */
+  committable: boolean
+  signal: AbortSignal
+}
+
+/**
+ * One inspector row.
+ *
+ * The control is chosen by what the param MEANS, not by its type:
+ *
+ *   bound        no control at all, and the panel says "bound"
+ *   color        a swatch
+ *   completion   slider + field — the range is the meaning, and the
+ *   bipolar      exact number still has to be typeable
+ *   everything   the numeric field alone; a slider over [-600, 600]
+ *   else numeric was never able to say 250.0, which is the whole point
+ *   bool         a checkbox-flavoured toggle, read-only for now
+ */
+export const buildParamRow = (name: string, param: Param<ParamValue>, hooks: RowHooks): BuiltRow => {
+  const el = document.createElement("div")
+  el.className = "param"
+  const label = document.createElement("label")
+  label.textContent = name
+  label.title = `${name} · ${param.kind}`
+  el.appendChild(label)
+
+  if (param.isBound) {
+    // PARAMETERS rule: a bound param is read-only, and the panel says so.
+    el.classList.add("bound")
+    const bind = document.createElement("div")
+    bind.className = "bind"
+    bind.textContent = "bound"
+    bind.title = "follows a derived binding — animate its source"
+    el.appendChild(bind)
+    const val = document.createElement("div")
+    val.className = "val"
+    val.textContent = formatValue(param.value)
+    el.appendChild(val)
+    return { el, param, val }
+  }
+
+  if (isColor(param.value)) {
+    const swatch = document.createElement("div")
+    swatch.className = "swatch"
+    el.appendChild(swatch)
+    return { el, param, swatch }
+  }
+
+  if (typeof param.value === "number") {
+    if (!hooks.committable) {
+      el.classList.add("liveonly")
+      el.title = "live only — not written to code"
+    }
+    const slider = wantsSlider(param) ? document.createElement("input") : undefined
+    const field = numericField(param, {
+      signal: hooks.signal,
+      onInput: (value) => {
+        if (slider) slider.value = String(value)
+        hooks.onInput(param, name, value)
+      },
+      onCommit: (value) => hooks.onCommit(param, name, value),
+    })
+
+    if (slider) {
+      slider.type = "range"
+      const [min, max, step] = sliderRange(param)
+      slider.min = String(min)
+      slider.max = String(max)
+      slider.step = String(step)
+      slider.value = String(param.value)
+      slider.addEventListener(
+        "input",
+        () => {
+          const value = Number(slider.value)
+          field.set(value)
+          hooks.onInput(param, name, value)
+        },
+        { signal: hooks.signal },
+      )
+      slider.addEventListener(
+        "change",
+        () => hooks.onCommit(param, name, Number(slider.value)),
+        { signal: hooks.signal },
+      )
+      el.classList.add("ranged")
+      el.appendChild(slider)
+    }
+    el.appendChild(field.el)
+    return { el, param, field, slider }
+  }
+
+  // Booleans and anything else: shown, read, not yet editable.
+  el.appendChild(document.createElement("span"))
+  const val = document.createElement("div")
+  val.className = "val"
+  val.textContent = formatValue(param.value)
+  el.appendChild(val)
+  return { el, param, val }
 }

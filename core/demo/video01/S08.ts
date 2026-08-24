@@ -58,31 +58,27 @@
  * eye tracks the FORMER to within a few pixels at every frame of the orbit
  * (measured centroids f0647–f0682), so `b`c4d IS our `h`. Nothing is fitted.
  *
- * ## Known gap: the grid lines draw and erase in OPPOSITE directions
+ * ## What this scene forced into the framework: honest segments
  *
- * Everything from t=3.1s on reproduces (the settled double grid, the
- * quarter turn, the recolour, the whole 4PI orbit — nine consecutive
- * frames at coverage 0.90…1.00). What does not is the grid's own draw and
- * erase, and the reference says why:
+ * The draw and erase of the two grid walls used to be the one thing here
+ * that would not reproduce, and it was read as a direction problem — the
+ * grid seeming to draw downward and erase upward, which one polyline
+ * order cannot do. It was not a direction problem. The ribbon converts
+ * arc length to pixels LINEARLY inside a segment (`pxPerUnit = lenPx /
+ * (distEnd - distStart)`, render/ribbon.ts), and a two-point Line that
+ * recedes to a vanishing point breaks that identity by the whole depth
+ * range. At f0608 the host put the pen at world x ~ +8 — the origin,
+ * exactly where the reference's four arrowheads sit — while the shader
+ * painted ink only 19.5% along the screen chord, so the near end looked
+ * like a stub growing the wrong way.
  *
- *  - DRAWING (f0605, f0607), the near-vertical grid lines grow DOWNWARD:
- *    each has a clean tip part-way down the frame and its drawn part above
- *    it. They start at the far (+perp) end.
- *  - ERASING (f0637–f0644), the surviving pixels' mean screen y first
- *    rises (367 → 378) and then collapses upward (320, 252): the last
- *    thing left is the TOP. They are consumed from the near (−perp) end.
- *
- * Our Line draws and erases along one polyline order, so it can match one
- * or the other but not both. Measured: with pydeation's own point order
- * (−perp → +perp) the ERASE is right and the draw is wrong (f0603
- * coverage_ours 0.15); reversing the points flips it exactly (f0603 rises
- * to 0.87, f0613 to 0.99, while the erase frame f0643 collapses from 0.94
- * to 0.38). The missing capability is a stroke that draws one way and
- * erases the other — `drawReversed` generalised to open strokes and
- * applied to the DRAW front only. That belongs in Stroke/the ribbon, not
- * here, and it is left for the framework rather than smuggled into this
- * scene (gardening rule). It costs four frames: f0603, f0608, f0613 in the
- * draw and f0643 in the erase.
+ * The fix is `resamplePolyline` (render/ribbon-math.ts), applied in
+ * `setPoints` so the SUBDIVISION that screen-space measurement already
+ * relied on now reaches the geometry too: each piece's foreshortening is
+ * locally uniform, so the linear identity is locally true. One array now
+ * serves both the instance buffers and every screen-space reading, which
+ * is why they can no longer disagree. It took f0603/f0608/f0613 (the
+ * draw) and f0643 (the erase) from FAIL to PASS with nothing added here.
  */
 
 import { Dream, render } from "../../src/index"
@@ -90,7 +86,7 @@ import { together } from "../../src/anim"
 import { Create, UnCreate, FadeIn, FadeOut } from "../../src/verbs"
 import { PI } from "../../src/constants"
 import { Axes, Circle, Cylinder, Eye, Group, Rectangle } from "../../src/parts/index"
-import { BLUE, RED, WHITE, STROKE_GRID, STROKE_MAIN } from "./palette"
+import { BLUE, RED, WHITE, STROKE_MAIN } from "./palette"
 
 /**
  * The measured scene-start offset.
@@ -181,7 +177,12 @@ export class S08Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2, // Axes halves it again for the grid lines
+    // Axes(thickness=5) is the pydeation default the source never overrides
+    // (custom_objects.py:186), and Axes derives grid_thickness = thickness/2
+    // (:221-222) — so this is STROKE_MAIN and the grid falls out at
+    // strokePx(2.5, 720) = 1.54px, not the 1.85px STROKE_GRID*2 gives. Same
+    // reading, same measurement, as S01's identical pair of Axes.
+    stroke: STROKE_MAIN,
   })
 
   // Axes(b=PI/2, …) — the rectangler's world, a quarter-turn instead of a
@@ -201,7 +202,7 @@ export class S08Dream extends Dream {
     xEnd: 2100,
     yStart: -2000,
     yEnd: 400,
-    stroke: STROKE_GRID * 2,
+    stroke: STROKE_MAIN,
   })
 
   unfold() {

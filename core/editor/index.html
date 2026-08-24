@@ -6,32 +6,48 @@
   <style>
     /* David's flat palette (TASTE): red/blue/white on black, quiet grays
        for chrome. No gradients, no decoration — the editor is of the same
-       world as what it edits. */
+       world as what it edits.
+
+       The spacing scale is Keynote's habit rather than its pixels: panels
+       breathe at 15px, rows sit on a 22px rhythm, and every group title is
+       the same 10px uppercase whisper, so the eye can skip the labels and
+       land on the values — which are what a human is actually here to read. */
     :root {
       --bg: #000;
       --panel: #0c0c0e;
+      --panel-2: #131318;
       --line: #1e1e22;
+      --line-soft: #17171b;
       --text: #b8b8c0;
+      --bright: #e8e8ee;
       --dim: #55555e;
+      --dimmer: #3a3a42;
       --blue: #00a2ff;
       --red: #ff644e;
-      --outline-w: 232px;
-      --inspector-w: 264px;
-      --timeline-h: 88px;
+      --outline-w: 236px;
+      --inspector-w: 272px;
+      --timeline-h: 132px;
+      --code-w: 420px;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-      font: 13px/1.4 -apple-system, "SF Pro", Inter, sans-serif; overflow: hidden; }
-    /* Keynote's four regions. The left column holds the holarchy outline;
-       the scene navigator (build order 2) takes its upper half later. */
+      font: 13px/1.4 -apple-system, "SF Pro", Inter, sans-serif; overflow: hidden;
+      -webkit-font-smoothing: antialiased; }
+    /* Keynote's four regions, plus the code view as a fifth column that
+       only exists when it is open (ctrl+/). A grid column, not an overlay:
+       an open code panel makes the viewport narrower rather than covering
+       it, so nothing is ever hidden behind anything. */
     #app { display: grid;
-      grid-template-columns: var(--outline-w) 1fr var(--inspector-w);
+      grid-template-columns: var(--outline-w) 1fr 0 var(--inspector-w);
       grid-template-rows: 1fr var(--timeline-h);
       height: 100%; }
-    #app.no-outline { grid-template-columns: 0 1fr var(--inspector-w); }
+    #app.no-outline { grid-template-columns: 0 1fr 0 var(--inspector-w); }
+    #app.code-open { grid-template-columns: var(--outline-w) 1fr var(--code-w) var(--inspector-w); }
+    #app.code-open.no-outline { grid-template-columns: 0 1fr var(--code-w) var(--inspector-w); }
     /* Viewport */
     #viewport { position: relative; grid-row: 1; grid-column: 2; overflow: hidden;
-      display: flex; align-items: center; justify-content: center; padding: 16px;
+      display: flex; align-items: center; justify-content: center; padding: 18px;
       min-width: 0; min-height: 0; }
     /* The stage is whichever of width/height binds first — letting the
        flex box do the centring in BOTH axes rather than guessing the
@@ -41,6 +57,8 @@
     #backdrop { position: absolute; inset: 0; width: 100%; height: 100%;
       object-fit: contain; display: none; pointer-events: none; }
     #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    /* Flying the observer: drag orbits, shift+drag pans, wheel dollies. */
+    #stage.flying { cursor: grabbing; }
     /* The selection affordance — its own layer, over the render, never in it. */
     #marquee { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
       pointer-events: none; }
@@ -63,72 +81,182 @@
        never run off the bottom of the window. */
     #outline { grid-row: 1 / 3; grid-column: 1; border-right: 1px solid var(--line);
       display: flex; flex-direction: column; overflow: hidden; min-height: 0;
-      padding: 14px 0 0 0; }
+      padding: 15px 0 0 0; }
     #app.no-outline #outline { display: none; }
-    #outline h2 { padding: 0 14px; flex: 0 0 auto; }
+    #outline h2 { padding: 0 15px; flex: 0 0 auto; }
     #tree { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding-bottom: 12px; }
     .node { display: flex; align-items: center; gap: 6px; cursor: default;
-      padding: 3px 14px 3px 0; white-space: nowrap; user-select: none; }
+      padding: 2px 14px 2px 0; white-space: nowrap; user-select: none;
+      border-left: 2px solid transparent; }
     .node:hover { background: #131318; }
-    .node.selected { background: #0d2233; }
+    .node.selected { background: #0d2233; border-left-color: var(--blue); }
     .node.selected .nclass { color: var(--blue); }
-    .twisty { width: 12px; flex: 0 0 12px; text-align: center; color: var(--dim);
+    .twisty { width: 12px; flex: 0 0 12px; text-align: center; color: var(--dimmer);
       font-size: 8px; cursor: pointer; }
+    .twisty:hover { color: var(--text); }
     .twisty.leaf { visibility: hidden; }
     .nclass { color: var(--text); font-size: 12px; }
     .nident { color: var(--dim); font-size: 11px; overflow: hidden;
       text-overflow: ellipsis; }
+    /* Symbol glyphs — the holon's own geometry, at row scale. Slightly
+       dimmed at rest so a long tree still reads as text; full strength on
+       hover and on the selected row, where the shape IS what is being
+       looked at. */
+    .thumb { flex: 0 0 auto; opacity: 0.62; display: block; }
+    .node:hover .thumb, .node.selected .thumb { opacity: 1; }
     /* Inspector */
-    #panel { grid-row: 1 / 3; grid-column: 3; border-left: 1px solid var(--line);
-      padding: 14px; }
+    #panel { grid-row: 1 / 3; grid-column: 4; border-left: 1px solid var(--line);
+      padding: 15px; }
     #panel h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
-      color: var(--text); margin: 0 0 2px; }
+      color: var(--bright); margin: 0 0 2px; display: flex; align-items: center;
+      gap: 7px; }
     #panel h1.selected { color: var(--blue); }
-    #panel .sub { color: var(--dim); font-size: 11px; margin-bottom: 14px;
+    #panel h1 .thumb { opacity: 1; }
+    #panel .sub { color: var(--dim); font-size: 11px; margin-bottom: 15px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .group { margin-bottom: 14px; }
+    .group { margin-bottom: 16px; }
     .group > h3 { font-size: 10px; font-weight: 600; color: var(--dim);
-      letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 5px; }
-    .param { display: grid; grid-template-columns: 68px 1fr 44px; gap: 8px;
-      align-items: center; margin: 3px 0; }
+      letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 6px;
+      padding-bottom: 5px; border-bottom: 1px solid var(--line-soft); }
+    /* A row is label | control. The control column keeps ONE right edge
+       whether the row holds a bare numeric field or a slider paired with
+       one, so every number in the panel aligns — the single biggest thing
+       that makes a dense inspector read as calm. */
+    .param { display: grid; grid-template-columns: 76px 1fr;
+      align-items: center; gap: 8px; margin: 2px 0; min-height: 22px; }
+    .param.ranged { grid-template-columns: 76px 1fr 62px; }
     .param label { color: var(--dim); font-size: 11px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     .param input[type=range] { width: 100%; accent-color: var(--blue); height: 3px; }
     .param .val { color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums;
       text-align: right; }
+    /* The C4D numeric field. It looks like a value, not a widget: no
+       border at rest, a quiet ground on hover, and blue only while it is
+       actually being touched. The col-resize cursor is the whole
+       affordance for "you can drag this". */
+    .num { position: relative; }
+    .numinput { width: 100%; background: transparent; border: 1px solid transparent;
+      border-radius: 4px; color: var(--text); font: 11px/1 var(--mono);
+      font-variant-numeric: tabular-nums; text-align: right; padding: 4px 6px;
+      cursor: col-resize; user-select: none; }
+    .numinput:hover { background: var(--panel-2); border-color: var(--line); }
+    .num.dragging .numinput { background: var(--panel-2); border-color: var(--blue);
+      color: var(--blue); }
+    .num.typing .numinput { background: #0d1a24; border-color: var(--blue);
+      color: var(--bright); cursor: text; user-select: text; }
+    .numinput:focus { outline: none; }
     /* Live value diverged from the file — cleared by the reload round-trip */
     .param.diverged label { color: var(--red); }
     .param.diverged input[type=range] { accent-color: var(--red); }
     .param.diverged .val { color: var(--red); }
+    .param.diverged .numinput { color: var(--red); }
+    .param.diverged .numinput:hover { border-color: var(--red); }
     /* No anchored construction site — tweaks stay live-only */
     .param.liveonly label::after { content: "·"; margin-left: 3px; color: var(--dim); }
+    /* A live override with nowhere to commit: blue, not red — it is not
+       diverging from the file, it simply is not in it. */
+    .param.live:not(.diverged) label { color: var(--blue); }
+    .param.live:not(.diverged) input[type=range] { accent-color: var(--blue); }
+    .param.live:not(.diverged) .val { color: var(--blue); }
+    .param.live:not(.diverged) .numinput { color: var(--blue); }
     /* Bound: read-only, its binding shown in place of a control */
     .param.bound label { color: var(--dim); }
     .param .bind { color: var(--dim); font-size: 10px; font-style: italic;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .swatch { width: 100%; height: 10px; border-radius: 2px; border: 1px solid var(--line); }
+    .swatch { width: 100%; height: 12px; border-radius: 3px; border: 1px solid var(--line); }
     .empty { color: var(--dim); font-size: 11px; font-style: italic; }
-    .section { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+    .section { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
     .section h2 { font-size: 10px; font-weight: 600; color: var(--dim);
       letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 8px; }
     .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
     .row label { color: var(--dim); font-size: 11px; flex: 0 0 52px; }
-    select, input[type=number] { background: #131318; color: var(--text);
-      border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
+    select, input[type=number] { background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px;
       font-size: 11px; width: 100%; }
-    /* Timeline */
+    select:focus, input[type=number]:focus { outline: none; border-color: var(--blue); }
+
+    /* --- Code view (ctrl+/) ------------------------------------------------
+       A window onto the file, not a second place to edit it. Fixed-width
+       column, monospace, five token colours and no more — a wall of
+       confetti would be noise pretending to be information. */
+    #codeview { grid-row: 1 / 3; grid-column: 3; background: var(--panel);
+      border-left: 1px solid var(--line); display: none; flex-direction: column;
+      overflow: hidden; min-height: 0; min-width: 0; }
+    #app.code-open #codeview { display: flex; }
+    #codehead { flex: 0 0 auto; padding: 15px 15px 9px; display: flex;
+      align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+    #codehead h2 { margin: 0; }
+    #codefile { color: var(--text); font: 11px var(--mono); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    #codebody { flex: 1 1 auto; overflow: auto; margin: 0; padding: 12px 15px 24px;
+      font: 11px/1.62 var(--mono); color: #6f6f7a; white-space: pre; tab-size: 2; }
+    .c-com { color: #3f3f48; }
+    .c-str { color: #7a8f6a; }
+    .c-num { color: #a8845e; }
+    .c-kw { color: #6a7280; }
+    .c-type { color: #4a8ab5; }
+    /* The one thing the panel exists for: the selection's own bytes,
+       lifted out of the dimmed file around them. */
+    .c-mark { background: #0d2233; color: var(--bright);
+      box-shadow: -3px 0 0 0 var(--blue); border-radius: 0 2px 2px 0; }
+    .c-mark .c-com { color: #6a6a76; }
+    .c-mark .c-kw { color: #9aa4b0; }
+    .c-mark .c-type { color: var(--blue); }
+    .c-mark .c-num { color: #d6ab7c; }
+    .c-mark .c-str { color: #9ec48a; }
+
+    /* --- Timeline (Keynote's build list, not a keyframe editor) -----------
+       One row per play() clip, in order. The row's WIDTH is its run_time,
+       laid out on one shared time axis, so the geometry IS the timing. */
     #timeline { grid-row: 2; grid-column: 2; background: var(--panel);
-      border-top: 1px solid var(--line); display: flex; align-items: center;
-      gap: 14px; padding: 0 16px; }
-    #playpause { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
-      background: #131318; color: var(--text); cursor: pointer; font-size: 13px;
-      display: flex; align-items: center; justify-content: center; }
+      border-top: 1px solid var(--line); display: grid;
+      grid-template-columns: 52px 1fr 104px; align-items: stretch;
+      min-height: 0; overflow: hidden; }
+    #transport { display: flex; align-items: center; justify-content: center;
+      border-right: 1px solid var(--line-soft); }
+    #playpause { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 11px;
+      display: flex; align-items: center; justify-content: center; padding-left: 1px; }
     #playpause:hover { border-color: var(--blue); color: var(--blue); }
-    #scrubwrap { flex: 1; position: relative; height: 34px; display: flex; align-items: center; }
-    #scrub { width: 100%; accent-color: var(--blue); }
-    #clips { position: absolute; left: 0; right: 0; top: 26px; height: 4px; pointer-events: none; }
-    .clipmark { position: absolute; top: 0; height: 4px; background: #1c3b52; border-radius: 2px; }
-    #timecode { color: var(--text); font: 12px monospace; min-width: 110px; text-align: right; }
+    #track { position: relative; display: flex; flex-direction: column;
+      min-width: 0; overflow: hidden; }
+    /* The ruler: whole seconds, at a step chosen against the width. */
+    #ruler { position: relative; height: 17px; flex: 0 0 17px;
+      border-bottom: 1px solid var(--line-soft); }
+    .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+    .tick span { position: absolute; left: 4px; top: 2px; font-size: 9px;
+      color: var(--dimmer); font-variant-numeric: tabular-nums; }
+    /* A set() — an instant, not a span. */
+    .setmark { position: absolute; top: 5px; width: 3px; height: 7px;
+      margin-left: -1px; background: var(--dim); border-radius: 1px; }
+    #clips { position: relative; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+      min-height: 0; padding: 5px 0; cursor: default; }
+    .cliprow { position: absolute; height: 19px; border-radius: 3px;
+      background: #12222c; border: 1px solid #1b3a4d;
+      overflow: hidden; cursor: default; user-select: none; }
+    .cliprow:hover { background: #162c39; border-color: #275a76; }
+    .cliprow.active { background: #163243; border-color: #2e6d8f; }
+    .cliprow.selected { background: #0f3350; border-color: var(--blue); }
+    .cliprow.selected .cliplabel { color: var(--blue); }
+    /* Nested windows from together(...) / [anim, a, b] — read-only, drawn
+       as the sub-spans the composition already states. */
+    .window { position: absolute; top: 0; bottom: 0; background: rgba(0,162,255,0.09);
+      border-left: 1px solid rgba(0,162,255,0.34); }
+    .clipface { position: relative; display: flex; align-items: center; gap: 5px;
+      height: 100%; padding: 0 6px; white-space: nowrap; }
+    .clipface .thumb { opacity: 0.85; }
+    .cliplabel { font-size: 10.5px; color: var(--text); overflow: hidden;
+      text-overflow: ellipsis; min-width: 0; }
+    .clipsecs { margin-left: auto; font-size: 9.5px; color: var(--dim);
+      font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+    .playhead { position: absolute; top: 0; bottom: 0; width: 1px;
+      background: var(--red); pointer-events: none; z-index: 3; }
+    .playhead::before { content: ""; position: absolute; top: 0; left: -3px;
+      border-left: 3.5px solid transparent; border-right: 3.5px solid transparent;
+      border-top: 5px solid var(--red); }
+    #timecode { display: flex; align-items: center; justify-content: flex-end;
+      padding-right: 15px; color: var(--text); font: 11px var(--mono);
+      font-variant-numeric: tabular-nums; border-left: 1px solid var(--line-soft); }
   </style>
 </head>
 <body>
@@ -144,6 +272,13 @@
         <canvas id="marquee" width="1280" height="720"></canvas>
       </div>
       <div id="drophint">preview only — pick from the reference list to write into the DreamWeaving</div>
+    </div>
+    <div id="codeview">
+      <div id="codehead">
+        <h2>Source</h2>
+        <div id="codefile">—</div>
+      </div>
+      <pre id="codebody"></pre>
     </div>
     <div id="panel" class="pane">
       <h1 id="scenename">DreamTalk</h1>
@@ -170,9 +305,9 @@
       </div>
     </div>
     <div id="timeline">
-      <button id="playpause" title="space">▶</button>
-      <div id="scrubwrap">
-        <input id="scrub" type="range" min="0" max="1000" value="0" />
+      <div id="transport"><button id="playpause" title="space">▶</button></div>
+      <div id="track">
+        <div id="ruler"></div>
         <div id="clips"></div>
       </div>
       <div id="timecode">0.00 / 0.00</div>

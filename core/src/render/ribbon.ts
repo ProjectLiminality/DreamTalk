@@ -54,7 +54,7 @@ import * as THREE from "three/webgpu"
 import { uniform } from "three/tsl"
 import * as TSLTyped from "three/tsl"
 import type { Color } from "../constants"
-import { packSegments } from "./ribbon-math"
+import { packSegments, resamplePolyline } from "./ribbon-math"
 
 /**
  * @types/three's TSL typings lag the runtime (mat4 has no .element(),
@@ -292,8 +292,8 @@ export class RibbonStroke {
   readonly geometry: THREE.InstancedBufferGeometry
   totalLength = 0
   /**
-   * Target sample count for `worldPoints()` — how finely a polyline is
-   * resampled before anything measures it in SCREEN space.
+   * Target sample count for a polyline — how finely it is resampled
+   * before anything measures it, or DRAWS it, in SCREEN space.
    *
    * 128 is not tuned to a frame: it is where the piecewise-linear
    * measurement of a projected line stops moving. Doubling it to 256
@@ -302,7 +302,25 @@ export class RibbonStroke {
    * recession in the corpus.
    */
   static readonly SUBDIVISION = 128
-  /** The polyline as last set, in the mesh's local space. */
+  /**
+   * The polyline as last set, in the mesh's local space, ALREADY
+   * subdivided (`resample`) — one array, used both for the instance
+   * buffers and by every screen-space measurement.
+   *
+   * The subdivision has to reach the GEOMETRY, not just the measurement,
+   * for the same reason the measurement needed it: the fragment stage
+   * converts arc length to pixels with `pxPerUnit = lenPx / (distEnd -
+   * distStart)`, i.e. LINEARLY within a segment. That identity holds
+   * only where the segment's foreshortening is uniform. On a two-point
+   * Line that recedes — S08's axis arms run world x = -500 → 2100 with
+   * the far end at the vanishing point — it is off by the whole
+   * perspective: the host correctly placed the pen at world x ≈ +8 (the
+   * origin, where the reference's four arrowheads sit at f0608) and the
+   * shader painted ink only 19.5% of the way along the SCREEN chord,
+   * because 508/2600 of the arc length was read as 508/2600 of the
+   * pixels. Splitting the segment makes each piece's foreshortening
+   * locally uniform and the same linear identity locally true.
+   */
   private points: THREE.Vector3[] = []
   /**
    * Segments the instance buffers can currently hold.
@@ -362,8 +380,12 @@ export class RibbonStroke {
   }
 
   setPoints(pts: readonly THREE.Vector3[]): void {
-    this.points = pts.map((p) => p.clone())
-    const packed = packSegments(pts)
+    this.points = resamplePolyline(
+      pts,
+      RibbonStroke.SUBDIVISION,
+      (x, y, z) => new THREE.Vector3(x, y, z),
+    )
+    const packed = packSegments(this.points)
     if (packed.count < 1) {
       // A stroke whose polyline is DERIVED can legitimately become empty
       // and non-empty again over t — Scene03's section curve is empty
@@ -392,44 +414,12 @@ export class RibbonStroke {
   }
 
   /**
-   * The polyline in the mesh's LOCAL space, subdivided so that measuring
-   * it in screen space is honest.
-   *
-   * Screen position is a projective, not affine, function of world
-   * position: the midpoint of a long segment does NOT project to the
-   * midpoint of its projected endpoints. Anything that measures a
-   * stroke's SCREEN length (render/screen-arc.ts — the Sketch & Toon
-   * draw model) therefore has to sample along the segment rather than
-   * take its chord. A 2-point Line — an Axes arm, say — would otherwise
-   * be measured as a straight chord and lose exactly the perspective
-   * weighting the model is about.
-   *
-   * The subdivision is uniform in WORLD arc length, which is what the
-   * consumer's `world` field means, and dense enough (SUBDIVISION per
-   * segment) that the piecewise-linear screen measurement converges: at
-   * video-01's camera distances the residual is well under a pixel.
-   * Already-fine polylines (circles, silhouettes) are returned as-is.
+   * The polyline in the mesh's LOCAL space — the same subdivided array
+   * the instance buffers were packed from, so a screen-space
+   * measurement and the ink it is measuring can never disagree.
    */
   worldPoints(): readonly THREE.Vector3[] {
-    if (this.points.length < 2) return this.points
-    // Curves arrive with plenty of vertices already; only coarse
-    // polylines (a Line's two points) need the extra samples, and the
-    // cost is linear in the result, so cap the total rather than
-    // multiplying an already-dense curve.
-    const perSegment = Math.max(
-      1,
-      Math.ceil(RibbonStroke.SUBDIVISION / (this.points.length - 1)),
-    )
-    if (perSegment <= 1) return this.points
-    const out: THREE.Vector3[] = [this.points[0]!]
-    for (let i = 0; i + 1 < this.points.length; i++) {
-      const a = this.points[i]!
-      const b = this.points[i + 1]!
-      for (let k = 1; k <= perSegment; k++) {
-        out.push(new THREE.Vector3().lerpVectors(a, b, k / perSegment))
-      }
-    }
-    return out
+    return this.points
   }
 
   /** Sync visibility/draw fraction/erase fraction/style from the owning holon. */

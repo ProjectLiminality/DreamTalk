@@ -101,3 +101,63 @@ export const capPolylineFrom = (
   }
   return pts
 }
+
+/**
+ * An ARC of a cap circle, from `startAngle` sweeping `sweep` radians
+ * (signed — negative walks toward decreasing local angle). Same circle,
+ * same convention as capPolylineFrom, but open: the contour of a cylinder
+ * cap is BROKEN at the two silhouette generators, and S&T strokes the
+ * pieces separately (see capArcs below).
+ */
+export const capArc = (
+  radius: number,
+  y: number,
+  startAngle: number,
+  sweep: number,
+  segments = 64,
+): [number, number, number][] => {
+  const pts: [number, number, number][] = []
+  for (let i = 0; i <= segments; i++) {
+    const a = startAngle + (sweep * i) / segments
+    pts.push([Math.cos(a) * radius, y, Math.sin(a) * radius])
+  }
+  return pts
+}
+
+/**
+ * The two arcs one cap contributes to the contour, split at the
+ * silhouette generators, walked the way the 2021 reference walks them.
+ *
+ * Why a split at all: the generators are where the cap's contour meets
+ * the mantle's, so on the rendered contour graph each cap is TWO edges,
+ * not one loop — and video-01's Scene 06 shows S&T treating them as two
+ * strokes outright. Its 2s cylinder Create (refs/video-01/frames5,
+ * f0494-f0504) draws the near cap's near-facing arc to completion, then
+ * FREEZES it (the near half-plane's lit-pixel count is 1880/1881/1881
+ * across f0498/f0499/f0500) while the far cap draws in full, and only
+ * afterwards comes back for the near cap's far-facing arc. A single
+ * closed cap stroke cannot do that.
+ *
+ * Direction: BOTH caps walk toward DECREASING local angle. The near cap
+ * starts at thetaB and so runs its near-facing arc first (thetaB is
+ * phi + spread, and decreasing walks it back through the camera azimuth
+ * phi); the far cap starts at thetaA and so runs its far-facing arc
+ * first. Both readings are direct: in f0495-f0498 the near ellipse grows
+ * from its lower junction up its camera-facing side, and in f0499-f0501
+ * the far ellipse grows from its upper junction over its away-facing
+ * side.
+ *
+ * `startAngle` is the generator the cap's pen begins on; the first arc
+ * returned is the one it draws first, the second the one it returns for.
+ */
+export const capArcs = (
+  radius: number,
+  y: number,
+  startAngle: number,
+  /** The angular gap to the OTHER generator, walking with decreasing angle. */
+  firstSweep: number,
+  segments = 64,
+): { first: [number, number, number][]; second: [number, number, number][] } => ({
+  first: capArc(radius, y, startAngle, firstSweep, segments),
+  second: capArc(radius, y, startAngle + firstSweep, -(Math.PI * 2 + firstSweep), segments),
+})

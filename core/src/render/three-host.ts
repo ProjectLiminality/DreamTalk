@@ -43,7 +43,7 @@ import { Text } from "../parts/text"
 import { RibbonStroke } from "./ribbon"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
-import { capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
+import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
 import { screenArcRemap, type ProjectedPoint } from "./screen-arc"
 
 const STROKE_SEGMENTS = 128
@@ -83,6 +83,17 @@ interface ArrowBinding {
   shapeKey: number[]
   /** The Line's own group — the frame the cap polygon is stated in. */
   group: THREE.Group
+  /**
+   * The ribbon binding of the very line this cap belongs to. The head
+   * rides the PEN, and the pen's position is the screen-arc
+   * reparametrisation of `creation` (screen-arc.ts), not `creation`
+   * itself — so the cap has to ask the same question the stroke asks,
+   * of the same binding, or it drifts off the front exactly where the
+   * two parametrisations disagree most: a line most of whose world
+   * length lies off-frame. Undefined only if the line never got a
+   * ribbon (an empty polyline at mount).
+   */
+  stroke?: StrokeBinding
 }
 
 interface GroupBinding {
@@ -100,7 +111,12 @@ interface CylinderBinding {
   holon: Cylinder
   group: THREE.Group
   topCap: RibbonStroke
-  bottomCap: RibbonStroke
+  /** The bottom cap's NEAR arc — generator A round to generator B the
+   *  camera-facing way. Drawn immediately after generator A lands. */
+  bottomNear: RibbonStroke
+  /** The bottom cap's FAR arc — the pen returns for it only after it has
+   *  climbed generator B (see syncCylinder). */
+  bottomFar: RibbonStroke
   lineA: RibbonStroke
   lineB: RibbonStroke
   /** Cap geometry cache key — the caps' seams ride the silhouette, so the
@@ -397,7 +413,8 @@ export class ThreeHost {
         holon,
         group,
         topCap: new RibbonStroke(width),
-        bottomCap: new RibbonStroke(width),
+        bottomNear: new RibbonStroke(width),
+        bottomFar: new RibbonStroke(width),
         lineA: new RibbonStroke(width),
         lineB: new RibbonStroke(width),
         capRadius: r,
@@ -406,7 +423,13 @@ export class ThreeHost {
         thetaA: NaN,
         thetaB: NaN,
       }
-      group.add(binding.topCap.mesh, binding.bottomCap.mesh, binding.lineA.mesh, binding.lineB.mesh)
+      group.add(
+        binding.topCap.mesh,
+        binding.bottomNear.mesh,
+        binding.bottomFar.mesh,
+        binding.lineA.mesh,
+        binding.lineB.mesh,
+      )
       this.cylinders.push(binding)
     } else if (holon instanceof Ellipse && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++)
@@ -414,6 +437,7 @@ export class ThreeHost {
       group.add(fill.mesh)
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
     } else if (holon instanceof Stroke) {
+      let strokeBinding: StrokeBinding | undefined
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
       // empty at mount and non-empty later — Scene03's section curve
@@ -424,7 +448,8 @@ export class ThreeHost {
         const ribbon = new RibbonStroke(holon.stroke.value)
         ribbon.setPoints(pts ?? [])
         group.add(ribbon.mesh)
-        this.strokes.push({ holon, ribbon, shapeKey: shapeKey(holon) })
+        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) }
+        this.strokes.push(strokeBinding)
       }
       if (holon instanceof Line) {
         for (const atStart of [false, true]) {
@@ -434,7 +459,14 @@ export class ThreeHost {
           const fill = new FillShape(this.nextFillOrder++)
           fill.setPolygon(polygon)
           group.add(fill.mesh)
-          this.arrows.push({ holon, fill, atStart, shapeKey: arrowKey(holon), group })
+          this.arrows.push({
+            holon,
+            fill,
+            atStart,
+            shapeKey: arrowKey(holon),
+            group,
+            stroke: strokeBinding,
+          })
         }
       }
     }
@@ -442,9 +474,19 @@ export class ThreeHost {
     for (const part of holon.parts) this.attach(part, group)
   }
 
+  /**
+   * A hook between sampling and syncing, for a host that wants to overlay
+   * something on top of the timeline's values (the editor's live layer —
+   * see editor/overrides.ts). Left undefined, the frame path is exactly
+   * what it always was: sample t, sync, render. The demo page and the
+   * gauntlet never set it, so they always see the pure timeline.
+   */
+  beforeSync?: () => void
+
   /** Deterministic: sample the timeline at t, sync the scene, render. */
   async renderFrame(t: number): Promise<void> {
     this.dream.applyAt(t)
+    this.beforeSync?.()
     this.sync()
     await this.renderer.render(this.scene, this.camera)
   }
@@ -533,7 +575,19 @@ export class ThreeHost {
     // f0430/f0432/f0434 keep the S04 gradient's head parked at its
     // destination (cols 960-967) while the tail retreats behind it —
     // the head belongs to the stroke's end, and erasing eats the start.
-    const progress = atStart ? 0 : creation
+    // The pen's position along the line is the SCREEN-arc
+    // reparametrisation of `creation` — the same reading the ribbon
+    // takes (screenArc / render/screen-arc.ts). Walking the raw fraction
+    // here put the cap wherever world arc length says, which is a
+    // different place entirely on a line most of whose world length
+    // falls off-frame: S01's y-axis runs world y = -2000 → +400 and
+    // starts a thousand pixels below the viewport, so at the first frame
+    // of its Create the reference draws its cap at screen y ≈ 712 (the
+    // bottom edge — the first visible point) while world arc put ours
+    // off-screen entirely. refs/video-01/frames5 f0090-f0094 track that
+    // cap up the frame at y = 712, 700, 646, 590, 509.
+    const drawn = binding.stroke ? this.screenArc(binding.stroke, creation) : creation
+    const progress = atStart ? 0 : drawn
     const present = atStart
       ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02))
       : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08))
@@ -689,7 +743,7 @@ export class ThreeHost {
   }
 
   private syncCylinder(binding: CylinderBinding): void {
-    const { holon, group, topCap, bottomCap, lineA, lineB } = binding
+    const { holon, group, topCap, bottomNear, bottomFar, lineA, lineB } = binding
     const radius = holon.radius.value
     const height = holon.height.value
 
@@ -701,6 +755,25 @@ export class ThreeHost {
     // first — S&T's chained contour, measured off video-01 f0031-f0038 (see
     // capPolylineFrom). Both cap seams are view-dependent, so they are
     // rebuilt whenever the generators move, not only on a size change.
+    //
+    // The BOTTOM cap is two strokes, not one. The generators are where the
+    // cap contour meets the mantle contour, so on S&T's contour graph each
+    // cap is two edges; the pen chains them only when it has nowhere else
+    // to go. video-01 Scene 01's own cylinder draw shows it walking the
+    // bottom cap's near arc, LEAVING for generator B, and only then coming
+    // back for the far arc — new-ink deltas on refs/video-01/frames5:
+    //
+    //   f0038  x[634,740] y[353,444]  generator A's tail, then an arc
+    //                                 running leftward at y≈411-442 from
+    //                                 x=701 to x=635  — the NEAR arc
+    //   f0039  a straight run (line residual 3.4px over a 148px span)
+    //          from (556,332) to (626,480)            — generator B, upward
+    //   f0040  x[529,565] y[275,332]                  — generator B's tail
+    //   f0041-44  x 719 → 635 along y≈473-496         — the FAR arc
+    //
+    // (Scene 06's 2s cylinder draw says the same thing independently — see
+    // capArcs in render/silhouette.ts, which this now uses.) A single
+    // closed cap stroke cannot leave and return; two arcs can.
     const thetaA = angles?.thetaA ?? 0
     const thetaB = angles?.thetaB ?? Math.PI
     if (
@@ -712,8 +785,20 @@ export class ThreeHost {
       topCap.setPoints(
         capPolylineFrom(radius, height / 2, thetaB, false).map((p) => new THREE.Vector3(...p)),
       )
-      bottomCap.setPoints(
-        capPolylineFrom(radius, -height / 2, thetaA, true).map((p) => new THREE.Vector3(...p)),
+      // thetaA = phi - spread and thetaB = phi + spread, so walking from
+      // thetaA toward INCREASING angle passes through the camera azimuth
+      // phi: that arc is the near one, and its sweep is exactly the
+      // generators' angular gap. The far arc is its complement, continued
+      // in the same direction so the pen never reverses.
+      const nearSweep = thetaB - thetaA
+      const v3 = (p: [number, number, number]) => new THREE.Vector3(...p)
+      bottomNear.setPoints(
+        capArc(radius, -height / 2, thetaA, nearSweep, CYLINDER_ROTATION_SEGMENTS).map(v3),
+      )
+      bottomFar.setPoints(
+        capArc(radius, -height / 2, thetaB, Math.PI * 2 - nearSweep, CYLINDER_ROTATION_SEGMENTS).map(
+          v3,
+        ),
       )
       binding.capRadius = radius
       binding.capHeight = height
@@ -733,48 +818,87 @@ export class ThreeHost {
       set(lineB, angles.thetaB, false)
     }
 
-    // Draw-on: the four strokes run sequentially within the holon's one
-    // creation param, windows proportioned by arc length (S&T "single"
-    // stroke method), in the chained order the reference draws them:
-    // top cap → generator A → bottom cap → generator B.
-    // The erase front consumes them through the same partition.
-    // Proportioned by CONTOUR EDGE COUNT, not by length. The 2021
-    // cylinder is a C4D parametric solid whose contour is a polygon: each
-    // cap is CYLINDER_ROTATION_SEGMENTS edges, each mantle generator is
-    // exactly one. S&T's "single" draw walks that polygon, so a cap — a
-    // sixty-fourth of whose length is one edge — takes sixty-four times a
-    // generator's share of the span, however short it projects.
+    // Draw-on: the FIVE strokes run sequentially within the holon's one
+    // creation param, in the chained order the reference draws them:
     //
-    // The reference frames say so directly: in video-01 Scene 01's 3s
-    // cylinder draw, the top cap closes at t≈1.35 (creation 0.44) and the
-    // right generator finishes by t≈1.55 (creation 0.55) — a cap:generator
-    // time ratio far above the 1.57:1 their arc lengths would give. Scored
-    // against the whole scene, edge-count proportioning lifts mean
-    // coverage_ours from 0.957 to 0.975 with no frame regressions.
-    const cap = CYLINDER_ROTATION_SEGMENTS
-    const gen = 1
-    const total = 2 * cap + 2 * gen
-    const bounds = [
-      0,
-      cap / total,
-      (cap + gen) / total,
-      (2 * cap + gen) / total,
-      1,
+    //   top cap → generator A → bottom NEAR arc → generator B → bottom FAR
+    //
+    // The erase front consumes them through the same partition.
+    //
+    // Proportioned by SCREEN ARC LENGTH — the same rule, and the same
+    // code, that render/screen-arc.ts established for how S&T spreads one
+    // draw parameter WITHIN a stroke. There is no reason it would use one
+    // model along a stroke and a different one between strokes: S&T is a
+    // screen-space pen throughout, and the contour it walks here is a
+    // single chain that happens to be cut into five ribbons by the
+    // silhouette. Each stroke's share is its own visible pixel length
+    // over the chain's; the pen then crosses each at that same screen
+    // rate. Nothing is chosen — the weights are measured off this frame's
+    // projection, so they follow the tilt as the cylinder turns.
+    //
+    // This replaces an earlier CONTOUR EDGE COUNT model (each cap 64
+    // edges, each generator 1), which the reference refutes outright.
+    // In Scene 01's 3s cylinder draw the two generators account for
+    // roughly half of all the ink laid down — new-ink pixel counts over
+    // refs/video-01/frames5 f0030-f0045 give topcap ~1258px, the
+    // generators ~2400px between them, the bottom cap's far arc ~619px —
+    // whereas edge counts would give the generators 2/130 of the span,
+    // about 1.5%. Under that model both generators snapped on within one
+    // frame of each other; under screen arc they take the second they
+    // visibly take.
+    const measure = (line: RibbonStroke): number =>
+      this.measureScreenArc(line)?.remap.screenLength ?? 0
+    const mantleVisible = angles !== undefined
+    // A stroke with no visible ink weighs nothing and is skipped by the
+    // pen entirely — that is screen-arc's own rule (off-frame geometry
+    // costs nothing), applied one level up.
+    const shares = [
+      measure(topCap),
+      mantleVisible ? measure(lineA) : 0,
+      measure(bottomNear),
+      mantleVisible ? measure(lineB) : 0,
+      measure(bottomFar),
     ]
+    const chain = shares.reduce((a, b) => a + b, 0)
+    // Degenerate frame (nothing projects): fall back to equal shares so
+    // the draw still runs rather than freezing.
+    const weights = chain > 0 ? shares.map((s) => s / chain) : shares.map(() => 1 / shares.length)
+    const bounds = [0]
+    for (const w of weights) bounds.push(bounds[bounds.length - 1]! + w)
+    bounds[bounds.length - 1] = 1
+
     const creation = holon.creation.value
     const erasure = holon.erasure.value
     const opacity = holon.opacity.value
     const tint: Color = holon.tint.value
     const width = holon.stroke.value
     const window = (v: number, a: number, b: number) =>
-      Math.min(1, Math.max(0, (v - a) / (b - a)))
-    const sub = (line: RibbonStroke, drawn: number, a: number, b: number) =>
-      line.style(drawn, opacity, tint, width, window(erasure, a, b))
-    const mantleVisible = angles !== undefined
-    sub(topCap, window(creation, bounds[0]!, bounds[1]!), bounds[0]!, bounds[1]!)
-    sub(lineA, mantleVisible ? window(creation, bounds[1]!, bounds[2]!) : 0, bounds[1]!, bounds[2]!)
-    sub(bottomCap, window(creation, bounds[2]!, bounds[3]!), bounds[2]!, bounds[3]!)
-    sub(lineB, mantleVisible ? window(creation, bounds[3]!, bounds[4]!) : 0, bounds[3]!, bounds[4]!)
+      b <= a ? (v >= b ? 1 : 0) : Math.min(1, Math.max(0, (v - a) / (b - a)))
+    // WITHIN a stroke the pen advances by WORLD arc, not screen arc, and
+    // the difference is the cylinder's own geometry rather than an
+    // inconsistency. screen-arc.ts's rule is about a stroke whose SCREEN
+    // length is what S&T meters — and it is derived from, and verified
+    // on, strokes that run away from the camera (Scene 01's axes, whose
+    // far ends compress to nothing). A cylinder cap does not: it is a
+    // small circle at a near-constant depth, so its screen and world
+    // parametrisations differ only by the ellipse's foreshortening, and
+    // the contour S&T actually walks is a 64-gon of equal WORLD angles.
+    // Metering that by projected pixel length makes the pen race across
+    // the squashed near side and crawl round the wide top — measurably
+    // wrong: it drove t=1s's coverage_ours from 0.83 down to 0.48,
+    // closing the ellipse while the reference was still on its top arc.
+    const sub = (line: RibbonStroke, i: number) => {
+      const a = bounds[i]!
+      const b = bounds[i + 1]!
+      line.style(window(creation, a, b), opacity, tint, width, window(erasure, a, b))
+    }
+    sub(topCap, 0)
+    if (mantleVisible) sub(lineA, 1)
+    else lineA.style(0, opacity, tint, width, 0)
+    sub(bottomNear, 2)
+    if (mantleVisible) sub(lineB, 3)
+    else lineB.style(0, opacity, tint, width, 0)
+    sub(bottomFar, 4)
   }
 
   // --- Picking (EDITOR-V3 decision 1: "what holon is under this pixel?") ---
@@ -835,7 +959,7 @@ export class ThreeHost {
     }
     for (const binding of this.cylinders) {
       const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP
-      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
         consider(binding.holon, this.ribbonDistance(ribbon, px, py, width, height), tolerance)
       }
     }
@@ -883,7 +1007,7 @@ export class ThreeHost {
     }
     for (const binding of this.cylinders) {
       if (!wanted.has(binding.holon)) continue
-      for (const ribbon of [binding.topCap, binding.bottomCap, binding.lineA, binding.lineB]) {
+      for (const ribbon of [binding.topCap, binding.bottomNear, binding.bottomFar, binding.lineA, binding.lineB]) {
         addRibbon(ribbon, ribbon.mesh)
       }
     }
@@ -1092,11 +1216,27 @@ export class ThreeHost {
   private screenArc(binding: StrokeBinding, fraction: number): number {
     if (fraction <= 0) return 0
     if (fraction >= 1) return 1
-    const pts = binding.ribbon.worldPoints()
-    if (pts.length < 2) return fraction
+    const measured = this.measureScreenArc(binding.ribbon)
+    if (!measured) return fraction
+    return Math.max(0, Math.min(1, measured.remap.worldAt(fraction) / measured.totalWorld))
+  }
+
+  /**
+   * One ribbon's screen-arc measurement for this frame: how long its
+   * visible ink is in pixels, and the fraction→world map along it.
+   *
+   * Factored out of screenArc() because the cylinder needs the LENGTH on
+   * its own — to weigh its five contour strokes against each other —
+   * before it needs the map within any one of them.
+   */
+  private measureScreenArc(
+    ribbon: RibbonStroke,
+  ): { remap: ReturnType<typeof screenArcRemap>; totalWorld: number } | undefined {
+    const pts = ribbon.worldPoints()
+    if (pts.length < 2) return undefined
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
-    const matrix = binding.ribbon.mesh.matrixWorld
+    const matrix = ribbon.mesh.matrixWorld
     const projected: ProjectedPoint[] = []
     const v = new THREE.Vector3()
     let world = 0
@@ -1113,14 +1253,13 @@ export class ThreeHost {
       })
       previous = v.clone()
     }
-    const total = world
-    if (total <= 0) return fraction
-    const remap = screenArcRemap(projected, total, { width, height })
+    if (world <= 0) return undefined
+    const remap = screenArcRemap(projected, world, { width, height })
     // A stroke with no visible ink has no screen parametrisation; the
-    // remap already falls back to the identity, so this is just the
-    // cheap early out.
-    if (remap.screenLength <= 0) return fraction
-    return Math.max(0, Math.min(1, remap.worldAt(fraction) / total))
+    // remap already falls back to the identity, so this is the cheap
+    // early out.
+    if (remap.screenLength <= 0) return undefined
+    return { remap, totalWorld: world }
   }
 
   /** World point → device pixels (y down), or undefined behind the camera. */

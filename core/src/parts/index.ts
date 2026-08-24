@@ -7,7 +7,7 @@
 
 import { Holon } from "../holon"
 import { color, length, angle, integer, completion, scalar, bool } from "../params"
-import { eased, together, type Anim, type Windowed } from "../anim"
+import { eased, restage, together, type Anim, type Windowed } from "../anim"
 import { ease } from "../timeline"
 import { WHITE, BLACK, RED, PI, TAU } from "../constants"
 

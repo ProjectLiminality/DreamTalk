@@ -133,7 +133,7 @@ export class S09Dream extends Dream {
   // C4D's own defaults r=50 / h=200, deliberately matching circle r=50
   // and rectangle 100x200. It never draws on: it only fades.
   cylinder = new Cylinder({
-    radius: 62,
+    radius: 53,
     height: 226,
     y: 25,
     b: -PI / 2,
