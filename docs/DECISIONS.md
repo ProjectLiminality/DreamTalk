@@ -146,3 +146,11 @@ operational decisions are entered by the working agent. Format:
   2.5 units. Scenes passing `STROKE_GRID * 2` were asking for 3. Fixing
   S06 to `STROKE_MAIN` unmodified lifted four mid-scene frames from ~0.96
   to 1.00. Applies to any scene still doubling its grid stroke.
+- 2026-08-24 · **Tests must pin the SHIPPED path, not a parallel
+  convention** — silhouette.test.ts exercised `capArc` only with NEGATIVE
+  sweeps while `syncCylinder` calls it with POSITIVE ones, so three green
+  tests coexisted with an inverted near-cap arc order that only a
+  composite caught. Fixed by `core/test/cap-arc-order.test.ts`, which
+  makes exactly the calls the renderer makes and pins which arc is drawn
+  FIRST. Generalise: when a test and its subject use different conventions
+  for the same helper, the test proves nothing about the subject.
