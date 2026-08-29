@@ -290,6 +290,9 @@ export class Rectangle extends Stroke {
   width = length(100)
   height = length(200)
   rounding = completion(0)
+  /** `filled: true` renders it as a flat fill instead of a stroke —
+   *  same contract as Ellipse.filled (FoldableCube's occluding faces). */
+  filled = bool(false)
   override tint = color(RED)
 }
 

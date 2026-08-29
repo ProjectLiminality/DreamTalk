@@ -216,3 +216,13 @@ operational decisions are entered by the working agent. Format:
   pure function of t. No baking needed for MindVirus standalone (its
   jellyfish pulses express as pure timeline, Journey-style). Baking (Ch 6)
   is first genuinely required by the XPBD tether at the TheWall layer.
+- 2026-08-30 · **MindVirus.mp4's source is LOST** — the render's fold
+  choreography (dramatic 1→0.1 opens) does not match the surviving
+  MindVirus.py simulate() (dips only to 0.9); the mp4 predates the
+  current script. The swim benchmark is therefore soft: static-tail
+  frames (trail/taper/rings) score 0.96-0.98 and prove the cable; the
+  mid-swim ~0.63 plateau against a lost-source physics render is
+  RECORDED, not fitted (three-strikes honored after ~10 rounds). Queued
+  honest upgrade if TheWall needs closer swim fidelity: journey legs as
+  (impulse, drag) pairs integrated in closed form — exponential decay
+  is analytic, still pure f(t), no baking.

@@ -64,7 +64,7 @@ interface StrokeBinding {
 
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
 interface FillBinding {
-  holon: Ellipse
+  holon: Ellipse | Rectangle
   fill: FillShape
   shapeKey: number[]
 }
@@ -177,6 +177,7 @@ const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
     return pts
   }
   if (holon instanceof Rectangle) {
+    if (holon.filled.value) return undefined // rendered by its FillShape
     return rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value).map(
       (p) => new THREE.Vector3(p.x, p.y, p.z),
     )
@@ -448,6 +449,13 @@ export class ThreeHost {
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
       group.add(fill.mesh)
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
+    } else if (holon instanceof Rectangle && holon.filled.value) {
+      const fill = new FillShape(this.nextFillOrder++)
+      fill.setPolygon(
+        rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
+      )
+      group.add(fill.mesh)
+      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       const pts = polyline(holon)
@@ -545,7 +553,11 @@ export class ThreeHost {
       const key = shapeKey(holon)
       if (!keysEqual(key, binding.shapeKey)) {
         binding.shapeKey = key
-        fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
+        fill.setPolygon(
+          holon instanceof Ellipse
+            ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value)
+            : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
+        )
       }
       // Fill semantics: creation IS the fill-in, composed with fade.
       fill.style(holon.creation.value * holon.opacity.value, holon.tint.value)
