@@ -21,6 +21,7 @@ import { S09Dream } from "./video01/S09"
 import { S07Dream } from "./video01/S07"
 import { S08Dream } from "./video01/S08"
 import { S05Dream } from "./video01/S05"
+import { DialecticalThinkingDream } from "./video01/DialecticalThinking"
 import { CurvesShowcaseDream } from "./CurvesShowcase"
 import { TextShowcaseDream } from "./TextShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
@@ -49,6 +50,7 @@ export const scenes: Record<string, DreamClass> = {
   s07: S07Dream,
   s08: S08Dream,
   s05: S05Dream,
+  video01: DialecticalThinkingDream,
 }
 
 export const defaultScene = "founding"

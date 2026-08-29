@@ -86,7 +86,7 @@ export class S07Dream extends Dream {
   // (PRIM_TEXT_ALIGN = 1), white, TEXT_THICKNESS 5 — which the traced
   // contours render at, in the same pixel-unit mapping every other
   // video-01 stroke uses (palette.ts).
-  word = new Text({ content: "trans-perspectival", size: 50, tint: WHITE, stroke: STROKE_MAIN })
+  word = new Text({ content: "trans-perspectival", size: 50, tint: WHITE, stroke: 0 })
 
   unfold() {
     // TwoDScene: C4D's parallel TOP view at camera_zoom 1 — the observer

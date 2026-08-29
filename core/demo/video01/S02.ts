@@ -406,8 +406,8 @@ export class S02Dream extends Dream {
   })
   // Text("sin", scale=0.15, z=r/√2, x=-8) and its cos mirror: the
   // default text height of 50 scaled to 7.5 units, centre-aligned.
-  sinText = new Text({ content: "sin", size: 7.5, x: -158, y: CONTACT, tint: WHITE })
-  cosText = new Text({ content: "cos", size: 7.5, x: -150 + CONTACT, y: -8, tint: WHITE })
+  sinText = new Text({ content: "sin", size: 7.5, x: -158, y: CONTACT, tint: WHITE, stroke: 0 })
+  cosText = new Text({ content: "cos", size: 7.5, x: -150 + CONTACT, y: -8, tint: WHITE, stroke: 0 })
 
   // --- rectangle mathematics ----------------------------------------
   //

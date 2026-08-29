@@ -48,6 +48,13 @@ const main = async () => {
     duration,
     setT: async (t: number) => {
       playing = false
+      // Twice, deliberately: sync()'s screen-arc measurement projects with
+      // the matrices/camera the PREVIOUS render left behind, so a single
+      // render after a large jump in t (a scored frame, a chapter cut)
+      // draws pen positions against a stale view. The second pass sees the
+      // settled state — making setT a pure function of t, which is what
+      // the harness assumes when it screenshots.
+      await host.renderFrame(t)
       await host.renderFrame(t)
       readout.textContent = `t = ${t.toFixed(2)}s (held)`
     },
