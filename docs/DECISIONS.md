@@ -170,3 +170,25 @@ operational decisions are entered by the working agent. Format:
   never for render cost, only to make history-dependent holons samplable
   at arbitrary t; (f) **pop-out** named as the first-class holon-birth
   operation (asset/chapter/symbol → own repo, import rewritten).
+- 2026-08-29 · **Three loops recorded → docs/LOOPS.md** (David) —
+  cutscene/game/creator with DreamOS's containment law (Creator ⊃ Game ⊃
+  Cutscene); fullscreen for cutscene+game; symbols as buttons with
+  hover-glow; travel via InterBrain's existing UUID resolver priority
+  (Pages → repo → Radicle); the comment-field-as-prompt portal (original
+  increment); player = editor strip-down.
+- 2026-08-29 · **Steal from InterBrain, verbatim** — (a) distance-
+  invariant hover scaling (dreamNodeStyles.ts:106: growth ∝ |z|/focusZ,
+  so apparent size change is constant at any depth); (b) the intent
+  funnel + "escape always rolls back to bedrock" for mode switching
+  (orchestration/ARCHITECTURE.md: transitions are imperative commands,
+  NEVER useEffect-derived — it documents the exact trap). DreamTalk's
+  loop switching adopts both.
+- 2026-08-29 · **Embedding path: standalone static bundle, not iframe**
+  — InterBrain's dreamsong-standalone pattern (dependency-free bundle,
+  data as inline script, identical in Obsidian and on Pages) matches
+  TASTE's thin-adapter contract; the CustomUIFullScreenView iframe+blob
+  socket exists as fallback. WebGPU availability in Obsidian's Electron
+  is UNVERIFIED — test before promising the game loop inside InterBrain.
+- 2026-08-29 · **InterBrain has NO timeline/animation machinery** — its
+  DreamSongs are .canvas scroll-documents with GIFs for motion. DreamTalk
+  fills that exact hole; no duplication anywhere.

@@ -85,9 +85,16 @@ what the holarchic submodule pattern already describes.
 - **Fullscreen rules and hover-glow affordances are NOT specified in
   DreamOS** — David's transmission defines them; DreamTalk is the
   origin of record.
-- **"DreamGarden" and the comment-field-as-prompt are undocumented
-  anywhere** — they exist only in David's speech and are original
-  increments recorded here first. The comment-portal is the
+- **"DreamGarden" as a NAME is undocumented anywhere, but the seeding
+  MECHANIC is fully implemented in InterBrain** under invite/clone:
+  `obsidian://interbrain-clone?ids=...` clones the shared nodes in
+  parallel, runs a collaboration handshake (finds-or-creates a Dreamer
+  node for the sender, links every cloned node to them), and publishing
+  is RECURSIVE over submodules — so receiving a DreamSong node brings
+  its constituent symbol nodes with it (sovereignty-service.ts:169-174,
+  uri-handler-service.ts:165+, github-service.ts:1092-1134). The
+  tutorial's "The Gift" is its vision statement. The comment-field-as-
+  prompt remains an original increment recorded here first. The comment-portal is the
   web-deployment instance of DreamOS's Event Bubbling universal
   fallback handler (README:42-48: an unhandled click on any symbol IS
   talking to the agent about that symbol; in creator mode all game

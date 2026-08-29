@@ -64,3 +64,21 @@ consume answered items into DECISIONS.md and clear them here.
   else.
 
 - (none yet)
+
+## [Ontology] Recon-surfaced TASTE questions (2026-08-29) — batched for David
+
+a. **Two kinds of DreamSong?** InterBrain's DreamSong is a visually
+   authored .canvas scroll-document; ONTOLOGY.md's is a .ts film. Both
+   satisfy David's abstract definition (ONE file, linear, relative
+   imports/references). PROPOSAL: both are DreamSongs — .canvas for
+   scroll-telling, .ts for films — and a node may carry either or both.
+b. **Submodule layout**: InterBrain puts submodules FLAT at repo root
+   (its click-back-to-source parser depends on it); DreamTalk/TheWall
+   use submodules/<Name>/. Two live conventions — pick one or bless both.
+c. **Manifest merge**: .udd (InterBrain, authoritative schema) vs
+   dreamtalk.json (TASTE) — a DreamTalk node that InterBrain can display
+   needs either a merge or a dual-reader. Also implied: .udd's single
+   `dreamTalk` string → list, for multiple-symbols-per-node.
+d. **TASTE amendments queued**: two-mode appreciator/creator framing →
+   the three loops (LOOPS.md); DreamOS's Rust/wgpu/Vello prose is
+   superseded by the TS decision (no action, note only).
