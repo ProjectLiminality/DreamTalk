@@ -210,3 +210,9 @@ operational decisions are entered by the working agent. Format:
   Ch 6 for the trail) → MindVirusJourney/TheWall (completion pipeline
   ports verbatim — already pure) → TheLabyrinth. The PNG-as-eye
   ImagePlane hack is precisely what the rebuild replaces.
+- 2026-08-29 · **A trail of a pure motion is itself pure** — the cable's
+  `trail(of, window)` source is samples of the carrier's PAST positions;
+  when position is f(t), trail(t) = {position(t−s) : s ∈ window} is a
+  pure function of t. No baking needed for MindVirus standalone (its
+  jellyfish pulses express as pure timeline, Journey-style). Baking (Ch 6)
+  is first genuinely required by the XPBD tether at the TheWall layer.
