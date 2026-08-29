@@ -61470,6 +61470,7 @@ class ThreeHost {
       const pts = polyline(holon);
       if (pts || holon instanceof Line2) {
         const ribbon = new RibbonStroke(holon.stroke.value);
+        ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
         group.add(ribbon.mesh);
         strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) };
@@ -63498,6 +63499,114 @@ class CurvesShowcaseDream extends Dream {
 if (false)
   ;
 
+// src/parts/molocheye.ts
+var SIN_HALF_SPAN = 4 / 5;
+var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
+var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
+var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
+var CAMERA_DISTANCE_RATIO = 1.282;
+var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
+var K2 = perspectiveK(CAMERA_DISTANCE_RATIO);
+var LENS_STROKE_RATIO = 0.0246;
+var PUPIL_EDGE_RATIO = 1.1673;
+var PUPIL_STROKE_RATIO = 2.284;
+var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
+var onePen = (strokes) => {
+  const n2 = strokes.length;
+  if (n2 === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i2) => {
+    const values = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const shared = ease("smooth", k2 / STEPS) * n2;
+      values.push(Math.min(1, Math.max(0, shared - i2)));
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class MolochEye extends Stroke {
+  static sovereign = true;
+  height = length2(100);
+  tint = color2(BLUE);
+  lensTop = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(-LENS_CENTER_RATIO),
+    startAngle: PI3 / 2 + HALF_SPAN,
+    endAngle: PI3 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  lensBottom = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(LENS_CENTER_RATIO),
+    startAngle: -PI3 / 2 + HALF_SPAN,
+    endAngle: -PI3 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
+  irisFill = new Ellipse({
+    radiusX: this.height.times(IRIS_FILL_RATIO),
+    radiusY: this.height.times(IRIS_FILL_RATIO),
+    filled: true,
+    tint: BLACK
+  });
+  pupilBack = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO * K2),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K2)
+  });
+  pupilFront = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
+  });
+  connectors = [];
+  compose() {
+    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
+    const back = front * K2;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ];
+    for (const [sx, sy] of corners) {
+      this.connectors.push(this.add(new Line2({
+        points: [
+          { x: sx * back, y: sy * back, z: 0 },
+          { x: sx * front, y: sy * front, z: 0 }
+        ],
+        tint: this.tint,
+        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K2) / 2)
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c2) => c2.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
+  }
+}
+
+// demo/wall/MolochEye.ts
+var H_PX = 300;
+var PX_PER_UNIT = 720 / 1500;
+
+class MolochEyeDream extends Dream {
+  eye = __dt(new MolochEye({
+    height: H_PX / PX_PER_UNIT,
+    stroke: LENS_STROKE_RATIO * H_PX
+  }), "core/demo/wall/MolochEye.ts:1052:1142");
+  unfold() {
+    __dt(this.play(Create(this.eye), 3), "core/demo/wall/MolochEye.ts:1161:1191");
+    this.wait(2);
+  }
+}
+if (false)
+  ;
+
 // demo/TextShowcase.ts
 class TextShowcaseDream extends Dream {
   transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
@@ -63606,7 +63715,8 @@ var scenes = {
   s07: S07Dream,
   s08: S08Dream,
   s05: S05Dream,
-  video01: DialecticalThinkingDream
+  video01: DialecticalThinkingDream,
+  molocheye: MolochEyeDream
 };
 var defaultScene = "founding";
 
@@ -64761,7 +64871,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render22 = (cached, span) => {
+  const render23 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -64804,7 +64914,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current = shownFile ? files.get(shownFile) : undefined;
       if (current)
-        render22(current);
+        render23(current);
       return;
     }
     (async () => {
@@ -64814,7 +64924,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render22(cached, {
+      const mark = render23(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -64830,7 +64940,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render22(cached);
+    render23(cached);
   };
   return {
     show,

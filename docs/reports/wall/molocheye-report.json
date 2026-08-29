@@ -1,0 +1,11 @@
+{
+  "name": "molocheye",
+  "ours": "shots/t2.72.png",
+  "ref": "ref-composite.png",
+  "iou": 0.8406,
+  "chamfer_ours_px": 0.23,
+  "chamfer_ref_px": 0.147,
+  "coverage_ref": 0.9904,
+  "coverage_ours": 0.9822,
+  "verdict": "PASS"
+}

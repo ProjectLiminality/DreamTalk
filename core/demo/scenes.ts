@@ -23,6 +23,7 @@ import { S08Dream } from "./video01/S08"
 import { S05Dream } from "./video01/S05"
 import { DialecticalThinkingDream } from "./video01/DialecticalThinking"
 import { CurvesShowcaseDream } from "./CurvesShowcase"
+import { MolochEyeDream } from "./wall/MolochEye"
 import { TextShowcaseDream } from "./TextShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -51,6 +52,7 @@ export const scenes: Record<string, DreamClass> = {
   s08: S08Dream,
   s05: S05Dream,
   video01: DialecticalThinkingDream,
+  molocheye: MolochEyeDream,
 }
 
 export const defaultScene = "founding"

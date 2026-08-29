@@ -458,6 +458,10 @@ export class ThreeHost {
       // ever appear; a shape holon with no polyline is a real absence.
       if (pts || holon instanceof Line) {
         const ribbon = new RibbonStroke(holon.stroke.value)
+        // Attach order IS composite order: a stroke attached after a fill
+        // draws over it (MolochEye's pupil over its black iris disk).
+        // Stroke-vs-stroke order is a no-op under MAX blending.
+        ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
         group.add(ribbon.mesh)
         strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) }
