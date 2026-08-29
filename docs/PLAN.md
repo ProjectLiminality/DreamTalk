@@ -420,3 +420,26 @@ Chapter 3. 8 needs 4–7; 9 needs 8; 10–12 need 9; 13 needs 10; 14 floats.
 4. Cross-scene Magic Move v1 (matching; morphs later).
 5. Dream/Holon unification with Ch 12; until then, new code treats
    scenes as holons-with-chronologies.
+
+## Overnight run 2026-08-29→30 (David: "keep going until truly exhausted")
+
+Work the TheWall stack bottom-up; verify each layer with the overlay
+harness before the next; commit early/often; honest scores. If a Fable 5
+usage limit hits agents, relaunch them with model "opus" (David's
+explicit instruction). Queue:
+
+1. [~] MindVirus layer (in flight): FoldableCube + Cable(trail) +
+   MindVirus, scored vs MindVirus.mp4 (28 frames @5fps).
+2. [~] TheLabyrinth maze math (parallel, disjoint): polar-cell maze +
+   wall chains as pure TS + tests (port of TheLabyrinth.py:75-456).
+3. [ ] MindVirusJourney + TheWall: SAT packing, Bezier flight,
+   completion pipeline (ports verbatim — already pure f(growth,index)),
+   growth wave; flower scene as intermediate check; cables OFF.
+4. [ ] Ch 6 first real work: the tether — XPBD port + bake-to-f(t)
+   (simulate once, sample), Cable gains `tether` source.
+5. [ ] The benchmark: TheWall.mp4 reproduction (TheLabyrinth scene,
+   circle r=1000, 4 rows, cables ON, row_lag 1.66, orbiting Observer,
+   501 frames/16.7s) scored with the gauntlet at 5fps.
+6. [ ] Ledger updates + a morning report for David with side-by-sides.
+Stop condition: queue exhausted, or three-strikes on any layer (record
+and move on), or nothing actionable remains (standing-army rule).
