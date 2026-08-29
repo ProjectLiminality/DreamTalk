@@ -192,3 +192,21 @@ operational decisions are entered by the working agent. Format:
 - 2026-08-29 · **InterBrain has NO timeline/animation machinery** — its
   DreamSongs are .canvas scroll-documents with GIFs for motion. DreamTalk
   fills that exact hole; no duplication anywhere.
+- 2026-08-29 · **The cable verdict (David asked; study instantiated
+  it)** — ONE Cable holon whose IDENTITY is the rendered face (tapered
+  tube, optional sliding contour rings, one param surface: width,
+  taper, ringStep, slack) and whose CONTEXT supplies the control-
+  polyline SOURCE: `trail(of, window)` — kinematic position history —
+  standalone; `tether(anchor, tip, slack)` — constrained chain — in
+  TheWall. Two named sources on one holon, not two cables and not one
+  forced universal behavior. Both sources are history-dependent, so
+  both are the Ch 6 baking case: simulate once at authoring, bake to
+  pure f(t), scrubbing and the gauntlet keep working. The wall code's
+  duplicated cube-collision model collapses into reading the one
+  FoldableCube definition.
+- 2026-08-29 · **TheWall stack is the next benchmark track** (David) —
+  reproduce AND improve: MolochEye (pure lines + black fill disk,
+  measured vs the canonical PNG) → FoldableCube + MindVirus (needs
+  Ch 6 for the trail) → MindVirusJourney/TheWall (completion pipeline
+  ports verbatim — already pure) → TheLabyrinth. The PNG-as-eye
+  ImagePlane hack is precisely what the rebuild replaces.
