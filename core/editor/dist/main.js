@@ -45943,10 +45943,19 @@ var isReadable = (v) => typeof v === "object" && v !== null && ("value" in v) &&
 var scalar = (v = 0) => new Param("scalar", v);
 var length2 = (v = 0) => new Param("length", v, 0);
 var angle = (v = 0) => new Param("angle", v);
+var bipolar = (v = 0) => new Param("bipolar", v, -1, 1);
 var completion = (v = 0) => new Param("completion", v, 0, 1);
 var integer = (v = 0) => new Param("integer", v);
 var bool2 = (v = false) => new Param("bool", v);
 var color2 = (v) => new Param("color", v);
+
+class State {
+  values;
+  constructor(values) {
+    this.values = values;
+  }
+}
+var state = (values) => new State(values);
 
 // src/holon.ts
 var INTERNALS = new WeakMap;
@@ -46490,6 +46499,7 @@ class Rectangle extends Stroke {
   width = length2(100);
   height = length2(200);
   rounding = completion(0);
+  filled = bool2(false);
   tint = color2(RED);
 }
 
@@ -61296,6 +61306,8 @@ var basePolyline = (holon) => {
     return pts;
   }
   if (holon instanceof Rectangle) {
+    if (holon.filled.value)
+      return;
     return rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value).map((p2) => new Vector3(p2.x, p2.y, p2.z));
   }
   if (holon instanceof Ellipse) {
@@ -61465,6 +61477,11 @@ class ThreeHost {
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
+    } else if (holon instanceof Rectangle && holon.filled.value) {
+      const fill = new FillShape(this.nextFillOrder++);
+      fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
+      group.add(fill.mesh);
+      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
       const pts = polyline(holon);
@@ -61531,7 +61548,7 @@ class ThreeHost {
       const key = shapeKey(holon);
       if (!keysEqual(key, binding.shapeKey)) {
         binding.shapeKey = key;
-        fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
+        fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
       fill.style(holon.creation.value * holon.opacity.value, holon.tint.value);
     }
@@ -63607,6 +63624,826 @@ class MolochEyeDream extends Dream {
 if (false)
   ;
 
+// src/parts/foldablecube.ts
+class FoldableCube extends Stroke {
+  size = length2(100);
+  fold = bipolar(0);
+  tint = color2(BLUE);
+  bottom = new Rectangle({
+    width: this.size,
+    height: this.size,
+    p: PI3 / 2,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
+  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
+  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
+  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
+  get foldAngle() {
+    return this.fold.value * PI3 / 2;
+  }
+  hinge(offset, angle2, axis = "p") {
+    return new Group2({
+      ...offset,
+      [axis]: derive(angle2),
+      members: [
+        new Rectangle({
+          width: this.size,
+          height: this.size,
+          p: PI3 / 2,
+          tint: this.tint,
+          stroke: this.stroke,
+          ...offset
+        })
+      ]
+    });
+  }
+  get walls() {
+    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
+  }
+}
+
+// src/parts/cable.ts
+var CTRL_POINTS = 12;
+var SMOOTH_BLEND = 0.5;
+var SMOOTH_ITERATIONS = 3;
+var TUBE_SAMPLES = 48;
+var RING_SEGMENTS = 16;
+var TRAVEL_SAMPLES_PER_SEC = 120;
+var sub3 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var add3 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var mul3 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var cross3 = (a2, b2) => ({
+  x: a2.y * b2.z - a2.z * b2.y,
+  y: a2.z * b2.x - a2.x * b2.z,
+  z: a2.x * b2.y - a2.y * b2.x
+});
+var len = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var norm = (a2) => {
+  const l2 = len(a2);
+  return l2 < 0.000000001 ? undefined : mul3(a2, 1 / l2);
+};
+var smoothControlPoints = (points, smoothing = SMOOTH_BLEND, iterations = SMOOTH_ITERATIONS) => {
+  if (points.length < 3)
+    return [...points];
+  let result = [...points];
+  for (let it2 = 0;it2 < iterations; it2++) {
+    const out = [result[0]];
+    for (let i2 = 1;i2 < result.length - 1; i2++) {
+      const t2 = i2 / (result.length - 1);
+      const blend = smoothing * (0.3 + 0.7 * t2);
+      const avg = mul3(add3(add3(result[i2 - 1], result[i2]), result[i2 + 1]), 1 / 3);
+      out.push(add3(result[i2], mul3(sub3(avg, result[i2]), blend)));
+    }
+    out.push(result[result.length - 1]);
+    result = out;
+  }
+  return result;
+};
+var catmullRomResample = (ctrl, count) => {
+  if (ctrl.length < 2)
+    return [...ctrl];
+  const P2 = (i2) => ctrl[Math.min(ctrl.length - 1, Math.max(0, i2))];
+  const out = [];
+  const segments = ctrl.length - 1;
+  for (let k2 = 0;k2 < count; k2++) {
+    const u2 = k2 / (count - 1) * segments;
+    const j2 = Math.min(Math.floor(u2), segments - 1);
+    const t2 = u2 - j2;
+    const [p0, p1, p2, p3] = [P2(j2 - 1), P2(j2), P2(j2 + 1), P2(j2 + 2)];
+    const t22 = t2 * t2;
+    const t3 = t22 * t2;
+    out.push({
+      x: 0.5 * (2 * p1.x + (p2.x - p0.x) * t2 + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t22 + (3 * p1.x - p0.x - 3 * p2.x + p3.x) * t3),
+      y: 0.5 * (2 * p1.y + (p2.y - p0.y) * t2 + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t22 + (3 * p1.y - p0.y - 3 * p2.y + p3.y) * t3),
+      z: 0.5 * (2 * p1.z + (p2.z - p0.z) * t2 + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t22 + (3 * p1.z - p0.z - 3 * p2.z + p3.z) * t3)
+    });
+  }
+  return out;
+};
+
+class Cable extends Stroke {
+  width = length2(2.5);
+  taper = completion(0.06);
+  ringStep = length2(30);
+  window = scalar(6);
+  clock = scalar(0);
+  rings = bool2(true);
+  tint = color2(WHITE);
+  view = { x: 0, y: 0, z: 1 };
+  maxRings = 64;
+  edgeA = new Line2({ tint: this.tint, stroke: this.stroke });
+  edgeB = new Line2({ tint: this.tint, stroke: this.stroke });
+  ringLines = [];
+  _path;
+  _since = 0;
+  _memoKey;
+  _memo;
+  trail(source, opts = {}) {
+    this.parts;
+    this._path = typeof source === "function" ? source : (t2) => source.pathAt(t2);
+    this._since = opts.since ?? 0;
+    if (opts.window !== undefined) {
+      this.window.defaultValue = opts.window;
+      this.window.value = opts.window;
+    }
+    return this;
+  }
+  compose() {
+    const derivedLine = (line, pick) => {
+      const cable = this;
+      Object.defineProperty(line, "points", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return pick(cable.geometry());
+        },
+        set(_v) {}
+      });
+    };
+    derivedLine(this.edgeA, (g2) => g2.a);
+    derivedLine(this.edgeB, (g2) => g2.b);
+    for (let i2 = 0;i2 < this.maxRings; i2++) {
+      const ring = this.add(new Line2({ tint: this.tint, stroke: this.stroke }));
+      this.ringLines.push(ring);
+      derivedLine(ring, (g2) => g2.rings[i2] ?? []);
+    }
+  }
+  geometryKey() {
+    const key = [
+      this.clock.value,
+      this.width.value,
+      this.taper.value,
+      this.ringStep.value,
+      this.window.value,
+      this.rings.value ? 1 : 0,
+      this._since
+    ];
+    for (let node = this.parent;node; node = node.parent) {
+      key.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
+    }
+    return key;
+  }
+  toLocal(v2) {
+    const chain2 = [];
+    for (let node = this.parent;node; node = node.parent)
+      chain2.push(node);
+    let out = v2;
+    for (let i2 = chain2.length - 1;i2 >= 0; i2--) {
+      const anc = chain2[i2];
+      out = sub3(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
+      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
+      const s2 = anc.scale.value;
+      if (s2 !== 1)
+        out = mul3(out, 1 / s2);
+    }
+    return out;
+  }
+  geometry() {
+    const key = this.geometryKey();
+    if (this._memo && this._memoKey && key.length === this._memoKey.length && key.every((v2, i2) => v2 === this._memoKey[i2])) {
+      return this._memo;
+    }
+    this._memoKey = key;
+    this._memo = this.computeGeometry();
+    return this._memo;
+  }
+  computeGeometry() {
+    const empty2 = { a: [], b: [], rings: this.ringLines.map(() => []) };
+    const path = this._path;
+    if (!path)
+      return empty2;
+    const T3 = this.clock.value;
+    const t0 = Math.max(this._since, T3 - this.window.value);
+    const span = T3 - t0;
+    if (span <= 0.0001)
+      return empty2;
+    const raw = [];
+    for (let i2 = 0;i2 < CTRL_POINTS; i2++)
+      raw.push(path(T3 - i2 / (CTRL_POINTS - 1) * span));
+    const pts = catmullRomResample(smoothControlPoints(raw), TUBE_SAMPLES);
+    const cum = [0];
+    for (let i2 = 1;i2 < pts.length; i2++)
+      cum.push(cum[i2 - 1] + len(sub3(pts[i2], pts[i2 - 1])));
+    const total = cum[cum.length - 1];
+    if (total < 0.000001)
+      return empty2;
+    const view = this.view;
+    const tangents = [];
+    const normals = [];
+    let lastNormal = { x: 0, y: 1, z: 0 };
+    for (let i2 = 0;i2 < pts.length; i2++) {
+      const p0 = pts[Math.max(0, i2 - 1)];
+      const p1 = pts[Math.min(pts.length - 1, i2 + 1)];
+      const tan3 = norm(sub3(p1, p0)) ?? { x: 1, y: 0, z: 0 };
+      tangents.push(tan3);
+      const n2 = norm(cross3(tan3, view)) ?? lastNormal;
+      lastNormal = n2;
+      normals.push(n2);
+    }
+    const radiusAt = (arcFrac) => this.width.value * (1 - (1 - this.taper.value) * arcFrac);
+    const a2 = [];
+    const b2 = [];
+    for (let i2 = 0;i2 < pts.length; i2++) {
+      const r2 = radiusAt(cum[i2] / total);
+      a2.push(this.toLocal(add3(pts[i2], mul3(normals[i2], r2))));
+      b2.push(this.toLocal(sub3(pts[i2], mul3(normals[i2], r2))));
+    }
+    const rings = this.ringLines.map(() => []);
+    const step3 = this.ringStep.value;
+    if (this.rings.value && step3 > 0) {
+      const K3 = Math.min(900, Math.max(2, Math.ceil((T3 - this._since) * TRAVEL_SAMPLES_PER_SEC)));
+      const times = [];
+      const travel = [0];
+      let prev = path(this._since);
+      times.push(this._since);
+      for (let k2 = 1;k2 < K3; k2++) {
+        const tk = this._since + (T3 - this._since) * k2 / (K3 - 1);
+        const p2 = path(tk);
+        times.push(tk);
+        travel.push(travel[k2 - 1] + len(sub3(p2, prev)));
+        prev = p2;
+      }
+      const travelAt = (t2) => {
+        if (t2 <= times[0])
+          return 0;
+        for (let k2 = 1;k2 < K3; k2++) {
+          if (times[k2] >= t2) {
+            const u2 = (t2 - times[k2 - 1]) / (times[k2] - times[k2 - 1] || 1);
+            return travel[k2 - 1] + u2 * (travel[k2] - travel[k2 - 1]);
+          }
+        }
+        return travel[K3 - 1];
+      };
+      const timeAtTravel = (d2) => {
+        for (let k2 = 1;k2 < K3; k2++) {
+          if (travel[k2] >= d2) {
+            const u2 = (d2 - travel[k2 - 1]) / (travel[k2] - travel[k2 - 1] || 1);
+            return times[k2 - 1] + u2 * (times[k2] - times[k2 - 1]);
+          }
+        }
+        return times[K3 - 1];
+      };
+      const dHead = travel[K3 - 1];
+      const dTail = travelAt(t0);
+      const mMax = Math.floor(dHead / step3);
+      const mMin = Math.max(1, Math.ceil(dTail / step3));
+      for (let j2 = 0;j2 < this.ringLines.length; j2++) {
+        const m2 = mMax - j2;
+        if (m2 < mMin)
+          break;
+        const tau = timeAtTravel(m2 * step3);
+        const f2 = Math.min(1, Math.max(0, (T3 - tau) / span));
+        const u2 = f2 * (pts.length - 1);
+        const i2 = Math.min(Math.floor(u2), pts.length - 2);
+        const w4 = u2 - i2;
+        const center = add3(mul3(pts[i2], 1 - w4), mul3(pts[i2 + 1], w4));
+        const tan3 = norm(add3(mul3(tangents[i2], 1 - w4), mul3(tangents[i2 + 1], w4))) ?? tangents[i2];
+        const n2 = norm(cross3(tan3, view)) ?? normals[i2];
+        const m22 = norm(cross3(tan3, n2)) ?? { x: 0, y: 1, z: 0 };
+        const arcFrac = (cum[i2] + w4 * (cum[i2 + 1] - cum[i2])) / total;
+        const r2 = radiusAt(arcFrac);
+        const ring = [];
+        for (let s2 = 0;s2 <= RING_SEGMENTS; s2++) {
+          const th = s2 / RING_SEGMENTS * TAU;
+          ring.push(this.toLocal(add3(center, add3(mul3(n2, r2 * Math.cos(th)), mul3(m22, r2 * Math.sin(th))))));
+        }
+        rings[j2] = ring;
+      }
+    }
+    return { a: a2, b: b2, rings };
+  }
+}
+
+// src/parts/mindvirus.ts
+var PULSE_SHARES = { open: 0.3, thrust: 0.2 };
+var PULSE_DISTANCE_SHARES = { open: 0.05, thrust: 0.55 };
+var PULSE_MIN_FOLD = 0.1;
+var pulseFold = (u2, shares = PULSE_SHARES, minFold = PULSE_MIN_FOLD) => {
+  const openEnd = shares.open;
+  const holdEnd = openEnd + (shares.hold ?? 0);
+  const thrustEnd = holdEnd + shares.thrust;
+  if (u2 <= 0)
+    return 1;
+  if (u2 < openEnd)
+    return 1 + (minFold - 1) * ease("smooth", u2 / openEnd);
+  if (u2 < holdEnd)
+    return minFold;
+  if (u2 < thrustEnd)
+    return minFold + (1 - minFold) * ease("smooth", (u2 - holdEnd) / shares.thrust);
+  return 1;
+};
+var pulseDistance = (u2, shares = PULSE_SHARES, distance3 = PULSE_DISTANCE_SHARES) => {
+  const openEnd = shares.open;
+  const holdShare = shares.hold ?? 0;
+  const holdEnd = openEnd + holdShare;
+  const thrustEnd = holdEnd + shares.thrust;
+  const { open, thrust } = distance3;
+  const hold = holdShare > 0 ? 0.05 : 0;
+  if (u2 <= 0)
+    return 0;
+  if (u2 >= 1)
+    return 1;
+  if (u2 < openEnd)
+    return open * ease("smooth", u2 / openEnd);
+  if (u2 < holdEnd)
+    return open + hold * ((u2 - openEnd) / holdShare);
+  if (u2 < thrustEnd)
+    return open + hold + (thrust - hold) * ease("smooth", (u2 - holdEnd) / shares.thrust);
+  return open + thrust + (1 - open - thrust) * ease("smooth", (u2 - thrustEnd) / (1 - thrustEnd));
+};
+var headingFor = (dir) => ({
+  h: Math.atan2(dir.x, Math.hypot(dir.y, dir.z)),
+  p: Math.atan2(-dir.y, dir.z)
+});
+var forwardFor = (h2, p2, b2 = 0) => {
+  const v2 = { x: Math.sin(h2), y: -Math.cos(h2) * Math.sin(p2), z: Math.cos(h2) * Math.cos(p2) };
+  return {
+    x: v2.x * Math.cos(b2) - v2.y * Math.sin(b2),
+    y: v2.x * Math.sin(b2) + v2.y * Math.cos(b2),
+    z: v2.z
+  };
+};
+var lerp3 = (a2, b2, u2) => ({
+  x: a2.x + (b2.x - a2.x) * u2,
+  y: a2.y + (b2.y - a2.y) * u2,
+  z: a2.z + (b2.z - a2.z) * u2
+});
+var normDir = (v2, fallback) => {
+  const l2 = Math.hypot(v2.x, v2.y, v2.z);
+  return l2 < 0.000000001 ? fallback : { x: v2.x / l2, y: v2.y / l2, z: v2.z / l2 };
+};
+
+class MindVirus extends Holon {
+  static sovereign = true;
+  fold = bipolar(1);
+  clock = scalar(0);
+  states = {
+    idle: state({ fold: 1 }),
+    hunting: state({ fold: 0.5 }),
+    attached: state({ fold: -1 })
+  };
+  molochEye = new MolochEye({ height: 17.3, stroke: 2, z: 2 });
+  cube = new FoldableCube({ fold: this.fold, p: -PI3 / 2, stroke: 2.5 });
+  cable = new Cable({ clock: this.clock, width: 4.8, taper: 0.1, stroke: 2 });
+  journey;
+  _segments;
+  segments() {
+    if (this._segments)
+      return this._segments;
+    const j2 = this.journey;
+    if (!j2)
+      return [];
+    const pulses = [...j2.pulses].sort((a2, b2) => a2.start - b2.start);
+    const segs = [];
+    let from = j2.origin;
+    let dir = { x: 0, y: 0, z: 1 };
+    for (const p2 of pulses) {
+      dir = normDir({ x: p2.to.x - from.x, y: p2.to.y - from.y, z: p2.to.z - from.z }, dir);
+      segs.push({
+        start: p2.start,
+        end: p2.start + p2.duration,
+        from,
+        to: p2.to,
+        dir,
+        headingDir: p2.heading ? normDir(p2.heading, dir) : dir,
+        shares: p2.shares ?? PULSE_SHARES,
+        distanceShares: p2.distanceShares ?? PULSE_DISTANCE_SHARES
+      });
+      from = p2.to;
+    }
+    this._segments = segs;
+    return segs;
+  }
+  pathAt(time3) {
+    const segs = this.segments();
+    if (segs.length === 0)
+      return { x: this.x.value, y: this.y.value, z: this.z.value };
+    let pos = segs[0].from;
+    for (const seg of segs) {
+      if (time3 <= seg.start)
+        return pos;
+      if (time3 < seg.end) {
+        const u2 = (time3 - seg.start) / (seg.end - seg.start);
+        return lerp3(seg.from, seg.to, pulseDistance(u2, seg.shares, seg.distanceShares));
+      }
+      pos = seg.to;
+    }
+    return pos;
+  }
+  headingAt(time3) {
+    const segs = this.segments();
+    if (segs.length === 0)
+      return forwardFor(this.h.value, this.p.value, this.b.value);
+    let dir = segs[0].headingDir;
+    for (let i2 = 0;i2 < segs.length; i2++) {
+      const seg = segs[i2];
+      if (time3 <= seg.start)
+        return dir;
+      if (time3 < seg.end) {
+        const u2 = (time3 - seg.start) / (seg.end - seg.start);
+        return normDir(lerp3(dir, seg.headingDir, ease("smooth", u2)), seg.headingDir);
+      }
+      dir = seg.headingDir;
+    }
+    return dir;
+  }
+  foldAt(time3) {
+    for (const seg of this.segments()) {
+      if (time3 >= seg.start && time3 < seg.end) {
+        return pulseFold((time3 - seg.start) / (seg.end - seg.start), seg.shares);
+      }
+    }
+    return 1;
+  }
+  compose() {
+    if (!this.journey || this.journey.pulses.length === 0)
+      return;
+    this.x.follow(derive(() => this.pathAt(this.clock.value).x));
+    this.y.follow(derive(() => this.pathAt(this.clock.value).y));
+    this.z.follow(derive(() => this.pathAt(this.clock.value).z));
+    this.h.follow(derive(() => headingFor(this.headingAt(this.clock.value)).h));
+    this.p.follow(derive(() => headingFor(this.headingAt(this.clock.value)).p));
+    this.fold.follow(derive(() => this.foldAt(this.clock.value)));
+    this.cable.trail((t2) => this.pathAt(t2), { since: 0 });
+  }
+  thrustPulse(distance3 = 100, shares = PULSE_SHARES) {
+    const STEPS = 60;
+    const dir = forwardFor(this.h.value, this.p.value, this.b.value);
+    const x0 = this.x.value;
+    const y0 = this.y.value;
+    const z0 = this.z.value;
+    const folds = [];
+    const xs = [];
+    const ys = [];
+    const zs = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const u2 = k2 / STEPS;
+      folds.push(pulseFold(u2, shares));
+      const d2 = distance3 * pulseDistance(u2, shares);
+      xs.push(x0 + dir.x * d2);
+      ys.push(y0 + dir.y * d2);
+      zs.push(z0 + dir.z * d2);
+    }
+    return eased("linear", together(this.fold.sequence(...folds), this.x.sequence(...xs), this.y.sequence(...ys), this.z.sequence(...zs)));
+  }
+  wrap(completion2 = -1) {
+    return this.fold.to(completion2);
+  }
+}
+
+// demo/wall/MindVirus.ts
+var DUR = 5.65;
+
+class MindVirusDream extends Dream {
+  virus = __dt(new MindVirus({
+    journey: {
+      origin: { x: 150, y: 45, z: 780 },
+      pulses: [
+        { start: 0.05, duration: 0.22, to: { x: 13, y: 4, z: 885 }, heading: { x: 0, y: 0, z: 1 } },
+        { start: 0.3, duration: 0.65, to: { x: 0, y: 0, z: 910 } },
+        {
+          start: 0.95,
+          duration: 1.15,
+          to: { x: -78, y: -24, z: 1180 },
+          distanceShares: { open: 0.25, thrust: 0.45 }
+        },
+        {
+          start: 2.1,
+          duration: 1.9,
+          to: { x: -395, y: -125, z: 1450 },
+          shares: { open: 0.26, thrust: 0.12 },
+          distanceShares: { open: 0.05, thrust: 0.15 }
+        }
+      ]
+    }
+  }), "core/demo/wall/MindVirus.ts:1620:2548");
+  unfold() {
+    const virus = this.virus;
+    __dt(this.play(together(virus.clock.to(DUR, { easing: "linear" }), [eased("smooth", virus.scale.sequence(0, 1)), 0.15 / DUR, 0.38 / DUR], [eased("smooth", virus.molochEye.scale.sequence(0, 1)), 0.2 / DUR, 0.5 / DUR]), DUR), "core/demo/wall/MindVirus.ts:2596:3004");
+  }
+}
+if (false)
+  ;
+
+// src/geometry/labyrinth.ts
+var ARC_SEGMENTS = 8;
+var CELL_WIDTH_LIMIT = 2;
+var MIN_BASE_CELLS = 3;
+var TOLERANCE_RATIO = 0.01;
+var mulberry32 = (seed) => {
+  let a2 = seed >>> 0;
+  return () => {
+    a2 = a2 + 1831565813 | 0;
+    let t2 = Math.imul(a2 ^ a2 >>> 15, 1 | a2);
+    t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2;
+    return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
+  };
+};
+var ringLayout = (radius, citadelRadius, targetCellSize) => {
+  const span = radius - citadelRadius;
+  const ringCount = Math.max(1, Math.round(span / targetCellSize));
+  const ringThickness = span / ringCount;
+  const baseMidRadius = citadelRadius + ringThickness / 2;
+  const baseCells = Math.max(MIN_BASE_CELLS, Math.ceil(2 * Math.PI * baseMidRadius / (CELL_WIDTH_LIMIT * ringThickness)));
+  const cellsPerRing = [baseCells];
+  for (let r2 = 1;r2 < ringCount; r2++) {
+    const midRadius = citadelRadius + (r2 + 0.5) * ringThickness;
+    const arcPerCell = 2 * Math.PI * midRadius / cellsPerRing[r2 - 1];
+    cellsPerRing.push(arcPerCell > CELL_WIDTH_LIMIT * ringThickness ? cellsPerRing[r2 - 1] * 2 : cellsPerRing[r2 - 1]);
+  }
+  const radii = [];
+  for (let i2 = 0;i2 <= ringCount; i2++)
+    radii.push(citadelRadius + span * i2 / ringCount);
+  const cellCount = cellsPerRing.reduce((a2, b2) => a2 + b2, 0);
+  return { ringCount, ringThickness, cellsPerRing, radii, cellCount };
+};
+var ringOffsets = (cellsPerRing) => {
+  const offsets = [0];
+  for (const count of cellsPerRing)
+    offsets.push(offsets[offsets.length - 1] + count);
+  return offsets;
+};
+var buildAdjacency = (cellsPerRing) => {
+  const offsets = ringOffsets(cellsPerRing);
+  const id = (r2, c2) => offsets[r2] + c2;
+  const adjacency = [];
+  for (let r2 = 0;r2 < cellsPerRing.length; r2++) {
+    const count = cellsPerRing[r2];
+    for (let c2 = 0;c2 < count; c2++) {
+      const neighbors = [];
+      neighbors.push(id(r2, (c2 + 1) % count));
+      neighbors.push(id(r2, (c2 - 1 + count) % count));
+      if (r2 > 0) {
+        const prevCount = cellsPerRing[r2 - 1];
+        neighbors.push(count === prevCount ? id(r2 - 1, c2) : id(r2 - 1, Math.floor(c2 * prevCount / count)));
+      }
+      if (r2 < cellsPerRing.length - 1) {
+        const nextCount = cellsPerRing[r2 + 1];
+        if (nextCount === count) {
+          neighbors.push(id(r2 + 1, c2));
+        } else {
+          const ratio = nextCount / count;
+          for (let k2 = 0;k2 < ratio; k2++)
+            neighbors.push(id(r2 + 1, c2 * ratio + k2));
+        }
+      }
+      adjacency.push(neighbors);
+    }
+  }
+  return adjacency;
+};
+var passageKey = (a2, b2) => a2 < b2 ? `${a2}|${b2}` : `${b2}|${a2}`;
+var carveMaze = (adjacency, random) => {
+  const passages = new Set;
+  const visited = new Array(adjacency.length).fill(false);
+  const stack3 = [0];
+  visited[0] = true;
+  while (stack3.length > 0) {
+    const current = stack3[stack3.length - 1];
+    const open = adjacency[current].filter((n2) => !visited[n2]);
+    if (open.length > 0) {
+      const next = open[Math.floor(random() * open.length)];
+      passages.add(passageKey(current, next));
+      visited[next] = true;
+      stack3.push(next);
+    } else {
+      stack3.pop();
+    }
+  }
+  return passages;
+};
+var arcPoints = (radius, angleStart, angleEnd) => {
+  const points = [];
+  for (let i2 = 0;i2 <= ARC_SEGMENTS; i2++) {
+    const angle2 = angleStart + (angleEnd - angleStart) * i2 / ARC_SEGMENTS;
+    points.push({ x: radius * Math.cos(angle2), y: radius * Math.sin(angle2) });
+  }
+  return points;
+};
+var extractWallSegments = (layout, passages) => {
+  const { cellsPerRing, radii, ringCount } = layout;
+  const offsets = ringOffsets(cellsPerRing);
+  const id = (r2, c2) => offsets[r2] + c2;
+  const TWO_PI3 = 2 * Math.PI;
+  const segments = [];
+  for (let r2 = 0;r2 < ringCount; r2++) {
+    const count = cellsPerRing[r2];
+    const rInner = radii[r2];
+    const rOuter = radii[r2 + 1];
+    const cellAngle = TWO_PI3 / count;
+    for (let c2 = 0;c2 < count; c2++) {
+      const angleEnd = cellAngle * (c2 + 1);
+      const cell = id(r2, c2);
+      if (r2 < ringCount - 1) {
+        const nextCount = cellsPerRing[r2 + 1];
+        if (nextCount === count) {
+          if (!passages.has(passageKey(cell, id(r2 + 1, c2)))) {
+            segments.push(arcPoints(rOuter, cellAngle * c2, angleEnd));
+          }
+        } else {
+          const ratio = nextCount / count;
+          const childAngle = TWO_PI3 / nextCount;
+          for (let k2 = 0;k2 < ratio; k2++) {
+            const child = c2 * ratio + k2;
+            if (!passages.has(passageKey(cell, id(r2 + 1, child)))) {
+              segments.push(arcPoints(rOuter, childAngle * child, childAngle * (child + 1)));
+            }
+          }
+        }
+      }
+      if (!passages.has(passageKey(cell, id(r2, (c2 + 1) % count)))) {
+        segments.push([
+          { x: rInner * Math.cos(angleEnd), y: rInner * Math.sin(angleEnd) },
+          { x: rOuter * Math.cos(angleEnd), y: rOuter * Math.sin(angleEnd) }
+        ]);
+      }
+    }
+  }
+  return segments;
+};
+var dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y);
+var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
+  const touchesCitadel = (segment) => segment.some((p2) => Math.abs(Math.hypot(p2.x, p2.y) - citadelRadius) < tolerance);
+  const connected = new Set;
+  const remaining = new Set;
+  segments.forEach((segment, i2) => {
+    if (touchesCitadel(segment))
+      connected.add(i2);
+    else
+      remaining.add(i2);
+  });
+  const ends = (i2) => [segments[i2][0], segments[i2][segments[i2].length - 1]];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const i2 of remaining) {
+      const [a0, a1] = ends(i2);
+      let joined = false;
+      for (const j2 of connected) {
+        const [b0, b1] = ends(j2);
+        if (dist(a0, b0) < tolerance || dist(a0, b1) < tolerance || dist(a1, b0) < tolerance || dist(a1, b1) < tolerance) {
+          joined = true;
+          break;
+        }
+      }
+      if (joined) {
+        connected.add(i2);
+        remaining.delete(i2);
+        changed = true;
+      }
+    }
+  }
+  return [...connected].sort((a2, b2) => a2 - b2).map((i2) => segments[i2]);
+};
+var snapKey = (p2, precision) => `${Math.round(p2.x / precision)},${Math.round(p2.y / precision)}`;
+var mergeSegmentsIntoChains = (segments, tolerance) => {
+  const endPoint = (e2) => e2.end === 0 ? segments[e2.seg][0] : segments[e2.seg][segments[e2.seg].length - 1];
+  const junctions = new Map;
+  segments.forEach((_2, seg) => {
+    for (const end of [0, 1]) {
+      const key = snapKey(endPoint({ seg, end }), tolerance);
+      const entries = junctions.get(key);
+      if (entries)
+        entries.push({ seg, end });
+      else
+        junctions.set(key, [{ seg, end }]);
+    }
+  });
+  const partnerOf = (e2) => {
+    const entries = junctions.get(snapKey(endPoint(e2), tolerance));
+    if (entries.length !== 2)
+      return;
+    const other = entries.find((o2) => o2.seg !== e2.seg);
+    return other;
+  };
+  const visited = new Set;
+  const chains = [];
+  for (let start = 0;start < segments.length; start++) {
+    if (visited.has(start))
+      continue;
+    visited.add(start);
+    const forward = [];
+    let cursor = { seg: start, end: 1 };
+    for (;; ) {
+      const partner = partnerOf(cursor);
+      if (!partner || visited.has(partner.seg))
+        break;
+      visited.add(partner.seg);
+      forward.push({ seg: partner.seg, flip: partner.end === 1 });
+      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
+    }
+    const backward = [];
+    cursor = { seg: start, end: 0 };
+    for (;; ) {
+      const partner = partnerOf(cursor);
+      if (!partner || visited.has(partner.seg))
+        break;
+      visited.add(partner.seg);
+      backward.push({ seg: partner.seg, flip: partner.end === 0 });
+      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
+    }
+    backward.reverse();
+    const sequence = [...backward, { seg: start, flip: false }, ...forward];
+    const points = [];
+    sequence.forEach((link2, i2) => {
+      const raw = segments[link2.seg];
+      const oriented = link2.flip ? [...raw].reverse() : raw;
+      points.push(...i2 === 0 ? oriented : oriented.slice(1));
+    });
+    chains.push(points);
+  }
+  return chains;
+};
+var citadelPolyline = (citadelRadius, baseCells) => {
+  const count = ARC_SEGMENTS * baseCells * 2;
+  const points = [];
+  for (let i2 = 0;i2 < count; i2++) {
+    const angle2 = 2 * Math.PI * i2 / count;
+    points.push({ x: citadelRadius * Math.cos(angle2), y: citadelRadius * Math.sin(angle2) });
+  }
+  points.push({ ...points[0] });
+  return points;
+};
+var innermostRadius = (chain2) => chain2.reduce((min5, p2) => Math.min(min5, Math.hypot(p2.x, p2.y)), Infinity);
+var generateLabyrinth = (config) => {
+  const { radius, citadelRadius, targetCellSize, seed } = config;
+  const tolerance = targetCellSize * TOLERANCE_RATIO;
+  const cells = ringLayout(radius, citadelRadius, targetCellSize);
+  const adjacency = buildAdjacency(cells.cellsPerRing);
+  const passages = carveMaze(adjacency, mulberry32(seed));
+  const segments = extractWallSegments(cells, passages);
+  const connected = filterConnectedToCitadel(segments, citadelRadius, tolerance);
+  const chains = mergeSegmentsIntoChains(connected, tolerance).sort((a2, b2) => innermostRadius(a2) - innermostRadius(b2));
+  const citadel = citadelPolyline(citadelRadius, cells.cellsPerRing[0]);
+  return {
+    chains,
+    citadel,
+    cells,
+    stats: {
+      passageCount: passages.size,
+      wallSegments: segments.length,
+      connectedSegments: connected.length,
+      orphanSegments: segments.length - connected.length,
+      chainCount: chains.length
+    }
+  };
+};
+
+// src/parts/labyrinth.ts
+var CITADEL_WINDOW = 0.25;
+var CHAINS_START = 0.15;
+
+class Labyrinth extends Stroke {
+  static sovereign = true;
+  radius = length2(650);
+  citadelRadius = length2(165);
+  cellSize = length2(80);
+  seed = integer(42);
+  tint = color2(BLUE);
+  chains = [];
+  citadel;
+  maze;
+  compose() {
+    this.maze = generateLabyrinth({
+      radius: this.radius.value,
+      citadelRadius: this.citadelRadius.value,
+      targetCellSize: this.cellSize.value,
+      seed: this.seed.value
+    });
+    this.citadel = this.add(new Circle({ radius: this.citadelRadius, tint: this.tint, stroke: this.stroke }));
+    for (const chain2 of this.maze.chains) {
+      this.chains.push(this.add(new Line2({
+        points: chain2.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })),
+        tint: this.tint,
+        stroke: this.stroke
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    const windows2 = dominoWindows(this.chains.length);
+    const span = 1 - CHAINS_START;
+    const items = [
+      [this.citadel.creation.sequence(0, 1), 0, CITADEL_WINDOW],
+      ...this.chains.map((line, i2) => restage(line.creation.sequence(0, 1), CHAINS_START + windows2[i2][0] * span, CHAINS_START + windows2[i2][1] * span))
+    ];
+    return together(...items);
+  }
+}
+
+// demo/wall/Labyrinth.ts
+class LabyrinthDream extends Dream {
+  maze = __dt(new Labyrinth({ stroke: 2 }), "core/demo/wall/Labyrinth.ts:882:910");
+  unfold() {
+    __dt(this.play(Create(this.maze), 4), "core/demo/wall/Labyrinth.ts:929:960");
+    this.wait(2);
+  }
+}
+if (false)
+  ;
+
 // demo/TextShowcase.ts
 class TextShowcaseDream extends Dream {
   transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
@@ -63716,7 +64553,9 @@ var scenes = {
   s08: S08Dream,
   s05: S05Dream,
   video01: DialecticalThinkingDream,
-  molocheye: MolochEyeDream
+  molocheye: MolochEyeDream,
+  mindvirus: MindVirusDream,
+  labyrinth: LabyrinthDream
 };
 var defaultScene = "founding";
 
@@ -64871,7 +65710,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render23 = (cached, span) => {
+  const render25 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -64914,7 +65753,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current = shownFile ? files.get(shownFile) : undefined;
       if (current)
-        render23(current);
+        render25(current);
       return;
     }
     (async () => {
@@ -64924,7 +65763,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render23(cached, {
+      const mark = render25(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -64940,7 +65779,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render23(cached);
+    render25(cached);
   };
   return {
     show,
