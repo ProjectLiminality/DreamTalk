@@ -8,17 +8,16 @@
  * while the observer swings from straight overhead round to eye level.
  *
  * This is TheLabyrinth.py's __main__ (:466-585) — the scene that
- * rendered the reference TheWall.mp4 — minus two things it had:
+ * rendered the reference TheWall.mp4 — minus one thing it had: the MAZE
+ * floor, which belongs to the Labyrinth holon above this one
+ * (demo/wall/Labyrinth.ts).
  *
- *  - the CABLES. In the original every creature trails an XPBD tether
- *    back to the spawn anchor, and in the reference render those white
- *    filaments are the dominant image for most of the video (the
- *    "dandelion"). They are history-dependent and await the baking
- *    pass (DECISIONS 2026-08-29), so this scene is the choreography
- *    without them: the flights, the growth wave, the folding, the
- *    camera.
- *  - the MAZE floor, which belongs to the Labyrinth holon above this
- *    one (demo/wall/Labyrinth.ts).
+ * The CABLES are on. Every creature trails an XPBD tether back to the
+ * spawn anchor, and in the reference those white filaments are the
+ * dominant image for most of the video — the dandelion. They are
+ * history-dependent, so the wall bakes all 236 simulations while this
+ * scene is built (~2.3 s, ~30 MB); from then on they are pure f(t) like
+ * everything else, and the scene scrubs in both directions.
  *
  * ## The reference and its mapping
  *
@@ -61,6 +60,9 @@ export class TheWallDream extends Dream {
     // origin, a 300-unit flourish (:487-489).
     spawn: { x: 0, y: 0, z: 0 },
     spawnDirection: { x: 0, y: 300, z: 0 },
+    // The tethers, baked at build time over this scene's own span.
+    cables: true,
+    cableDuration: WALL_DURATION,
   })
 
   unfold() {

@@ -206,3 +206,93 @@ describe("footprints", () => {
     ).toBe(62)
   })
 })
+
+describe("the tether cables", () => {
+  /** A small wall — one row of the circle is enough to test the seam,
+   *  and 236 bakes in a unit test would be rude. */
+  const cabled = (): TheWall =>
+    new TheWall({
+      rowCount: 1,
+      footprint: circleFootprint(300),
+      spawn: { x: 0, y: 0, z: 0 },
+      spawnDirection: { x: 0, y: 300, z: 0 },
+      cables: true,
+      cableDuration: 4,
+      cableFps: 15,
+    })
+
+  test("off by default — the wall is the choreography alone", () => {
+    const wall = new TheWall({ rowCount: 1, footprint: circleFootprint(300) })
+    void wall.parts
+    expect(wall.cables.value).toBe(false)
+    expect(wall.cableBakeBytes).toBe(0)
+  })
+
+  test("on: every creature gets a baked tether", () => {
+    const wall = cabled()
+    void wall.parts
+    const placements = (wall as unknown as { placements: { virus: MindVirus }[] }).placements
+    expect(placements.length).toBe(wall.virusCount)
+    for (const { virus } of placements) expect(virus.cable.bakedBytes).toBeGreaterThan(0)
+  })
+
+  test("the bake happens at compose, not at playback", () => {
+    const wall = cabled()
+    void wall.parts
+    const before = wall.cableBakeMs
+    // Scrubbing the whole span must not re-bake.
+    for (const g of [0, 0.3, 0.9, 0.5, 0.1]) {
+      wall.growth.value = g
+      void wall.parts
+    }
+    expect(wall.cableBakeMs).toBe(before)
+  })
+
+  test("the ring pool stays empty with cables on — a creature is 25 holons", () => {
+    const wall = cabled()
+    void wall.parts
+    const placements = (wall as unknown as { placements: { virus: MindVirus }[] }).placements
+    for (const { virus } of placements) {
+      expect(virus.cable.maxRings).toBe(0)
+      expect(virus.cable.rings.value).toBe(false)
+    }
+  })
+
+  test("the cables render, and follow growth", () => {
+    const wall = cabled()
+    void wall.parts
+    const virus = (wall as unknown as { placements: { virus: MindVirus }[] }).placements[0]!.virus
+    wall.growth.value = 0
+    const atZero = virus.cable.edgeA.points.length
+    wall.growth.value = 0.9
+    const atNine = virus.cable.edgeA.points.length
+    expect(atZero).toBe(0)
+    expect(atNine).toBeGreaterThan(0)
+  })
+
+  test("scrubbing growth backwards reproduces identical cable geometry", () => {
+    const wall = cabled()
+    void wall.parts
+    const virus = (wall as unknown as { placements: { virus: MindVirus }[] }).placements[0]!.virus
+    const growths = [0.2, 0.4, 0.6, 0.8, 1]
+    const forward = growths.map((g) => {
+      wall.growth.value = g
+      return JSON.stringify(virus.cable.edgeA.points)
+    })
+    const backward: string[] = []
+    for (let i = growths.length - 1; i >= 0; i--) {
+      wall.growth.value = growths[i]!
+      backward.unshift(JSON.stringify(virus.cable.edgeA.points))
+    }
+    expect(backward).toEqual(forward)
+  })
+
+  test("growthAt is the seam a non-linear scene overrides", () => {
+    const wall = cabled()
+    // Default: linear over cableDuration.
+    expect(wall.growthAt(0)).toBe(0)
+    expect(wall.growthAt(2)).toBeCloseTo(0.5, 6)
+    expect(wall.growthAt(4)).toBe(1)
+    expect(wall.growthAt(99)).toBe(1)
+  })
+})

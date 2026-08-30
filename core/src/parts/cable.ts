@@ -2,10 +2,10 @@
  * Cable — ONE holon whose IDENTITY is the rendered face (a tapered tube
  * with sliding contour rings) and whose CONTEXT supplies the
  * control-polyline SOURCE (DECISIONS 2026-08-29, the cable verdict).
- * This file ships the `trail` source — kinematic position history —
- * used by the standalone MindVirus; the XPBD `tether` source arrives
- * with the TheWall layer (and with it Ch 6 baking, which the trail does
- * NOT need: a trail of a pure motion is itself pure).
+ * This file ships TWO sources: `trail` — kinematic position history,
+ * used by the standalone MindVirus — and `tether` — the XPBD chain of
+ * TheWall. The trail needs no baking (a trail of a pure motion is
+ * itself pure); the tether is the case Ch 6 exists for, and bakes.
  *
  * ## The trail is a pure function of t
  *
@@ -56,6 +56,25 @@
  * ring seen near edge-on projects to the same thin ellipse — the
  * cleanest DreamTalk-native construction, chosen over a camera-coupled
  * arc. Radius follows the tube's local taper.
+ *
+ * ## The tether source (TheWall.py:1404-1560)
+ *
+ * A tether is a chain of 21 particles pinned between a fixed anchor
+ * (the spawn point) and a MOVING tip (the flying creature), sagging
+ * under gravity, draping over the creature's folding cube. It is
+ * history-dependent, so `tether()` does the one thing ONTOLOGY
+ * sanctions: at build time it simulates the whole scene span once and
+ * bakes the 21 tracks (bake.ts), after which the cable's geometry at
+ * clock t is a table lookup — pure, scrub-safe both directions.
+ *
+ * The wall's cables render DIFFERENTLY from the swimming trail: the
+ * original draws them as a camera-facing quad strip with no contour
+ * rings, tapering 0.3 → 1.0 from anchor to tip (:783-829) — the
+ * opposite end from the trail's taper, because here the thin end is the
+ * one left behind. Setting `rings = false` and `taper` accordingly is
+ * all the difference amounts to; the same silhouette-edge tube draws
+ * both. The spine is Catmull-Rom ×3 through the baked particles
+ * (:757-781), exactly the source's subdivision.
  */
 
 import { Holon } from "../holon"
@@ -63,11 +82,67 @@ import { bool, color, completion, length, scalar } from "../params"
 import { Line, Stroke, type Vec3Like } from "./index"
 import { invRotHPB } from "./curves"
 import { TAU, WHITE } from "../constants"
+import { bake, type BakedTrack } from "../bake"
+import {
+  CABLE_PARTICLES,
+  CABLE_SLACK,
+  colliderScale,
+  foldableCubeFaces,
+  settleParams,
+  step as xpbdStep,
+  straightState,
+  XPBD_ACTIVATION,
+  type CableState,
+  type Frame,
+  type StepConfig,
+} from "../geometry/xpbd"
+import type { Vec3 } from "../geometry/journey"
 
 export type PathFn = (time: number) => Vec3Like
 /** A holon that can state its own position at an arbitrary time. */
 export interface TrailCarrier {
   pathAt(time: number): Vec3Like
+}
+
+/**
+ * Everything the tether needs to know about its moving end at one
+ * instant — the creature's pose, and how far along its flight it is.
+ * The tip is a PURE function of time (it is a journey), which is
+ * precisely why the tether can be baked at all.
+ */
+export interface TetherTip {
+  /** The tip's world position (the pinned last particle). */
+  position: Vec3
+  /** Unit direction the cable ENTERS the tip: −(flight tangent) (:1480). */
+  direction: Vec3
+  /** The creature's orientation, for the collision cube (:1495-1499). */
+  frame: Frame
+  /** The cube's fold, −1…1 (:1512). */
+  fold: number
+  /** The creature's scale — the cube's size multiplier (:1512). */
+  scale: number
+  /** Journey completion 0…1: drives settle, collider fade, activation. */
+  completion: number
+  /** Distance travelled along the flight path so far — sets the rest
+   *  length via the slack factor (:1472-1474). */
+  travelled: number
+}
+
+export type TetherTipFn = (time: number) => TetherTip
+
+export interface TetherOptions {
+  /** Rest length multiplier on the distance travelled (:1473). */
+  slack?: number
+  /** Simulation AND sample rate. The source steps at 30 (:1476). */
+  bakeFps?: number
+  /** Scene seconds to bake. */
+  duration: number
+  /** Particles in the chain (:1427). */
+  particles?: number
+  /** The direction the cable departs the anchor — the spawn vector. */
+  anchorDir?: Vec3
+  /** The collision cube's edge length (the creature's brick size). */
+  cubeSize?: number
 }
 
 const CTRL_POINTS = 12
@@ -76,6 +151,11 @@ const SMOOTH_ITERATIONS = 3
 const TUBE_SAMPLES = 48
 const RING_SEGMENTS = 16
 const TRAVEL_SAMPLES_PER_SEC = 120
+/** The source subdivides the tether's 21 particles ×3 (:766, :781). */
+const TETHER_SUBDIVISIONS = 3
+/** The tether's stroke width at the anchor, as a fraction of `width`
+ *  (:800-803 — 0.3 at the anchor, 1.0 at the tip). */
+const TETHER_TAPER_MIN = 0.3
 
 // -- dumb vec3 helpers (module-local; not worth a Param in sight) -----------
 
@@ -177,6 +257,10 @@ export class Cable extends Stroke {
   private _since = 0
   private _memoKey?: number[]
   private _memo?: CableGeometry
+  private _baked?: BakedTrack
+  private _bakedScratch?: Float32Array
+  /** Completions per baked frame — the tether fades in with the flight. */
+  private _bakedVisible?: Float32Array
 
   /** Install the trail source: the carrier's position as pure f(time).
    *  `since` is the carrier's birth time (the trail never reaches
@@ -190,6 +274,87 @@ export class Cable extends Stroke {
       this.window.value = opts.window
     }
     return this
+  }
+
+  /**
+   * Install the tether source: simulate the XPBD chain over the whole
+   * scene span RIGHT NOW and keep only the samples.
+   *
+   * This call is the bake. It is synchronous and eager because that is
+   * the honest spelling of "at build time, never during playback": when
+   * `tether()` returns, no simulator remains inside the cable — just a
+   * table and an interpolator. Call it from `compose()`/`unfold()`.
+   *
+   * `anchor` is the fixed end (the spawn point); `tip` states the
+   * creature's pose at any time, purely.
+   */
+  tether(anchor: Vec3, tip: TetherTipFn, opts: TetherOptions): this {
+    void this.parts // compose() installs the derived-points accessors
+    const particles = opts.particles ?? CABLE_PARTICLES
+    const slack = opts.slack ?? CABLE_SLACK
+    const fps = opts.bakeFps ?? 30
+    const duration = opts.duration
+    const cubeSize = opts.cubeSize ?? 100
+    const anchorDir = opts.anchorDir
+
+    const frames = Math.max(1, Math.round(duration * fps) + 1)
+    const visible = new Float32Array(frames)
+
+    const track = bake<CableState>(
+      {
+        width: particles * 3,
+        init: () => straightState(anchor, tip(0).position, particles),
+        step: (state, frame, time, dt) => {
+          const t = tip(time)
+          visible[frame] = t.completion
+          // Below the activation threshold the source does not simulate
+          // at all — it REWRITES the chain as a straight line with zero
+          // velocity every frame (:1456-1463). Reproduced exactly: the
+          // tether is taut while the creature is still leaving.
+          if (t.completion <= XPBD_ACTIVATION) return straightState(anchor, t.position, particles)
+
+          const settle = settleParams(t.completion)
+          const cs = colliderScale(t.completion)
+          const restLength = Math.max(t.travelled * slack, 1) / (particles - 1)
+          const config: StepConfig = {
+            anchor,
+            tip: t.position,
+            dt,
+            restLength,
+            drag: settle.drag,
+            stiffness: settle.stiffness,
+            dirStrength: settle.dirStrength,
+            anchorDir,
+            tipDir: t.direction,
+            faces:
+              cs > 0.01
+                ? foldableCubeFaces(t.position, t.frame, t.fold, t.scale * cs, cubeSize)
+                : undefined,
+          }
+          return xpbdStep(state, config)
+        },
+        sample: (state, out, offset) => {
+          for (let i = 0; i < particles; i++) {
+            const p = state.positions[i]!
+            out[offset + i * 3] = p.x
+            out[offset + i * 3 + 1] = p.y
+            out[offset + i * 3 + 2] = p.z
+          }
+        },
+      },
+      { fps, duration },
+    )
+    visible[0] = tip(0).completion
+
+    this._baked = track
+    this._bakedVisible = visible
+    this._bakedScratch = new Float32Array(track.width)
+    return this
+  }
+
+  /** Bytes this cable's bake occupies (0 if it is a trail). */
+  get bakedBytes(): number {
+    return this._baked?.data.byteLength ?? 0
   }
 
   protected override compose(): void {
@@ -258,8 +423,65 @@ export class Cable extends Stroke {
     return this._memo
   }
 
+  /**
+   * The tube around an explicit spine — the tether's rendering.
+   *
+   * Same silhouette-edge construction the trail uses, but the width
+   * profile runs the OTHER way: the source's stroke tapers 0.3 at the
+   * anchor to 1.0 at the tip (:800-803), because for a tether the thin
+   * end is the one left behind at the spawn point. No rings: the wall's
+   * cables are plain tapered ribbons.
+   */
+  private tubeFrom(spine: readonly Vec3Like[], empty: CableGeometry): CableGeometry {
+    if (spine.length < 2) return empty
+    const view = this.view
+    const a: Vec3Like[] = []
+    const b: Vec3Like[] = []
+    let lastNormal: Vec3Like = { x: 0, y: 1, z: 0 }
+    for (let i = 0; i < spine.length; i++) {
+      const p0 = spine[Math.max(0, i - 1)]!
+      const p1 = spine[Math.min(spine.length - 1, i + 1)]!
+      const tan = norm(sub(p1, p0)) ?? { x: 1, y: 0, z: 0 }
+      const n = norm(cross(tan, view)) ?? lastNormal
+      lastNormal = n
+      const f = i / (spine.length - 1)
+      const r = this.width.value * (TETHER_TAPER_MIN + (1 - TETHER_TAPER_MIN) * f)
+      a.push(this.toLocal(add(spine[i]!, mul(n, r))))
+      b.push(this.toLocal(sub(spine[i]!, mul(n, r))))
+    }
+    return { a, b, rings: this.ringLines.map(() => []) }
+  }
+
+  /** The baked tether's spine at clock t: the sampled particles,
+   *  Catmull-Rom ×3 as the source subdivides them (:757-781). */
+  private tetherSpine(): Vec3Like[] | undefined {
+    const track = this._baked
+    const visible = this._bakedVisible
+    if (!track || !visible) return undefined
+    const T = this.clock.value
+    // Completion at t, read off the same frame grid — below
+    // CABLE_VISIBLE_FROM the original draws nothing at all (:1420).
+    const u = Math.min(Math.max(T * track.fps, 0), visible.length - 1)
+    const completion = visible[Math.round(u)]!
+    if (completion <= 0.02) return undefined
+
+    const flat = track.sampleAt(T, this._bakedScratch)
+    const n = flat.length / 3
+    const particles: Vec3Like[] = []
+    for (let i = 0; i < n; i++) {
+      particles.push({ x: flat[i * 3]!, y: flat[i * 3 + 1]!, z: flat[i * 3 + 2]! })
+    }
+    // 21 particles × 3 subdivisions = 61 spine points, the source's
+    // resolution exactly (subdivide_catmull_rom(positions, 3)).
+    return catmullRomResample(particles, (n - 1) * (TETHER_SUBDIVISIONS + 1) + 1)
+  }
+
   private computeGeometry(): CableGeometry {
     const empty: CableGeometry = { a: [], b: [], rings: this.ringLines.map(() => []) }
+    if (this._baked) {
+      const spine = this.tetherSpine()
+      return spine ? this.tubeFrom(spine, empty) : empty
+    }
     const path = this._path
     if (!path) return empty
     const T = this.clock.value

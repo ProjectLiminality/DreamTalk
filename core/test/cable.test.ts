@@ -169,3 +169,135 @@ describe("helpers", () => {
     for (const p of out) expect(Math.abs(p.y) + Math.abs(p.z)).toBeLessThan(1e-9)
   })
 })
+
+describe("the tether source", () => {
+  const anchor = { x: 0, y: 0, z: 0 }
+  /** A tip that flies out along +x over 4 seconds, arriving at 400. */
+  const tip = (t: number) => {
+    const c = Math.min(Math.max(t / 4, 0), 1)
+    return {
+      position: { x: 400 * c, y: 0, z: 0 },
+      direction: { x: -1, y: 0, z: 0 },
+      frame: {
+        vx: { x: 1, y: 0, z: 0 },
+        vy: { x: 0, y: 1, z: 0 },
+        vz: { x: 0, y: 0, z: 1 },
+      },
+      fold: 1,
+      scale: 1,
+      completion: c,
+      travelled: 400 * c,
+    }
+  }
+
+  const tethered = (): Cable => {
+    const cable = new Cable({ rings: false })
+    cable.maxRings = 0
+    cable.tether(anchor, tip, { duration: 4, bakeFps: 30 })
+    return cable
+  }
+
+  test("the bake happens on the tether() call, not on read", () => {
+    const cable = tethered()
+    // Samples exist before anything has ever asked for geometry.
+    expect(cable.bakedBytes).toBe(21 * 3 * 4 * (4 * 30 + 1))
+  })
+
+  test("it draws a tube once the flight has started", () => {
+    const cable = tethered()
+    cable.clock.value = 2
+    expect(cable.edgeA.points.length).toBeGreaterThan(50)
+    expect(cable.edgeB.points.length).toBe(cable.edgeA.points.length)
+  })
+
+  test("21 particles subdivided x3 — the source's 61-point spine", () => {
+    const cable = tethered()
+    cable.clock.value = 2
+    expect(cable.edgeA.points.length).toBe(81)
+  })
+
+  test("nothing is drawn before the creature has left (:1420)", () => {
+    const cable = tethered()
+    cable.clock.value = 0
+    expect(cable.edgeA.points.length).toBe(0)
+  })
+
+  test("no rings: the wall's cables are plain tapered ribbons", () => {
+    const cable = tethered()
+    cable.clock.value = 2
+    expect(cable.ringLines.every((r) => r.points.length === 0)).toBe(true)
+  })
+
+  test("it tapers the OTHER way — thin at the anchor, full at the tip", () => {
+    const cable = tethered()
+    cable.width.value = 10
+    cable.clock.value = 3
+    const gap = (i: number): number => {
+      const a = cable.edgeA.points[i]!
+      const b = cable.edgeB.points[i]!
+      return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+    }
+    const head = gap(0)
+    const tail = gap(cable.edgeA.points.length - 1)
+    expect(tail).toBeGreaterThan(head * 2)
+    expect(head).toBeCloseTo(2 * 10 * 0.3, 1)
+    expect(tail).toBeCloseTo(2 * 10, 1)
+  })
+
+  test("BAKED MEANS PURE: scrubbing backwards is bit-identical", () => {
+    const cable = tethered()
+    const times = [0.5, 1, 1.7, 2.4, 3.1, 3.8]
+    const forward = times.map((t) => {
+      cable.clock.value = t
+      return snapshot(cable)
+    })
+    const backward: string[] = []
+    for (let i = times.length - 1; i >= 0; i--) {
+      cable.clock.value = times[i]!
+      backward.unshift(snapshot(cable))
+    }
+    expect(backward).toEqual(forward)
+  })
+
+  test("random access equals sequential access", () => {
+    const cable = tethered()
+    const times = [0.5, 1, 1.7, 2.4, 3.1, 3.8]
+    const seq = times.map((t) => {
+      cable.clock.value = t
+      return snapshot(cable)
+    })
+    for (const i of [3, 0, 5, 1, 4, 2]) {
+      cable.clock.value = times[i]!
+      expect(snapshot(cable)).toBe(seq[i]!)
+    }
+  })
+
+  test("the anchor end stays pinned at the anchor through the flight", () => {
+    const cable = tethered()
+    for (const t of [1, 2, 3, 4]) {
+      cable.clock.value = t
+      const a = cable.edgeA.points[0]!
+      const b = cable.edgeB.points[0]!
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 }
+      expect(Math.hypot(mid.x, mid.y, mid.z)).toBeLessThan(1)
+    }
+  })
+
+  test("the tip end tracks the creature", () => {
+    const cable = tethered()
+    cable.clock.value = 4
+    const n = cable.edgeA.points.length - 1
+    const a = cable.edgeA.points[n]!
+    const b = cable.edgeB.points[n]!
+    expect((a.x + b.x) / 2).toBeCloseTo(400, 0)
+  })
+
+  test("it does not disturb the trail source", () => {
+    const trailed = new Cable({ rings: false })
+    trailed.maxRings = 0
+    trailed.trail(straight, { since: 0 })
+    trailed.clock.value = 3
+    expect(trailed.edgeA.points.length).toBeGreaterThan(0)
+    expect(trailed.bakedBytes).toBe(0)
+  })
+})

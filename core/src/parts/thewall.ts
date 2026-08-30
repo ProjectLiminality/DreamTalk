@@ -37,11 +37,24 @@
  *
  * ## Cables
  *
- * OFF here. In the original every creature trails an XPBD tether back
- * to the spawn anchor (:1404-1560) — 21 particles with gravity, drag
- * and collision against the cube faces. That is history-dependent, so
- * per DECISIONS 2026-08-29 it is the baking case and belongs to a later
- * pass; `cables` exists as the seam and must stay false until then.
+ * `cables = true` gives every creature its XPBD tether back to the
+ * spawn anchor (:1404-1560) — 21 particles under gravity and drag,
+ * draping over its own folding cube. In the reference render these
+ * white filaments ARE the image (92-99.6% of the lit ink), so the
+ * choreography above is only half the scene without them.
+ *
+ * They are history-dependent, which is why they must be baked
+ * (ONTOLOGY "Baking, corrected"): `unfoldCables()` runs every
+ * simulation once, at build time, and after that each cable is a table
+ * of samples read by clock — pure, scrub-safe, gauntlet-safe. The wall
+ * calls it from `compose()`, so a scene that sets `cables` before its
+ * first evaluation pays the simulation once and never again.
+ *
+ * The tip of each tether is that creature's own journey, sampled at the
+ * bake's frame times — which requires knowing how `growth` moves in
+ * time. The wall cannot guess that, so `growthAt` is the seam: a scene
+ * that animates growth non-linearly states its own mapping. The default
+ * is the reference's linear 0 → 1 over `duration`.
  */
 
 import { Holon } from "../holon"
@@ -64,6 +77,9 @@ import {
   type Packing,
   type Slot,
 } from "../geometry/packing"
+import { CABLE_SLACK } from "../geometry/xpbd"
+import { rotHPB } from "./curves"
+import type { TetherTip } from "./cable"
 
 /**
  * Rows lag each other by this many bricks — the diagonal growth wave
@@ -105,10 +121,29 @@ export class TheWall extends Holon {
   rowLag = scalar(WALL_ROW_LAG)
 
   /**
-   * The tether cables back to the spawn anchor. OFF: the XPBD chain is
-   * history-dependent and awaits the baking pass (see the header).
+   * The tether cables back to the spawn anchor. When true, `compose()`
+   * bakes one XPBD simulation per creature (see the header).
    */
   cables = bool(false)
+
+  /** Scene seconds the cable bake must cover — the scene's own span. */
+  cableDuration = scalar(500 / 30)
+  /** Simulation and sample rate of the bake. The source steps at 30
+   *  (:1476); lowering it trades fidelity for build time, and any such
+   *  choice belongs in the scene, stated out loud. */
+  cableFps = scalar(30)
+  /** Rest length = distance travelled × this (:1473). */
+  cableSlack = scalar(CABLE_SLACK)
+  /** Stroke width of a tether at its tip (:1104 cable_width 2). */
+  cableWidth = scalar(2)
+
+  /**
+   * How `growth` moves in time — the bake's one non-geometric input.
+   * Default: the reference's linear ramp 0 → 1 across `cableDuration`
+   * (TheLabyrinth.py:497-521).
+   */
+  growthAt: (time: number) => number = (time) =>
+    Math.min(Math.max(time / this.cableDuration.value, 0), 1)
 
   /** Where every creature is born (:1200 spawn_pos). */
   spawn: Vec3 = { x: 0, y: 0, z: 0 }
@@ -181,6 +216,114 @@ export class TheWall extends Holon {
       if (!this.cables.value) virus.cable.maxRings = 0
       this.placements.push({ slot, journey, virus })
       this.drive(virus, slot, journey)
+    }
+
+    if (this.cables.value) this.unfoldCables()
+  }
+
+  /**
+   * Bake every creature's tether. This is the whole of Chapter 6 in
+   * practice: N simulations run ONCE here, at build time, each frozen
+   * into samples (bake.ts). Nothing below is ever touched again during
+   * playback — a frame reads tables.
+   *
+   * The clock: the wall's `growth` is what the scene animates, so the
+   * bake needs `growthAt(time)` to know where each creature is at each
+   * simulated frame. Everything else is the pure journey pipeline the
+   * wall already owns, evaluated at that growth.
+   */
+  private unfoldCables(): void {
+    const duration = this.cableDuration.value
+    const fps = this.cableFps.value
+    const brickSize = this.brickSize.value
+    const started = performance.now()
+    let bytes = 0
+
+    for (const { slot, journey, virus } of this.placements) {
+      // The tether's rings are off (the wall's cables are plain
+      // tapered ribbons) — so the ring pool stays empty even with
+      // cables on, and a creature keeps costing 25 holons.
+      virus.cable.maxRings = 0
+      virus.cable.rings.value = false
+      virus.cable.width.value = this.cableWidth.value
+      virus.cable.clock.follow(derive(() => this.cableClock()))
+
+      virus.cable.tether(
+        this.spawn,
+        (time) => this.tipAt(time, slot, journey),
+        {
+          duration,
+          bakeFps: fps,
+          slack: this.cableSlack.value,
+          anchorDir: this.spawnDirection,
+          cubeSize: brickSize,
+        },
+      )
+      bytes += virus.cable.bakedBytes
+    }
+
+    this.cableBakeMs = performance.now() - started
+    this.cableBakeBytes = bytes
+  }
+
+  /** How long the last cable bake took, ms — the perf number a bake owes. */
+  cableBakeMs = 0
+  /** Bytes of baked samples the cables hold. */
+  cableBakeBytes = 0
+
+  /**
+   * Scene time as the baked cables read it — the inverse of `growthAt`,
+   * found by bisection so that a scene may state any monotone growth
+   * ramp it likes and still scrub correctly. (For the default linear
+   * ramp this is exact.)
+   */
+  private cableClock(): number {
+    const target = this.growth.value
+    const duration = this.cableDuration.value
+    let lo = 0
+    let hi = duration
+    if (this.growthAt(hi) <= target) return hi
+    if (this.growthAt(lo) >= target) return lo
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2
+      if (this.growthAt(mid) < target) lo = mid
+      else hi = mid
+    }
+    return (lo + hi) / 2
+  }
+
+  /** One creature's pose at a simulated instant — everything the tether
+   *  needs about its moving end (:1470-1515). */
+  private tipAt(time: number, slot: Slot, journey: JourneyPath): TetherTip {
+    const growth = this.growthAt(time)
+    const completion = completionOf(
+      growth,
+      { splineT: slot.t, row: slot.row },
+      {
+        rowCount: this.rowCount.value,
+        rowLength: this.packing?.rowLength ?? 1,
+        rowLag: this.rowLag.value,
+      },
+    )
+    const s = journeyState(completion, journey)
+    const { h, p } = headingFor(s.heading)
+    return {
+      position: s.position,
+      // The cable enters the creature along −(flight tangent) (:1480);
+      // `heading` is already that vector.
+      direction: s.heading,
+      // The creature's own frame: its local axes in world space, the
+      // normalized virus matrix of :1495-1499.
+      frame: {
+        vx: rotHPB({ x: 1, y: 0, z: 0 }, p, h, 0) as Vec3,
+        vy: rotHPB({ x: 0, y: 1, z: 0 }, p, h, 0) as Vec3,
+        vz: rotHPB({ x: 0, y: 0, z: 1 }, p, h, 0) as Vec3,
+      },
+      fold: s.fold,
+      scale: s.scale,
+      completion,
+      // Distance travelled along the flight path (:1472).
+      travelled: s.splineS * journey.lut.totalLength,
     }
   }
 
