@@ -1,0 +1,72 @@
+[
+ {
+  "frame": 54,
+  "t": 10.6,
+  "blue_px": 2057,
+  "name": "blue0054",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/score/crop_0054.png",
+  "ref": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/blue/refblue_0054.png",
+  "iou": 0.0156,
+  "chamfer_ours_px": 12.862,
+  "chamfer_ref_px": 8.195,
+  "coverage_ref": 0.3469,
+  "coverage_ours": 0.0319,
+  "verdict": "FAIL"
+ },
+ {
+  "frame": 60,
+  "t": 11.8,
+  "blue_px": 2740,
+  "name": "blue0060",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/score/crop_0060.png",
+  "ref": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/blue/refblue_0060.png",
+  "iou": 0.0232,
+  "chamfer_ours_px": 12.352,
+  "chamfer_ref_px": 5.537,
+  "coverage_ref": 0.5353,
+  "coverage_ours": 0.0459,
+  "verdict": "FAIL"
+ },
+ {
+  "frame": 66,
+  "t": 13.0,
+  "blue_px": 3505,
+  "name": "blue0066",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/score/crop_0066.png",
+  "ref": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/blue/refblue_0066.png",
+  "iou": 0.0301,
+  "chamfer_ours_px": 12.11,
+  "chamfer_ref_px": 4.254,
+  "coverage_ref": 0.6537,
+  "coverage_ours": 0.0557,
+  "verdict": "FAIL"
+ },
+ {
+  "frame": 72,
+  "t": 14.2,
+  "blue_px": 4468,
+  "name": "blue0072",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/score/crop_0072.png",
+  "ref": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/blue/refblue_0072.png",
+  "iou": 0.0472,
+  "chamfer_ours_px": 11.215,
+  "chamfer_ref_px": 1.458,
+  "coverage_ref": 0.8756,
+  "coverage_ours": 0.0867,
+  "verdict": "FAIL"
+ },
+ {
+  "frame": 78,
+  "t": 15.4,
+  "blue_px": 5251,
+  "name": "blue0078",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/score/crop_0078.png",
+  "ref": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/blue/refblue_0078.png",
+  "iou": 0.0635,
+  "chamfer_ours_px": 10.113,
+  "chamfer_ref_px": 1.28,
+  "coverage_ref": 0.8791,
+  "coverage_ours": 0.1227,
+  "verdict": "FAIL"
+ }
+]

@@ -64399,7 +64399,7 @@ class Labyrinth extends Stroke {
   static sovereign = true;
   radius = length2(650);
   citadelRadius = length2(165);
-  cellSize = length2(80);
+  cellSize = length2(40);
   seed = integer(42);
   tint = color2(BLUE);
   chains = [];
@@ -64439,6 +64439,544 @@ class LabyrinthDream extends Dream {
   unfold() {
     __dt(this.play(Create(this.maze), 4), "core/demo/wall/Labyrinth.ts:929:960");
     this.wait(2);
+  }
+}
+if (false)
+  ;
+
+// src/geometry/journey.ts
+var add4 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var sub4 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var mul4 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var len2 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var normalize4 = (v2, fallback = { x: 0, y: 0, z: 1 }) => {
+  const l2 = len2(v2);
+  return l2 < EPSILON3 ? fallback : mul4(v2, 1 / l2);
+};
+var EPSILON3 = 0.001;
+var DISTANCE_PER_THRUST = 350;
+var ARRIVAL_FACTOR = 0.25;
+var ARC_LUT_SAMPLES = 100;
+var TRAVEL_END = 0.85;
+var THRUST_END = 0.8;
+var THRUST_TRAVEL = 0.8;
+var PULSE_OPEN_TIME = 0.3;
+var PULSE_THRUST_TIME = 0.2;
+var PULSE_OPEN_DISTANCE = 0.1;
+var PULSE_THRUST_DISTANCE = 0.55;
+var PULSE_GLIDE_DISTANCE = 0.35;
+var PULSE_MIN_FOLD2 = 0.1;
+var BRICK_SETTLE_TIME = 0.3;
+var BRICK_SETTLE_DISTANCE = 0.15;
+var BRICK_FOLD_END = 0.75;
+var TRANSITION_WIDTH = 0.15;
+var SCALE_POP_END = 0.05;
+var SCALE_POP_VALUE = 0.2;
+var SCALE_CRUISE_END = 0.65;
+var SCALE_CRUISE_VALUE = 0.35;
+var SCALE_RAMP_END = 0.75;
+var SCALE_RAMP_VALUE = 0.75;
+var clamp014 = (v2) => v2 < 0 ? 0 : v2 > 1 ? 1 : v2;
+var smoothstep6 = (t2) => t2 * t2 * (3 - 2 * t2);
+var easeOut = (t2) => 1 - (1 - t2) * (1 - t2);
+var bezierPoint = (path, t2) => {
+  const u2 = 1 - t2;
+  const { p0, p1, p2, p3 } = path;
+  return add4(add4(mul4(p0, u2 * u2 * u2), mul4(p1, 3 * u2 * u2 * t2)), add4(mul4(p2, 3 * u2 * t2 * t2), mul4(p3, t2 * t2 * t2)));
+};
+var bezierTangent = (path, t2) => {
+  const u2 = 1 - t2;
+  const { p0, p1, p2, p3 } = path;
+  return add4(add4(mul4(sub4(p1, p0), 3 * u2 * u2), mul4(sub4(p2, p1), 6 * u2 * t2)), mul4(sub4(p3, p2), 3 * t2 * t2));
+};
+var buildBezierPath = (e2) => {
+  const { spawn, slot } = e2;
+  const direction = sub4(slot, spawn);
+  const distance3 = len2(direction);
+  if (distance3 < EPSILON3)
+    return { p0: spawn, p1: spawn, p2: slot, p3: slot };
+  const arrival = e2.arrivalFactor ?? ARRIVAL_FACTOR;
+  const p1 = e2.spawnDir && len2(e2.spawnDir) > EPSILON3 ? add4(spawn, e2.spawnDir) : add4(spawn, mul4(normalize4(direction), distance3 * 0.33));
+  const p2 = e2.slotNormal && len2(e2.slotNormal) > EPSILON3 ? add4(slot, mul4(e2.slotNormal, distance3 * arrival)) : add4(slot, mul4({ x: -1, y: 0, z: 0 }, distance3 * arrival));
+  return { p0: spawn, p1, p2, p3: slot };
+};
+var buildArcLut = (path, samples = ARC_LUT_SAMPLES) => {
+  const positions = [];
+  for (let i2 = 0;i2 <= samples; i2++)
+    positions.push(bezierPoint(path, i2 / samples));
+  const cumulative = [0];
+  for (let i2 = 1;i2 < positions.length; i2++) {
+    cumulative.push(cumulative[i2 - 1] + len2(sub4(positions[i2], positions[i2 - 1])));
+  }
+  return { path, cumulative, totalLength: cumulative[cumulative.length - 1], samples };
+};
+var arcLengthToT = (lut2, s2) => {
+  if (s2 <= 0)
+    return 0;
+  if (s2 >= 1)
+    return 1;
+  const { cumulative, totalLength, samples } = lut2;
+  const target = s2 * totalLength;
+  let lo = 0;
+  let hi = cumulative.length - 1;
+  while (lo < hi - 1) {
+    const mid = lo + hi >> 1;
+    if (cumulative[mid] < target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const seg = cumulative[hi] - cumulative[lo];
+  const frac = seg > 0 ? (target - cumulative[lo]) / seg : 0;
+  return (lo + frac) / samples;
+};
+var pulseCountFor = (pathLength, distancePerThrust = DISTANCE_PER_THRUST) => Math.max(1, Math.round(pathLength / distancePerThrust));
+var travelToSplinePosition = (t2, numPulses) => {
+  if (t2 <= 0)
+    return 0;
+  if (t2 >= 1)
+    return 1;
+  if (t2 <= THRUST_END) {
+    const pulseSpan = THRUST_END / numPulses;
+    const pulseIdx = Math.min(Math.floor(t2 / pulseSpan), numPulses - 1);
+    const localT = (t2 - pulseIdx * pulseSpan) / pulseSpan;
+    const distPerPulse = THRUST_TRAVEL / numPulses;
+    const pulseBase = pulseIdx * distPerPulse;
+    if (localT <= PULSE_OPEN_TIME) {
+      return pulseBase + localT / PULSE_OPEN_TIME * PULSE_OPEN_DISTANCE * distPerPulse;
+    }
+    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
+      const progress3 = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
+      return pulseBase + (PULSE_OPEN_DISTANCE + progress3 * PULSE_THRUST_DISTANCE) * distPerPulse;
+    }
+    const progress2 = (localT - PULSE_OPEN_TIME - PULSE_THRUST_TIME) / (1 - PULSE_OPEN_TIME - PULSE_THRUST_TIME);
+    return pulseBase + (PULSE_OPEN_DISTANCE + PULSE_THRUST_DISTANCE + progress2 * PULSE_GLIDE_DISTANCE) * distPerPulse;
+  }
+  const brickT = (t2 - THRUST_END) / (1 - THRUST_END);
+  const remaining = 1 - THRUST_TRAVEL;
+  if (brickT <= BRICK_SETTLE_TIME) {
+    return THRUST_TRAVEL + brickT / BRICK_SETTLE_TIME * remaining * BRICK_SETTLE_DISTANCE;
+  }
+  const progress = (brickT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME);
+  return THRUST_TRAVEL + remaining * BRICK_SETTLE_DISTANCE + progress * remaining * (1 - BRICK_SETTLE_DISTANCE);
+};
+var travelToFold = (t2, numPulses) => {
+  if (t2 <= 0)
+    return 1;
+  if (t2 >= 1)
+    return -1;
+  if (t2 <= THRUST_END) {
+    const pulseSpan = THRUST_END / numPulses;
+    const localT = t2 % pulseSpan / pulseSpan;
+    if (localT <= PULSE_OPEN_TIME) {
+      return 1 - localT / PULSE_OPEN_TIME * (1 - PULSE_MIN_FOLD2);
+    }
+    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
+      const progress = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
+      return PULSE_MIN_FOLD2 + progress * (1 - PULSE_MIN_FOLD2);
+    }
+    return 1;
+  }
+  const brickT = (t2 - THRUST_END) / (1 - THRUST_END);
+  const foldT = Math.min(brickT / BRICK_FOLD_END, 1);
+  if (foldT <= BRICK_SETTLE_TIME) {
+    return 1 - foldT / BRICK_SETTLE_TIME * (1 - PULSE_MIN_FOLD2);
+  }
+  if (foldT < 1) {
+    return PULSE_MIN_FOLD2 - (foldT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME) * (PULSE_MIN_FOLD2 + 1);
+  }
+  return -1;
+};
+var completionToTravel = (completion2) => {
+  if (completion2 <= 0)
+    return 0;
+  if (completion2 >= TRAVEL_END)
+    return 1;
+  return easeOut(completion2 / TRAVEL_END);
+};
+var completionToScale = (completion2) => {
+  if (completion2 <= 0)
+    return 0;
+  if (completion2 >= 1)
+    return 1;
+  if (completion2 <= SCALE_POP_END) {
+    return SCALE_POP_VALUE * easeOut(completion2 / SCALE_POP_END);
+  }
+  if (completion2 <= SCALE_CRUISE_END) {
+    const t3 = (completion2 - SCALE_POP_END) / (SCALE_CRUISE_END - SCALE_POP_END);
+    return SCALE_POP_VALUE + (SCALE_CRUISE_VALUE - SCALE_POP_VALUE) * t3;
+  }
+  if (completion2 <= SCALE_RAMP_END) {
+    const t3 = (completion2 - SCALE_CRUISE_END) / (SCALE_RAMP_END - SCALE_CRUISE_END);
+    return SCALE_CRUISE_VALUE + (SCALE_RAMP_VALUE - SCALE_CRUISE_VALUE) * smoothstep6(t3);
+  }
+  const t2 = (completion2 - SCALE_RAMP_END) / (1 - SCALE_RAMP_END);
+  return SCALE_RAMP_VALUE + (1 - SCALE_RAMP_VALUE) * easeOut(t2);
+};
+var completionOf = (growth, slot, config) => {
+  const { rowCount, rowLength, rowLag } = config;
+  const width = config.transitionWidth ?? TRANSITION_WIDTH;
+  const brickWidthT = 1 / Math.max(rowLength - 1, 1);
+  const rowDelay = slot.row * rowLag * brickWidthT;
+  const totalRowLag = (rowCount - 1) * rowLag * brickWidthT;
+  const effectiveGrowth = growth * (1 + totalRowLag);
+  const localProgress = effectiveGrowth - slot.splineT - rowDelay;
+  return smoothstep6(clamp014(localProgress / width));
+};
+var buildJourney = (endpoints, opts = {}) => {
+  const lut2 = buildArcLut(buildBezierPath(endpoints), opts.samples ?? ARC_LUT_SAMPLES);
+  return {
+    lut: lut2,
+    numPulses: pulseCountFor(lut2.totalLength, opts.distancePerThrust ?? DISTANCE_PER_THRUST)
+  };
+};
+var journeyState = (completion2, journey) => {
+  const c2 = clamp014(completion2);
+  const travel = completionToTravel(c2);
+  const splineS = travelToSplinePosition(travel, journey.numPulses);
+  const fold = travelToFold(travel, journey.numPulses);
+  const t2 = arcLengthToT(journey.lut, splineS);
+  const position = bezierPoint(journey.lut.path, t2);
+  const tangent = bezierTangent(journey.lut.path, t2);
+  const forward = normalize4(tangent, { x: 0, y: 0, z: -1 });
+  return {
+    position,
+    heading: mul4(forward, -1),
+    fold,
+    scale: completionToScale(c2),
+    splineS
+  };
+};
+
+// src/geometry/packing.ts
+var sub5 = (a2, b2) => ({ x: a2.x - b2.x, z: a2.z - b2.z });
+var add5 = (a2, b2) => ({ x: a2.x + b2.x, z: a2.z + b2.z });
+var mul5 = (a2, k2) => ({ x: a2.x * k2, z: a2.z * k2 });
+var length5 = (a2) => Math.hypot(a2.x, a2.z);
+var normalize5 = (v2) => {
+  const l2 = length5(v2);
+  return l2 < 0.000000001 ? { x: 0, z: 1 } : { x: v2.x / l2, z: v2.z / l2 };
+};
+var buildFootprint = (points, closed = true) => {
+  const pts = closed && points.length > 1 ? [...points, points[0]] : [...points];
+  const cumulative = [0];
+  for (let i2 = 1;i2 < pts.length; i2++) {
+    cumulative.push(cumulative[i2 - 1] + length5(sub5(pts[i2], pts[i2 - 1])));
+  }
+  return { points: pts, cumulative, totalLength: cumulative[cumulative.length - 1], closed };
+};
+var MIN_TOTAL_LENGTH = 0.001;
+var sampleFootprint = (fp, t2) => {
+  if (fp.totalLength < MIN_TOTAL_LENGTH) {
+    return { position: fp.points[0] ?? { x: 0, z: 0 }, tangent: { x: 0, z: 1 } };
+  }
+  const clamped = t2 < 0 ? 0 : t2 > 1 ? 1 : t2;
+  const target = clamped * fp.totalLength;
+  let lo = 0;
+  let hi = fp.cumulative.length - 1;
+  while (lo < hi - 1) {
+    const mid = lo + hi >> 1;
+    if (fp.cumulative[mid] < target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const segLen = fp.cumulative[hi] - fp.cumulative[lo];
+  const frac = segLen > 0 ? (target - fp.cumulative[lo]) / segLen : 0;
+  const a2 = fp.points[lo];
+  const b2 = fp.points[hi];
+  return {
+    position: add5(a2, mul5(sub5(b2, a2), frac)),
+    tangent: segLen > 0 ? normalize5(sub5(b2, a2)) : { x: 0, z: 1 }
+  };
+};
+var normalAt = (tangent) => normalize5({ x: -tangent.z, z: tangent.x });
+var squareAt = (fp, t2, brickSize) => {
+  const { position, tangent } = sampleFootprint(fp, t2);
+  const normal2 = normalAt(tangent);
+  const half = brickSize / 2;
+  const ht2 = mul5(tangent, half);
+  const hn = mul5(normal2, half);
+  return {
+    center: position,
+    corners: [
+      sub5(sub5(position, ht2), hn),
+      sub5(add5(position, ht2), hn),
+      add5(add5(position, ht2), hn),
+      add5(sub5(position, ht2), hn)
+    ]
+  };
+};
+var projectOnto = (corners, axis) => {
+  let min5 = Infinity;
+  let max5 = -Infinity;
+  for (const c2 of corners) {
+    const d2 = c2.x * axis.x + c2.z * axis.z;
+    if (d2 < min5)
+      min5 = d2;
+    if (d2 > max5)
+      max5 = d2;
+  }
+  return { min: min5, max: max5 };
+};
+var MIN_AXIS_LENGTH = 0.0001;
+var CONTACT_SLOP = 0.01;
+var squaresOverlap = (a2, b2) => {
+  for (const corners of [a2, b2]) {
+    for (let i2 = 0;i2 < 2; i2++) {
+      const edge = sub5(corners[(i2 + 1) % 4], corners[i2]);
+      const axis = { x: -edge.z, z: edge.x };
+      const l2 = length5(axis);
+      if (l2 < MIN_AXIS_LENGTH)
+        continue;
+      const unit = mul5(axis, 1 / l2);
+      const pa = projectOnto(a2, unit);
+      const pb = projectOnto(b2, unit);
+      if (pa.max <= pb.min + CONTACT_SLOP || pb.max <= pa.min + CONTACT_SLOP)
+        return false;
+    }
+  }
+  return true;
+};
+var MIN_ARC_RATIO = 0.3;
+var MAX_ARC_RATIO = 3;
+var BISECTION_TOLERANCE = 0.0001;
+var MAX_ITERATIONS = 50;
+var MAX_BRACKET_EXPANSIONS = 10;
+var findNextBrickT = (fp, brickSize, prevT, prevCorners) => {
+  const total = fp.totalLength;
+  let tLo = prevT + brickSize * MIN_ARC_RATIO / total;
+  let tHi = Math.min(prevT + brickSize * MAX_ARC_RATIO / total, 1);
+  if (tLo >= 1)
+    return;
+  let overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
+  if (!overlapsLo) {
+    tHi = tLo;
+    tLo = prevT + BISECTION_TOLERANCE / total;
+    overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
+    if (!overlapsLo)
+      return tHi;
+  }
+  if (squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
+    let cleared = false;
+    for (let i2 = 0;i2 < MAX_BRACKET_EXPANSIONS; i2++) {
+      tHi = Math.min(tHi + brickSize / total, 1);
+      if (!squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
+        cleared = true;
+        break;
+      }
+    }
+    if (!cleared)
+      return;
+  }
+  for (let i2 = 0;i2 < MAX_ITERATIONS; i2++) {
+    const tMid = (tLo + tHi) / 2;
+    if (squaresOverlap(prevCorners, squareAt(fp, tMid, brickSize).corners))
+      tLo = tMid;
+    else
+      tHi = tMid;
+    if ((tHi - tLo) * total < BISECTION_TOLERANCE)
+      break;
+  }
+  return tHi;
+};
+var WRAP_CHECK_T = 0.9;
+var packFootprint = (fp, brickSize) => {
+  if (fp.totalLength < MIN_TOTAL_LENGTH)
+    return [0];
+  const ts = [0];
+  const firstCorners = squareAt(fp, 0, brickSize).corners;
+  for (;; ) {
+    const prevT = ts[ts.length - 1];
+    const prevCorners = squareAt(fp, prevT, brickSize).corners;
+    const nextT = findNextBrickT(fp, brickSize, prevT, prevCorners);
+    if (nextT === undefined || nextT >= 1)
+      break;
+    if (fp.closed && nextT > WRAP_CHECK_T) {
+      if (squaresOverlap(squareAt(fp, nextT, brickSize).corners, firstCorners))
+        break;
+    }
+    ts.push(nextT);
+  }
+  return ts;
+};
+var packSlots = (fp, config) => {
+  const { brickSize, rowCount } = config;
+  const originOffset = config.originOffset ?? brickSize / 2;
+  const ts = packFootprint(fp, brickSize);
+  const slots = [];
+  for (let row = 0;row < rowCount; row++) {
+    for (let column = 0;column < ts.length; column++) {
+      const t2 = ts[column];
+      const { position, tangent } = sampleFootprint(fp, t2);
+      const normal2 = normalAt(tangent);
+      slots.push({
+        t: t2,
+        position: add5(position, mul5(normal2, originOffset)),
+        normal: normal2,
+        tangent,
+        row,
+        column
+      });
+    }
+  }
+  return { ts, slots, rowLength: ts.length, footprint: fp };
+};
+var rowHeight = (row, rowCount, spacing) => (row - (rowCount - 1) / 2) * spacing;
+var FOOTPRINT_SAMPLES = 360;
+var circleFootprint = (radius, samples = FOOTPRINT_SAMPLES) => {
+  const points = [];
+  for (let i2 = 0;i2 < samples; i2++) {
+    const a2 = i2 / samples * Math.PI * 2;
+    points.push({ x: Math.cos(a2) * radius, z: Math.sin(a2) * radius });
+  }
+  return buildFootprint(points, true);
+};
+var flowerFootprint = (config) => {
+  const { innerRadius, outerRadius, petals } = config;
+  const samples = config.samples ?? FOOTPRINT_SAMPLES;
+  const mid = (outerRadius + innerRadius) / 2;
+  const amp = (outerRadius - innerRadius) / 2;
+  const points = [];
+  for (let i2 = 0;i2 < samples; i2++) {
+    const a2 = i2 / samples * Math.PI * 2;
+    const r2 = mid + amp * Math.cos(petals * a2);
+    points.push({ x: Math.cos(a2) * r2, z: Math.sin(a2) * r2 });
+  }
+  return buildFootprint(points, true);
+};
+
+// src/parts/thewall.ts
+var WALL_ROW_LAG = 1.66;
+var WALL_ROW_HEIGHT = 100;
+var WALL_BRICK_SIZE = 100;
+
+class TheWall extends Holon {
+  static sovereign = true;
+  growth = scalar(0);
+  rowCount = integer(4);
+  rowHeight = length2(WALL_ROW_HEIGHT);
+  brickSize = length2(WALL_BRICK_SIZE);
+  rowLag = scalar(WALL_ROW_LAG);
+  cables = bool2(false);
+  spawn = { x: 0, y: 0, z: 0 };
+  spawnDirection = { x: 0, y: 500, z: 0 };
+  footprint = circleFootprint(1000);
+  tint = BLUE;
+  placements = [];
+  packing;
+  get layout() {
+    this.parts;
+    if (!this.packing)
+      throw new Error("TheWall: layout unavailable before compose");
+    return this.packing;
+  }
+  get rowLength() {
+    return this.layout.rowLength;
+  }
+  get virusCount() {
+    return this.layout.slots.length;
+  }
+  compose() {
+    const rowCount = this.rowCount.value;
+    const brickSize = this.brickSize.value;
+    const spacing = this.rowHeight.value;
+    const packing2 = packSlots(this.footprint, { brickSize, rowCount });
+    this.packing = packing2;
+    for (const slot of packing2.slots) {
+      const slotPos = {
+        x: slot.position.x,
+        y: rowHeight(slot.row, rowCount, spacing),
+        z: slot.position.z
+      };
+      const journey = buildJourney({
+        spawn: this.spawn,
+        slot: slotPos,
+        spawnDir: this.spawnDirection,
+        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z }
+      });
+      const virus = this.add(new MindVirus);
+      virus.cube.size.defaultValue = brickSize;
+      virus.cube.size.value = brickSize;
+      if (!this.cables.value)
+        virus.cable.maxRings = 0;
+      this.placements.push({ slot, journey, virus });
+      this.drive(virus, slot, journey);
+    }
+  }
+  completionAt(slot) {
+    return completionOf(this.growth.value, { splineT: slot.t, row: slot.row }, {
+      rowCount: this.rowCount.value,
+      rowLength: this.packing?.rowLength ?? 1,
+      rowLag: this.rowLag.value
+    });
+  }
+  drive(virus, slot, journey) {
+    let cachedGrowth = NaN;
+    let cached;
+    const state2 = () => {
+      const growth = this.growth.value;
+      if (growth !== cachedGrowth || cached === undefined) {
+        cachedGrowth = growth;
+        cached = journeyState(this.completionAt(slot), journey);
+      }
+      return cached;
+    };
+    const read2 = (fn) => derive(() => fn(state2()));
+    virus.x.follow(read2((s2) => s2.position.x));
+    virus.y.follow(read2((s2) => s2.position.y));
+    virus.z.follow(read2((s2) => s2.position.z));
+    virus.h.follow(read2((s2) => headingFor(s2.heading).h));
+    virus.p.follow(read2((s2) => headingFor(s2.heading).p));
+    virus.fold.follow(read2((s2) => s2.fold));
+    virus.scale.follow(read2((s2) => s2.scale));
+  }
+  get slots() {
+    return this.layout.slots;
+  }
+}
+
+// demo/wall/TheWall.ts
+var WALL_DURATION = 500 / 30;
+
+class TheWallDream extends Dream {
+  wall = __dt(new TheWall({
+    rowCount: 4,
+    footprint: circleFootprint(1000),
+    spawn: { x: 0, y: 0, z: 0 },
+    spawnDirection: { x: 0, y: 300, z: 0 }
+  }), "core/demo/wall/TheWall.ts:2580:2844");
+  unfold() {
+    const observer = this.observer;
+    observer.radius.defaultValue = 3000;
+    observer.radius.value = 3000;
+    observer.y.defaultValue = 100;
+    observer.y.value = 100;
+    observer.theta.defaultValue = PI3 / 2;
+    observer.theta.value = PI3 / 2;
+    __dt(this.play(eased("linear", this.wall.growth.to(1), ...observer.orbit({ phi: -PI3, theta: 0 })), WALL_DURATION), "core/demo/wall/TheWall.ts:3294:3421");
+  }
+}
+if (false)
+  ;
+
+// demo/wall/Flower.ts
+var FLOWER_DURATION = 500 / 30;
+
+class FlowerDream extends Dream {
+  wall = __dt(new TheWall({
+    rowCount: 2,
+    footprint: flowerFootprint({ innerRadius: 500, outerRadius: 1000, petals: 5 }),
+    spawn: { x: 0, y: 0, z: 0 },
+    spawnDirection: { x: 0, y: 500, z: 0 }
+  }), "core/demo/wall/Flower.ts:1285:1555");
+  unfold() {
+    const observer = this.observer;
+    observer.radius.defaultValue = 3000;
+    observer.radius.value = 3000;
+    observer.theta.defaultValue = PI3 / 3;
+    observer.theta.value = PI3 / 3;
+    __dt(this.play(eased("linear", this.wall.growth.to(1)), FLOWER_DURATION), "core/demo/wall/Flower.ts:1807:1874");
   }
 }
 if (false)
@@ -64555,7 +65093,9 @@ var scenes = {
   video01: DialecticalThinkingDream,
   molocheye: MolochEyeDream,
   mindvirus: MindVirusDream,
-  labyrinth: LabyrinthDream
+  labyrinth: LabyrinthDream,
+  thewall: TheWallDream,
+  flower: FlowerDream
 };
 var defaultScene = "founding";
 
@@ -65710,7 +66250,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render25 = (cached, span) => {
+  const render27 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -65753,7 +66293,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current = shownFile ? files.get(shownFile) : undefined;
       if (current)
-        render25(current);
+        render27(current);
       return;
     }
     (async () => {
@@ -65763,7 +66303,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render25(cached, {
+      const mark = render27(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -65779,7 +66319,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render25(cached);
+    render27(cached);
   };
   return {
     show,

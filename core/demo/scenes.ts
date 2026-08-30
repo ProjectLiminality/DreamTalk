@@ -26,6 +26,8 @@ import { CurvesShowcaseDream } from "./CurvesShowcase"
 import { MolochEyeDream } from "./wall/MolochEye"
 import { MindVirusDream } from "./wall/MindVirus"
 import { LabyrinthDream } from "./wall/Labyrinth"
+import { TheWallDream } from "./wall/TheWall"
+import { FlowerDream } from "./wall/Flower"
 import { TextShowcaseDream } from "./TextShowcase"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -57,6 +59,8 @@ export const scenes: Record<string, DreamClass> = {
   molocheye: MolochEyeDream,
   mindvirus: MindVirusDream,
   labyrinth: LabyrinthDream,
+  thewall: TheWallDream,
+  flower: FlowerDream,
 }
 
 export const defaultScene = "founding"
