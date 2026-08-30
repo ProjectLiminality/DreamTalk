@@ -210,6 +210,40 @@ describe("generateLabyrinth — the assembled maze", () => {
     }
   })
 
+  test("the rim stays open: no wall arc lies on the outermost radius", () => {
+    // The 2021 construction gives the outermost ring no outer arcs (:196)
+    // — you can wander in from outside. Radial walls still reach the rim,
+    // so the test is that no RUN of points sits on it, which is what an
+    // arc would be.
+    for (const cfg of CONFIGS) {
+      const { chains } = generateLabyrinth(cfg)
+      const slack = cfg.targetCellSize * 0.01
+      const onRim = (q: Vec2): boolean => Math.abs(radiusOf(q) - cfg.radius) < slack
+      for (const chain of chains) {
+        for (let i = 2; i < chain.length; i++) {
+          expect(onRim(chain[i]!) && onRim(chain[i - 1]!) && onRim(chain[i - 2]!)).toBe(false)
+        }
+      }
+    }
+  })
+
+  test("no cell is walled in: every cell keeps at least one carved passage", () => {
+    // The spanning tree already forbids isolation, but state it over the
+    // CELLS rather than the edge count — an unreachable room is the one
+    // failure a maze must never have.
+    for (const cfg of CONFIGS) {
+      const layout = ringLayout(cfg.radius, cfg.citadelRadius, cfg.targetCellSize)
+      const passages = carveMaze(buildAdjacency(layout.cellsPerRing), mulberry32(cfg.seed))
+      const degree = new Array<number>(layout.cellCount).fill(0)
+      for (const key of passages) {
+        const [a, b] = key.split("|").map(Number) as [number, number]
+        degree[a]!++
+        degree[b]!++
+      }
+      for (let i = 0; i < layout.cellCount; i++) expect(degree[i]).toBeGreaterThan(0)
+    }
+  })
+
   test("the citadel is a closed circle on its radius", () => {
     const cfg = CONFIGS[0]!
     const { citadel, cells } = generateLabyrinth(cfg)

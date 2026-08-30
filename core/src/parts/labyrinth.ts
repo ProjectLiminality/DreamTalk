@@ -42,7 +42,9 @@ export class Labyrinth extends Stroke {
   /** The closed inner circle the maze grows from. */
   citadelRadius = length(165)
   /** Ring thickness ≈ cell scale (geometry/labyrinth.ts ringLayout). */
-  cellSize = length(80)
+  /** 40 reproduces TheWall.png's measured 12 rings (ring pitch 26.5px,
+   *  maze annulus 108.5→428px — see labyrinth-sidebyside-cell40.png). */
+  cellSize = length(40)
   /** Maze seed — same seed, same labyrinth (the 2021 default, :49). */
   seed = integer(42)
   override tint = color(BLUE)
