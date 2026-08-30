@@ -439,3 +439,145 @@ Two residuals that are NOT the cables, both pre-existing:
   rebuild with `bun build demo/main.ts --outdir demo/dist --target browser`
   after changing scene or part sources, or the browser runs stale code.
   (This cost an hour of this session — worth writing down.)
+
+---
+
+# The opening (t 0–3.4) — what the reference is actually drawing (2026-08-30, third session)
+
+FIDELITY-LEDGER #17 recorded the opening as "a faint dotted floor
+element (footprint/maze edge-on) we don't draw, and our creatures may
+launch ~0.5 s early". **Both halves are wrong, and they are the same
+one thing.** This pass identified it.
+
+## It is the MoGraph Cloner's own grid, rendered unscaled
+
+The element is not floor geometry. It is the **1 × 4 × 59 cloner grid
+itself** — the un-launched creatures sitting at their grid slots,
+inked by Sketch & Toon even though the generator has scaled the
+MindVirus child to zero.
+
+`TheWall.py:1007-1010` builds the cloner as
+`MG_GRID_RESOLUTION = (1, row_count, row_length)`,
+`MG_GRID_MODE = 0` (Per Step),
+`MG_GRID_SIZE = (0, ROW_HEIGHT, CLONE_SPACING)` = (0, 100, 100) —
+a line of 59 slots stepping 100 units along **Z**, stacked 4 deep along
+Y. 59 × 100 = 5900 units long, which is why the ink runs off both
+the top and the bottom of a frame whose circle footprint is only
+r = 1000.
+
+`SetRelScale(0)` (`:1386`) hides the *MindVirus child*. The
+`MindVirusJourney` generator holon that IS the cloner's child is not
+scaled, and its ink renders at the grid position regardless.
+
+### The evidence — four independent measurements
+
+**1. The angle tracks phi exactly.** PCA principal axis of the lit
+pixels vs. the projected grid line (C4D rig, radius 3000, focus
+(0,100,0), 53.13°, phi 0→−PI and theta PI/2→0 linear over 500 frames):
+
+| t | measured angle | predicted (cloner grid) |
+|---|---|---|
+| 0.0 | 89.3° | 90.0° |
+| 1.2 | 76.2° | 77.0° |
+| 2.4 | 62.8° | 63.5° |
+| 3.2 | 53.5° | 54.3° |
+
+Within 0.8° across the whole opening. The minor-axis spread is
+**3.6 px** — a one-pixel-wide line, not a maze and not a ring.
+
+**2. The extent matches.** At t = 1.2 the predicted in-frame grid spans
+x(413, 662), y(3, 1072); measured x(397, 683), y(0, 1079).
+
+**3. The pitch matches.** Autocorrelation of the vertical ink profile at
+f0001 peaks hard at **lag 34 px** (0.562, harmonics at 67 and 109).
+Projected slot pitch top-down: **34.84 px**. 31 slots fall inside the
+frame; the 87 observed dash runs are those slots' internal substructure.
+
+**4. It is blue.** 85–91 % blue-dominant — creature/brick ink, not the
+white cable ink, exactly as un-launched MindViruses would be.
+
+The maze is NOT a candidate: `TheLabyrinth.py:463` says in terms,
+"Labyrinth and ThickenSpline generators disabled for clean render", and
+the `__main__` scene creates only `FootprintCircle`, `TheWall` and the
+Observer. The footprint circle is not a candidate either: projected
+top-down it is a **ring 700 px across** (x 192→888), nothing like a
+1-px line.
+
+## Launch timing: ours is right, the reference's is the artifact
+
+Classifying every lit reference pixel by distance to the projected grid
+locus separates "still parked" ink from "airborne" ink:
+
+| frame | t | lit px | off-grid (>25 px) |
+|---|---|---|---|
+| f0001 | 0.0 | 5,464 | 0 (0.0 %) |
+| f0007 | 1.2 | 6,104 | 0 (0.0 %) |
+| f0013 | 2.4 | 8,377 | 0 (0.0 %) |
+| f0016 | 3.0 | 9,623 | 3 (0.0 %) |
+| f0018 | 3.4 | 10,884 | 3 (0.0 %) |
+| **f0019** | **3.6** | **28,789** | **17,329 (60.2 %)** |
+| f0020 | 3.8 | 29,909 | 17,627 (58.9 %) |
+
+**100 % of the reference's ink through t = 3.4 lies on the cloner
+grid**, then 17,000 pixels leave it in a single 0.2 s step. Real
+choreography ramps; a step of that shape is a switch, not a motion.
+
+The source's own arithmetic, run verbatim, disagrees with its own
+render: growth is keyframed **linear 0 → 1 over frames 0–500 with no
+offset and no easing** (`TheLabyrinth.py:497-521`), which puts the first
+slot's completion at 0.53 by t = 1.2 and **fully landed by t = 2.4**.
+The reference shows that creature parked at its grid slot until t = 3.6.
+
+So there is no keyframe offset to port, and the scale-pop theory does
+not survive either: sub-pixel creatures would not produce ink that sits
+*on the cloner grid* while the wave front is a quarter of the way round
+the ring. Per the brief — the source says linear-from-0 and the render
+disagrees, so this is **recorded as a reference discrepancy, not
+fitted**.
+
+Our timing is independently confirmed correct by the scores that follow
+it: from f0019 onward we run **coverage_ref 0.79 → 0.99 at sub-pixel
+chamfer**. Creatures launching half a second early could not do that.
+
+## Nothing was added to the scene, and that is the finding
+
+`core/demo/wall/TheWall.ts` is unchanged. Drawing this element would
+mean reproducing a C4D generator's failure to hide a zero-scaled clone —
+matching a render artifact, not the work. It is also not reachable from
+our architecture without inventing it: we have no cloner, the wall owns
+its slot array as data, and a creature at completion 0 has scale 0 and
+draws nothing. That is the ideal the original was aiming at.
+
+The opening therefore scores 0 and should be **excluded from scoring**
+the way f0079–f0084's fade-out already is: f0001–f0018 are the
+reference's pre-roll, not its choreography.
+
+## Numbers, before and after
+
+No scene change, so the numbers are identical by construction — the
+point of this pass is the identification, not a delta.
+`bun scripts/wall-gauntlet.ts /tmp/wg2 --step 3`, 26 frames:
+
+| Phase | Frames | coverage_ref | coverage_ours | IoU | chamfer_ref |
+|---|---|---|---|---|---|
+| Pre-emergence (t 0–3.0) | 6 | **0.002** | 0.001 | 0.000 | 13.9 px |
+| Launched (t 3.6–15.0) | 20 | **0.933** | 0.443 | 0.317 | 0.86 px |
+| All scored | 26 | 0.714 | 0.342 | 0.250 | 4.9 px |
+
+Excluding the six pre-roll frames the benchmark's mean coverage_ref is
+**0.933 at 0.86 px mean chamfer**.
+
+Regression check (the reflectedZ work): **f0037 coverage_ref 0.9605**
+(chamfer_ref 0.485 px), **f0043 coverage_ref 0.9842** (0.291 px). Both
+comfortably ≥ 0.94, unchanged.
+
+## One thing this pass did NOT own but must report
+
+`bun test` is **507 pass / 1 fail** on a clean tree — a pre-existing
+failure on `main`, not caused by this session (no files were modified).
+`test/journey.test.ts:349` pins FIDELITY-LEDGER #1's flaw
+(`completionOf(1, {splineT: 1, row: 0}) === 0.5936`) but builds its
+config without `sealAtOne: false`, so the now-default `sealAtOne: true`
+returns 1.0. The fix is one word in the test's config — the *behaviour*
+is correct and deliberate; the test simply predates the default. Owner
+of `journey.test.ts` should apply it.

@@ -317,7 +317,9 @@ describe("scale: tiny lies that grow (:1356-1386)", () => {
 })
 
 describe("the growth wave (:1283-1290)", () => {
-  const config = { rowCount: 4, rowLength: 60, rowLag: 1.66 }
+  // sealAtOne: false — this block pins the ORIGINAL's unsealed wave
+  // (FIDELITY-LEDGER #1); the framework default is the sealed ideal.
+  const config = { rowCount: 4, rowLength: 60, rowLag: 1.66, sealAtOne: false }
 
   test("growth 0 leaves everything unbuilt", () => {
     expect(completionOf(0, { splineT: 0, row: 0 }, config)).toBe(0)

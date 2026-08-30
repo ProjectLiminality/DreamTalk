@@ -114,9 +114,36 @@ Legend: ■ = flaw matched, ideal pending · ◆ = ideal already built ·
     its cables threadlike, capping our precision (~0.5) while recall
     reaches 0.94-0.98. The reference under-draws its own scene; ours is
     the legible version. Nothing to build.
-17. ■ **The benchmark's opening (t 0-2.4)** shows a faint dotted floor
-    element (footprint/maze edge-on) we don't draw, and our creatures
-    may launch ~0.5s early. Contained gap, in flight.
+17. ▲ **The benchmark's opening (t 0-3.4) is the reference's pre-roll,
+    not its choreography.** RESOLVED — and both halves of the original
+    suspicion were wrong. The "faint dotted floor element" is neither
+    floor nor maze: it is the **MoGraph Cloner's own 1x4x59 grid**
+    (`TheWall.py:1007-1010`, MG_GRID_SIZE (0,100,100)) — the un-launched
+    creatures parked at their grid slots, inked by Sketch & Toon even
+    though `SetRelScale(0)` (`:1386`) zeroed the MindVirus child; the
+    `MindVirusJourney` generator holon holding the ink is never scaled.
+    Identified four ways: its angle tracks phi within 0.8 degrees across
+    t 0-3.2, its minor spread is 3.6px (a 1px line, not a maze), its
+    autocorrelation pitch is 34px against a projected slot pitch of
+    34.84px, and it is 85-91% blue. The maze is explicitly disabled
+    (`TheLabyrinth.py:463`) and the footprint circle projects top-down
+    as a 700px RING, not a line.
+    The launch-timing half is the same artifact: **100% of reference ink
+    through t=3.4 sits ON that grid**, then 17,329 px leave it in one
+    0.2s step at f0019 — a switch, not a motion. The source keyframes
+    growth linear 0->1 over frames 0-500 with no offset or easing
+    (`:497-521`), which lands the first creature by t=2.4; the render
+    parks it until t=3.6. Source and render disagree, so this is a
+    REFERENCE discrepancy, recorded not fitted. Our timing is confirmed
+    correct by what follows it: coverage_ref 0.79-0.99 at sub-pixel
+    chamfer from f0019 on.
+    Nothing to build: drawing this would mean reproducing a generator's
+    failure to hide a zero-scaled clone. We have no cloner, the wall
+    owns its slots as data, and completion 0 means scale 0 means no ink
+    — already the ideal. ACTION: exclude f0001-f0018 from scoring the
+    way f0079-f0084's fade-out already is. Excluding them, the benchmark
+    means **0.933 coverage_ref at 0.86px chamfer** over 20 frames.
+    (Detail and measurements: docs/reports/wall/thewall-port.md.)
 
 ## The protocol going forward
 
