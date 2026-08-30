@@ -226,3 +226,15 @@ operational decisions are entered by the working agent. Format:
   honest upgrade if TheWall needs closer swim fidelity: journey legs as
   (impulse, drag) pairs integrated in closed form — exponential decay
   is analytic, still pure f(t), no baking.
+- 2026-08-30 · **The host's azimuth convention is the 2021 rig turned
+  180° about Y** — 2021: z = −r·cosθ·cosφ (camera_objects.py:219); host:
+  z = +r·cosφ·cosθ (three-host.ts:730-734). Same elevation, same sweep,
+  opposite heading zero. Every reproduction so far calibrated THROUGH
+  this mirror, so it must not be "fixed" in isolation — any change means
+  re-scoring everything. Recorded so nobody discovers it twice.
+- 2026-08-30 · **The 2021 growth wave never seals the wall at growth=1**
+  — the wave range is stretched by accumulated row lag but not by the
+  smoothstep's own TRANSITION_WIDTH, leaving the last 15% of splineT in
+  flight (verified by running the source arithmetic verbatim). Pinned in
+  journey.test.ts as a property of the original; scenes wanting a sealed
+  wall drive growth past 1.
