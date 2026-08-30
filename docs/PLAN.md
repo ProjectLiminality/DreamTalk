@@ -437,9 +437,10 @@ explicit instruction). Queue:
    growth wave; flower scene as intermediate check; cables OFF.
 4. [ ] Ch 6 first real work: the tether — XPBD port + bake-to-f(t)
    (simulate once, sample), Cable gains `tether` source.
-5. [ ] The benchmark: TheWall.mp4 reproduction (TheLabyrinth scene,
-   circle r=1000, 4 rows, cables ON, row_lag 1.66, orbiting Observer,
-   501 frames/16.7s) scored with the gauntlet at 5fps.
-6. [ ] Ledger updates + a morning report for David with side-by-sides.
+5. [x] The benchmark: 0.933 mean coverage_ref at 0.86px chamfer over
+   the real choreography (pre-roll and fade-out excluded — both proven
+   reference artifacts). Side-by-side MP4 in docs/reports/wall/.
+6. [x] FIDELITY-LEDGER.md (17 entries) + morning report delivered.
+   Items 1-4 also [x] — see commits 54f136c..9637daa.
 Stop condition: queue exhausted, or three-strikes on any layer (record
 and move on), or nothing actionable remains (standing-army rule).
