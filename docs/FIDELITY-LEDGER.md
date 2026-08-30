@@ -95,13 +95,28 @@ Legend: ■ = flaw matched, ideal pending · ◆ = ideal already built ·
     overlay's only fringe is the reference deviating from itself.
 14. ▲ **720p YouTube encode** as video-01 ground truth — compression
     tolerance is built into the evaluator; nothing to build.
-15. ■ **The azimuth mirror.** The host's heading zero is the 2021
+15. ◆ **The azimuth mirror** — RESOLVED as a documented handedness
+    adapter, not a convention flip: `reflectedZ(footprint)` maps
+    C4D-authored scenes onto the host's convention once at the scene
+    boundary. Measured worth: +0.79 coverage_ref in the cable phase
+    (0.02 → 0.94-0.98 per frame, chamfer 13px → sub-pixel). The host's
+    convention stays canonical; no re-scoring of other scenes needed.
+    (Previously:) ■ **The azimuth mirror.** The host's heading zero is the 2021
     rig's turned 180° about Y; every calibration runs THROUGH the
     mirror. Harmless but a standing trap. IDEAL: pick the convention
     we want ON PURPOSE (recommend: keep the host's, document it as
     canonical in TASTE) and delete the "2021 rig" framing — a
     deliberate convention beats an accidental inheritance. No
     re-scoring needed if we keep the host's.
+
+16. ▲ **The 2025/26 render's ink is faint and thin** — its bricks are
+    nearly invisible mid-scene (437 blue px vs our 29,506 at t=6) and
+    its cables threadlike, capping our precision (~0.5) while recall
+    reaches 0.94-0.98. The reference under-draws its own scene; ours is
+    the legible version. Nothing to build.
+17. ■ **The benchmark's opening (t 0-2.4)** shows a faint dotted floor
+    element (footprint/maze edge-on) we don't draw, and our creatures
+    may launch ~0.5s early. Contained gap, in flight.
 
 ## The protocol going forward
 

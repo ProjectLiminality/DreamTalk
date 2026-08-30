@@ -125,6 +125,10 @@ export class TheWall extends Holon {
    * bakes one XPBD simulation per creature (see the header).
    */
   cables = bool(false)
+  /** growth = 1 seals the wall (the IDEAL); benchmark scenes pass false
+   *  to reproduce the 2025/26 wave that leaves the last 15% in flight
+   *  (FIDELITY-LEDGER #1). */
+  sealAtOne = bool(true)
 
   /** Scene seconds the cable bake must cover — the scene's own span. */
   cableDuration = scalar(500 / 30)
@@ -303,6 +307,7 @@ export class TheWall extends Holon {
         rowCount: this.rowCount.value,
         rowLength: this.packing?.rowLength ?? 1,
         rowLag: this.rowLag.value,
+        sealAtOne: this.sealAtOne.value,
       },
     )
     const s = journeyState(completion, journey)
@@ -336,6 +341,7 @@ export class TheWall extends Holon {
         rowCount: this.rowCount.value,
         rowLength: this.packing?.rowLength ?? 1,
         rowLag: this.rowLag.value,
+        sealAtOne: this.sealAtOne.value,
       },
     )
   }

@@ -63663,6 +63663,259 @@ class FoldableCube extends Stroke {
     return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
   }
 }
+var hingeAngle = (fold) => fold * PI3 / 2;
+
+// src/bake.ts
+var bake = (sim, { fps, duration }) => {
+  if (fps <= 0)
+    throw new Error("bake: fps must be positive");
+  if (duration < 0)
+    throw new Error("bake: duration must be non-negative");
+  const width = sim.width;
+  const frames = Math.max(1, Math.round(duration * fps) + 1);
+  const dt2 = 1 / fps;
+  const data = new Float32Array(frames * width);
+  let state2 = sim.init();
+  sim.sample(state2, data, 0);
+  for (let f2 = 1;f2 < frames; f2++) {
+    state2 = sim.step(state2, f2, f2 * dt2, dt2);
+    sim.sample(state2, data, f2 * width);
+  }
+  return makeTrack(data, frames, width, fps, duration);
+};
+var makeTrack = (data, frames, width, fps, duration) => {
+  const track = {
+    data,
+    frames,
+    width,
+    fps,
+    duration,
+    sampleAt(t2, out) {
+      const dest = out ?? new Float32Array(width);
+      if (frames === 1) {
+        dest.set(data.subarray(0, width));
+        return dest;
+      }
+      const u2 = Math.min(Math.max(t2 * fps, 0), frames - 1);
+      const i2 = Math.min(Math.floor(u2), frames - 2);
+      const w4 = u2 - i2;
+      const a2 = i2 * width;
+      const b2 = a2 + width;
+      if (w4 <= 0) {
+        dest.set(data.subarray(a2, a2 + width));
+        return dest;
+      }
+      for (let k2 = 0;k2 < width; k2++) {
+        dest[k2] = data[a2 + k2] + (data[b2 + k2] - data[a2 + k2]) * w4;
+      }
+      return dest;
+    }
+  };
+  return track;
+};
+
+// src/geometry/xpbd.ts
+var add3 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var sub3 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var mul3 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var dot3 = (a2, b2) => a2.x * b2.x + a2.y * b2.y + a2.z * b2.z;
+var cross3 = (a2, b2) => ({
+  x: a2.y * b2.z - a2.z * b2.y,
+  y: a2.z * b2.x - a2.x * b2.z,
+  z: a2.x * b2.y - a2.y * b2.x
+});
+var length5 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var normalize4 = (a2) => {
+  const l2 = length5(a2);
+  return l2 < 0.000000001 ? undefined : mul3(a2, 1 / l2);
+};
+var CABLE_PARTICLES = 21;
+var XPBD_ITERATIONS = 6;
+var CABLE_GRAVITY = -50;
+var CABLE_DRAG = 0.15;
+var CABLE_STIFFNESS = 0.15;
+var CABLE_MAX_VELOCITY = 300;
+var CABLE_VELOCITY_SMOOTHING = 0.3;
+var CABLE_DIR_STRENGTH = 0.5;
+var CABLE_SLACK = 1.3;
+var COLLISION_THICKNESS = 15;
+var COLLISION_PUSH = 0.5;
+var DIR_CONSTRAINT_REACH = 3;
+var XPBD_ACTIVATION = 0.08;
+var COLLIDER_FADE_START = 0.15;
+var COLLIDER_FADE_END = 0.5;
+var SETTLE_START = 0.75;
+var SETTLE_STIFFNESS = 0.8;
+var SETTLE_DRAG = 0.5;
+var SETTLE_DIR_FALLOFF = 0.5;
+var straightState = (anchor, tip, particles = CABLE_PARTICLES) => {
+  const positions = [];
+  const velocities = [];
+  for (let i2 = 0;i2 < particles; i2++) {
+    const t2 = i2 / (particles - 1);
+    positions.push(add3(anchor, mul3(sub3(tip, anchor), t2)));
+    velocities.push({ x: 0, y: 0, z: 0 });
+  }
+  return { positions, velocities };
+};
+var pointFaceCollision = (point, face, push = COLLISION_PUSH, thickness3 = COLLISION_THICKNESS) => {
+  const { corners, normal: normal2 } = face;
+  const dist = dot3(sub3(point, corners[0]), normal2);
+  if (dist < -thickness3 || dist > thickness3)
+    return { point, collided: false };
+  const proj = sub3(point, mul3(normal2, dist));
+  for (let e2 = 0;e2 < 4; e2++) {
+    const a2 = corners[e2];
+    const b2 = corners[(e2 + 1) % 4];
+    if (dot3(cross3(sub3(b2, a2), sub3(proj, a2)), normal2) < 0)
+      return { point, collided: false };
+  }
+  const target = add3(proj, mul3(normal2, thickness3));
+  return { point: add3(point, mul3(sub3(target, point), push)), collided: true };
+};
+var foldableCubeFaces = (center, frame, fold, scale2, size = 100) => {
+  const angle2 = hingeAngle(fold);
+  const cos3 = Math.cos(angle2);
+  const sin3 = Math.sin(angle2);
+  const h2 = size / 2;
+  const toWorld = (p2) => add3(center, {
+    x: (frame.vx.x * p2.x + frame.vy.x * p2.y + frame.vz.x * p2.z) * scale2,
+    y: (frame.vx.y * p2.x + frame.vy.y * p2.y + frame.vz.y * p2.z) * scale2,
+    z: (frame.vx.z * p2.x + frame.vy.z * p2.y + frame.vz.z * p2.z) * scale2
+  });
+  const makeFace = (local) => {
+    const c2 = local.map(toWorld);
+    const n2 = normalize4(cross3(sub3(c2[1], c2[0]), sub3(c2[3], c2[0]))) ?? { x: 0, y: 1, z: 0 };
+    return { corners: c2, normal: n2 };
+  };
+  const faces = [];
+  faces.push(makeFace([
+    { x: -h2, y: 0, z: -h2 },
+    { x: h2, y: 0, z: -h2 },
+    { x: h2, y: 0, z: h2 },
+    { x: -h2, y: 0, z: h2 }
+  ]));
+  const wall = (out, u2) => {
+    const pivot = mul3(out, h2);
+    const far = add3(mul3(out, size * cos3), { x: 0, y: size * sin3, z: 0 });
+    return makeFace([
+      add3(pivot, mul3(u2, -h2)),
+      add3(pivot, mul3(u2, h2)),
+      add3(add3(pivot, far), mul3(u2, h2)),
+      add3(add3(pivot, far), mul3(u2, -h2))
+    ]);
+  };
+  faces.push(wall({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 }));
+  faces.push(wall({ x: 0, y: 0, z: -1 }, { x: -1, y: 0, z: 0 }));
+  faces.push(wall({ x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }));
+  faces.push(wall({ x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
+  return faces;
+};
+var step3 = (state2, config) => {
+  const n2 = state2.positions.length;
+  if (n2 < 2)
+    return { positions: [...state2.positions], velocities: [...state2.velocities] };
+  const {
+    anchor,
+    tip,
+    dt: dt2,
+    restLength,
+    gravity = { x: 0, y: CABLE_GRAVITY, z: 0 },
+    drag = CABLE_DRAG,
+    stiffness = CABLE_STIFFNESS,
+    iterations = XPBD_ITERATIONS,
+    maxVelocity = CABLE_MAX_VELOCITY,
+    velocitySmoothing = CABLE_VELOCITY_SMOOTHING,
+    anchorDir,
+    tipDir,
+    dirStrength = CABLE_DIR_STRENGTH,
+    faces
+  } = config;
+  const clampSpeed = (v2) => {
+    const speed = length5(v2);
+    return speed > maxVelocity ? mul3(v2, maxVelocity / speed) : v2;
+  };
+  const predicted = [...state2.positions];
+  predicted[0] = anchor;
+  predicted[n2 - 1] = tip;
+  let velocities = state2.velocities;
+  if (velocitySmoothing > 0 && n2 > 2) {
+    const smoothed = [...velocities];
+    for (let i2 = 1;i2 < n2 - 1; i2++) {
+      const avg = mul3(add3(add3(velocities[i2 - 1], velocities[i2]), velocities[i2 + 1]), 1 / 3);
+      smoothed[i2] = add3(velocities[i2], mul3(sub3(avg, velocities[i2]), velocitySmoothing));
+    }
+    velocities = smoothed;
+  }
+  const dragFactor = Math.max(0, 1 - drag * dt2);
+  for (let i2 = 1;i2 < n2 - 1; i2++) {
+    const vel = clampSpeed(mul3(add3(velocities[i2], mul3(gravity, dt2)), dragFactor));
+    predicted[i2] = add3(state2.positions[i2], mul3(vel, dt2));
+  }
+  for (let pass3 = 0;pass3 < iterations; pass3++) {
+    for (let i2 = 0;i2 < n2 - 1; i2++) {
+      const delta = sub3(predicted[i2 + 1], predicted[i2]);
+      const dist = length5(delta);
+      if (dist < 0.001)
+        continue;
+      const correction = mul3(delta, 1 - restLength / dist);
+      if (i2 > 0)
+        predicted[i2] = add3(predicted[i2], mul3(correction, 0.5));
+      if (i2 < n2 - 2)
+        predicted[i2 + 1] = sub3(predicted[i2 + 1], mul3(correction, 0.5));
+    }
+    predicted[0] = anchor;
+    predicted[n2 - 1] = tip;
+    const pullEnd = (dir, base, indexOf) => {
+      const d2 = dir && length5(dir) > 0.001 ? normalize4(dir) : undefined;
+      if (!d2)
+        return;
+      for (let j2 = 1;j2 < Math.min(DIR_CONSTRAINT_REACH + 1, n2 - 1); j2++) {
+        const idx = indexOf(j2);
+        const target = add3(base, mul3(d2, j2 * restLength));
+        const weight = dirStrength * (1 - (j2 - 1) / DIR_CONSTRAINT_REACH);
+        predicted[idx] = add3(predicted[idx], mul3(sub3(target, predicted[idx]), weight));
+      }
+    };
+    pullEnd(anchorDir, anchor, (j2) => j2);
+    pullEnd(tipDir, tip, (j2) => n2 - 1 - j2);
+    for (let i2 = 1;i2 < n2 - 1; i2++) {
+      const mid = mul3(add3(predicted[i2 - 1], predicted[i2 + 1]), 0.5);
+      predicted[i2] = add3(predicted[i2], mul3(sub3(mid, predicted[i2]), stiffness));
+    }
+    if (faces && faces.length > 0) {
+      for (let i2 = 1;i2 < n2 - 1; i2++) {
+        for (const face of faces) {
+          predicted[i2] = pointFaceCollision(predicted[i2], face).point;
+        }
+      }
+    }
+  }
+  const invDt = 1 / Math.max(dt2, 0.001);
+  const newVelocities = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    newVelocities.push(clampSpeed(mul3(sub3(predicted[i2], state2.positions[i2]), invDt)));
+  }
+  return { positions: predicted, velocities: newVelocities };
+};
+var settleParams = (completion2) => {
+  if (completion2 <= SETTLE_START) {
+    return { stiffness: CABLE_STIFFNESS, drag: CABLE_DRAG, dirStrength: CABLE_DIR_STRENGTH };
+  }
+  const t2 = Math.min((completion2 - SETTLE_START) / (1 - SETTLE_START), 1);
+  return {
+    stiffness: CABLE_STIFFNESS + (SETTLE_STIFFNESS - CABLE_STIFFNESS) * t2,
+    drag: CABLE_DRAG + (SETTLE_DRAG - CABLE_DRAG) * t2,
+    dirStrength: CABLE_DIR_STRENGTH * (1 - t2 * SETTLE_DIR_FALLOFF)
+  };
+};
+var colliderScale = (completion2) => {
+  if (completion2 <= COLLIDER_FADE_START)
+    return 0;
+  if (completion2 >= COLLIDER_FADE_END)
+    return 1;
+  return (completion2 - COLLIDER_FADE_START) / (COLLIDER_FADE_END - COLLIDER_FADE_START);
+};
 
 // src/parts/cable.ts
 var CTRL_POINTS = 12;
@@ -63671,10 +63924,12 @@ var SMOOTH_ITERATIONS = 3;
 var TUBE_SAMPLES = 48;
 var RING_SEGMENTS = 16;
 var TRAVEL_SAMPLES_PER_SEC = 120;
-var sub3 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
-var add3 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
-var mul3 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
-var cross3 = (a2, b2) => ({
+var TETHER_SUBDIVISIONS = 3;
+var TETHER_TAPER_MIN = 0.3;
+var sub4 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var add4 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var mul4 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var cross4 = (a2, b2) => ({
   x: a2.y * b2.z - a2.z * b2.y,
   y: a2.z * b2.x - a2.x * b2.z,
   z: a2.x * b2.y - a2.y * b2.x
@@ -63682,7 +63937,7 @@ var cross3 = (a2, b2) => ({
 var len = (a2) => Math.hypot(a2.x, a2.y, a2.z);
 var norm = (a2) => {
   const l2 = len(a2);
-  return l2 < 0.000000001 ? undefined : mul3(a2, 1 / l2);
+  return l2 < 0.000000001 ? undefined : mul4(a2, 1 / l2);
 };
 var smoothControlPoints = (points, smoothing = SMOOTH_BLEND, iterations = SMOOTH_ITERATIONS) => {
   if (points.length < 3)
@@ -63693,8 +63948,8 @@ var smoothControlPoints = (points, smoothing = SMOOTH_BLEND, iterations = SMOOTH
     for (let i2 = 1;i2 < result.length - 1; i2++) {
       const t2 = i2 / (result.length - 1);
       const blend = smoothing * (0.3 + 0.7 * t2);
-      const avg = mul3(add3(add3(result[i2 - 1], result[i2]), result[i2 + 1]), 1 / 3);
-      out.push(add3(result[i2], mul3(sub3(avg, result[i2]), blend)));
+      const avg = mul4(add4(add4(result[i2 - 1], result[i2]), result[i2 + 1]), 1 / 3);
+      out.push(add4(result[i2], mul4(sub4(avg, result[i2]), blend)));
     }
     out.push(result[result.length - 1]);
     result = out;
@@ -63740,6 +63995,9 @@ class Cable extends Stroke {
   _since = 0;
   _memoKey;
   _memo;
+  _baked;
+  _bakedScratch;
+  _bakedVisible;
   trail(source, opts = {}) {
     this.parts;
     this._path = typeof source === "function" ? source : (t2) => source.pathAt(t2);
@@ -63749,6 +64007,59 @@ class Cable extends Stroke {
       this.window.value = opts.window;
     }
     return this;
+  }
+  tether(anchor, tip, opts) {
+    this.parts;
+    const particles = opts.particles ?? CABLE_PARTICLES;
+    const slack = opts.slack ?? CABLE_SLACK;
+    const fps = opts.bakeFps ?? 30;
+    const duration = opts.duration;
+    const cubeSize = opts.cubeSize ?? 100;
+    const anchorDir = opts.anchorDir;
+    const frames = Math.max(1, Math.round(duration * fps) + 1);
+    const visible = new Float32Array(frames);
+    const track = bake({
+      width: particles * 3,
+      init: () => straightState(anchor, tip(0).position, particles),
+      step: (state2, frame, time3, dt2) => {
+        const t2 = tip(time3);
+        visible[frame] = t2.completion;
+        if (t2.completion <= XPBD_ACTIVATION)
+          return straightState(anchor, t2.position, particles);
+        const settle = settleParams(t2.completion);
+        const cs = colliderScale(t2.completion);
+        const restLength = Math.max(t2.travelled * slack, 1) / (particles - 1);
+        const config = {
+          anchor,
+          tip: t2.position,
+          dt: dt2,
+          restLength,
+          drag: settle.drag,
+          stiffness: settle.stiffness,
+          dirStrength: settle.dirStrength,
+          anchorDir,
+          tipDir: t2.direction,
+          faces: cs > 0.01 ? foldableCubeFaces(t2.position, t2.frame, t2.fold, t2.scale * cs, cubeSize) : undefined
+        };
+        return step3(state2, config);
+      },
+      sample: (state2, out, offset) => {
+        for (let i2 = 0;i2 < particles; i2++) {
+          const p2 = state2.positions[i2];
+          out[offset + i2 * 3] = p2.x;
+          out[offset + i2 * 3 + 1] = p2.y;
+          out[offset + i2 * 3 + 2] = p2.z;
+        }
+      }
+    }, { fps, duration });
+    visible[0] = tip(0).completion;
+    this._baked = track;
+    this._bakedVisible = visible;
+    this._bakedScratch = new Float32Array(track.width);
+    return this;
+  }
+  get bakedBytes() {
+    return this._baked?.data.byteLength ?? 0;
   }
   compose() {
     const derivedLine = (line, pick) => {
@@ -63792,11 +64103,11 @@ class Cable extends Stroke {
     let out = v2;
     for (let i2 = chain2.length - 1;i2 >= 0; i2--) {
       const anc = chain2[i2];
-      out = sub3(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
+      out = sub4(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
       out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
       const s2 = anc.scale.value;
       if (s2 !== 1)
-        out = mul3(out, 1 / s2);
+        out = mul4(out, 1 / s2);
     }
     return out;
   }
@@ -63809,8 +64120,50 @@ class Cable extends Stroke {
     this._memo = this.computeGeometry();
     return this._memo;
   }
+  tubeFrom(spine, empty2) {
+    if (spine.length < 2)
+      return empty2;
+    const view = this.view;
+    const a2 = [];
+    const b2 = [];
+    let lastNormal = { x: 0, y: 1, z: 0 };
+    for (let i2 = 0;i2 < spine.length; i2++) {
+      const p0 = spine[Math.max(0, i2 - 1)];
+      const p1 = spine[Math.min(spine.length - 1, i2 + 1)];
+      const tan3 = norm(sub4(p1, p0)) ?? { x: 1, y: 0, z: 0 };
+      const n2 = norm(cross4(tan3, view)) ?? lastNormal;
+      lastNormal = n2;
+      const f2 = i2 / (spine.length - 1);
+      const r2 = this.width.value * (TETHER_TAPER_MIN + (1 - TETHER_TAPER_MIN) * f2);
+      a2.push(this.toLocal(add4(spine[i2], mul4(n2, r2))));
+      b2.push(this.toLocal(sub4(spine[i2], mul4(n2, r2))));
+    }
+    return { a: a2, b: b2, rings: this.ringLines.map(() => []) };
+  }
+  tetherSpine() {
+    const track = this._baked;
+    const visible = this._bakedVisible;
+    if (!track || !visible)
+      return;
+    const T3 = this.clock.value;
+    const u2 = Math.min(Math.max(T3 * track.fps, 0), visible.length - 1);
+    const completion2 = visible[Math.round(u2)];
+    if (completion2 <= 0.02)
+      return;
+    const flat = track.sampleAt(T3, this._bakedScratch);
+    const n2 = flat.length / 3;
+    const particles = [];
+    for (let i2 = 0;i2 < n2; i2++) {
+      particles.push({ x: flat[i2 * 3], y: flat[i2 * 3 + 1], z: flat[i2 * 3 + 2] });
+    }
+    return catmullRomResample(particles, (n2 - 1) * (TETHER_SUBDIVISIONS + 1) + 1);
+  }
   computeGeometry() {
     const empty2 = { a: [], b: [], rings: this.ringLines.map(() => []) };
+    if (this._baked) {
+      const spine = this.tetherSpine();
+      return spine ? this.tubeFrom(spine, empty2) : empty2;
+    }
     const path = this._path;
     if (!path)
       return empty2;
@@ -63825,7 +64178,7 @@ class Cable extends Stroke {
     const pts = catmullRomResample(smoothControlPoints(raw), TUBE_SAMPLES);
     const cum = [0];
     for (let i2 = 1;i2 < pts.length; i2++)
-      cum.push(cum[i2 - 1] + len(sub3(pts[i2], pts[i2 - 1])));
+      cum.push(cum[i2 - 1] + len(sub4(pts[i2], pts[i2 - 1])));
     const total = cum[cum.length - 1];
     if (total < 0.000001)
       return empty2;
@@ -63836,9 +64189,9 @@ class Cable extends Stroke {
     for (let i2 = 0;i2 < pts.length; i2++) {
       const p0 = pts[Math.max(0, i2 - 1)];
       const p1 = pts[Math.min(pts.length - 1, i2 + 1)];
-      const tan3 = norm(sub3(p1, p0)) ?? { x: 1, y: 0, z: 0 };
+      const tan3 = norm(sub4(p1, p0)) ?? { x: 1, y: 0, z: 0 };
       tangents.push(tan3);
-      const n2 = norm(cross3(tan3, view)) ?? lastNormal;
+      const n2 = norm(cross4(tan3, view)) ?? lastNormal;
       lastNormal = n2;
       normals.push(n2);
     }
@@ -63847,12 +64200,12 @@ class Cable extends Stroke {
     const b2 = [];
     for (let i2 = 0;i2 < pts.length; i2++) {
       const r2 = radiusAt(cum[i2] / total);
-      a2.push(this.toLocal(add3(pts[i2], mul3(normals[i2], r2))));
-      b2.push(this.toLocal(sub3(pts[i2], mul3(normals[i2], r2))));
+      a2.push(this.toLocal(add4(pts[i2], mul4(normals[i2], r2))));
+      b2.push(this.toLocal(sub4(pts[i2], mul4(normals[i2], r2))));
     }
     const rings = this.ringLines.map(() => []);
-    const step3 = this.ringStep.value;
-    if (this.rings.value && step3 > 0) {
+    const step4 = this.ringStep.value;
+    if (this.rings.value && step4 > 0) {
       const K3 = Math.min(900, Math.max(2, Math.ceil((T3 - this._since) * TRAVEL_SAMPLES_PER_SEC)));
       const times = [];
       const travel = [0];
@@ -63862,7 +64215,7 @@ class Cable extends Stroke {
         const tk = this._since + (T3 - this._since) * k2 / (K3 - 1);
         const p2 = path(tk);
         times.push(tk);
-        travel.push(travel[k2 - 1] + len(sub3(p2, prev)));
+        travel.push(travel[k2 - 1] + len(sub4(p2, prev)));
         prev = p2;
       }
       const travelAt = (t2) => {
@@ -63887,27 +64240,27 @@ class Cable extends Stroke {
       };
       const dHead = travel[K3 - 1];
       const dTail = travelAt(t0);
-      const mMax = Math.floor(dHead / step3);
-      const mMin = Math.max(1, Math.ceil(dTail / step3));
+      const mMax = Math.floor(dHead / step4);
+      const mMin = Math.max(1, Math.ceil(dTail / step4));
       for (let j2 = 0;j2 < this.ringLines.length; j2++) {
         const m2 = mMax - j2;
         if (m2 < mMin)
           break;
-        const tau = timeAtTravel(m2 * step3);
+        const tau = timeAtTravel(m2 * step4);
         const f2 = Math.min(1, Math.max(0, (T3 - tau) / span));
         const u2 = f2 * (pts.length - 1);
         const i2 = Math.min(Math.floor(u2), pts.length - 2);
         const w4 = u2 - i2;
-        const center = add3(mul3(pts[i2], 1 - w4), mul3(pts[i2 + 1], w4));
-        const tan3 = norm(add3(mul3(tangents[i2], 1 - w4), mul3(tangents[i2 + 1], w4))) ?? tangents[i2];
-        const n2 = norm(cross3(tan3, view)) ?? normals[i2];
-        const m22 = norm(cross3(tan3, n2)) ?? { x: 0, y: 1, z: 0 };
+        const center = add4(mul4(pts[i2], 1 - w4), mul4(pts[i2 + 1], w4));
+        const tan3 = norm(add4(mul4(tangents[i2], 1 - w4), mul4(tangents[i2 + 1], w4))) ?? tangents[i2];
+        const n2 = norm(cross4(tan3, view)) ?? normals[i2];
+        const m22 = norm(cross4(tan3, n2)) ?? { x: 0, y: 1, z: 0 };
         const arcFrac = (cum[i2] + w4 * (cum[i2 + 1] - cum[i2])) / total;
         const r2 = radiusAt(arcFrac);
         const ring = [];
         for (let s2 = 0;s2 <= RING_SEGMENTS; s2++) {
           const th = s2 / RING_SEGMENTS * TAU;
-          ring.push(this.toLocal(add3(center, add3(mul3(n2, r2 * Math.cos(th)), mul3(m22, r2 * Math.sin(th))))));
+          ring.push(this.toLocal(add4(center, add4(mul4(n2, r2 * Math.cos(th)), mul4(m22, r2 * Math.sin(th))))));
         }
         rings[j2] = ring;
       }
@@ -64445,13 +64798,13 @@ if (false)
   ;
 
 // src/geometry/journey.ts
-var add4 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
-var sub4 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
-var mul4 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var add5 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var sub5 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var mul5 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
 var len2 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
-var normalize4 = (v2, fallback = { x: 0, y: 0, z: 1 }) => {
+var normalize5 = (v2, fallback = { x: 0, y: 0, z: 1 }) => {
   const l2 = len2(v2);
-  return l2 < EPSILON3 ? fallback : mul4(v2, 1 / l2);
+  return l2 < EPSILON3 ? fallback : mul5(v2, 1 / l2);
 };
 var EPSILON3 = 0.001;
 var DISTANCE_PER_THRUST = 350;
@@ -64482,22 +64835,22 @@ var easeOut = (t2) => 1 - (1 - t2) * (1 - t2);
 var bezierPoint = (path, t2) => {
   const u2 = 1 - t2;
   const { p0, p1, p2, p3 } = path;
-  return add4(add4(mul4(p0, u2 * u2 * u2), mul4(p1, 3 * u2 * u2 * t2)), add4(mul4(p2, 3 * u2 * t2 * t2), mul4(p3, t2 * t2 * t2)));
+  return add5(add5(mul5(p0, u2 * u2 * u2), mul5(p1, 3 * u2 * u2 * t2)), add5(mul5(p2, 3 * u2 * t2 * t2), mul5(p3, t2 * t2 * t2)));
 };
 var bezierTangent = (path, t2) => {
   const u2 = 1 - t2;
   const { p0, p1, p2, p3 } = path;
-  return add4(add4(mul4(sub4(p1, p0), 3 * u2 * u2), mul4(sub4(p2, p1), 6 * u2 * t2)), mul4(sub4(p3, p2), 3 * t2 * t2));
+  return add5(add5(mul5(sub5(p1, p0), 3 * u2 * u2), mul5(sub5(p2, p1), 6 * u2 * t2)), mul5(sub5(p3, p2), 3 * t2 * t2));
 };
 var buildBezierPath = (e2) => {
   const { spawn, slot } = e2;
-  const direction = sub4(slot, spawn);
+  const direction = sub5(slot, spawn);
   const distance3 = len2(direction);
   if (distance3 < EPSILON3)
     return { p0: spawn, p1: spawn, p2: slot, p3: slot };
   const arrival = e2.arrivalFactor ?? ARRIVAL_FACTOR;
-  const p1 = e2.spawnDir && len2(e2.spawnDir) > EPSILON3 ? add4(spawn, e2.spawnDir) : add4(spawn, mul4(normalize4(direction), distance3 * 0.33));
-  const p2 = e2.slotNormal && len2(e2.slotNormal) > EPSILON3 ? add4(slot, mul4(e2.slotNormal, distance3 * arrival)) : add4(slot, mul4({ x: -1, y: 0, z: 0 }, distance3 * arrival));
+  const p1 = e2.spawnDir && len2(e2.spawnDir) > EPSILON3 ? add5(spawn, e2.spawnDir) : add5(spawn, mul5(normalize5(direction), distance3 * 0.33));
+  const p2 = e2.slotNormal && len2(e2.slotNormal) > EPSILON3 ? add5(slot, mul5(e2.slotNormal, distance3 * arrival)) : add5(slot, mul5({ x: -1, y: 0, z: 0 }, distance3 * arrival));
   return { p0: spawn, p1, p2, p3: slot };
 };
 var buildArcLut = (path, samples = ARC_LUT_SAMPLES) => {
@@ -64506,7 +64859,7 @@ var buildArcLut = (path, samples = ARC_LUT_SAMPLES) => {
     positions.push(bezierPoint(path, i2 / samples));
   const cumulative = [0];
   for (let i2 = 1;i2 < positions.length; i2++) {
-    cumulative.push(cumulative[i2 - 1] + len2(sub4(positions[i2], positions[i2 - 1])));
+    cumulative.push(cumulative[i2 - 1] + len2(sub5(positions[i2], positions[i2 - 1])));
   }
   return { path, cumulative, totalLength: cumulative[cumulative.length - 1], samples };
 };
@@ -64619,7 +64972,8 @@ var completionOf = (growth, slot, config) => {
   const brickWidthT = 1 / Math.max(rowLength - 1, 1);
   const rowDelay = slot.row * rowLag * brickWidthT;
   const totalRowLag = (rowCount - 1) * rowLag * brickWidthT;
-  const effectiveGrowth = growth * (1 + totalRowLag);
+  const seal = config.sealAtOne ?? true ? width : 0;
+  const effectiveGrowth = growth * (1 + totalRowLag + seal);
   const localProgress = effectiveGrowth - slot.splineT - rowDelay;
   return smoothstep6(clamp014(localProgress / width));
 };
@@ -64638,10 +64992,10 @@ var journeyState = (completion2, journey) => {
   const t2 = arcLengthToT(journey.lut, splineS);
   const position = bezierPoint(journey.lut.path, t2);
   const tangent = bezierTangent(journey.lut.path, t2);
-  const forward = normalize4(tangent, { x: 0, y: 0, z: -1 });
+  const forward = normalize5(tangent, { x: 0, y: 0, z: -1 });
   return {
     position,
-    heading: mul4(forward, -1),
+    heading: mul5(forward, -1),
     fold,
     scale: completionToScale(c2),
     splineS
@@ -64649,19 +65003,19 @@ var journeyState = (completion2, journey) => {
 };
 
 // src/geometry/packing.ts
-var sub5 = (a2, b2) => ({ x: a2.x - b2.x, z: a2.z - b2.z });
-var add5 = (a2, b2) => ({ x: a2.x + b2.x, z: a2.z + b2.z });
-var mul5 = (a2, k2) => ({ x: a2.x * k2, z: a2.z * k2 });
-var length5 = (a2) => Math.hypot(a2.x, a2.z);
-var normalize5 = (v2) => {
-  const l2 = length5(v2);
+var sub6 = (a2, b2) => ({ x: a2.x - b2.x, z: a2.z - b2.z });
+var add6 = (a2, b2) => ({ x: a2.x + b2.x, z: a2.z + b2.z });
+var mul6 = (a2, k2) => ({ x: a2.x * k2, z: a2.z * k2 });
+var length6 = (a2) => Math.hypot(a2.x, a2.z);
+var normalize6 = (v2) => {
+  const l2 = length6(v2);
   return l2 < 0.000000001 ? { x: 0, z: 1 } : { x: v2.x / l2, z: v2.z / l2 };
 };
 var buildFootprint = (points, closed = true) => {
   const pts = closed && points.length > 1 ? [...points, points[0]] : [...points];
   const cumulative = [0];
   for (let i2 = 1;i2 < pts.length; i2++) {
-    cumulative.push(cumulative[i2 - 1] + length5(sub5(pts[i2], pts[i2 - 1])));
+    cumulative.push(cumulative[i2 - 1] + length6(sub6(pts[i2], pts[i2 - 1])));
   }
   return { points: pts, cumulative, totalLength: cumulative[cumulative.length - 1], closed };
 };
@@ -64686,24 +65040,24 @@ var sampleFootprint = (fp, t2) => {
   const a2 = fp.points[lo];
   const b2 = fp.points[hi];
   return {
-    position: add5(a2, mul5(sub5(b2, a2), frac)),
-    tangent: segLen > 0 ? normalize5(sub5(b2, a2)) : { x: 0, z: 1 }
+    position: add6(a2, mul6(sub6(b2, a2), frac)),
+    tangent: segLen > 0 ? normalize6(sub6(b2, a2)) : { x: 0, z: 1 }
   };
 };
-var normalAt = (tangent) => normalize5({ x: -tangent.z, z: tangent.x });
+var normalAt = (tangent) => normalize6({ x: -tangent.z, z: tangent.x });
 var squareAt = (fp, t2, brickSize) => {
   const { position, tangent } = sampleFootprint(fp, t2);
   const normal2 = normalAt(tangent);
   const half = brickSize / 2;
-  const ht2 = mul5(tangent, half);
-  const hn = mul5(normal2, half);
+  const ht2 = mul6(tangent, half);
+  const hn = mul6(normal2, half);
   return {
     center: position,
     corners: [
-      sub5(sub5(position, ht2), hn),
-      sub5(add5(position, ht2), hn),
-      add5(add5(position, ht2), hn),
-      add5(sub5(position, ht2), hn)
+      sub6(sub6(position, ht2), hn),
+      sub6(add6(position, ht2), hn),
+      add6(add6(position, ht2), hn),
+      add6(sub6(position, ht2), hn)
     ]
   };
 };
@@ -64724,12 +65078,12 @@ var CONTACT_SLOP = 0.01;
 var squaresOverlap = (a2, b2) => {
   for (const corners of [a2, b2]) {
     for (let i2 = 0;i2 < 2; i2++) {
-      const edge = sub5(corners[(i2 + 1) % 4], corners[i2]);
+      const edge = sub6(corners[(i2 + 1) % 4], corners[i2]);
       const axis = { x: -edge.z, z: edge.x };
-      const l2 = length5(axis);
+      const l2 = length6(axis);
       if (l2 < MIN_AXIS_LENGTH)
         continue;
-      const unit = mul5(axis, 1 / l2);
+      const unit = mul6(axis, 1 / l2);
       const pa = projectOnto(a2, unit);
       const pb = projectOnto(b2, unit);
       if (pa.max <= pb.min + CONTACT_SLOP || pb.max <= pa.min + CONTACT_SLOP)
@@ -64812,7 +65166,7 @@ var packSlots = (fp, config) => {
       const normal2 = normalAt(tangent);
       slots.push({
         t: t2,
-        position: add5(position, mul5(normal2, originOffset)),
+        position: add6(position, mul6(normal2, originOffset)),
         normal: normal2,
         tangent,
         row,
@@ -64824,6 +65178,10 @@ var packSlots = (fp, config) => {
 };
 var rowHeight = (row, rowCount, spacing) => (row - (rowCount - 1) / 2) * spacing;
 var FOOTPRINT_SAMPLES = 360;
+var reflectedZ = (footprint) => {
+  const raw = footprint.closed ? footprint.points.slice(0, -1) : footprint.points;
+  return buildFootprint(raw.map((p2) => ({ x: p2.x, z: -p2.z })), footprint.closed);
+};
 var circleFootprint = (radius, samples = FOOTPRINT_SAMPLES) => {
   const points = [];
   for (let i2 = 0;i2 < samples; i2++) {
@@ -64859,6 +65217,12 @@ class TheWall extends Holon {
   brickSize = length2(WALL_BRICK_SIZE);
   rowLag = scalar(WALL_ROW_LAG);
   cables = bool2(false);
+  sealAtOne = bool2(true);
+  cableDuration = scalar(500 / 30);
+  cableFps = scalar(30);
+  cableSlack = scalar(CABLE_SLACK);
+  cableWidth = scalar(2);
+  growthAt = (time3) => Math.min(Math.max(time3 / this.cableDuration.value, 0), 1);
   spawn = { x: 0, y: 0, z: 0 };
   spawnDirection = { x: 0, y: 500, z: 0 };
   footprint = circleFootprint(1000);
@@ -64903,12 +65267,82 @@ class TheWall extends Holon {
       this.placements.push({ slot, journey, virus });
       this.drive(virus, slot, journey);
     }
+    if (this.cables.value)
+      this.unfoldCables();
+  }
+  unfoldCables() {
+    const duration = this.cableDuration.value;
+    const fps = this.cableFps.value;
+    const brickSize = this.brickSize.value;
+    const started = performance.now();
+    let bytes = 0;
+    for (const { slot, journey, virus } of this.placements) {
+      virus.cable.maxRings = 0;
+      virus.cable.rings.value = false;
+      virus.cable.width.value = this.cableWidth.value;
+      virus.cable.clock.follow(derive(() => this.cableClock()));
+      virus.cable.tether(this.spawn, (time3) => this.tipAt(time3, slot, journey), {
+        duration,
+        bakeFps: fps,
+        slack: this.cableSlack.value,
+        anchorDir: this.spawnDirection,
+        cubeSize: brickSize
+      });
+      bytes += virus.cable.bakedBytes;
+    }
+    this.cableBakeMs = performance.now() - started;
+    this.cableBakeBytes = bytes;
+  }
+  cableBakeMs = 0;
+  cableBakeBytes = 0;
+  cableClock() {
+    const target = this.growth.value;
+    const duration = this.cableDuration.value;
+    let lo = 0;
+    let hi = duration;
+    if (this.growthAt(hi) <= target)
+      return hi;
+    if (this.growthAt(lo) >= target)
+      return lo;
+    for (let i2 = 0;i2 < 40; i2++) {
+      const mid = (lo + hi) / 2;
+      if (this.growthAt(mid) < target)
+        lo = mid;
+      else
+        hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+  tipAt(time3, slot, journey) {
+    const growth = this.growthAt(time3);
+    const completion2 = completionOf(growth, { splineT: slot.t, row: slot.row }, {
+      rowCount: this.rowCount.value,
+      rowLength: this.packing?.rowLength ?? 1,
+      rowLag: this.rowLag.value,
+      sealAtOne: this.sealAtOne.value
+    });
+    const s2 = journeyState(completion2, journey);
+    const { h: h2, p: p2 } = headingFor(s2.heading);
+    return {
+      position: s2.position,
+      direction: s2.heading,
+      frame: {
+        vx: rotHPB({ x: 1, y: 0, z: 0 }, p2, h2, 0),
+        vy: rotHPB({ x: 0, y: 1, z: 0 }, p2, h2, 0),
+        vz: rotHPB({ x: 0, y: 0, z: 1 }, p2, h2, 0)
+      },
+      fold: s2.fold,
+      scale: s2.scale,
+      completion: completion2,
+      travelled: s2.splineS * journey.lut.totalLength
+    };
   }
   completionAt(slot) {
     return completionOf(this.growth.value, { splineT: slot.t, row: slot.row }, {
       rowCount: this.rowCount.value,
       rowLength: this.packing?.rowLength ?? 1,
-      rowLag: this.rowLag.value
+      rowLag: this.rowLag.value,
+      sealAtOne: this.sealAtOne.value
     });
   }
   drive(virus, slot, journey) {
@@ -64942,10 +65376,13 @@ var WALL_DURATION = 500 / 30;
 class TheWallDream extends Dream {
   wall = __dt(new TheWall({
     rowCount: 4,
-    footprint: circleFootprint(1000),
+    footprint: reflectedZ(circleFootprint(1000)),
+    sealAtOne: false,
     spawn: { x: 0, y: 0, z: 0 },
-    spawnDirection: { x: 0, y: 300, z: 0 }
-  }), "core/demo/wall/TheWall.ts:2580:2844");
+    spawnDirection: { x: 0, y: 300, z: 0 },
+    cables: true,
+    cableDuration: WALL_DURATION
+  }), "core/demo/wall/TheWall.ts:2568:3263");
   unfold() {
     const observer = this.observer;
     observer.radius.defaultValue = 3000;
@@ -64954,7 +65391,7 @@ class TheWallDream extends Dream {
     observer.y.value = 100;
     observer.theta.defaultValue = PI3 / 2;
     observer.theta.value = PI3 / 2;
-    __dt(this.play(eased("linear", this.wall.growth.to(1), ...observer.orbit({ phi: -PI3, theta: 0 })), WALL_DURATION), "core/demo/wall/TheWall.ts:3294:3421");
+    __dt(this.play(eased("linear", this.wall.growth.to(1), ...observer.orbit({ phi: -PI3, theta: 0 })), WALL_DURATION), "core/demo/wall/TheWall.ts:3713:3840");
   }
 }
 if (false)
@@ -66120,10 +66557,10 @@ var buildParamRow = (name, param, hooks) => {
     });
     if (slider) {
       slider.type = "range";
-      const [min5, max5, step3] = sliderRange(param);
+      const [min5, max5, step4] = sliderRange(param);
       slider.min = String(min5);
       slider.max = String(max5);
-      slider.step = String(step3);
+      slider.step = String(step4);
       slider.value = String(param.value);
       slider.addEventListener("input", () => {
         const value = Number(slider.value);
@@ -66400,8 +66837,8 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
   const span = (duration > 0 ? duration : 1) - origin;
   const frac = (t2) => (t2 - origin) / span;
   const width = ruler.clientWidth || 900;
-  const step3 = [1, 2, 5, 10, 30, 60].find((s2) => s2 / span * width >= 54) ?? 60;
-  for (let t2 = Math.ceil(origin / step3) * step3;t2 <= duration + 0.000001; t2 += step3) {
+  const step4 = [1, 2, 5, 10, 30, 60].find((s2) => s2 / span * width >= 54) ?? 60;
+  for (let t2 = Math.ceil(origin / step4) * step4;t2 <= duration + 0.000001; t2 += step4) {
     const tick = document.createElement("div");
     tick.className = "tick";
     tick.style.left = `${frac(t2) * 100}%`;

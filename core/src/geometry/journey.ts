@@ -400,6 +400,8 @@ export interface GrowthConfig {
   rowLag: number
   /** Smoothstep width of the wave front (default TRANSITION_WIDTH). */
   transitionWidth?: number
+  /** Stretch the wave by the transition width so growth = 1 seals the wall (FIDELITY-LEDGER #1). Default true; benchmark scenes pass false. */
+  sealAtOne?: boolean
 }
 
 /**
@@ -423,7 +425,14 @@ export const completionOf = (growth: number, slot: SlotIndex, config: GrowthConf
   // The wave sweeps 0→1 across splineT, staggered by row; its range is
   // stretched by the accumulated lag so growth = 1 still finishes the
   // last row.
-  const effectiveGrowth = growth * (1 + totalRowLag)
+  //
+  // FIDELITY-LEDGER #1: the 2025/26 source stretches by the lag but NOT
+  // by the smoothstep's own width, so growth = 1 leaves the last
+  // `width` of splineT still in flight. sealAtOne stretches by the
+  // width too — growth = 1 then means SEALED. New scenes default to the
+  // ideal; the benchmark passes sealAtOne: false for fidelity.
+  const seal = config.sealAtOne ?? true ? width : 0
+  const effectiveGrowth = growth * (1 + totalRowLag + seal)
   const localProgress = effectiveGrowth - slot.splineT - rowDelay
 
   return smoothstep(clamp01(localProgress / width))

@@ -333,6 +333,26 @@ export const rowHeight = (row: number, rowCount: number, spacing: number): numbe
 /** How finely a parametric footprint is sampled into a polyline. */
 export const FOOTPRINT_SAMPLES = 360
 
+/**
+ * Reflect a footprint about the XY plane (negate z). The C4D-authored
+ * scenes present MIRRORED through this host: the host's azimuth
+ * convention is the C4D rig turned 180° about Y (DECISIONS 2026-08-30),
+ * and a reflection — provably not expressible as any phi offset — is
+ * what maps one handedness onto the other. Scenes authored against the
+ * C4D rig apply this ONCE at the scene boundary; measured on the
+ * TheWall benchmark it is worth +0.79 coverage_ref in the cable phase
+ * (0.62 → 0.927 mean, chamfer 13px → sub-pixel; thewall-port.md).
+ */
+export const reflectedZ = (footprint: Footprint): Footprint => {
+  // points already carry the duplicated closing vertex when closed —
+  // strip it so buildFootprint's own closure does not double it.
+  const raw = footprint.closed ? footprint.points.slice(0, -1) : footprint.points
+  return buildFootprint(
+    raw.map((p) => ({ x: p.x, z: -p.z })),
+    footprint.closed,
+  )
+}
+
 /** A circle in the ground plane — TheLabyrinth.py's footprint (r = 1000). */
 export const circleFootprint = (radius: number, samples = FOOTPRINT_SAMPLES): Footprint => {
   const points: Vec2[] = []

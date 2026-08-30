@@ -47,7 +47,7 @@ import { Dream, render } from "../../src/index"
 import { eased } from "../../src/anim"
 import { PI } from "../../src/constants"
 import { TheWall } from "../../src/parts/thewall"
-import { circleFootprint } from "../../src/geometry/packing"
+import { circleFootprint, reflectedZ } from "../../src/geometry/packing"
 
 /** 500 frames at 30 fps — the reference render's span (:469). */
 export const WALL_DURATION = 500 / 30
@@ -55,7 +55,12 @@ export const WALL_DURATION = 500 / 30
 export class TheWallDream extends Dream {
   wall = new TheWall({
     rowCount: 4,
-    footprint: circleFootprint(1000),
+    // C4D-authored scene: the host's azimuth convention is the C4D rig
+    // mirrored about Y, so the footprint reflects ONCE at the scene
+    // boundary (reflectedZ doc; +0.79 coverage_ref measured). sealAtOne
+    // false reproduces the 2025/26 wave (FIDELITY-LEDGER #1).
+    footprint: reflectedZ(circleFootprint(1000)),
+    sealAtOne: false,
     // The reference launches its creatures straight up out of the
     // origin, a 300-unit flourish (:487-489).
     spawn: { x: 0, y: 0, z: 0 },
