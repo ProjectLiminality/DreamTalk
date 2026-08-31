@@ -22,3 +22,6 @@ logs/
 
 # sovereign holon repos (each its own local git repo — Ch 8, local-first)
 holons/
+
+# dependencies are restored by 'bun install'
+core/node_modules/
