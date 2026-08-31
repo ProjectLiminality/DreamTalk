@@ -2,7 +2,17 @@
   "uuid": "fba9b357-1946-464e-b74b-9bb184183dcc",
   "title": "DreamTalk",
   "type": "dream",
-  "dreamTalk": "",
+  "dreamTalk": "DreamTalk.gif",
+  "radicleId": "rad:zuPiXejbtFFCdDDs7usyJUSQvwaS",
   "submodules": [],
-  "supermodules": []
+  "supermodules": [
+    "cb78fc3b-aa09-4662-9df8-ea0128dba7dc",
+    "8320f3ba-2364-4897-a2cf-6f4ab7bcd853",
+    "cebb0d2b-f4d8-4a10-9533-2a493458a610",
+    "1021d9dd-a0b2-47f1-8324-f6547b2db518",
+    "fc58bd54-55fd-4e66-9219-2d61ced64d21",
+    "1a3e1412-04ec-4fd2-a0d9-aa18a842c676",
+    "b03cbf36-ccbd-4f9c-86ae-699531d38c2e",
+    "d120336d-4ced-4929-a29b-07d872dee212"
+  ]
 }

@@ -13,6 +13,51 @@ guards, stop conditions) exactly. The Python/C4D library documented below
 remains the authoring backend and prior art — per TASTE.md it is
 archaeology, not authority.
 
+## Documentation Map
+
+| Document | Location | Contents |
+|----------|----------|----------|
+| **CLAUDE.md** | `/CLAUDE.md` | This file - operational guide, philosophy, architecture overview, current horizons |
+| **README.md** | `/README.md` | Public-facing intro, philosophical meaning, known limitations, future vision summary |
+| **SYNTAX.md** | `/docs/SYNTAX.md` | Canonical DreamTalk syntax specification (Kairos/Kronos, parameter types, bindings, verbs, state machines) |
+| **VISION_AGENTIC_ANIMATION.md** | `/docs/VISION_AGENTIC_ANIMATION.md` | North star for agentic animation (digital spirits, holonic agency, steering behaviors, formations, cable physics) |
+| **mograph-generator-rnd.md** | `/docs/mograph-generator-rnd.md` | Technical R&D log for MoGraph integration, geometry-based strokes, performance analysis |
+| **xpresso-migration-plan.md** | `/docs/xpresso-migration-plan.md` | Historical reference - XPresso to Python Generator migration (complete) |
+
+## Current Horizons
+
+Active projects using MindVirus as the testing vehicle for DreamTalk capabilities:
+
+### 1. Double Wall / Labyrinth
+MindViruses self-assemble into a labyrinth structure with hidden corridor.
+- **Tests**: Formation system, slot-finding, MoGraph integration, swarm orchestration
+- **Key challenge**: 90° turn animation as MindVirus exits corridor and becomes brick in wall
+
+### 2. Invisible Hand
+A hand releases 5 MindViruses that pursue a target, cables anchored to fingertips.
+- **Tests**: Cable anchoring to external points, pursuit steering, swarm coordination
+- **Key challenge**: Puppet-master aesthetic with organic cable physics
+
+### 3. MindVirus Infection
+MindVirus pursues and wraps around a target (human head silhouette).
+- **Tests**: Pursuit behavior, arrival, wrap animation (fold to -1)
+- **Key challenge**: Satisfying "capture" moment
+
+### 4. Symbol ↔ Word Morph
+MindVirus symbol morphs into the written word "Mind Virus" and back.
+- **Tests**: Universal morph capability for line-based objects
+- **Philosophical point**: Words are symbols of symbols, twice removed from reality. DreamTalk symbols are the universal layer beneath language.
+- **Key challenge**: Spline topology matching, cascading draw animation
+
+### 5. Write Animation (Core Library)
+Manim-style text writing with cascading outline stroke + delayed fill opacity.
+- **Tests**: LaTeX support (previously failed), C4D text primitive as basis, Python generator for draw logic
+- **Goal**: Core library capability for all text-based animations
+
+These horizons are explored through **software gardening** - ad-hoc solutions in higher-level holons, with consolidation back to MindVirus/core library when patterns prove themselves.
+
+---
+
 ## What is DreamTalk?
 
 DreamTalk is a programmatic animation library for Cinema 4D that creates **platonic symbols** — mathematical constructions where the source code IS the thing, not a representation of it.
@@ -119,6 +164,19 @@ if __name__ == "__main__":
 
 **We do NOT predict or pre-engineer.** We work the cleanest, most elegant path of least resistance toward the vision. Problems get solved as they arise, and solutions get consolidated into the correct DreamNode at the correct level of the holarchy.
 
+This counters **paralysis by analysis** - the tendency to speculate about what a holon might need in hypothetical future contexts, leading to over-engineering and bloat.
+
+### Sovereign Holons: No Codependency
+
+Each holon should be **centered in itself**, serving its own purpose completely. A holon should NOT:
+- Try to predict what higher-level holons might want from it
+- Pre-build abilities for speculative future contexts
+- "People-please" by anticipating demands that don't yet exist
+
+This mirrors healthy relational dynamics in human systems. Codependency patterns (trying to please potential future demands) create friction and complexity. Sovereignty (being complete in your own context) creates clarity and simplicity.
+
+**The MindVirus serves MindVirus.** If DoubleWall needs MindVirus to do something new, that need is expressed through actual use - and then MindVirus can learn that ability. But MindVirus doesn't speculatively build abilities hoping to please hypothetical future scenes.
+
 ### The Pattern
 
 1. Create what's needed NOW for the current context
@@ -133,18 +191,32 @@ Everything grows organically. We're gardening, not engineering.
 ### DreamNode Enrichment Flow
 
 ```
-MindVirus (standalone symbol)
+MindVirus (standalone symbol - sovereign, complete in itself)
     ↓ used in
-DoubleWall (discovers: need back-to-back construction)
-    ↓ enriches
-MindVirus (gains: back-to-back variant)
+DoubleWall (discovers: need 90° turn + brick-in-wall animation)
+    ↓ ad-hoc solution in DoubleWall works
+    ↓ consolidation phase: enrich MindVirus
+MindVirus (gains: wall-placement ability - because it was actually needed)
     ↓ used in
-Labyrinth (discovers: need performance-optimized version)
-    ↓ enriches
-MindVirus (gains: simplified/instanced variant)
+InvisibleHand (discovers: need cable anchoring to external point)
+    ↓ ad-hoc solution in InvisibleHand works
+    ↓ consolidation phase: enrich MindVirus
+MindVirus (gains: external cable anchor - because it was actually needed)
 ```
 
-Each higher context enriches the lower holons with new construction variants. The DreamNode becomes more versatile precisely in the measure that it is actually necessary.
+Each higher context enriches the lower holons with new abilities. The DreamNode becomes more versatile **precisely in the measure that it is actually necessary** - not speculatively.
+
+### The Submodule Workflow
+
+Since holons are git repos used as submodules:
+
+1. **Work in higher-level holon** (e.g., DoubleWall)
+2. **Give the submodule (MindVirus) ad-hoc abilities** as needed for this context
+3. **When consolidating**: commit changes to the submodule
+4. **Push from submodule**: the sovereign repo (MindVirus/) receives the enrichment
+5. **Other holons pulling MindVirus** get the new ability
+
+The digital spirit adapts to new environments and learns new skills through actual relationship, not speculation. The core holon becomes richer through emergent realization of what's actually required.
 
 ### Where Changes Go (Critical Rule)
 
@@ -152,7 +224,7 @@ Each higher context enriches the lower holons with new construction variants. Th
 
 When iterating on a symbol (e.g., MindVirus):
 - Adjustments to geometry, positioning, parameters → `MindVirus/MindVirus.py`
-- New construction variants → `MindVirus/MindVirus.py`
+- New abilities discovered through use → `MindVirus/MindVirus.py`
 - Bug fixes discovered during use → `MindVirus/MindVirus.py`
 
 **NOT** into:
@@ -176,6 +248,18 @@ One concept, multiple abilities.
 ### The Thumbnail Test
 
 At each holon level, the goal is: **create a beautiful DreamTalk render that can serve as the thumbnail** — the sovereign face of that DreamNode.
+
+### When To Consolidate
+
+Consolidation isn't continuous - it happens in deliberate phases:
+
+1. **Build phase**: Work in higher-level holon, create ad-hoc solutions
+2. **Satisfaction**: The animation/symbol works and looks good
+3. **Pattern recognition**: Notice the same need appearing across multiple contexts
+4. **Consolidation phase**: Deliberately refactor, enriching lower holons
+5. **Resume building**: Return to creative work with cleaner primitives
+
+Don't consolidate prematurely. Let patterns prove themselves through repeated need.
 
 ## MCP Tools
 
@@ -256,6 +340,21 @@ Nested DreamTalk submodules remain as pointers (sovereignty preserved) but aren'
 | Dynamic web | MP4 H.264 | InterBrain, web |
 
 Always use Standard renderer (not Redshift) for Sketch & Toon.
+
+## Agentic Animation (Future Vision)
+
+DreamTalk is evolving from keyframe animation toward **digital spirits** - holons with agency that understand intent and manifest appropriate behavior.
+
+**See [docs/VISION_AGENTIC_ANIMATION.md](docs/VISION_AGENTIC_ANIMATION.md) for the complete vision.**
+
+Key concepts:
+- **Verb System**: Behaviors as vocabulary (`virus.emerge_from(hole).find_place_in(wall)`)
+- **Holonic Agency**: Agency at every level, intent cascades down, emergence cascades up
+- **Steering Behaviors**: Craig Reynolds' proven algorithms (seek, flee, wander, separation, cohesion)
+- **MoGraph Bridge**: Fields integrate with agent steering, MoGraph handles rendering at scale
+- **Formations**: Self-organization into structures via slot claiming
+
+Current implementation includes physics-based jellyfish locomotion and state machines. The roadmap extends this to full agentic behavior with emergent cable physics.
 
 ## Cinema 4D Gotchas (Common Bugs)
 
