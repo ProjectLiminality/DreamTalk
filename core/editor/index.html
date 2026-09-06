@@ -322,6 +322,17 @@
       font-variant-numeric: tabular-nums; flex: 0 0 auto; }
     .playhead { position: absolute; top: 0; bottom: 0; width: 1px;
       background: var(--red); pointer-events: none; z-index: 3; }
+    /* Checkpoint capture (EDITOR-V5): one quiet chip riding the playhead,
+       there exactly when a pose exists while paused — the live layer's
+       diff waiting to become a transition clip. */
+    #capchip { position: absolute; top: 22px; z-index: 4;
+      transform: translateX(-50%); padding: 2px 9px; border-radius: 10px;
+      border: 1px solid var(--blue); background: #0d2233; color: var(--blue);
+      font-size: 10px; line-height: 1.5; cursor: pointer; white-space: nowrap;
+      user-select: none; }
+    #capchip:hover { background: #0f3350; }
+    #capchip.sent { border-color: var(--dim); color: var(--dim);
+      background: var(--panel-2); cursor: default; }
     .playhead::before { content: ""; position: absolute; top: 0; left: -3px;
       border-left: 3.5px solid transparent; border-right: 3.5px solid transparent;
       border-top: 5px solid var(--red); }

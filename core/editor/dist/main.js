@@ -65501,8 +65501,8 @@ if (false)
 class AxesDream extends Dream {
   axes = __dt(new Axes({
     mode: "xy",
-    xStart: -450,
-    xEnd: 450,
+    xStart: -260,
+    xEnd: 260,
     yStart: -260,
     yEnd: 260,
     gridSpacing: 100,
@@ -67211,6 +67211,161 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
   };
 };
 
+// editor/checkpoint.ts
+var holonPathOf = (dream, holon) => {
+  const segments = [];
+  let node = holon;
+  while (node.parent) {
+    const segment = segmentIn(node.parent, node);
+    if (!segment)
+      return;
+    segments.unshift(segment);
+    node = node.parent;
+  }
+  const root = segmentIn(dream, node);
+  if (!root)
+    return;
+  segments.unshift(root);
+  return segments.join(".");
+};
+var segmentIn = (owner, holon) => {
+  for (const [key, value] of Object.entries(owner)) {
+    if (value === holon)
+      return key;
+    if (Array.isArray(value)) {
+      const i2 = value.indexOf(holon);
+      if (i2 >= 0)
+        return `${key}[${i2}]`;
+    }
+  }
+  return;
+};
+var roundFor = (kind, v2) => kind === "angle" ? Math.round(v2 * 1e4) / 1e4 : Math.round(v2 * 100) / 100;
+var captureTargets = (dream, overrides, t2) => {
+  const timeline = dream.build();
+  const targets = [];
+  for (const entry of overrides.entries()) {
+    const { param, value, displaced } = entry;
+    if (typeof value !== "number" && typeof value !== "boolean")
+      continue;
+    const owner = param.owner;
+    if (!owner || !param.name)
+      continue;
+    const holonPath = holonPathOf(dream, owner);
+    if (!holonPath)
+      continue;
+    const baseline = overrides.animates(param) ? timeline.valueAt(param, t2) : displaced;
+    if (typeof value === "boolean") {
+      if (value === baseline)
+        continue;
+      targets.push({ path: `this.${holonPath}.${param.name}`, value });
+      continue;
+    }
+    const rounded = roundFor(param.kind, value);
+    if (typeof baseline === "number" && roundFor(param.kind, baseline) === rounded)
+      continue;
+    targets.push({ path: `this.${holonPath}.${param.name}`, value: rounded });
+  }
+  return targets;
+};
+var placementAt = (clips, t2) => {
+  const anchored = clips.map((clip) => ({ clip, anchor: anchorOf(clip) })).filter((c2) => c2.anchor !== undefined);
+  if (anchored.length === 0)
+    return { placement: "end" };
+  let landed;
+  for (const candidate of anchored) {
+    if (candidate.clip.start <= t2 + 0.000000001)
+      landed = candidate;
+  }
+  if (landed)
+    return { placement: "after", anchor: landed.anchor };
+  return { placement: "before", anchor: anchored[0].anchor };
+};
+var mountCheckpoint = (opts) => {
+  const { dream, overrides, track, signal } = opts;
+  const duration = dream.duration;
+  track.querySelector("#capchip")?.remove();
+  const chip = document.createElement("button");
+  chip.id = "capchip";
+  chip.textContent = "capture pose ⌘K";
+  chip.title = "write this pose into the scene as a transition clip (cmd+K)";
+  track.appendChild(chip);
+  const earliest = dream.clips.reduce((min5, c2) => Math.min(min5, c2.start), 0);
+  const span = (duration > 0 ? duration : 1) - earliest;
+  const frac = (t2) => (t2 - earliest) / span;
+  let sent = false;
+  const poseExists = () => !opts.isPlaying() && !sent && captureTargets(dream, overrides, opts.currentT()).length > 0;
+  const sync = () => {
+    const on = poseExists();
+    chip.style.display = on ? "" : "none";
+    if (!on)
+      return;
+    const f2 = Math.max(0.05, Math.min(0.95, frac(opts.currentT())));
+    chip.style.left = `${f2 * 100}%`;
+  };
+  const capture = async (clipSeconds = 1) => {
+    if (opts.isPlaying() || sent)
+      return;
+    const t2 = opts.currentT();
+    const targets = captureTargets(dream, overrides, t2);
+    if (targets.length === 0)
+      return;
+    const { placement, anchor } = placementAt(dream.clips, t2);
+    const file = anchor?.file ?? opts.sceneFile();
+    let baseHash;
+    try {
+      const res = await fetch(`/api/source?file=${encodeURIComponent(file)}`);
+      if (res.ok)
+        baseHash = (await res.json()).hash;
+    } catch {}
+    const op = {
+      type: "op",
+      op: "appendCheckpoint",
+      file,
+      placement,
+      anchor: anchor ? { start: anchor.start, end: anchor.end } : undefined,
+      targets,
+      duration: clipSeconds,
+      baseHash
+    };
+    opts.send(op);
+    sent = true;
+    chip.textContent = "captured";
+    chip.classList.add("sent");
+    return op;
+  };
+  chip.addEventListener("pointerdown", (e2) => {
+    e2.stopPropagation();
+    capture();
+  }, { signal });
+  document.addEventListener("keydown", (e2) => {
+    if (e2.code === "KeyK" && (e2.metaKey || e2.ctrlKey) && !e2.shiftKey && !e2.altKey) {
+      e2.preventDefault();
+      capture();
+    }
+  }, { signal });
+  const unsubscribe = overrides.subscribe(sync);
+  sync();
+  return {
+    sync,
+    targets: () => captureTargets(dream, overrides, opts.currentT()),
+    placement: () => ({
+      t: opts.currentT(),
+      ...placementAt(dream.clips, opts.currentT()),
+      clips: dream.clips.map((c2) => ({
+        start: c2.start,
+        duration: c2.duration,
+        anchored: anchorOf(c2) !== undefined
+      }))
+    }),
+    capture,
+    dispose() {
+      unsubscribe();
+      chip.remove();
+    }
+  };
+};
+
 // editor/overrides.ts
 class Overrides {
   #animated;
@@ -67533,6 +67688,7 @@ var boot = async (resume) => {
   const code3 = mountCodeView(codePanel, codeBody, codeFile);
   let selectedClip = null;
   let timeline;
+  let checkpoint;
   let rows = [];
   let drag = null;
   const commitOverride = async (holon, anchor2, name, value) => {
@@ -67657,6 +67813,7 @@ var boot = async (resume) => {
     ac.abort();
     navigator2.dispose();
     castBar.dispose();
+    checkpoint?.dispose();
     host.dispose();
   };
   const switchScene = (key) => {
@@ -68006,6 +68163,7 @@ var boot = async (resume) => {
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
     timeline?.setPlayhead(t2);
+    checkpoint?.sync();
     timecode.textContent = `${t2.toFixed(2)} / ${duration.toFixed(2)}`;
     syncPanel();
     paintMarquee();
@@ -68021,6 +68179,7 @@ var boot = async (resume) => {
     playing = false;
     playpause.textContent = "▶";
     syncBackdrop(current, false);
+    checkpoint?.sync();
   };
   playpause.addEventListener("click", () => playing ? pause() : play(), listen);
   document.addEventListener("keydown", (e2) => {
@@ -68046,7 +68205,8 @@ var boot = async (resume) => {
       } else if (flown) {
         releaseObserver();
         host.renderFrame(current).then(() => syncPanel());
-      } else {
+        checkpoint?.sync();
+      } else if (discardPose()) {} else {
         selection.clear();
       }
     }
@@ -68067,6 +68227,35 @@ var boot = async (resume) => {
     },
     onSelect: selectClip
   });
+  checkpoint = mountCheckpoint({
+    dream,
+    overrides,
+    track: $2("track"),
+    isPlaying: () => playing,
+    currentT: () => current,
+    sceneFile: () => sceneFileFor(sceneKey),
+    send: sendOp,
+    signal: ac.signal
+  });
+  const discardPose = () => {
+    if (overrides.size === 0)
+      return false;
+    if (drag) {
+      drag.reverted = true;
+      drag = null;
+    }
+    overrides.clearAll();
+    flown = null;
+    returning = null;
+    for (const row of rows)
+      row.el?.classList.remove("diverged", "live");
+    host.renderFrame(current).then(() => {
+      syncPanel();
+      paintMarquee();
+    });
+    checkpoint?.sync();
+    return true;
+  };
   const toggleCode = () => {
     const open = code3.toggle();
     app.classList.toggle("code-open", open);
@@ -68198,6 +68387,10 @@ var boot = async (resume) => {
       value: typeof value === "number" ? value : NaN,
       animated: overrides.animates(param)
     })),
+    captureTargets: () => checkpoint?.targets() ?? [],
+    capturePlacement: () => checkpoint?.placement() ?? {},
+    capture: (clipSeconds) => checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
+    discardPose: () => void discardPose(),
     fly: (dx, dy, mode = "orbit") => {
       fly(dx, dy, mode);
       host.renderFrame(current).then(() => syncPanel());

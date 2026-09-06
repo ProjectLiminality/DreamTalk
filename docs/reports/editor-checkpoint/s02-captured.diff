@@ -1,0 +1,18 @@
+451a452,460
+>     )
+>     this.play(
+>       together(
+>         this.circle.x.to(-50),
+>         this.circle.y.to(80),
+>         this.observer.x.to(101.39),
+>         this.observer.y.to(63.37),
+>       ),
+>       1,
+457a467,473
+>     this.play(
+>       together(
+>         this.rectangle.x.to(220),
+>         this.rectangle.y.to(-60),
+>       ),
+>       1,
+>     )

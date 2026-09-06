@@ -101,6 +101,130 @@ export const applySetBackdrop = (source: string, op: SetBackdropOp): OpResult =>
   return { ok: true, text: call.getSourceFile().getFullText() }
 }
 
+export interface AppendCheckpointOp {
+  op: "appendCheckpoint"
+  /**
+   * Where the checkpoint clip lands among unfold()'s statements:
+   * "after"/"before" the statement containing `anchor` (the span of a
+   * `this.play(...)` call), or at the "end" of the body.
+   */
+  placement: "after" | "before" | "end"
+  /** Byte span of the play() call the placement is relative to. */
+  anchor?: { start: number; end: number }
+  /**
+   * The captured pose: one `.to()` per overridden param, addressed the
+   * way the scene's own code addresses it (`this.circle.x`,
+   * `this.observer.phi`, `this.lines[2].y`).
+   */
+  targets: { path: string; value: number | boolean }[]
+  /** Seconds the transition plays over (default 1). */
+  duration?: number
+  /** Repo-relative path of the file, for computing an import specifier. */
+  file?: string
+}
+
+/** A target path is a `this.` member chain — anything else never reaches the file. */
+const CHECKPOINT_PATH = /^this(\.[A-Za-z_$][A-Za-z0-9_$]*(\[\d+\])?)+$/
+
+const checkpointLiteral = (value: number | boolean): string =>
+  typeof value === "boolean" ? String(value) : numberLiteral(value)
+
+/** `from`'s directory to `target`, both repo-relative — an import specifier. */
+const relativeSpecifier = (from: string, target: string): string => {
+  const dir = from.split("/").slice(0, -1)
+  const to = target.split("/")
+  let common = 0
+  while (common < dir.length && common < to.length && dir[common] === to[common]) common++
+  const up = dir.length - common
+  return (up === 0 ? "./" : "../".repeat(up)) + to.slice(common).join("/")
+}
+
+/**
+ * Make `together` importable: already imported, added to an existing
+ * anim/index import, or a fresh import computed from the file's own
+ * repo-relative path. Returns a reason when none of those can work.
+ */
+const ensureTogetherImport = (file: SourceFile, relFile?: string): string | undefined => {
+  const imports = file.getImportDeclarations()
+  for (const decl of imports) {
+    for (const named of decl.getNamedImports()) {
+      if (!named.isTypeOnly() && (named.getAliasNode()?.getText() ?? named.getName()) === "together")
+        return undefined
+    }
+  }
+  const host = imports.find((d) => {
+    const spec = d.getModuleSpecifierValue()
+    return spec.endsWith("/anim") || spec.endsWith("/src/index") || spec.endsWith("/src")
+  })
+  if (host) {
+    host.addNamedImport("together")
+    return undefined
+  }
+  if (!relFile) return "no anim import to extend and no file path to compute one from"
+  const last = imports[imports.length - 1]
+  const specifier = relativeSpecifier(relFile, "core/src/anim")
+  const decl = { moduleSpecifier: specifier, namedImports: ["together"] }
+  if (last) file.insertImportDeclaration(last.getChildIndex() + 1, decl)
+  else file.insertImportDeclaration(0, decl)
+  return undefined
+}
+
+/**
+ * Append a captured pose as a Magic Move clip (ONTOLOGY.md "Magic Move",
+ * case 1): one `this.play(...to()..., d)` statement whose targets ARE the
+ * pose, inserted after the clip the playhead was inside. The spelling is
+ * the scene's own idiom — explicit param references under `together` —
+ * so the generated line is indistinguishable from a hand-written one.
+ */
+export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): OpResult => {
+  if (op.targets.length === 0) return { ok: false, reason: "empty pose — nothing to capture" }
+  for (const target of op.targets) {
+    if (!CHECKPOINT_PATH.test(target.path))
+      return { ok: false, reason: `target path '${target.path}' is not a this.* param reference` }
+    if (typeof target.value === "number" && !Number.isFinite(target.value))
+      return { ok: false, reason: `target '${target.path}' has a non-finite value` }
+  }
+
+  const unfold = findUnfold(source)
+  if (!unfold) return { ok: false, reason: "no class with an unfold() method found" }
+  if (!unfold.getBody()) return { ok: false, reason: "unfold() has no body" }
+
+  // insertStatements() counts comment nodes as statements, so the index
+  // must be found in the SAME list — a DreamWeaving's prose comments
+  // otherwise shift every insertion up by one per comment above it.
+  const statements = unfold.getStatementsWithComments()
+  let index = statements.length
+  if (op.placement !== "end") {
+    if (!op.anchor) return { ok: false, reason: `placement '${op.placement}' needs an anchor span` }
+    const { start, end } = op.anchor
+    const at = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
+    if (at < 0)
+      return { ok: false, reason: "no statement at the anchored span — reload and recapture" }
+    index = op.placement === "before" ? at : at + 1
+  }
+
+  const duration = numberLiteral(op.duration ?? 1)
+  const calls = op.targets.map((t) => `${t.path}.to(${checkpointLiteral(t.value)})`)
+  const statement =
+    calls.length === 1
+      ? `this.play(${calls[0]}, ${duration})`
+      : [
+          "this.play(",
+          "  together(",
+          ...calls.map((c) => `    ${c},`),
+          "  ),",
+          `  ${duration},`,
+          ")",
+        ].join("\n")
+
+  unfold.insertStatements(index, statement)
+  if (calls.length > 1) {
+    const failure = ensureTogetherImport(unfold.getSourceFile(), op.file)
+    if (failure) return { ok: false, reason: failure }
+  }
+  return { ok: true, text: unfold.getSourceFile().getFullText() }
+}
+
 const isPascalConstruction = (node: NewExpression): boolean =>
   /^[A-Z]/.test(node.getExpression().asKind(SyntaxKind.Identifier)?.getText() ?? "")
 

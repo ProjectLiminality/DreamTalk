@@ -14,9 +14,11 @@ import { watch } from "node:fs"
 import { readdir, rename } from "node:fs/promises"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
+  applyAppendCheckpoint,
   applySetBackdrop,
   applySetOverride,
   injectAnchors,
+  type AppendCheckpointOp,
   type SetBackdropOp,
   type SetOverrideOp,
 } from "./ops"
@@ -171,7 +173,7 @@ for (const dir of ["core/demo", "core/src", "core/editor"]) {
 
 // --- Semantic ops (one queue, atomic writes) -------------------------------
 
-type OpMessage = (SetBackdropOp | SetOverrideOp) & {
+type OpMessage = (SetBackdropOp | SetOverrideOp | AppendCheckpointOp) & {
   type: "op"
   file?: string
   baseHash?: string
@@ -184,7 +186,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     log("op rejected:", reason)
     ws.send(JSON.stringify({ type: "opRejected", reason }))
   }
-  if (msg.op !== "setBackdrop" && msg.op !== "setOverride")
+  if (msg.op !== "setBackdrop" && msg.op !== "setOverride" && msg.op !== "appendCheckpoint")
     return reject(`unknown op: ${String((msg as { op?: string }).op)}`)
 
   const file = msg.file ?? "core/demo/FoundingSmoke.ts"
@@ -201,13 +203,22 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
   const result =
     msg.op === "setBackdrop"
       ? applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
-      : applySetOverride(current, {
-          op: "setOverride",
-          span: msg.span,
-          className: msg.className,
-          name: msg.name,
-          value: msg.value,
-        })
+      : msg.op === "appendCheckpoint"
+        ? applyAppendCheckpoint(current, {
+            op: "appendCheckpoint",
+            placement: msg.placement,
+            anchor: msg.anchor,
+            targets: msg.targets,
+            duration: msg.duration,
+            file,
+          })
+        : applySetOverride(current, {
+            op: "setOverride",
+            span: msg.span,
+            className: msg.className,
+            name: msg.name,
+            value: msg.value,
+          })
   if (!result.ok) return reject(result.reason)
 
   if (result.text !== current) {

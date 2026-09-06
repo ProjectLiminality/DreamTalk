@@ -53,6 +53,7 @@ import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
 import { mountTimeline, type ClipRow, type TimelineHandle } from "./timeline"
+import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
 import { thumbnailEl } from "./thumbnails"
 import {
   Overrides,
@@ -115,6 +116,15 @@ declare global {
       toggleCode?: () => boolean
       /** Select the nth play() clip — the timeline's rows, headlessly. */
       selectClip?: (index: number) => string | undefined
+      // --- Checkpoint capture (EDITOR-V5), exposed for headless driving ---
+      /** The current pose as the op would spell it. */
+      captureTargets?: () => CaptureTarget[]
+      /** Where a capture would land right now — headless diagnostics. */
+      capturePlacement?: () => Record<string, unknown>
+      /** Capture the pose into the scene file; resolves to the op sent. */
+      capture?: (duration?: number) => Promise<Record<string, unknown> | undefined>
+      /** Release every live override without writing — the pose evaporates. */
+      discardPose?: () => void
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -380,6 +390,8 @@ const boot = async (resume?: Transport) => {
   // Mounted with the transport (it needs `paint`); referenced before then
   // by paint() and the selection subscription, both of which run after.
   let timeline: TimelineHandle | undefined
+  // Mounted beside the timeline; referenced from paint() and Escape.
+  let checkpoint: CheckpointHandle | undefined
 
   // --- Inspector: the SELECTED holon's properties, and nothing else --------
   //
@@ -581,6 +593,7 @@ const boot = async (resume?: Transport) => {
     ac.abort()
     navigator.dispose()
     castBar.dispose()
+    checkpoint?.dispose()
     host.dispose()
   }
 
@@ -1086,6 +1099,7 @@ const boot = async (resume?: Transport) => {
     await host.renderFrame(t)
     syncBackdrop(t, playing)
     timeline?.setPlayhead(t)
+    checkpoint?.sync()
     timecode.textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`
     syncPanel()
     // The mark follows the object, so a selected holon stays marked as
@@ -1108,6 +1122,7 @@ const boot = async (resume?: Transport) => {
     playing = false
     playpause.textContent = "▶"
     syncBackdrop(current, false)
+    checkpoint?.sync()
   }
 
   playpause.addEventListener("click", () => (playing ? pause() : play()), listen)
@@ -1144,6 +1159,10 @@ const boot = async (resume?: Transport) => {
           // …or, mid-flight, put the camera back where the scene has it.
           releaseObserver()
           void host.renderFrame(current).then(() => syncPanel())
+          checkpoint?.sync()
+        } else if (discardPose()) {
+          // …or a standing pose evaporates — every override released,
+          // the file never touched (checkpoint capture's cancel).
         } else {
           // …otherwise Escape means "nothing selected".
           selection.clear()
@@ -1177,6 +1196,46 @@ const boot = async (resume?: Transport) => {
     },
     onSelect: selectClip,
   })
+
+  // --- Checkpoint capture (EDITOR-V5 "Checkpoint capture") -----------------
+  //
+  // The live layer holds the pose; the chip appears on the playhead the
+  // moment a capturable pose exists while paused. Capturing sends ONE
+  // appendCheckpoint op; the reload round-trip then remounts with a fresh
+  // (empty) override store — the timeline owns the pose from then on.
+  checkpoint = mountCheckpoint({
+    dream,
+    overrides,
+    track: $("track"),
+    isPlaying: () => playing,
+    currentT: () => current,
+    sceneFile: () => sceneFileFor(sceneKey),
+    send: sendOp,
+    signal: ac.signal,
+  })
+
+  /**
+   * The pose's Escape: every live override released, nothing written —
+   * the file was never touched, so nothing needs undoing. The divergence
+   * marks and any gesture bookkeeping go with it.
+   */
+  const discardPose = (): boolean => {
+    if (overrides.size === 0) return false
+    if (drag) {
+      drag.reverted = true
+      drag = null
+    }
+    overrides.clearAll()
+    flown = null
+    returning = null
+    for (const row of rows) row.el?.classList.remove("diverged", "live")
+    void host.renderFrame(current).then(() => {
+      syncPanel()
+      paintMarquee()
+    })
+    checkpoint?.sync()
+    return true
+  }
 
   const toggleCode = (): boolean => {
     const open = code.toggle()
@@ -1325,6 +1384,11 @@ const boot = async (resume?: Transport) => {
         value: typeof value === "number" ? value : NaN,
         animated: overrides.animates(param),
       })),
+    captureTargets: () => checkpoint?.targets() ?? [],
+    capturePlacement: () => checkpoint?.placement() ?? {},
+    capture: (clipSeconds?: number) =>
+      checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
+    discardPose: () => void discardPose(),
     fly: (dx, dy, mode = "orbit") => {
       fly(dx, dy, mode)
       void host.renderFrame(current).then(() => syncPanel())
