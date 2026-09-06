@@ -1161,6 +1161,31 @@ export class ThreeHost {
     return box
   }
 
+  /**
+   * A holon's world-space origin — where its group sits after every
+   * ancestor transform. The drag plane of direct manipulation passes
+   * through this point (editor/manipulate.ts).
+   */
+  worldOriginOf(holon: Holon): THREE.Vector3 | undefined {
+    const found = this.groups.find((g) => g.holon === holon)
+    if (!found) return undefined
+    this.scene.updateMatrixWorld(true)
+    return new THREE.Vector3().setFromMatrixPosition(found.group.matrixWorld)
+  }
+
+  /**
+   * The world matrix of the frame a holon's x/y/z are stated in — its
+   * parent group's (the scene's identity for a root). A world-space
+   * delta carried through this matrix's inverse becomes the local delta
+   * the holon's own params speak.
+   */
+  parentWorldMatrixOf(holon: Holon): THREE.Matrix4 | undefined {
+    const found = this.groups.find((g) => g.holon === holon)
+    if (!found) return undefined
+    this.scene.updateMatrixWorld(true)
+    return (found.group.parent ?? this.scene).matrixWorld.clone()
+  }
+
   /** Depth in the part tree — how many wholes a holon sits inside. */
   private depthOf(holon: Holon): number {
     let depth = 0

@@ -127,6 +127,18 @@ export const applySetOverride = (source: string, op: SetOverrideOp): OpResult =>
       n.getEnd() === op.span.end &&
       (!op.className || n.getExpression().getText() === op.className),
   )
+  // A drag commits x and y as two ops against the same construction: the
+  // first rewrite moves the construction's END but never its START, so a
+  // start-anchored match keeps the second op exact even when the class is
+  // constructed many times (S01 has two Eyes — the unique-class rebase
+  // below could never serve it).
+  if (!target) {
+    target = constructions.find(
+      (n) =>
+        n.getStart() === op.span.start &&
+        (!op.className || n.getExpression().getText() === op.className),
+    )
+  }
   if (!target) {
     if (!op.className) return { ok: false, reason: "no construction at span and no className to rebase by" }
     const candidates = constructions.filter((n) => n.getExpression().getText() === op.className)

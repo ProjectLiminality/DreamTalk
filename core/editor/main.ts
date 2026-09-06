@@ -47,6 +47,7 @@ import { mountOutline, identityOf, rootIdentityOf } from "./outline"
 import { mountNavigator } from "./navigator"
 import { mountCast } from "./cast"
 import { Marquee } from "./marquee"
+import { MoveGesture, cameraFrameOf, movable } from "./manipulate"
 import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
@@ -613,26 +614,165 @@ const boot = async (resume?: Transport) => {
   //
   // The canvas's CSS box maps to NDC; the host answers from its own
   // drawing buffer, so a scaled/letterboxed viewport picks correctly.
-  const pickAt = (clientX: number, clientY: number): Holon | undefined => {
+  const ndcAt = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
     const rect = canvas.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return undefined
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1
-    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1)
-    return host.pick(ndcX, ndcY)
+    return {
+      x: ((clientX - rect.left) / rect.width) * 2 - 1,
+      y: -(((clientY - rect.top) / rect.height) * 2 - 1),
+    }
+  }
+  const pickAt = (clientX: number, clientY: number): Holon | undefined => {
+    const ndc = ndcAt(clientX, clientY)
+    return ndc ? host.pick(ndc.x, ndc.y) : undefined
+  }
+
+  // --- Moving the selection (EDITOR-V5, "Direct manipulation") --------------
+  //
+  // Keynote semantics: you drag what you SELECTED. A press on the current
+  // selection (any of its ink, however deep the hit) arms a move; a press
+  // on anything else keeps the old contract — select what was hit, and let
+  // a drag fly the camera. The two gestures are disambiguated entirely by
+  // what the pointerdown lands on, so the flying Observer loses nothing:
+  // empty space still orbits.
+  //
+  // The gesture rides the live layer exactly as the inspector's rows do
+  // (EDITOR-V4): drag → overrides on x/y; release → one setOverride per
+  // changed param through the same commitOverride; Escape → revert, no
+  // write. Engaging pauses playback (decision 3) — overrides clear on
+  // playhead motion, and pausing is what makes the gesture honest.
+
+  /** How far a press travels before it stops being a click (CSS px). */
+  const MOVE_THRESHOLD = 3
+
+  interface Move {
+    holon: Holon
+    pointerId: number
+    startClientX: number
+    startClientY: number
+    startNdc: { x: number; y: number }
+    /** What the press actually hit — the click fallback selects it. */
+    hit: Holon
+    /** Set once the pointer clears the threshold and the gesture engages. */
+    gesture?: MoveGesture
+    /** The last x/y written live — what pointerup commits. */
+    last?: { x: number; y: number }
+  }
+  let move: Move | null = null
+
+  /** Is `holon` the selection itself or ink inside it? */
+  const withinSelection = (holon: Holon, selected: Holon): boolean => {
+    for (let node: Holon | undefined = holon; node; node = node.parent) {
+      if (node === selected) return true
+    }
+    return false
+  }
+
+  /** Decision 1's refusal: bound x/y — the cue, never the move. */
+  const refuseMove = () => {
+    canvas.classList.add("refused")
+    marquee.canvas.classList.add("shake")
+    setTimeout(() => {
+      canvas.classList.remove("refused")
+      marquee.canvas.classList.remove("shake")
+    }, 360)
+  }
+
+  const markMoveRows = (m: Move, cls: "diverged" | "live") => {
+    for (const row of rows) {
+      if (row.param === m.holon.x || row.param === m.holon.y) row.el?.classList.add(cls)
+    }
+  }
+
+  /** End the gesture without writing anything (Escape, pointercancel). */
+  const cancelMove = (): boolean => {
+    if (!move) return false
+    const m = move
+    move = null
+    try {
+      canvas.releasePointerCapture?.(m.pointerId)
+    } catch {}
+    canvas.classList.remove("moving")
+    if (m.gesture) {
+      // Drop the live overrides — the object returns, the file was never touched.
+      overrides.release([m.holon.x as Param<ParamValue>, m.holon.y as Param<ParamValue>])
+      for (const row of rows) {
+        if (row.param === m.holon.x || row.param === m.holon.y)
+          row.el?.classList.remove("diverged", "live")
+      }
+      void host.renderFrame(current).then(() => {
+        syncPanel()
+        paintMarquee()
+      })
+    }
+    return true
+  }
+
+  /** Pointer released: a click that never travelled, or a move to commit. */
+  const endMove = (e: PointerEvent): boolean => {
+    if (!move || e.pointerId !== move.pointerId) return false
+    const m = move
+    move = null
+    try {
+      canvas.releasePointerCapture?.(e.pointerId)
+    } catch {}
+    canvas.classList.remove("moving")
+    if (!m.gesture) {
+      // Never engaged — this press was a CLICK, and a click means what it
+      // always did: select what it hit (pressing a selected whole's part
+      // again drills into the part).
+      selection.set(m.hit)
+      return true
+    }
+    if (!m.last) return true
+    const anchor = anchorOf(m.holon)
+    if (!anchor) return true
+    // One setOverride per changed param (decision 3), rounded to the
+    // centi-unit — sub-pixel noise has no business becoming a literal.
+    const round = (v: number) => Math.round(v * 100) / 100
+    const [x, y] = [round(m.last.x), round(m.last.y)]
+    if (Math.abs(x - m.gesture.baseX) > 1e-6) void commitOverride(m.holon, anchor, "x", x)
+    if (Math.abs(y - m.gesture.baseY) > 1e-6) void commitOverride(m.holon, anchor, "y", y)
+    return true
   }
 
   canvas.addEventListener(
     "pointerdown",
     (e) => {
       if (e.button !== 0) return
+      const hit = pickAt(e.clientX, e.clientY)
+      const selected = selection.current
+      if (hit && selected && withinSelection(hit, selected)) {
+        // A press on the selection is a move (or its refusal), never a fly.
+        if (!movable(selected)) {
+          refuseMove()
+          return
+        }
+        const startNdc = ndcAt(e.clientX, e.clientY)
+        if (!startNdc) return
+        move = {
+          holon: selected,
+          pointerId: e.pointerId,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          startNdc,
+          hit,
+        }
+        try {
+          canvas.setPointerCapture?.(e.pointerId)
+        } catch {}
+        return
+      }
       // Empty space clears — direct manipulation's own affordance.
-      selection.set(pickAt(e.clientX, e.clientY) ?? null)
+      selection.set(hit ?? null)
       // …and the same press begins a flight, if the scene is paused.
       // Selection is a click; flying is a drag; one press serves both,
       // because the flight only does anything once the pointer moves.
       if (playing) return
       flight = { x: e.clientX, y: e.clientY, pan: e.shiftKey }
-      canvas.setPointerCapture?.(e.pointerId)
+      try {
+        canvas.setPointerCapture?.(e.pointerId)
+      } catch {}
       canvas.classList.add("flying")
     },
     listen,
@@ -793,29 +933,102 @@ const boot = async (resume?: Transport) => {
   canvas.addEventListener(
     "pointermove",
     (e) => {
-      if (!flight) return
-      e.preventDefault()
-      const dx = e.clientX - flight.x
-      const dy = e.clientY - flight.y
-      flight.x = e.clientX
-      flight.y = e.clientY
-      if (dx === 0 && dy === 0) return
-      fly(dx, dy, flight.pan ? "pan" : "orbit")
-      void host.renderFrame(current).then(() => {
-        syncPanel()
-        paintMarquee()
-      })
+      if (move) {
+        e.preventDefault()
+        if (!move.gesture) {
+          // Still a click until the pointer commits to travelling.
+          const travelled = Math.hypot(
+            e.clientX - move.startClientX,
+            e.clientY - move.startClientY,
+          )
+          if (travelled < MOVE_THRESHOLD) return
+          // Dragstart: pause FIRST (decision 3), then freeze the plane and
+          // the base pose — the values the paused frame actually shows.
+          pause()
+          const origin = host.worldOriginOf(move.holon)
+          const parentWorld = host.parentWorldMatrixOf(move.holon)
+          const gesture =
+            origin && parentWorld
+              ? MoveGesture.create(
+                  cameraFrameOf(host.camera),
+                  move.startNdc,
+                  origin,
+                  parentWorld.elements,
+                  move.holon.x.value,
+                  move.holon.y.value,
+                )
+              : undefined
+          if (!gesture) {
+            move = null
+            return
+          }
+          move.gesture = gesture
+          canvas.classList.add("moving")
+        }
+        const ndc = ndcAt(e.clientX, e.clientY)
+        const target = ndc && move.gesture.target(cameraFrameOf(host.camera), ndc, e.shiftKey)
+        if (!target) return
+        overrides.set(move.holon.x as Param<ParamValue>, target.x)
+        overrides.set(move.holon.y as Param<ParamValue>, target.y)
+        markMoveRows(move, anchorOf(move.holon) ? "diverged" : "live")
+        move.last = target
+        void host.renderFrame(current).then(() => {
+          syncPanel()
+          paintMarquee()
+        })
+        return
+      }
+      if (flight) {
+        e.preventDefault()
+        const dx = e.clientX - flight.x
+        const dy = e.clientY - flight.y
+        flight.x = e.clientX
+        flight.y = e.clientY
+        if (dx === 0 && dy === 0) return
+        fly(dx, dy, flight.pan ? "pan" : "orbit")
+        void host.renderFrame(current).then(() => {
+          syncPanel()
+          paintMarquee()
+        })
+        return
+      }
+      // At rest, the cursor says what a press would do: a move cursor over
+      // the selection's own ink, the default everywhere else.
+      const selected = selection.current
+      canvas.classList.toggle(
+        "moveable",
+        !!selected &&
+          movable(selected) &&
+          (() => {
+            const hit = pickAt(e.clientX, e.clientY)
+            return !!hit && withinSelection(hit, selected)
+          })(),
+      )
     },
     listen,
   )
   const endFlight = (e: PointerEvent) => {
     if (!flight) return
     flight = null
-    canvas.releasePointerCapture?.(e.pointerId)
+    try {
+      canvas.releasePointerCapture?.(e.pointerId)
+    } catch {}
     canvas.classList.remove("flying")
   }
-  canvas.addEventListener("pointerup", endFlight, listen)
-  canvas.addEventListener("pointercancel", endFlight, listen)
+  canvas.addEventListener(
+    "pointerup",
+    (e) => {
+      if (!endMove(e)) endFlight(e)
+    },
+    listen,
+  )
+  canvas.addEventListener(
+    "pointercancel",
+    (e) => {
+      if (!cancelMove()) endFlight(e)
+    },
+    listen,
+  )
   canvas.addEventListener(
     "wheel",
     (e) => {
@@ -918,7 +1131,9 @@ const boot = async (resume?: Transport) => {
         toggleCode()
       }
       if (e.code === "Escape") {
-        if (drag && !drag.reverted) {
+        if (cancelMove()) {
+          // A move in flight dies here — overrides reverted, nothing written.
+        } else if (drag && !drag.reverted) {
           // Drop the live override — nothing was ever written.
           const d = drag
           d.reverted = true

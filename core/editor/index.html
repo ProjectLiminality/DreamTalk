@@ -79,6 +79,18 @@
     #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
     /* Flying the observer: drag orbits, shift+drag pans, wheel dollies. */
     #stage.flying { cursor: grabbing; }
+    /* Direct manipulation: the cursor says what a press would do. */
+    #stage.moveable, #stage.moving { cursor: move; }
+    /* Bound x/y refuse the move (EDITOR-V5 decision 1): the read-only cue. */
+    #stage.refused { cursor: not-allowed; }
+    #marquee.shake { animation: dt-shake 0.36s ease-in-out; }
+    @keyframes dt-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-4px); }
+      40% { transform: translateX(4px); }
+      60% { transform: translateX(-3px); }
+      80% { transform: translateX(3px); }
+    }
     /* The selection affordance — its own layer, over the render, never in it. */
     #marquee { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
       pointer-events: none; }
