@@ -42,6 +42,8 @@ import { Group, Rectangle, Stroke } from "../../src/parts/primitives"
 import { BLUE, PI } from "../../src/constants"
 
 export class FoldableCube extends Stroke {
+  /** A sovereign symbol — cast in the editor, a button in the game loop. */
+  static sovereign = true
   /** Edge length of every face (the original's 100×100×100). */
   size = length(100)
   /** −1 wrapped … 0 flat … +1 open cup. */

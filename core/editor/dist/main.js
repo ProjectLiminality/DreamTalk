@@ -63558,6 +63558,11 @@ var shapeKey = (holon) => {
 };
 var arrowKey = (holon) => [...shapeKey(holon), holon.arrowSize.value];
 var clamp014 = (v2) => Math.min(1, Math.max(0, v2));
+var liftTint = (tint, amount) => amount <= 0 ? tint : {
+  r: tint.r + (1 - tint.r) * amount,
+  g: tint.g + (1 - tint.g) * amount,
+  b: tint.b + (1 - tint.b) * amount
+};
 var keysEqual = (a2, b2) => a2.length === b2.length && a2.every((v2, i2) => v2 === b2[i2]);
 
 class ThreeHost {
@@ -63574,6 +63579,8 @@ class ThreeHost {
   arrows = [];
   texts = [];
   nextFillOrder = 1;
+  highlighted = new Set;
+  highlightAmount = 0;
   constructor(dream, canvas) {
     this.dream = dream;
     this.renderer = new WebGPURenderer({ canvas, antialias: true });
@@ -63687,8 +63694,8 @@ class ThreeHost {
         if (pts || holon instanceof Line2)
           ribbon.setPoints(pts ?? []);
       }
-      const tint = holon.tint.value;
-      ribbon.style(this.screenArc(binding, holon.creation.value), holon.opacity.value, tint, holon.stroke.value, this.screenArc(binding, holon.erasure.value));
+      const lift = this.highlightOf(holon);
+      ribbon.style(this.screenArc(binding, holon.creation.value), holon.opacity.value, liftTint(holon.tint.value, lift), holon.stroke.value * (1 + 2 * lift), this.screenArc(binding, holon.erasure.value));
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding;
@@ -63697,7 +63704,7 @@ class ThreeHost {
         binding.shapeKey = key;
         fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
-      fill.style(holon.creation.value * holon.opacity.value, holon.tint.value);
+      fill.style(holon.creation.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
     if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0) {
@@ -63729,7 +63736,7 @@ class ThreeHost {
       if (polygon)
         fill.setPolygon(polygon);
     }
-    fill.style(present * holon.opacity.value, holon.tint.value);
+    fill.style(present * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
   }
   viewDirectionIn(group) {
     const forward = this.camera.getWorldDirection(new Vector3);
@@ -63848,8 +63855,9 @@ class ThreeHost {
     const creation = holon.creation.value;
     const erasure = holon.erasure.value;
     const opacity = holon.opacity.value;
-    const tint = holon.tint.value;
-    const width = holon.stroke.value;
+    const lift = this.highlightOf(holon);
+    const tint = liftTint(holon.tint.value, lift);
+    const width = holon.stroke.value * (1 + 2 * lift);
     const window2 = (v2, a2, b2) => b2 <= a2 ? v2 >= b2 ? 1 : 0 : Math.min(1, Math.max(0, (v2 - a2) / (b2 - a2)));
     const sub7 = (line, i2) => {
       const a2 = bounds[i2];
@@ -63955,6 +63963,20 @@ class ThreeHost {
       add7(new Vector3().setFromMatrixPosition(found.group.matrixWorld));
     }
     return box;
+  }
+  highlight(target, amount = 0.15) {
+    this.highlighted.clear();
+    this.highlightAmount = amount;
+    if (!target)
+      return;
+    const targets = Array.isArray(target) ? target : [target];
+    for (const root of targets) {
+      for (const holon of root.walk())
+        this.highlighted.add(holon);
+    }
+  }
+  highlightOf(holon) {
+    return this.highlighted.size > 0 && this.highlighted.has(holon) ? this.highlightAmount : 0;
   }
   worldOriginOf(holon) {
     const found = this.groups.find((g2) => g2.holon === holon);
@@ -66112,17 +66134,47 @@ var rootIdentityOf = (dream, holon) => {
   }
   return;
 };
+var GROUP_MIN = 3;
+var outlineEntries = (parts) => {
+  const entries = [];
+  let i2 = 0;
+  while (i2 < parts.length) {
+    const part = parts[i2];
+    if (identityOf(part)) {
+      entries.push({ kind: "holon", holon: part });
+      i2++;
+      continue;
+    }
+    let j2 = i2 + 1;
+    while (j2 < parts.length && parts[j2].constructor === part.constructor && !identityOf(parts[j2])) {
+      j2++;
+    }
+    const run = parts.slice(i2, j2);
+    if (run.length >= GROUP_MIN)
+      entries.push({ kind: "run", holons: run });
+    else
+      for (const holon of run)
+        entries.push({ kind: "holon", holon });
+    i2 = j2;
+  }
+  return entries;
+};
 var mountOutline = (container, dream, roots, selection, signal) => {
   container.textContent = "";
   const rows = [];
-  const AUTO_EXPAND_MAX_PARTS = 8;
+  const groups = [];
+  const AUTO_EXPAND_MAX_ROWS = 8;
+  const setOpen = (childrenEl, twisty, open) => {
+    childrenEl.style.display = open ? "" : "none";
+    twisty.textContent = open ? "▼" : "▶";
+  };
   const build = (holon, depth3, parentEl) => {
     const row = document.createElement("div");
     row.className = "node";
     row.style.paddingLeft = `${8 + depth3 * 12}px`;
-    const parts = holon.parts;
+    const entries = outlineEntries(holon.parts);
     const twisty = document.createElement("div");
-    twisty.className = parts.length > 0 ? "twisty" : "twisty leaf";
+    twisty.className = entries.length > 0 ? "twisty" : "twisty leaf";
     twisty.textContent = "▼";
     row.appendChild(twisty);
     row.appendChild(thumbnailEl(holon, 16));
@@ -66136,10 +66188,10 @@ var mountOutline = (container, dream, roots, selection, signal) => {
       ident.className = "nident";
       ident.textContent = identity;
       row.appendChild(ident);
-    } else if (parts.length > AUTO_EXPAND_MAX_PARTS) {
+    } else if (entries.length > AUTO_EXPAND_MAX_ROWS) {
       const count = document.createElement("span");
       count.className = "nident";
-      count.textContent = `${parts.length}`;
+      count.textContent = `${holon.parts.length}`;
       row.appendChild(count);
     }
     row.addEventListener("click", (e2) => {
@@ -66149,24 +66201,55 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     parentEl.appendChild(row);
     const entry = { holon, el: row };
     rows.push(entry);
-    if (parts.length === 0)
+    if (entries.length === 0)
       return;
     const childrenEl = document.createElement("div");
     entry.childrenEl = childrenEl;
     entry.twisty = twisty;
-    const expanded = parts.length <= AUTO_EXPAND_MAX_PARTS;
-    childrenEl.style.display = expanded ? "" : "none";
-    twisty.textContent = expanded ? "▼" : "▶";
+    setOpen(childrenEl, twisty, entries.length <= AUTO_EXPAND_MAX_ROWS);
     twisty.addEventListener("click", (e2) => {
       e2.stopPropagation();
-      const open = childrenEl.style.display === "none";
-      childrenEl.style.display = open ? "" : "none";
-      twisty.textContent = open ? "▼" : "▶";
+      setOpen(childrenEl, twisty, childrenEl.style.display === "none");
       entry.revealed = false;
     }, { signal });
     parentEl.appendChild(childrenEl);
-    for (const part of parts)
-      build(part, depth3 + 1, childrenEl);
+    for (const child of entries) {
+      if (child.kind === "holon")
+        build(child.holon, depth3 + 1, childrenEl);
+      else
+        buildGroup(child.holons, depth3 + 1, childrenEl);
+    }
+  };
+  const buildGroup = (members, depth3, parentEl) => {
+    const row = document.createElement("div");
+    row.className = "node run";
+    row.style.paddingLeft = `${8 + depth3 * 12}px`;
+    const twisty = document.createElement("div");
+    twisty.className = "twisty";
+    row.appendChild(twisty);
+    row.appendChild(thumbnailEl(members[0], 16));
+    const name = document.createElement("span");
+    name.className = "nclass";
+    name.textContent = classNameOf(members[0]);
+    row.appendChild(name);
+    const count = document.createElement("span");
+    count.className = "nident";
+    count.textContent = `×${members.length}`;
+    row.appendChild(count);
+    parentEl.appendChild(row);
+    const childrenEl = document.createElement("div");
+    parentEl.appendChild(childrenEl);
+    const group = { members, childrenEl, twisty };
+    groups.push(group);
+    setOpen(childrenEl, twisty, false);
+    const toggle = (e2) => {
+      e2.stopPropagation();
+      setOpen(childrenEl, twisty, childrenEl.style.display === "none");
+      group.revealed = false;
+    };
+    row.addEventListener("click", toggle, { signal });
+    for (const member of members)
+      build(member, depth3 + 1, childrenEl);
   };
   for (const root of roots)
     build(root, 0, container);
@@ -66183,13 +66266,21 @@ var mountOutline = (container, dream, roots, selection, signal) => {
         continue;
       const wanted = chain2.has(holon) && holon !== current;
       if (wanted && childrenEl.style.display === "none") {
-        childrenEl.style.display = "";
-        twisty.textContent = "▼";
+        setOpen(childrenEl, twisty, true);
         row.revealed = true;
       } else if (!wanted && row.revealed) {
-        childrenEl.style.display = "none";
-        twisty.textContent = "▶";
+        setOpen(childrenEl, twisty, false);
         row.revealed = false;
+      }
+    }
+    for (const group of groups) {
+      const wanted = group.members.some((member) => chain2.has(member));
+      if (wanted && group.childrenEl.style.display === "none") {
+        setOpen(group.childrenEl, group.twisty, true);
+        group.revealed = true;
+      } else if (!wanted && group.revealed) {
+        setOpen(group.childrenEl, group.twisty, false);
+        group.revealed = false;
       }
     }
     if (!current)
@@ -66272,10 +66363,12 @@ var castOf = (roots) => {
     if (isSovereign(holon)) {
       const name = classNameOf(holon);
       const seen = members.get(name);
-      if (seen)
+      if (seen) {
         seen.count++;
-      else
-        members.set(name, { name, first: holon, count: 1 });
+        seen.instances.push(holon);
+      } else {
+        members.set(name, { name, first: holon, instances: [holon], count: 1 });
+      }
     }
     for (const part of holon.parts)
       walk(part);
@@ -66284,7 +66377,7 @@ var castOf = (roots) => {
     walk(root);
   return [...members.values()];
 };
-var mountCast = (root, roots, selection, signal) => {
+var mountCast = (root, roots, selection, signal, onHover) => {
   root.textContent = "";
   const members = castOf(roots);
   root.classList.toggle("empty", members.length === 0);
@@ -66304,6 +66397,8 @@ var mountCast = (root, roots, selection, signal) => {
       chip.appendChild(count);
     }
     chip.addEventListener("click", () => selection.set(member.first), { signal });
+    chip.addEventListener("pointerenter", () => onHover?.(member.instances), { signal });
+    chip.addEventListener("pointerleave", () => onHover?.(null), { signal });
     root.appendChild(chip);
     chips.push({ member, el: chip });
   }
@@ -67586,6 +67681,22 @@ var boot = async (resume) => {
   const overrides = new Overrides(dream.build());
   host.beforeSync = () => overrides.apply();
   const selection = new Selection;
+  const sovereignOf = (holon) => {
+    for (let node = holon;node; node = node.parent) {
+      if (node.constructor.sovereign === true)
+        return node;
+    }
+    return;
+  };
+  let glowing = null;
+  const applyGlow = (target) => {
+    if (target === glowing)
+      return;
+    glowing = target;
+    host.highlight(target);
+    canvas.classList.toggle("hoverable", !!target);
+    host.renderFrame(current);
+  };
   let backdropEl = freshBackdrop;
   let backdropIsVideo = false;
   const setBackdrop = (url, mode = "under", offset = 0) => {
@@ -67831,7 +67942,7 @@ var boot = async (resume) => {
     boot().catch((err) => console.error("[dreamtalk] scene switch failed:", err));
   };
   const navigator2 = mountNavigator($2("rail"), scenes, sceneKey, switchScene, ac.signal);
-  const castBar = mountCast($2("cast"), dream.roots, selection, ac.signal);
+  const castBar = mountCast($2("cast"), dream.roots, selection, ac.signal, applyGlow);
   let outlineOpen = resume?.outline ?? true;
   const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen);
   applyOutline();
@@ -67854,6 +67965,8 @@ var boot = async (resume) => {
     return ndc ? host.pick(ndc.x, ndc.y) : undefined;
   };
   const MOVE_THRESHOLD = 3;
+  const HOVER_STEP = 4;
+  let probe = null;
   let move = null;
   const withinSelection = (holon, selected) => {
     for (let node = holon;node; node = node.parent) {
@@ -68101,11 +68214,18 @@ var boot = async (resume) => {
       });
       return;
     }
+    if (probe && Math.hypot(e2.clientX - probe.x, e2.clientY - probe.y) < HOVER_STEP)
+      return;
+    probe = { x: e2.clientX, y: e2.clientY };
+    const hit = pickAt(e2.clientX, e2.clientY);
     const selected = selection.current;
-    canvas.classList.toggle("moveable", !!selected && movable(selected) && (() => {
-      const hit = pickAt(e2.clientX, e2.clientY);
-      return !!hit && withinSelection(hit, selected);
-    })());
+    canvas.classList.toggle("moveable", !!hit && !!selected && movable(selected) && withinSelection(hit, selected));
+    applyGlow(sovereignOf(hit) ?? null);
+  }, listen);
+  canvas.addEventListener("pointerleave", () => {
+    probe = null;
+    canvas.classList.remove("moveable");
+    applyGlow(null);
   }, listen);
   const endFlight = (e2) => {
     if (!flight)
@@ -68362,6 +68482,17 @@ var boot = async (resume) => {
     sceneKey,
     openScene: switchScene,
     cast: () => Array.from($2("cast").querySelectorAll(".castname"), (el) => el.textContent ?? ""),
+    hoverAt: (ndcX, ndcY) => {
+      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null;
+      applyGlow(sovereign);
+      return sovereign ? classNameOf(sovereign) : undefined;
+    },
+    hovered: () => {
+      if (!glowing)
+        return;
+      const first = Array.isArray(glowing) ? glowing[0] : glowing;
+      return first ? classNameOf(first) : undefined;
+    },
     selectClip: (index) => {
       const row = timeline?.rows[index];
       if (!row)

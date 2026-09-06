@@ -102,6 +102,10 @@ declare global {
       openScene?: (key: string) => void
       /** The cast bar's members (sovereign classes), for verification. */
       cast?: () => string[]
+      /** Hover glow (LOOPS.md game-loop seed): glow the sovereign under a
+       *  point / read what glows — headless driving and verification. */
+      hoverAt?: (ndcX: number, ndcY: number) => string | undefined
+      hovered?: () => string | undefined
       // --- The live layer (EDITOR-V4), exposed for headless verification ---
       /** Overlay a value on a named param of the selected holon. */
       setOverride?: (name: string, value: number) => boolean
@@ -256,6 +260,34 @@ const boot = async (resume?: Transport) => {
 
   // --- Selection: one store, read and written by every panel ---------------
   const selection = new Selection()
+
+  // --- Hover glow (LOOPS.md: the game loop's first seed) --------------------
+  //
+  // A sovereign symbol is a BUTTON (game loop), and the glow is its
+  // affordance: pointer over any of its ink — however deep the hit, a
+  // grid line is still the Axes' ink — lifts the SOVEREIGN's strokes.
+  // Non-sovereign parts alone never glow: invisible assets are not
+  // buttons. Editor-only by construction: the lift lives in the host's
+  // per-frame tint/width values (three-host highlight()), never in the
+  // Dream, and nothing in the demo or gauntlet path ever calls it.
+
+  /** The nearest sovereign at-or-above a hit — the symbol that is the button. */
+  const sovereignOf = (holon: Holon | undefined): Holon | undefined => {
+    for (let node: Holon | null | undefined = holon; node; node = node.parent) {
+      if ((node.constructor as { sovereign?: boolean }).sovereign === true) return node
+    }
+    return undefined
+  }
+
+  /** What glows right now: a sovereign under the pointer, or a cast chip's instances. */
+  let glowing: Holon | readonly Holon[] | null = null
+  const applyGlow = (target: Holon | readonly Holon[] | null) => {
+    if (target === glowing) return
+    glowing = target
+    host.highlight(target)
+    canvas.classList.toggle("hoverable", !!target)
+    void host.renderFrame(current)
+  }
 
   // --- Backdrop instrument -------------------------------------------------
   let backdropEl: HTMLVideoElement | HTMLImageElement = freshBackdrop
@@ -612,7 +644,9 @@ const boot = async (resume?: Transport) => {
   }
 
   const navigator = mountNavigator($("rail"), scenes, sceneKey, switchScene, ac.signal)
-  const castBar = mountCast($("cast"), dream.roots, selection, ac.signal)
+  // A chip is the class in person: hovering it glows every instance in
+  // the viewport — the same affordance as hovering the ink itself.
+  const castBar = mountCast($("cast"), dream.roots, selection, ac.signal, applyGlow)
 
   let outlineOpen = resume?.outline ?? true
   const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen)
@@ -657,6 +691,10 @@ const boot = async (resume?: Transport) => {
 
   /** How far a press travels before it stops being a click (CSS px). */
   const MOVE_THRESHOLD = 3
+
+  /** How far the idle pointer travels before the hover re-picks (CSS px). */
+  const HOVER_STEP = 4
+  let probe: { x: number; y: number } | null = null
 
   interface Move {
     holon: Holon
@@ -1005,18 +1043,28 @@ const boot = async (resume?: Transport) => {
         })
         return
       }
-      // At rest, the cursor says what a press would do: a move cursor over
-      // the selection's own ink, the default everywhere else.
+      // At rest, one pick — throttled to HOVER_STEP pixels of travel —
+      // serves both idle affordances: the cursor says what a press would
+      // do (move over the selection's own ink, pointer over a sovereign's),
+      // and the sovereign under the pointer glows.
+      if (probe && Math.hypot(e.clientX - probe.x, e.clientY - probe.y) < HOVER_STEP) return
+      probe = { x: e.clientX, y: e.clientY }
+      const hit = pickAt(e.clientX, e.clientY)
       const selected = selection.current
       canvas.classList.toggle(
         "moveable",
-        !!selected &&
-          movable(selected) &&
-          (() => {
-            const hit = pickAt(e.clientX, e.clientY)
-            return !!hit && withinSelection(hit, selected)
-          })(),
+        !!hit && !!selected && movable(selected) && withinSelection(hit, selected),
       )
+      applyGlow(sovereignOf(hit) ?? null)
+    },
+    listen,
+  )
+  canvas.addEventListener(
+    "pointerleave",
+    () => {
+      probe = null
+      canvas.classList.remove("moveable")
+      applyGlow(null)
     },
     listen,
   )
@@ -1360,6 +1408,16 @@ const boot = async (resume?: Transport) => {
     openScene: switchScene,
     cast: () =>
       Array.from($("cast").querySelectorAll(".castname"), (el) => el.textContent ?? ""),
+    hoverAt: (ndcX: number, ndcY: number) => {
+      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null
+      applyGlow(sovereign)
+      return sovereign ? classNameOf(sovereign) : undefined
+    },
+    hovered: () => {
+      if (!glowing) return undefined
+      const first = Array.isArray(glowing) ? (glowing[0] as Holon | undefined) : (glowing as Holon)
+      return first ? classNameOf(first) : undefined
+    },
     selectClip: (index: number) => {
       const row = timeline?.rows[index]
       if (!row) return undefined

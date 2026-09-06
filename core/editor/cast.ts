@@ -32,6 +32,8 @@ interface Member {
   name: string
   /** First instance in scene order — what a chip click selects. */
   first: Holon
+  /** Every instance in scene order — what a chip hover glows. */
+  instances: Holon[]
   count: number
 }
 
@@ -42,8 +44,12 @@ export const castOf = (roots: readonly Holon[]): Member[] => {
     if (isSovereign(holon)) {
       const name = classNameOf(holon)
       const seen = members.get(name)
-      if (seen) seen.count++
-      else members.set(name, { name, first: holon, count: 1 })
+      if (seen) {
+        seen.count++
+        seen.instances.push(holon)
+      } else {
+        members.set(name, { name, first: holon, instances: [holon], count: 1 })
+      }
     }
     for (const part of holon.parts) walk(part)
   }
@@ -60,6 +66,8 @@ export const mountCast = (
   roots: readonly Holon[],
   selection: Selection,
   signal: AbortSignal,
+  /** Hovering a chip glows its instances in the viewport (LOOPS.md). */
+  onHover?: (holons: readonly Holon[] | null) => void,
 ): CastHandle => {
   root.textContent = ""
   const members = castOf(roots)
@@ -81,6 +89,8 @@ export const mountCast = (
       chip.appendChild(count)
     }
     chip.addEventListener("click", () => selection.set(member.first), { signal })
+    chip.addEventListener("pointerenter", () => onHover?.(member.instances), { signal })
+    chip.addEventListener("pointerleave", () => onHover?.(null), { signal })
     root.appendChild(chip)
     chips.push({ member, el: chip })
   }

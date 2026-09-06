@@ -227,6 +227,8 @@ interface CableGeometry {
 }
 
 export class Cable extends Stroke {
+  /** A sovereign symbol — cast in the editor, a button in the game loop. */
+  static sovereign = true
   /** Tube radius at the head, world units (the original's r=4 sweep at
    *  its end scale — measured against the mp4 in the wall report). */
   width = length(2.5)

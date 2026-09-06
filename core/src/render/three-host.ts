@@ -359,6 +359,16 @@ const arrowKey = (holon: Line): number[] => [...shapeKey(holon), holon.arrowSize
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
+/** A tint lifted toward white by `amount` — the hover glow's brightness. */
+const liftTint = (tint: Color, amount: number): Color =>
+  amount <= 0
+    ? tint
+    : {
+        r: tint.r + (1 - tint.r) * amount,
+        g: tint.g + (1 - tint.g) * amount,
+        b: tint.b + (1 - tint.b) * amount,
+      }
+
 const keysEqual = (a: number[], b: number[]): boolean =>
   a.length === b.length && a.every((v, i) => v === b[i])
 
@@ -384,6 +394,16 @@ export class ThreeHost {
   private readonly texts: { binding: TextBinding; group: THREE.Object3D }[] = []
   /** Fills stack over strokes and over earlier fills — see fill.ts. */
   private nextFillOrder = 1
+  /**
+   * The hover glow's targets (LOOPS.md: symbols glow on hover — the game
+   * loop's first seed). Holons whose ink lifts toward white this frame,
+   * with the subtree flattened once at highlight() time so sync() pays a
+   * Set lookup per binding and nothing more. Empty means no glow, which
+   * is the only state the demo page and the gauntlet can ever be in —
+   * neither calls highlight(), so a capture cannot glow by construction.
+   */
+  private readonly highlighted = new Set<Holon>()
+  private highlightAmount = 0
 
   private constructor(dream: Dream, canvas: HTMLCanvasElement) {
     this.dream = dream
@@ -539,12 +559,12 @@ export class ThreeHost {
         const pts = polyline(holon)
         if (pts || holon instanceof Line) ribbon.setPoints(pts ?? [])
       }
-      const tint: Color = holon.tint.value
+      const lift = this.highlightOf(holon)
       ribbon.style(
         this.screenArc(binding, holon.creation.value),
         holon.opacity.value,
-        tint,
-        holon.stroke.value,
+        liftTint(holon.tint.value, lift),
+        holon.stroke.value * (1 + 2 * lift),
         this.screenArc(binding, holon.erasure.value),
       )
     }
@@ -560,7 +580,10 @@ export class ThreeHost {
         )
       }
       // Fill semantics: creation IS the fill-in, composed with fade.
-      fill.style(holon.creation.value * holon.opacity.value, holon.tint.value)
+      fill.style(
+        holon.creation.value * holon.opacity.value,
+        liftTint(holon.tint.value, this.highlightOf(holon)),
+      )
     }
     this.syncCamera()
 
@@ -642,7 +665,7 @@ export class ThreeHost {
       )
       if (polygon) fill.setPolygon(polygon)
     }
-    fill.style(present * holon.opacity.value, holon.tint.value)
+    fill.style(present * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)))
   }
 
   /** The camera's view direction expressed in a group's local frame. */
@@ -996,8 +1019,9 @@ export class ThreeHost {
     const creation = holon.creation.value
     const erasure = holon.erasure.value
     const opacity = holon.opacity.value
-    const tint: Color = holon.tint.value
-    const width = holon.stroke.value
+    const lift = this.highlightOf(holon)
+    const tint: Color = liftTint(holon.tint.value, lift)
+    const width = holon.stroke.value * (1 + 2 * lift)
     const window = (v: number, a: number, b: number) =>
       b <= a ? (v >= b ? 1 : 0) : Math.min(1, Math.max(0, (v - a) / (b - a)))
     // WITHIN a stroke the pen advances by SCREEN pixels, exactly as
@@ -1159,6 +1183,30 @@ export class ThreeHost {
       add(new THREE.Vector3().setFromMatrixPosition(found.group.matrixWorld))
     }
     return box
+  }
+
+  /**
+   * Glow a holon's ink (its whole subtree), several holons', or none
+   * (null) — the editor's hover affordance over sovereign symbols. The
+   * lift rides the tint and width values sync() already writes into the
+   * ribbon/fill uniforms every frame: tint lerps `amount` toward white
+   * and stroke width swells by `2*amount`, so a glow costs nothing new —
+   * no passes, no materials, no postprocessing. Takes effect on the next
+   * renderFrame().
+   */
+  highlight(target: Holon | readonly Holon[] | null, amount = 0.15): void {
+    this.highlighted.clear()
+    this.highlightAmount = amount
+    if (!target) return
+    const targets: readonly Holon[] = Array.isArray(target) ? target : [target as Holon]
+    for (const root of targets) {
+      for (const holon of root.walk()) this.highlighted.add(holon)
+    }
+  }
+
+  /** This holon's glow amount this frame — 0 for almost everything. */
+  private highlightOf(holon: Holon): number {
+    return this.highlighted.size > 0 && this.highlighted.has(holon) ? this.highlightAmount : 0
   }
 
   /**

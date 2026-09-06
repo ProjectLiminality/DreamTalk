@@ -77,6 +77,9 @@
     #backdrop { position: absolute; inset: 0; width: 100%; height: 100%;
       object-fit: contain; display: none; pointer-events: none; }
     #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    /* Hover glow (LOOPS.md): a sovereign symbol is a button — the cursor
+       says so. Above .flying/.moveable so a gesture's cursor still wins. */
+    #stage.hoverable { cursor: pointer; }
     /* Flying the observer: drag orbits, shift+drag pans, wheel dollies. */
     #stage.flying { cursor: grabbing; }
     /* Direct manipulation: the cursor says what a press would do. */
@@ -151,6 +154,9 @@
     .nclass { color: var(--text); font-size: 12px; }
     .nident { color: var(--dim); font-size: 11px; overflow: hidden;
       text-overflow: ellipsis; }
+    /* A folded run of anonymous same-class parts ("Line ×20") —
+       presentation, not a holon: the row discloses, it never selects. */
+    .node.run .nclass { color: var(--dim); }
     /* Symbol glyphs — the holon's own geometry, at row scale. Slightly
        dimmed at rest so a long tree still reads as text; full strength on
        hover and on the selected row, where the shape IS what is being
