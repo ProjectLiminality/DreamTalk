@@ -1271,8 +1271,8 @@ export class ThreeHost {
     if (!start || !dist) return Infinity
     const positions = start.data.array as Float32Array
     const distances = dist.data.array as Float32Array
-    const drawn = ribbon.material.drawn.value
-    const erased = ribbon.material.erased.value
+    const drawn = ribbon.drawnLength
+    const erased = ribbon.erasedLength
 
     const matrix = ribbon.mesh.matrixWorld
     const a = new THREE.Vector3()

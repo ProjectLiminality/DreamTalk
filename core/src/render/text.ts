@@ -541,8 +541,9 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
     for (const outline of outlines) {
       for (const { ribbon } of outline.loops) {
         group.remove(ribbon.mesh)
+        // The material is the SHARED ribbon material (ribbon.ts) — only
+        // this stroke's geometry may die with it.
         ribbon.geometry.dispose()
-        ribbon.material.dispose()
       }
     }
     outlines = []

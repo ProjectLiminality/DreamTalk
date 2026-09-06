@@ -50563,6 +50563,23 @@ class RibbonStroke {
 }
 
 // src/render/fill.ts
+var { userData: userData4 } = exports_three_tsl;
+var FILL_KEYS = {
+  tint: "dtFillTint",
+  fade: "dtFillFade"
+};
+var shared2;
+var sharedFillMaterial = () => {
+  if (!shared2) {
+    shared2 = new MeshBasicNodeMaterial;
+    shared2.transparent = true;
+    shared2.depthWrite = false;
+    shared2.side = DoubleSide;
+    shared2.colorNode = userData4(FILL_KEYS.tint, "color");
+    shared2.opacityNode = userData4(FILL_KEYS.fade, "float");
+  }
+  return shared2;
+};
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
   for (let i = 0;i <= segments; i++) {
@@ -50575,19 +50592,14 @@ var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
 class FillShape {
   mesh;
   material;
-  tint = uniform2(new Color(1, 1, 1));
-  fade = uniform2(1);
   constructor(renderOrder) {
-    this.material = new MeshBasicNodeMaterial;
-    this.material.transparent = true;
-    this.material.depthWrite = false;
-    this.material.side = DoubleSide;
-    this.material.colorNode = this.tint;
-    this.material.opacityNode = this.fade;
+    this.material = sharedFillMaterial();
     this.mesh = new Mesh(new BufferGeometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = renderOrder;
     this.mesh.visible = false;
+    this.mesh.userData[FILL_KEYS.tint] = new Color(1, 1, 1);
+    this.mesh.userData[FILL_KEYS.fade] = 1;
   }
   setPolygon(pts) {
     if (pts.length < 3)
@@ -50608,8 +50620,8 @@ class FillShape {
     this.mesh.geometry = geometry;
   }
   style(opacity, tint) {
-    this.fade.value = opacity;
-    this.tint.value.setRGB(tint.r, tint.g, tint.b);
+    this.mesh.userData[FILL_KEYS.fade] = opacity;
+    this.mesh.userData[FILL_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
     this.mesh.visible = opacity > 0;
   }
 }
@@ -63614,27 +63626,12 @@ class ThreeHost {
     this.camera = this.perspCamera;
   }
   static async mount(dream, canvas) {
-    const __marks = {};
-    let __t = performance.now();
-    const __mark = (name) => {
-      const now = performance.now();
-      __marks[name] = now - __t;
-      __t = now;
-    };
     const host = new ThreeHost(dream, canvas);
-    __mark("ctor");
     await host.renderer.init();
-    __mark("rendererInit");
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false);
     dream.build();
-    __mark("build");
-    for (const root of dream.roots)
-      for (const _2 of root.walk()) {}
-    __mark("composeBake");
     for (const root of dream.roots)
       host.attach(root, host.scene);
-    __mark("attach");
-    globalThis.__dtPerfMount = __marks;
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }

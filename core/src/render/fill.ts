@@ -12,14 +12,44 @@
  * fills composite over the strokes and over earlier fills in
  * declaration order (iris first, pupil on top).
  *
- * LESSON (ribbon.ts, still law): animated material values are TSL
- * uniform nodes, never plain material props — tint and fade here.
+ * LESSON (ribbon.ts, still law): animated material values flow through
+ * TSL nodes, never plain material props — tint and fade here. And as in
+ * ribbon.ts, ONE material serves every fill: tint/fade are OBJECT-updated
+ * userData reference nodes, so identical fills stop costing one WGSL
+ * NodeBuilder build each (the r185 node cache keys by node identity).
  */
 
 import * as THREE from "three/webgpu"
-import { uniform } from "three/tsl"
+import * as TSLTyped from "three/tsl"
 import type { Color } from "../constants"
 import type { Vec3Like } from "../parts/index"
+
+// Same @types/three lag as ribbon.ts: UserDataNode misses the typed
+// Node<...> surface — the graph is verified when the shader builds.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const { userData } = TSLTyped as any
+
+/** The per-mesh value slots the shared fill material reads (FillShape
+ *  owns the writes). */
+const FILL_KEYS = {
+  tint: "dtFillTint",
+  fade: "dtFillFade",
+} as const
+
+/** The one fill material every FillShape shares. Lazy so importing this
+ *  module stays side-effect free. */
+let shared: THREE.MeshBasicNodeMaterial | undefined
+const sharedFillMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!shared) {
+    shared = new THREE.MeshBasicNodeMaterial()
+    shared.transparent = true
+    shared.depthWrite = false
+    shared.side = THREE.DoubleSide
+    shared.colorNode = userData(FILL_KEYS.tint, "color")
+    shared.opacityNode = userData(FILL_KEYS.fade, "float")
+  }
+  return shared
+}
 
 /** A flat ellipse as a triangle fan around its center. */
 export const ellipsePolygon = (
@@ -38,22 +68,15 @@ export const ellipsePolygon = (
 export class FillShape {
   readonly mesh: THREE.Mesh
   readonly material: THREE.MeshBasicNodeMaterial
-  /** Fill color (same working-space semantics as the ribbon tint). */
-  readonly tint = uniform(new THREE.Color(1, 1, 1))
-  /** Fill opacity — creation (fill-in) × fade, resolved by the host. */
-  readonly fade = uniform(1)
 
   constructor(renderOrder: number) {
-    this.material = new THREE.MeshBasicNodeMaterial()
-    this.material.transparent = true
-    this.material.depthWrite = false
-    this.material.side = THREE.DoubleSide
-    this.material.colorNode = this.tint
-    this.material.opacityNode = this.fade
+    this.material = sharedFillMaterial()
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material)
     this.mesh.frustumCulled = false
     this.mesh.renderOrder = renderOrder
     this.mesh.visible = false
+    this.mesh.userData[FILL_KEYS.tint] = new THREE.Color(1, 1, 1)
+    this.mesh.userData[FILL_KEYS.fade] = 1
   }
 
   /** Replace the shape: a convex polygon, triangulated as a fan on vertex 0. */
@@ -76,8 +99,8 @@ export class FillShape {
 
   /** Sync visibility/opacity/color from the owning holon. */
   style(opacity: number, tint: Color): void {
-    this.fade.value = opacity
-    this.tint.value.setRGB(tint.r, tint.g, tint.b)
+    this.mesh.userData[FILL_KEYS.fade] = opacity
+    ;(this.mesh.userData[FILL_KEYS.tint] as THREE.Color).setRGB(tint.r, tint.g, tint.b)
     this.mesh.visible = opacity > 0
   }
 }

@@ -44,14 +44,27 @@
  * passes or depth-aware ordering — future work, see PLAN Ch 4).
  *
  * LESSON (inherited from the dash era, still law): every animated
- * material value is a TSL uniform node, never a plain material
- * property — NodeMaterialObserver does not watch arbitrary props and
+ * material value flows through TSL nodes, never plain material
+ * properties — NodeMaterialObserver does not watch arbitrary props and
  * shares observers across identical materials, so plain props freeze
- * on static objects. Here width/drawn/tint/opacity are all uniforms.
+ * on static objects.
+ *
+ * ONE material, per-mesh values (perf, 2026-09-06): all ribbon meshes
+ * share a single RibbonMaterial whose width/drawn/erased/tint/fade are
+ * OBJECT-updated reference nodes reading each mesh's own `userData`.
+ * Distinct-but-identical materials were the editor's TheWall boot cost:
+ * the WebGPU node cache keys by node IDENTITY (Node.customCacheKey =
+ * this.id, r185), so 4,700 structurally identical materials meant 4,700
+ * full WGSL NodeBuilder builds deduplicating into 3 programs — ~10 s of
+ * a 13.9 s boot. Sharing the material makes it ONE build. Correct by
+ * the renderer's own contract: a material carrying nodes always
+ * refreshes (NodeMaterialObserver.hasNode), reference nodes are
+ * NodeUpdateType.OBJECT (re-read per render object, no per-frame
+ * dedupe), and each mesh binds its own cloned uniform buffer, updated
+ * and uploaded object-by-object before its draw.
  */
 
 import * as THREE from "three/webgpu"
-import { uniform } from "three/tsl"
 import * as TSLTyped from "three/tsl"
 import type { Color } from "../constants"
 import { packSegments, resamplePolyline } from "./ribbon-math"
@@ -60,7 +73,7 @@ import { packSegments, resamplePolyline } from "./ribbon-math"
  * @types/three's TSL typings lag the runtime (mat4 has no .element(),
  * .assign() generics are narrower than the language) — the node graph
  * is instead verified when the shader builds. One local escape hatch;
- * the material's public uniforms stay fully typed.
+ * everything the module exports stays fully typed.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TSL = TSLTyped as any
@@ -81,6 +94,7 @@ const {
   screenDPR,
   screenSize,
   smoothstep,
+  userData,
   varyingProperty,
   vec2,
   vec3,
@@ -107,38 +121,45 @@ const vStartPx = varyingProperty("vec2", "dtRibbonStartPx")
 const vEndPx = varyingProperty("vec2", "dtRibbonEndPx")
 const vDist = varyingProperty("vec2", "dtRibbonDist")
 
-export class RibbonMaterial extends THREE.NodeMaterial {
-  /**
-   * Stroke width in CSS pixels (holon `stroke` param), as a DIAMETER —
-   * the full width of the line, not a radius.
-   *
-   * THE WIDTH CONTRACT, and how to check it. `stroke = N` deposits N
-   * pixels of ink: take a cross-section of the rendered line, convert
-   * the samples to LINEAR light, and sum them divided by the peak — that
-   * area/peak is N, verified to within 0.01px for N in 1..12
-   * (core/test/ribbon-width.test.ts pins the same identity on the
-   * analytic coverage the shader evaluates).
-   *
-   * Measure it that way and no other. Half-max width (FWHM) read off
-   * sRGB pixels is NOT this number — it runs ~0.7px high here, because
-   * sRGB encoding lifts the AA skirt and the half-max crossing of a
-   * plateau-plus-skirt profile sits outside the nominal edge. A whole
-   * round of "our lines are too fat" was chased on FWHM readings before
-   * the linear-light measurement showed the renderer had been exact all
-   * along and the error was in the caller's unit mapping
-   * (demo/video01/palette.ts, which was missing S&T's 0.6 distance
-   * attenuation).
-   */
-  readonly widthPx = uniform(3)
-  /** Draw front as arc length in the polyline's local units. */
-  readonly drawn = uniform(0)
-  /** Erase (consume) front as arc length — visible window is [erased, drawn]. */
-  readonly erased = uniform(0)
-  /** Stroke color (same working-space semantics as the old material.color). */
-  readonly tint = uniform(new THREE.Color(1, 1, 1))
-  /** Fade opacity, orthogonal to creation. */
-  readonly fade = uniform(1)
+/**
+ * The per-mesh value slots the shared RibbonMaterial reads from each
+ * stroke mesh's `userData`. RibbonStroke owns every write (style());
+ * nothing else should touch them.
+ *
+ *  - widthPx: stroke width in CSS pixels (holon `stroke` param), as a
+ *    DIAMETER — the full width of the line, not a radius.
+ *  - drawn: draw front as arc length in the polyline's local units.
+ *  - erased: erase (consume) front as arc length — the visible window
+ *    is [erased, drawn].
+ *  - tint: stroke color (working-space semantics of material.color).
+ *  - fade: fade opacity, orthogonal to creation.
+ *
+ * THE WIDTH CONTRACT, and how to check it. `stroke = N` deposits N
+ * pixels of ink: take a cross-section of the rendered line, convert
+ * the samples to LINEAR light, and sum them divided by the peak — that
+ * area/peak is N, verified to within 0.01px for N in 1..12
+ * (core/test/ribbon-width.test.ts pins the same identity on the
+ * analytic coverage the shader evaluates).
+ *
+ * Measure it that way and no other. Half-max width (FWHM) read off
+ * sRGB pixels is NOT this number — it runs ~0.7px high here, because
+ * sRGB encoding lifts the AA skirt and the half-max crossing of a
+ * plateau-plus-skirt profile sits outside the nominal edge. A whole
+ * round of "our lines are too fat" was chased on FWHM readings before
+ * the linear-light measurement showed the renderer had been exact all
+ * along and the error was in the caller's unit mapping
+ * (demo/video01/palette.ts, which was missing S&T's 0.6 distance
+ * attenuation).
+ */
+export const RIBBON_KEYS = {
+  widthPx: "dtRibbonWidthPx",
+  drawn: "dtRibbonDrawn",
+  erased: "dtRibbonErased",
+  tint: "dtRibbonTint",
+  fade: "dtRibbonFade",
+} as const
 
+export class RibbonMaterial extends THREE.NodeMaterial {
   constructor() {
     super()
     this.transparent = true
@@ -154,7 +175,15 @@ export class RibbonMaterial extends THREE.NodeMaterial {
     this.blendSrcAlpha = THREE.OneFactor
     this.blendDstAlpha = THREE.OneFactor
 
-    const halfWidth = () => this.widthPx.mul(screenDPR).mul(0.5)
+    // Per-mesh values (module header): OBJECT-updated reference nodes
+    // into each mesh's userData — one material, every stroke's own data.
+    const widthPx = userData(RIBBON_KEYS.widthPx, "float")
+    const drawn = userData(RIBBON_KEYS.drawn, "float")
+    const erased = userData(RIBBON_KEYS.erased, "float")
+    const tint = userData(RIBBON_KEYS.tint, "color")
+    const fade = userData(RIBBON_KEYS.fade, "float")
+
+    const halfWidth = () => widthPx.mul(screenDPR).mul(0.5)
     // Quad half-extent beyond the centerline / segment ends: stroke
     // half-width + AA skirt + 1px guard. Also the cap pad, so each
     // quad fully contains its own round caps and its share of joins.
@@ -247,14 +276,14 @@ export class RibbonMaterial extends THREE.NodeMaterial {
       const distStart = vDist.x
       const distEnd = vDist.y
       const pxPerUnit = lenPx.div(max(distEnd.sub(distStart), 1e-7))
-      const uFront = this.drawn.sub(distStart).mul(pxPerUnit).toVar()
+      const uFront = drawn.sub(distStart).mul(pxPerUnit).toVar()
       // Front lies before this segment: the previous segment owns the
       // cap (its forward pad covers it) — draw nothing here.
       uFront.lessThan(0.0).discard()
 
       // Erase front: segments fully consumed draw nothing; the segment
       // holding it starts its capsule there — a round retreating tail.
-      const uTail = this.erased.sub(distStart).mul(pxPerUnit).toVar()
+      const uTail = erased.sub(distStart).mul(pxPerUnit).toVar()
       uTail.greaterThan(lenPx).discard()
 
       // Capsule over the visible window [max(0, erase front),
@@ -268,12 +297,18 @@ export class RibbonMaterial extends THREE.NodeMaterial {
 
       const hw = halfWidth()
       const coverage = smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
-      const a = coverage.mul(this.fade)
+      const a = coverage.mul(fade)
       // Premultiplied on black — max-blended (see module header).
-      return vec4(vec3(this.tint).mul(a), a)
+      return vec4(vec3(tint).mul(a), a)
     })()
   }
 }
+
+/** The one ribbon material every stroke shares (module header: ONE
+ *  material, per-mesh values). Lazy so importing this module stays
+ *  side-effect free. */
+let shared: RibbonMaterial | undefined
+export const sharedRibbonMaterial = (): RibbonMaterial => (shared ??= new RibbonMaterial())
 
 /**
  * A stroke mesh whose polyline can be rewritten per frame — the one
@@ -355,8 +390,7 @@ export class RibbonStroke {
   }
 
   constructor(widthPx: number) {
-    this.material = new RibbonMaterial()
-    this.material.widthPx.value = widthPx
+    this.material = sharedRibbonMaterial()
     this.geometry = new THREE.InstancedBufferGeometry()
     // The unit quad: x = side, y = end flag; expanded entirely in-shader.
     this.geometry.setAttribute(
@@ -377,6 +411,22 @@ export class RibbonStroke {
     // Invisible until the first style() — and never rendered before
     // setPoints() has populated the instance buffers.
     this.mesh.visible = false
+    const ud = this.mesh.userData
+    ud[RIBBON_KEYS.widthPx] = widthPx
+    ud[RIBBON_KEYS.drawn] = 0
+    ud[RIBBON_KEYS.erased] = 0
+    ud[RIBBON_KEYS.tint] = new THREE.Color(1, 1, 1)
+    ud[RIBBON_KEYS.fade] = 1
+  }
+
+  /** Draw front as arc length — this stroke's own styled value. */
+  get drawnLength(): number {
+    return this.mesh.userData[RIBBON_KEYS.drawn] as number
+  }
+
+  /** Erase front as arc length — this stroke's own styled value. */
+  get erasedLength(): number {
+    return this.mesh.userData[RIBBON_KEYS.erased] as number
   }
 
   setPoints(pts: readonly THREE.Vector3[]): void {
@@ -430,11 +480,12 @@ export class RibbonStroke {
     widthPx: number,
     erasedFraction = 0,
   ): void {
-    this.material.drawn.value = fraction * this.totalLength
-    this.material.erased.value = erasedFraction * this.totalLength
+    const ud = this.mesh.userData
+    ud[RIBBON_KEYS.drawn] = fraction * this.totalLength
+    ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength
     this.mesh.visible = fraction > erasedFraction && opacity > 0
-    this.material.fade.value = opacity
-    this.material.tint.value.setRGB(tint.r, tint.g, tint.b)
-    this.material.widthPx.value = widthPx
+    ud[RIBBON_KEYS.fade] = opacity
+    ;(ud[RIBBON_KEYS.tint] as THREE.Color).setRGB(tint.r, tint.g, tint.b)
+    ud[RIBBON_KEYS.widthPx] = widthPx
   }
 }
