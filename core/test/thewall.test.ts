@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { TheWall, WALL_ROW_LAG } from "../src/parts/thewall"
-import { MindVirus } from "../src/parts/mindvirus"
+import { TheWall, WALL_ROW_LAG } from "../vocabulary/TheWall/TheWall"
+import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { circleFootprint, flowerFootprint } from "../src/geometry/packing"
 
 const near = (a: number, b: number, eps = 1e-9) => expect(Math.abs(a - b)).toBeLessThan(eps)

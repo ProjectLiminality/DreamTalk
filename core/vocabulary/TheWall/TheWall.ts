@@ -57,10 +57,10 @@
  * is the reference's linear 0 → 1 over `duration`.
  */
 
-import { Holon } from "../holon"
-import { bool, derive, integer, length, scalar, type Readable } from "../params"
-import { BLUE, type Color } from "../constants"
-import { MindVirus, headingFor } from "./mindvirus"
+import { Holon } from "../../src/holon"
+import { bool, derive, integer, length, scalar, type Readable } from "../../src/params"
+import { BLUE, type Color } from "../../src/constants"
+import { MindVirus, headingFor } from "../MindVirus/MindVirus"
 import {
   buildJourney,
   completionOf,
@@ -68,7 +68,7 @@ import {
   type JourneyPath,
   type JourneyState,
   type Vec3,
-} from "../geometry/journey"
+} from "../../src/geometry/journey"
 import {
   circleFootprint,
   packSlots,
@@ -76,10 +76,10 @@ import {
   type Footprint,
   type Packing,
   type Slot,
-} from "../geometry/packing"
-import { CABLE_SLACK } from "../geometry/xpbd"
-import { rotHPB } from "./curves"
-import type { TetherTip } from "./cable"
+} from "../../src/geometry/packing"
+import { CABLE_SLACK } from "../../src/geometry/xpbd"
+import { rotHPB } from "../../src/parts/curves"
+import type { TetherTip } from "../Cable/Cable"
 
 /**
  * Rows lag each other by this many bricks — the diagonal growth wave

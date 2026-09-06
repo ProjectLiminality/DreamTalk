@@ -16,7 +16,7 @@
 
 import { Dream, render } from "../../src/index"
 import { Create } from "../../src/verbs"
-import { LENS_STROKE_RATIO, MolochEye } from "../../src/parts/molocheye"
+import { LENS_STROKE_RATIO, MolochEye } from "../../vocabulary/MolochEye/MolochEye"
 
 /** Lens half-height on screen, px at 720p. */
 const H_PX = 300

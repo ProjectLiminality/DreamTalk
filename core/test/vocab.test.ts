@@ -6,9 +6,7 @@
 
 import { describe, expect, test } from "bun:test"
 import {
-  Axes,
   Circle,
-  Eye,
   Group,
   Line,
   Rectangle,
@@ -16,6 +14,8 @@ import {
   dominoWindows,
   rectanglePolyline,
 } from "../src/parts/index"
+import { Axes } from "../vocabulary/Axes/Axes"
+import { Eye } from "../vocabulary/Eye/Eye"
 import { Create, Erase, UnCreate, UnDraw } from "../src/verbs"
 import { smoothingFor } from "../src/timeline"
 import { Dream } from "../src/dream"

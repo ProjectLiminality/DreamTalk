@@ -142,7 +142,10 @@ import { Dream, render } from "../../src/index"
 import { together } from "../../src/anim"
 import { Create, UnCreate, FadeIn, FadeOut } from "../../src/verbs"
 import { PI } from "../../src/constants"
-import { Axes, Circle, Cylinder, Eye, Group, Rectangle } from "../../src/parts/index"
+import { Circle, Group, Rectangle } from "../../src/parts/index"
+import { Axes } from "../../vocabulary/Axes/Axes"
+import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
+import { Eye } from "../../vocabulary/Eye/Eye"
 import { BLUE, RED, WHITE, STROKE_MAIN } from "./palette"
 
 /**

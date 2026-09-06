@@ -30,7 +30,7 @@
  *            round(pathLength / DISTANCE_PER_THRUST), each 10% open /
  *            55% thrust / 35% glide of its distance. NOTE this is the
  *            JOURNEY's profile — the standalone creature's own pulse
- *            (parts/mindvirus.ts, 5/55/40) is a different reading of
+ *            (vocabulary/MindVirus/MindVirus.ts, 5/55/40) is a different reading of
  *            the same three phases, and the two are kept apart on
  *            purpose.
  *   BRICK    travel [0.8, 1] is the brick phase: the creature stops

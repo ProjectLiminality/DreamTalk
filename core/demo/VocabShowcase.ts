@@ -13,7 +13,9 @@
 import { Dream, render } from "../src/index"
 import { together } from "../src/anim"
 import { Create, UnCreate, UnDraw, Erase } from "../src/verbs"
-import { Axes, Eye, Rectangle } from "../src/parts/index"
+import { Rectangle } from "../src/parts/index"
+import { Axes } from "../vocabulary/Axes/Axes"
+import { Eye } from "../vocabulary/Eye/Eye"
 import { BLUE, RED, PI } from "../src/constants"
 
 export class VocabShowcaseDream extends Dream {

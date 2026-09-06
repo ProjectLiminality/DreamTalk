@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { FoldableCube, hingeAngle } from "../src/parts/foldablecube"
+import { FoldableCube, hingeAngle } from "../vocabulary/FoldableCube/FoldableCube"
 import { rotHPB } from "../src/parts/curves"
 import { bipolar } from "../src/params"
 import type { Holon } from "../src/holon"

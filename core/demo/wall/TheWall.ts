@@ -46,7 +46,7 @@
 import { Dream, render } from "../../src/index"
 import { eased } from "../../src/anim"
 import { PI } from "../../src/constants"
-import { TheWall } from "../../src/parts/thewall"
+import { TheWall } from "../../vocabulary/TheWall/TheWall"
 import { circleFootprint, reflectedZ } from "../../src/geometry/packing"
 
 /** 500 frames at 30 fps — the reference render's span (:469). */

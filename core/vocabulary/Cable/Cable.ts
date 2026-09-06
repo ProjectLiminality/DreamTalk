@@ -77,12 +77,12 @@
  * (:757-781), exactly the source's subdivision.
  */
 
-import { Holon } from "../holon"
-import { bool, color, completion, length, scalar } from "../params"
-import { Line, Stroke, type Vec3Like } from "./index"
-import { invRotHPB } from "./curves"
-import { TAU, WHITE } from "../constants"
-import { bake, type BakedTrack } from "../bake"
+import { Holon } from "../../src/holon"
+import { bool, color, completion, length, scalar } from "../../src/params"
+import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { invRotHPB } from "../../src/parts/curves"
+import { TAU, WHITE } from "../../src/constants"
+import { bake, type BakedTrack } from "../../src/bake"
 import {
   CABLE_PARTICLES,
   CABLE_SLACK,
@@ -95,8 +95,8 @@ import {
   type CableState,
   type Frame,
   type StepConfig,
-} from "../geometry/xpbd"
-import type { Vec3 } from "../geometry/journey"
+} from "../../src/geometry/xpbd"
+import type { Vec3 } from "../../src/geometry/journey"
 
 export type PathFn = (time: number) => Vec3Like
 /** A holon that can state its own position at an arbitrary time. */

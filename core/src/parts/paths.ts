@@ -35,7 +35,7 @@ import { Holon } from "../holon"
 import { angle, length } from "../params"
 import { eased, type Anim } from "../anim"
 import { ease } from "../timeline"
-import type { Vec3Like } from "./index"
+import type { Vec3Like } from "./primitives"
 
 /** A point on a rail plus the rail's inward normal angle there. */
 export interface RailReading {

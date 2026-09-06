@@ -33,7 +33,8 @@
 import { Dream, render } from "../../src/index"
 import { together } from "../../src/anim"
 import { Create, UnCreate } from "../../src/verbs"
-import { Axes, Circle, Rectangle } from "../../src/parts/index"
+import { Circle, Rectangle } from "../../src/parts/index"
+import { Axes } from "../../vocabulary/Axes/Axes"
 import { BLUE, RED, STROKE_MAIN } from "./palette"
 
 /**

@@ -23,7 +23,8 @@
 import { Dream, render } from "../src/index"
 import { together } from "../src/anim"
 import { Create } from "../src/verbs"
-import { Circle, Cylinder } from "../src/parts/index"
+import { Circle } from "../src/parts/index"
+import { Cylinder } from "../vocabulary/Cylinder/Cylinder"
 import { SectionCurve, Connection } from "../src/parts/curves"
 import { BLUE, RED, PI } from "../src/constants"
 

@@ -11,7 +11,7 @@ import {
   LENS_RADIUS_RATIO,
   MolochEye,
   perspectiveK,
-} from "../src/parts/molocheye"
+} from "../vocabulary/MolochEye/MolochEye"
 import { PI } from "../src/constants"
 
 describe("the 3-4-5 lens", () => {

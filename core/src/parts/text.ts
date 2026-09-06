@@ -31,7 +31,7 @@
 import { Holon } from "../holon"
 import { color, completion, length, type Param, type ParamValue } from "../params"
 import { WHITE } from "../constants"
-import { dominoWindows } from "./index"
+import { dominoWindows } from "./primitives"
 import type { Anim, Track } from "../anim"
 
 /** pydeation Write(): Domino(rel_overlap=0.7, global_smoothing=0.7). */

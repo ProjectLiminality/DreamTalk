@@ -22,7 +22,7 @@ import {
   type LabyrinthConfig,
   type Vec2,
 } from "../src/geometry/labyrinth"
-import { Labyrinth } from "../src/parts/labyrinth"
+import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { Line } from "../src/parts/index"
 
 /** The demo's config plus scale/shape variations. */

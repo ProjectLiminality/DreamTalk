@@ -30,7 +30,7 @@
 import { Holon, type Overrides } from "../holon"
 import { angle, completion, length, scalar } from "../params"
 import { PI } from "../constants"
-import { Stroke, Line, type Vec3Like } from "./index"
+import { Stroke, Line, type Vec3Like } from "./primitives"
 import { cylinderPlaneSection, type Section } from "../geometry/section"
 
 /**

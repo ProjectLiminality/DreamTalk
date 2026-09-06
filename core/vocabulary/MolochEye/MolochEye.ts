@@ -21,11 +21,11 @@
  * at the constant.
  */
 
-import { color, length } from "../params"
-import { eased, together, type Anim } from "../anim"
-import { ease } from "../timeline"
-import { Arc, Circle, Ellipse, Line, Square, Stroke, type Vec3Like } from "./index"
-import { BLACK, BLUE, PI, WHITE } from "../constants"
+import { color, length } from "../../src/params"
+import { eased, together, type Anim } from "../../src/anim"
+import { ease } from "../../src/timeline"
+import { Arc, Circle, Ellipse, Line, Square, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { BLACK, BLUE, PI, WHITE } from "../../src/constants"
 
 /**
  * The 3-4-5 construction. Each lens arc subtends a half-span whose sine

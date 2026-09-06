@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { Cable, catmullRomResample, smoothControlPoints } from "../src/parts/cable"
+import { Cable, catmullRomResample, smoothControlPoints } from "../vocabulary/Cable/Cable"
 import { Null, type Vec3Like } from "../src/parts/index"
 import { PI } from "../src/constants"
 

@@ -22,7 +22,7 @@
 import { Dream, render } from "../../src/index"
 import { eased } from "../../src/anim"
 import { PI } from "../../src/constants"
-import { TheWall } from "../../src/parts/thewall"
+import { TheWall } from "../../vocabulary/TheWall/TheWall"
 import { flowerFootprint } from "../../src/geometry/packing"
 
 /** :1601 — the same 500-frame span as the circle scene. */

@@ -17,7 +17,7 @@
 
 import { Dream, render } from "../../src/index"
 import { Create } from "../../src/verbs"
-import { Labyrinth } from "../../src/parts/labyrinth"
+import { Labyrinth } from "../../vocabulary/Labyrinth/Labyrinth"
 
 export class LabyrinthDream extends Dream {
   maze = new Labyrinth({ stroke: 2 })

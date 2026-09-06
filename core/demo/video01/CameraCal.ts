@@ -28,7 +28,9 @@
 
 import { Dream, render } from "../../src/index"
 import { PI } from "../../src/constants"
-import { Axes, Cylinder, Eye } from "../../src/parts/index"
+import { Axes } from "../../vocabulary/Axes/Axes"
+import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
+import { Eye } from "../../vocabulary/Eye/Eye"
 import { BLUE, RED, WHITE, STROKE_GRID, STROKE_MAIN } from "./palette"
 
 export class CameraCalDream extends Dream {

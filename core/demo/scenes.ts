@@ -29,6 +29,10 @@ import { LabyrinthDream } from "./wall/Labyrinth"
 import { TheWallDream } from "./wall/TheWall"
 import { FlowerDream } from "./wall/Flower"
 import { TextShowcaseDream } from "./TextShowcase"
+import { EyeDream } from "./vocabulary/Eye"
+import { AxesDream } from "./vocabulary/Axes"
+import { FoldableCubeDream } from "./vocabulary/FoldableCube"
+import { CableDream } from "./vocabulary/Cable"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -61,6 +65,10 @@ export const scenes: Record<string, DreamClass> = {
   labyrinth: LabyrinthDream,
   thewall: TheWallDream,
   flower: FlowerDream,
+  eye: EyeDream,
+  axes: AxesDream,
+  foldablecube: FoldableCubeDream,
+  cable: CableDream,
 }
 
 export const defaultScene = "founding"

@@ -37,7 +37,7 @@
  * the caller can still draw.
  */
 
-import type { Vec3Like } from "./index"
+import type { Vec3Like } from "./primitives"
 
 /** A recovered boundary: a closed ring of points, first point NOT repeated. */
 export type Loop = Vec3Like[]

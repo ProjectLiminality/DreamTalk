@@ -62,7 +62,8 @@
 
 import { Dream, render, together } from "../../src/index"
 import { PI } from "../../src/constants"
-import { Circle, Cylinder, Rectangle } from "../../src/parts/index"
+import { Circle, Rectangle } from "../../src/parts/index"
+import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { SectionCurve, SectionPlane } from "../../src/parts/curves"
 import { FadeIn, FadeOut } from "../../src/verbs"
 import { BLUE, PURPLE, RED, WHITE, STROKE_MAIN } from "./palette"

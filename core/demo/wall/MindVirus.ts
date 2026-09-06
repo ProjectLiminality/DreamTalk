@@ -30,7 +30,7 @@
 
 import { Dream, render } from "../../src/index"
 import { together, eased } from "../../src/anim"
-import { MindVirus } from "../../src/parts/mindvirus"
+import { MindVirus } from "../../vocabulary/MindVirus/MindVirus"
 
 const DUR = 5.65
 

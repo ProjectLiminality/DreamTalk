@@ -17,11 +17,11 @@
  * points are settled data.
  */
 
-import { color, integer, length } from "../params"
-import { restage, together, type Anim, type Windowed } from "../anim"
-import { Circle, Line, Stroke, dominoWindows } from "./index"
-import { BLUE } from "../constants"
-import { generateLabyrinth, type LabyrinthResult } from "../geometry/labyrinth"
+import { color, integer, length } from "../../src/params"
+import { restage, together, type Anim, type Windowed } from "../../src/anim"
+import { Circle, Line, Stroke, dominoWindows } from "../../src/parts/primitives"
+import { BLUE } from "../../src/constants"
+import { generateLabyrinth, type LabyrinthResult } from "../../src/geometry/labyrinth"
 
 /**
  * Create choreography: the citadel circle draws first — the maze is a

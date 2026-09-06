@@ -41,16 +41,16 @@
  * the journey's bindings, so use one spelling per scene.
  */
 
-import { Holon } from "../holon"
-import { bipolar, derive, scalar } from "../params"
-import { state } from "../params"
-import { eased, together, type Anim } from "../anim"
-import { ease } from "../timeline"
-import { type Vec3Like } from "./index"
-import { FoldableCube } from "./foldablecube"
-import { Cable } from "./cable"
-import { MolochEye } from "./molocheye"
-import { PI } from "../constants"
+import { Holon } from "../../src/holon"
+import { bipolar, derive, scalar } from "../../src/params"
+import { state } from "../../src/params"
+import { eased, together, type Anim } from "../../src/anim"
+import { ease } from "../../src/timeline"
+import { type Vec3Like } from "../../src/parts/primitives"
+import { FoldableCube } from "../FoldableCube/FoldableCube"
+import { Cable } from "../Cable/Cable"
+import { MolochEye } from "../MolochEye/MolochEye"
+import { PI } from "../../src/constants"
 
 export interface PulseShares {
   /** Time fraction of the OPEN phase (0.30 in the source). */

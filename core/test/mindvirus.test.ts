@@ -13,7 +13,7 @@ import {
   headingFor,
   pulseDistance,
   pulseFold,
-} from "../src/parts/mindvirus"
+} from "../vocabulary/MindVirus/MindVirus"
 import { PI } from "../src/constants"
 
 describe("the pulse profile", () => {

@@ -48,7 +48,9 @@ import { Dream, render } from "../../src/index"
 import { PI } from "../../src/constants"
 import { eased, restage, together } from "../../src/anim"
 import { Create, UnCreate, FadeIn, FadeOut } from "../../src/verbs"
-import { Axes, Circle, Cylinder, Rectangle } from "../../src/parts/index"
+import { Circle, Rectangle } from "../../src/parts/index"
+import { Axes } from "../../vocabulary/Axes/Axes"
+import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { BLUE, RED, STROKE_MAIN } from "./palette"
 
 /**
