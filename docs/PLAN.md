@@ -444,3 +444,15 @@ explicit instruction). Queue:
    Items 1-4 also [x] — see commits 54f136c..9637daa.
 Stop condition: queue exhausted, or three-strikes on any layer (record
 and move on), or nothing actionable remains (standing-army rule).
+
+## Night of coherence 2026-09-06→07 — CLOSED
+
+All six queue items landed (EDITOR-V5): [x] direct manipulation
+(c47401d) · [x] vocabulary homes, nine sovereigns with faces (128048a)
+· [x] checkpoint capture / Magic Move within scenes (b3e1512) · [x]
+outline grouping + hover glow (391e962) · [x] reflection pass items
+2-4: timeline editing, settle fix, PLAYER MODE (a813460) · [x]
+reflection item 1: the shared-material fix, boot 11.9s→1.9s, scrub
+collapse everywhere (88f409f). 565 tests. Ledgered for next: editor
+undo stack, cable-bake disk cache, Holon settled-flag (pinning-test
+plan in reflection append), cross-scene Magic Move, face tooltips.
