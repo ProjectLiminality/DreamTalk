@@ -86,3 +86,13 @@ pose IS authoring animation.
    sovereign symbols (the game loop's first visible seed).
 5. Regressions after each merge (S04, molocheye, thewall spots);
    granular commits; morning report.
+6. **The reflection pass (David, 2026-09-06): after the queue, survey
+   the whole system with fresh eyes — performance, UX, UI, coherence —
+   and act on whatever is OBVIOUSLY right.** The skeleton is
+   well-defined; judgment is now the instrument. Structure: (a) use the
+   editor as a user would for ten minutes and note every friction;
+   (b) profile the hot paths (editor frame loop, gauntlet, boot);
+   (c) reread TASTE/ONTOLOGY/LOOPS against what exists and list the
+   gaps; (d) rank by value-per-risk, implement the top items, record
+   the rest in PLAN. Same discipline as everything else: granular
+   commits, regressions, honest notes.
