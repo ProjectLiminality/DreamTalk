@@ -52,8 +52,9 @@ import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
-import { mountTimeline, type ClipRow, type TimelineHandle } from "./timeline"
+import { mountTimeline, stepTime, type ClipRow, type TimelineHandle } from "./timeline"
 import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
+import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
 import {
   Overrides,
@@ -129,6 +130,8 @@ declare global {
       capture?: (duration?: number) => Promise<Record<string, unknown> | undefined>
       /** Release every live override without writing — the pose evaporates. */
       discardPose?: () => void
+      /** The playhead's current t — headless verification (frame stepping). */
+      currentT?: () => number
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -239,6 +242,13 @@ const boot = async (resume?: Transport) => {
   const ac = new AbortController()
   const listen = { signal: ac.signal }
 
+  // The presentation mode (LOOPS.md): `?mode=player` is the cutscene+game
+  // presentation — the same engine with the creator tooling unmounted and
+  // the creator chrome hidden. One flag, two chromes.
+  const playerMode = isPlayerMode(location.search)
+  document.body.classList.toggle("player", playerMode)
+  if (playerMode) marquee.enabled = false
+
   // Which DreamWeaving the editor is editing: /?scene=s04 (registry in
   // demo/scenes.ts). Reproduction scenes carry their own backdrop line.
   const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene
@@ -332,9 +342,10 @@ const boot = async (resume?: Transport) => {
     }
   }
 
-  // Code → UI: the backdrop line in unfold() is the truth.
+  // Code → UI: the backdrop line in unfold() is the truth. The player
+  // never shows it — the reference layer is a creator instrument.
   const spec = dream.backdropSpec
-  if (spec) setBackdrop(`/${spec.path}`, resume?.bdMode ?? "under", spec.offset)
+  if (spec && !playerMode) setBackdrop(`/${spec.path}`, resume?.bdMode ?? "under", spec.offset)
 
   // The reference list — choosing here commits to code (UI → code).
   const populateRefs = async () => {
@@ -354,7 +365,7 @@ const boot = async (resume?: Transport) => {
     }
     if (spec) bdRef.value = spec.path
   }
-  void populateRefs().catch(() => {})
+  if (!playerMode) void populateRefs().catch(() => {})
 
   const commitBackdrop = async (path: string, offset: number) => {
     const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFileFor(sceneKey))}`)
@@ -417,13 +428,15 @@ const boot = async (resume?: Transport) => {
   // inspector's header reads it too: selecting a clip is a selection in
   // exactly the sense selecting a holon is, and only one of the two can
   // stand at a time.
-  const code = mountCodeView(codePanel, codeBody, codeFile)
+  const code = playerMode ? undefined : mountCodeView(codePanel, codeBody, codeFile)
   let selectedClip: ClipRow | null = null
   // Mounted with the transport (it needs `paint`); referenced before then
   // by paint() and the selection subscription, both of which run after.
   let timeline: TimelineHandle | undefined
   // Mounted beside the timeline; referenced from paint() and Escape.
   let checkpoint: CheckpointHandle | undefined
+  // The player's own chrome — mounted only under ?mode=player.
+  let ptransport: PlayerTransport | undefined
 
   // --- Inspector: the SELECTED holon's properties, and nothing else --------
   //
@@ -611,7 +624,8 @@ const boot = async (resume?: Transport) => {
   }
 
   // --- Holarchy outline (cmd+shift+L) --------------------------------------
-  mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
+  if (!playerMode)
+    mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
 
   // --- Scene navigator + cast bar (EDITOR-V3 step 2) ------------------------
   //
@@ -623,9 +637,10 @@ const boot = async (resume?: Transport) => {
   const teardown = () => {
     alive = false
     ac.abort()
-    navigator.dispose()
-    castBar.dispose()
+    navigator?.dispose()
+    castBar?.dispose()
     checkpoint?.dispose()
+    ptransport?.dispose()
     host.dispose()
   }
 
@@ -643,10 +658,14 @@ const boot = async (resume?: Transport) => {
     void boot().catch((err) => console.error("[dreamtalk] scene switch failed:", err))
   }
 
-  const navigator = mountNavigator($("rail"), scenes, sceneKey, switchScene, ac.signal)
+  const navigator = playerMode
+    ? undefined
+    : mountNavigator($("rail"), scenes, sceneKey, switchScene, ac.signal)
   // A chip is the class in person: hovering it glows every instance in
   // the viewport — the same affordance as hovering the ink itself.
-  const castBar = mountCast($("cast"), dream.roots, selection, ac.signal, applyGlow)
+  const castBar = playerMode
+    ? undefined
+    : mountCast($("cast"), dream.roots, selection, ac.signal, applyGlow)
 
   let outlineOpen = resume?.outline ?? true
   const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen)
@@ -787,10 +806,44 @@ const boot = async (resume?: Transport) => {
     return true
   }
 
+  // --- The player's click: TRAVEL, not selection (LOOPS.md game loop) ------
+  //
+  // In the player a sovereign symbol is a BUTTON whose click travels you
+  // to that holon's home. Homes (githubPagesUrl → githubRepoUrl →
+  // Radicle) are gated on the manifest's `home` field (GATES #3c), so
+  // today the click LOGS the would-be travel and names the symbol for a
+  // second — the affordance is real, the destination is pending.
+  const nameChip = $<HTMLDivElement>("namechip")
+  let chipTimer: ReturnType<typeof setTimeout> | undefined
+  const travel = (sovereign: Holon) => {
+    const name = classNameOf(sovereign)
+    console.info(
+      `[dreamtalk] travel → ${name} (home URL gated; resolution: githubPagesUrl → githubRepoUrl → Radicle)`,
+    )
+    nameChip.textContent = name
+    nameChip.classList.add("shown")
+    if (chipTimer !== undefined) clearTimeout(chipTimer)
+    chipTimer = setTimeout(() => nameChip.classList.remove("shown"), 1000)
+  }
+  /** Where a player press began — a release that never travelled is a click. */
+  let playerPress: { x: number; y: number } | null = null
+
   canvas.addEventListener(
     "pointerdown",
     (e) => {
       if (e.button !== 0) return
+      if (playerMode) {
+        // No selection, no move gesture: paused, a drag flies; a click
+        // (resolved on pointerup) is reserved for travel.
+        playerPress = { x: e.clientX, y: e.clientY }
+        if (playing) return
+        flight = { x: e.clientX, y: e.clientY, pan: e.shiftKey }
+        try {
+          canvas.setPointerCapture?.(e.pointerId)
+        } catch {}
+        canvas.classList.add("flying")
+        return
+      }
       const hit = pickAt(e.clientX, e.clientY)
       const selected = selection.current
       if (hit && selected && withinSelection(hit, selected)) {
@@ -850,7 +903,7 @@ const boot = async (resume?: Transport) => {
     if (holon) {
       selectedClip = null
       timeline?.select(null)
-      code.show(anchorOf(holon))
+      code?.show(anchorOf(holon))
     }
   })
 
@@ -1079,6 +1132,16 @@ const boot = async (resume?: Transport) => {
   canvas.addEventListener(
     "pointerup",
     (e) => {
+      if (playerMode) {
+        const press = playerPress
+        playerPress = null
+        endFlight(e)
+        if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) < MOVE_THRESHOLD) {
+          const sovereign = sovereignOf(pickAt(e.clientX, e.clientY))
+          if (sovereign) travel(sovereign)
+        }
+        return
+      }
       if (!endMove(e)) endFlight(e)
     },
     listen,
@@ -1147,6 +1210,7 @@ const boot = async (resume?: Transport) => {
     await host.renderFrame(t)
     syncBackdrop(t, playing)
     timeline?.setPlayhead(t)
+    ptransport?.sync(t, playing)
     checkpoint?.sync()
     timecode.textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`
     syncPanel()
@@ -1177,9 +1241,40 @@ const boot = async (resume?: Transport) => {
   document.addEventListener(
     "keydown",
     (e) => {
+      // A key aimed at a text control is typing, not transport.
+      const target = e.target as HTMLElement | null
+      const typing =
+        !!target &&
+        (target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          target.isContentEditable)
       if (e.code === "Space") {
         e.preventDefault()
         playing ? pause() : play()
+      }
+      // Frame stepping: `,`/`.` one frame (1/30s), shift+ one second —
+      // "fine-tweak" made literal. Pauses first; the playhead is truth.
+      if (
+        (e.code === "Comma" || e.code === "Period") &&
+        !typing &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault()
+        pause()
+        void paint(stepTime(current, e.code === "Period" ? 1 : -1, duration, e.shiftKey))
+      }
+      if (playerMode) {
+        // Esc / `e` return to the creator editor — same scene, same t
+        // (LOOPS: the player and the editor are two presentations of one
+        // engine; the switch is a URL swap). No creator chords beyond.
+        if (e.code === "Escape" || (e.code === "KeyE" && !typing && !e.metaKey && !e.ctrlKey)) {
+          e.preventDefault()
+          location.search = exitUrl(location.search, current)
+        }
+        return
       }
       // Keynote's outline toggle, on Keynote's chord.
       if (e.code === "KeyL" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
@@ -1229,21 +1324,46 @@ const boot = async (resume?: Transport) => {
     selectedClip = row
     selection.set(null)
     timeline?.select(row.clip)
-    code.show(anchorOf(row.clip as unknown as object))
+    code?.show(anchorOf(row.clip as unknown as object))
     // A clip is a span of time, so selecting one puts the playhead at its
     // start: what the row describes is then what the viewport shows.
     pause()
     void paint(row.clip.start)
   }
 
-  timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
-    signal: ac.signal,
-    onScrub: (t) => {
-      pause()
-      void paint(t)
-    },
-    onSelect: selectClip,
-  })
+  /**
+   * A clip's right edge released (timeline.ts's drag preview): rewrite
+   * THAT play() call's run_time literal. Dream.play returns its Clip and
+   * the build wraps play() calls in __dt, so the row's clip carries the
+   * exact source span — the op targets it the way setOverride targets a
+   * construction, and the reload round-trip re-lays the bar out from the
+   * file's new truth (playhead preserved, as on any remount).
+   */
+  const commitRunTime = async (row: ClipRow, seconds: number) => {
+    const anchor = anchorOf(row.clip as unknown as object)
+    if (!anchor) return
+    const res = await fetch(`/api/source?file=${encodeURIComponent(anchor.file)}`)
+    const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
+    sendOp({
+      type: "op",
+      op: "setRunTime",
+      file: anchor.file,
+      span: { start: anchor.start, end: anchor.end },
+      runTime: seconds,
+      baseHash,
+    })
+  }
+
+  if (!playerMode)
+    timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
+      signal: ac.signal,
+      onScrub: (t) => {
+        pause()
+        void paint(t)
+      },
+      onSelect: selectClip,
+      onResize: (row, seconds) => void commitRunTime(row, seconds),
+    })
 
   // --- Checkpoint capture (EDITOR-V5 "Checkpoint capture") -----------------
   //
@@ -1251,16 +1371,31 @@ const boot = async (resume?: Transport) => {
   // moment a capturable pose exists while paused. Capturing sends ONE
   // appendCheckpoint op; the reload round-trip then remounts with a fresh
   // (empty) override store — the timeline owns the pose from then on.
-  checkpoint = mountCheckpoint({
-    dream,
-    overrides,
-    track: $("track"),
-    isPlaying: () => playing,
-    currentT: () => current,
-    sceneFile: () => sceneFileFor(sceneKey),
-    send: sendOp,
-    signal: ac.signal,
-  })
+  if (!playerMode)
+    checkpoint = mountCheckpoint({
+      dream,
+      overrides,
+      track: $("track"),
+      isPlaying: () => playing,
+      currentT: () => current,
+      sceneFile: () => sceneFileFor(sceneKey),
+      send: sendOp,
+      signal: ac.signal,
+    })
+
+  // The player's one piece of chrome: play/pause + a scrub line that
+  // fades after ~2s of stillness while playing (Keynote-presenter style).
+  if (playerMode)
+    ptransport = mountPlayerTransport($("ptransport"), {
+      duration,
+      isPlaying: () => playing,
+      onToggle: () => (playing ? pause() : play()),
+      onScrub: (t) => {
+        pause()
+        void paint(t)
+      },
+      signal: ac.signal,
+    })
 
   /**
    * The pose's Escape: every live override released, nothing written —
@@ -1286,6 +1421,7 @@ const boot = async (resume?: Transport) => {
   }
 
   const toggleCode = (): boolean => {
+    if (!code) return false
     const open = code.toggle()
     app.classList.toggle("code-open", open)
     if (open) {
@@ -1332,7 +1468,7 @@ const boot = async (resume?: Transport) => {
       bdMode: bdMode.value,
       selection: held ? pathOf(dream.roots, held) : undefined,
       outline: outlineOpen,
-      code: code.open,
+      code: code?.open,
     }
     teardown()
     const next = `./main.js?v=${Date.now()}`
@@ -1349,33 +1485,85 @@ const boot = async (resume?: Transport) => {
   // ?code=1 opens it from a cold boot — headless verification, and a
   // shareable URL for "look at this line".
   if (resume?.code || new URLSearchParams(location.search).get("code") === "1") toggleCode()
+  /**
+   * First-frame settle (the demo path's documented double render in
+   * setT, applied to mount): sync()'s screen-arc measurement projects
+   * with the matrices the PREVIOUS render left behind, and at mount
+   * there is no previous render — the first frame would draw every
+   * camera-relative cap split and pen position against a stale view.
+   * One throwaway render before the visible paint settles the matrices,
+   * so the first frame anyone sees (or screenshots) is already correct.
+   * Daemon remounts and navigator scene switches come back through
+   * boot(), so they inherit the same settle.
+   */
+  const settled = async (t: number) => {
+    await host.renderFrame(t)
+    await paint(t)
+  }
   if (resume) {
-    await paint(resume.t)
+    await settled(resume.t)
     if (resume.playing) play()
   } else {
     const q = new URLSearchParams(location.search)
-    if (q.has("backdrop")) {
+    if (q.has("backdrop") && !playerMode) {
       setBackdrop(q.get("backdrop")!, q.get("mode") ?? "under", Number(q.get("offset") ?? 0))
     }
-    await paint(Number(q.get("t") ?? 0))
-    if (q.get("autoplay") !== "0" && !q.has("t")) play()
+    await settled(Number(q.get("t") ?? 0))
+    // The player is the cutscene loop: it plays unless told not to. The
+    // creator editor holds still on a ?t= deep link.
+    if (q.get("autoplay") !== "0" && (playerMode || !q.has("t"))) play()
   }
 
+  // What headless driving can reach: the transport, the camera and the
+  // hover pass exist in BOTH presentations; everything that edits — the
+  // selection, overrides, capture, the scene rail — exists only in the
+  // creator editor. In the player those entries are simply absent, which
+  // is the verifiable form of "no ops from here".
   window.__dt = {
     ready: true,
     duration,
     setT: async (t: number) => {
       pause()
       await paint(t)
+      // The settle pass (see settled() above): a large jump projects the
+      // screen-arc measurement against the outgoing view, so render once
+      // more — setT is a pure function of t, as headless callers assume.
+      await host.renderFrame(t)
+      paintMarquee()
     },
     play,
     pause,
     setBackdrop,
+    currentT: () => current,
+    pose: () => livePose(),
+    fly: (dx, dy, mode = "orbit") => {
+      fly(dx, dy, mode)
+      void host.renderFrame(current).then(() => syncPanel())
+    },
+    dolly: (deltaY) => {
+      dolly(deltaY)
+      void host.renderFrame(current).then(() => syncPanel())
+    },
     pick: (ndcX, ndcY) => {
       const holon = host.pick(ndcX, ndcY)
       return holon ? classNameOf(holon) : undefined
     },
-    selectAt: (ndcX, ndcY) => {
+    hoverAt: (ndcX: number, ndcY: number) => {
+      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null
+      applyGlow(sovereign)
+      return sovereign ? classNameOf(sovereign) : undefined
+    },
+    hovered: () => {
+      if (!glowing) return undefined
+      const first = Array.isArray(glowing) ? (glowing[0] as Holon | undefined) : (glowing as Holon)
+      return first ? classNameOf(first) : undefined
+    },
+    sceneKey,
+  }
+  if (playerMode) return
+
+  Object.assign(window.__dt, {
+    selectAt: (ndcX: number, ndcY: number) => {
       const holon = host.pick(ndcX, ndcY) ?? null
       selection.set(holon)
       return holon ? classNameOf(holon) : undefined
@@ -1404,20 +1592,9 @@ const boot = async (resume?: Transport) => {
     },
     toggleOutline,
     toggleCode,
-    sceneKey,
     openScene: switchScene,
     cast: () =>
       Array.from($("cast").querySelectorAll(".castname"), (el) => el.textContent ?? ""),
-    hoverAt: (ndcX: number, ndcY: number) => {
-      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null
-      applyGlow(sovereign)
-      return sovereign ? classNameOf(sovereign) : undefined
-    },
-    hovered: () => {
-      if (!glowing) return undefined
-      const first = Array.isArray(glowing) ? (glowing[0] as Holon | undefined) : (glowing as Holon)
-      return first ? classNameOf(first) : undefined
-    },
     selectClip: (index: number) => {
       const row = timeline?.rows[index]
       if (!row) return undefined
@@ -1447,16 +1624,7 @@ const boot = async (resume?: Transport) => {
     capture: (clipSeconds?: number) =>
       checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
     discardPose: () => void discardPose(),
-    fly: (dx, dy, mode = "orbit") => {
-      fly(dx, dy, mode)
-      void host.renderFrame(current).then(() => syncPanel())
-    },
-    dolly: (deltaY) => {
-      dolly(deltaY)
-      void host.renderFrame(current).then(() => syncPanel())
-    },
-    pose: () => livePose(),
-  }
+  })
 }
 
 ensureWs()

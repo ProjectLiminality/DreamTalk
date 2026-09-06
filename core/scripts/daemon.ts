@@ -17,10 +17,12 @@ import {
   applyAppendCheckpoint,
   applySetBackdrop,
   applySetOverride,
+  applySetRunTime,
   injectAnchors,
   type AppendCheckpointOp,
   type SetBackdropOp,
   type SetOverrideOp,
+  type SetRunTimeOp,
 } from "./ops"
 
 const port = Number(process.argv[2] ?? 4174)
@@ -173,7 +175,7 @@ for (const dir of ["core/demo", "core/src", "core/editor"]) {
 
 // --- Semantic ops (one queue, atomic writes) -------------------------------
 
-type OpMessage = (SetBackdropOp | SetOverrideOp | AppendCheckpointOp) & {
+type OpMessage = (SetBackdropOp | SetOverrideOp | AppendCheckpointOp | SetRunTimeOp) & {
   type: "op"
   file?: string
   baseHash?: string
@@ -186,7 +188,8 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     log("op rejected:", reason)
     ws.send(JSON.stringify({ type: "opRejected", reason }))
   }
-  if (msg.op !== "setBackdrop" && msg.op !== "setOverride" && msg.op !== "appendCheckpoint")
+  const knownOps = ["setBackdrop", "setOverride", "appendCheckpoint", "setRunTime"]
+  if (!knownOps.includes(msg.op))
     return reject(`unknown op: ${String((msg as { op?: string }).op)}`)
 
   const file = msg.file ?? "core/demo/FoundingSmoke.ts"
@@ -203,7 +206,9 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
   const result =
     msg.op === "setBackdrop"
       ? applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
-      : msg.op === "appendCheckpoint"
+      : msg.op === "setRunTime"
+        ? applySetRunTime(current, { op: "setRunTime", span: msg.span, runTime: msg.runTime })
+        : msg.op === "appendCheckpoint"
         ? applyAppendCheckpoint(current, {
             op: "appendCheckpoint",
             placement: msg.placement,

@@ -43,6 +43,24 @@ import type { Holon } from "../src/holon"
 import { classNameOf } from "./classname"
 import { thumbnailFor } from "./thumbnails"
 
+/** One transport frame — what `,` / `.` nudge the playhead by. */
+export const FRAME_SECONDS = 1 / 30
+
+/** The shortest run_time an edge-drag can ask for (ops.ts enforces it too). */
+export const MIN_RUN_TIME = 0.1
+
+/**
+ * Frame-step math for the transport: `,` / `.` move the playhead by
+ * exactly one frame (shift: one second), clamped to the scene's span.
+ * Pure, so the step is testable without a browser.
+ */
+export const stepTime = (
+  t: number,
+  direction: 1 | -1,
+  duration: number,
+  big = false,
+): number => Math.min(duration, Math.max(0, t + direction * (big ? 1 : FRAME_SECONDS)))
+
 export interface ClipRow {
   clip: Clip
   index: number
@@ -183,6 +201,14 @@ export interface TimelineOpts {
   onSelect: (row: ClipRow) => void
   /** Clicking the ruler or dragging the playhead — scrub to that time. */
   onScrub: (t: number) => void
+  /**
+   * Releasing a drag of a row's RIGHT EDGE: commit the new duration in
+   * seconds (min MIN_RUN_TIME, rounded to the centisecond). The drag
+   * itself is a live preview only — the row resizes and a readout rides
+   * the cursor; Escape cancels without calling this. Absent, rows have
+   * no resize grip at all (the player mounts no timeline anyway).
+   */
+  onResize?: (row: ClipRow, seconds: number) => void
   signal: AbortSignal
 }
 
@@ -273,6 +299,55 @@ export const mountTimeline = (
     return best
   }
 
+  // --- Resizing a row's right edge (the run_time literal, made a handle) ---
+  //
+  // The drag is a LIVE PREVIEW: the block resizes and a small readout
+  // rides the cursor, but nothing is written until release — at which
+  // point main.ts turns it into one setRunTime op and the reload
+  // round-trip re-lays the whole bar out against the file's new truth.
+  // Escape (capture phase, so the editor's own Escape ladder never sees
+  // it) reverts the preview and writes nothing.
+  interface Resizing {
+    row: ClipRow
+    el: HTMLElement
+    grip: HTMLElement
+    pointerId: number
+    /** The live preview's seconds — what a release commits. */
+    seconds: number
+  }
+  let resizing: Resizing | null = null
+  const readout = document.createElement("div")
+  readout.className = "resize-readout"
+  container.appendChild(readout)
+
+  const previewWidth = (el: HTMLElement, seconds: number) => {
+    el.style.width = `${(seconds / span) * 100}%`
+  }
+
+  const endResize = (revert: boolean): Resizing | null => {
+    if (!resizing) return null
+    const r = resizing
+    resizing = null
+    try {
+      r.grip.releasePointerCapture(r.pointerId)
+    } catch {}
+    r.el.classList.remove("resizing")
+    readout.style.display = "none"
+    if (revert) previewWidth(r.el, r.row.clip.duration)
+    return r
+  }
+
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (resizing && e.code === "Escape") {
+        e.stopPropagation()
+        endResize(true)
+      }
+    },
+    { signal: opts.signal, capture: true },
+  )
+
   let index = 0
   let lines = 0
   for (const clip of clips) {
@@ -356,6 +431,55 @@ export const mountTimeline = (
       },
       { signal: opts.signal },
     )
+
+    if (opts.onResize) {
+      const grip = document.createElement("div")
+      grip.className = "grip"
+      grip.title = "drag to change this clip's duration"
+      el.appendChild(grip)
+      grip.addEventListener(
+        "pointerdown",
+        (e) => {
+          if (e.button !== 0) return
+          e.stopPropagation()
+          resizing = { row, el, grip, pointerId: e.pointerId, seconds: clip.duration }
+          el.classList.add("resizing")
+          try {
+            grip.setPointerCapture(e.pointerId)
+          } catch {}
+        },
+        { signal: opts.signal },
+      )
+      grip.addEventListener(
+        "pointermove",
+        (e) => {
+          if (!resizing || e.pointerId !== resizing.pointerId) return
+          const rect = container.getBoundingClientRect()
+          if (rect.width <= 0) return
+          const at = origin + ((e.clientX - rect.left) / rect.width) * span
+          const seconds = Math.max(MIN_RUN_TIME, Math.round((at - clip.start) * 100) / 100)
+          resizing.seconds = seconds
+          previewWidth(el, seconds)
+          readout.textContent = `${seconds.toFixed(2)}s`
+          readout.style.display = "block"
+          readout.style.left = `${Math.max(0, Math.min(rect.width, e.clientX - rect.left))}px`
+        },
+        { signal: opts.signal },
+      )
+      grip.addEventListener(
+        "pointerup",
+        (e) => {
+          if (!resizing || e.pointerId !== resizing.pointerId) return
+          // The preview stays up while the op round-trips — the reload
+          // re-lays the bar out from the rewritten file either way.
+          const r = endResize(false)
+          if (r && Math.round(clip.duration * 100) / 100 !== r.seconds)
+            opts.onResize!(r.row, r.seconds)
+        },
+        { signal: opts.signal },
+      )
+      grip.addEventListener("pointercancel", () => endResize(true), { signal: opts.signal })
+    }
     container.appendChild(el)
     rows.push({ row, el })
   }

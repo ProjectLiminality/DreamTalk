@@ -46926,6 +46926,7 @@ class MolochEye extends Stroke {
 }
 // vocabulary/FoldableCube/FoldableCube.ts
 class FoldableCube extends Stroke {
+  static sovereign = true;
   size = length2(100);
   fold = bipolar(0);
   tint = color2(BLUE);
@@ -47610,6 +47611,7 @@ var catmullRomResample = (ctrl, count) => {
 };
 
 class Cable extends Stroke {
+  static sovereign = true;
   width = length2(2.5);
   taper = completion(0.06);
   ringStep = length2(30);
@@ -50373,6 +50375,7 @@ var {
   screenDPR: screenDPR3,
   screenSize: screenSize3,
   smoothstep: smoothstep5,
+  userData: userData3,
   varyingProperty: varyingProperty3,
   vec2: vec23,
   vec3: vec33,
@@ -50382,13 +50385,15 @@ var AA_PX = 1;
 var vStartPx = varyingProperty3("vec2", "dtRibbonStartPx");
 var vEndPx = varyingProperty3("vec2", "dtRibbonEndPx");
 var vDist = varyingProperty3("vec2", "dtRibbonDist");
+var RIBBON_KEYS = {
+  widthPx: "dtRibbonWidthPx",
+  drawn: "dtRibbonDrawn",
+  erased: "dtRibbonErased",
+  tint: "dtRibbonTint",
+  fade: "dtRibbonFade"
+};
 
 class RibbonMaterial extends NodeMaterial {
-  widthPx = uniform2(3);
-  drawn = uniform2(0);
-  erased = uniform2(0);
-  tint = uniform2(new Color(1, 1, 1));
-  fade = uniform2(1);
   constructor() {
     super();
     this.transparent = true;
@@ -50401,7 +50406,12 @@ class RibbonMaterial extends NodeMaterial {
     this.blendEquationAlpha = MaxEquation;
     this.blendSrcAlpha = OneFactor;
     this.blendDstAlpha = OneFactor;
-    const halfWidth = () => this.widthPx.mul(screenDPR3).mul(0.5);
+    const widthPx = userData3(RIBBON_KEYS.widthPx, "float");
+    const drawn = userData3(RIBBON_KEYS.drawn, "float");
+    const erased = userData3(RIBBON_KEYS.erased, "float");
+    const tint = userData3(RIBBON_KEYS.tint, "color");
+    const fade = userData3(RIBBON_KEYS.fade, "float");
+    const halfWidth = () => widthPx.mul(screenDPR3).mul(0.5);
     const pad = () => halfWidth().add(AA_PX).add(1);
     this.vertexNode = Fn3(() => {
       const corner = positionGeometry3.xy;
@@ -50462,20 +50472,22 @@ class RibbonMaterial extends NodeMaterial {
       const distStart = vDist.x;
       const distEnd = vDist.y;
       const pxPerUnit = lenPx.div(max3(distEnd.sub(distStart), 0.0000001));
-      const uFront = this.drawn.sub(distStart).mul(pxPerUnit).toVar();
+      const uFront = drawn.sub(distStart).mul(pxPerUnit).toVar();
       uFront.lessThan(0).discard();
-      const uTail = this.erased.sub(distStart).mul(pxPerUnit).toVar();
+      const uTail = erased.sub(distStart).mul(pxPerUnit).toVar();
       uTail.greaterThan(lenPx).discard();
       const uBegin = max3(uTail, 0);
       const uEnd = max3(min3(lenPx, uFront), uBegin);
       const d = length6(vec23(u.sub(clamp5(u, uBegin, uEnd)), v));
       const hw = halfWidth();
       const coverage = smoothstep5(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus();
-      const a = coverage.mul(this.fade);
-      return vec43(vec33(this.tint).mul(a), a);
+      const a = coverage.mul(fade);
+      return vec43(vec33(tint).mul(a), a);
     })();
   }
 }
+var shared;
+var sharedRibbonMaterial = () => shared ??= new RibbonMaterial;
 
 class RibbonStroke {
   mesh;
@@ -50495,8 +50507,7 @@ class RibbonStroke {
     this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(distBuf, 1, 1));
   }
   constructor(widthPx) {
-    this.material = new RibbonMaterial;
-    this.material.widthPx.value = widthPx;
+    this.material = sharedRibbonMaterial();
     this.geometry = new InstancedBufferGeometry;
     this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
     this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
@@ -50505,6 +50516,18 @@ class RibbonStroke {
     this.mesh = new Mesh(this.geometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
+    const ud = this.mesh.userData;
+    ud[RIBBON_KEYS.widthPx] = widthPx;
+    ud[RIBBON_KEYS.drawn] = 0;
+    ud[RIBBON_KEYS.erased] = 0;
+    ud[RIBBON_KEYS.tint] = new Color(1, 1, 1);
+    ud[RIBBON_KEYS.fade] = 1;
+  }
+  get drawnLength() {
+    return this.mesh.userData[RIBBON_KEYS.drawn];
+  }
+  get erasedLength() {
+    return this.mesh.userData[RIBBON_KEYS.erased];
   }
   setPoints(pts) {
     this.points = resamplePolyline(pts, RibbonStroke.SUBDIVISION, (x, y, z) => new Vector3(x, y, z));
@@ -50529,12 +50552,13 @@ class RibbonStroke {
     return this.points;
   }
   style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
-    this.material.drawn.value = fraction * this.totalLength;
-    this.material.erased.value = erasedFraction * this.totalLength;
+    const ud = this.mesh.userData;
+    ud[RIBBON_KEYS.drawn] = fraction * this.totalLength;
+    ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength;
     this.mesh.visible = fraction > erasedFraction && opacity > 0;
-    this.material.fade.value = opacity;
-    this.material.tint.value.setRGB(tint.r, tint.g, tint.b);
-    this.material.widthPx.value = widthPx;
+    ud[RIBBON_KEYS.fade] = opacity;
+    ud[RIBBON_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
+    ud[RIBBON_KEYS.widthPx] = widthPx;
   }
 }
 
@@ -63215,7 +63239,6 @@ var attachText = (holon, group) => {
       for (const { ribbon } of outline.loops) {
         group.remove(ribbon.mesh);
         ribbon.geometry.dispose();
-        ribbon.material.dispose();
       }
     }
     outlines = [];
@@ -63591,12 +63614,27 @@ class ThreeHost {
     this.camera = this.perspCamera;
   }
   static async mount(dream, canvas) {
+    const __marks = {};
+    let __t = performance.now();
+    const __mark = (name) => {
+      const now = performance.now();
+      __marks[name] = now - __t;
+      __t = now;
+    };
     const host = new ThreeHost(dream, canvas);
+    __mark("ctor");
     await host.renderer.init();
+    __mark("rendererInit");
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false);
     dream.build();
+    __mark("build");
+    for (const root of dream.roots)
+      for (const _2 of root.walk()) {}
+    __mark("composeBake");
     for (const root of dream.roots)
       host.attach(root, host.scene);
+    __mark("attach");
+    globalThis.__dtPerfMount = __marks;
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
@@ -64013,8 +64051,8 @@ class ThreeHost {
       return Infinity;
     const positions = start.data.array;
     const distances = dist2.data.array;
-    const drawn = ribbon.material.drawn.value;
-    const erased = ribbon.material.erased.value;
+    const drawn = ribbon.drawnLength;
+    const erased = ribbon.erasedLength;
     const matrix = ribbon.mesh.matrixWorld;
     const a2 = new Vector3;
     const b2 = new Vector3;
@@ -67089,6 +67127,9 @@ var mountCodeView = (panel, body, title) => {
 };
 
 // editor/timeline.ts
+var FRAME_SECONDS = 1 / 30;
+var MIN_RUN_TIME = 0.1;
+var stepTime = (t2, direction, duration, big = false) => Math.min(duration, Math.max(0, t2 + direction * (big ? 1 : FRAME_SECONDS)));
 var CASCADE_THRESHOLD = 6;
 var ROW_HEIGHT = 19;
 var ROW_GAP = 3;
@@ -67181,6 +67222,33 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
     lineEnds[best] = clip.start + clip.duration;
     return best;
   };
+  let resizing = null;
+  const readout = document.createElement("div");
+  readout.className = "resize-readout";
+  container.appendChild(readout);
+  const previewWidth = (el, seconds) => {
+    el.style.width = `${seconds / span * 100}%`;
+  };
+  const endResize = (revert) => {
+    if (!resizing)
+      return null;
+    const r2 = resizing;
+    resizing = null;
+    try {
+      r2.grip.releasePointerCapture(r2.pointerId);
+    } catch {}
+    r2.el.classList.remove("resizing");
+    readout.style.display = "none";
+    if (revert)
+      previewWidth(r2.el, r2.row.clip.duration);
+    return r2;
+  };
+  document.addEventListener("keydown", (e2) => {
+    if (resizing && e2.code === "Escape") {
+      e2.stopPropagation();
+      endResize(true);
+    }
+  }, { signal: opts.signal, capture: true });
   let index = 0;
   let lines = 0;
   for (const clip of clips) {
@@ -67243,6 +67311,44 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
       e2.stopPropagation();
       opts.onSelect(row);
     }, { signal: opts.signal });
+    if (opts.onResize) {
+      const grip = document.createElement("div");
+      grip.className = "grip";
+      grip.title = "drag to change this clip's duration";
+      el.appendChild(grip);
+      grip.addEventListener("pointerdown", (e2) => {
+        if (e2.button !== 0)
+          return;
+        e2.stopPropagation();
+        resizing = { row, el, grip, pointerId: e2.pointerId, seconds: clip.duration };
+        el.classList.add("resizing");
+        try {
+          grip.setPointerCapture(e2.pointerId);
+        } catch {}
+      }, { signal: opts.signal });
+      grip.addEventListener("pointermove", (e2) => {
+        if (!resizing || e2.pointerId !== resizing.pointerId)
+          return;
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0)
+          return;
+        const at2 = origin + (e2.clientX - rect.left) / rect.width * span;
+        const seconds = Math.max(MIN_RUN_TIME, Math.round((at2 - clip.start) * 100) / 100);
+        resizing.seconds = seconds;
+        previewWidth(el, seconds);
+        readout.textContent = `${seconds.toFixed(2)}s`;
+        readout.style.display = "block";
+        readout.style.left = `${Math.max(0, Math.min(rect.width, e2.clientX - rect.left))}px`;
+      }, { signal: opts.signal });
+      grip.addEventListener("pointerup", (e2) => {
+        if (!resizing || e2.pointerId !== resizing.pointerId)
+          return;
+        const r2 = endResize(false);
+        if (r2 && Math.round(clip.duration * 100) / 100 !== r2.seconds)
+          opts.onResize(r2.row, r2.seconds);
+      }, { signal: opts.signal });
+      grip.addEventListener("pointercancel", () => endResize(true), { signal: opts.signal });
+    }
     container.appendChild(el);
     rows.push({ row, el });
   }
@@ -67461,6 +67567,78 @@ var mountCheckpoint = (opts) => {
   };
 };
 
+// editor/player.ts
+var isPlayerMode = (search) => new URLSearchParams(search).get("mode") === "player";
+var exitUrl = (search, t2) => {
+  const q2 = new URLSearchParams(search);
+  q2.delete("mode");
+  q2.delete("autoplay");
+  q2.set("t", t2.toFixed(2));
+  return `?${q2.toString()}`;
+};
+var IDLE_FADE_MS = 2000;
+var mountPlayerTransport = (root, opts) => {
+  const play = root.querySelector("#pplay");
+  const line = root.querySelector("#pline");
+  const fill = root.querySelector("#pfill");
+  const listen = { signal: opts.signal };
+  let idleTimer;
+  const wake = () => {
+    root.classList.remove("idle");
+    if (idleTimer !== undefined)
+      clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (opts.isPlaying())
+        root.classList.add("idle");
+    }, IDLE_FADE_MS);
+  };
+  document.addEventListener("pointermove", wake, listen);
+  document.addEventListener("pointerdown", wake, listen);
+  document.addEventListener("keydown", wake, listen);
+  wake();
+  play.addEventListener("click", () => {
+    opts.onToggle();
+    wake();
+  }, listen);
+  const timeAt = (clientX) => {
+    const rect = line.getBoundingClientRect();
+    if (rect.width <= 0)
+      return 0;
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return frac * opts.duration;
+  };
+  let scrubbing = false;
+  line.addEventListener("pointerdown", (e2) => {
+    if (e2.button !== 0)
+      return;
+    scrubbing = true;
+    try {
+      line.setPointerCapture(e2.pointerId);
+    } catch {}
+    opts.onScrub(timeAt(e2.clientX));
+  }, listen);
+  line.addEventListener("pointermove", (e2) => {
+    if (scrubbing)
+      opts.onScrub(timeAt(e2.clientX));
+  }, listen);
+  const endScrub = () => scrubbing = false;
+  line.addEventListener("pointerup", endScrub, listen);
+  line.addEventListener("pointercancel", endScrub, listen);
+  return {
+    sync(t2, playing) {
+      const frac = opts.duration > 0 ? Math.max(0, Math.min(1, t2 / opts.duration)) : 0;
+      fill.style.width = `${frac * 100}%`;
+      play.textContent = playing ? "⏸" : "▶";
+      if (!playing)
+        root.classList.remove("idle");
+    },
+    dispose() {
+      if (idleTimer !== undefined)
+        clearTimeout(idleTimer);
+    }
+  };
+};
+
 // editor/overrides.ts
 class Overrides {
   #animated;
@@ -67672,6 +67850,10 @@ var boot = async (resume) => {
   frame.className = "";
   const ac = new AbortController;
   const listen = { signal: ac.signal };
+  const playerMode = isPlayerMode(location.search);
+  document.body.classList.toggle("player", playerMode);
+  if (playerMode)
+    marquee.enabled = false;
   const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene;
   const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene];
   const dream = new DreamCtor;
@@ -67738,7 +67920,7 @@ var boot = async (resume) => {
     }
   };
   const spec = dream.backdropSpec;
-  if (spec)
+  if (spec && !playerMode)
     setBackdrop(`/${spec.path}`, resume?.bdMode ?? "under", spec.offset);
   const populateRefs = async () => {
     const res = await fetch("/api/refs");
@@ -67759,7 +67941,8 @@ var boot = async (resume) => {
     if (spec)
       bdRef.value = spec.path;
   };
-  populateRefs().catch(() => {});
+  if (!playerMode)
+    populateRefs().catch(() => {});
   const commitBackdrop = async (path, offset) => {
     const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFileFor(sceneKey))}`);
     const baseHash = res.ok ? (await res.json()).hash : undefined;
@@ -67796,10 +67979,11 @@ var boot = async (resume) => {
     bdSource.textContent = `${file.name} · preview only`;
     bdRef.value = "";
   }, listen);
-  const code3 = mountCodeView(codePanel, codeBody, codeFile);
+  const code3 = playerMode ? undefined : mountCodeView(codePanel, codeBody, codeFile);
   let selectedClip = null;
   let timeline;
   let checkpoint;
+  let ptransport;
   let rows = [];
   let drag = null;
   const commitOverride = async (holon, anchor2, name, value) => {
@@ -67918,13 +68102,15 @@ var boot = async (resume) => {
       }
     }
   };
-  mountOutline(treeRoot, dream, dream.roots, selection, ac.signal);
+  if (!playerMode)
+    mountOutline(treeRoot, dream, dream.roots, selection, ac.signal);
   const teardown = () => {
     alive = false;
     ac.abort();
-    navigator2.dispose();
-    castBar.dispose();
+    navigator2?.dispose();
+    castBar?.dispose();
     checkpoint?.dispose();
+    ptransport?.dispose();
     host.dispose();
   };
   const switchScene = (key) => {
@@ -67941,8 +68127,8 @@ var boot = async (resume) => {
     teardown();
     boot().catch((err) => console.error("[dreamtalk] scene switch failed:", err));
   };
-  const navigator2 = mountNavigator($2("rail"), scenes, sceneKey, switchScene, ac.signal);
-  const castBar = mountCast($2("cast"), dream.roots, selection, ac.signal, applyGlow);
+  const navigator2 = playerMode ? undefined : mountNavigator($2("rail"), scenes, sceneKey, switchScene, ac.signal);
+  const castBar = playerMode ? undefined : mountCast($2("cast"), dream.roots, selection, ac.signal, applyGlow);
   let outlineOpen = resume?.outline ?? true;
   const applyOutline = () => app.classList.toggle("no-outline", !outlineOpen);
   applyOutline();
@@ -68037,9 +68223,32 @@ var boot = async (resume) => {
       commitOverride(m2.holon, anchor2, "y", y2);
     return true;
   };
+  const nameChip = $2("namechip");
+  let chipTimer;
+  const travel = (sovereign) => {
+    const name = classNameOf(sovereign);
+    console.info(`[dreamtalk] travel → ${name} (home URL gated; resolution: githubPagesUrl → githubRepoUrl → Radicle)`);
+    nameChip.textContent = name;
+    nameChip.classList.add("shown");
+    if (chipTimer !== undefined)
+      clearTimeout(chipTimer);
+    chipTimer = setTimeout(() => nameChip.classList.remove("shown"), 1000);
+  };
+  let playerPress = null;
   canvas.addEventListener("pointerdown", (e2) => {
     if (e2.button !== 0)
       return;
+    if (playerMode) {
+      playerPress = { x: e2.clientX, y: e2.clientY };
+      if (playing)
+        return;
+      flight = { x: e2.clientX, y: e2.clientY, pan: e2.shiftKey };
+      try {
+        canvas.setPointerCapture?.(e2.pointerId);
+      } catch {}
+      canvas.classList.add("flying");
+      return;
+    }
     const hit = pickAt(e2.clientX, e2.clientY);
     const selected = selection.current;
     if (hit && selected && withinSelection(hit, selected)) {
@@ -68083,7 +68292,7 @@ var boot = async (resume) => {
     if (holon) {
       selectedClip = null;
       timeline?.select(null);
-      code3.show(anchorOf(holon));
+      code3?.show(anchorOf(holon));
     }
   });
   const obs = dream.observer;
@@ -68237,6 +68446,17 @@ var boot = async (resume) => {
     canvas.classList.remove("flying");
   };
   canvas.addEventListener("pointerup", (e2) => {
+    if (playerMode) {
+      const press = playerPress;
+      playerPress = null;
+      endFlight(e2);
+      if (press && Math.hypot(e2.clientX - press.x, e2.clientY - press.y) < MOVE_THRESHOLD) {
+        const sovereign = sovereignOf(pickAt(e2.clientX, e2.clientY));
+        if (sovereign)
+          travel(sovereign);
+      }
+      return;
+    }
     if (!endMove(e2))
       endFlight(e2);
   }, listen);
@@ -68283,6 +68503,7 @@ var boot = async (resume) => {
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
     timeline?.setPlayhead(t2);
+    ptransport?.sync(t2, playing);
     checkpoint?.sync();
     timecode.textContent = `${t2.toFixed(2)} / ${duration.toFixed(2)}`;
     syncPanel();
@@ -68303,9 +68524,23 @@ var boot = async (resume) => {
   };
   playpause.addEventListener("click", () => playing ? pause() : play(), listen);
   document.addEventListener("keydown", (e2) => {
+    const target = e2.target;
+    const typing = !!target && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable);
     if (e2.code === "Space") {
       e2.preventDefault();
       playing ? pause() : play();
+    }
+    if ((e2.code === "Comma" || e2.code === "Period") && !typing && !e2.metaKey && !e2.ctrlKey && !e2.altKey) {
+      e2.preventDefault();
+      pause();
+      paint(stepTime(current, e2.code === "Period" ? 1 : -1, duration, e2.shiftKey));
+    }
+    if (playerMode) {
+      if (e2.code === "Escape" || e2.code === "KeyE" && !typing && !e2.metaKey && !e2.ctrlKey) {
+        e2.preventDefault();
+        location.search = exitUrl(location.search, current);
+      }
+      return;
     }
     if (e2.code === "KeyL" && e2.shiftKey && (e2.metaKey || e2.ctrlKey)) {
       e2.preventDefault();
@@ -68335,28 +68570,57 @@ var boot = async (resume) => {
     selectedClip = row;
     selection.set(null);
     timeline?.select(row.clip);
-    code3.show(anchorOf(row.clip));
+    code3?.show(anchorOf(row.clip));
     pause();
     paint(row.clip.start);
   };
-  timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
-    signal: ac.signal,
-    onScrub: (t2) => {
-      pause();
-      paint(t2);
-    },
-    onSelect: selectClip
-  });
-  checkpoint = mountCheckpoint({
-    dream,
-    overrides,
-    track: $2("track"),
-    isPlaying: () => playing,
-    currentT: () => current,
-    sceneFile: () => sceneFileFor(sceneKey),
-    send: sendOp,
-    signal: ac.signal
-  });
+  const commitRunTime = async (row, seconds) => {
+    const anchor2 = anchorOf(row.clip);
+    if (!anchor2)
+      return;
+    const res = await fetch(`/api/source?file=${encodeURIComponent(anchor2.file)}`);
+    const baseHash = res.ok ? (await res.json()).hash : undefined;
+    sendOp({
+      type: "op",
+      op: "setRunTime",
+      file: anchor2.file,
+      span: { start: anchor2.start, end: anchor2.end },
+      runTime: seconds,
+      baseHash
+    });
+  };
+  if (!playerMode)
+    timeline = mountTimeline(clipsBar, rulerEl, dream.clips, duration, {
+      signal: ac.signal,
+      onScrub: (t2) => {
+        pause();
+        paint(t2);
+      },
+      onSelect: selectClip,
+      onResize: (row, seconds) => void commitRunTime(row, seconds)
+    });
+  if (!playerMode)
+    checkpoint = mountCheckpoint({
+      dream,
+      overrides,
+      track: $2("track"),
+      isPlaying: () => playing,
+      currentT: () => current,
+      sceneFile: () => sceneFileFor(sceneKey),
+      send: sendOp,
+      signal: ac.signal
+    });
+  if (playerMode)
+    ptransport = mountPlayerTransport($2("ptransport"), {
+      duration,
+      isPlaying: () => playing,
+      onToggle: () => playing ? pause() : play(),
+      onScrub: (t2) => {
+        pause();
+        paint(t2);
+      },
+      signal: ac.signal
+    });
   const discardPose = () => {
     if (overrides.size === 0)
       return false;
@@ -68377,6 +68641,8 @@ var boot = async (resume) => {
     return true;
   };
   const toggleCode = () => {
+    if (!code3)
+      return false;
     const open = code3.toggle();
     app.classList.toggle("code-open", open);
     if (open) {
@@ -68414,7 +68680,7 @@ var boot = async (resume) => {
       bdMode: bdMode.value,
       selection: held ? pathOf(dream.roots, held) : undefined,
       outline: outlineOpen,
-      code: code3.open
+      code: code3?.open
     };
     teardown();
     const next = `./main.js?v=${Date.now()}`;
@@ -68423,17 +68689,21 @@ var boot = async (resume) => {
   selection.rehydrate(dream.roots, resume?.selection);
   if (resume?.code || new URLSearchParams(location.search).get("code") === "1")
     toggleCode();
+  const settled = async (t2) => {
+    await host.renderFrame(t2);
+    await paint(t2);
+  };
   if (resume) {
-    await paint(resume.t);
+    await settled(resume.t);
     if (resume.playing)
       play();
   } else {
     const q2 = new URLSearchParams(location.search);
-    if (q2.has("backdrop")) {
+    if (q2.has("backdrop") && !playerMode) {
       setBackdrop(q2.get("backdrop"), q2.get("mode") ?? "under", Number(q2.get("offset") ?? 0));
     }
-    await paint(Number(q2.get("t") ?? 0));
-    if (q2.get("autoplay") !== "0" && !q2.has("t"))
+    await settled(Number(q2.get("t") ?? 0));
+    if (q2.get("autoplay") !== "0" && (playerMode || !q2.has("t")))
       play();
   }
   window.__dt = {
@@ -68442,14 +68712,42 @@ var boot = async (resume) => {
     setT: async (t2) => {
       pause();
       await paint(t2);
+      await host.renderFrame(t2);
+      paintMarquee();
     },
     play,
     pause,
     setBackdrop,
+    currentT: () => current,
+    pose: () => livePose(),
+    fly: (dx, dy, mode = "orbit") => {
+      fly(dx, dy, mode);
+      host.renderFrame(current).then(() => syncPanel());
+    },
+    dolly: (deltaY) => {
+      dolly(deltaY);
+      host.renderFrame(current).then(() => syncPanel());
+    },
     pick: (ndcX, ndcY) => {
       const holon = host.pick(ndcX, ndcY);
       return holon ? classNameOf(holon) : undefined;
     },
+    hoverAt: (ndcX, ndcY) => {
+      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null;
+      applyGlow(sovereign);
+      return sovereign ? classNameOf(sovereign) : undefined;
+    },
+    hovered: () => {
+      if (!glowing)
+        return;
+      const first = Array.isArray(glowing) ? glowing[0] : glowing;
+      return first ? classNameOf(first) : undefined;
+    },
+    sceneKey
+  };
+  if (playerMode)
+    return;
+  Object.assign(window.__dt, {
     selectAt: (ndcX, ndcY) => {
       const holon = host.pick(ndcX, ndcY) ?? null;
       selection.set(holon);
@@ -68479,20 +68777,8 @@ var boot = async (resume) => {
     },
     toggleOutline,
     toggleCode,
-    sceneKey,
     openScene: switchScene,
     cast: () => Array.from($2("cast").querySelectorAll(".castname"), (el) => el.textContent ?? ""),
-    hoverAt: (ndcX, ndcY) => {
-      const sovereign = sovereignOf(host.pick(ndcX, ndcY)) ?? null;
-      applyGlow(sovereign);
-      return sovereign ? classNameOf(sovereign) : undefined;
-    },
-    hovered: () => {
-      if (!glowing)
-        return;
-      const first = Array.isArray(glowing) ? glowing[0] : glowing;
-      return first ? classNameOf(first) : undefined;
-    },
     selectClip: (index) => {
       const row = timeline?.rows[index];
       if (!row)
@@ -68521,17 +68807,8 @@ var boot = async (resume) => {
     captureTargets: () => checkpoint?.targets() ?? [],
     capturePlacement: () => checkpoint?.placement() ?? {},
     capture: (clipSeconds) => checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
-    discardPose: () => void discardPose(),
-    fly: (dx, dy, mode = "orbit") => {
-      fly(dx, dy, mode);
-      host.renderFrame(current).then(() => syncPanel());
-    },
-    dolly: (deltaY) => {
-      dolly(deltaY);
-      host.renderFrame(current).then(() => syncPanel());
-    },
-    pose: () => livePose()
-  };
+    discardPose: () => void discardPose()
+  });
 };
 ensureWs();
 var resume = window.__dtTransport;

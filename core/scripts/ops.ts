@@ -28,6 +28,14 @@ export interface SetOverrideOp {
   value: number | string | boolean
 }
 
+export interface SetRunTimeOp {
+  op: "setRunTime"
+  /** Byte span of the `this.play(...)` call in the file the client loaded. */
+  span: { start: number; end: number }
+  /** The clip's new duration in seconds. */
+  runTime: number
+}
+
 export type OpResult =
   | { ok: true; text: string }
   | { ok: false; reason: string }
@@ -223,6 +231,53 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
     if (failure) return { ok: false, reason: failure }
   }
   return { ok: true, text: unfold.getSourceFile().getFullText() }
+}
+
+/** The shortest clip a drag can write — sub-0.1s durations are noise. */
+const MIN_RUN_TIME = 0.1
+
+/**
+ * Rewrite the run_time of the `this.play(...)` call at span — the
+ * timeline's edge-drag made durable. Re-location is exact-span first,
+ * then start-anchored (the contract applySetOverride established: edits
+ * inside a call move its END, never its START). There is no structural
+ * rebase beyond that: play() calls are positional, and retiming one by
+ * ordinal guesswork would silently retime the wrong clip.
+ *
+ * Only a numeric-literal run_time is rewritten. A named constant or an
+ * expression (`SIGHT_RUN_TIME`, `7 / 4`) is a statement of intent the
+ * editor must not flatten into a number — rejected with the reason.
+ */
+export const applySetRunTime = (source: string, op: SetRunTimeOp): OpResult => {
+  if (!Number.isFinite(op.runTime))
+    return { ok: false, reason: "runTime is not a finite number" }
+  const seconds = Math.max(MIN_RUN_TIME, Math.round(op.runTime * 100) / 100)
+
+  const file = project.createSourceFile("op-target.ts", source, { overwrite: true })
+  const calls = file
+    .getDescendantsOfKind(SyntaxKind.CallExpression)
+    .filter((c) => c.getExpression().getText() === "this.play")
+  const target =
+    calls.find((c) => c.getStart() === op.span.start && c.getEnd() === op.span.end) ??
+    calls.find((c) => c.getStart() === op.span.start)
+  if (!target)
+    return { ok: false, reason: "no play() call at the anchored span — reload and re-drag" }
+
+  const args = target.getArguments()
+  if (args.length === 0) return { ok: false, reason: "play() call has no arguments" }
+  const runArg = args[1]
+  if (!runArg) {
+    // `play(anim)` runs the default 1s — the duration becomes explicit.
+    target.addArgument(numberLiteral(seconds))
+    return { ok: true, text: file.getFullText() }
+  }
+  if (!runArg.asKind(SyntaxKind.NumericLiteral))
+    return {
+      ok: false,
+      reason: `run_time is \`${runArg.getText()}\` — not a numeric literal; edit the source`,
+    }
+  runArg.replaceWithText(numberLiteral(seconds))
+  return { ok: true, text: file.getFullText() }
 }
 
 const isPascalConstruction = (node: NewExpression): boolean =>
