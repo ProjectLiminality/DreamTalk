@@ -456,3 +456,15 @@ reflection item 1: the shared-material fix, boot 11.9s→1.9s, scrub
 collapse everywhere (88f409f). 565 tests. Ledgered for next: editor
 undo stack, cable-bake disk cache, Holon settled-flag (pinning-test
 plan in reflection append), cross-scene Magic Move, face tooltips.
+
+## Ledger round 2026-09-07 (dawn) — CLOSED
+
+All three remaining ledger items landed on Opus successors after the
+Fable reset: [x] editor undo stack — daemon-computed inverses, cmd+Z /
+shift+cmd+Z, live-first, refusal-is-a-feature (06a7803) · [x] Holon
+settled contract — field set final after construction+compose, scan
+ends (709k Object.keys/frame → 18), thewall scrub −24.7ms (20da44e) ·
+[x] cross-scene Magic Move — overlap windows, identity matching,
+observer glide, one-token boundary upgrade (63bc8d9). 661 tests.
+Remaining ledger: cable-bake disk cache, face tooltips, shape morphs
+(true Magic Move morphing), editor transition-authoring op.
