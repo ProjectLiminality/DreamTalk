@@ -67,3 +67,27 @@ bun run docs/reports/stroke-connection-analysis/cylinder2.ts     # cap foreshort
 The validation that makes the itinerary trustworthy (100% of full-ink pixels
 within 2px of the projected geometry, median 0.53px) is the sanity block at
 the end of the report's §1; it re-runs as an inline snippet there.
+
+## The C4D experiment scripts (written, not yet run)
+
+`c4d-expA-scheduler.py` and `c4d-expB-cylinder.py` are the two controlled
+renders that would close the report's remaining open questions — the draw
+scheduler (§2.6) and the cylinder cap-arc order (§3.3). Unlike everything
+above, they do not analyse the 2021 frames; they drive Cinema 4D directly.
+
+They run under `c4dpy`, Maxon's headless Python — no GUI, no open document:
+
+```bash
+"/Applications/Maxon Cinema 4D 2025/c4dpy.app/Contents/MacOS/c4dpy" \
+  docs/reports/stroke-connection-analysis/c4d-expA-scheduler.py /tmp/expA
+```
+
+**Both are blocked as of 2026-09-07 on `Error: License Expired`** — c4dpy
+reaches the Maxon licence service and is refused. The full attempt log,
+including why the failure first looked like a shader-parser hang, is in
+stroke-connection.md §6. Assign a licence in the Maxon App Manager first.
+
+| script | would establish |
+|---|---|
+| `c4d-expA-scheduler.py` | the concurrency law: 6 lines of known very-different lengths, per-stroke onset/rate under `stroke_method` 0 vs 1 and document order |
+| `c4d-expB-cylinder.py` | the cap-arc flip point: one cylinder, `bottom_top`, pitch swept 0.1 → π/2 in ten steps |

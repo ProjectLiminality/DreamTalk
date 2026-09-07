@@ -407,11 +407,150 @@ edit, not a behaviour change, and I have not made it (read-only task).
 | Is the Sketch draw order `long_short`? | **Yes**, confirmed directly, not inferred. |
 | Why did "longest stroke ≠ longest subpath" look true? | Concurrency, not splitting (§2.4). |
 | Is `draw_speed` px/s? | **Yes**, and it is a *global* budget across concurrent strokes (§2.5). |
-| What is the exact concurrency law? | **Open.** Family identified, parameters not pinned. One C4D render decides it (§2.6). |
+| What is the exact concurrency law? | **Open.** Family identified, parameters not pinned. One C4D render decides it (§2.6) — attempted 2026-09-07, blocked on an expired licence (§6). |
 | Does one rule close the cylinder too? | **No** — proven for arc length (§3.1); different `stroke_order` mode (§3.2). |
-| What decides the cylinder? | **Open.** Pitch sweep in C4D (§3.3). Ship S01's rule meanwhile. |
+| What decides the cylinder? | **Open.** Pitch sweep in C4D (§3.3) — same blocker (§6). Ship S01's rule meanwhile. |
 
 Nothing here was fitted into `core/`. The two open questions both reduce to
 the same concrete, cheap experiment — driving C4D 2025, which is installed —
 and I would recommend that as the next session rather than any further
 inference from 11 frames.
+
+**Update 2026-09-07:** that experiment was attempted and is blocked on an
+expired Cinema 4D licence, not on anything about the experiment. The harness
+(`c4dpy`) is the right one and works up to the licence check; the scripts are
+written. See §6 for the full attempt log and what David needs to do first.
+
+---
+
+## 6. Experiment attempted, 2026-09-07 — NO-GO: the C4D licence is expired
+
+The experiment specified in §2.6 and §3.3 was attempted the same day and
+**could not be run**. The blocker is not technical difficulty and not the
+experiment design; it is that **Cinema 4D 2025's licence on this machine has
+expired**, and every headless entry point refuses to start because of it. The
+experiment spec below is unchanged and ready; it needs a licensed C4D.
+
+### 6.1 What was tried, in order, and what each did
+
+**(a) `c4dpy` — Maxon's headless Python.** Present and executable at
+`/Applications/Maxon Cinema 4D 2025/c4dpy.app/Contents/MacOS/c4dpy`
+(12 MB, C4D 2025.1.3, arm64).
+
+Run plainly (`c4dpy t0.py`, where `t0.py` only prints `c4d.GetC4DVersion()`),
+it produced **no output at all and spun at 100% CPU indefinitely** — killed
+after 13 minutes wall / 5m42s CPU. `sample(1)` showed the main thread parked
+in a `getc` loop inside `c4d_base.xlib` (the module that carries
+`net.maxon.rlmlicensing`), with fd 7 held open on
+`resource/shaders/drawport_metal.module.metallib`. That looked like a shader
+parser fault and it is worth recording that **it is not** — see (d).
+
+**(b) Cinema 4D's `Commandline` renderer.** Also present, at
+`/Applications/Maxon Cinema 4D 2025/Commandline.app/Contents/MacOS/Commandline`.
+`Commandline -help` printed a full startup banner (version 2025.1.3, build
+`2025_1_3_0a0b3ff81417_1654727740`, macOS 15.6, Apple M1 Max) and got as far
+as enumerating modules —
+
+```
+  c4d_base.xlib with modules net.maxon.rlmlicensing net.maxon.c4d.c4d_base
+```
+
+— then **stalled at exactly the same point**, same `getc` loop in
+`c4d_base.xlib` at the same code offset, same metallib fd. Killed after
+5m17s CPU with no further output. Two different binaries failing identically
+at the licensing module was the clue that this was not a rendering problem.
+
+**(c) The repo's C4D MCP server.** `mcp-servers/cinema4d-mcp/` is a socket
+*client*: `src/cinema4d_mcp/config.py` connects to `C4D_HOST:5555`, which is
+served by a plugin that only runs **inside a live Cinema 4D GUI session**.
+No C4D process was running (`pgrep -fl "Cinema 4D"` → nothing) and nothing was
+listening on 5555 (`lsof -iTCP -sTCP:LISTEN`). Per the task's constraint the
+GUI was **not** launched, so this path was closed by construction. It is also
+the wrong tool for this job even when available — it drives whatever document
+is open, which is precisely what must not be touched.
+
+**(d) The diagnosis: `c4dpy -nogui` makes the real error visible.** Adding
+`-nogui` changed the failure from a silent spin to a printed prompt. The
+`getc` loop was never parsing the metallib — **it was reading `stdin`, one
+character at a time, waiting for an answer to an interactive licence
+question** that the non-`-nogui` invocation had nowhere to display:
+
+```
+Error running authentication: No License Model defined [.(170)]
+----
+Enter the license method:
+  1) Maxon App
+  2) Maxon Account
+  3) Maxon License Server
+  4) RLM
+  Q) Quit
+Please select:
+```
+
+Answering `1` (Maxon App — matching the GUI's own configured licence type,
+`licensetype.prf` = 6) let it proceed to contact the licence service, which
+returned the verdict:
+
+```
+Please select: Open the ApplicationManager to assign a license:
+  mxapp://localhost/open/v1?source=net.maxon.cinema4d.cmdline&version=2025.103
+ComputerName: David's MacBook Pro
+MachineID: M=Vk5QRjlQWEZKWA==
+Error: License Expired
+: <a href="?openmxapp=...">Open Maxon App</a>
+Error: Invalid License
+
+MaxonEnd: 09/07/26 at 14:23:39
+```
+
+**`Error: License Expired` / `Error: Invalid License`.** That is the whole
+blocker. The headless binaries authenticate fine — they are told no.
+
+### 6.2 What this means
+
+- The failure is **an expired subscription, not a broken install and not a
+  headless-automation limitation.** c4dpy is the right harness and it works up
+  to the licence check; the experiment scripts would run against it unchanged.
+- The GUI app is very likely in the same state. Its prefs directory
+  (`~/Library/Preferences/Maxon/Maxon Cinema 4D 2025_FFA38A4B/`) was last
+  written **2026-03-06**, six months ago, consistent with a subscription that
+  lapsed since. **David should expect to renew/assign a licence in the Maxon
+  App Manager before opening C4D**, rather than discovering it at the point of
+  running the experiment.
+- Nothing was inferred, fitted, or shipped from a failed run. The open
+  questions in §5 stay open, at exactly the confidence §2.6 and §3.3 left
+  them. No code was changed and no commit was made.
+
+### 6.3 The experiment is ready to run
+
+A complete, self-contained Experiment A script was written against the c4dpy
+API while the harness was being diagnosed. It builds the document, applies
+pydeation's exact Sketch settings verbatim from
+`refs/pydeation-legacy/object/object.py:176-230`, and renders the frames:
+
+- six straight-line splines of 2000/1000/500/250/125/62 px at the Sketch
+  material's pixel basis (`PIXELUNITS_BASEW/H` = 1280×700, as pydeation sets
+  it, which makes the stroke pixel lengths resolution-independent);
+- each spline in its own horizontal band, so per-stroke inked arc segments
+  by y-region with no geometry model needed;
+- `ANIMATE_STROKE_SPEED_TYPE = 0` (`"pixels"`) with `ANIMATE_STROKE_SPEED`
+  as the px/s budget and `ANIMATE_START` at 0 — note this is the mode the
+  2021 renders actually used, and in it there is **no completion keyframe**:
+  the material's own start-time plus px/s budget drives the draw, which is
+  itself a correction to how §2.6 phrased the recipe;
+- `CONNECTIIONZ=3`, `JOIN_ANGLE_LIMIT=π`, `CLOSECONNECTION=True`,
+  `ADV_SELFBLENDMODE=1`, sketch videopost with black backing and
+  `LINE_SPLINES=True`;
+- 640×360, 5 fps, antialiasing off (keeps the ink measurement clean),
+  30 frames, via `RenderDocument(..., RENDERFLAGS_EXTERNAL)` per frame;
+- three variants: `stroke_method` 0 vs 1 under `long_short`, plus a
+  document-order run.
+
+Experiment B (the cylinder pitch sweep) is the same scaffold with the six
+splines swapped for one cylinder r=100 h=200 and `ANIMATE_STROKES = 3`
+(`bottom_top`), pitch swept 0.1 → π/2 in ten steps.
+
+**To finish this**: assign a licence in the Maxon App Manager, then run the
+script under `c4dpy`. It needs no GUI and no open document. Everything else in
+§2.6 and §3.3 — what to measure, and what the answer would decide — stands as
+written.

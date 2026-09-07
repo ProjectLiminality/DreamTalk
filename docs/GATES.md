@@ -82,3 +82,13 @@ c. **Manifest merge**: .udd (InterBrain, authoritative schema) vs
 d. **TASTE amendments queued**: two-mode appreciator/creator framing →
    the three loops (LOOPS.md); DreamOS's Rust/wgpu/Vello prose is
    superseded by the TS decision (no action, note only).
+
+## [Origins] The two-law C4D experiment awaits a Maxon licence (2026-09-07)
+
+Both remaining S&T laws — the concurrent-draw scheduler (DrawSteady's
+residual) and the cylinder cap-arc order (the 2026-08-24 KNOWN GAP) —
+reduce to one ready-to-run headless experiment (spec + complete c4dpy
+script: docs/reports/stroke-connection.md §6.3). Blocker: C4D 2025's
+licence expired (~March 2026). ACTION FOR DAVID: assign/renew in the
+Maxon App Manager, then say "run the C4D experiment" — no GUI needed,
+no open document, ~one session.
