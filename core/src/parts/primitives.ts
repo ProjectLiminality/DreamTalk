@@ -228,10 +228,41 @@ export class Square extends Stroke {
   size = length(200)
 }
 
-/** A regular polygon. */
+/**
+ * A regular polygon — pydeation's `NGon`, which is C4D's NGon spline
+ * primitive with `PRIM_NSIDE_SIDES` and `PRIM_NSIDE_RADIUS` set and
+ * nothing else touched (refs/pydeation-legacy/object/object.py:960-975).
+ *
+ * `phase` is where vertex 0 sits, and its default of 0 — a vertex on
+ * the +x axis, pointing RIGHT — is the one number here that had to be
+ * measured rather than assumed, because C4D's NGon does not document
+ * its start angle and the primitive carried a made-up π/2 (a vertex on
+ * top) from the host's first commit until Scene07_1 needed it.
+ *
+ * The reference settles it in one frame. On
+ * refs/pitch/origins/frames5/f_01460 the whole triangle→circle chain
+ * stands finished side by side, and every shape reads as phase 0: the
+ * triangle points right, the square is a DIAMOND rather than an
+ * axis-aligned box, the pentagon has a single vertex at its right edge,
+ * and the hexagon is flat-topped with vertices left and right.
+ *
+ * The triangle also measures it, and the two phases are not close.
+ * A regular n=3 at radius R spans 1.5R wide × √3·R tall at phase 0, and
+ * the transpose at phase π/2. Measured on f_01460 the triangle's ink
+ * box is 76 × 86 px against the chain's circle at 100 px across, i.e.
+ * R = 50: predicted 75 × 86.6 at phase 0, and 100 × 75 at π/2. The
+ * first is right to a pixel; the second is not the same shape.
+ *
+ * Kept as a param rather than folded into the generator because the
+ * orientation of an n-gon is a real property of the figure — Scene06's
+ * repo chain and Scene07_1's idea chain both depend on it being 0, and
+ * a scene that wants a flat-bottomed triangle should be able to say so
+ * without rotating the holon and dragging its children round with it.
+ */
 export class Polygon extends Stroke {
   radius = length(100)
   sides = integer(6)
+  phase = angle(0)
 }
 
 /** A circular arc — radius, startAngle → endAngle (radians, CCW). */

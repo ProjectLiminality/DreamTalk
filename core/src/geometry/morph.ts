@@ -245,7 +245,7 @@ export const outlineOf = (holon: Stroke, segments = MORPH_SAMPLES): Vec3Like[] |
     const n = holon.sides.value
     const pts: Vec3Like[] = []
     for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.PI / 2
+      const a = (i / n) * Math.PI * 2 + holon.phase.value
       pts.push({ x: Math.cos(a) * holon.radius.value, y: Math.sin(a) * holon.radius.value, z: 0 })
     }
     base = pts

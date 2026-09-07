@@ -46507,6 +46507,7 @@ class Square extends Stroke {
 class Polygon extends Stroke {
   radius = length2(100);
   sides = integer(6);
+  phase = angle(0);
 }
 
 class Arc extends Stroke {
@@ -50810,6 +50811,77 @@ class RibbonStroke {
   }
 }
 
+// src/geometry/evenodd.ts
+var EPS2 = 0.000000001;
+var xAt = (e, y) => e.x0 + (e.x1 - e.x0) * (y - e.y0) / (e.y1 - e.y0);
+var evenOddTriangulation = (subpaths) => {
+  const edges = [];
+  const ys = [];
+  let z = 0;
+  let seenAny = false;
+  for (const raw of subpaths) {
+    const loop = [];
+    for (const p of raw) {
+      const last2 = loop[loop.length - 1];
+      if (last2 && Math.abs(last2.x - p.x) < EPS2 && Math.abs(last2.y - p.y) < EPS2)
+        continue;
+      loop.push(p);
+    }
+    const first = loop[0];
+    const last = loop[loop.length - 1];
+    if (first && last && loop.length > 1 && Math.abs(last.x - first.x) < EPS2 && Math.abs(last.y - first.y) < EPS2) {
+      loop.pop();
+    }
+    if (loop.length < 3)
+      continue;
+    if (!seenAny) {
+      z = loop[0].z;
+      seenAny = true;
+    }
+    for (let i = 0;i < loop.length; i++) {
+      const a = loop[i];
+      const b = loop[(i + 1) % loop.length];
+      if (Math.abs(a.y - b.y) < EPS2)
+        continue;
+      edges.push(a.y < b.y ? { y0: a.y, x0: a.x, y1: b.y, x1: b.x } : { y0: b.y, x0: b.x, y1: a.y, x1: a.x });
+      ys.push(a.y, b.y);
+    }
+  }
+  const points = [];
+  const indices = [];
+  if (edges.length === 0)
+    return { points, indices };
+  ys.sort((a, b) => a - b);
+  const lines = [];
+  for (const y of ys) {
+    const prev = lines[lines.length - 1];
+    if (prev === undefined || y - prev > EPS2)
+      lines.push(y);
+  }
+  for (let s = 0;s + 1 < lines.length; s++) {
+    const yLo = lines[s];
+    const yHi = lines[s + 1];
+    const mid = (yLo + yHi) / 2;
+    const spans = [];
+    for (const e of edges) {
+      if (e.y0 > mid || e.y1 <= mid)
+        continue;
+      spans.push({ xLo: xAt(e, yLo), xHi: xAt(e, yHi), xMid: xAt(e, mid) });
+    }
+    spans.sort((a, b) => a.xMid - b.xMid);
+    for (let i = 0;i + 1 < spans.length; i += 2) {
+      const l = spans[i];
+      const r = spans[i + 1];
+      if (r.xLo - l.xLo < EPS2 && r.xHi - l.xHi < EPS2)
+        continue;
+      const base = points.length;
+      points.push({ x: l.xLo, y: yLo, z }, { x: r.xLo, y: yLo, z }, { x: r.xHi, y: yHi, z }, { x: l.xHi, y: yHi, z });
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  return { points, indices };
+};
+
 // src/render/fill.ts
 var { userData: userData4 } = exports_three_tsl;
 var FILL_KEYS = {
@@ -50870,6 +50942,16 @@ class FillShape {
     geometry.setIndex(indices);
     this.mesh.geometry.dispose();
     this.mesh.geometry = geometry;
+  }
+  setPolygons(subpaths) {
+    const { points, indices } = evenOddTriangulation(subpaths);
+    if (indices.length === 0) {
+      const geometry = new BufferGeometry;
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = geometry;
+      return;
+    }
+    this.setPolygon(points, indices);
   }
   style(opacity, tint) {
     this.mesh.userData[FILL_KEYS.fade] = opacity;
@@ -63724,7 +63806,7 @@ var basePolyline = (holon) => {
     const pts = [];
     const n2 = holon.sides.value;
     for (let i2 = 0;i2 <= n2; i2++) {
-      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      const a2 = i2 / n2 * Math.PI * 2 + holon.phase.value;
       pts.push(new Vector3(Math.cos(a2) * holon.radius.value, Math.sin(a2) * holon.radius.value, 0));
     }
     return pts;
@@ -63787,6 +63869,28 @@ var washGeometry = (holon) => {
   }
   return;
 };
+var closesOnItself = (pts) => {
+  if (pts.length < 4)
+    return false;
+  const a2 = pts[0];
+  const b2 = pts[pts.length - 1];
+  return Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z) < 0.000001;
+};
+var drawingSubpaths = (holon) => {
+  const parts = holon.parts;
+  if (parts.length < 2)
+    return;
+  const loops = [];
+  for (const part of parts) {
+    if (!(part instanceof Line2))
+      return;
+    if (!closesOnItself(part.points))
+      return;
+    loops.push(part.points.slice());
+  }
+  return loops;
+};
+var drawingKey = (loops) => loops.flatMap((loop) => [loop.length, ...loop.flatMap((p2) => [p2.x, p2.y, p2.z])]);
 var polyline = (holon) => {
   const pts = basePolyline(holon);
   if (!pts)
@@ -63858,7 +63962,7 @@ var shapeKey = (holon) => {
   if (holon instanceof Square)
     return [holon.size.value, ...phase];
   if (holon instanceof Polygon)
-    return [holon.radius.value, holon.sides.value, ...phase];
+    return [holon.radius.value, holon.sides.value, holon.phase.value, ...phase];
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value];
   if (holon instanceof AnnularSector)
@@ -63898,6 +64002,8 @@ class ThreeHost {
   cylinders = [];
   fills = [];
   washes = [];
+  drawingWashes = [];
+  washedByAncestor = new Set;
   arrows = [];
   texts = [];
   nextFillOrder = 1;
@@ -63971,7 +64077,16 @@ class ThreeHost {
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
-      const washed = this.washesFillOpacity(holon) ? washGeometry(holon) : undefined;
+      const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
+      if (loops) {
+        const fill = new FillShape(this.nextFillOrder++);
+        fill.setPolygons(loops);
+        group.add(fill.mesh);
+        this.drawingWashes.push({ holon, fill, shapeKey: drawingKey(loops) });
+        for (const part of holon.parts)
+          this.washedByAncestor.add(part);
+      }
+      const washed = !loops && !this.washedByAncestor.has(holon) && this.washesFillOpacity(holon) ? washGeometry(holon) : undefined;
       if (washed) {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygon(washed.points, washed.triangles);
@@ -64054,6 +64169,16 @@ class ThreeHost {
         const washed = washGeometry(holon);
         if (washed)
           fill.setPolygon(washed.points, washed.triangles);
+      }
+      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+    }
+    for (const binding of this.drawingWashes) {
+      const { holon, fill } = binding;
+      const loops = drawingSubpaths(holon) ?? [];
+      const key = drawingKey(loops);
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key;
+        fill.setPolygons(loops);
       }
       fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
     }
@@ -64652,7 +64777,7 @@ var outlineOf = (holon, segments = MORPH_SAMPLES) => {
     const n2 = holon.sides.value;
     const pts = [];
     for (let i2 = 0;i2 <= n2; i2++) {
-      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      const a2 = i2 / n2 * Math.PI * 2 + holon.phase.value;
       pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
     }
     base = pts;
@@ -64719,7 +64844,7 @@ var shapeReading = (holon) => {
   if (holon instanceof Square)
     return [holon.size.value, ...frame];
   if (holon instanceof Polygon)
-    return [holon.radius.value, holon.sides.value, ...frame];
+    return [holon.radius.value, holon.sides.value, holon.phase.value, ...frame];
   if (holon instanceof Rectangle)
     return [holon.width.value, holon.height.value, holon.rounding.value, ...frame];
   if (holon instanceof Line2)
@@ -67500,7 +67625,7 @@ var outlinesOf = (holon) => {
     const pts = [];
     const n2 = Math.max(3, holon.sides.value);
     for (let i2 = 0;i2 <= n2; i2++) {
-      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      const a2 = i2 / n2 * Math.PI * 2 + holon.phase.value;
       pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
     }
     return [pts];
@@ -67628,7 +67753,7 @@ var signatureOf = (holon) => {
     bits.push(holon.drawGrid.value ? "grid" : "-", holon.drawTicks.value ? "ticks" : "-");
   }
   if (holon instanceof Polygon)
-    bits.push(String(holon.sides.value));
+    bits.push(String(holon.sides.value), String(holon.phase.value));
   if (holon instanceof Ellipse)
     bits.push(holon.filled.value ? "filled" : "-");
   if (holon instanceof Line2)

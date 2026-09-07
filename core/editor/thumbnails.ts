@@ -127,7 +127,7 @@ const outlinesOf = (holon: Holon): Path[] | undefined => {
     const pts: Path = []
     const n = Math.max(3, holon.sides.value)
     for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.PI / 2
+      const a = (i / n) * Math.PI * 2 + holon.phase.value
       pts.push({ x: Math.cos(a) * holon.radius.value, y: Math.sin(a) * holon.radius.value, z: 0 })
     }
     return [pts]
@@ -304,7 +304,7 @@ const signatureOf = (holon: Holon): string => {
   if (holon instanceof Axes) {
     bits.push(holon.drawGrid.value ? "grid" : "-", holon.drawTicks.value ? "ticks" : "-")
   }
-  if (holon instanceof Polygon) bits.push(String(holon.sides.value))
+  if (holon instanceof Polygon) bits.push(String(holon.sides.value), String(holon.phase.value))
   if (holon instanceof Ellipse) bits.push(holon.filled.value ? "filled" : "-")
   if (holon instanceof Line) bits.push(String(holon.points.length))
   if (holon instanceof Stroke) {

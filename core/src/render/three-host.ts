@@ -177,7 +177,7 @@ const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
     const pts: THREE.Vector3[] = []
     const n = holon.sides.value
     for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2 + Math.PI / 2
+      const a = (i / n) * Math.PI * 2 + holon.phase.value
       pts.push(new THREE.Vector3(Math.cos(a) * holon.radius.value, Math.sin(a) * holon.radius.value, 0))
     }
     return pts
@@ -282,6 +282,49 @@ const washGeometry = (
   }
   return undefined
 }
+
+/** Is this polyline a CLOSED loop — its last point back on its first? */
+const closesOnItself = (pts: readonly Vec3Like[]): boolean => {
+  if (pts.length < 4) return false
+  const a = pts[0]!
+  const b = pts[pts.length - 1]!
+  return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) < 1e-6
+}
+
+/**
+ * A DRAWING's closed subpaths, when a stroke is composed of several —
+ * which is what a Sketch is: one `Line` child per subpath of the source
+ * SVG (vocabulary/Sketch/Sketch.ts's `compose`).
+ *
+ * Such a stroke washes as ONE surface across all of them together, and
+ * the reason is `AnnularSector`'s reason stated at its own definition:
+ * *the wash is one surface, not four*. Here it is not merely tidier but
+ * necessary — a gear's rim and its inner circle are two subpaths, and
+ * the hole between them exists only in their relationship. Filled one at
+ * a time they are two discs and the gear floods to its centre, which is
+ * where 88.6% of Scene03's excess ink sat (DECISIONS 2026-09-07).
+ *
+ * The gate is the GEOMETRY, as it is for the single closed Line above:
+ * every child must be a closed Line. A stroke composed of open children
+ * (an Axes' two rules, an AnnularSector's arcs and edges) has no
+ * interior to speak of and gets none, and a stroke with no children at
+ * all is not a drawing.
+ */
+const drawingSubpaths = (holon: Stroke): Vec3Like[][] | undefined => {
+  const parts = holon.parts
+  if (parts.length < 2) return undefined
+  const loops: Vec3Like[][] = []
+  for (const part of parts) {
+    if (!(part instanceof Line)) return undefined
+    if (!closesOnItself(part.points)) return undefined
+    loops.push(part.points.slice())
+  }
+  return loops
+}
+
+/** The drawing's subpaths as one flat key — its geometry, in sync order. */
+const drawingKey = (loops: readonly (readonly Vec3Like[])[]): number[] =>
+  loops.flatMap((loop) => [loop.length, ...loop.flatMap((p) => [p.x, p.y, p.z])])
 
 /**
  * The stroke's outline as the pen actually walks it: the primitive's own
@@ -427,7 +470,8 @@ const shapeKey = (holon: Stroke): number[] => {
   const phase = [holon.drawStart.value, holon.drawReversed.value ? 1 : 0]
   if (holon instanceof Circle) return [holon.radius.value, ...phase]
   if (holon instanceof Square) return [holon.size.value, ...phase]
-  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value, ...phase]
+  if (holon instanceof Polygon)
+    return [holon.radius.value, holon.sides.value, holon.phase.value, ...phase]
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value]
   if (holon instanceof AnnularSector)
@@ -476,6 +520,19 @@ export class ThreeHost {
   private readonly cylinders: CylinderBinding[] = []
   private readonly fills: FillBinding[] = []
   private readonly washes: WashBinding[] = []
+  /**
+   * Drawings that wash as one even-odd surface across their subpaths —
+   * a Sketch and anything else composed of closed Lines
+   * (`drawingSubpaths`). Kept apart from `washes` because the geometry
+   * that has to be watched is the CHILDREN's, not the holon's own.
+   */
+  private readonly drawingWashes: WashBinding[] = []
+  /**
+   * Subpaths whose interior is already painted by an ancestor's drawing
+   * wash, and which must therefore not paint it again — the double
+   * coverage that made every gear a disc.
+   */
+  private readonly washedByAncestor = new Set<Holon>()
   private readonly arrows: ArrowBinding[] = []
   /**
    * Text holons — glyph geometry, the Write domino's uniforms, and the
@@ -599,7 +656,23 @@ export class ThreeHost {
       // renderOrder — and every existing scene's stacking is stated in
       // that counter (MolochEye's pupil-over-disk). So the gate is the
       // param itself: a non-zero start, or a track that moves it.
-      const washed = this.washesFillOpacity(holon) ? washGeometry(holon) : undefined
+      //
+      // A DRAWING washes once, across all of its subpaths together
+      // (`drawingSubpaths`), and its subpaths then do not wash on their
+      // own — they are not separate interiors, they are one interior's
+      // boundary. Claimed here, before the children are reached.
+      const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined
+      if (loops) {
+        const fill = new FillShape(this.nextFillOrder++)
+        fill.setPolygons(loops)
+        group.add(fill.mesh)
+        this.drawingWashes.push({ holon, fill, shapeKey: drawingKey(loops) })
+        for (const part of holon.parts) this.washedByAncestor.add(part)
+      }
+      const washed =
+        !loops && !this.washedByAncestor.has(holon) && this.washesFillOpacity(holon)
+          ? washGeometry(holon)
+          : undefined
       if (washed) {
         const fill = new FillShape(this.nextFillOrder++)
         fill.setPolygon(washed.points, washed.triangles)
@@ -726,6 +799,23 @@ export class ThreeHost {
       // exactly what UnFillThenUnDraw needs — the interior goes while
       // the outline is still there to go afterwards. Fade still
       // multiplies through, as it does for the sketch line.
+      fill.style(
+        holon.fillOpacity.value * holon.opacity.value,
+        liftTint(holon.tint.value, this.highlightOf(holon)),
+      )
+    }
+    for (const binding of this.drawingWashes) {
+      const { holon, fill } = binding
+      // The geometry watched is the SUBPATHS', since the drawing holon
+      // has no polyline of its own. A drawing whose subpaths have gone
+      // (or opened) simply stops painting — `setPolygons` empties the
+      // mesh rather than leaving the last good one behind.
+      const loops = drawingSubpaths(holon) ?? []
+      const key = drawingKey(loops)
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key
+        fill.setPolygons(loops)
+      }
       fill.style(
         holon.fillOpacity.value * holon.opacity.value,
         liftTint(holon.tint.value, this.highlightOf(holon)),

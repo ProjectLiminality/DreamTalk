@@ -212,7 +212,8 @@ const shapeReading = (holon: Stroke): number[] => {
   if (holon instanceof Circle) return [holon.radius.value, ...frame]
   if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value, ...frame]
   if (holon instanceof Square) return [holon.size.value, ...frame]
-  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value, ...frame]
+  if (holon instanceof Polygon)
+    return [holon.radius.value, holon.sides.value, holon.phase.value, ...frame]
   if (holon instanceof Rectangle)
     return [holon.width.value, holon.height.value, holon.rounding.value, ...frame]
   if (holon instanceof Line) return [...holon.points.flatMap((p) => [p.x, p.y, p.z]), ...frame]

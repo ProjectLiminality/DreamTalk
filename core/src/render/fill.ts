@@ -23,6 +23,7 @@ import * as THREE from "three/webgpu"
 import * as TSLTyped from "three/tsl"
 import type { Color } from "../constants"
 import type { Vec3Like } from "../parts/index"
+import { evenOddTriangulation } from "../geometry/evenodd"
 
 // Same @types/three lag as ribbon.ts: UserDataNode misses the typed
 // Node<...> surface — the graph is verified when the shader builds.
@@ -106,6 +107,32 @@ export class FillShape {
     geometry.setIndex(indices)
     this.mesh.geometry.dispose()
     this.mesh.geometry = geometry
+  }
+
+  /**
+   * Replace the shape with the EVEN-ODD interior of a whole drawing —
+   * several closed subpaths taken together, so a gear (a toothed rim and
+   * an inner circle) fills as the annulus it is instead of flooding to
+   * its centre. `setPolygon` fills one loop and cannot express a hole,
+   * because a hole is not a property of either loop; see
+   * geometry/evenodd.ts for the rule and the sweep that realises it.
+   *
+   * Separate from `setPolygon` rather than folded into it: every
+   * existing caller passes a single convex loop, whose fan is both
+   * correct and cheaper, and the Eye's disc must keep rendering the
+   * bytes it renders today.
+   */
+  setPolygons(subpaths: readonly (readonly Vec3Like[])[]): void {
+    const { points, indices } = evenOddTriangulation(subpaths)
+    if (indices.length === 0) {
+      // An empty interior is an empty mesh, not a stale one: a drawing
+      // whose subpaths have all opened (or emptied) must stop painting.
+      const geometry = new THREE.BufferGeometry()
+      this.mesh.geometry.dispose()
+      this.mesh.geometry = geometry
+      return
+    }
+    this.setPolygon(points, indices)
   }
 
   /** Sync visibility/opacity/color from the owning holon. */
