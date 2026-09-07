@@ -23,6 +23,7 @@ import { S08Dream } from "./video01/S08"
 import { S05Dream } from "./video01/S05"
 import { DialecticalThinkingDream } from "./video01/DialecticalThinking"
 import { CurvesShowcaseDream } from "./CurvesShowcase"
+import { MagicMoveDemoDream } from "./MagicMoveDemo"
 import { MolochEyeDream } from "./wall/MolochEye"
 import { MindVirusDream } from "./wall/MindVirus"
 import { LabyrinthDream } from "./wall/Labyrinth"
@@ -60,6 +61,7 @@ export const scenes: Record<string, DreamClass> = {
   s08: S08Dream,
   s05: S05Dream,
   video01: DialecticalThinkingDream,
+  magicmove: MagicMoveDemoDream,
   molocheye: MolochEyeDream,
   mindvirus: MindVirusDream,
   labyrinth: LabyrinthDream,

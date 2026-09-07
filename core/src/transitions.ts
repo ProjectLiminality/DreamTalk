@@ -122,6 +122,15 @@ export interface RootMatch {
  * pass — structure: the k-th remaining A root of a class pairs with the
  * k-th remaining B root of the same class. What survives both passes is
  * unmatched: A's build out, B's build in.
+ *
+ * The structural pass deliberately declines to pair two roots that BOTH
+ * carry authored identities, because those identities differ — the
+ * identity pass would have taken them otherwise. A DreamWeaving that
+ * named one `moloch` and the other `labyrinth` has said they are
+ * different things, and a fallback that matched them anyway would
+ * override the author's own word with an accident of declaration order.
+ * Structure is for the ANONYMOUS — compose()-generated parts, roots
+ * built in arrays — where no name was ever written to contradict.
  */
 export const matchRoots = (
   aOwner: object,
@@ -148,7 +157,12 @@ export const matchRoots = (
     if (j >= 0) take(a, j)
   }
   for (const a of [...outs]) {
-    const j = ins.findIndex((b) => b.constructor === a.constructor)
+    const named = rootIdentityOf(aOwner, a) !== undefined
+    const j = ins.findIndex(
+      (b) =>
+        b.constructor === a.constructor &&
+        !(named && rootIdentityOf(bOwner, b) !== undefined),
+    )
     if (j >= 0) take(a, j)
   }
   return { pairs, outs, ins }
