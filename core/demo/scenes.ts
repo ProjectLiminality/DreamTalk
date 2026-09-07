@@ -48,6 +48,8 @@ import { Scene08Dream } from "./origins/Scene08"
 import { Scene09Dream } from "./origins/Scene09"
 import { Scene10Dream } from "./origins/Scene10"
 import { Scene11Dream } from "./origins/Scene11"
+import { Scene12Dream } from "./origins/Scene12"
+import { OriginsPitchDream } from "./origins/OriginsPitch"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -99,6 +101,8 @@ export const scenes: Record<string, DreamClass> = {
   o09: Scene09Dream,
   o10: Scene10Dream,
   o11: Scene11Dream,
+  o12: Scene12Dream,
+  origins: OriginsPitchDream,
 }
 
 export const defaultScene = "founding"

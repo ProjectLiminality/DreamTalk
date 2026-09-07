@@ -68333,6 +68333,70 @@ class Scene11Dream extends Dream {
 if (false)
   ;
 
+// demo/origins/Scene12.ts
+var LEAD_IN = 0.85;
+
+class Scene12Dream extends Dream {
+  logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene12.ts:6814:6866");
+  name = __dt(new Text({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene12.ts:6948:7010");
+  unfold() {
+    this.observer.look("front");
+    this.wait(LEAD_IN);
+    __dt(this.play(together([Create(this.logo), 0, 3 / 4], [Write(this.name), 2 / 3, 1]), 4), "core/demo/origins/Scene12.ts:7469:7596");
+    this.wait(1.838);
+  }
+}
+if (false)
+  ;
+
+// demo/origins/OriginsPitch.ts
+var BOUNDARIES = [
+  0,
+  13,
+  71,
+  96,
+  125,
+  142,
+  154,
+  233,
+  280.7,
+  292.8,
+  320.85,
+  345.8,
+  360.2,
+  371.2,
+  377.888
+];
+var ORIGINS_DURATION = BOUNDARIES[BOUNDARIES.length - 1];
+var CHAPTERS = [
+  Scene00Dream,
+  Scene01Dream,
+  Scene02Dream,
+  Scene03Dream,
+  Scene04Dream,
+  Scene05Dream,
+  Scene06Dream,
+  Scene07Dream,
+  Scene07_1Dream,
+  Scene08Dream,
+  Scene09Dream,
+  Scene10Dream,
+  Scene11Dream,
+  Scene12Dream
+];
+var ORIGINS_T0 = BOUNDARIES.slice(0, CHAPTERS.length);
+
+class OriginsPitchDream extends DreamSong {
+  constructor() {
+    super(CHAPTERS.map((scene, i2) => ({
+      scene,
+      span: BOUNDARIES[i2 + 1] - BOUNDARIES[i2]
+    })));
+  }
+}
+if (false)
+  ;
+
 // ../holons/Circle/Circle.ts
 class Circle2 extends Circle {
 }
@@ -68436,7 +68500,9 @@ var scenes = {
   o08: Scene08Dream,
   o09: Scene09Dream,
   o10: Scene10Dream,
-  o11: Scene11Dream
+  o11: Scene11Dream,
+  o12: Scene12Dream,
+  origins: OriginsPitchDream
 };
 var defaultScene = "founding";
 
@@ -69866,7 +69932,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render46 = (cached, span) => {
+  const render48 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -69909,7 +69975,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render46(current2);
+        render48(current2);
       return;
     }
     (async () => {
@@ -69919,7 +69985,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render46(cached, {
+      const mark = render48(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -69935,7 +70001,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render46(cached);
+    render48(cached);
   };
   return {
     show: show2,
