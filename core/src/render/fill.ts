@@ -79,8 +79,15 @@ export class FillShape {
     this.mesh.userData[FILL_KEYS.fade] = 1
   }
 
-  /** Replace the shape: a convex polygon, triangulated as a fan on vertex 0. */
-  setPolygon(pts: readonly Vec3Like[]): void {
+  /**
+   * Replace the shape. With no `indices` the points are read as a CONVEX
+   * polygon and triangulated as a fan on vertex 0 — the original
+   * contract, which every existing caller uses. A shape that is not
+   * convex passes its own triangle list instead: the annular sector's
+   * wash is a strip between two arcs, and a fan from its first point
+   * would sweep triangles straight across the hole.
+   */
+  setPolygon(pts: readonly Vec3Like[], triangles?: readonly number[]): void {
     if (pts.length < 3) return
     const positions = new Float32Array(pts.length * 3)
     for (let i = 0; i < pts.length; i++) {
@@ -89,7 +96,11 @@ export class FillShape {
       positions[i * 3 + 2] = pts[i]!.z
     }
     const indices: number[] = []
-    for (let i = 1; i < pts.length - 1; i++) indices.push(0, i, i + 1)
+    if (triangles) {
+      indices.push(...triangles)
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) indices.push(0, i, i + 1)
+    }
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
     geometry.setIndex(indices)

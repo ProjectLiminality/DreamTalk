@@ -82,6 +82,42 @@ export class Stroke extends Holon {
    * replacing it, and a fully drawn stroke erases identically either way.
    */
   drawReversed = bool(false)
+  /**
+   * The interior wash — pydeation's FILLER MATERIAL, which every CObject
+   * carries alongside its sketch material (object.py:95-100: a
+   * `filler_mat` and a `filler_tag` are built in the base constructor,
+   * for every object, always). It is a SECOND surface, not a mode: a
+   * shape can be drawn and unfilled, drawn and filled, or — during
+   * `UnFillThenUnDraw` — filled while its outline is still retracting.
+   * So it is its own param rather than a reading of `creation`.
+   *
+   * 0 = no wash, 1 = opaque. pydeation states the same axis inverted, as
+   * the filler material's TRANSPARENCY (`fill_animate(transparency=…)`,
+   * object.py:473-496), so this is 1 − transparency and the three values
+   * the corpus uses land as:
+   *
+   *   solid=True          transparency 0    → fillOpacity 1
+   *   the default fill    transparency 0.93 → fillOpacity 0.07
+   *   UnFill              transparency 1    → fillOpacity 0
+   *
+   * (FILLER_TRANSPARENCY = 0.93, refs/pydeation-legacy/constants.py:47.)
+   *
+   * Distinct from `filled` on Ellipse/Rectangle, which is a CONSTRUCTION
+   * flag saying "this shape is a fill instead of a stroke" and whose
+   * wash is driven by `creation`. That contract is untouched; this is
+   * the wash a shape that stays a stroke can also carry.
+   *
+   * The wash takes `tint`. pydeation gives the filler material a colour
+   * of its own but defaults it to the sketch colour at construction
+   * (`if fill_color is None: fill_color = color`, object.py:114-115),
+   * and every call in these two scenes leaves it at that default —
+   * `ChangeColor(segment, color=GREEN)` moves both surfaces because
+   * `fill_color` falls back to `color` (animator.py:319-320, 329-330).
+   * The one place the corpus separates them is the Eye, whose iris fill
+   * and sketch differ; that lives in ChangeColorEye and in
+   * vocabulary/Eye, not here. One colour until a scene needs two.
+   */
+  fillOpacity = completion(0)
 }
 
 /**
@@ -203,6 +239,180 @@ export class Arc extends Stroke {
   radius = length(100)
   startAngle = angle(0)
   endAngle = angle(PI / 2)
+}
+
+/**
+ * A pie slice with a hole — pydeation's `Arc(mode="ring")`, which is
+ * C4D's Arc spline primitive in its fourth type
+ * (`modes = {"arc":0, "sector":1, "pie":2, "ring":3}`,
+ * refs/pydeation-legacy/object/object.py:783-784). A separate class
+ * rather than a mode on `Arc` because it is a different KIND of curve:
+ * `Arc` is one open sweep, this is a CLOSED loop of four pieces, and
+ * everything downstream — the draw-on walk, the shape key, whether a
+ * fill polygon exists — turns on that distinction.
+ *
+ * `symmetrical` is pydeation's flag, and it is a construction-time
+ * choice, not a param: it decides which two angles the sweep runs
+ * between (object.py:826-831 — `start = -angle/2, end = +angle/2`
+ * symmetrical, `start = 0, end = angle` otherwise). Scene02 and Scene04
+ * both take it, which is why their segments straddle their group's
+ * heading instead of trailing it.
+ *
+ * The 2021 defaults are C4D's own: `radius=200` is pydeation's
+ * (object.py:773) and `innerRadius=100` is the primitive's factory
+ * default, which pydeation never touches — no `PRIM_ARC_INNER` appears
+ * anywhere in the legacy tree. The reference confirms the pair directly:
+ * on refs/pitch/origins/frames5/f_00380 the assembled disc measures an
+ * outer radius of 200.5px and a hole of 101.5px, against a Scene02
+ * camera whose scale is ~1.0 px per world unit.
+ *
+ *
+ * FOUR PENS, NOT ONE — WHAT THE REFERENCE SAYS
+ *
+ * The obvious construction is one closed loop: outer arc, radial in,
+ * inner arc back, radial out. It is wrong, and the reference says so
+ * twice.
+ *
+ * Measured on refs/pitch/origins/frames5, each of the ring's four pieces
+ * carried as a fraction of its own final ink (Scene02's draw, f_00357 to
+ * f_00362, radial bands r∈[90,115] inner / [115,185] radials /
+ * [185,215] outer):
+ *
+ *   t      0.4    0.6    0.8    1.0    1.2    1.4
+ *   inner  0.02   0.15   0.30   0.66   0.86   1.00
+ *   outer  0.02   0.16   0.41   0.64   0.86   1.00
+ *   radial 0.00   0.00   0.61   0.82   0.95   1.00
+ *
+ * The inner and outer arcs advance TOGETHER, in lockstep, from the first
+ * lit frame — 0.02/0.02, then 0.15/0.16, then 0.86/0.86. A single pen
+ * walking a loop cannot do that: it would finish the outer arc entirely
+ * before the inner one had a pixel. The very first ink (f_00357) is the
+ * proof in miniature — 52 pixels of inner arc and 98 of outer, at once,
+ * and no radial at all.
+ *
+ * The un-draw says the same thing from the other end. At f_00475, three
+ * seconds into `UnFillThenUnDraw`, what SURVIVES in the reference is the
+ * inner arc and the radial beside it, while a one-loop retraction leaves
+ * the outer arc instead (that was the first attempt, and the composite
+ * showed our green outer arcs against the reference's red inner ones).
+ * Each piece retracts toward its own start, so there are as many
+ * surviving stubs as there are pieces.
+ *
+ * So the ring is FOUR STROKES sharing one completion, which is what C4D
+ * gives Sketch & Toon for this primitive, and the class is a composite
+ * holon rather than a single Stroke: `Create` is deep-parallel by
+ * default, so four children with no choreography of their own draw
+ * exactly this way for free.
+ *
+ * `tint` and `stroke` are BOUND into the children — passing a Param as
+ * an override makes the field that same Param — so a scene says
+ * `ChangeColor(segment, GREEN)` once and the whole ring turns.
+ *
+ * `creation` is deliberately NOT bound. The deep verbs stamp a track per
+ * holon they walk, so a shared param would collect five identical tracks
+ * (the parent's and the four children's) and the Timeline, resolving a
+ * param's tracks chronologically, would fold them into a STEP — an
+ * un-draw that vanishes in one frame instead of retracting over two and
+ * a half seconds. Four independent completions is also the truer model:
+ * these are four strokes, and each one's pen is its own.
+ *
+ * `fillOpacity` stays on the parent alone; the wash is one surface, not
+ * four.
+ */
+export class AnnularSector extends Stroke {
+  radius = length(200)
+  innerRadius = length(100)
+  startAngle = angle(-PI / 3)
+  endAngle = angle(PI / 3)
+
+  /** The outer sweep, start angle → end angle. */
+  outer = new Arc({
+    radius: this.radius,
+    startAngle: this.startAngle,
+    endAngle: this.endAngle,
+    tint: this.tint,
+    stroke: this.stroke,
+  })
+  /** The inner sweep, over the same two angles. */
+  inner = new Arc({
+    radius: this.innerRadius,
+    startAngle: this.startAngle,
+    endAngle: this.endAngle,
+    tint: this.tint,
+    stroke: this.stroke,
+  })
+  /** The two radial edges, inner radius out to outer, one at each angle. */
+  edgeStart = new Line({ tint: this.tint, stroke: this.stroke })
+  edgeEnd = new Line({ tint: this.tint, stroke: this.stroke })
+
+  protected override compose(): void {
+    // The radial edges are Lines, whose `points` are DATA rather than a
+    // param, so they are stated once here from the ring's own radii.
+    const edge = (angle: number): Vec3Like[] => [
+      {
+        x: Math.cos(angle) * this.innerRadius.value,
+        y: Math.sin(angle) * this.innerRadius.value,
+        z: 0,
+      },
+      { x: Math.cos(angle) * this.radius.value, y: Math.sin(angle) * this.radius.value, z: 0 },
+    ]
+    this.edgeStart.points = edge(this.startAngle.value)
+    this.edgeEnd.points = edge(this.endAngle.value)
+  }
+}
+
+/**
+ * The closed outline of an annular sector, in the pen order the C4D
+ * primitive uses. Pure — the host's geometry pass, the fill polygon and
+ * the tests share it. First and last point coincide, which is what
+ * `rephasePolyline` and the arc-length draw-on require of a closed loop.
+ */
+export const annularSectorPolyline = (
+  radius: number,
+  innerRadius: number,
+  startAngle: number,
+  endAngle: number,
+  segments = 48,
+): Vec3Like[] => {
+  const at = (r: number, a: number): Vec3Like => ({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: 0 })
+  const pts: Vec3Like[] = []
+  for (let i = 0; i <= segments; i++) {
+    pts.push(at(radius, startAngle + (i / segments) * (endAngle - startAngle)))
+  }
+  for (let i = 0; i <= segments; i++) {
+    pts.push(at(innerRadius, endAngle + (i / segments) * (startAngle - endAngle)))
+  }
+  pts.push(pts[0]!)
+  return pts
+}
+
+/**
+ * The annular sector as a FILLABLE polygon. fill.ts triangulates a fan
+ * on vertex 0, which only works for a convex outline — a ring segment is
+ * neither convex nor even simply connected in the fan's sense, and a fan
+ * from its first point would sweep triangles straight across the hole.
+ * So the wash is built as a quad STRIP between the two arcs instead,
+ * emitted as an explicit triangle list.
+ */
+export const annularSectorFill = (
+  radius: number,
+  innerRadius: number,
+  startAngle: number,
+  endAngle: number,
+  segments = 48,
+): { points: Vec3Like[]; indices: number[] } => {
+  const points: Vec3Like[] = []
+  const indices: number[] = []
+  for (let i = 0; i <= segments; i++) {
+    const a = startAngle + (i / segments) * (endAngle - startAngle)
+    points.push({ x: Math.cos(a) * innerRadius, y: Math.sin(a) * innerRadius, z: 0 })
+    points.push({ x: Math.cos(a) * radius, y: Math.sin(a) * radius, z: 0 })
+  }
+  for (let i = 0; i < segments; i++) {
+    const b = i * 2
+    indices.push(b, b + 1, b + 3, b, b + 3, b + 2)
+  }
+  return { points, indices }
 }
 
 /** An invisible locator — pure transform. */

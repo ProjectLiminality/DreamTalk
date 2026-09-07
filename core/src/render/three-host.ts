@@ -25,6 +25,7 @@ import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
 import {
+  AnnularSector,
   Arc,
   Circle,
   Cylinder,
@@ -34,6 +35,8 @@ import {
   Rectangle,
   Square,
   Stroke,
+  annularSectorFill,
+  annularSectorPolyline,
   rectanglePolyline,
   rephasePolyline,
   type Vec3Like,
@@ -65,6 +68,19 @@ interface StrokeBinding {
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
 interface FillBinding {
   holon: Ellipse | Rectangle
+  fill: FillShape
+  shapeKey: number[]
+}
+
+/**
+ * The interior wash of a shape that is STILL A STROKE — pydeation's
+ * filler material, which sits behind the sketch line rather than
+ * replacing it (Stroke.fillOpacity). Distinct from FillBinding on both
+ * counts: the holon keeps its ribbon, and the wash is driven by
+ * `fillOpacity`, not by `creation`.
+ */
+interface WashBinding {
+  holon: Stroke
   fill: FillShape
   shapeKey: number[]
 }
@@ -176,6 +192,12 @@ const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
     }
     return pts
   }
+  if (holon instanceof AnnularSector) {
+    // No outline of its own: the ring's four pieces are its CHILDREN,
+    // each drawn by its own pen (parts/primitives.ts: AnnularSector).
+    // The parent contributes only the wash.
+    return undefined
+  }
   if (holon instanceof Rectangle) {
     if (holon.filled.value) return undefined // rendered by its FillShape
     return rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value).map(
@@ -197,6 +219,34 @@ const basePolyline = (holon: Stroke): THREE.Vector3[] | undefined => {
     if (holon.points.length < 2) return undefined
     return holon.points.map((p) => new THREE.Vector3(p.x, p.y, p.z))
   }
+  return undefined
+}
+
+/**
+ * The wash geometry for a stroke that carries a `fillOpacity` — the
+ * interior its filler material covers, as triangles.
+ *
+ * Only the shapes the corpus actually fills are here, and each states
+ * its own triangulation because fill.ts's default fan is a CONVEX
+ * assumption: an annular sector needs a strip between its two arcs, a
+ * circle or an ellipse fans correctly from its centre. A shape with no
+ * entry simply never washes — an absent interior, not an error.
+ */
+const washGeometry = (
+  holon: Stroke,
+): { points: readonly Vec3Like[]; triangles?: readonly number[] } | undefined => {
+  if (holon instanceof AnnularSector) {
+    const { points, indices } = annularSectorFill(
+      holon.radius.value,
+      holon.innerRadius.value,
+      holon.startAngle.value,
+      holon.endAngle.value,
+    )
+    return { points, triangles: indices }
+  }
+  if (holon instanceof Circle) return { points: ellipsePolygon(holon.radius.value, holon.radius.value) }
+  if (holon instanceof Ellipse && !holon.filled.value)
+    return { points: ellipsePolygon(holon.radiusX.value, holon.radiusY.value) }
   return undefined
 }
 
@@ -347,6 +397,14 @@ const shapeKey = (holon: Stroke): number[] => {
   if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value, ...phase]
   if (holon instanceof Arc)
     return [holon.radius.value, holon.startAngle.value, holon.endAngle.value]
+  if (holon instanceof AnnularSector)
+    return [
+      holon.radius.value,
+      holon.innerRadius.value,
+      holon.startAngle.value,
+      holon.endAngle.value,
+      ...phase,
+    ]
   if (holon instanceof Rectangle)
     return [holon.width.value, holon.height.value, holon.rounding.value, ...phase]
   if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value, ...phase]
@@ -384,6 +442,7 @@ export class ThreeHost {
   private readonly strokes: StrokeBinding[] = []
   private readonly cylinders: CylinderBinding[] = []
   private readonly fills: FillBinding[] = []
+  private readonly washes: WashBinding[] = []
   private readonly arrows: ArrowBinding[] = []
   /**
    * Text holons — glyph geometry, the Write domino's uniforms, and the
@@ -428,6 +487,22 @@ export class ThreeHost {
     // frames a harness captures are silently textless.
     await Promise.all(host.texts.map((t) => t.binding.ready))
     return host
+  }
+
+  /**
+   * Does this stroke's interior ever show? True if `fillOpacity` starts
+   * non-zero, or if any clip in the timeline carries a track targeting
+   * it. Read once per holon at attach, which is the only moment the
+   * answer can still change what gets built.
+   */
+  private washesFillOpacity(holon: Stroke): boolean {
+    if (holon.fillOpacity.value > 0) return true
+    for (const clip of this.dream.clips) {
+      for (const track of clip.anim.tracks) {
+        if (track.param === (holon.fillOpacity as unknown as typeof track.param)) return true
+      }
+    }
+    return false
   }
 
   private attach(holon: Holon, parent: THREE.Object3D): void {
@@ -478,6 +553,26 @@ export class ThreeHost {
       this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
+      // The wash goes down BEFORE the ribbon, so the sketch line draws
+      // over its own interior — pydeation's two materials on one object,
+      // in the order C4D composites them. It claims a renderOrder from
+      // the same counter the fills use, which is what keeps the
+      // MolochEye contract intact: attach order IS composite order, and
+      // a wash attached here still sits under everything attached after.
+      //
+      // Only a stroke that ACTUALLY washes gets one. pydeation builds a
+      // filler material on every object unconditionally, but a mesh that
+      // is permanently invisible is still a mesh and still consumes a
+      // renderOrder — and every existing scene's stacking is stated in
+      // that counter (MolochEye's pupil-over-disk). So the gate is the
+      // param itself: a non-zero start, or a track that moves it.
+      const washed = this.washesFillOpacity(holon) ? washGeometry(holon) : undefined
+      if (washed) {
+        const fill = new FillShape(this.nextFillOrder++)
+        fill.setPolygon(washed.points, washed.triangles)
+        group.add(fill.mesh)
+        this.washes.push({ holon, fill, shapeKey: shapeKey(holon) })
+      }
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
       // empty at mount and non-empty later — Scene03's section curve
@@ -582,6 +677,24 @@ export class ThreeHost {
       // Fill semantics: creation IS the fill-in, composed with fade.
       fill.style(
         holon.creation.value * holon.opacity.value,
+        liftTint(holon.tint.value, this.highlightOf(holon)),
+      )
+    }
+    for (const binding of this.washes) {
+      const { holon, fill } = binding
+      const key = shapeKey(holon)
+      if (!keysEqual(key, binding.shapeKey)) {
+        binding.shapeKey = key
+        const washed = washGeometry(holon)
+        if (washed) fill.setPolygon(washed.points, washed.triangles)
+      }
+      // The wash reads `fillOpacity`, NOT `creation`: the two are
+      // independent surfaces, which is the whole point of the param and
+      // exactly what UnFillThenUnDraw needs — the interior goes while
+      // the outline is still there to go afterwards. Fade still
+      // multiplies through, as it does for the sketch line.
+      fill.style(
+        holon.fillOpacity.value * holon.opacity.value,
         liftTint(holon.tint.value, this.highlightOf(holon)),
       )
     }

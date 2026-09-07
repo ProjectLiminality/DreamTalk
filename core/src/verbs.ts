@@ -11,7 +11,8 @@
  * grids "sweep away").
  */
 
-import { together, type Anim } from "./anim"
+import { restage, together, type Anim } from "./anim"
+import type { Color } from "./constants"
 import type { Holon } from "./holon"
 import { Stroke } from "./parts/index"
 
@@ -105,3 +106,122 @@ export const Rotate = (
   if (delta.b !== undefined) anims.push(holon.b.by(delta.b))
   return together(...anims)
 }
+
+// ─── The fill-and-colour grammar ────────────────────────────────────
+//
+// pydeation's `Fill` / `UnFill` / `ChangeColor` and the three composite
+// verbs the corpus is actually written in. All four scenes that use them
+// state them on GROUPS (`DrawThenFillCompletely(pie)`), so like the
+// other verbs here they run holon-deep.
+//
+// One inversion to keep in mind throughout: pydeation animates the
+// filler material's TRANSPARENCY and we animate its opacity. Every
+// number below is 1 − the source's (see Stroke.fillOpacity).
+//
+// Being deep means these reach strokes that have no interior to wash —
+// an AnnularSector's four constituent arcs and edges, say. That is
+// deliberate and harmless: `fillOpacity` exists on every Stroke, and the
+// host only builds a wash mesh for the shapes it knows how to fill
+// (render/three-host.ts: washGeometry), so the extra tracks animate a
+// param nothing reads. The alternative — a verb that inspects what can
+// be filled — would put rendering knowledge in the grammar.
+
+/**
+ * pydeation's `FILLER_TRANSPARENCY` (constants.py:47) as an opacity —
+ * the faint interior wash `Fill` gives a shape when the caller says
+ * nothing. 1 − 0.93.
+ */
+export const DEFAULT_FILL_OPACITY = 1 - 0.93
+
+/**
+ * Wash the interior — `Fill(*cobjects, solid=False,
+ * transparency=FILLER_TRANSPARENCY)` (animator.py:367-381), which drives
+ * one thing: the filler material's transparency, over the whole window.
+ *
+ * The two spellings the source uses reach the same param:
+ *   `Fill(x)`               → the 0.07 default wash
+ *   `Fill(x, solid=True)`   → transparency forced to 0, i.e. opaque
+ *                             (object.py:475-477, and what
+ *                             DrawThenFillCompletely passes)
+ * A caller may also state `transparency` directly, as Scene03 does
+ * (`Fill(global_system, transparency=1)`), and it is read in the
+ * source's own units.
+ */
+export const Fill = (
+  holon: Holon,
+  opts: { solid?: boolean; transparency?: number } = {},
+): Anim => {
+  const transparency = opts.solid ? 0 : (opts.transparency ?? 0.93)
+  return deep(holon, (h) => (h instanceof Stroke ? h.fillOpacity.to(1 - transparency) : none))
+}
+
+/**
+ * Take the wash away — `UnFill` (animator.py:383-396), which is `Fill`
+ * with `transparency=1` hard-coded: the interior goes fully clear, and
+ * the outline is not touched.
+ */
+export const UnFill = (holon: Holon): Anim =>
+  deep(holon, (h) => (h instanceof Stroke ? h.fillOpacity.to(0) : none))
+
+/**
+ * Recolour — `ChangeColor(*cobjects, color=…, fill_color=None)`
+ * (animator.py:301-337), which moves BOTH surfaces: it builds a
+ * `ChangeFillColor` and a `ChangeSketchColor` and runs them over the
+ * same (0, 1) window, and when `fill_color` is not given it falls back
+ * to `color` so the two move together. Since core carries one `tint`
+ * per stroke for both surfaces (Stroke.fillOpacity's header), that is
+ * one track.
+ *
+ * The Eye is the corpus's one exception — `ChangeColorEye` splits iris
+ * fill from sketch — and it dispatches on class in pydeation exactly as
+ * `Create` does here. No Eye needs it in these scenes; when one does it
+ * belongs in vocabulary/Eye as a `changeColorAnim()`, not in this verb.
+ */
+export const ChangeColor = (holon: Holon, target: Color): Anim =>
+  deep(holon, (h) => (h instanceof Stroke ? h.tint.to(target) : none))
+
+/**
+ * Draw it, then flood it solid — `DrawThenFillCompletely`
+ * (animator.py:498-514):
+ *
+ *   AnimationGroup((draw, (0, 0.6)), (fill(solid=True), (0.5, 1)))
+ *
+ * The outline is complete at 60% of the span and the interior floods
+ * from 50% to the end, so the two overlap by a tenth of the span — the
+ * wash starts arriving while the pen is still closing the loop. Both
+ * windows are GROUP RESCALES in pydeation (the composite assembles its
+ * choreography at full span and the AnimationGroup squeezes it
+ * afterwards), which is `restage`, not the bare tuple: the tangents were
+ * stated in seconds against the whole span and do not shrink with the
+ * window (anim.ts: Track.smoothingWindow).
+ */
+export const DrawThenFillCompletely = (holon: Holon): Anim =>
+  together(restage(Draw(holon), 0, 0.6), restage(Fill(holon, { solid: true }), 0.5, 1))
+
+/**
+ * Drain it, then retract it — `UnFillThenUnDraw` (animator.py:534-550):
+ *
+ *   AnimationGroup((unfill, (0, 0.6)), (undraw, (0.5, 1)))
+ *
+ * The mirror of DrawThenFillCompletely, and note which half leads: the
+ * INTERIOR goes first and the outline follows, so the shape empties to a
+ * line drawing before the line drawing itself retracts. Same 0.1 overlap,
+ * same rescale semantics.
+ */
+export const UnFillThenUnDraw = (holon: Holon): Anim =>
+  together(restage(UnFill(holon), 0, 0.6), restage(UnDraw(holon), 0.5, 1))
+
+/**
+ * Retract it, then drain what is left — `UnDrawThenUnFill`
+ * (animator.py:516-532):
+ *
+ *   AnimationGroup((undraw, (0, 0.6)), (unfill, (0.3, 1)))
+ *
+ * The other order, and NOT a mirror of the one above: the two windows
+ * overlap by 0.3 of the span rather than 0.1, so the interior is already
+ * fading through most of the outline's retraction. That asymmetry is the
+ * source's, not a rounding of it — `DrawThenFill` (the non-completely
+ * variant this pairs with) has the same (0, 0.6)/(0.3, 1) shape.
+ */
+export const UnDrawThenUnFill = (holon: Holon): Anim =>
+  together(restage(UnDraw(holon), 0, 0.6), restage(UnFill(holon), 0.3, 1))
