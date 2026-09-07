@@ -314,3 +314,11 @@ operational decisions are entered by the working agent. Format:
   triangulation. Deferred by O-5 (shared render code, O-6 mid-flight
   in the same file) — dispatch after O-6 lands; most O-5 failures
   fall with it.
+- 2026-09-07 · **The 0.6 attenuation is perspective-fitted and does
+  not transfer to orthographic scenes** (O-5) — measured with
+  palette.ts's own ruler across three Origins scenes: perspective
+  zoom-3/4 implies 0.511, zoom-1 implies 0.617 (bracketing 0.6 and
+  moving the right way with distance — the control), orthographic
+  implies 0.888 (less attenuation at no distance, as it must).
+  Scene03 states 0.888 locally; the honest fix for all scenes is
+  porting S&T's actual distance ramp (extends FIDELITY-LEDGER #10).

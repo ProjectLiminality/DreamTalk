@@ -38,3 +38,6 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [MindVirus](MindVirus/) | swim pose + trail, `?scene=mindvirus` | MolochEye + FoldableCube + Cable | mindvirus-scores.json + overlays |
 | [TheWall](TheWall/) | the dandelion (t≈8.4), `?scene=thewall` | MindVirus (+ tether Cables) | wall-gauntlet vs refs/wall/thewall5 |
 | [Labyrinth](Labyrinth/) | fully drawn, `?scene=labyrinth` | primitives (geometry/labyrinth) | labyrinth-sidebyside-cell40.png; tests |
+| [Sketch](Sketch/) | david portrait, `?scene=sketch` | primitives (geometry/svg; 32 assets) | svg tests (37 subpaths); o1/o2 composites |
+| [Logo](Logo/) | finished mark, `?scene=o09` | primitives | o3 scores 30/30 + 25/26; logo tests (Cramer) |
+| [System](System/) | gears+icon, `?scene=o03` | Sketch (six assets) | o5: 16/16 pixel-exact layout predictions; system tests |
