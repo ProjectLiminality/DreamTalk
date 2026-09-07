@@ -267,3 +267,16 @@ operational decisions are entered by the working agent. Format:
   time before ordering, so "longest stroke" ≠ longest subpath; a >90°
   re-split was tested, improved late frames, and REFUSED as a fitted
   stand-in for a readable rule). One derivation would close both.
+  **AMENDED 2026-09-07 (stroke-connect research, with proof):** the
+  one-derivation premise was WRONG — the two phenomena run DIFFERENT
+  S&T ordering modes (long_short appears at exactly ONE call site in
+  the whole pitch source; cylinders run default bottom_top). Sketch
+  case SOLVED: S&T never splits (37 subpaths = 37 strokes, long_short
+  at Spearman ρ=0.97) — it draws CONCURRENTLY, draw_speed a GLOBAL arc
+  budget across 3-15 simultaneous pen fronts starting in order without
+  waiting. DrawSteady's residual is SCHEDULING, not segmentation; the
+  overlap must not be fitted (best fit 0.27 — not a law). Cylinder
+  case: provable negative (away-facing arc longer at EVERY pose — no
+  length rule can flip) + one surviving candidate (cap foreshortening).
+  Both laws fall to one controlled C4D experiment — spec in
+  docs/reports/stroke-connection.md §2.6/§3.3.
