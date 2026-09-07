@@ -51,6 +51,18 @@
  * x[513,747] y[226,405], x[584,701] y[238,401], x[460,804] y[226,406].
  * Nothing here is fitted — those are the source numbers under the
  * calibrated camera at the scene's own dolly.
+ *
+ * That claim was briefly untrue. Three fitted values had been introduced
+ * while strokes were still fat enough to hide the resulting geometry
+ * error: cylinder radius 53 / height 226 (against the source's own
+ * 50 / 200) and thesis size 35 with a creation: 0.29 head start (against
+ * the source's height=30 for all three names). The width fix exposed
+ * them — the inflated cylinder reads as a wrongly-posed one, and the
+ * scene scored 3/9. Restoring the source's four numbers, changing
+ * nothing else, takes it to 9/9 at step 5 and 46/47 at step 1. The one
+ * dense miss is f0703, the first lit frame, where the reference's "t"
+ * stem is a fraction of a glyph ahead of ours — inside the easing
+ * residue START_OFFSET already documents, and not worth a fit.
  */
 
 import { Dream, render } from "../../src/index"
@@ -115,7 +127,7 @@ export class S09Dream extends Dream {
     y: 50,
     drawStart: 1 / 8,
     drawReversed: true,
-    stroke: 4,
+    stroke: STROKE_MAIN,
   })
   // Rectangle(color=RED, width=100, height=200, x=200, z=50) — the
   // antithesis. Starts at the TOP-RIGHT corner and draws the right edge
@@ -134,18 +146,18 @@ export class S09Dream extends Dream {
   // C4D's own defaults r=50 / h=200, deliberately matching circle r=50
   // and rectangle 100x200. It never draws on: it only fades.
   cylinder = new Cylinder({
-    radius: 53,
-    height: 226,
+    radius: 50,
+    height: 200,
     y: 25,
     b: -PI / 2,
     p: -PI / 4,
     tint: WHITE,
-    stroke: 4,
+    stroke: STROKE_MAIN,
     drawStart: 0
   })
 
   // The three names, all at z=-120 → our y=-120, height 30.
-  thesis = new Text({ content: "thesis", size: 35, x: -200, y: -120, stroke: 0, creation: 0.29 })
+  thesis = new Text({ content: "thesis", size: 30, x: -200, y: -120, stroke: 0 })
   antithesis = new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 })
   synthesis = new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 0 })
 
