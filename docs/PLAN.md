@@ -468,3 +468,20 @@ ends (709k Object.keys/frame → 18), thewall scrub −24.7ms (20da44e) ·
 observer glide, one-token boundary upgrade (63bc8d9). 661 tests.
 Remaining ledger: cable-bake disk cache, face tooltips, shape morphs
 (true Magic Move morphing), editor transition-authoring op.
+
+## Campaign: the pitch corpus (2026-09-07, David)
+
+Push done (61e5a5f live). Target: reproduce corpus #09 "The Origins of
+Project Liminality" (fully source-backed — recon proved NO Keynote in
+it; production source = refs/PydeationProjects/pitch/InterfaceGuy/pitch/
+pitch.py, 16 scenes; the GitHub pydeation-PL-pitch is a different 2022
+sketch). All 32 SVG assets recovered from the C4D prefs folder (were
+outside version control). Then the visual-only trio #02/#03/#05
+(Key2SVG is an empty stub — trio needs .key files or by-eye; #03 lead:
+PyTalk-CustodianOfTheNoosphere repo). Ground truth:
+docs/reports/origins-vocabulary.md (chapter plan O-1..O-11 §6; missing-
+core list §5 — headline: SVG importer, DrawSteady, TRUE MORPHS (the
+ONTOLOGY-deferred item, now corpus-demanded), Fill/ChangeColor verbs,
+rel-window choreography, camera-as-target). Fidelity: first half frame-
+exact vs frames5; from Scene06 vs source choreography (published video
+is a re-cut). Status: [~] O-1 dispatched.
