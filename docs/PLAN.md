@@ -496,5 +496,9 @@ ed92a01 + the winding trilogy). Scorecard: o00 11/13 · o01 17/29 full,
 08_2 are CUT from the published video (the missing 66s; full segment
 map closed). O-10 is DROPPED (David 2026-09-07: the published
 video is the canon; source-only material is experiment — see
-DECISIONS). O-11 (Scene06, in the video, trimmed) remains the
-queued finale.
+DECISIONS). O-11 landed (Scene06 64/80 dense — awaiting the fitted-constants
+clarification before final ruling). QUEUED EXPERIMENT (o8): Scene10's
+1.2s dip has two separable candidates — give Param.sequence a
+linear-easing option (timeline.ts hardcodes smooth per SEGMENT) and
+re-score: lifts = per-segment easing wobble; persists = the source's
+windowed ease. Shared machinery — S04 gate mandatory.
