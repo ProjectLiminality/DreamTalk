@@ -246,3 +246,12 @@ operational decisions are entered by the working agent. Format:
   The repo already obeyed this everywhere (twice with comments saying
   so). Payoff: the Proxy field-scan ends at settle — thewall scrub
   −24.7ms/frame, byte-identical over 17 frames.
+- 2026-09-07 · **s09's scorecard number was stale, not regressed** —
+  the recorded 0.994/0.987 predates the stroke-width fix; fat ink
+  masked a real cylinder end-pose drift (bisect-proven identical at
+  ea69445/062530f/88f409f — no later work caused it). True post-fix
+  state: 3/9, mean 0.849/0.788, worst f0740/f0745 at 0.546 (cylinder
+  rotated vs reference at scene end; text exact). The old "re-score
+  all scenes post width-fix" task had silently slipped for s09 —
+  generalize: a ledger number is only as fresh as its last full
+  re-measurement; sweeps beat memories.
