@@ -486,4 +486,10 @@ core list §5 — headline: SVG importer, DrawSteady, TRUE MORPHS (the
 ONTOLOGY-deferred item, now corpus-demanded), Fill/ChangeColor verbs,
 rel-window choreography, camera-as-target). Fidelity: first half frame-
 exact vs frames5; from Scene06 vs source choreography (published video
-is a re-cut). Status: [~] O-1 dispatched.
+is a re-cut). Status 2026-09-07 evening: O-1..O-7 LANDED (see commits 2fe41d8..
+ed92a01 + the winding trilogy). Scorecard: o00 11/13 · o01 17/29
+(post-wash; summary JSONs predate it) · o02 32/45 · o03 45/71 · o04
+24/30 · o05 30/30 · o07 22/38 (22/26 excl. reasoned bands) · o07_1
+10/12 · o09 25/26 · o11 47/50. The three S&T-ordering-gated bands
+(o01 draw, o02/o04 sub-strokes, o03 un-draw) await the Maxon licence.
+[~] O-8/O-9 (cameras) in flight; O-10/O-11 queued.

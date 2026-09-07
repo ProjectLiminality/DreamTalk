@@ -477,19 +477,33 @@ export class Scene01Dream extends Dream {
     // core's `Fill` — which reads transparency in the source's own units
     // and animates 1 − it — lands the same 0.
     //
-    // ONE DIVERGENCE THIS FILE DOES NOT CHASE. Fitted against those
-    // eleven samples, the reference's drain is best described as an
-    // `easeIn` ramp starting at localT 28.8 over 4.5s (mean squared
-    // error 38), not the script's 27.1 over 6s (526 for the same ease,
-    // 1183 for the default smooth). The published render holds the
-    // shapes solid about 1.7s longer than the script asks and then
-    // empties them faster. That is the same class of re-timing Scene04
-    // documents at its close, reaching one scene earlier than the
-    // report's "from Scene06" boundary predicted. The source's window is
-    // kept, because this chapter reproduces the script and a fitted
-    // window would encode the editor's decision as if it were the
-    // author's; the frames from t=27.2 to t=28.8 fail for it, and that
-    // failure is this divergence rather than an error.
+    // ONE DIVERGENCE THIS FILE DOES NOT CHASE. Normalizing both drains
+    // to their own flooded value and sampling the same box in each:
+    //
+    //   localT   26.4   27.6   28.8   30.0   31.2   32.4   33.0
+    //   ref      1.000  0.999  0.969  0.860  0.640  0.211  0.000
+    //   ours     1.000  0.981  0.883  0.731  0.522  0.208  0.000
+    //
+    // Both reach zero at 33.0, but the reference HOLDS — flat to within
+    // a thousandth until 28.8 — and then falls steeply, while ours
+    // declines from the moment the play opens. Grid-fitted over ease,
+    // start and span, the reference is an `easeIn` ramp beginning at
+    // localT 29.1 over 4s (mean squared error 0.00095); ours against its
+    // own declared window (27.1, 6s, smooth) sits at 0.021, twenty times
+    // worse, which is the divergence rather than a bad fit on our side.
+    //
+    // So the published render holds the shapes solid about two seconds
+    // longer than the script asks and then empties them faster. That is
+    // the same class of re-timing Scene04 documents at its close,
+    // reaching one scene earlier than the report's "from Scene06"
+    // boundary predicted. The source's window is kept, because this
+    // chapter reproduces the script and a fitted window would encode the
+    // editor's decision as if it were the author's.
+    //
+    // (This comparison only became measurable once `washGeometry` grew
+    // its Rectangle branch — before that our rectangle animated
+    // `fillOpacity` and rendered no interior at all, so the curve above
+    // could not be read off our own frames.)
     this.play(
       together(
         [Create(this.tension), 1 / 2, 1],

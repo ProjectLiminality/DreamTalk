@@ -145,6 +145,26 @@ Legend: ■ = flaw matched, ideal pending · ◆ = ideal already built ·
     means **0.933 coverage_ref at 0.86px chamfer** over 20 frames.
     (Detail and measurements: docs/reports/wall/thewall-port.md.)
 
+## The Origins campaign (2026-09-07)
+
+18. ▲ **Scene07's code panel — the reference pasted a screenshot; we
+    render the code.** The source declares `code_snippet = CObject()`,
+    a bare placeholder: the published panel is a syntax-highlighted
+    RASTER of pydeation source textured onto a plane — in a framework
+    whose entire claim is that source code IS the thing. We render
+    real Text instead (the panel is 36% of the frame's ink; omitting
+    it was never an option). The reference supplied the content
+    (legible character-by-character — and it is the code that builds
+    the cylinder in the OTHER panel, which is the scene's joke) and a
+    three-constant layout (column advance 8.516, column-0 centre
+    −391.4, half-pitch 17.2 — reproducing every measured line centre
+    within 1.1/2.2 world units). THE COST, stated: Arimo is
+    proportional and centre-anchored, so columns drift and per-token
+    colouring is absent; the gauntlet's asymmetry (cov_ours 0.90-0.99,
+    cov_ref 0.80-0.86) is the signature of a font difference, not a
+    layout error. SWITCH: a monospace face + left-align in
+    render/text.ts — queued, out of chapter scope.
+
 ## The protocol going forward
 
 - Benchmark scenes pass the legacy switches (sealAtOne:false,

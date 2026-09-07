@@ -66975,20 +66975,20 @@ class Scene01Dream extends Dream {
       morph.fillOpacity.to(1)
     ]));
     __dt(this.play(together(FadeOut(this.separator), ...this.firstMorph ? [this.firstMorph.anim] : [], Morph(this.morphs[0], this.graph.nodes[2], this.circle), Morph(this.morphs[1], this.graph.nodes[6], this.circle), Morph(this.morphs[2], this.graph.nodes[3], this.rectangle), Morph(this.morphs[3], this.graph.nodes[4], this.rectangle), Morph(this.morphs[4], this.graph.nodes[5], this.rectangle)), 4), "core/demo/origins/Scene01.ts:19418:20102");
-    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:22210:22401");
+    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:22918:23109");
     this.wait(3);
-    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:23492:23750");
-    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:23755:23790");
-    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:23980:24016");
-    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:24021:24088");
+    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:24200:24458");
+    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:24463:24498");
+    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:24688:24724");
+    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:24729:24796");
     this.wait(1);
-    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:24381:24656");
-    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:24661:24732");
+    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:25089:25364");
+    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:25369:25440");
     this.wait(2);
-    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:24754:24932");
-    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:24937:24970");
+    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:25462:25640");
+    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:25645:25678");
     this.wait(2);
-    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:24992:25027");
+    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:25700:25735");
   }
 }
 if (false)
