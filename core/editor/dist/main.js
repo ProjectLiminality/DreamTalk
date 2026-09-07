@@ -64564,6 +64564,254 @@ var __dt = (value, anchor) => {
   return value;
 };
 var anchorOf = (value) => anchors.get(value);
+// src/geometry/morph.ts
+var MORPH_SAMPLES = 128;
+var dist2 = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+var arcLengths = (points) => {
+  const out = [0];
+  for (let i2 = 1;i2 < points.length; i2++)
+    out.push(out[i2 - 1] + dist2(points[i2 - 1], points[i2]));
+  return out;
+};
+var pointAtArcLength = (points, s2) => {
+  if (points.length === 0)
+    return { x: 0, y: 0, z: 0 };
+  if (points.length === 1)
+    return points[0];
+  const cum = arcLengths(points);
+  const total = cum[cum.length - 1];
+  if (total <= 0)
+    return points[0];
+  const target = Math.min(1, Math.max(0, s2)) * total;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = lo + hi >> 1;
+    if (cum[mid] <= target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const span = cum[hi] - cum[lo];
+  const u2 = span > 0 ? (target - cum[lo]) / span : 0;
+  const a2 = points[lo];
+  const b2 = points[hi];
+  return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
+};
+var resampleUniform = (points, count = MORPH_SAMPLES) => {
+  if (count < 2)
+    return points.length ? [points[0]] : [];
+  if (points.length === 0)
+    return [];
+  const out = [];
+  for (let i2 = 0;i2 < count; i2++)
+    out.push(pointAtArcLength(points, i2 / (count - 1)));
+  return out;
+};
+var morphedPolyline = (source, target, u2, count = MORPH_SAMPLES) => {
+  const t2 = Math.min(1, Math.max(0, u2));
+  const a2 = resampleUniform(source, count);
+  const b2 = resampleUniform(target, count);
+  const n2 = Math.min(a2.length, b2.length);
+  const out = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    const p2 = a2[i2];
+    const q = b2[i2];
+    out.push({
+      x: p2.x + (q.x - p2.x) * t2,
+      y: p2.y + (q.y - p2.y) * t2,
+      z: p2.z + (q.z - p2.z) * t2
+    });
+  }
+  return out;
+};
+var outlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const ring = (rx, ry) => {
+    const pts = [];
+    for (let i2 = 0;i2 <= segments; i2++) {
+      const a2 = i2 / segments * Math.PI * 2;
+      pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
+    }
+    return pts;
+  };
+  let base;
+  if (holon instanceof Circle)
+    base = ring(holon.radius.value, holon.radius.value);
+  else if (holon instanceof Ellipse)
+    base = ring(holon.radiusX.value, holon.radiusY.value);
+  else if (holon instanceof Square) {
+    const s2 = holon.size.value / 2;
+    base = [
+      { x: -s2, y: -s2, z: 0 },
+      { x: s2, y: -s2, z: 0 },
+      { x: s2, y: s2, z: 0 },
+      { x: -s2, y: s2, z: 0 },
+      { x: -s2, y: -s2, z: 0 }
+    ];
+  } else if (holon instanceof Polygon) {
+    const n2 = holon.sides.value;
+    const pts = [];
+    for (let i2 = 0;i2 <= n2; i2++) {
+      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
+    }
+    base = pts;
+  } else if (holon instanceof Rectangle) {
+    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
+  } else if (holon instanceof Line2) {
+    base = holon.points.length >= 2 ? [...holon.points] : undefined;
+  }
+  if (!base)
+    return;
+  const phase = holon.drawStart.value;
+  const reversed = holon.drawReversed.value;
+  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
+};
+var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const local = outlineOf(holon, segments);
+  if (!local)
+    return;
+  const chain = [];
+  for (let node = holon;node; node = node.parent)
+    chain.push(node);
+  return local.map((p2) => {
+    let out = p2;
+    for (const node of chain) {
+      const s2 = node.scale.value;
+      out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
+      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+    }
+    return out;
+  });
+};
+
+// vocabulary/Morph/Morph.ts
+var derivePoints2 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+var shapeReading = (holon) => {
+  const frame = [
+    holon.h.value,
+    holon.p.value,
+    holon.b.value,
+    holon.scale.value,
+    holon.drawStart.value,
+    holon.drawReversed.value ? 1 : 0
+  ];
+  if (holon instanceof Circle)
+    return [holon.radius.value, ...frame];
+  if (holon instanceof Ellipse)
+    return [holon.radiusX.value, holon.radiusY.value, ...frame];
+  if (holon instanceof Square)
+    return [holon.size.value, ...frame];
+  if (holon instanceof Polygon)
+    return [holon.radius.value, holon.sides.value, ...frame];
+  if (holon instanceof Rectangle)
+    return [holon.width.value, holon.height.value, holon.rounding.value, ...frame];
+  if (holon instanceof Line2)
+    return [...holon.points.flatMap((p2) => [p2.x, p2.y, p2.z]), ...frame];
+  return frame;
+};
+var MORPHABLE = "Morphable shapes are: Circle, Ellipse, Square, Polygon, Rectangle, or a closed Line";
+var isMorphable = (holon) => holon instanceof Stroke && outlineOf(holon, 8) !== undefined;
+var assertMorphable = (holon, role) => {
+  if (isMorphable(holon))
+    return;
+  const name = holon.constructor.name;
+  const children = holon.parts.filter((p2) => p2 instanceof Stroke);
+  throw new Error(`Morph: cannot use ${name} as the ${role} — a morph interpolates ONE closed ` + `outline into another, and ${name} ` + (children.length > 0 ? `has no single outline of its own: it draws itself through ` + `${children.length} sub-strokes. That is a category error rather than a ` + `missing feature — morph its pieces individually, since each sub-stroke ` + `is morphable on its own.` : `has no outline to read (an empty or single-point Line has no ink yet). ` + `Give it its points before the morph is declared.`) + ` ${MORPHABLE}.`);
+};
+
+class MorphShape extends Stroke {
+  morph = completion(0);
+  samples = integer(MORPH_SAMPLES);
+  line = new Line2({
+    tint: this.tint,
+    stroke: this.stroke,
+    fillOpacity: this.fillOpacity,
+    opacity: this.opacity
+  });
+  ends;
+  constructor(source, target, overrides = {}) {
+    super(overrides);
+    assertMorphable(source, "source");
+    assertMorphable(target, "target");
+    this.ends = { source, target };
+  }
+  compose() {
+    derivePoints2(this.line, () => {
+      const a2 = worldPosition(this.ends.source);
+      const b2 = worldPosition(this.ends.target);
+      return [
+        this.morph.value,
+        this.samples.value,
+        a2.x,
+        a2.y,
+        a2.z,
+        b2.x,
+        b2.y,
+        b2.z,
+        ...shapeReading(this.ends.source),
+        ...shapeReading(this.ends.target)
+      ];
+    }, () => this.refresh());
+  }
+  refresh() {
+    const n2 = this.samples.value;
+    const a2 = worldOutlineOf(this.ends.source, n2);
+    const b2 = worldOutlineOf(this.ends.target, n2);
+    if (!a2 || !b2) {
+      assertMorphable(this.ends.source, "source");
+      assertMorphable(this.ends.target, "target");
+    }
+    return morphedPolyline(a2, b2, this.morph.value, n2);
+  }
+}
+var Morph = (shape, source, target, opts = {}) => {
+  const parts = [
+    shape.morph.sequence(0, 1),
+    shape.tint.to(target.tint.value),
+    shape.fillOpacity.to(target.fillOpacity.value),
+    restage(shape.opacity.sequence(0, 1), 0, 0.01)
+  ];
+  const windowed = {
+    tracks: [
+      ...opts.copy ? [] : restage(source.opacity.to(0), 0, 0.01).tracks,
+      ...restage(target.opacity.to(1), 0.99, 1).tracks,
+      ...restage(shape.opacity.to(0), 0.99, 1).tracks
+    ]
+  };
+  return together(...parts, windowed);
+};
+Object.defineProperty(Stroke.prototype, "morphTo", {
+  configurable: true,
+  writable: true,
+  enumerable: false,
+  value: function morphTo(target, opts = {}) {
+    const { copy, samples, ...overrides } = opts;
+    const shape = new MorphShape(this, target, {
+      opacity: 0,
+      ...samples === undefined ? {} : { samples },
+      ...overrides
+    });
+    return { shape, anim: Morph(shape, this, target, { copy, samples }) };
+  }
+});
+
 // src/verbs.ts
 var deep = (holon, f2) => together(...[...holon.walk()].map(f2));
 var none = { tracks: [] };
@@ -64593,22 +64841,6 @@ var UnFill = (holon) => deep(holon, (h2) => h2 instanceof Stroke ? h2.fillOpacit
 var ChangeColor = (holon, target) => deep(holon, (h2) => h2 instanceof Stroke ? h2.tint.to(target) : none);
 var DrawThenFillCompletely = (holon) => together(restage(Draw(holon), 0, 0.6), restage(Fill(holon, { solid: true }), 0.5, 1));
 var UnFillThenUnDraw = (holon) => together(restage(UnFill(holon), 0, 0.6), restage(UnDraw(holon), 0.5, 1));
-var Morph = (shape, source, target, opts = {}) => {
-  const parts = [
-    shape.morph.sequence(0, 1),
-    shape.tint.to(target.tint.value),
-    shape.fillOpacity.to(target.fillOpacity.value),
-    restage(shape.opacity.sequence(0, 1), 0, 0.01)
-  ];
-  const windowed = {
-    tracks: [
-      ...opts.copy ? [] : restage(source.opacity.to(0), 0, 0.01).tracks,
-      ...restage(target.opacity.to(1), 0.99, 1).tracks,
-      ...restage(shape.opacity.to(0), 0.99, 1).tracks
-    ]
-  };
-  return together(...parts, windowed);
-};
 // src/steady.ts
 var polylineLength = (points) => {
   let total = 0;
@@ -66403,210 +66635,6 @@ class Scene00Dream extends Dream {
 if (false)
   ;
 
-// src/geometry/morph.ts
-var MORPH_SAMPLES = 128;
-var dist2 = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
-var arcLengths = (points) => {
-  const out = [0];
-  for (let i2 = 1;i2 < points.length; i2++)
-    out.push(out[i2 - 1] + dist2(points[i2 - 1], points[i2]));
-  return out;
-};
-var pointAtArcLength = (points, s2) => {
-  if (points.length === 0)
-    return { x: 0, y: 0, z: 0 };
-  if (points.length === 1)
-    return points[0];
-  const cum = arcLengths(points);
-  const total = cum[cum.length - 1];
-  if (total <= 0)
-    return points[0];
-  const target = Math.min(1, Math.max(0, s2)) * total;
-  let lo = 0;
-  let hi = cum.length - 1;
-  while (hi - lo > 1) {
-    const mid = lo + hi >> 1;
-    if (cum[mid] <= target)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const span = cum[hi] - cum[lo];
-  const u2 = span > 0 ? (target - cum[lo]) / span : 0;
-  const a2 = points[lo];
-  const b2 = points[hi];
-  return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
-};
-var resampleUniform = (points, count = MORPH_SAMPLES) => {
-  if (count < 2)
-    return points.length ? [points[0]] : [];
-  if (points.length === 0)
-    return [];
-  const out = [];
-  for (let i2 = 0;i2 < count; i2++)
-    out.push(pointAtArcLength(points, i2 / (count - 1)));
-  return out;
-};
-var morphedPolyline = (source, target, u2, count = MORPH_SAMPLES) => {
-  const t2 = Math.min(1, Math.max(0, u2));
-  const a2 = resampleUniform(source, count);
-  const b2 = resampleUniform(target, count);
-  const n2 = Math.min(a2.length, b2.length);
-  const out = [];
-  for (let i2 = 0;i2 < n2; i2++) {
-    const p2 = a2[i2];
-    const q = b2[i2];
-    out.push({
-      x: p2.x + (q.x - p2.x) * t2,
-      y: p2.y + (q.y - p2.y) * t2,
-      z: p2.z + (q.z - p2.z) * t2
-    });
-  }
-  return out;
-};
-var outlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const ring = (rx, ry) => {
-    const pts = [];
-    for (let i2 = 0;i2 <= segments; i2++) {
-      const a2 = i2 / segments * Math.PI * 2;
-      pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
-    }
-    return pts;
-  };
-  let base;
-  if (holon instanceof Circle)
-    base = ring(holon.radius.value, holon.radius.value);
-  else if (holon instanceof Ellipse)
-    base = ring(holon.radiusX.value, holon.radiusY.value);
-  else if (holon instanceof Square) {
-    const s2 = holon.size.value / 2;
-    base = [
-      { x: -s2, y: -s2, z: 0 },
-      { x: s2, y: -s2, z: 0 },
-      { x: s2, y: s2, z: 0 },
-      { x: -s2, y: s2, z: 0 },
-      { x: -s2, y: -s2, z: 0 }
-    ];
-  } else if (holon instanceof Polygon) {
-    const n2 = holon.sides.value;
-    const pts = [];
-    for (let i2 = 0;i2 <= n2; i2++) {
-      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
-      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
-    }
-    base = pts;
-  } else if (holon instanceof Rectangle) {
-    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
-  } else if (holon instanceof Line2) {
-    base = holon.points.length >= 2 ? [...holon.points] : undefined;
-  }
-  if (!base)
-    return;
-  const phase = holon.drawStart.value;
-  const reversed = holon.drawReversed.value;
-  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
-};
-var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const local = outlineOf(holon, segments);
-  if (!local)
-    return;
-  const chain2 = [];
-  for (let node = holon;node; node = node.parent)
-    chain2.push(node);
-  return local.map((p2) => {
-    let out = p2;
-    for (const node of chain2) {
-      const s2 = node.scale.value;
-      out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
-      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
-    }
-    return out;
-  });
-};
-var derivePoints2 = (line, sourceKey, compute3) => {
-  let key;
-  let memo = [];
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = sourceKey();
-      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
-        key = next;
-        memo = compute3();
-      }
-      return memo;
-    },
-    set(_v) {}
-  });
-};
-
-class MorphShape extends Stroke {
-  morph = completion(0);
-  samples = integer(MORPH_SAMPLES);
-  line = new Line2({
-    tint: this.tint,
-    stroke: this.stroke,
-    fillOpacity: this.fillOpacity,
-    opacity: this.opacity
-  });
-  ends;
-  constructor(source, target, overrides = {}) {
-    super(overrides);
-    this.ends = { source, target };
-  }
-  compose() {
-    derivePoints2(this.line, () => {
-      const a2 = worldPosition(this.ends.source);
-      const b2 = worldPosition(this.ends.target);
-      return [
-        this.morph.value,
-        this.samples.value,
-        a2.x,
-        a2.y,
-        a2.z,
-        b2.x,
-        b2.y,
-        b2.z,
-        ...shapeReading(this.ends.source),
-        ...shapeReading(this.ends.target)
-      ];
-    }, () => this.refresh());
-  }
-  refresh() {
-    const n2 = this.samples.value;
-    const a2 = worldOutlineOf(this.ends.source, n2);
-    const b2 = worldOutlineOf(this.ends.target, n2);
-    if (!a2 || !b2) {
-      throw new Error(`Morph: no outline for ${!a2 ? this.ends.source.constructor.name : this.ends.target.constructor.name} ` + `— morphs are defined between the closed plane figures geometry/morph.ts:outlineOf knows`);
-    }
-    return morphedPolyline(a2, b2, this.morph.value, n2);
-  }
-}
-var shapeReading = (holon) => {
-  const frame = [
-    holon.h.value,
-    holon.p.value,
-    holon.b.value,
-    holon.scale.value,
-    holon.drawStart.value,
-    holon.drawReversed.value ? 1 : 0
-  ];
-  if (holon instanceof Circle)
-    return [holon.radius.value, ...frame];
-  if (holon instanceof Ellipse)
-    return [holon.radiusX.value, holon.radiusY.value, ...frame];
-  if (holon instanceof Square)
-    return [holon.size.value, ...frame];
-  if (holon instanceof Polygon)
-    return [holon.radius.value, holon.sides.value, ...frame];
-  if (holon instanceof Rectangle)
-    return [holon.width.value, holon.height.value, holon.rounding.value, ...frame];
-  if (holon instanceof Line2)
-    return [...holon.points.flatMap((p2) => [p2.x, p2.y, p2.z]), ...frame];
-  return frame;
-};
-
 // demo/origins/KinshipGraph.ts
 var RING_RADIUS = 200;
 var NODE_RADIUS = 20;
@@ -66718,9 +66746,9 @@ class Scene01Dream extends Dream {
     tint: RED,
     fillOpacity: 1,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene01.ts:9356:9481");
-  circle = __dt(new Circle({ radius: 50, x: -200, tint: BLUE, fillOpacity: 1, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:9493:9577");
-  cylinder = __dt(new Cylinder({ b: -PI3 / 2, y: 100, p: -PI3 / 4, scale: 1 / 2, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:9771:9854");
+  }), "core/demo/origins/Scene01.ts:10644:10769");
+  circle = __dt(new Circle({ radius: 50, x: -200, tint: BLUE, fillOpacity: 1, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:10781:10865");
+  cylinder = __dt(new Cylinder({ b: -PI3 / 2, y: 100, p: -PI3 / 4, scale: 1 / 2, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11059:11142");
   separator = __dt(new DottedLine({
     points: [
       { x: 0, y: 400, z: 0 },
@@ -66729,73 +66757,75 @@ class Scene01Dream extends Dream {
     dash: SEPARATOR_DASH,
     gap: SEPARATOR_GAP,
     stroke: 5 * (STROKE_MAIN / 5)
-  }), "core/demo/origins/Scene01.ts:10015:10203");
-  origin = __dt(new Group2({}), "core/demo/origins/Scene01.ts:10530:10543");
+  }), "core/demo/origins/Scene01.ts:11303:11491");
+  origin = __dt(new Group2({}), "core/demo/origins/Scene01.ts:11818:11831");
   arrowCircle = __dt(new Connection(this.circle, this.origin, {
     via: [{ x: -20, y: 0, z: 0 }],
     offsetStart: 1 / 4,
     offsetEnd: 0.1,
     z: -1,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene01.ts:10560:10722");
+  }), "core/demo/origins/Scene01.ts:11848:12010");
   arrowRectangle = __dt(new Connection(this.rectangle, this.origin, {
     via: [{ x: 20, y: 0, z: 0 }],
     offsetStart: 1 / 4,
     offsetEnd: 0.1,
     z: -1,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene01.ts:10742:10906");
-  tension = __dt(new Group2({ members: [this.arrowCircle, this.arrowRectangle] }), "core/demo/origins/Scene01.ts:10919:10982");
+  }), "core/demo/origins/Scene01.ts:12030:12194");
+  tension = __dt(new Group2({ members: [this.arrowCircle, this.arrowRectangle] }), "core/demo/origins/Scene01.ts:12207:12270");
   shapes = __dt(new Group2({
     members: [this.rectangle, this.circle, this.cylinder, this.separator, this.tension]
-  }), "core/demo/origins/Scene01.ts:10995:11100");
-  eyeLeft = __dt(new Eye({ tint: BLUE, scale: 1 / 3, x: -175, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11292:11359");
-  eyeRight = __dt(new Eye({ tint: RED, scale: 1 / 3, x: 175, b: PI3, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11373:11445");
-  sightTargetLeftLow = __dt(new Group2({ x: 200, y: -125 }), "core/demo/origins/Scene01.ts:11477:11507");
-  sightTargetLeftHigh = __dt(new Group2({ x: 200, y: 125 }), "core/demo/origins/Scene01.ts:11540:11569");
-  sightTargetRightLow = __dt(new Group2({ x: -200, y: -125 }), "core/demo/origins/Scene01.ts:11602:11633");
-  sightTargetRightHigh = __dt(new Group2({ x: -200, y: 125 }), "core/demo/origins/Scene01.ts:11667:11697");
+  }), "core/demo/origins/Scene01.ts:12283:12388");
+  eyeLeft = __dt(new Eye({ tint: BLUE, scale: 1 / 3, x: -175, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:12580:12647");
+  eyeRight = __dt(new Eye({ tint: RED, scale: 1 / 3, x: 175, b: PI3, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:12661:12733");
+  sightTargetLeftLow = __dt(new Group2({ x: 200, y: -125 }), "core/demo/origins/Scene01.ts:12765:12795");
+  sightTargetLeftHigh = __dt(new Group2({ x: 200, y: 125 }), "core/demo/origins/Scene01.ts:12828:12857");
+  sightTargetRightLow = __dt(new Group2({ x: -200, y: -125 }), "core/demo/origins/Scene01.ts:12890:12921");
+  sightTargetRightHigh = __dt(new Group2({ x: -200, y: 125 }), "core/demo/origins/Scene01.ts:12955:12985");
   sightLeft = __dt(new Group2({
     members: [
       __dt(new Connection(this.eyeLeft, this.sightTargetLeftLow, {
         offsetStart: 0.2,
         z: -1,
         stroke: STROKE_MAIN
-      }), "core/demo/origins/Scene01.ts:11745:11879"),
+      }), "core/demo/origins/Scene01.ts:13033:13167"),
       __dt(new Connection(this.eyeLeft, this.sightTargetLeftHigh, {
         offsetStart: 0.2,
         z: -1,
         stroke: STROKE_MAIN
-      }), "core/demo/origins/Scene01.ts:11887:12022")
+      }), "core/demo/origins/Scene01.ts:13175:13310")
     ]
-  }), "core/demo/origins/Scene01.ts:11712:12035");
+  }), "core/demo/origins/Scene01.ts:13000:13323");
   sightRight = __dt(new Group2({
     members: [
       __dt(new Connection(this.eyeRight, this.sightTargetRightLow, {
         offsetStart: 0.2,
         z: -1,
         stroke: STROKE_MAIN
-      }), "core/demo/origins/Scene01.ts:12084:12220"),
+      }), "core/demo/origins/Scene01.ts:13372:13508"),
       __dt(new Connection(this.eyeRight, this.sightTargetRightHigh, {
         offsetStart: 0.2,
         z: -1,
         stroke: STROKE_MAIN
-      }), "core/demo/origins/Scene01.ts:12228:12365")
+      }), "core/demo/origins/Scene01.ts:13516:13653")
     ]
-  }), "core/demo/origins/Scene01.ts:12051:12378");
-  viewLeft = __dt(new Group2({ members: [this.eyeLeft, this.sightLeft] }), "core/demo/origins/Scene01.ts:12392:12446");
-  viewRight = __dt(new Group2({ members: [this.eyeRight, this.sightRight] }), "core/demo/origins/Scene01.ts:12461:12517");
-  eyes = __dt(new Group2({ members: [this.viewLeft, this.viewRight], x: 250 }), "core/demo/origins/Scene01.ts:12527:12590");
+  }), "core/demo/origins/Scene01.ts:13339:13666");
+  viewLeft = __dt(new Group2({ members: [this.eyeLeft, this.sightLeft] }), "core/demo/origins/Scene01.ts:13680:13734");
+  viewRight = __dt(new Group2({ members: [this.eyeRight, this.sightRight] }), "core/demo/origins/Scene01.ts:13749:13805");
+  eyes = __dt(new Group2({ members: [this.viewLeft, this.viewRight], x: 250 }), "core/demo/origins/Scene01.ts:13815:13878");
+  firstMorph = this.graph.nodes.length ? this.graph.nodes[1].morphTo(this.circle) : undefined;
   morphs = this.graph.nodes.length ? [
-    __dt(new MorphShape(this.graph.nodes[1], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:12857:12922"),
-    __dt(new MorphShape(this.graph.nodes[2], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:12932:12997"),
-    __dt(new MorphShape(this.graph.nodes[6], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13007:13072"),
-    __dt(new MorphShape(this.graph.nodes[3], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13082:13150"),
-    __dt(new MorphShape(this.graph.nodes[4], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13160:13228"),
-    __dt(new MorphShape(this.graph.nodes[5], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13238:13306")
+    __dt(new MorphShape(this.graph.nodes[2], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:14743:14808"),
+    __dt(new MorphShape(this.graph.nodes[6], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:14818:14883"),
+    __dt(new MorphShape(this.graph.nodes[3], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:14893:14961"),
+    __dt(new MorphShape(this.graph.nodes[4], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:14971:15039"),
+    __dt(new MorphShape(this.graph.nodes[5], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:15049:15117")
   ] : [];
   unfold() {
     this.observer.look("front");
+    if (this.firstMorph)
+      this.stage(this.firstMorph.shape);
     for (const morph of this.morphs)
       this.stage(morph);
     this.stage(this.shapes);
@@ -66803,33 +66833,33 @@ class Scene01Dream extends Dream {
     this.set(Create(this.relatives), UnCreate(this.shapes), UnCreate(this.eyes));
     this.set(this.circle.creation.to(1), this.rectangle.creation.to(1), this.circle.fillOpacity.to(1), this.rectangle.fillOpacity.to(1), FadeOut(this.circle), FadeOut(this.rectangle));
     this.wait(START_OFFSET12);
-    __dt(this.play(DrawThenFillCompletely(this.relatives), 2), "core/demo/origins/Scene01.ts:15078:15130");
-    __dt(this.play(Create(this.relationships), 2), "core/demo/origins/Scene01.ts:15180:15220");
-    __dt(this.play(together(Create(this.separator), UnCreate(this.relationshipsRemaining), ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 4), "core/demo/origins/Scene01.ts:15367:15692");
+    __dt(this.play(DrawThenFillCompletely(this.relatives), 2), "core/demo/origins/Scene01.ts:16948:17000");
+    __dt(this.play(Create(this.relationships), 2), "core/demo/origins/Scene01.ts:17050:17090");
+    __dt(this.play(together(Create(this.separator), UnCreate(this.relationshipsRemaining), ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 4), "core/demo/origins/Scene01.ts:17237:17562");
     for (const x2 of [50, -50, 50, -50, 0]) {
-      __dt(this.play(this.relativesMiddle.x.to(x2), 1), "core/demo/origins/Scene01.ts:15872:15914");
+      __dt(this.play(this.relativesMiddle.x.to(x2), 1), "core/demo/origins/Scene01.ts:17742:17784");
     }
     this.wait(9);
-    __dt(this.play(together(FadeOut(this.relationships), FadeOut(this.relativesMiddle), UnFill(this.relativesMiddle)), 1), "core/demo/origins/Scene01.ts:16045:16209");
-    this.set(...this.morphs.flatMap((morph, i2) => [
-      morph.tint.to(i2 < 3 ? BLUE : RED),
+    __dt(this.play(together(FadeOut(this.relationships), FadeOut(this.relativesMiddle), UnFill(this.relativesMiddle)), 1), "core/demo/origins/Scene01.ts:17915:18079");
+    this.set(...this.firstMorph ? [this.firstMorph.shape.tint.to(BLUE), this.firstMorph.shape.fillOpacity.to(1)] : [], ...this.morphs.flatMap((morph, i2) => [
+      morph.tint.to(i2 < 2 ? BLUE : RED),
       morph.fillOpacity.to(1)
     ]));
-    __dt(this.play(together(FadeOut(this.separator), Morph(this.morphs[0], this.graph.nodes[1], this.circle), Morph(this.morphs[1], this.graph.nodes[2], this.circle), Morph(this.morphs[2], this.graph.nodes[6], this.circle), Morph(this.morphs[3], this.graph.nodes[3], this.rectangle), Morph(this.morphs[4], this.graph.nodes[4], this.rectangle), Morph(this.morphs[5], this.graph.nodes[5], this.rectangle)), 4), "core/demo/origins/Scene01.ts:17293:17787");
-    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:19895:20086");
+    __dt(this.play(together(FadeOut(this.separator), ...this.firstMorph ? [this.firstMorph.anim] : [], Morph(this.morphs[0], this.graph.nodes[2], this.circle), Morph(this.morphs[1], this.graph.nodes[6], this.circle), Morph(this.morphs[2], this.graph.nodes[3], this.rectangle), Morph(this.morphs[3], this.graph.nodes[4], this.rectangle), Morph(this.morphs[4], this.graph.nodes[5], this.rectangle)), 4), "core/demo/origins/Scene01.ts:19418:20102");
+    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:22210:22401");
     this.wait(3);
-    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:21177:21435");
-    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:21440:21475");
-    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:21665:21701");
-    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:21706:21773");
+    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:23492:23750");
+    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:23755:23790");
+    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:23980:24016");
+    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:24021:24088");
     this.wait(1);
-    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:22066:22341");
-    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:22346:22417");
+    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:24381:24656");
+    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:24661:24732");
     this.wait(2);
-    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:22439:22617");
-    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:22622:22655");
+    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:24754:24932");
+    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:24937:24970");
     this.wait(2);
-    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:22677:22712");
+    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:24992:25027");
   }
 }
 if (false)

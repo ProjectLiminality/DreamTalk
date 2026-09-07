@@ -225,3 +225,32 @@ export const UnFillThenUnDraw = (holon: Holon): Anim =>
  */
 export const UnDrawThenUnFill = (holon: Holon): Anim =>
   together(restage(UnDraw(holon), 0, 0.6), restage(UnFill(holon), 0.3, 1))
+
+// ─── COMPATIBILITY BLOCK (one release) ──────────────────────────────
+// `Morph` is no longer a core verb: it is DreamTalk's first pluggable
+// ABILITY and lives whole in core/vocabulary/Morph/ — holon, verb, and
+// the `.morphTo()` graft in one DreamNode (docs/DECISIONS.md 2026-09-07,
+// "Abilities are pluggable DreamNodes"). Only the pure geometry stayed
+// in core, at geometry/morph.ts.
+//
+// These re-exports keep `import { Morph } from "…/verbs"` working while
+// in-repo code migrates to the vocabulary path. The precedent and the
+// shape are parts/index.ts's own compatibility block. Remove after a
+// release once nothing imports Morph from here.
+//
+// NOTE what this re-export COSTS, and why it is still right: verbs.ts is
+// imported by nearly every scene, so re-exporting from the ability
+// module makes the graft's side effect reach them too — `.morphTo()`
+// appears at runtime on Strokes in files that never asked for it. The
+// TYPE does not (the declaration merge only enters a compilation that
+// includes the ability module), so nothing can be written against it by
+// accident. That asymmetry is the shim's whole footprint, and it is why
+// the block is temporary rather than the permanent home.
+export {
+  Morph,
+  MorphShape,
+  isMorphable,
+  type MorphOptions,
+  type StagedMorph,
+} from "../vocabulary/Morph/Morph"
+// ────────────────────────────────────────────────────────────────────

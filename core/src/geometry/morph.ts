@@ -9,6 +9,22 @@
  * themselves, between two holons that need have nothing in common.
  *
  *
+ * WHAT IS HERE, AND WHAT IS NOT
+ *
+ * This module is the MATHEMATICS only: resampling, correspondence,
+ * interpolation, and the two readings of a stroke's outline. It is core
+ * infrastructure in the same sense geometry/svg.ts and geometry/xpbd.ts
+ * are — pure functions over plain data, importable by anything, holding
+ * no scene state and grafting nothing onto anything.
+ *
+ * THE ABILITY lives in `core/vocabulary/Morph/` — the `MorphShape`
+ * holon, the `Morph` verb, and the `.morphTo()` graft that teaches every
+ * Stroke to do this. That split is the point: a scene that wants to
+ * morph imports the vocabulary module; a tool that only wants to
+ * resample a polyline imports this one and gains no new methods on
+ * anything. See vocabulary/Morph/README.md.
+ *
+ *
  * WHAT PYDEATION ACTUALLY DID (the correspondence rule, as found)
  *
  * The source does not implement point matching at all. It delegates the
@@ -81,9 +97,8 @@ import {
   rephasePolyline,
   type Vec3Like,
 } from "../parts/primitives"
-import { rotHPB, worldPosition } from "../parts/curves"
-import { Holon, type Overrides } from "../holon"
-import { completion, integer } from "../params"
+import { rotHPB } from "../parts/curves"
+import type { Holon } from "../holon"
 
 /** The default resampling density — C4D's MoSpline at COUNT_STEP 1. */
 export const MORPH_SAMPLES = 128
@@ -285,158 +300,4 @@ export const worldOutlineOf = (
     }
     return out
   })
-}
-
-/**
- * Install a pull-based `points` accessor on a Line: `compute` runs only
- * when `sourceKey` changes, and the memo is what every reader sees. The
- * returned array identity is stable across unchanged frames, so the
- * host's value-comparison dirty-check stays cheap and honest.
- *
- * The same idiom `Connection` and `Cylinder` use (parts/curves.ts), said
- * again here rather than exported from there: it is six lines, and
- * widening curves.ts's surface for it would couple two modules that
- * otherwise share nothing.
- */
-const derivePoints = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => Vec3Like[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
-}
-
-/**
- * The shape mid-morph — pydeation's `morpher`, the Cloner that stands in
- * for both shapes while neither of them is itself.
- *
- * The construction is deliberately the same shape as `Connection`'s: a
- * plain `Line` child whose `points` are a DERIVED reading, pulled fresh
- * whenever the inputs move (parts/curves.ts: derivePoints). That is what
- * makes the whole verb additive — the host has drawn `Line`s since the
- * first commit, and a morphing outline is just a Line whose points are a
- * function of `completion` instead of a constant. No new renderer, no
- * new binding, no per-frame push from the scene.
- *
- * `morph` is the PlainEffector's `modify_clone`: 0 = the source's
- * outline, 1 = the target's. `tint` blends the two shapes' colours over
- * the same window, which is pydeation's `blend_color` — the morpher
- * carries the source's colour at 0 and the destination's at 1
- * (animator.py:606, 620), so a blue circle becoming a red rectangle is
- * purple halfway, and that is the reference's behaviour, not a choice.
- *
- * The outlines are read in WORLD space and the shape itself is left at
- * the identity, exactly as `Connection` does — so its local space IS
- * world space and the derived points need no inverse.
- */
-export class MorphShape extends Stroke {
-  /** The blend parameter — 0 is the source's shape, 1 is the target's. */
-  morph = completion(0)
-  /** Resampling density; both outlines are re-laid at this count. */
-  samples = integer(MORPH_SAMPLES)
-
-  /**
-   * The drawn thing. All four of the morpher's surfaces are BOUND into
-   * it (passing a Param as an override makes the field that same Param,
-   * holon.ts), so the verb animates the MorphShape and the Line is what
-   * the host actually renders — including `fillOpacity`, which is how
-   * the interior survives the crossing: Scene01's morphs run between two
-   * shapes that are already flooded, and an outline-only blend would
-   * read as a hollow ring halfway (f_00190 shows them solid).
-   */
-  line: Line = new Line({
-    tint: this.tint,
-    stroke: this.stroke,
-    fillOpacity: this.fillOpacity,
-    opacity: this.opacity,
-  })
-
-  // Held off the field scan, like Connection's anchors: these are
-  // REFERENCES to shapes that live elsewhere in the scene, not parts of
-  // this one, and registering them would reparent them.
-  private ends!: { source: Stroke; target: Stroke }
-
-  constructor(source: Stroke, target: Stroke, overrides: Overrides = {}) {
-    super(overrides)
-    this.ends = { source, target }
-  }
-
-  protected override compose(): void {
-    derivePoints(
-      this.line,
-      () => {
-        // Everything the outline depends on: the blend, the density, and
-        // where each end currently IS. Reading the two world positions
-        // keeps a morph honest when either shape is animated during it.
-        const a = worldPosition(this.ends.source)
-        const b = worldPosition(this.ends.target)
-        return [
-          this.morph.value,
-          this.samples.value,
-          a.x,
-          a.y,
-          a.z,
-          b.x,
-          b.y,
-          b.z,
-          ...shapeReading(this.ends.source),
-          ...shapeReading(this.ends.target),
-        ]
-      },
-      () => this.refresh(),
-    )
-  }
-
-  /** The interpolated outline at the current `morph`, in world space. */
-  refresh(): Vec3Like[] {
-    const n = this.samples.value
-    const a = worldOutlineOf(this.ends.source, n)
-    const b = worldOutlineOf(this.ends.target, n)
-    if (!a || !b) {
-      throw new Error(
-        `Morph: no outline for ${!a ? this.ends.source.constructor.name : this.ends.target.constructor.name} ` +
-          `— morphs are defined between the closed plane figures geometry/morph.ts:outlineOf knows`,
-      )
-    }
-    return morphedPolyline(a, b, this.morph.value, n)
-  }
-}
-
-/**
- * The size-and-shape half of a stroke's identity — enough of it to know
- * when a derived outline has gone stale. Position is read separately (it
- * comes from the transform chain); this is what the generator itself
- * consumes.
- */
-const shapeReading = (holon: Stroke): number[] => {
-  const frame = [
-    holon.h.value,
-    holon.p.value,
-    holon.b.value,
-    holon.scale.value,
-    holon.drawStart.value,
-    holon.drawReversed.value ? 1 : 0,
-  ]
-  if (holon instanceof Circle) return [holon.radius.value, ...frame]
-  if (holon instanceof Ellipse) return [holon.radiusX.value, holon.radiusY.value, ...frame]
-  if (holon instanceof Square) return [holon.size.value, ...frame]
-  if (holon instanceof Polygon) return [holon.radius.value, holon.sides.value, ...frame]
-  if (holon instanceof Rectangle)
-    return [holon.width.value, holon.height.value, holon.rounding.value, ...frame]
-  if (holon instanceof Line) return [...holon.points.flatMap((p) => [p.x, p.y, p.z]), ...frame]
-  return frame
 }

@@ -21,7 +21,6 @@
 import { describe, expect, test } from "bun:test"
 import {
   MORPH_SAMPLES,
-  MorphShape,
   arcLengths,
   morphedPolyline,
   outlineOf,
@@ -29,9 +28,25 @@ import {
   resampleUniform,
   worldOutlineOf,
 } from "../src/geometry/morph"
-import { Circle, Group, Line, Rectangle, Square, type Vec3Like } from "../src/parts/primitives"
-import { Morph } from "../src/verbs"
+// Importing the ability module is what grafts `.morphTo()` onto Stroke —
+// the tests below prove that, so the import has to be the real one.
+import { Morph, MorphShape, isMorphable } from "../vocabulary/Morph/Morph"
+import {
+  AnnularSector,
+  Circle,
+  Group,
+  Line,
+  Rectangle,
+  Square,
+  type Vec3Like,
+} from "../src/parts/primitives"
 import { BLUE, RED } from "../src/constants"
+
+/**
+ * A Stroke built at module scope, so the graft test can prove the
+ * ability reaches instances that existed before anyone asked for it.
+ */
+const preexisting = new Circle({ radius: 42 })
 
 /** A unit square walked counterclockwise from its bottom-left, closed. */
 const unitSquare: Vec3Like[] = [
@@ -306,10 +321,170 @@ describe("MorphShape — the holon", () => {
     expect(down).toEqual(up)
   })
 
-  test("a shape with no outline is refused loudly", () => {
-    const bad = new MorphShape(new Line({ points: [] }), new Circle({ radius: 10 }))
-    void bad.parts
-    expect(() => bad.line.points).toThrow(/no outline/)
+  test("a shape with no outline is refused AT CONSTRUCTION", () => {
+    // Not at the first frame: a morph between two shapes that cannot
+    // morph is a mistake in the scene's DECLARATION, and refusing while
+    // that declaration is still running is what lets the stack trace
+    // name the line responsible.
+    expect(() => new MorphShape(new Line({ points: [] }), new Circle({ radius: 10 }))).toThrow(
+      /cannot use Line as the source/,
+    )
+  })
+})
+
+describe("the eligibility gate", () => {
+  test("a composite stroke is refused, and told WHY it is different", () => {
+    // An AnnularSector draws itself through four sub-strokes, so asking
+    // for "its" outline is a category error rather than a missing
+    // feature — and the message has to say which of the two it is, or
+    // the caller goes looking for a feature that should not exist.
+    const ring = new AnnularSector()
+    void ring.parts
+    let message = ""
+    try {
+      new MorphShape(ring, new Circle({ radius: 10 }))
+    } catch (e) {
+      message = String(e)
+    }
+    expect(message).toMatch(/AnnularSector/)
+    expect(message).toMatch(/sub-strokes/)
+    expect(message).toMatch(/morph its pieces individually/)
+  })
+
+  test("every refusal names what IS morphable", () => {
+    for (const bad of [new AnnularSector(), new Line({ points: [] })]) {
+      void bad.parts
+      expect(() => new MorphShape(bad, new Circle({ radius: 10 }))).toThrow(
+        /Morphable shapes are: Circle, Ellipse, Square, Polygon, Rectangle, or a closed Line/,
+      )
+    }
+  })
+
+  test("the target is gated too, and says so", () => {
+    expect(() => new MorphShape(new Circle({ radius: 10 }), new Line({ points: [] }))).toThrow(
+      /cannot use Line as the target/,
+    )
+  })
+
+  test("isMorphable answers the same question without throwing", () => {
+    expect(isMorphable(new Circle({ radius: 10 }))).toBe(true)
+    expect(isMorphable(new Rectangle({ width: 10, height: 20 }))).toBe(true)
+    expect(isMorphable(new Square({ size: 10 }))).toBe(true)
+    const ring = new AnnularSector()
+    void ring.parts
+    expect(isMorphable(ring)).toBe(false)
+    expect(isMorphable(new Line({ points: [] }))).toBe(false)
+  })
+
+  test("a Group cannot even be NAMED as a morph end — the compile-time half", () => {
+    // The runtime predicate takes a Stroke, and `declare module` merged
+    // `morphTo` onto Stroke alone, so `new Group({}).morphTo(…)` is a
+    // TYPE error rather than a caught one. That is the compile-time gate
+    // doing its job, and it is asserted here the only way a runtime test
+    // can: by showing the method is absent from the object entirely.
+    const group = new Group({})
+    expect((group as unknown as { morphTo?: unknown }).morphTo).toBeUndefined()
+  })
+})
+
+describe("the graft — what importing the ability module does", () => {
+  test("every Stroke gained .morphTo, including instances made before it ran", () => {
+    // `preexisting` is constructed at module load, before this test body
+    // runs; prototype augmentation reaches it exactly as it reaches
+    // anything made later. That is the whole promise of the pattern.
+    expect(typeof preexisting.morphTo).toBe("function")
+    expect(typeof new Circle({ radius: 1 }).morphTo).toBe("function")
+    expect(typeof new Rectangle({ width: 1, height: 1 }).morphTo).toBe("function")
+  })
+
+  test("the graft is invisible to the holon field scan", () => {
+    // Holon registers params and parts by walking Object.entries of the
+    // instance. A grafted method that showed up there would be mistaken
+    // for neither and clutter the outline; non-enumerable on the
+    // prototype means it is simply not in that world.
+    const circle = new Circle({ radius: 10 })
+    expect(Object.keys(circle)).not.toContain("morphTo")
+    expect(Object.entries(circle).map(([k]) => k)).not.toContain("morphTo")
+    expect(circle.params.has("morphTo")).toBe(false)
+    expect(circle.parts.some((p) => (p as unknown as { morphTo?: unknown }) === undefined)).toBe(
+      false,
+    )
+  })
+
+  test("the graft is idempotent — importing twice does not redefine it", async () => {
+    const before = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(new Circle({ radius: 1 })).constructor.prototype,
+      "morphTo",
+    )
+    await import("../vocabulary/Morph/Morph")
+    const after = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(new Circle({ radius: 1 })).constructor.prototype,
+      "morphTo",
+    )
+    expect(after?.value).toBe(before?.value)
+  })
+})
+
+describe("noun/verb duality", () => {
+  const staged = () => {
+    const src = new Circle({ radius: 20, tint: BLUE })
+    const dst = new Rectangle({ width: 100, height: 200, tint: RED })
+    const shape = new MorphShape(src, dst)
+    void shape.parts
+    return { shape, src, dst }
+  }
+
+  test("Morph(shape, a, b) and a.morphTo(b) build the SAME Anim", () => {
+    const one = staged()
+    const other = staged()
+    const asVerb = Morph(one.shape, one.src, one.dst)
+    // The method stages its own morpher — that is the only difference
+    // between the spellings, and it is why it hands one back.
+    const asMethod = other.src.morphTo(other.dst)
+    expect(asMethod.shape).toBeInstanceOf(MorphShape)
+    expect(asMethod.anim.tracks.length).toBe(asVerb.tracks.length)
+    // Same track list, param-for-param, in the same order — the two
+    // spellings are one implementation, not two that agree.
+    for (let i = 0; i < asVerb.tracks.length; i++) {
+      const a = asVerb.tracks[i]!
+      const b = asMethod.anim.tracks[i]!
+      expect(b.mode).toBe(a.mode)
+      expect(b.relStart).toBe(a.relStart)
+      expect(b.relStop).toBe(a.relStop)
+      expect(b.easing).toBe(a.easing)
+      expect(b.param.name).toBe(a.param.name)
+      expect(b.param.owner?.constructor.name).toBe(a.param.owner?.constructor.name)
+    }
+  })
+
+  test("the morpher the method stages starts invisible", () => {
+    // The verb's own show_morpher window lights it at 0.01; a morpher
+    // that arrived already opaque would flash for one frame before the
+    // morph began.
+    const { src, dst } = staged()
+    expect(src.morphTo(dst).shape.opacity.value).toBe(0)
+  })
+
+  test("the options reach the method spelling too", () => {
+    const { src, dst } = staged()
+    // copy=true is the one option with a visible structural effect: the
+    // source's opacity track is simply absent.
+    expect(src.morphTo(dst, { copy: true }).anim.tracks.some((t) => t.param === src.opacity)).toBe(
+      false,
+    )
+    // …and `samples` reaches the staged morpher's own param.
+    expect(src.morphTo(dst, { samples: 64 }).shape.samples.value).toBe(64)
+  })
+
+  test("the method gate fires at the CALL, before anything is staged", () => {
+    const ring = new AnnularSector()
+    void ring.parts
+    // Same gate, same wording as the verb spelling's — the method has no
+    // error vocabulary of its own, because it has no implementation of
+    // its own. It builds a MorphShape, and the MorphShape refuses.
+    expect(() => ring.morphTo(new Circle({ radius: 10 }))).toThrow(
+      /cannot use AnnularSector as the source/,
+    )
   })
 })
 

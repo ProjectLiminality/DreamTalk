@@ -94,8 +94,27 @@
  * nearly converged on the single destination circle and read as ONE
  * lumpy blob with three overlapping lobes — three independent morphs
  * arriving at the same place, not one shape being moved. That is what
- * six separate MorphShapes look like, and it is why the verb takes a
+ * six separate MorphShapes look like, and it is why the ability takes a
  * staged shape per pair rather than one per group.
+ *
+ *
+ * MORPH IS NOT A CORE VERB — THIS SCENE IS THE PROOF
+ *
+ * `Morph` is imported from `core/vocabulary/Morph/`, not from
+ * `core/src/verbs.ts`, which does not mention it. It is the framework's
+ * first PLUGGABLE ABILITY: a DreamNode whose contribution is a
+ * capability rather than a shape, and which grafts `.morphTo()` onto
+ * every Stroke in the process when it is imported. This scene uses the
+ * free-function spelling because the source's grammar is a list of
+ * animators handed to `play()` and a reproduction should read like what
+ * it reproduces; `this.graph.nodes[1]!.morphTo(this.circle)`
+ * is the same ability in its method spelling — it stages the morpher for
+ * you and hands it back, which suits a scene declaring one morph in one
+ * place rather than six up front.
+ *
+ * Delete the import and this file stops compiling — which is the honest
+ * signal that the ability is genuinely separable, and the reason the
+ * pattern is worth having.
  *
  *
  * FRAMING (front, zoom 1 — the source coordinates ARE the pixels)
@@ -123,7 +142,12 @@ import { Circle, DottedLine, Group, Rectangle } from "../../src/parts/primitives
 import { Connection } from "../../src/parts/curves"
 import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { Eye } from "../../vocabulary/Eye/Eye"
-import { MorphShape } from "../../src/geometry/morph"
+// THE ABILITY IMPORT. This one line is what makes the six morphs below
+// possible: `core/src` contains no Morph verb, and every Stroke in this
+// scene gains `.morphTo()` because this module was taken in. See
+// vocabulary/Morph/README.md — it is the first pluggable ability, and
+// this scene is its proof in anger.
+import { Morph, MorphShape } from "../../vocabulary/Morph/Morph"
 import {
   ChangeColor,
   Create,
@@ -131,7 +155,6 @@ import {
   Erase,
   FadeOut,
   Fill,
-  Morph,
   UnCreate,
   UnFill,
 } from "../../src/verbs"
@@ -289,12 +312,24 @@ export class Scene01Dream extends Dream {
   viewRight = new Group({ members: [this.eyeRight, this.sightRight] })
   eyes = new Group({ members: [this.viewLeft, this.viewRight], x: 250 })
 
-  // The six morphers — one per (source node, destination shape) pair,
-  // exactly as pydeation builds one helper Cloner per Morph call. Three
-  // left nodes converge on the circle, three right on the rectangle.
+  /**
+   * The FIRST morph, stated in the method spelling — the living proof
+   * that the graft is real. `.morphTo()` builds the morpher and returns
+   * it with its Anim; the scene declares both as fields, which is the
+   * whole contract (the method never inserts geometry itself). The other
+   * five below use the verb spelling on morphers declared the long way.
+   * Both are canon and both are the same code.
+   */
+  firstMorph = this.graph.nodes.length
+    ? this.graph.nodes[1]!.morphTo(this.circle)
+    : undefined
+
+  // The remaining five morphers — one per (source node, destination
+  // shape) pair, exactly as pydeation builds one helper Cloner per Morph
+  // call. Three left nodes converge on the circle, three right on the
+  // rectangle; `firstMorph` above is the sixth, and the first of them.
   morphs = this.graph.nodes.length
     ? [
-        new MorphShape(this.graph.nodes[1]!, this.circle, { opacity: 0 }),
         new MorphShape(this.graph.nodes[2]!, this.circle, { opacity: 0 }),
         new MorphShape(this.graph.nodes[6]!, this.circle, { opacity: 0 }),
         new MorphShape(this.graph.nodes[3]!, this.rectangle, { opacity: 0 }),
@@ -310,6 +345,7 @@ export class Scene01Dream extends Dream {
     // Everything the source `add`s is staged; the shapes and eyes are
     // present from the first frame but undrawn, exactly as `self.add`
     // means in pydeation.
+    if (this.firstMorph) this.stage(this.firstMorph.shape)
     for (const morph of this.morphs) this.stage(morph)
     this.stage(this.shapes)
     this.stage(this.eyes)
@@ -391,9 +427,14 @@ export class Scene01Dream extends Dream {
     // the colour of the half the node belongs to. Without this the six
     // morphs depart from white-and-hollow and cross the frame as pale
     // translucent ghosts; f_00190 shows them saturated and solid.
+    // `firstMorph` is a left-side morpher (node 1 → the circle), so it
+    // takes BLUE alongside the two other left ones.
     this.set(
+      ...(this.firstMorph
+        ? [this.firstMorph.shape.tint.to(BLUE), this.firstMorph.shape.fillOpacity.to(1)]
+        : []),
       ...this.morphs.flatMap((morph, i) => [
-        morph.tint.to(i < 3 ? BLUE : RED),
+        morph.tint.to(i < 2 ? BLUE : RED),
         morph.fillOpacity.to(1),
       ]),
     )
@@ -402,12 +443,15 @@ export class Scene01Dream extends Dream {
     this.play(
       together(
         FadeOut(this.separator),
-        Morph(this.morphs[0]!, this.graph.nodes[1]!, this.circle),
-        Morph(this.morphs[1]!, this.graph.nodes[2]!, this.circle),
-        Morph(this.morphs[2]!, this.graph.nodes[6]!, this.circle),
-        Morph(this.morphs[3]!, this.graph.nodes[3]!, this.rectangle),
-        Morph(this.morphs[4]!, this.graph.nodes[4]!, this.rectangle),
-        Morph(this.morphs[5]!, this.graph.nodes[5]!, this.rectangle),
+        // The method spelling's Anim, built with its morpher back where
+        // the field is declared — the same Anim the five verb calls
+        // below produce, reached the other way round.
+        ...(this.firstMorph ? [this.firstMorph.anim] : []),
+        Morph(this.morphs[0]!, this.graph.nodes[2]!, this.circle),
+        Morph(this.morphs[1]!, this.graph.nodes[6]!, this.circle),
+        Morph(this.morphs[2]!, this.graph.nodes[3]!, this.rectangle),
+        Morph(this.morphs[3]!, this.graph.nodes[4]!, this.rectangle),
+        Morph(this.morphs[4]!, this.graph.nodes[5]!, this.rectangle),
       ),
       4,
     )
