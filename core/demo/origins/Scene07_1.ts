@@ -132,8 +132,15 @@
  *
  * — which is 0.1 s ahead of the first lit frame, the expected direction
  * (an eased draw is under the encode's threshold for a frame or two
- * before it shows). Scored there, frames 1.1 through 7.1 are perfect:
- * coverage 1.0000 against the reference on all seven.
+ * before it shows).
+ *
+ * Scored there at 1 s steps: **10/12 PASS, mean coverage 0.912 (ref) /
+ * 0.902 (ours)**, and frames 1.1 through 7.1 — the meeting, the
+ * recolour, the hold, the drop — are perfect, coverage 1.0000 against
+ * the reference on all seven. The two failures are the very first frame
+ * (0.1, where an eased draw has lit almost nothing yet) and one
+ * mid-flight frame of the second morph; the dense scan below says what
+ * that one is.
  *
  *
  * THE FOUR MORPHS, AND `copy: true`

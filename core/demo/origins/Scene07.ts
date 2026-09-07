@@ -164,7 +164,23 @@
  * REASON rather than silently failed, on the Scene04-fade precedent.
  *
  *
- * THE TWO MORPHS ARE PER-LETTER, AND THE REFERENCE INSISTS ON IT
+ * THE SCENE HAS TWO PAIRS OF MORPHS, AND WE CAN STATE ONE OF THEM
+ *
+ * The second pair — `Morph(frame_code, circle_code)` and its twin — is
+ * Rectangle → Circle: two Strokes, each carrying one closed outline,
+ * which is exactly what the ability takes. That pair is reproduced
+ * properly, through `MorphShape` and the `Morph` verb, and the
+ * reference says how much that matters: on f_01337 the panels mid-blend
+ * are BOWED, sides swollen outward and corners drawn in, a shape
+ * halfway between a square and a disc. The first cut of this scene
+ * faded the frames out under a `Create` of the circles instead, and the
+ * composite showed our hard rectangles and part-drawn arcs against the
+ * reference's rounded panels. With the real morph the same frames show
+ * the same rounded-square, and the Venn hold that follows scores
+ * coverage 1.0000 against the reference on sixteen consecutive frames.
+ *
+ * The FIRST pair is the one we cannot state, and the rest of this note
+ * is about it.
  *
  * `Morph(code, frame_code)` morphs a TEXT into a rectangle, and the
  * obvious reading — one blob crossing the frame — is wrong. pydeation's
@@ -192,12 +208,77 @@
  * outlines is a text-rendering change, not a scene change.
  *
  * What this scene does instead is state the morph's ENDPOINTS honestly:
- * the words leave (UnWrite) as the frames arrive (Create + flood) over
- * the same three-second span. The frame's growth is the morph's
- * silhouette; what is missing is the four-letter mid-flight, which is
- * roughly video 252.4-254.2. Those frames are the second entry in the
+ * the words leave (UnWrite) as the panels arrive whole and already
+ * flooded, over the same three-second span, which is what a morph
+ * delivers at u = 1. The panel's arrival is the morph's silhouette;
+ * what is missing is the four-letter mid-flight, roughly video
+ * 252.8-254.8. Those frames are the second entry in the
  * excluded-with-reason list, for a reason that is about `Text`'s
  * representation rather than about this scene.
+ *
+ *
+ * WHAT IT SCORES, AND WHICH FRAMES ARE EXCLUDED
+ *
+ * Run at t0 = 233 over the scene's whole span, 1 s steps:
+ * **22/38 PASS, mean coverage 0.881 (ref) / 0.901 (ours)**. The
+ * failures are not scattered — they fall into four contiguous bands,
+ * two of which are the divergences this header has already derived:
+ *
+ *   frames  video          n   what
+ *   ------  -------------  --  --------------------------------------
+ *   5.8-6.8   238.8-239.8   2  the opening write, first ink. An eased
+ *                              per-letter domino is under the encode's
+ *                              threshold for a frame or two; cov_ours
+ *                              is already 0.99 at 6.8 while cov_ref is
+ *                              0.40, i.e. our ink is all in the right
+ *                              place and there is simply less of it yet.
+ *   19.8-20.8 252.8-253.8   2  EXCLUDED — the Text → Rectangle morph.
+ *                              cov_ref is 0.999 on both, so the PANELS
+ *                              are exact and the whole shortfall is
+ *                              cov_ours: the reference carries four
+ *                              letter-shaped blobs mid-flight that we
+ *                              have no per-letter outlines to make. The
+ *                              third frame of this band (21.8) now
+ *                              PASSES at 0.9998/0.9999, the letters
+ *                              having arrived.
+ *   22.8-31.8 255.8-264.8  10  EXCLUDED — the code panel. Arimo's
+ *                              proportional advances against the
+ *                              reference's monospace, and white against
+ *                              its syntax colouring; see the ledger.
+ *                              cov_ours holds 0.90-0.99 across the whole
+ *                              band (our ink IS reference ink) while
+ *                              cov_ref sits at 0.80-0.86 (the
+ *                              reference's wider glyphs have no
+ *                              counterpart) — which is the signature of
+ *                              a font difference rather than a layout
+ *                              error, and it is why the LINE PLACEMENT
+ *                              can be called right while the band fails.
+ *   33.8-34.8 266.8-267.8   2  the Rectangle → Circle morph mid-flight.
+ *                              Reproduced, and the right SHAPE, but our
+ *                              blend runs ahead of the reference's:
+ *                              cov_ref and cov_ours track each other
+ *                              (0.07/0.09), which is two similar shapes
+ *                              in different places rather than two
+ *                              different shapes. The naive
+ *                              correspondence rule again — Scene07_1's
+ *                              header derives the same signature on its
+ *                              polygon chain, and the rule is
+ *                              deliberate (Morph's README).
+ *
+ * Excluding the two EXCLUDED bands (12 frames), the scene is **22/26**.
+ * Both spans it holds still — the "code ↔ idea" tableau (ten frames at
+ * cov_ref 0.988) and the finished Venn diagram (seven frames at cov_ref
+ * 1.0000) — are essentially exact.
+ *
+ * THE PANELS ONLY FLOOD BECAUSE OF A FIX THIS SCENE PROMPTED. They are
+ * `Rectangle`s carrying `fillOpacity`, and `washGeometry` had no
+ * Rectangle branch, so their interiors rendered as nothing: the
+ * reference at video 254.8 is 303,940 lit pixels (two solid blocks of
+ * colour) and ours was 13,957 (two outlines). `filled` and
+ * `fillOpacity` are different things and only the first worked on a
+ * Rectangle. Fixed in render/three-host.ts, which took this scene's
+ * morph band from cov_ref 0.08 to 0.999 — and Scene01, whose morph
+ * destination is the same construct, gains it too.
  *
  *
  * FRAMING (front, zoom 1 — the source coordinates ARE the pixels)
@@ -223,6 +304,12 @@
 import { Dream, render } from "../../src/index"
 import { Circle, Group, Line, Rectangle } from "../../src/parts/primitives"
 import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
+// THE ABILITY IMPORT. The panels-become-circles pair below are genuine
+// morphs — Rectangle → Circle, two Strokes each with one closed outline
+// — and they exist because this module was taken in. The scene's OTHER
+// pair (Text → Rectangle) is not reachable through it, and the header
+// says why.
+import { Morph, MorphShape } from "../../vocabulary/Morph/Morph"
 import { Text, Write, UnWrite } from "../../src/parts/text"
 import {
   Create,
@@ -412,31 +499,51 @@ export class Scene07Dream extends Dream {
   circleIdea = new Circle({ radius: 200, tint: RED, stroke: STROKE_MAIN })
   vennDiagram = new Group({ members: [this.circleCode, this.circleIdea] })
 
+  /**
+   * The panels becoming the circles — the scene's OTHER pair of morphs,
+   * and the pair we can actually state.
+   *
+   * `Morph(frame_code, circle_code)` is Rectangle → Circle: two Strokes,
+   * each with one closed outline, which is precisely what the ability
+   * takes. (The first pair, `Morph(code, frame_code)`, is Text →
+   * Rectangle and is not — see the header.) So this half of the scene's
+   * morphing is reproduced properly rather than approximated, and the
+   * reference shows what that has to look like: on f_01337 the panels
+   * are BOWED, their sides swollen outward and their corners pulled in,
+   * halfway between a square and a disc. A crossfade cannot make that
+   * shape; a blend between two resampled outlines does, and did — the
+   * first cut of this scene faded the frames out under a `Create` of
+   * the circles and the composite showed our hard rectangles against
+   * the reference's rounded ones.
+   */
+  morphCode = new MorphShape(this.frameCode, this.circleCode, { opacity: 0 })
+  morphIdea = new MorphShape(this.frameIdea, this.circleIdea, { opacity: 0 })
+
   // Connection((-100,0,0), (100,0,0), arrow_start=True) — the
   // double-headed arrow between the words, 200 units across the centre.
   //
-  // A `Line` rather than a `Connection`, and the two arrowheads are why.
+  // A `Line` rather than a `Connection`, because that is what it is.
   // pydeation's `Connection` takes bare COORDINATE TUPLES here, not
   // objects: `(-100,0,0)` and `(100,0,0)` are fixed points, so there is
   // nothing for a Connection's anchor tracking to track, and the curve
-  // it would fit through two points is the straight segment anyway.
-  // What core's Connection does NOT expose is the arrow flags — they
-  // live on the `Line` it composes internally (parts/primitives.ts:
-  // Line.arrowStart / .arrowEnd), and `arrowEnd` is already true by that
-  // Line's default, which is what makes a plain Connection
-  // single-headed. Reaching through the wrapper to set the inner Line's
-  // flag is both uglier than saying `Line` and, in the event, wrong:
-  // the head is built from the line's points when the host attaches it,
-  // and a Connection's points are derived later, so the start cap lands
-  // on top of the end cap and renders as a diamond.
+  // it would fit through two of them is the straight segment anyway.
+  // The arrow flags live on `Line` (parts/primitives.ts: arrowStart /
+  // arrowEnd), which is a second reason to say `Line`: a Connection
+  // exposes only the single head its inner line carries by default.
   //
-  // So: the straight thing is stated as a straight thing. The offsets
-  // the source does not ask for are not invented either — pydeation's
-  // `Connection` defaults `offset_start`/`offset_end` to 0.1, but those
-  // trim a curve back from ANCHOR OBJECTS, and this arrow has none.
-  // f_01230 confirms it runs the full 200 units: measured tip to tip at
-  // screen x 525-756, i.e. world −90 to +90 to the tips of two 10-unit
-  // caps on a 200-unit line.
+  // The offsets the source does not ask for are not invented either —
+  // pydeation's `Connection` defaults `offset_start`/`offset_end` to
+  // 0.1, but those trim a curve back from ANCHOR OBJECTS and this arrow
+  // has none. f_01230 confirms it runs the full 200 units, tip to tip.
+  //
+  // THIS SCENE IS `arrowStart`'s FIRST CONSUMER, and it found a bug in
+  // it. `syncArrow` walked the already-reversed point list to progress
+  // 0, which is the reversed list's first point — the line's LAST — so
+  // both heads were built, correctly shaped, stacked at the same end,
+  // and rendered as a clean diamond with nothing at the left. Nothing
+  // had ever exercised the flag (the repo's only other mention asserts
+  // it FALSE, test/section.test.ts), so it had never been caught. Fixed
+  // in three-host.ts as `progress = atStart ? 1 : drawn`.
   link = new Line({
     points: [
       { x: -100, y: 0, z: 0 },
@@ -463,14 +570,27 @@ export class Scene07Dream extends Dream {
     this.stage(this.arrow)
     this.stage(this.vennDiagram)
     this.stage(this.codeSnippet)
+    this.stage(this.morphCode)
+    this.stage(this.morphIdea)
     this.set(
       UnCreate(this.link),
       UnCreate(this.frames),
       UnCreate(this.cylinder),
       UnCreate(this.arrow),
-      UnCreate(this.vennDiagram),
       this.code.creation.to(0),
       this.idea.creation.to(0),
+    )
+    // THE VENN CIRCLES ARE MORPH DESTINATIONS TOO, so they are NOT
+    // un-created here: a destination is born with a complete outline
+    // and is merely SHOWN when its morpher leaves (vocabulary/Morph:
+    // `show_destination_splines`). Drawing them on with `Create` was the
+    // first cut's mistake and it is visible on the composite as two
+    // part-drawn arcs against the reference's whole bowed panels.
+    this.set(
+      this.circleCode.creation.to(1),
+      this.circleIdea.creation.to(1),
+      FadeOut(this.circleCode),
+      FadeOut(this.circleIdea),
     )
     // The panels are morph destinations: their outlines are complete
     // and their interiors flooded from the first frame (`solid=True`),
@@ -547,6 +667,17 @@ export class Scene07Dream extends Dream {
     )
     this.play(FadeOut(this.link), 1)
 
+    // Hand each morpher the surfaces its panel is WEARING RIGHT NOW —
+    // hollow, having been drained thirteen seconds ago, and not the
+    // flooded state they were built in. Scene01 does the same thing for
+    // the same reason: pydeation reads both ends' materials at
+    // CONSTRUCTION, which is sound there because a 2021 shape's fill is
+    // a construction flag, and is not sound here because ours is a
+    // timeline. Without this the panels would depart solid and cross
+    // the frame as two filled discs; the reference's are bare outlines
+    // throughout (f_01337).
+    this.set(this.morphCode.fillOpacity.to(0), this.morphIdea.fillOpacity.to(0))
+
     // THE SECOND MORPH — the panels become the Venn diagram, and the two
     // words move to their places inside it while they are gone.
     //
@@ -560,6 +691,16 @@ export class Scene07Dream extends Dream {
     // ZERO as well, and the two words converge on the centre line as
     // they drop and rise.
     //
+    // The source's `UnFillThenUnDraw(code, idea)` in this same play is
+    // NOT stated here, and its absence is the honest reading rather than
+    // an omission: the words were already taken away by the first morph
+    // fifteen seconds ago (a morph hides its source — `hide_start_splines`
+    // — unless `copy`), so un-drawing them again is a no-op on a thing
+    // that is already gone. pydeation can afford to say it because its
+    // animator simply drives the material to a value it already holds.
+    // What the words DO in this play is move, invisibly, to the places
+    // they will be written back into one second later.
+    //
     // f_01354 measures it: "idea" is ink x[582,698] and "code" x[573,707],
     // both centred on 640 — world x = 0 — where they began at ∓200. The
     // first cut of this scene moved only y and left them out at ∓200,
@@ -569,16 +710,12 @@ export class Scene07Dream extends Dream {
     // seen from the other side, and its header derives it at length.
     this.play(
       together(
-        this.frameCode.opacity.to(0),
-        this.frameIdea.opacity.to(0),
-        Create(this.circleCode),
-        Create(this.circleIdea),
+        Morph(this.morphCode, this.frameCode, this.circleCode),
+        Morph(this.morphIdea, this.frameIdea, this.circleIdea),
         this.code.x.to(0),
         this.code.y.to(-110),
         this.idea.x.to(0),
         this.idea.y.to(80),
-        UnWrite(this.code),
-        UnWrite(this.idea),
       ),
       2,
     )

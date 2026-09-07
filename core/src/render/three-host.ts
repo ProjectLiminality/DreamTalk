@@ -247,6 +247,28 @@ const washGeometry = (
   if (holon instanceof Circle) return { points: ellipsePolygon(holon.radius.value, holon.radius.value) }
   if (holon instanceof Ellipse && !holon.filled.value)
     return { points: ellipsePolygon(holon.radiusX.value, holon.radiusY.value) }
+  if (holon instanceof Rectangle && !holon.filled.value)
+    // A rectangle is CONVEX, so fill.ts's default fan needs no
+    // triangulation of its own — and `rectanglePolyline` opens at the
+    // midpoint of the bottom edge rather than at a corner, which the fan
+    // does not care about (a fan from any vertex of a convex loop is
+    // valid). Verified rather than assumed: fanning that polyline from
+    // its first point gives exactly 90000 for a 300×300, and the rounded
+    // case lands within 0.05% of w·h − (4−π)r², the residual being the
+    // corner arcs' polygonal approximation. Its duplicated closing point
+    // contributes one zero-area triangle.
+    //
+    // The `!filled` guard mirrors the Ellipse branch above and means the
+    // same thing: `filled` is a CONSTRUCTION flag that renders the shape
+    // AS a fill (Rectangle.filled, the FoldableCube contract) and such a
+    // rectangle already has its FillShape, so a wash would be a second
+    // one. `fillOpacity` is the wash BEHIND a shape that stays a stroke
+    // — pydeation's `solid=True`. Scene01 states exactly that
+    // distinction at its own rectangle: "`solid=True` is a fill state,
+    // not a construction flag: the shapes arrive already flooded."
+    return {
+      points: rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
+    }
   if (holon instanceof Line) {
     // A Line's own polyline IS its interior when it happens to close on
     // itself — which is what a MORPHING outline is (geometry/morph.ts:

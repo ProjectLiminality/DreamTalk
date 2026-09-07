@@ -63855,6 +63855,10 @@ var washGeometry = (holon) => {
     return { points: ellipsePolygon(holon.radius.value, holon.radius.value) };
   if (holon instanceof Ellipse && !holon.filled.value)
     return { points: ellipsePolygon(holon.radiusX.value, holon.radiusY.value) };
+  if (holon instanceof Rectangle && !holon.filled.value)
+    return {
+      points: rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value)
+    };
   if (holon instanceof Line2) {
     const pts = holon.points;
     if (pts.length < 4)
@@ -67386,8 +67390,8 @@ var CODE_TOP = 116.4;
 var CODE_SIZE = 12.7;
 
 class Scene07Dream extends Dream {
-  code = __dt(new Text({ content: "code", x: -200, y: -15, size: 50, tint: BLUE }), "core/demo/origins/Scene07.ts:15667:15735");
-  idea = __dt(new Text({ content: "idea", x: 200, y: -15, size: 50, tint: RED }), "core/demo/origins/Scene07.ts:15745:15811");
+  code = __dt(new Text({ content: "code", x: -200, y: -15, size: 50, tint: BLUE }), "core/demo/origins/Scene07.ts:20928:20996");
+  idea = __dt(new Text({ content: "idea", x: 200, y: -15, size: 50, tint: RED }), "core/demo/origins/Scene07.ts:21006:21072");
   frameCode = __dt(new Rectangle({
     width: 300,
     height: 300,
@@ -67395,7 +67399,7 @@ class Scene07Dream extends Dream {
     tint: BLUE,
     fillOpacity: 1,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07.ts:16073:16200");
+  }), "core/demo/origins/Scene07.ts:21334:21461");
   frameIdea = __dt(new Rectangle({
     width: 300,
     height: 300,
@@ -67403,8 +67407,8 @@ class Scene07Dream extends Dream {
     tint: RED,
     fillOpacity: 1,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07.ts:16215:16340");
-  frames = __dt(new Group2({ members: [this.frameCode, this.frameIdea] }), "core/demo/origins/Scene07.ts:16352:16408");
+  }), "core/demo/origins/Scene07.ts:21476:21601");
+  frames = __dt(new Group2({ members: [this.frameCode, this.frameIdea] }), "core/demo/origins/Scene07.ts:21613:21669");
   codeLines = CODE_LINES.map(({ text, col, row }) => __dt(new Text({
     content: text,
     x: COL0 + ADVANCE * (col + text.length / 2),
@@ -67412,8 +67416,8 @@ class Scene07Dream extends Dream {
     size: CODE_SIZE,
     tint: WHITE,
     stroke: 1
-  }), "core/demo/origins/Scene07.ts:17115:18200"));
-  codeSnippet = __dt(new Group2({ members: this.codeLines }), "core/demo/origins/Scene07.ts:18222:18260");
+  }), "core/demo/origins/Scene07.ts:22376:23461"));
+  codeSnippet = __dt(new Group2({ members: this.codeLines }), "core/demo/origins/Scene07.ts:23483:23521");
   arrow = __dt(new Line2({
     points: [
       { x: 0, y: 0, z: 0 },
@@ -67423,11 +67427,13 @@ class Scene07Dream extends Dream {
     x: -450,
     z: 2,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07.ts:18813:18975");
-  cylinder = __dt(new Cylinder({ x: 250, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:19048:19093");
-  circleCode = __dt(new Circle({ radius: 100, y: -95, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:19349:19417");
-  circleIdea = __dt(new Circle({ radius: 200, tint: RED, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:19433:19492");
-  vennDiagram = __dt(new Group2({ members: [this.circleCode, this.circleIdea] }), "core/demo/origins/Scene07.ts:19509:19567");
+  }), "core/demo/origins/Scene07.ts:24074:24236");
+  cylinder = __dt(new Cylinder({ x: 250, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:24309:24354");
+  circleCode = __dt(new Circle({ radius: 100, y: -95, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:24610:24678");
+  circleIdea = __dt(new Circle({ radius: 200, tint: RED, stroke: STROKE_MAIN }), "core/demo/origins/Scene07.ts:24694:24753");
+  vennDiagram = __dt(new Group2({ members: [this.circleCode, this.circleIdea] }), "core/demo/origins/Scene07.ts:24770:24828");
+  morphCode = __dt(new MorphShape(this.frameCode, this.circleCode, { opacity: 0 }), "core/demo/origins/Scene07.ts:25791:25854");
+  morphIdea = __dt(new MorphShape(this.frameIdea, this.circleIdea, { opacity: 0 }), "core/demo/origins/Scene07.ts:25869:25932");
   link = __dt(new Line2({
     points: [
       { x: -100, y: 0, z: 0 },
@@ -67436,7 +67442,7 @@ class Scene07Dream extends Dream {
     arrowStart: true,
     arrowEnd: true,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07.ts:21155:21319");
+  }), "core/demo/origins/Scene07.ts:27505:27669");
   unfold() {
     this.observer.look("front");
     this.stage(this.link);
@@ -67447,32 +67453,36 @@ class Scene07Dream extends Dream {
     this.stage(this.arrow);
     this.stage(this.vennDiagram);
     this.stage(this.codeSnippet);
-    this.set(UnCreate(this.link), UnCreate(this.frames), UnCreate(this.cylinder), UnCreate(this.arrow), UnCreate(this.vennDiagram), this.code.creation.to(0), this.idea.creation.to(0));
+    this.stage(this.morphCode);
+    this.stage(this.morphIdea);
+    this.set(UnCreate(this.link), UnCreate(this.frames), UnCreate(this.cylinder), UnCreate(this.arrow), this.code.creation.to(0), this.idea.creation.to(0));
+    this.set(this.circleCode.creation.to(1), this.circleIdea.creation.to(1), FadeOut(this.circleCode), FadeOut(this.circleIdea));
     this.set(this.frameCode.creation.to(1), this.frameIdea.creation.to(1), this.frameCode.fillOpacity.to(1), this.frameIdea.fillOpacity.to(1), FadeOut(this.frameCode), FadeOut(this.frameIdea));
     this.set(...this.codeLines.flatMap((line) => [line.creation.to(1), line.opacity.to(0)]));
     this.wait(START_OFFSET17);
     this.wait(1);
-    __dt(this.play(together(Write(this.code), Write(this.idea)), 3), "core/demo/origins/Scene07.ts:23038:23096");
-    __dt(this.play(Create(this.link), 1), "core/demo/origins/Scene07.ts:23101:23132");
+    __dt(this.play(together(Write(this.code), Write(this.idea)), 3), "core/demo/origins/Scene07.ts:29994:30052");
+    __dt(this.play(Create(this.link), 1), "core/demo/origins/Scene07.ts:30057:30088");
     this.wait(9);
-    __dt(this.play(together(UnWrite(this.code), UnWrite(this.idea), this.frameCode.opacity.to(1), this.frameIdea.opacity.to(1)), 3), "core/demo/origins/Scene07.ts:23529:23711");
-    __dt(this.play(together(Fill(this.frameCode, { transparency: 1 }), Fill(this.frameIdea, { transparency: 1 })), 1), "core/demo/origins/Scene07.ts:24027:24179");
-    __dt(this.play(together(...this.codeLines.map((line) => line.opacity.to(1))), 1), "core/demo/origins/Scene07.ts:24326:24401");
-    __dt(this.play(Create(this.arrow), 2 / 3), "core/demo/origins/Scene07.ts:24406:24442");
-    __dt(this.play(Create(this.cylinder), 2), "core/demo/origins/Scene07.ts:24447:24482");
-    __dt(this.play(this.arrow.y.by(-32), 2 / 3), "core/demo/origins/Scene07.ts:24670:24708");
-    __dt(this.play(together(this.cylinder.b.by(PI3 / 3), this.cylinder.p.by(PI3 / 4)), 2), "core/demo/origins/Scene07.ts:24856:24934");
-    __dt(this.play(this.arrow.y.by(-52), 2 / 3), "core/demo/origins/Scene07.ts:24939:24977");
-    __dt(this.play(UnCreate(this.cylinder), 2), "core/demo/origins/Scene07.ts:24982:25019");
-    __dt(this.play(together(Erase(this.arrow), ...this.codeLines.map((line) => line.opacity.to(0))), 1), "core/demo/origins/Scene07.ts:25024:25137");
-    __dt(this.play(FadeOut(this.link), 1), "core/demo/origins/Scene07.ts:25142:25174");
-    __dt(this.play(together(this.frameCode.opacity.to(0), this.frameIdea.opacity.to(0), Create(this.circleCode), Create(this.circleIdea), this.code.x.to(0), this.code.y.to(-110), this.idea.x.to(0), this.idea.y.to(80), UnWrite(this.code), UnWrite(this.idea)), 2), "core/demo/origins/Scene07.ts:26412:26772");
+    __dt(this.play(together(UnWrite(this.code), UnWrite(this.idea), this.frameCode.opacity.to(1), this.frameIdea.opacity.to(1)), 3), "core/demo/origins/Scene07.ts:30485:30667");
+    __dt(this.play(together(Fill(this.frameCode, { transparency: 1 }), Fill(this.frameIdea, { transparency: 1 })), 1), "core/demo/origins/Scene07.ts:30983:31135");
+    __dt(this.play(together(...this.codeLines.map((line) => line.opacity.to(1))), 1), "core/demo/origins/Scene07.ts:31282:31357");
+    __dt(this.play(Create(this.arrow), 2 / 3), "core/demo/origins/Scene07.ts:31362:31398");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/origins/Scene07.ts:31403:31438");
+    __dt(this.play(this.arrow.y.by(-32), 2 / 3), "core/demo/origins/Scene07.ts:31626:31664");
+    __dt(this.play(together(this.cylinder.b.by(PI3 / 3), this.cylinder.p.by(PI3 / 4)), 2), "core/demo/origins/Scene07.ts:31812:31890");
+    __dt(this.play(this.arrow.y.by(-52), 2 / 3), "core/demo/origins/Scene07.ts:31895:31933");
+    __dt(this.play(UnCreate(this.cylinder), 2), "core/demo/origins/Scene07.ts:31938:31975");
+    __dt(this.play(together(Erase(this.arrow), ...this.codeLines.map((line) => line.opacity.to(0))), 1), "core/demo/origins/Scene07.ts:31980:32093");
+    __dt(this.play(FadeOut(this.link), 1), "core/demo/origins/Scene07.ts:32098:32130");
+    this.set(this.morphCode.fillOpacity.to(0), this.morphIdea.fillOpacity.to(0));
+    __dt(this.play(together(Morph(this.morphCode, this.frameCode, this.circleCode), Morph(this.morphIdea, this.frameIdea, this.circleIdea), this.code.x.to(0), this.code.y.to(-110), this.idea.x.to(0), this.idea.y.to(80)), 2), "core/demo/origins/Scene07.ts:34685:34975");
     this.set(this.code.creation.to(0), this.idea.creation.to(0));
     this.set(this.code.erasure.to(0), this.idea.erasure.to(0));
-    __dt(this.play(together(Write(this.code), Write(this.idea)), 1), "core/demo/origins/Scene07.ts:26966:27024");
+    __dt(this.play(together(Write(this.code), Write(this.idea)), 1), "core/demo/origins/Scene07.ts:35169:35227");
     this.wait(5);
-    __dt(this.play(together(UnWrite(this.code), UnWrite(this.idea)), 3), "core/demo/origins/Scene07.ts:27046:27108");
-    __dt(this.play(together(UnCreate(this.circleCode), UnCreate(this.circleIdea)), 3), "core/demo/origins/Scene07.ts:27113:27189");
+    __dt(this.play(together(UnWrite(this.code), UnWrite(this.idea)), 3), "core/demo/origins/Scene07.ts:35249:35311");
+    __dt(this.play(together(UnCreate(this.circleCode), UnCreate(this.circleIdea)), 3), "core/demo/origins/Scene07.ts:35316:35392");
   }
 }
 if (false)
@@ -67491,7 +67501,7 @@ class Scene07_1Dream extends Dream {
     tint: WHITE,
     scale: 1 / 2,
     stroke: HEAD_STROKE
-  }), "core/demo/origins/Scene07_1.ts:13751:13861");
+  }), "core/demo/origins/Scene07_1.ts:14083:14193");
   idea1 = __dt(new Polygon({
     sides: 3,
     radius: IDEA_RADIUS,
@@ -67499,7 +67509,7 @@ class Scene07_1Dream extends Dream {
     tint: RED,
     scale: IDEA_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07_1.ts:14516:14648");
+  }), "core/demo/origins/Scene07_1.ts:14848:14980");
   idea2 = __dt(new Polygon({
     sides: 4,
     radius: IDEA_RADIUS,
@@ -67508,7 +67518,7 @@ class Scene07_1Dream extends Dream {
     tint: RED,
     scale: IDEA_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07_1.ts:14659:14804");
+  }), "core/demo/origins/Scene07_1.ts:14991:15136");
   idea3 = __dt(new Polygon({
     sides: 5,
     radius: IDEA_RADIUS,
@@ -67517,7 +67527,7 @@ class Scene07_1Dream extends Dream {
     tint: RED,
     scale: IDEA_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07_1.ts:14815:14957");
+  }), "core/demo/origins/Scene07_1.ts:15147:15289");
   idea4 = __dt(new Polygon({
     sides: 6,
     radius: IDEA_RADIUS,
@@ -67526,7 +67536,7 @@ class Scene07_1Dream extends Dream {
     tint: RED,
     scale: IDEA_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07_1.ts:14968:15112");
+  }), "core/demo/origins/Scene07_1.ts:15300:15444");
   idea5 = __dt(new Circle({
     radius: IDEA_RADIUS,
     x: 300,
@@ -67534,14 +67544,14 @@ class Scene07_1Dream extends Dream {
     tint: RED,
     scale: IDEA_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene07_1.ts:15123:15252");
+  }), "core/demo/origins/Scene07_1.ts:15455:15584");
   ideaEvolution = __dt(new Group2({
     members: [this.idea1, this.idea2, this.idea3, this.idea4, this.idea5]
-  }), "core/demo/origins/Scene07_1.ts:15272:15363");
+  }), "core/demo/origins/Scene07_1.ts:15604:15695");
   firstLink = this.idea1.morphTo(this.idea2, { copy: true });
-  link2 = __dt(new MorphShape(this.idea2, this.idea3, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16014:16068");
-  link3 = __dt(new MorphShape(this.idea3, this.idea4, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16079:16133");
-  link4 = __dt(new MorphShape(this.idea4, this.idea5, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16144:16198");
+  link2 = __dt(new MorphShape(this.idea2, this.idea3, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16346:16400");
+  link3 = __dt(new MorphShape(this.idea3, this.idea4, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16411:16465");
+  link4 = __dt(new MorphShape(this.idea4, this.idea5, { opacity: 0 }), "core/demo/origins/Scene07_1.ts:16476:16530");
   unfold() {
     this.observer.look("front");
     this.stage(this.firstLink.shape);
@@ -67553,16 +67563,16 @@ class Scene07_1Dream extends Dream {
     this.set(Create(this.person), Create(this.idea1), this.idea2.creation.to(1), this.idea3.creation.to(1), this.idea4.creation.to(1), this.idea5.creation.to(1), FadeOut(this.idea2), FadeOut(this.idea3), FadeOut(this.idea4), FadeOut(this.idea5));
     this.set(this.person.creation.to(0), this.idea1.creation.to(0));
     this.wait(START_OFFSET18);
-    __dt(this.play(together(Draw(this.person), Create(this.idea1)), 1), "core/demo/origins/Scene07_1.ts:17595:17656");
-    __dt(this.play(together(this.person.x.by(201), this.idea1.x.to(0), this.idea1.y.to(0)), 2), "core/demo/origins/Scene07_1.ts:19253:19357");
-    __dt(this.play(ChangeColor(this.person, RED), 1), "core/demo/origins/Scene07_1.ts:19788:19831");
+    __dt(this.play(together(Draw(this.person), Create(this.idea1)), 1), "core/demo/origins/Scene07_1.ts:17927:17988");
+    __dt(this.play(together(this.person.x.by(201), this.idea1.x.to(0), this.idea1.y.to(0)), 2), "core/demo/origins/Scene07_1.ts:19585:19689");
+    __dt(this.play(ChangeColor(this.person, RED), 1), "core/demo/origins/Scene07_1.ts:20120:20163");
     this.wait(1);
-    __dt(this.play(together(this.idea1.x.to(-300), this.idea1.y.to(100), ChangeColor(this.person, BLUE), this.person.y.by(-115)), 2), "core/demo/origins/Scene07_1.ts:20606:20789");
-    __dt(this.play(eased("easeIn", this.firstLink.anim), 1), "core/demo/origins/Scene07_1.ts:21058:21108");
-    __dt(this.play(eased("linear", Morph(this.link2, this.idea2, this.idea3, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21113:21201");
-    __dt(this.play(eased("linear", Morph(this.link3, this.idea3, this.idea4, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21206:21294");
-    __dt(this.play(eased("easeOut", Morph(this.link4, this.idea4, this.idea5, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21299:21388");
-    __dt(this.play(together(FadeOut(this.ideaEvolution), FadeOut(this.person)), 1), "core/demo/origins/Scene07_1.ts:21465:21538");
+    __dt(this.play(together(this.idea1.x.to(-300), this.idea1.y.to(100), ChangeColor(this.person, BLUE), this.person.y.by(-115)), 2), "core/demo/origins/Scene07_1.ts:20938:21121");
+    __dt(this.play(eased("easeIn", this.firstLink.anim), 1), "core/demo/origins/Scene07_1.ts:21390:21440");
+    __dt(this.play(eased("linear", Morph(this.link2, this.idea2, this.idea3, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21445:21533");
+    __dt(this.play(eased("linear", Morph(this.link3, this.idea3, this.idea4, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21538:21626");
+    __dt(this.play(eased("easeOut", Morph(this.link4, this.idea4, this.idea5, { copy: true })), 1), "core/demo/origins/Scene07_1.ts:21631:21720");
+    __dt(this.play(together(FadeOut(this.ideaEvolution), FadeOut(this.person)), 1), "core/demo/origins/Scene07_1.ts:21797:21870");
   }
 }
 if (false)
