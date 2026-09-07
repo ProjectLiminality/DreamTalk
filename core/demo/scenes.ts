@@ -34,6 +34,7 @@ import { EyeDream } from "./vocabulary/Eye"
 import { AxesDream } from "./vocabulary/Axes"
 import { FoldableCubeDream } from "./vocabulary/FoldableCube"
 import { CableDream } from "./vocabulary/Cable"
+import { SketchDream } from "./vocabulary/Sketch"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -71,6 +72,7 @@ export const scenes: Record<string, DreamClass> = {
   axes: AxesDream,
   foldablecube: FoldableCubeDream,
   cable: CableDream,
+  sketch: SketchDream,
 }
 
 export const defaultScene = "founding"
