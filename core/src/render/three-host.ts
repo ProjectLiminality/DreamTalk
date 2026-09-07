@@ -874,7 +874,27 @@ export class ThreeHost {
     // off-screen entirely. refs/video-01/frames5 f0090-f0094 track that
     // cap up the frame at y = 712, 700, 646, 590, 509.
     const drawn = binding.stroke ? this.screenArc(binding.stroke, creation) : creation
-    const progress = atStart ? 0 : drawn
+    // The START head is parked at 1, not 0 — and the asymmetry with
+    // `drawn` is two separate facts, not one.
+    //
+    // The `drawn` half is the comment above: only the draw front carries
+    // a head, and the pen has ALREADY passed the start end (it left from
+    // there), so a start head never rides the front. It is parked.
+    //
+    // The 1 is where it is parked, and 0 is the wrong end. Both
+    // `walkTo` and `arrowPolygon` take the point list already REVERSED
+    // for a start head (`atStart ? [...points].reverse() : points`), so
+    // progress 0 walks to the reversed list's first point — which is the
+    // line's LAST point, on top of the end head. A line with both heads
+    // rendered as a bare line with a DIAMOND at its right end (two
+    // triangles back to back) and nothing at its left. Progress 1 walks
+    // the reversed list to its far end, which is the line's start.
+    //
+    // Never caught because nothing used `arrowStart` until Scene07's
+    // "code ↔ idea" link (f_01230); the only other mention in the repo
+    // asserts it false (test/section.test.ts). Reported by O-7 with the
+    // walk replicated on a -100 → +100 line, and confirmed the same way.
+    const progress = atStart ? 1 : drawn
     const present = atStart
       ? clamp01(creation / 0.02) * (1 - clamp01(erasure / 0.02))
       : clamp01(creation / 0.02) * (1 - clamp01((erasure - 0.92) / 0.08))

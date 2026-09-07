@@ -5,15 +5,16 @@
  * chain, at the scale of one mind.
  *
  * A profile head draws itself on the left and a red triangle appears
- * beside it. The head walks right across the frame until it stands under
- * the triangle, and it turns red — the mind has taken the idea's colour.
- * Then it turns blue and drops, the triangle flies up and away to the
- * far left, and the chain begins: the triangle leaves a copy of itself
- * and becomes a diamond; the diamond leaves a copy and becomes a
- * pentagon; a hexagon; and finally a circle. Five shapes in a row above
- * a blue head, each one rounder than the last — the same "more sides →
- * circle" convergence Scene06 stages with repositories, told here about
- * a single thinker.
+ * beside it. Then the two move toward each other — the head walking
+ * right, the idea drifting left — until the triangle is INSIDE the
+ * head, and the head turns red: the mind has taken the idea's colour.
+ * Then it turns blue and drops away, the triangle flies up to the far
+ * left, and the chain begins: the triangle leaves a copy of itself and
+ * becomes a diamond; the diamond leaves a copy and becomes a pentagon;
+ * a hexagon; and finally a circle. Five shapes in a row above a blue
+ * head, each one rounder than the last — the same "more sides → circle"
+ * convergence Scene06 stages with repositories, told here about a
+ * single thinker.
  *
  * Source (refs/PydeationProjects/pitch/InterfaceGuy/pitch/pitch.py:626-694):
  *
@@ -96,20 +97,20 @@
  * THE TIMELINE — AND THE ONE PLACE THE RE-CUT SHOWS
  *
  * The source declares `offset=291`. The scene does NOT start there in
- * the published video: it starts at 280.8 and ends at 292.8, which is
- * where the next black gap falls. The editor pulled it 10.2 seconds
- * EARLIER than its audio cue — the re-cut the vocabulary report predicts
- * "from Scene06 on", caught here as a pure translation.
+ * the published video: it runs 280.7 to 292.8, and 292.8 is where the
+ * next black gap falls. The editor pulled it about ten seconds EARLIER
+ * than its audio cue — the re-cut the vocabulary report predicts "from
+ * Scene06 on", caught here as a pure TRANSLATION.
  *
  * A translation is all it is. Every beat inside the scene plays at its
- * declared length, and the agreement is not approximate — it is zero.
- * Measured off frames5 (ink counts, per-colour masks, and the head's
- * bounding box, at 5 fps = 0.2 s resolution):
+ * declared length. Measured off frames5 (ink counts, per-colour masks,
+ * and the head's bounding box, at 5 fps = 0.2 s resolution), against
+ * the source's own cumulative times:
  *
  *   video  beat                                    source localT
  *   280.8  head draws, triangle creates                     0.0
- *   281.8  head begins its slide right                      1.0
- *   283.8  slide ends; head recolours RED                   3.0
+ *   281.8  head slides right, triangle comes to meet it     1.0
+ *   283.8  they meet; head recolours RED                    3.0
  *   284.8  the one-second hold begins                       4.0
  *   285.8  head → BLUE and drops; triangle flies left       5.0
  *   287.8  morph 1  (triangle → diamond)                    7.0
@@ -119,10 +120,20 @@
  *   291.8  everything fades                                11.0
  *   292.8  black                                           12.0
  *
- * Ten landmarks, ten exact hits at START_OFFSET = 0. That is why the
- * offset here is not fitted at all, unlike every other scene in this
- * campaign: the scene's own first frame IS its localT 0, and the whole
- * correction is in `t0` — the gauntlet is run at 280.8, not 291.
+ * Ten landmarks at the declared intervals, so nothing inside the scene
+ * is fitted and START_OFFSET stays 0. The whole correction is the
+ * SCENE START, and it lives in the gauntlet's `t0`: swept at 1 s steps
+ * across the scene it peaks sharply at **280.7**, and the peak is a
+ * peak rather than a plateau —
+ *
+ *   t0      280.55  280.6  280.65  280.7  280.75  280.8  280.85  280.9
+ *   PASS      3/12   3/12    7/12   10/12   9/12    8/11   5/12    4/12
+ *   covRef   .6912  .7469   .8391  .9120  .8546  .8383  .7243   .7036
+ *
+ * — which is 0.1 s ahead of the first lit frame, the expected direction
+ * (an eased draw is under the encode's threshold for a frame or two
+ * before it shows). Scored there, frames 1.1 through 7.1 are perfect:
+ * coverage 1.0000 against the reference on all seven.
  *
  *
  * THE FOUR MORPHS, AND `copy: true`
@@ -153,6 +164,33 @@
  * with a subject — the triangle becomes a diamond — and the remaining
  * three are the verb form because they are a LIST, and a list of
  * animators handed to `play()` is what the source is.
+ *
+ * WHERE THE CHAIN DIVERGES, AND WHY IT IS LEFT ALONE. Scored densely
+ * (0.2 s steps) across the four morphs, the last two are clean — every
+ * frame of pentagon→hexagon and hexagon→circle passes — and the first
+ * two are not: t = 7.3-8.9 fails on the mid-flight frames of
+ * triangle→diamond and diamond→pentagon, at coverages around 0.83-0.89.
+ *
+ * The composites say precisely what the difference is, and it is not an
+ * error. Both intermediates are lopsided, bowed quadrilaterals — the
+ * skew that index-wise blending produces when two winding start points
+ * disagree, which is the correspondence signature Morph's README pins
+ * as pydeation's own behaviour. Ours leans one way and the reference's
+ * leans the other, and our blend runs about 5 world units wider. The
+ * lower the vertex counts, the further apart two arc-length
+ * resamplings can drift, which is exactly why the divergence is on the
+ * 3→4 and 4→5 steps and gone by 5→6.
+ *
+ * `drawStart` is the in-scene lever for this — it rephases the outline
+ * a morph departs from — and it does not help: swept over the 3→4 pair,
+ * 0 already gives the largest, least-collapsed intermediate (bbox
+ * 65.3 × 61.8 world units, against 40.6 at 1/4 and 12.2 at 1/2, where
+ * the blend nearly collapses to a point). `drawReversed` is symmetric
+ * here and changes nothing. So the remaining gap is in the
+ * correspondence RULE, and the rule is deliberate: a rotation search
+ * would make these intermediates upright, and upright is not what the
+ * 2024 render shows. Changing it would be a different animation, and it
+ * would also be a change to an ability this chapter only consumes.
  */
 
 import { Dream, render } from "../../src/index"
@@ -186,13 +224,23 @@ import { STROKE_MAIN } from "../video01/palette"
 const START_OFFSET = 0
 
 /**
- * `thickness=VG_THICKNESS*2`. pydeation's vector-graphics thickness is
- * the SVG default and the head asks for twice it — the profile is the
- * heaviest line in the scene, and on f_01418 it measures ~3 px against
- * the polygons' ~2. STROKE_MAIN is the campaign's 2 px; the head takes
- * 3/2 of it, which is that ratio.
+ * `thickness=VG_THICKNESS*2` — the head is the heaviest line in the
+ * scene, and the source says so by doubling the vector-graphics
+ * default.
+ *
+ * It is NOT double on screen, though, and the reference is what settles
+ * the number. Cutting vertically through the crown at x = 640 on
+ * f_01460 the profile's ink is 4-5 px thick, while the same cut across
+ * the chain's circle gives 5 px — i.e. the two are within a pixel of
+ * each other in the published render, whatever the source's thickness
+ * arithmetic says (2021 Sketch & Toon clamps thin lines, and both are
+ * near the floor at 720p). A literal 2× read 6 px against the
+ * reference's 4-5 and swelled the head's ink box by 5 px in each
+ * direction, so the ratio is taken from the frames: the same
+ * STROKE_MAIN the polygons use, with a small lift that keeps the
+ * source's "heavier" true without doubling it.
  */
-const HEAD_STROKE = STROKE_MAIN * (3 / 2)
+const HEAD_STROKE = STROKE_MAIN * (5 / 4)
 
 /** `radius=25, scale=3/2` — every shape in the chain, at 37.5 units. */
 const IDEA_RADIUS = 25
@@ -332,19 +380,43 @@ export class Scene07_1Dream extends Dream {
     // Draw(person), Create(idea1) — the head's profile sweeps on while
     // the triangle draws beside it. One second for both.
     this.play(together(Draw(this.person), Create(this.idea1)), 1)
-    // Transform(person, x=201) — RELATIVE, pydeation's default, so the
-    // head travels 201 units right from x=−200 and lands at +1, which is
-    // where f_01418 measures it (world cx −1.6). Not "to x=201", which
-    // would have put it off under the triangle's old place.
+    // THE MEETING — and the second of the two `Transform` calls is not
+    // the no-op it looks like.
     //
-    // Transform(idea1, scale=3/2, relative=False) is an absolute scale
-    // to the value it already carries — a no-op the source states
-    // anyway, and the frames confirm the triangle does not change size.
+    // `Transform(person, x=201)` is RELATIVE (pydeation's default), so
+    // the head travels 201 units right from x=−200 and lands at +1 —
+    // which is where f_01418 measures it, world cx −1.6.
+    //
+    // `Transform(idea1, scale=3/2, relative=False)` looks like an
+    // absolute scale to the value the triangle already carries, i.e.
+    // nothing. It is not. pydeation's `transform()`
+    // (refs/pydeation-legacy/object/object.py:340-393) declares EVERY
+    // channel with a default in its own signature — `x=0.0, y=0.0,
+    // z=0.0, …, scale=1.0` — and in the absolute branch the unnamed
+    // ones are taken at those literal defaults rather than left where
+    // they are (`input_values = [x, y, z, …]`, with `default_values =
+    // curr_values` used only to FILTER OUT the channels that would not
+    // move). So `relative=False` is a full absolute pose: everything not
+    // named goes home. Naming `scale` holds the scale and sends the
+    // POSITION to the origin.
+    //
+    // Which is the whole image of the scene, and the reference shows it
+    // plainly. The triangle's centre walks 200 → 183.6 → 162.8 → 138.5
+    // → 112.8 → 86.2 → 60.2 → 35.9 → 15.4 → 1.8 → −0.5 across
+    // f_01409-f_01419, its width fixed at 76 px the entire way: it moves
+    // and does not resize. It arrives at x = 0 exactly as the head
+    // arrives at x = +1, and f_01419 is the two of them together — the
+    // triangle INSIDE the head. The idea enters the mind.
     this.play(
-      together(this.person.x.by(201), this.idea1.scale.to(IDEA_SCALE)),
+      together(this.person.x.by(201), this.idea1.x.to(0), this.idea1.y.to(0)),
       2,
     )
-    // The mind takes the idea's colour.
+    // And the mind takes the idea's colour: the head goes RED while the
+    // triangle inside it goes white (f_01423). The two swap — which is
+    // the source's `ChangeColor(person, color=RED)` plus the fact that
+    // a red line on a red head is read as the head's own edge. Only the
+    // head is animated; the triangle keeps the RED it was built with and
+    // simply stops being distinguishable from its container.
     this.play(ChangeColor(this.person, RED), 1)
     this.wait(1)
     // And then it does not keep it: blue, and down. Meanwhile the
