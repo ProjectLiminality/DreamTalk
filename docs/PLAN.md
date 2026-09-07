@@ -492,4 +492,9 @@ ed92a01 + the winding trilogy). Scorecard: o00 11/13 · o01 17/29 full,
 24/30 · o05 30/30 · o07 22/38 (22/26 excl. reasoned bands) · o07_1
 10/12 · o09 25/26 · o11 47/50. The three S&T-ordering-gated bands
 (o01 draw, o02/o04 sub-strokes, o03 un-draw) await the Maxon licence.
-[~] O-8/O-9 (cameras) in flight; O-10/O-11 queued.
+[~] O-8/O-9 (cameras) in flight — WITH the finding that Scene08_1 +
+08_2 are CUT from the published video (the missing 66s; full segment
+map closed). O-10 is REFRAMED: no reference footage exists — buildable
+from source choreography only, never scoreable; demoted to optional
+post-campaign work. O-11 (Scene06, in the video, trimmed) remains the
+queued finale.

@@ -559,3 +559,15 @@ downloads: 89 GB free.
   length in the published video; the editor only moved where it sits
   (measured window fractions match the source's own to a threshold
   offset). The re-cut affects placement, not pace, for this scene.
+
+- §0/§1 (2026-09-07, O-8): **Scene08_1 and Scene08_2 are CUT from the
+  published video entirely** — the segment map from 292.6s to the end
+  closes with no room for them (Scene08 at 292.8/-10.2, Scene09 at
+  323.2/-56.8, Scene10 at 345.8/-59.2, Scene11 at 361.2/-57.8, closing
+  title from 372.2). Their ~66s of source is the difference between the
+  429.7s narration and the 377.9s video, and the 10.6s black gap at
+  315-325.4 is Scene08's tail plus the cut — not "the scene most
+  disturbed by the re-cut". Scene08_1/08_2 are reproducible from source
+  but UNSCOREABLE: no reference frames exist. §0's Source-line column
+  cites each audio() call's line inside the class listing; the
+  scene/offset PAIRING was and remains correct.
