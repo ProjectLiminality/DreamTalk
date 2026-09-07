@@ -14,6 +14,12 @@
  * already run, so mid-construction scans are harmless and repeatable.
  * Internals live in a WeakMap side-table because a Proxy'd `this` cannot
  * reach #-private fields.
+ *
+ * Once complete() has run (first .params/.parts access: overrides
+ * verified, compose() done) the holon SETTLES: the field set is final,
+ * reads bypass the scan entirely, and assigning a new Param/part field
+ * throws — dynamic structure goes through compose() + this.add(), which
+ * exist for exactly that. Pinned by test/settled.test.ts.
  */
 
 import { together, type Anim } from "./anim"
@@ -38,6 +44,13 @@ interface Internals {
   /** Object.keys count at last scan — cheap change detection. */
   scannedKeys: number
   composed: boolean
+  /**
+   * Structure is final — construction and compose() are behind us, so
+   * property reads skip the scan (no Object.keys per get, ever again)
+   * and the set trap rejects late Param/part fields. Flipped at the end
+   * of the first complete().
+   */
+  settled: boolean
   /** The public identity (the proxy) — used for parent links. */
   self?: Holon
 }
@@ -141,6 +154,7 @@ export class Holon {
       dynamicParts: [],
       scannedKeys: -1,
       composed: false,
+      settled: false,
     }
     INTERNALS.set(this, internals)
     const proxy = new Proxy(this, {

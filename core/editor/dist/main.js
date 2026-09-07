@@ -46043,7 +46043,8 @@ class Holon {
       parts: [],
       dynamicParts: [],
       scannedKeys: -1,
-      composed: false
+      composed: false,
+      settled: false
     };
     INTERNALS.set(this, internals);
     const proxy = new Proxy(this, {
@@ -46104,6 +46105,7 @@ class Holon {
 }
 
 // src/timeline.ts
+var C4D_SMOOTHING = 0.25;
 var c4dEaseWith = (u, sl, sr) => {
   if (u <= 0)
     return 0;
@@ -65260,12 +65262,85 @@ class S05Dream extends Dream {
 if (false)
   ;
 
+// src/transitions.ts
+var BUILD_FRACTION = 0.4;
+var smooth = (u2) => c4dEaseWith(u2, C4D_SMOOTHING, C4D_SMOOTHING);
+var buildOut = (u2) => 1 - smooth(Math.min(u2 / BUILD_FRACTION, 1));
+var buildIn = (u2) => smooth(Math.max((u2 - (1 - BUILD_FRACTION)) / BUILD_FRACTION, 0));
+var MATCHED_PARAM_NAMES = [
+  "x",
+  "y",
+  "z",
+  "h",
+  "p",
+  "b",
+  "scale",
+  "tint",
+  "stroke"
+];
+var lerpParamValue = (a2, b2, u2) => {
+  if (typeof a2 === "number" && typeof b2 === "number")
+    return a2 + (b2 - a2) * u2;
+  if (typeof a2 === "boolean" || typeof b2 === "boolean")
+    return u2 >= 1 ? b2 : a2;
+  if (isColor(a2) && isColor(b2)) {
+    return {
+      r: a2.r + (b2.r - a2.r) * u2,
+      g: a2.g + (b2.g - a2.g) * u2,
+      b: a2.b + (b2.b - a2.b) * u2
+    };
+  }
+  throw new Error("cannot interpolate between mismatched value types");
+};
+var rootIdentityOf = (owner, root) => {
+  for (const [key, value] of Object.entries(owner)) {
+    if (value === root)
+      return key;
+  }
+  return;
+};
+var matchRoots = (aOwner, aRoots, bOwner, bRoots) => {
+  const pairs = [];
+  const outs = [...aRoots];
+  const ins = [...bRoots];
+  const take = (a2, j2) => {
+    pairs.push([a2, ins[j2]]);
+    outs.splice(outs.indexOf(a2), 1);
+    ins.splice(j2, 1);
+  };
+  for (const a2 of [...outs]) {
+    const id = rootIdentityOf(aOwner, a2);
+    if (!id)
+      continue;
+    const j2 = ins.findIndex((b2) => b2.constructor === a2.constructor && rootIdentityOf(bOwner, b2) === id);
+    if (j2 >= 0)
+      take(a2, j2);
+  }
+  for (const a2 of [...outs]) {
+    const j2 = ins.findIndex((b2) => b2.constructor === a2.constructor);
+    if (j2 >= 0)
+      take(a2, j2);
+  }
+  return { pairs, outs, ins };
+};
+var matchedParams = (a2, b2) => {
+  const pairs = [];
+  for (const name of MATCHED_PARAM_NAMES) {
+    const pa = a2.params.get(name);
+    const pb = b2.params.get(name);
+    if (pa && pb && !pa.isBound && !pb.isBound)
+      pairs.push({ a: pa, b: pb });
+  }
+  return pairs;
+};
+
 // src/song.ts
 class DreamSong extends Dream {
   #specs;
   #chapters = [];
   #holons;
   #driven;
+  #windows;
   constructor(chapters) {
     super();
     this.#specs = chapters;
@@ -65276,18 +65351,38 @@ class DreamSong extends Dream {
   }
   unfold() {
     let offset = 0;
+    let prev;
     for (const spec of this.#specs) {
-      const SceneCtor = typeof spec === "function" ? spec : spec.scene;
+      const [scene, transition] = Array.isArray(spec) ? spec : [spec, undefined];
+      const SceneCtor = typeof scene === "function" ? scene : scene.scene;
       const dream = new SceneCtor;
-      const span = (typeof spec === "function" ? undefined : spec.span) ?? dream.duration;
+      const span = (typeof scene === "function" ? undefined : scene.span) ?? dream.duration;
+      const d2 = transition?.duration ?? 0;
+      if (d2 > 0) {
+        if (!prev) {
+          throw new Error("DreamSong: the first chapter has no boundary to transition across");
+        }
+        const room = prev.span - (prev.transition?.duration ?? 0);
+        if (d2 > room || d2 > span) {
+          throw new Error(`DreamSong: a ${d2}s ${transition.kind} does not fit its adjacent chapters` + ` (${room}s of '${prev.dream.constructor.name}' remain, incoming span ${span}s)`);
+        }
+        offset -= d2;
+        this.wait(-d2);
+      }
       for (const clip of dream.clips) {
         const placed = this.play(clip.anim, clip.duration);
         placed.start = offset + clip.start;
         this.wait(-clip.duration);
       }
-      this.#chapters.push({ dream, offset, span });
+      for (const root of dream.roots)
+        this.stage(root);
+      const chapter = { dream, offset, span };
+      if (d2 > 0)
+        chapter.transition = transition;
+      this.#chapters.push(chapter);
       this.wait(span);
       offset += span;
+      prev = chapter;
     }
   }
   chapterAt(t2) {
@@ -65301,29 +65396,111 @@ class DreamSong extends Dream {
     }
     return active;
   }
+  #resolve() {
+    if (!this.#holons || !this.#driven || !this.#windows) {
+      const timeline = this.build();
+      this.#holons = this.#chapters.map((ch) => ch.dream.roots.flatMap((root) => [...root.walk()]));
+      this.#driven = new Set(timeline.params);
+      this.#windows = [];
+      for (let i2 = 1;i2 < this.#chapters.length; i2++) {
+        const ch = this.#chapters[i2];
+        const transition = ch.transition;
+        if (!transition || transition.kind === "cut")
+          continue;
+        const window2 = {
+          kind: transition.kind,
+          start: ch.offset,
+          end: ch.offset + transition.duration,
+          from: i2 - 1,
+          into: i2,
+          pairs: [],
+          outs: [],
+          ins: []
+        };
+        if (transition.kind === "magicMove") {
+          const a2 = this.#chapters[i2 - 1];
+          const match = matchRoots(a2.dream, a2.dream.roots, ch.dream, ch.dream.roots);
+          window2.pairs = match.pairs.flatMap(([ra, rb]) => matchedParams(ra, rb));
+          window2.outs = match.outs.flatMap((root) => [...root.walk()]);
+          window2.ins = match.ins.flatMap((root) => [...root.walk()]);
+        }
+        this.#windows.push(window2);
+      }
+    }
+    return { holons: this.#holons, driven: this.#driven, windows: this.#windows };
+  }
   applyAt(t2) {
     const timeline = this.build();
     timeline.apply(t2);
-    if (!this.#holons || !this.#driven) {
-      this.#holons = this.#chapters.map((ch) => ch.dream.roots.flatMap((root) => [...root.walk()]));
-      this.#driven = new Set(timeline.params);
+    const { holons, driven, windows: windows2 } = this.#resolve();
+    const window2 = windows2.find((w4) => t2 >= w4.start && t2 < w4.end);
+    for (const w4 of windows2) {
+      if (w4 === window2 || w4.kind !== "magicMove")
+        continue;
+      for (const { a: a2, b: b2 } of w4.pairs) {
+        if (!driven.has(a2))
+          a2.value = a2.defaultValue;
+        if (!driven.has(b2))
+          b2.value = b2.defaultValue;
+      }
+    }
+    if (window2 && window2.kind === "magicMove") {
+      const e2 = smooth((t2 - window2.start) / (window2.end - window2.start));
+      for (const { a: a2, b: b2 } of window2.pairs) {
+        const av = driven.has(a2) ? a2.value : a2.defaultValue;
+        const bv = driven.has(b2) ? b2.value : b2.defaultValue;
+        const v2 = lerpParamValue(av, bv, e2);
+        a2.value = v2;
+        b2.value = v2;
+      }
     }
     const active = this.chapterAt(t2);
+    const fromChapter = window2 ? this.#chapters[window2.from] : undefined;
     for (let i2 = 0;i2 < this.#chapters.length; i2++) {
-      const hidden = this.#chapters[i2] !== active;
-      for (const holon of this.#holons[i2]) {
-        if (hidden) {
+      const chapter = this.#chapters[i2];
+      const live = chapter === active || chapter === fromChapter;
+      for (const holon of holons[i2]) {
+        if (!live) {
           holon.opacity.value = 0;
-        } else if (!this.#driven.has(holon.opacity)) {
+        } else if (!driven.has(holon.opacity)) {
           holon.opacity.value = holon.opacity.defaultValue;
         }
       }
     }
+    if (window2) {
+      const u2 = (t2 - window2.start) / (window2.end - window2.start);
+      if (window2.kind === "crossfade") {
+        for (const holon of holons[window2.from])
+          holon.opacity.value *= 1 - u2;
+        for (const holon of holons[window2.into])
+          holon.opacity.value *= u2;
+      } else {
+        const out = buildOut(u2);
+        const into = buildIn(u2);
+        for (const holon of window2.outs)
+          holon.opacity.value *= out;
+        for (const holon of window2.ins)
+          holon.opacity.value *= into;
+      }
+    }
     const mirror = this.observer.params;
-    for (const [name, param] of active.dream.observer.params) {
-      const target = mirror.get(name);
-      if (target)
-        target.value = param.value;
+    if (window2) {
+      const u2 = (t2 - window2.start) / (window2.end - window2.start);
+      const e2 = window2.kind === "magicMove" ? smooth(u2) : u2;
+      const aObs = this.#chapters[window2.from].dream.observer.params;
+      const bObs = this.#chapters[window2.into].dream.observer.params;
+      for (const [name, target] of mirror) {
+        const pa = aObs.get(name);
+        const pb = bObs.get(name);
+        if (pa && pb)
+          target.value = lerpParamValue(pa.value, pb.value, e2);
+      }
+    } else {
+      for (const [name, param] of active.dream.observer.params) {
+        const target = mirror.get(name);
+        if (target)
+          target.value = param.value;
+      }
     }
   }
 }
@@ -66162,7 +66339,7 @@ var identityOf = (holon) => {
   }
   return;
 };
-var rootIdentityOf = (dream, holon) => {
+var rootIdentityOf2 = (dream, holon) => {
   for (const [key, value] of Object.entries(dream)) {
     if (value === holon)
       return key;
@@ -66217,7 +66394,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     name.className = "nclass";
     name.textContent = classNameOf(holon);
     row.appendChild(name);
-    const identity = depth3 === 0 ? rootIdentityOf(dream, holon) : identityOf(holon);
+    const identity = depth3 === 0 ? rootIdentityOf2(dream, holon) : identityOf(holon);
     if (identity) {
       const ident = document.createElement("span");
       ident.className = "nident";
@@ -68053,7 +68230,7 @@ var boot = async (resume) => {
       paramsRoot.appendChild(hint);
       return;
     }
-    const identity = holon.parent ? identityOf(holon) : rootIdentityOf(dream, holon);
+    const identity = holon.parent ? identityOf(holon) : rootIdentityOf2(dream, holon);
     const anchor2 = anchorOf(holon);
     nameEl.textContent = "";
     nameEl.appendChild(thumbnailEl(holon, 15));
@@ -68756,7 +68933,7 @@ var boot = async (resume) => {
         return;
       return {
         className: classNameOf(holon),
-        identity: holon.parent ? identityOf(holon) : rootIdentityOf(dream, holon),
+        identity: holon.parent ? identityOf(holon) : rootIdentityOf2(dream, holon),
         anchor: anchorOf(holon)
       };
     },
