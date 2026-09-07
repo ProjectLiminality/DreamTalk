@@ -66244,6 +66244,103 @@ class Scene00Dream extends Dream {
 if (false)
   ;
 
+// vocabulary/Logo/Logo.ts
+var ANGLE_LINES = PI3 * 2 / 5;
+var ANGLE_OFFSET = -PI3 / 2;
+var SMALL_CIRCLE_RATIO = 0.61;
+var SMALL_CIRCLE_GAP = 6;
+var FOCAL_RATIO = 0.11;
+var proportions = (radius) => {
+  const smallRadius = radius * SMALL_CIRCLE_RATIO;
+  const smallCenter = radius - smallRadius - SMALL_CIRCLE_GAP * (radius / 200);
+  const focalHeight = smallCenter + FOCAL_RATIO * smallRadius;
+  const footX = radius * Math.cos(ANGLE_OFFSET + ANGLE_LINES / 2);
+  const footY = radius * Math.sin(ANGLE_OFFSET + ANGLE_LINES / 2);
+  return { smallRadius, smallCenter, focalHeight, footX, footY };
+};
+
+class Logo extends Stroke {
+  static sovereign = true;
+  radius = length2(200);
+  tint = color2(BLUE);
+  smallTint = color2(RED);
+  lineTint = color2(WHITE);
+  get geometry() {
+    return proportions(this.radius.value);
+  }
+  mainCircle = new Circle({
+    radius: this.radius,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  smallCircle = new Circle({
+    radius: this.geometry.smallRadius,
+    y: this.geometry.smallCenter,
+    tint: this.smallTint,
+    stroke: this.stroke
+  });
+  leftLeg = new Line2({
+    points: [
+      { x: this.geometry.footX, y: this.geometry.footY, z: 0 },
+      { x: 0, y: this.geometry.focalHeight, z: 0 }
+    ],
+    tint: this.lineTint,
+    stroke: this.stroke
+  });
+  rightLeg = new Line2({
+    points: [
+      { x: -this.geometry.footX, y: this.geometry.footY, z: 0 },
+      { x: 0, y: this.geometry.focalHeight, z: 0 }
+    ],
+    tint: this.lineTint,
+    stroke: this.stroke
+  });
+  createAnim() {
+    const { smallRadius, smallCenter, focalHeight } = this.geometry;
+    return together([this.mainCircle.opacity.sequence(0, 1), 0, 0.4], [
+      eased("easeIn", this.leftLeg.creation.sequence(0, 1), this.rightLeg.creation.sequence(0, 1)),
+      0.4,
+      0.7
+    ], [this.smallCircle.opacity.sequence(0, 1), 0.7, 1], [this.smallCircle.radius.sequence(0, smallRadius), 0.7, 1], [this.smallCircle.y.sequence(focalHeight, smallCenter), 0.7, 1]);
+  }
+  unCreateAnim() {
+    return together([this.smallCircle.opacity.to(0), 0, 0.3], [this.leftLeg.creation.to(0), 0.3, 0.6], [this.rightLeg.creation.to(0), 0.3, 0.6], [this.mainCircle.opacity.to(0), 0.6, 1]);
+  }
+}
+
+// demo/origins/Scene05.ts
+var START_OFFSET12 = 0.75;
+
+class Scene05Dream extends Dream {
+  logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene05.ts:6173:6225");
+  name = __dt(new Text({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene05.ts:6471:6533");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(3 / 4));
+    this.wait(START_OFFSET12);
+    this.wait(2);
+    __dt(this.play(together([Create(this.logo), 0, 3 / 4], [Write(this.name), 2 / 3, 1]), 4), "core/demo/origins/Scene05.ts:6880:7007");
+    this.wait(4);
+    __dt(this.play(UnCreate(this.name), 1), "core/demo/origins/Scene05.ts:7283:7316");
+    this.wait(1);
+  }
+}
+if (false)
+  ;
+
+// demo/origins/Scene09.ts
+class Scene09Dream extends Dream {
+  logo = __dt(new Logo({ stroke: STROKE_MAIN }), "core/demo/origins/Scene09.ts:5082:5115");
+  unfold() {
+    this.observer.look("front");
+    __dt(this.play(Create(this.logo), 18), "core/demo/origins/Scene09.ts:5383:5415");
+    this.wait(6);
+    __dt(this.play(FadeOut(this.logo), 1), "core/demo/origins/Scene09.ts:5626:5658");
+  }
+}
+if (false)
+  ;
+
 // ../holons/Circle/Circle.ts
 class Circle2 extends Circle {
 }
@@ -66335,7 +66432,9 @@ var scenes = {
   foldablecube: FoldableCubeDream,
   cable: CableDream,
   sketch: SketchDream,
-  o00: Scene00Dream
+  o00: Scene00Dream,
+  o05: Scene05Dream,
+  o09: Scene09Dream
 };
 var defaultScene = "founding";
 
@@ -67765,7 +67864,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render34 = (cached, span) => {
+  const render36 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -67808,7 +67907,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render34(current2);
+        render36(current2);
       return;
     }
     (async () => {
@@ -67818,7 +67917,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render34(cached, {
+      const mark = render36(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -67834,7 +67933,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render34(cached);
+    render36(cached);
   };
   return {
     show: show2,

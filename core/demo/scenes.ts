@@ -36,6 +36,8 @@ import { FoldableCubeDream } from "./vocabulary/FoldableCube"
 import { CableDream } from "./vocabulary/Cable"
 import { SketchDream } from "./vocabulary/Sketch"
 import { Scene00Dream } from "./origins/Scene00"
+import { Scene05Dream } from "./origins/Scene05"
+import { Scene09Dream } from "./origins/Scene09"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -75,6 +77,8 @@ export const scenes: Record<string, DreamClass> = {
   cable: CableDream,
   sketch: SketchDream,
   o00: Scene00Dream,
+  o05: Scene05Dream,
+  o09: Scene09Dream,
 }
 
 export const defaultScene = "founding"
