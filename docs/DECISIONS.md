@@ -341,3 +341,16 @@ operational decisions are entered by the working agent. Format:
   what DID survive; the video decides what exists and in what
   sequence. O-10 is dropped (was demoted); every chapter's target is
   now fully scoreable by construction.
+- 2026-09-07 · **The refused-fits discipline, refined (O-11 ruling)** —
+  a fit is refused when it stands in for DERIVABLE structure; a
+  quantity that exists ONLY in the footage (an editor's placement, a
+  lost import-time choice) is MEASURED from the footage, and that is
+  measurement, not fitting. Two admitted under this rule:
+  START_OFFSET-class heads (sanctioned campaign-wide; O-11's 0.6
+  cross-validated by landmark arithmetic — two independent methods
+  converging is what settles one) and GITHUB_DRAW_START 0.6 (C4D's
+  2021 SVG-import vertex choice, written into no surviving artifact;
+  unimodal sweep as the measurement instrument; one beat, one asset,
+  commented as footage-measured-because-underivable). Corollary kept:
+  a sweep that scores byte-identically across values is a bug report
+  about wiring, not a finding about the value.
