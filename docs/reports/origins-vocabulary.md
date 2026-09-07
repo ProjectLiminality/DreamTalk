@@ -560,6 +560,58 @@ downloads: 89 GB free.
   (measured window fractions match the source's own to a threshold
   offset). The re-cut affects placement, not pace, for this scene.
 
+- §0/§1/§6 (2026-09-07, O-11): **Scene06 is NOT re-cut — it plays
+  complete and verbatim — and Scene06_1 is CUT ENTIRELY.** Two
+  corrections, and together with O-8's they close the accounting for
+  the whole published video.
+
+  1. **The "6.2s black gap" at 168.2–174.4 does not exist.** It is
+     Scene06's own `wait(6)`, holding the bare blue circle, which the
+     luminance detector could not see: the frame's mean is 0.003 while
+     the thin unfilled ring lights ~7,500 pixels that never waver.
+     Re-scanned on a per-pixel ink threshold (max channel > 0.10), the
+     ONLY true black gaps between 144s and 288s are 193.6–193.8,
+     237.6–238.8 and 280.6 — and the first is an instant INSIDE
+     Scene06 (nodes gone, octocat not yet started).
+
+  2. **Scene06 is verbatim against the frames.** Its `run_time`/`wait`
+     calls sum to 81.00s, and laid down from t0 = 154.6 they predict
+     twelve independent landmarks — logo growth start/end (154.6/164.6,
+     r 117→242 px, exactly 10.0s), the bare ring (168.6), the dialectic
+     Create (174.6), Draw(github) (193.6), Create(logo2) (197.6), the
+     first Morph (211.6), Create(repo_triangle) (213.6), the collapse
+     (222.6), Create(repo_cylinder) (227.6), the final UnDraw (~236) —
+     every one inside a frame (0.2s). So §6's fidelity note ("from
+     Scene06 on, compare against the source's choreography rather than
+     the video's re-cut") is unnecessary for THIS scene: the two are
+     the same thing, and the frames ARE a frame-exact target. Scored:
+     64/80 PASS dense at 1s, mean coverage 0.944.
+
+  3. **§1's "Scene06_1 is a continuation-state duplicate — reproduce
+     Scene06 and Scene06_1 as one continuous scene" is wrong on both
+     counts.** Only its first seven lines re-declare Scene06's objects.
+     The remaining 80 (pitch.py:505-585) are NEW material — three
+     filled dots replacing the triad, a half-scale second copy at
+     x=200, a dotted separator, a mediator dot the two white dots
+     converge on, and a camera zoom to 1 — and NONE of it is in the
+     published video. All 1,889 frames were searched for its signature
+     (large filled blue AND red discs co-present): three hits, all
+     other scenes (136.6–141.8 = Scene04's pie; 254.6 and 256.4–265.2
+     = Scene07's panels/Venn, confirmed by eye). Scene06's closing
+     UnDraw is at 236–237s and Scene07 is on screen by 238.6s.
+     Scene06_1 is reproducible from source but UNSCOREABLE, exactly
+     like Scene08_1/08_2.
+
+  Two smaller findings from the same work: **`liminality`
+  (`Circle(radius=250)`) is declared and `add`ed but never played** —
+  the ring that carries the middle of the scene is the LOGO's own main
+  circle at scale 5/4, which is 250 by construction (scanning the
+  reference's equator finds exactly one ring, never two); and
+  **`Transform(dialectical_thinking, logo, scale=1/3)` is pydeation's
+  MULTI-TARGET form** (`Connection`/`Transform` take `*objects`), so it
+  shrinks the logo too — measured, the ring falls 241.5 → 82.5 px over
+  the source's 5s.
+
 - §0/§1 (2026-09-07, O-8): **Scene08_1 and Scene08_2 are CUT from the
   published video entirely** — the segment map from 292.6s to the end
   closes with no room for them (Scene08 at 292.8/-10.2, Scene09 at

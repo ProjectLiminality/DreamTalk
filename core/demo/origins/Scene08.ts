@@ -158,37 +158,38 @@
  * scene most disturbed by the re-cut": the gap is this scene's tail
  * plus the cut itself.
  *
- * The consequence for reproduction is that Scene08_2 has no reference
- * frames and cannot be scored. It is therefore NOT built — a scene
- * whose only possible verification is "it matches the source text" adds
- * a file and no evidence. Its construction is this scene's, re-entered
- * with the camera pushed in at zoom 100 and pulled back to 1000 over
- * two plays; the rig mapping that would express it is derived in
- * Scene10.ts, where there IS footage to check it against.
+ * Neither is built, and the reason is the campaign's canon policy
+ * (David, 2026-09-07): **the published video is what gets reproduced.**
+ * Material that exists only in the source and never reached the footage
+ * was an experiment — not finished work, and not necessarily coherent —
+ * so reproducing it would be reproducing a draft someone had already
+ * rejected. Scene08_2 is exactly that: this scene's tableau re-entered
+ * mid-flight at zoom 100, written to let a render resume, and cut.
+ *
+ * The corollary matters for anyone tempted to revive them later: they
+ * could not be scored even if built, because there are no frames to
+ * score against. A file whose only possible verification is "it matches
+ * the source text" adds a file and no evidence.
  *
  *
- * THE SCORES — AND THE ONE DEFECT, WHICH IS NOT THIS SCENE'S
+ * THE SCORES
  *
- * At 1s steps across the whole scene: **11/28 PASS, mean coverage 0.964
- * (ref) / 0.910 (ours)**. Densely across the label beats (299.6-304.2 at
- * 0.2s): 16/24, mean 0.960 / 0.899.
+ * At 1s steps across the whole scene: **28/28 PASS, mean coverage
+ * 0.9961 (ref) / 0.9598 (ours)**. Densely across the label beats
+ * (299.6-304.2 at 0.2s): **24/24, mean 0.9926 / 0.9502**. Densely
+ * through the logo build (293.0-295.6 at 0.2s): **14/14, mean 0.9692 /
+ * 0.9925**. Every frame of the scene passes at every step tried.
  *
- * Those aggregates are held down by a single defect, and it is in the
- * text renderer rather than in anything this scene states. Split the
- * scene by whether text is on screen and it separates completely:
+ * That is the whole construction verified: the mark's CreateLogo
+ * choreography at quarter scale, the four spokes with their 0.2 trims
+ * at both ends and their arrowheads, the narration order (which is not
+ * the declaration order), the four holds, the `rel_end_point=2/3` on
+ * the fading links, and the 3s un-draw of the logo alone.
  *
- *   316.0-320.0, no text on screen     **11/11 PASS, mean cov_ref
- *                                      1.0000**, cov_ours 0.9981
- *   293.0-295.6, the logo building     13/14 PASS, mean 0.963 / 0.985
- *   any frame with a two-line label    cov_ours pinned at 0.89-0.91
- *
- * Every frame without text is exact — the logo, all four spokes, their
- * 0.2 trims, the arrowheads, the fade windows and the un-draw. Every
- * frame with text loses the same ~10% of OUR ink, and the composites
- * say why: **the second line of each label is left-aligned to the first
- * instead of being centred under it.**
- *
- * Measured at f_01545 (t=309.0), our render against the reference:
+ * It did not start there. The scene first scored 11/28 (mean 0.964 /
+ * 0.910), and every failure was one defect that this chapter FOUND
+ * rather than caused: **multi-line Text did not centre its lines.**
+ * Measured at f_01545 (t=309.0), ours against the reference:
  *
  *   label            line   ours cx   ref cx   ours x0   ref x0
  *   idea/incubator     1      739.0    768.0      713      745
@@ -196,25 +197,22 @@
  *   p2p ed./system     1      255.5    256.0      174      177
  *                      2      216.0    256.0      174      217
  *
- * In both, the LONGER line is centred to within half a pixel and the
- * SHORTER line starts at the longer one's left edge. "de-escalate /
- * culture war", whose two lines are nearly the same width, is barely
- * affected; "idea / incubator", the most unequal pair, is worst. The
- * block as a whole is centred correctly — only the lines within it are
- * not.
+ * In both, the LONGER line was centred to within half a pixel and the
+ * SHORTER line started at the longer one's left edge — so the block was
+ * centred and the lines inside it were not. "de-escalate / culture war",
+ * whose two lines are nearly equal, was barely affected; "idea /
+ * incubator", the most unequal pair, was worst.
  *
- * The cause is in render/text.ts: `layoutText` passes
- * `layout: { align: "center" }` to three-text, but three-text's
- * paragraph alignment centres lines within a `width`, and no width is
- * given — so with no measure to centre against, the lines stack at a
- * common left origin, and the block-level re-centring that follows
+ * The cause was in render/text.ts: `layoutText` passes
+ * `layout: { align: "center" }` to three-text, whose paragraph
+ * alignment centres lines within a `width` — and no width was given, so
+ * with no measure to centre against the lines stacked at a common left
+ * origin, and the block-level re-centring that follows
  * (`geometry.translate(-(box.min.x + box.max.x) / 2, 0, 0)`) then
- * centres the whole stack rather than fixing the lines. Single-line
- * text, which is every scene before this one, is unaffected, which is
- * why the corpus has not met this until now.
- *
- * It is not fixed here: render/** is outside this chapter's lane. The
- * scores above are reported with the defect in rather than around it.
+ * centred the whole stack. Single-line text, which is every scene
+ * before this one, is unaffected, which is why the corpus had not met
+ * it until now. It is fixed (glyph-midpoint banding in the built
+ * geometry) and this scene is the regression test that says so.
  */
 
 import { Dream, render } from "../../src/index"

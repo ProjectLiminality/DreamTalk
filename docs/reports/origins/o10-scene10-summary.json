@@ -2,9 +2,9 @@
  "scene": "o10",
  "t0": 345.8,
  "frames": 14,
- "passed": 2,
- "meanCoverageRef": 0.5059,
- "meanCoverageOurs": 0.4547,
+ "passed": 7,
+ "meanCoverageRef": 0.8529,
+ "meanCoverageOurs": 0.7939,
  "reports": [
   {
    "idx": 1730,
@@ -69,11 +69,11 @@
    "name": "f_01750",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01750.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01750.jpg",
-   "iou": 0.534,
-   "chamfer_ours_px": 2.114,
+   "iou": 0.5342,
+   "chamfer_ours_px": 2.113,
    "chamfer_ref_px": 0.987,
-   "coverage_ref": 0.8702,
-   "coverage_ours": 0.7587,
+   "coverage_ref": 0.8703,
+   "coverage_ours": 0.7588,
    "verdict": "FAIL"
   },
   {
@@ -83,11 +83,11 @@
    "name": "f_01755",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01755.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01755.jpg",
-   "iou": 0.5908,
-   "chamfer_ours_px": 1.776,
-   "chamfer_ref_px": 0.716,
-   "coverage_ref": 0.9067,
-   "coverage_ours": 0.7917,
+   "iou": 0.5762,
+   "chamfer_ours_px": 1.817,
+   "chamfer_ref_px": 0.78,
+   "coverage_ref": 0.8966,
+   "coverage_ours": 0.7835,
    "verdict": "FAIL"
   },
   {
@@ -97,11 +97,11 @@
    "name": "f_01760",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01760.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01760.jpg",
-   "iou": 0.2834,
-   "chamfer_ours_px": 5.994,
-   "chamfer_ref_px": 5.124,
-   "coverage_ref": 0.5557,
-   "coverage_ours": 0.4778,
+   "iou": 0.568,
+   "chamfer_ours_px": 1.935,
+   "chamfer_ref_px": 0.967,
+   "coverage_ref": 0.8937,
+   "coverage_ours": 0.7777,
    "verdict": "FAIL"
   },
   {
@@ -111,11 +111,11 @@
    "name": "f_01765",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01765.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01765.jpg",
-   "iou": 0.1382,
-   "chamfer_ours_px": 9.126,
-   "chamfer_ref_px": 8.285,
-   "coverage_ref": 0.3197,
-   "coverage_ours": 0.2666,
+   "iou": 0.7067,
+   "chamfer_ours_px": 1.396,
+   "chamfer_ref_px": 0.486,
+   "coverage_ref": 0.9675,
+   "coverage_ours": 0.8912,
    "verdict": "FAIL"
   },
   {
@@ -125,12 +125,12 @@
    "name": "f_01770",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01770.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01770.jpg",
-   "iou": 0.1304,
-   "chamfer_ours_px": 9.077,
-   "chamfer_ref_px": 8.539,
-   "coverage_ref": 0.2975,
-   "coverage_ours": 0.2653,
-   "verdict": "FAIL"
+   "iou": 0.7789,
+   "chamfer_ours_px": 0.674,
+   "chamfer_ref_px": 0.162,
+   "coverage_ref": 0.9913,
+   "coverage_ours": 0.9454,
+   "verdict": "PASS"
   },
   {
    "idx": 1775,
@@ -139,12 +139,12 @@
    "name": "f_01775",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01775.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01775.jpg",
-   "iou": 0.1304,
-   "chamfer_ours_px": 9.076,
-   "chamfer_ref_px": 8.539,
-   "coverage_ref": 0.2975,
-   "coverage_ours": 0.2653,
-   "verdict": "FAIL"
+   "iou": 0.7788,
+   "chamfer_ours_px": 0.674,
+   "chamfer_ref_px": 0.163,
+   "coverage_ref": 0.9912,
+   "coverage_ours": 0.9455,
+   "verdict": "PASS"
   },
   {
    "idx": 1780,
@@ -153,12 +153,12 @@
    "name": "f_01780",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01780.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01780.jpg",
-   "iou": 0.1303,
-   "chamfer_ours_px": 9.078,
-   "chamfer_ref_px": 8.539,
-   "coverage_ref": 0.2974,
-   "coverage_ours": 0.2652,
-   "verdict": "FAIL"
+   "iou": 0.7788,
+   "chamfer_ours_px": 0.674,
+   "chamfer_ref_px": 0.162,
+   "coverage_ref": 0.9913,
+   "coverage_ours": 0.9455,
+   "verdict": "PASS"
   },
   {
    "idx": 1785,
@@ -167,12 +167,12 @@
    "name": "f_01785",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01785.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01785.jpg",
-   "iou": 0.1302,
-   "chamfer_ours_px": 9.072,
-   "chamfer_ref_px": 8.567,
-   "coverage_ref": 0.2964,
-   "coverage_ours": 0.2655,
-   "verdict": "FAIL"
+   "iou": 0.7793,
+   "chamfer_ours_px": 0.671,
+   "chamfer_ref_px": 0.165,
+   "coverage_ref": 0.9908,
+   "coverage_ours": 0.9459,
+   "verdict": "PASS"
   },
   {
    "idx": 1790,
@@ -181,12 +181,12 @@
    "name": "f_01790",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01790.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01790.jpg",
-   "iou": 0.1396,
-   "chamfer_ours_px": 8.895,
-   "chamfer_ref_px": 8.433,
-   "coverage_ref": 0.3091,
-   "coverage_ours": 0.2773,
-   "verdict": "FAIL"
+   "iou": 0.727,
+   "chamfer_ours_px": 0.963,
+   "chamfer_ref_px": 0.825,
+   "coverage_ref": 0.9374,
+   "coverage_ours": 0.9203,
+   "verdict": "PASS"
   },
   {
    "idx": 1795,
@@ -195,11 +195,11 @@
    "name": "f_01795",
    "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o10-scene10/ours-f_01795.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01795.jpg",
-   "iou": 0.0421,
-   "chamfer_ours_px": 11.578,
-   "chamfer_ref_px": 11.218,
-   "coverage_ref": 0.1361,
-   "coverage_ours": 0.1086,
+   "iou": 0.3178,
+   "chamfer_ours_px": 5.84,
+   "chamfer_ref_px": 5.144,
+   "coverage_ref": 0.6137,
+   "coverage_ours": 0.5774,
    "verdict": "FAIL"
   }
  ]

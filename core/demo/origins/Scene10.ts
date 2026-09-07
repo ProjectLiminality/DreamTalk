@@ -280,36 +280,45 @@
  *
  * ══ THE SCORES, AND WHAT THEY MEASURE ═════════════════════════════════
  *
- * At 1s steps across the whole scene: **2/14 PASS, mean coverage 0.506
- * (ref) / 0.455 (ours)**. That aggregate is honest but almost useless,
- * because the scene has two halves and only one of them is being
- * judged on its own merits:
+ * At 1s steps across the whole scene: **7/14 PASS, mean coverage 0.853
+ * (ref) / 0.794 (ours)**. Densely across the camera move itself
+ * (349.8-354.4 at 0.2s): **10/24, mean 0.935 / 0.855**.
  *
- *   t = 2.2, 3.2   the flat tableau, before the camera moves
- *                  coverage 1.0000 / 0.9571 and 0.9920 / 0.9544 — the
- *                  two PASSes, and as close as this chapter gets to
- *                  exact. The four marks' positions, sizes, colours,
- *                  fills (including the Amazon counter) and the four
- *                  curved tensions are all correct.
- *   t = 4.0        coverage 0.9993 — the last frame before the move.
- *   t >= 4.2       the move, degrading monotonically to ~0.30.
+ * Where the scene stands, beat by beat:
  *
- * The degradation is NOT a pose error, and the dense scan proves it by
- * its shape: coverage falls smoothly from 0.999 with no discontinuity,
- * which is what a growing translation looks like and not what a wrong
- * angle looks like. Projecting the origin through the derived path with
- * and without the dropped focus-z term:
+ *   t = 2.2, 3.2   the flat tableau, before the camera moves —
+ *                  coverage 1.0000 and 0.9920. The four marks'
+ *                  positions, sizes, colours, fills (including the
+ *                  Amazon counter) and the four curved tensions are all
+ *                  correct.
+ *   t = 4.0        0.9993, the last frame before the move.
+ *   t = 4.2-5.2    the move's FIRST half, dipping to 0.777 — the one
+ *                  real remaining gap, below.
+ *   t = 5.4-7.4    recovering through the move, 0.94-0.99.
+ *   t = 8.0-12.2   the settled pose and the hold — 0.9914, 0.9913,
+ *                  0.9913, 0.9908, 0.9374. The rig lands where the film
+ *                  puts it.
  *
- *   u        0.00   0.17   0.33   0.50   0.67   0.83   1.00
- *   focus z  0.00   0.71   2.81   6.17  10.58  15.77  21.43
- *   px shift  0.0    0.2    1.3    4.6   10.7   20.4   33.7
+ * WHAT THE REMAINING DIP IS NOT: a pose error. The move ends at 0.991
+ * and holds there for four seconds, so the endpoint — every angle, the
+ * radius, the focus — is right. A wrong pose would not converge; it
+ * would end wrong and stay wrong.
  *
- * — 0 to 33.7 px, monotone, which is precisely the measured coverage
- * curve inverted and precisely the ~35 px offset the composites show at
- * the end. With the angles held at their derived values and only the
- * focus allowed its third coordinate, the end-pose error is 18.0 px
- * against an unconstrained fit's 17.8. So: one dropped term, one line,
- * and the whole of this scene's remaining gap.
+ * WHAT IT LIKELY IS: the move's own timing. The dip is confined to the
+ * first ~1.2 s of a 2.67 s span and is deepest at 350.4, about a third
+ * of the way in. Two candidates, neither yet separated, and both worth
+ * a chapter of their own rather than a guess here:
+ *
+ *   - `sequence` eases each of its 24 segments rather than the span
+ *     (timeline.ts:202, 232), so the sampled path's SPEED wobbles even
+ *     though its points are exact. The wobble is largest where the
+ *     path's curvature is greatest, which is the move's opening.
+ *   - the source's own ease over the `rel_end_point=2/3` window may not
+ *     be the C4D auto-tangent this framework fits by default.
+ *
+ * Both are timing along a verified path, not geometry — which is why
+ * the same frames score well on chamfer (2.1-3.2 px) while losing
+ * coverage: the right picture, a beat early or late.
  */
 
 import { Dream, render } from "../../src/index"

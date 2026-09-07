@@ -1,0 +1,33 @@
+{
+  "chapter": "O-11",
+  "scene": "Scene06",
+  "key": "o06",
+  "t0": 154,
+  "startOffset": 0.6,
+  "sceneDuration": 81.6,
+  "sourceDuration": 81.0,
+  "verdict": "Scene06 plays COMPLETE and UNTRIMMED in the published video; Scene06_1 is CUT ENTIRELY.",
+  "dense_1s": {
+    "frames": 80,
+    "passed": 64,
+    "meanCoverageRef": 0.9438,
+    "meanCoverageOurs": 0.9416,
+    "span": "v154.6-235.6"
+  },
+  "morphChain_frameByFrame": {
+    "frames": 40,
+    "passed": 21,
+    "meanCoverageRef": 0.8081,
+    "meanCoverageOurs": 0.8321,
+    "span": "v211.6-219.6"
+  },
+  "fitted": {
+    "START_OFFSET": 0.6,
+    "GITHUB_DRAW_START": 0.6
+  },
+  "gates": {
+    "tsc": "clean",
+    "bunTest": "934 pass / 0 fail",
+    "s04Gauntlet": "6/6 PASS"
+  }
+}

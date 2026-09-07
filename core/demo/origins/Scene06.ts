@@ -125,11 +125,17 @@
  * pydeation's out-of-plane y is our z and its z is our y throughout.
  *
  *
- * THE ONE FITTED NUMBER
+ * THE TWO FITTED NUMBERS
  *
- * START_OFFSET, the head between the audio cue (offset=154, which the
- * scorer takes as localT 0) and the scene's first frame. Everything
- * else below is verbatim from the source.
+ * START_OFFSET — the head between the audio cue (offset=154, which the
+ * scorer takes as localT 0) and the scene's first frame.
+ *
+ * GITHUB_DRAW_START — where C4D's 2021 SVG import began the octocat's
+ * closed outline, which the .svg file does not record.
+ *
+ * Both are swept against the frames rather than read off a landmark,
+ * and each has its derivation at its declaration. Everything else in
+ * this file is verbatim from the source.
  */
 
 import { Dream, render } from "../../src/index"
@@ -175,10 +181,23 @@ import { STROKE_MAIN } from "../video01/palette"
  * geometric growth rather than a fade, and a growing radius crosses a
  * measurement threshold far more sharply than an opacity ramp does.
  *
- *   offset   0.40   0.50   0.60   0.70   0.80
- *   (see docs/reports/origins/o11-sweep.json for the scored table)
+ * Swept over the WHOLE scene (32 frames at 2.6s spacing, v154.6-235.6),
+ * which is the right instrument for an 81-second scene: a head error
+ * shifts every beat, so scoring the whole span rather than one beat's
+ * neighbourhood is what makes the peak sharp.
+ *
+ *   offset   0.20   0.40   0.50   0.55   0.60   0.65   0.70   0.80   1.00
+ *   PASS    16/32  21/32  24/32  25/32  25/31  23/32  22/32  19/32  16/32
+ *   covRef  .8150  .8895  .9075  .9309  .9401  .8852  .8646  .8338  .7605
+ *
+ * A single-sample peak at 0.60, and it agrees with the landmark
+ * arithmetic (the growth's first measurable frame at v154.6 against the
+ * audio cue at 154) — which Scene05's did NOT. The difference is the
+ * kind of beat each scene opens with: a growing radius crosses a
+ * measurement threshold far more sharply than an opacity ramp, so here
+ * the two methods converge instead of disagreeing by a second.
  */
-const START_OFFSET = 0.65
+const START_OFFSET = 0.6
 
 /** The octocat SVG's own height in its own units — the thing `scale` scales. */
 const GITHUB_SOURCE_HEIGHT = 23.388
