@@ -28,6 +28,17 @@ export {
   type Readable,
 } from "./params"
 export { Create, UnCreate, Draw, UnDraw, Erase, FadeIn, FadeOut, Move, Scale, Rotate } from "./verbs"
+export {
+  DrawSteady,
+  UnDrawSteady,
+  planSteady,
+  steadyDuration,
+  orderStrokes,
+  strokesOf,
+  polylineLength,
+  type StrokeOrder,
+  type SteadyPlan,
+} from "./steady"
 // NOTE: the manifest loader is deliberately NOT re-exported here — it is
 // node-side (fs/path) and this barrel is reached by browser bundles.
 // Import it via the "dreamtalk/manifest" subpath in node contexts.

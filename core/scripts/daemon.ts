@@ -6,12 +6,16 @@
  *     ~50 ms), pushes {type:"reload"} to clients over /ws
  *   - GET /api/refs   → reference material under refs/ (JSON list)
  *   - GET /api/source → a DreamWeaving's text + sha256 (the op base hash)
+ *   - GET/PUT /api/bake-cache/<hash> → baked tracks, so the browser gets
+ *     the disk cache it cannot reach itself (accelerator, never required)
+ *   - GET /api/face/<Name> → a holon's DreamTalk face png, for tooltips
  *   - WS  {type:"op"} → semantic ops applied via ts-morph (scripts/ops.ts),
  *     written atomically, echo-suppressed at the watcher, one queue
  */
 
 import { watch } from "node:fs"
-import { readdir, rename } from "node:fs/promises"
+import { mkdir, readdir, rename } from "node:fs/promises"
+import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
@@ -90,6 +94,73 @@ const sourceResponse = async (file: string | null): Promise<Response> => {
   if (!(await blob.exists())) return Response.json({ error: "not found" }, { status: 404 })
   const source = await blob.text()
   return Response.json({ file, hash: sha256(source), source })
+}
+
+// --- Baked-track cache (src/bakecache.ts's http side) ----------------------
+
+/**
+ * `/api/bake-cache/<hash>` — GET a stored bake, PUT one to store.
+ *
+ * The browser cannot reach the filesystem, so the daemon lends it one.
+ * This is deliberately the dumbest possible blob store: the hash IS the
+ * name, the client computed it, and we neither parse nor validate the
+ * bytes (bake.ts verifies its own header on read — validating here would
+ * duplicate that check and let the two drift). What we DO enforce is
+ * that the hash is our own hex shape, so nothing here can address a path
+ * outside the cache directory, and a size ceiling so a stray PUT cannot
+ * fill the disk.
+ *
+ * Absent this route everything still works: the client treats a 404 as
+ * "compute it", which is exactly what `serve.ts` gives it.
+ */
+const MAX_CACHED_BAKE_BYTES = 64 * 1024 * 1024
+
+const bakeCacheResponse = async (req: Request, hash: string): Promise<Response> => {
+  if (!isValidHash(hash)) return new Response("bad hash", { status: 400 })
+  const path = `${bakeCacheDir(repoRoot)}/${hash}.bin`
+
+  if (req.method === "GET") {
+    const file = Bun.file(path)
+    if (!(await file.exists())) return new Response("miss", { status: 404 })
+    return new Response(file, {
+      headers: { "Content-Type": "application/octet-stream", "Cache-Control": "no-store" },
+    })
+  }
+
+  if (req.method === "PUT") {
+    const bytes = new Uint8Array(await req.arrayBuffer())
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_CACHED_BAKE_BYTES) {
+      return new Response("bad size", { status: 413 })
+    }
+    try {
+      await mkdir(bakeCacheDir(repoRoot), { recursive: true })
+      const tmp = `${path}.${process.pid}.tmp`
+      await Bun.write(tmp, bytes)
+      await rename(tmp, path)
+      return new Response("stored", { status: 204 })
+    } catch (err) {
+      log("bake-cache put failed:", err)
+      return new Response("store failed", { status: 500 })
+    }
+  }
+
+  return new Response("method not allowed", { status: 405 })
+}
+
+// --- Vocabulary faces ------------------------------------------------------
+
+/**
+ * `core/vocabulary/<Name>/<Name>.png` — the distilled face of each
+ * sovereign holon, which the editor shows as a hover tooltip. Served
+ * read-only, and only for that exact shape: a name, its own directory,
+ * its own png. Nothing else under vocabulary/ is reachable through here.
+ */
+const FACE_PATH = /^\/api\/face\/([A-Za-z][A-Za-z0-9]*)$/
+
+const faceResponse = async (name: string): Promise<Response> => {
+  const file = Bun.file(`${repoRoot}core/vocabulary/${name}/${name}.png`)
+  if (!(await file.exists())) return new Response("no face", { status: 404 })
+  return new Response(file, { headers: { "Content-Type": "image/png" } })
 }
 
 // --- Build + reload --------------------------------------------------------
@@ -445,6 +516,11 @@ const server = Bun.serve({
     }
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
+    if (url.pathname.startsWith("/api/bake-cache/")) {
+      return bakeCacheResponse(req, url.pathname.slice("/api/bake-cache/".length))
+    }
+    const face = FACE_PATH.exec(url.pathname)
+    if (face) return faceResponse(face[1]!)
     return serveStatic(url.pathname)
   },
   websocket: {

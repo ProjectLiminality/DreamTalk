@@ -26,6 +26,7 @@ import type { Holon } from "../src/holon"
 import type { Selection } from "./selection"
 import { classNameOf } from "./classname"
 import { thumbnailEl } from "./thumbnails"
+import { attachFaceTip } from "./facetip"
 
 /** The field name a whole knows a part by — the identity a human wrote. */
 export const identityOf = (holon: Holon): string | undefined => {
@@ -179,6 +180,12 @@ export const mountOutline = (
       e.stopPropagation()
       selection.set(holon)
     }, { signal })
+    // Only sovereign symbols have a rendered face — a Line or a Circle
+    // is an invisible asset (cast.ts's rule), and its 16px glyph is
+    // already the whole of what it looks like.
+    if ((holon.constructor as { sovereign?: boolean }).sovereign === true) {
+      attachFaceTip(row, classNameOf(holon), signal)
+    }
     parentEl.appendChild(row)
 
     const entry: Row = { holon, el: row }

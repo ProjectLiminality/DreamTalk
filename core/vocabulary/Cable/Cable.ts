@@ -82,7 +82,7 @@ import { bool, color, completion, length, scalar } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { invRotHPB } from "../../src/parts/curves"
 import { TAU, WHITE } from "../../src/constants"
-import { bake, type BakedTrack } from "../../src/bake"
+import { bake, type BakedTrack, type Simulation } from "../../src/bake"
 import {
   CABLE_PARTICLES,
   CABLE_SLACK,
@@ -290,8 +290,55 @@ export class Cable extends Stroke {
    * `anchor` is the fixed end (the spawn point); `tip` states the
    * creature's pose at any time, purely.
    */
-  tether(anchor: Vec3, tip: TetherTipFn, opts: TetherOptions): this {
+  tether(
+    anchor: Vec3,
+    tip: TetherTipFn,
+    opts: TetherOptions,
+    /**
+     * A track someone already has — from a cache, a re-bake, a fixture.
+     * Given one, this installs it INSTEAD of simulating; the
+     * completions are derived either way, so the cable cannot tell the
+     * difference and neither can anything downstream.
+     */
+    prebaked?: BakedTrack,
+  ): BakedTrack | undefined {
     void this.parts // compose() installs the derived-points accessors
+    const sim = this.tetherSim(anchor, tip, opts)
+    if (prebaked) {
+      this.installTether(prebaked, sim.visible)
+      return undefined // nothing new to store
+    }
+    const track = bake<CableState>(sim.simulation, sim.bakeOptions)
+    this.installTether(track, sim.visible)
+    return track
+  }
+
+  /**
+   * The tether's simulation and its frame-grid completions, stated
+   * without running anything.
+   *
+   * Split out of `tether()` so the same simulation can be handed either
+   * to `bake()` or to a cache. The important half is `visible`: it is
+   * computed HERE, from the pure `tip` function over the bake's own
+   * frame grid, rather than accumulated inside `step`. Accumulating it
+   * would tie the fade-in to whether the simulation actually ran, so a
+   * cache hit — which skips every step — would produce a cable that
+   * moves correctly and fades wrong. Deriving it purely is what makes
+   * the two paths the same path.
+   *
+   * `tip` is pure by construction (it is a journey — the property this
+   * whole file rests on), so reading it per frame here returns exactly
+   * what stepping read at that frame.
+   */
+  private tetherSim(
+    anchor: Vec3,
+    tip: TetherTipFn,
+    opts: TetherOptions,
+  ): {
+    simulation: Simulation<CableState>
+    bakeOptions: { fps: number; duration: number }
+    visible: Float32Array
+  } {
     const particles = opts.particles ?? CABLE_PARTICLES
     const slack = opts.slack ?? CABLE_SLACK
     const fps = opts.bakeFps ?? 30
@@ -300,15 +347,17 @@ export class Cable extends Stroke {
     const anchorDir = opts.anchorDir
 
     const frames = Math.max(1, Math.round(duration * fps) + 1)
+    const dt = 1 / fps
+    // The bake's own frame times, exactly as bake() walks them: frame 0
+    // is t = 0, frame f is f·dt.
     const visible = new Float32Array(frames)
+    for (let f = 0; f < frames; f++) visible[f] = tip(f * dt).completion
 
-    const track = bake<CableState>(
-      {
+    const simulation: Simulation<CableState> = {
         width: particles * 3,
         init: () => straightState(anchor, tip(0).position, particles),
         step: (state, frame, time, dt) => {
           const t = tip(time)
-          visible[frame] = t.completion
           // Below the activation threshold the source does not simulate
           // at all — it REWRITES the chain as a straight line with zero
           // velocity every frame (:1456-1463). Reproduced exactly: the
@@ -343,16 +392,18 @@ export class Cable extends Stroke {
             out[offset + i * 3 + 2] = p.z
           }
         },
-      },
-      { fps, duration },
-    )
-    visible[0] = tip(0).completion
+    }
 
+    return { simulation, bakeOptions: { fps, duration }, visible }
+  }
+
+  /** Hand the cable its frozen tether — the end of every bake path. */
+  private installTether(track: BakedTrack, visible: Float32Array): void {
     this._baked = track
     this._bakedVisible = visible
     this._bakedScratch = new Float32Array(track.width)
-    return this
   }
+
 
   /** Bytes this cable's bake occupies (0 if it is a trail). */
   get bakedBytes(): number {

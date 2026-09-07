@@ -5,6 +5,7 @@
 
 import { ThreeHost } from "../src/render/three-host"
 import { scenes, defaultScene } from "./scenes"
+import { httpBakeCache } from "../src/bakecache"
 
 declare global {
   interface Window {
@@ -22,10 +23,41 @@ declare global {
 const canvas = document.getElementById("stage") as HTMLCanvasElement
 const readout = document.getElementById("readout") as HTMLDivElement
 
+/**
+ * Give any holon that can warm its bakes the chance to, before the
+ * scene composes.
+ *
+ * A browser has no filesystem, so the daemon lends it one over
+ * `/api/bake-cache` (src/bakecache.ts). This runs BEFORE mount because
+ * composition is synchronous and a fetch is not: by the time the scene
+ * builds, the tracks are either in hand or absent, and absent simply
+ * means "simulate", exactly as before.
+ *
+ * Duck-typed on purpose. The demo boot has no business knowing which
+ * holons bake — a scene without any is a no-op here, and a future
+ * baking holon joins by having the method.
+ */
+const warmBakes = async (dream: object): Promise<void> => {
+  const cache = httpBakeCache()
+  const warmable = Object.values(dream).filter(
+    (v): v is { warmCables(c: unknown): Promise<{ hits: number; total: number }> } =>
+      typeof (v as { warmCables?: unknown })?.warmCables === "function",
+  )
+  for (const holon of warmable) {
+    try {
+      const { hits, total } = await holon.warmCables(cache)
+      if (hits > 0) console.log(`[dreamtalk] bake cache: ${hits}/${total} tethers warm`)
+    } catch {
+      // The cache is an accelerator. Never a boot failure.
+    }
+  }
+}
+
 const main = async () => {
   const sceneName = new URLSearchParams(location.search).get("scene") ?? defaultScene
   const DreamCtor = scenes[sceneName] ?? scenes[defaultScene]!
   const dream = new DreamCtor()
+  await warmBakes(dream)
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
 

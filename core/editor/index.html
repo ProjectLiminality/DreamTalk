@@ -63,6 +63,18 @@
     .castchip.active { background: #0d2233; border-color: var(--blue);
       color: var(--blue); }
     .castchip .thumb { opacity: 0.9; display: block; }
+
+    /* The face card (facetip.ts): a symbol's rendered face on hover.
+       Never takes pointer events — the row underneath stays live. */
+    .facetip { position: fixed; z-index: 90; pointer-events: none;
+      background: var(--panel); border: 1px solid var(--blue);
+      border-radius: 3px; padding: 8px 8px 6px; opacity: 0;
+      transition: opacity 90ms linear; }
+    .facetip.shown { opacity: 1; }
+    .facetip img { display: block; width: 160px; height: 160px;
+      background: var(--bg); border-radius: 2px; }
+    .facetipname { color: var(--blue); font-size: 11px; text-align: center;
+      padding-top: 6px; letter-spacing: 0.02em; }
     .castcount { color: var(--dim); font-size: 10px;
       font-variant-numeric: tabular-nums; }
     /* Viewport */

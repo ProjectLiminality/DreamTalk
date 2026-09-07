@@ -23,6 +23,7 @@ import type { Holon } from "../src/holon"
 import type { Selection } from "./selection"
 import { classNameOf } from "./classname"
 import { thumbnailEl } from "./thumbnails"
+import { attachFaceTip } from "./facetip"
 
 /** ONTOLOGY.md's dial, read: the class says it is a sovereign symbol. */
 const isSovereign = (holon: Holon): boolean =>
@@ -91,6 +92,11 @@ export const mountCast = (
     chip.addEventListener("click", () => selection.set(member.first), { signal })
     chip.addEventListener("pointerenter", () => onHover?.(member.instances), { signal })
     chip.addEventListener("pointerleave", () => onHover?.(null), { signal })
+    // Every chip is a sovereign class by construction (castOf's rule),
+    // so every chip is exactly the case that has a rendered face. The
+    // card drops BELOW: the bar is horizontal, so a card beside a chip
+    // would sit on top of the neighbouring chips.
+    attachFaceTip(chip, member.name, signal, "below")
     root.appendChild(chip)
     chips.push({ member, el: chip })
   }

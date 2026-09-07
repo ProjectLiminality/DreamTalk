@@ -77,9 +77,10 @@ import {
   type Packing,
   type Slot,
 } from "../../src/geometry/packing"
-import { CABLE_SLACK } from "../../src/geometry/xpbd"
+import { CABLE_PARTICLES, CABLE_SLACK } from "../../src/geometry/xpbd"
 import { rotHPB } from "../../src/parts/curves"
-import type { TetherTip } from "../Cable/Cable"
+import type { TetherTip, TetherOptions } from "../Cable/Cable"
+import { bakeHash, decodeTrack, encodeTrack, type BakeCache, type BakedTrack } from "../../src/bake"
 
 /**
  * Rows lag each other by this many bricks — the diagonal growth wave
@@ -242,6 +243,8 @@ export class TheWall extends Holon {
     const brickSize = this.brickSize.value
     const started = performance.now()
     let bytes = 0
+    /** Tracks computed this boot, to offer the cache once building is done. */
+    const hits: [string, BakedTrack][] = []
 
     for (const { slot, journey, virus } of this.placements) {
       // The tether's rings are off (the wall's cables are plain
@@ -252,23 +255,190 @@ export class TheWall extends Holon {
       virus.cable.width.value = this.cableWidth.value
       virus.cable.clock.follow(derive(() => this.cableClock()))
 
-      virus.cable.tether(
+      const opts = this.tetherOptions(slot, journey, duration, fps, brickSize)
+      const hash = bakeHash(opts.key, fps, duration, CABLE_PARTICLES * 3)
+      const warm = this.warmed.get(hash)
+
+      const stored = virus.cable.tether(
         this.spawn,
         (time) => this.tipAt(time, slot, journey),
-        {
-          duration,
-          bakeFps: fps,
-          slack: this.cableSlack.value,
-          anchorDir: this.spawnDirection,
-          cubeSize: brickSize,
-        },
+        opts,
+        warm,
       )
+      // A track this boot computed is worth storing for the next one.
+      // Fire-and-forget: whether it lands is never this boot's problem.
+      if (!warm && this.warmCache) {
+        if (stored) hits.push([hash, stored])
+      } else if (warm) {
+        this.cableCacheHits++
+      }
       bytes += virus.cable.bakedBytes
     }
 
     this.cableBakeMs = performance.now() - started
     this.cableBakeBytes = bytes
+
+    const cache = this.warmCache
+    if (cache && hits.length > 0) {
+      void (async () => {
+        for (const [hash, track] of hits) {
+          try {
+            await cache.put(hash, encodeTrack(track))
+          } catch {
+            // Storing is a courtesy to the next boot.
+          }
+        }
+      })()
+    }
   }
+
+  /** How many tethers this boot read from the cache instead of simulating. */
+  cableCacheHits = 0
+
+  /** One creature's tether options — shared by the plain and cached paths. */
+  private tetherOptions(
+    slot: Slot,
+    journey: JourneyPath,
+    duration: number,
+    fps: number,
+    brickSize: number,
+  ): TetherOptions & { key: unknown } {
+    return {
+      duration,
+      bakeFps: fps,
+      slack: this.cableSlack.value,
+      anchorDir: this.spawnDirection,
+      cubeSize: brickSize,
+      key: this.cableKey(slot, journey, duration, fps, brickSize),
+    }
+  }
+
+  /**
+   * What makes ONE creature's tether the simulation it is.
+   *
+   * A cache key has exactly one job: two bakes share it only if they
+   * produce the same numbers. The XPBD step reads the anchor, the
+   * settle/collider constants (fixed), and — every frame — the tip's
+   * pose. So the key states the scalar configuration outright, and
+   * SAMPLES the tip path: 64 poses across the span, each contributing
+   * the numbers the solver actually consumes (position, direction,
+   * fold, scale, completion, distance travelled). Two creatures with
+   * different journeys differ in those samples by construction; the
+   * same creature rebuilt identically hashes the same.
+   *
+   * Sampling rather than hashing the closure is the honest move: a
+   * function has no identity we can read, but its outputs do. 64 is a
+   * judgement — dense enough that two distinct journeys cannot agree at
+   * every one of them, cheap enough to compute 236 times. (The solver
+   * version is folded in by bake.ts's own CACHE_VERSION, so a change to
+   * the XPBD math invalidates every key here without any of them
+   * changing.)
+   */
+  private cableKey(
+    slot: Slot,
+    journey: JourneyPath,
+    duration: number,
+    fps: number,
+    brickSize: number,
+  ): unknown {
+    const SAMPLES = 64
+    const path: number[] = []
+    for (let i = 0; i < SAMPLES; i++) {
+      const t = (i / (SAMPLES - 1)) * duration
+      const tip = this.tipAt(t, slot, journey)
+      path.push(
+        tip.position.x, tip.position.y, tip.position.z,
+        tip.direction.x, tip.direction.y, tip.direction.z,
+        tip.fold, tip.scale, tip.completion, tip.travelled,
+      )
+    }
+    return {
+      holon: "TheWall.cable",
+      duration,
+      fps,
+      brickSize,
+      slack: this.cableSlack.value,
+      particles: CABLE_PARTICLES,
+      anchor: [this.spawn.x, this.spawn.y, this.spawn.z],
+      anchorDir: this.spawnDirection
+        ? [this.spawnDirection.x, this.spawnDirection.y, this.spawnDirection.z]
+        : null,
+      path,
+    }
+  }
+
+  /**
+   * Warm the cable bakes from a cache, then build.
+   *
+   * `compose()` is synchronous — a holon's parts must exist the moment
+   * anyone asks for them — while a cache may be a fetch. Rather than
+   * make composition async (which would put an await between a scene
+   * and its own geometry), this resolves the cached tracks FIRST and
+   * leaves them where the synchronous bake will find them. A scene that
+   * never calls this behaves exactly as before.
+   *
+   * Anything unavailable is simply absent: `compose()` then simulates
+   * that creature as it always has. The cache is an accelerator.
+   */
+  async warmCables(cache: BakeCache): Promise<{ hits: number; total: number }> {
+    const duration = this.cableDuration.value
+    const fps = this.cableFps.value
+    const brickSize = this.brickSize.value
+
+    // Layout without composing: the slots and journeys the bake will use.
+    const packing = packSlots(this.footprint, {
+      brickSize,
+      rowCount: this.rowCount.value,
+    })
+    // `tipAt` reads `this.packing.rowLength` to place a creature in the
+    // growth wave, and falls back to 1 when the wall has not composed.
+    // Publishing the layout here is what makes the key computed BEFORE
+    // compose() equal the one computed during it — without this the
+    // hashes differ and every warm boot silently misses. `compose()`
+    // recomputes the same packing from the same pure inputs.
+    this.packing = packing
+    const spacing = this.rowHeight.value
+    const rowCountValue = this.rowCount.value
+
+    let hits = 0
+    for (const slot of packing.slots) {
+      const slotPos: Vec3 = {
+        x: slot.position.x,
+        y: rowHeight(slot.row, rowCountValue, spacing),
+        z: slot.position.z,
+      }
+      const journey = buildJourney({
+        spawn: this.spawn,
+        slot: slotPos,
+        spawnDir: this.spawnDirection,
+        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z },
+      })
+      const key = this.cableKey(slot, journey, duration, fps, brickSize)
+      const hash = bakeHash(key, fps, duration, CABLE_PARTICLES * 3)
+      try {
+        const bytes = await cache.get(hash)
+        if (bytes) {
+          const track = decodeTrack(bytes, {
+            frames: Math.max(1, Math.round(duration * fps) + 1),
+            width: CABLE_PARTICLES * 3,
+          })
+          if (track) {
+            this.warmed.set(hash, track)
+            hits++
+          }
+        }
+      } catch {
+        // Unreachable, corrupt, offline: simulate instead.
+      }
+    }
+    this.warmCache = cache
+    return { hits, total: packing.slots.length }
+  }
+
+  /** Tracks resolved by `warmCables()`, by hash — read during compose(). */
+  private warmed = new Map<string, BakedTrack>()
+  /** Where newly computed tracks are offered, if a warm pass named one. */
+  private warmCache?: BakeCache
 
   /** How long the last cable bake took, ms — the perf number a bake owes. */
   cableBakeMs = 0

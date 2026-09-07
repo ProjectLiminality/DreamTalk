@@ -25,3 +25,6 @@ holons/
 
 # dependencies are restored by 'bun install'
 core/node_modules/
+
+# baked-track disk cache (an accelerator; safe to delete at any time)
+.cache/
