@@ -105,16 +105,47 @@
  * exact consequence is not worth reconstructing; the reference is the
  * authority, and the reference is unambiguous.
  *
- * The fourth play is then kept verbatim and does the real work: the wash
- * drains over its (0, 0.6) and the outline retracts over its (0.5, 1).
- * The scene's arithmetic also holds — 125 + 2 + 3 + 2 + 4 + 3 + 3 = 142,
- * and the video's next black gap is at 142.2s (report §0).
+ *
+ * THE FOURTH PLAY IS NOT IN THE VIDEO EITHER — IT IS A CUT
+ *
+ * The source's last play is `UnFillThenUnDraw(pie), run_time=3`, which
+ * from 14.35 would drain the wash over (0, 0.6) and retract the outline
+ * over (0.5, 1). The reference does neither. Measured over the closing
+ * two seconds (lit = pixels above the scorer's own 32/255 threshold,
+ * luma = total frame luminance, both on frames5):
+ *
+ *   t      15.8    16.0    16.2    16.4    16.6    16.8    17.0    17.2    17.4
+ *   lit   88064   88064   88064   88060   87995   87874   87673   87050       0
+ *   luma  1.000   1.000   1.000   0.982   0.927   0.812   0.628   0.368   0.052
+ *
+ * The lit-pixel count does not move — 88064 to 87050 across the whole
+ * decay, a 1% drift that is the encode alone — while the luminance falls
+ * to nothing. NO GEOMETRY LEAVES. An UnFill would empty the wash and
+ * leave the outline, dropping `lit` by the ~80k pixels of interior; an
+ * UnDraw would retract the outline, dropping it the rest of the way.
+ * Neither happens: every pixel that was lit at 15.8 is still lit at 17.2,
+ * only dimmer. That is a FADE OF THE WHOLE IMAGE, and at 17.4 it is
+ * simply gone — the shot is CUT.
+ *
+ * So this scene ends on the published edit's cross-fade, not on the
+ * script's verb, and PLAN.md's standing policy for the campaign settles
+ * which one this reproduction owes: "first half frame-exact vs frames5;
+ * from Scene06 vs source choreography (published video is a re-cut)."
+ * Scene04 is in the first half. The video is the authority here, and the
+ * video holds the reassembled disc until 16.3 and then fades it out over
+ * 16.3-17.45.
+ *
+ * The hold is therefore extended to meet 16.3 and the close is spelled
+ * as what it measurably is — `FadeOut` of everything, over the 1.15s the
+ * curve above takes to reach zero. `UnFillThenUnDraw` is dropped for the
+ * same reason `FadeOut(pie)` and `UnFill(pie)` were dropped from the
+ * third play: it is named in the source and absent from the render.
  */
 
 import { Dream, render } from "../../src/index"
 import { Group, Null } from "../../src/parts/primitives"
 import { Connection } from "../../src/parts/curves"
-import { Create, DrawThenFillCompletely, FadeOut, UnFillThenUnDraw } from "../../src/verbs"
+import { Create, DrawThenFillCompletely, FadeOut } from "../../src/verbs"
 import { together } from "../../src/anim"
 import { BLUE, GREEN, RED, WHITE } from "../../src/constants"
 import { STROKE_MAIN } from "../video01/palette"
@@ -200,10 +231,13 @@ export class Scene04Dream extends Dream {
       ),
       3,
     )
-    // UnFillThenUnDraw(pie), 3s — and THIS is where the pie goes. The
-    // wash drains over (0, 0.6) and the outline retracts over (0.5, 1),
-    // which is what the reference does after its two-second hold.
-    this.play(UnFillThenUnDraw(this.pie), 3)
+    // The published cut (see the header). The disc arrives home at 14.35
+    // and the reference holds it, fully lit and unmoving, until 16.3 —
+    // then the whole image fades to black over 1.15s with no geometry
+    // leaving. Not the source's UnFillThenUnDraw: that verb is named in
+    // the script and absent from the render.
+    this.wait(16.3 - 14.35)
+    this.play(together(FadeOut(this.pie), FadeOut(this.force)), 1.15)
   }
 }
 

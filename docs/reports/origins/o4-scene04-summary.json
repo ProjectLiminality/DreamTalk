@@ -2,8 +2,8 @@
  "scene": "o04",
  "t0": 125,
  "frames": 30,
- "passed": 21,
- "meanCoverageRef": 0.7854,
+ "passed": 24,
+ "meanCoverageRef": 0.8775,
  "meanCoverageOurs": 0.8644,
  "reports": [
   {
@@ -307,34 +307,34 @@
    "idx": 706,
    "videoSec": 141.2,
    "localT": 16.2,
-   "iou": 0.1196,
-   "chamfer_ours_px": 0.417,
-   "chamfer_ref_px": 10.828,
-   "coverage_ref": 0.1422,
+   "iou": 0.9679,
+   "chamfer_ours_px": 0.045,
+   "chamfer_ref_px": 0,
+   "coverage_ref": 1,
    "coverage_ours": 1,
-   "verdict": "FAIL"
+   "verdict": "PASS"
   },
   {
    "idx": 708,
    "videoSec": 141.6,
    "localT": 16.6,
-   "iou": 0.067,
-   "chamfer_ours_px": 0.431,
-   "chamfer_ref_px": 12.16,
-   "coverage_ref": 0.0793,
+   "iou": 0.9678,
+   "chamfer_ours_px": 0.045,
+   "chamfer_ref_px": 0,
+   "coverage_ref": 1,
    "coverage_ours": 1,
-   "verdict": "FAIL"
+   "verdict": "PASS"
   },
   {
    "idx": 710,
    "videoSec": 142,
    "localT": 17,
-   "iou": 0.0137,
-   "chamfer_ours_px": 0.513,
-   "chamfer_ref_px": 13.569,
-   "coverage_ref": 0.0165,
+   "iou": 0.9663,
+   "chamfer_ours_px": 0.048,
+   "chamfer_ref_px": 0,
+   "coverage_ref": 1,
    "coverage_ours": 1,
-   "verdict": "FAIL"
+   "verdict": "PASS"
   }
  ]
 }
