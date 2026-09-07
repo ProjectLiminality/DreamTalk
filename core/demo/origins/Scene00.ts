@@ -83,8 +83,60 @@
  * is the drawing that was actually rendered.
  *
  * `thickness=2/3` is two thirds of pydeation's VG_THICKNESS = 5
- * (refs/pydeation-legacy/constants.py:49), i.e. 10/3 S&T pixel units at
- * the 700-line reference height, which is 3.43px at 720p.
+ * (refs/pydeation-legacy/constants.py:49) — 10/3 S&T pixel units. The
+ * reference's own lines measure a modal 3px wide at the scorer's
+ * threshold, and `stroke` is already in rendered pixels here, so 2 sits
+ * inside that. It is deliberately NOT fitted: swept over 1.5/2/2.5 the
+ * full-span verdict is 11/13 at every value and mean coverage moves in
+ * the fourth decimal, so there is nothing to fit and the source's own
+ * ratio is the honest number to carry.
+ *
+ *
+ * WHAT STILL DIFFERS
+ *
+ * Two frames of the scored span fail, both mid-transition, and the
+ * cause is the same in each: C4D's pen is one GLOBAL front over the
+ * whole drawing, while ours is a front per stroke.
+ *
+ *  - t=1.2 (mid-draw). The total ink is right — measured lit-pixel
+ *    fractions track the linear model to ~1% all the way down the draw —
+ *    but it is distributed differently. At t=0.8 the reference already
+ *    has ink in the shoulders while the top of the head is unfinished;
+ *    strict longest-first sequencing cannot be in two places at once.
+ *    The order itself is not in doubt: scoring all five of pydeation's
+ *    stroke orders by ink-distribution similarity, `long_short` wins or
+ *    ties at every sampled frame (0.997 / 0.816 / 0.742 / 0.824 / 0.922
+ *    / 0.952 against short_long's 0.000 / 0.015 / 0.590 / 0.648 / 0.874
+ *    / 0.938), and at t=0.2 the lit region sits exactly on the longest
+ *    stroke's first 400px.
+ *
+ *    The residue is that S&T's stroke CONNECTION re-cuts the subpaths
+ *    into its own stroke set BEFORE ordering them, and the flattened
+ *    asset cannot see those cuts. The composite at t=1.2 shows it
+ *    plainly (docs/reports/origins/o2-f_00006-composite.png): we draw
+ *    the hair, the reference draws the jaw and shoulders. Our longest
+ *    subpath is one 7811-unit hair scribble — but a scribble is exactly
+ *    what stroke connection breaks apart, which would demote it out of
+ *    first place. Re-splitting the subpaths at direction reversals
+ *    sharper than 90 degrees turns 37 strokes into 313, drops the
+ *    longest to 522 units, and lifts the late-draw similarity from
+ *    0.824/0.922 to 0.939/0.969 — the right diagnosis. It is not
+ *    applied here because it costs the early frames as much as it wins
+ *    the later ones (mean 0.851 to 0.867), so the split ANGLE would be
+ *    a fitted parameter standing in for a C4D behaviour we can read
+ *    directly. Recovering S&T's real connection rule is the honest fix,
+ *    and it belongs to whoever ports stroke connection, not to a magic
+ *    number here.
+ *
+ *  - t=12.6-13.0 (mid-erase), for the mirror-image reason. Per-stroke
+ *    erasure — what `Erase` does — is nonetheless the best of the three
+ *    candidates measured (0.950 / 0.889 / 0.736 / 0.665 against a
+ *    steady long_short front's 0.896 / 0.737 / 0.616 / 0.467 and a
+ *    reverse-order front's 0.928 / 0.813 / 0.804 / 0.267), so it stays.
+ *
+ * Everything either side of those transitions is exact: the finished
+ * portrait and the whole nine-second hold score coverage 1.000/0.996 at
+ * a chamfer of 0.37px, which is the encode floor.
  */
 
 import { Dream, render } from "../../src/index"
@@ -123,7 +175,7 @@ export class Scene00Dream extends Dream {
     data: david,
     height: (DAVID_SOURCE_HEIGHT * 2) / 3,
     tint: WHITE,
-    stroke: ((VG_THICKNESS * 2) / 3) * (720 / 700),
+    stroke: 2,
   })
 
   unfold() {

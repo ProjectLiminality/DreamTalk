@@ -255,3 +255,15 @@ operational decisions are entered by the working agent. Format:
   all scenes post width-fix" task had silently slipped for s09 —
   generalize: a ledger number is only as fresh as its last full
   re-measurement; sweeps beat memories.
+- 2026-09-07 · **DrawSteady's draw_speed is SCREEN PIXELS of arc per
+  second at render width** — proven by elimination on the reference's
+  own lit-pixel odometer (predicted 2.111s vs measured 2.095s; world
+  units 20% fast, 1920px 50% slow, both dead). In pixels mode S&T holds
+  the RATE constant, so linear is DrawSteady's default ease — the one
+  verb that deliberately departs the C4D-smooth default.
+- 2026-09-07 · **The S&T stroke-connection rule now blocks TWO things**
+  — the cylinder's pose-dependent arc order (KNOWN GAP, 2026-08-24) AND
+  Sketch draw ordering (O-2: C4D breaks a scribble apart at connection
+  time before ordering, so "longest stroke" ≠ longest subpath; a >90°
+  re-split was tested, improved late frames, and REFUSED as a fitted
+  stand-in for a readable rule). One derivation would close both.

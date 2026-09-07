@@ -1,7 +1,7 @@
 {
   "name": "dreamtalk",
   "version": "0.1.0",
-  "description": "DreamTalk — a recursive parametric animation framework. Platonic symbols whose source code IS the thing.",
+  "description": "DreamTalk \u2014 a recursive parametric animation framework. Platonic symbols whose source code IS the thing.",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -14,7 +14,9 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "build:demo": "bun build demo/main.ts --outdir demo/dist --format esm --target browser",
+    "build:editor": "bun build editor/main.ts --outdir editor/dist --format esm --target browser"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

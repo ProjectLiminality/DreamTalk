@@ -66216,7 +66216,6 @@ if (false)
 
 // demo/origins/Scene00.ts
 var DAVID_SOURCE_HEIGHT = 651.044;
-var VG_THICKNESS = 5;
 var FRAME_WIDTH = 1280;
 var ORTHO_FRAME_WIDTH = 1023;
 var START_OFFSET11 = 0.117;
@@ -66226,8 +66225,8 @@ class Scene00Dream extends Dream {
     data: david,
     height: DAVID_SOURCE_HEIGHT * 2 / 3,
     tint: WHITE,
-    stroke: VG_THICKNESS * 2 / 3 * (720 / 700)
-  }), "core/demo/origins/Scene00.ts:5404:5550");
+    stroke: 2
+  }), "core/demo/origins/Scene00.ts:8404:8513");
   unfold() {
     this.set(this.observer.orthographic.to(true), this.observer.zoom.to(1), this.observer.baseHeight.to(700));
     const draw = steadyDuration(this.david, {
@@ -66236,10 +66235,10 @@ class Scene00Dream extends Dream {
       order: "long_short"
     });
     this.wait(START_OFFSET11);
-    __dt(this.play(DrawSteady(this.david, { order: "long_short" }), draw), "core/demo/origins/Scene00.ts:6062:6126");
+    __dt(this.play(DrawSteady(this.david, { order: "long_short" }), draw), "core/demo/origins/Scene00.ts:9025:9089");
     this.wait(3 - draw);
     this.wait(9);
-    __dt(this.play(Erase(this.david), 1), "core/demo/origins/Scene00.ts:6232:6263");
+    __dt(this.play(Erase(this.david), 1), "core/demo/origins/Scene00.ts:9195:9226");
   }
 }
 if (false)
