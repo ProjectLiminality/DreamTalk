@@ -68236,7 +68236,7 @@ class Scene10Dream extends Dream {
     tint: BLUE,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:22678:22819");
+  }), "core/demo/origins/Scene10.ts:24126:24267");
   amazon = __dt(new Sketch({
     data: amazonLogo,
     height: AMAZON_HEIGHT,
@@ -68244,7 +68244,7 @@ class Scene10Dream extends Dream {
     tint: BLUE,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:22831:22973");
+  }), "core/demo/origins/Scene10.ts:24279:24421");
   google = __dt(new Sketch({
     data: googleLogo,
     height: GOOGLE_HEIGHT,
@@ -68252,7 +68252,7 @@ class Scene10Dream extends Dream {
     tint: RED,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:22985:23127");
+  }), "core/demo/origins/Scene10.ts:24433:24575");
   microsoft = __dt(new Sketch({
     data: microsoftLogo,
     height: MICROSOFT_HEIGHT,
@@ -68260,42 +68260,42 @@ class Scene10Dream extends Dream {
     tint: RED,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:23142:23289");
-  anchor = __dt(new Null, "core/demo/origins/Scene10.ts:23515:23525");
+  }), "core/demo/origins/Scene10.ts:24590:24737");
+  anchor = __dt(new Null, "core/demo/origins/Scene10.ts:24963:24973");
   tensionApple = __dt(new Connection(this.apple, this.anchor, {
     via: [{ x: -30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24369:24498");
+  }), "core/demo/origins/Scene10.ts:25817:25946");
   tensionAmazon = __dt(new Connection(this.amazon, this.anchor, {
     via: [{ x: 30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24517:24646");
+  }), "core/demo/origins/Scene10.ts:25965:26094");
   tensionGoogle = __dt(new Connection(this.google, this.anchor, {
     via: [{ x: 0, y: -30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24665:24795");
+  }), "core/demo/origins/Scene10.ts:26113:26243");
   tensionMicrosoft = __dt(new Connection(this.microsoft, this.anchor, {
     via: [{ x: 0, y: 30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24817:24949");
+  }), "core/demo/origins/Scene10.ts:26265:26397");
   cylinder = __dt(new Cylinder({
     z: 125,
     scale: 1 / 2,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:25150:25241");
+  }), "core/demo/origins/Scene10.ts:26598:26689");
   unfold() {
     this.observer.look("front");
     this.wait(START_OFFSET21);
-    __dt(this.play(together(DrawThenFillCompletely(this.apple), DrawThenFillCompletely(this.amazon), DrawThenFillCompletely(this.google), DrawThenFillCompletely(this.microsoft)), 3), "core/demo/origins/Scene10.ts:25807:26039");
-    __dt(this.play(together(Create(this.tensionApple), Create(this.tensionAmazon), Create(this.tensionGoogle), Create(this.tensionMicrosoft)), 1), "core/demo/origins/Scene10.ts:26044:26240");
-    __dt(this.play(together([this.observer.phi.sequence(...RIG_PHI), 0, 2 / 3], [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3], [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3], [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3], [this.observer.x.sequence(...RIG_FX), 0, 2 / 3], [this.observer.y.sequence(...RIG_FY), 0, 2 / 3], [this.observer.z.sequence(...RIG_FZ), 0, 2 / 3], [this.anchor.z.to(80), 1 / 3, 1], [Create(this.cylinder), 2 / 3, 1]), 4), "core/demo/origins/Scene10.ts:26552:27110");
+    __dt(this.play(together(DrawThenFillCompletely(this.apple), DrawThenFillCompletely(this.amazon), DrawThenFillCompletely(this.google), DrawThenFillCompletely(this.microsoft)), 3), "core/demo/origins/Scene10.ts:27255:27487");
+    __dt(this.play(together(Create(this.tensionApple), Create(this.tensionAmazon), Create(this.tensionGoogle), Create(this.tensionMicrosoft)), 1), "core/demo/origins/Scene10.ts:27492:27688");
+    __dt(this.play(together([this.observer.phi.sequence(...RIG_PHI), 0, 2 / 3], [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3], [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3], [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3], [this.observer.x.sequence(...RIG_FX), 0, 2 / 3], [this.observer.y.sequence(...RIG_FY), 0, 2 / 3], [this.observer.z.sequence(...RIG_FZ), 0, 2 / 3], [this.anchor.z.to(80), 1 / 3, 1], [Create(this.cylinder), 2 / 3, 1]), 4), "core/demo/origins/Scene10.ts:28000:28558");
     this.wait(3);
-    __dt(this.play(together(UnCreate(this.cylinder), UnFillThenUnDraw(this.apple), UnFillThenUnDraw(this.amazon), UnFillThenUnDraw(this.google), UnFillThenUnDraw(this.microsoft), Erase(this.tensionApple), Erase(this.tensionAmazon), Erase(this.tensionGoogle), Erase(this.tensionMicrosoft)), 3), "core/demo/origins/Scene10.ts:27458:27841");
+    __dt(this.play(together(UnCreate(this.cylinder), UnFillThenUnDraw(this.apple), UnFillThenUnDraw(this.amazon), UnFillThenUnDraw(this.google), UnFillThenUnDraw(this.microsoft), Erase(this.tensionApple), Erase(this.tensionAmazon), Erase(this.tensionGoogle), Erase(this.tensionMicrosoft)), 3), "core/demo/origins/Scene10.ts:28906:29289");
   }
 }
 if (false)

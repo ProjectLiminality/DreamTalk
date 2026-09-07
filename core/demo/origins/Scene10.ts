@@ -257,11 +257,16 @@
  *
  * ══ THE TIMELINE ══════════════════════════════════════════════════════
  *
- * The source declares `offset=405`. The scene runs 345.8 to 360.0 in the
- * published video — 59 seconds AHEAD of its cue, because Scene08_1 and
- * Scene08_2 were cut from the film entirely (see Scene08.ts). As with
- * Scene07_1 and Scene08, the re-cut is a pure translation: nothing
- * inside the scene is re-timed.
+ * The source declares `offset=405`. The scene runs **345.8 to 360.0** in
+ * the published video — a displacement of **−59.2s**, because Scene08_1
+ * and Scene08_2 were cut from the film entirely (see Scene08.ts). The
+ * video window is the target here, not the source's cue: the source is
+ * the derivation aid, and where the two disagree the footage wins
+ * (campaign canon policy, David 2026-09-07).
+ *
+ * As with Scene07_1 (−10.3) and Scene08 (−10.2), the re-cut is a pure
+ * TRANSLATION: nothing inside the scene is re-timed, which is why every
+ * beat below lands on the source's own cumulative times once t0 is set.
  *
  * Measured off frames5, against the source's own cumulative times:
  *
@@ -319,6 +324,26 @@
  * Both are timing along a verified path, not geometry — which is why
  * the same frames score well on chamfer (2.1-3.2 px) while losing
  * coverage: the right picture, a beat early or late.
+ *
+ * THE TWO ENDS, CHECKED AGAINST THE CANON POLICY. The scene's opening
+ * and closing frames also fail, and both were scanned densely to be
+ * sure they are ramps rather than beats the footage does not contain:
+ *
+ *   346.0-348.0  coverage climbs 0.34 → 0.65 → 0.94 → **1.0000** and
+ *                holds. An eased DrawThenFillCompletely whose ink
+ *                crosses the JPEG's threshold a frame or so off ours;
+ *                it converges to exact, so nothing is missing or extra.
+ *   357.4-359.6  holds 0.97, 0.95, 0.94 through 358.2, then BOTH
+ *                coverages fall together (0.59/0.80, 0.72/0.71,
+ *                0.61/0.58 …) as the 3s un-create runs. Falling on both
+ *                sides at once means both pictures are emptying, at
+ *                slightly different rates — an easing difference in the
+ *                teardown, not a beat the video lacks.
+ *
+ * So every beat this file plays is a beat the published footage shows,
+ * and every beat the footage shows is played. The source's own extra
+ * material — Scene08_1 and Scene08_2 — is absent by policy, not by
+ * omission (see Scene08.ts).
  */
 
 import { Dream, render } from "../../src/index"
