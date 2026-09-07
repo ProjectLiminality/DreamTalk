@@ -56,6 +56,7 @@ import { mountTimeline, stepTime, type ClipRow, type TimelineHandle } from "./ti
 import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
 import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
+import { UndoStack, undoAction, type OpDescriptor } from "./undo"
 import {
   Overrides,
   RETURN_SECONDS,
@@ -132,6 +133,12 @@ declare global {
       discardPose?: () => void
       /** The playhead's current t — headless verification (frame stepping). */
       currentT?: () => number
+      // --- The undo stack (cmd+Z / shift+cmd+Z), exposed for headless driving ---
+      /** Release the live layer, or send the newest inverse op. */
+      undo?: () => void
+      redo?: () => void
+      /** How deep each stack is right now. */
+      history?: () => { undo: number; redo: number }
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -139,6 +146,10 @@ declare global {
     __dtRemount?: () => void
     /** The daemon link — a singleton that survives remounts. */
     __dtWs?: WebSocket
+    /** The undo stack — a singleton too: ops outlive the module that sent them. */
+    __dtUndo?: UndoStack
+    /** A note parked for the mount the current reload is about to build. */
+    __dtNote?: string
   }
 }
 
@@ -169,20 +180,63 @@ const sceneFileFor = (key: string): string =>
 
 // --- Daemon link (module-independent singleton) ----------------------------
 
+// --- The undo stack (a singleton, like the socket) -------------------------
+//
+// Every op write is followed by a daemon reload, which REMOUNTS the editor
+// module — so anything that must remember what happened across edits
+// cannot live inside boot(). The stack sits beside the socket for the same
+// reason, and for the same lifetime: one browser session.
+const undoStack = (window.__dtUndo ??= new UndoStack())
+
+/** Set by boot() so ack/reload handling can reach the current mount's UI. */
+let historyNote: ((text: string) => void) | undefined
+
+/**
+ * A note that must outlive the remount it was raised by. The external-edit
+ * clear happens on the OUTGOING module — the same reload then rebuilds the
+ * DOM, so a note shown now is wiped before it can be read. Parking it here
+ * lets the fresh mount pick it up and say it, which is the only way the
+ * user ever learns their history is gone.
+ */
+const setPendingNote = (text: string) => {
+  window.__dtNote = text
+}
+
 const ensureWs = () => {
   const existing = window.__dtWs
   if (existing && existing.readyState <= WebSocket.OPEN) return
   const ws = new WebSocket(`ws://${location.host}/ws`)
   window.__dtWs = ws
   ws.addEventListener("message", (e) => {
-    let msg: { type?: string; reason?: string }
+    let msg: {
+      type?: string
+      reason?: string
+      opId?: string
+      undo?: OpDescriptor
+      external?: string[]
+    }
     try {
-      msg = JSON.parse(String(e.data)) as { type?: string; reason?: string }
+      msg = JSON.parse(String(e.data)) as typeof msg
     } catch {
       return
     }
-    if (msg.type === "reload") window.__dtRemount?.()
-    else if (msg.type === "opRejected") console.warn("[dreamtalk] op rejected:", msg.reason)
+    if (msg.type === "reload") {
+      // A reload the daemon attributes to a write it did not make: every
+      // inverse on the stack was computed against bytes that no longer
+      // stand, so history is void. Saying so is part of the contract —
+      // silently emptying the stack would be worse than not having one.
+      // Parked rather than shown: this same reload rebuilds the DOM, so
+      // the fresh mount is what actually says it.
+      if (msg.external?.length && undoStack.clear())
+        setPendingNote("history cleared (file edited)")
+      window.__dtRemount?.()
+    } else if (msg.type === "opApplied") {
+      undoStack.applied(msg)
+    } else if (msg.type === "opRejected") {
+      undoStack.rejected(msg.opId)
+      console.warn("[dreamtalk] op rejected:", msg.reason)
+      historyNote?.(`refused: ${msg.reason ?? "unknown"}`)
+    }
   })
   ws.addEventListener("close", () => {
     window.__dtWs = undefined
@@ -190,13 +244,18 @@ const ensureWs = () => {
   })
 }
 
+/**
+ * Send an op, stamped with the id its ack will carry back. Every write
+ * path in the editor goes through here, which is exactly why the stack
+ * needs no per-gesture bookkeeping: an op is an op.
+ */
 const sendOp = (op: Record<string, unknown>) => {
   const ws = window.__dtWs
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.warn("[dreamtalk] daemon not connected — op dropped")
     return
   }
-  ws.send(JSON.stringify(op))
+  ws.send(JSON.stringify({ opId: undoStack.nextOpId(), ...op }))
 }
 
 // --- The (re)mountable editor ----------------------------------------------
@@ -815,6 +874,26 @@ const boot = async (resume?: Transport) => {
   // second — the affordance is real, the destination is pending.
   const nameChip = $<HTMLDivElement>("namechip")
   let chipTimer: ReturnType<typeof setTimeout> | undefined
+  /**
+   * The editor's one transient status line, already in the palette and
+   * already the right shape for a word that appears and goes. Undo speaks
+   * through it too — "history cleared (file edited)" has to be SAID, and
+   * a second chrome element for one sentence would be more, not less.
+   */
+  const showNote = (text: string) => {
+    nameChip.textContent = text
+    nameChip.classList.add("shown")
+    if (chipTimer !== undefined) clearTimeout(chipTimer)
+    chipTimer = setTimeout(() => nameChip.classList.remove("shown"), 1600)
+  }
+  historyNote = showNote
+  // A note raised by the reload that built this mount — say it now that
+  // there is a DOM to say it in.
+  const parked = window.__dtNote
+  if (parked) {
+    window.__dtNote = undefined
+    setTimeout(() => showNote(parked), 0)
+  }
   const travel = (sovereign: Holon) => {
     const name = classNameOf(sovereign)
     console.info(
@@ -1288,6 +1367,12 @@ const boot = async (resume?: Transport) => {
         e.preventDefault()
         toggleCode()
       }
+      // Undo / redo, on the chord every application uses.
+      if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !typing) {
+        e.preventDefault()
+        if (e.shiftKey) doRedo()
+        else doUndo()
+      }
       if (e.code === "Escape") {
         if (cancelMove()) {
           // A move in flight dies here — overrides reverted, nothing written.
@@ -1418,6 +1503,43 @@ const boot = async (resume?: Transport) => {
     })
     checkpoint?.sync()
     return true
+  }
+
+  // --- Undo / redo (cmd+Z, shift+cmd+Z) -------------------------------------
+  //
+  // LIVE FIRST (undo.ts rule 1): the live layer holds whatever the hand
+  // just did and has not committed — a posed checkpoint, a flown camera,
+  // a mid-drag tweak. That is the most recent edit, so cmd+Z releases it
+  // before it reaches into the file's history. Only with nothing live
+  // does the stack pop, and then undo is just another op down the same
+  // socket: the daemon re-locates the form and rewrites it, the reload
+  // round-trip remounts, and the editor shows the file's new truth.
+  const doUndo = () => {
+    switch (undoAction(overrides, undoStack)) {
+      case "release":
+        discardPose()
+        showNote("live tweak released")
+        return
+      case "pop": {
+        const outcome = undoStack.undo()
+        if (outcome.kind !== "sent") return
+        sendOp(outcome.op)
+        showNote(`undo ${outcome.label}`)
+        return
+      }
+      default:
+        showNote("nothing to undo")
+    }
+  }
+
+  const doRedo = () => {
+    const outcome = undoStack.redo()
+    if (outcome.kind !== "sent") {
+      showNote("nothing to redo")
+      return
+    }
+    sendOp(outcome.op)
+    showNote(`redo ${outcome.label}`)
   }
 
   const toggleCode = (): boolean => {
@@ -1624,6 +1746,10 @@ const boot = async (resume?: Transport) => {
     capture: (clipSeconds?: number) =>
       checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
     discardPose: () => void discardPose(),
+    // --- The undo stack, driven headlessly ---------------------------------
+    undo: () => doUndo(),
+    redo: () => doRedo(),
+    history: () => undoStack.depth,
   })
 }
 

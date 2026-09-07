@@ -46011,6 +46011,8 @@ var scan = (target) => {
 };
 var complete = (self2) => {
   const int2 = internalsOf(self2);
+  if (int2.settled)
+    return;
   scanViaProxy(self2);
   if (int2.overrides.size > 0) {
     const bad = [...int2.overrides.keys()].join("', '");
@@ -46020,6 +46022,8 @@ var complete = (self2) => {
   if (!int2.composed) {
     int2.composed = true;
     self2["compose"]();
+    scanViaProxy(self2);
+    int2.settled = true;
   }
 };
 var scanViaProxy = (h) => scan(h);
@@ -46049,9 +46053,15 @@ class Holon {
     INTERNALS.set(this, internals);
     const proxy = new Proxy(this, {
       get(target, prop, receiver) {
-        if (typeof prop === "string")
+        if (typeof prop === "string" && !internals.settled)
           scan(target);
         return Reflect.get(target, prop, receiver);
+      },
+      set(target, prop, value, receiver) {
+        if (internals.settled && typeof prop === "string" && (value instanceof Param || value instanceof Holon) && !Object.prototype.hasOwnProperty.call(target, prop)) {
+          throw new Error(`${target.constructor.name}: cannot add '${prop}' after construction — ` + `the field set is final once compose() has run. Declare it as a class ` + `field, or add dynamic structure from compose() with this.add().`);
+        }
+        return Reflect.set(target, prop, value, receiver);
       }
     });
     INTERNALS.set(proxy, internals);
@@ -65263,6 +65273,7 @@ if (false)
   ;
 
 // src/transitions.ts
+var magicMove = (duration) => ({ kind: "magicMove", duration });
 var BUILD_FRACTION = 0.4;
 var smooth = (u2) => c4dEaseWith(u2, C4D_SMOOTHING, C4D_SMOOTHING);
 var buildOut = (u2) => 1 - smooth(Math.min(u2 / BUILD_FRACTION, 1));
@@ -65317,7 +65328,8 @@ var matchRoots = (aOwner, aRoots, bOwner, bRoots) => {
       take(a2, j2);
   }
   for (const a2 of [...outs]) {
-    const j2 = ins.findIndex((b2) => b2.constructor === a2.constructor);
+    const named = rootIdentityOf(aOwner, a2) !== undefined;
+    const j2 = ins.findIndex((b2) => b2.constructor === a2.constructor && !(named && rootIdentityOf(bOwner, b2) !== undefined));
     if (j2 >= 0)
       take(a2, j2);
   }
@@ -65573,6 +65585,52 @@ class CurvesShowcaseDream extends Dream {
     this.wait(0.3);
     __dt(this.play(together(...this.observer.orbit({ phi: PI3 / 2.4 })), 3), "core/demo/CurvesShowcase.ts:4590:4655");
     this.wait(0.6);
+  }
+}
+if (false)
+  ;
+
+// demo/MagicMoveDemo.ts
+var WINDOW = 1.5;
+
+class MagicMoveOne extends Dream {
+  circle = __dt(new Circle({ x: -420, y: 0, radius: 130, scale: 1, tint: BLUE }), "core/demo/MagicMoveDemo.ts:2517:2581");
+  square = __dt(new Square({ x: 260, y: 0, size: 200, tint: BLUE }), "core/demo/MagicMoveDemo.ts:2593:2644");
+  unfold() {
+    this.set(...this.observer.dolly(1500));
+    this.stage(this.circle);
+    this.stage(this.square);
+    this.wait(3);
+  }
+}
+
+class MagicMoveTwo extends Dream {
+  circle = __dt(new Circle({ x: 420, y: -140, radius: 130, scale: 1.9, tint: RED }), "core/demo/MagicMoveDemo.ts:2914:2981");
+  unfold() {
+    this.set(...this.observer.dolly(1900));
+    this.stage(this.circle);
+    this.wait(3);
+  }
+}
+
+class MagicMoveThree extends Dream {
+  circle = __dt(new Circle({ x: -80, y: 300, radius: 130, scale: 0.7, tint: GREEN }), "core/demo/MagicMoveDemo.ts:3227:3295");
+  eye = __dt(new Eye({ scale: 1.4, x: -160, y: -220 }), "core/demo/MagicMoveDemo.ts:3304:3345");
+  unfold() {
+    this.set(...this.observer.dolly(1200));
+    this.stage(this.circle);
+    this.stage(this.eye);
+    this.wait(3);
+  }
+}
+
+class MagicMoveDemoDream extends DreamSong {
+  constructor() {
+    super([
+      MagicMoveOne,
+      [MagicMoveTwo, magicMove(WINDOW)],
+      [MagicMoveThree, magicMove(WINDOW)]
+    ]);
   }
 }
 if (false)
@@ -65873,6 +65931,7 @@ var scenes = {
   s08: S08Dream,
   s05: S05Dream,
   video01: DialecticalThinkingDream,
+  magicmove: MagicMoveDemoDream,
   molocheye: MolochEyeDream,
   mindvirus: MindVirusDream,
   labyrinth: LabyrinthDream,
@@ -67212,7 +67271,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render31 = (cached, span) => {
+  const render32 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -67255,7 +67314,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current = shownFile ? files.get(shownFile) : undefined;
       if (current)
-        render31(current);
+        render32(current);
       return;
     }
     (async () => {
@@ -67265,7 +67324,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render31(cached, {
+      const mark = render32(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -67281,7 +67340,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render31(cached);
+    render32(cached);
   };
   return {
     show,
@@ -67813,6 +67872,91 @@ var mountPlayerTransport = (root, opts) => {
   };
 };
 
+// editor/undo.ts
+class UndoStack {
+  #undo = [];
+  #redo = [];
+  #inFlight = new Map;
+  #nextId = 1;
+  get depth() {
+    return { undo: this.#undo.length, redo: this.#redo.length };
+  }
+  get canUndo() {
+    return this.#undo.length > 0;
+  }
+  get canRedo() {
+    return this.#redo.length > 0;
+  }
+  nextOpId() {
+    return `op-${this.#nextId++}`;
+  }
+  applied(ack) {
+    const role = ack.opId ? this.#inFlight.get(ack.opId) : undefined;
+    if (role) {
+      this.#inFlight.delete(ack.opId);
+      if (!ack.undo)
+        return;
+      const entry = { inverse: ack.undo, label: labelOf(ack.undo) };
+      if (role === "undo")
+        this.#redo.push(entry);
+      else
+        this.#undo.push(entry);
+      return;
+    }
+    this.#redo = [];
+    if (!ack.undo) {
+      this.#undo = [];
+      return;
+    }
+    this.#undo.push({ inverse: ack.undo, label: labelOf(ack.undo) });
+  }
+  rejected(opId) {
+    if (opId)
+      this.#inFlight.delete(opId);
+  }
+  undo() {
+    const entry = this.#undo.pop();
+    if (!entry)
+      return { kind: "empty" };
+    return { kind: "sent", op: this.#stamp(entry.inverse, "undo"), label: entry.label };
+  }
+  redo() {
+    const entry = this.#redo.pop();
+    if (!entry)
+      return { kind: "empty" };
+    return { kind: "sent", op: this.#stamp(entry.inverse, "redo"), label: entry.label };
+  }
+  clear() {
+    const had = this.#undo.length > 0 || this.#redo.length > 0;
+    this.#undo = [];
+    this.#redo = [];
+    this.#inFlight.clear();
+    return had;
+  }
+  #stamp(op, role) {
+    const opId = this.nextOpId();
+    this.#inFlight.set(opId, role);
+    return { ...op, opId };
+  }
+}
+var labelOf = (op) => {
+  switch (op.op) {
+    case "setOverride":
+      return `${String(op.name ?? "parameter")}`;
+    case "setRunTime":
+      return "clip duration";
+    case "setBackdrop":
+      return "backdrop";
+    case "deleteSpan":
+      return "checkpoint";
+    case "insertSpan":
+      return "checkpoint";
+    default:
+      return String(op.op ?? "edit");
+  }
+};
+var undoAction = (live, stack3) => live.size > 0 ? "release" : stack3.canUndo ? "pop" : "none";
+
 // editor/overrides.ts
 class Overrides {
   #animated;
@@ -67958,6 +68102,11 @@ var SCENE_FILES = {
   video01: "core/demo/video01/DialecticalThinking.ts"
 };
 var sceneFileFor = (key) => SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts";
+var undoStack = window.__dtUndo ??= new UndoStack;
+var historyNote;
+var setPendingNote = (text) => {
+  window.__dtNote = text;
+};
 var ensureWs = () => {
   const existing = window.__dtWs;
   if (existing && existing.readyState <= WebSocket.OPEN)
@@ -67971,10 +68120,17 @@ var ensureWs = () => {
     } catch {
       return;
     }
-    if (msg.type === "reload")
+    if (msg.type === "reload") {
+      if (msg.external?.length && undoStack.clear())
+        setPendingNote("history cleared (file edited)");
       window.__dtRemount?.();
-    else if (msg.type === "opRejected")
+    } else if (msg.type === "opApplied") {
+      undoStack.applied(msg);
+    } else if (msg.type === "opRejected") {
+      undoStack.rejected(msg.opId);
       console.warn("[dreamtalk] op rejected:", msg.reason);
+      historyNote?.(`refused: ${msg.reason ?? "unknown"}`);
+    }
   });
   ws.addEventListener("close", () => {
     window.__dtWs = undefined;
@@ -67987,7 +68143,7 @@ var sendOp = (op) => {
     console.warn("[dreamtalk] daemon not connected — op dropped");
     return;
   }
-  ws.send(JSON.stringify(op));
+  ws.send(JSON.stringify({ opId: undoStack.nextOpId(), ...op }));
 };
 var boot = async (resume) => {
   const staleCanvas = $2("stage");
@@ -68399,6 +68555,19 @@ var boot = async (resume) => {
   };
   const nameChip = $2("namechip");
   let chipTimer;
+  const showNote = (text) => {
+    nameChip.textContent = text;
+    nameChip.classList.add("shown");
+    if (chipTimer !== undefined)
+      clearTimeout(chipTimer);
+    chipTimer = setTimeout(() => nameChip.classList.remove("shown"), 1600);
+  };
+  historyNote = showNote;
+  const parked = window.__dtNote;
+  if (parked) {
+    window.__dtNote = undefined;
+    setTimeout(() => showNote(parked), 0);
+  }
   const travel = (sovereign) => {
     const name = classNameOf(sovereign);
     console.info(`[dreamtalk] travel → ${name} (home URL gated; resolution: githubPagesUrl → githubRepoUrl → Radicle)`);
@@ -68724,6 +68893,13 @@ var boot = async (resume) => {
       e2.preventDefault();
       toggleCode();
     }
+    if (e2.code === "KeyZ" && (e2.metaKey || e2.ctrlKey) && !typing) {
+      e2.preventDefault();
+      if (e2.shiftKey)
+        doRedo();
+      else
+        doUndo();
+    }
     if (e2.code === "Escape") {
       if (cancelMove()) {} else if (drag && !drag.reverted) {
         const d2 = drag;
@@ -68813,6 +68989,33 @@ var boot = async (resume) => {
     });
     checkpoint?.sync();
     return true;
+  };
+  const doUndo = () => {
+    switch (undoAction(overrides, undoStack)) {
+      case "release":
+        discardPose();
+        showNote("live tweak released");
+        return;
+      case "pop": {
+        const outcome = undoStack.undo();
+        if (outcome.kind !== "sent")
+          return;
+        sendOp(outcome.op);
+        showNote(`undo ${outcome.label}`);
+        return;
+      }
+      default:
+        showNote("nothing to undo");
+    }
+  };
+  const doRedo = () => {
+    const outcome = undoStack.redo();
+    if (outcome.kind !== "sent") {
+      showNote("nothing to redo");
+      return;
+    }
+    sendOp(outcome.op);
+    showNote(`redo ${outcome.label}`);
   };
   const toggleCode = () => {
     if (!code3)
@@ -68981,7 +69184,10 @@ var boot = async (resume) => {
     captureTargets: () => checkpoint?.targets() ?? [],
     capturePlacement: () => checkpoint?.placement() ?? {},
     capture: (clipSeconds) => checkpoint?.capture(clipSeconds) ?? Promise.resolve(undefined),
-    discardPose: () => void discardPose()
+    discardPose: () => void discardPose(),
+    undo: () => doUndo(),
+    redo: () => doRedo(),
+    history: () => undoStack.depth
   });
 };
 ensureWs();

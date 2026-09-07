@@ -36,9 +36,266 @@ export interface SetRunTimeOp {
   runTime: number
 }
 
+/** One guarded edit: `span` must still hold `expect`, and becomes `replace`. */
+export interface SpanEdit {
+  span: { start: number; end: number }
+  /** The exact text expected there — refuse rather than cut blind. */
+  expect: string
+  /** What it becomes. Absent means "remove it". */
+  replace?: string
+}
+
+/**
+ * The inverse of appendCheckpoint: put back exactly the bytes the
+ * insertion changed. Unlike every other op this one is not a form the
+ * editor's UI can express — it exists only so undo can say "put the file
+ * back", and it is guarded rather than rebased (the daemon computes it by
+ * diffing its own write, so it knows precisely what to look for).
+ *
+ * It carries a LIST because a capture with several targets edits TWO
+ * places: the new `this.play(...)` statement, and the import clause that
+ * gains `together`. The first is a removal, the second a replacement —
+ * both guarded, all-or-nothing. Half an undo is a state nobody authored.
+ */
+export interface DeleteSpanOp {
+  op: "deleteSpan"
+  /** Byte range in the file this op was computed against. */
+  span: { start: number; end: number }
+  /** The exact text expected there. */
+  expect: string
+  /** What that range becomes; absent means remove it. */
+  replace?: string
+  /** Further guarded edits in the same write. */
+  also?: SpanEdit[]
+}
+
+/**
+ * The inverse of deleteSpan — put exactly those bytes back where they
+ * were. Only ever produced by undoing an undo, which is why it is allowed
+ * to be this literal: the text it restores is text the daemon itself
+ * removed one op ago.
+ *
+ * `context` is how a pure insertion stays honest across drift: an offset
+ * alone means nothing once the file has moved, so the op also names the
+ * text that must immediately FOLLOW the insertion point. Found exactly
+ * once, that re-locates the offset; found zero or many times, the op
+ * refuses rather than splicing a statement into an arbitrary place.
+ */
+export interface InsertSpanOp {
+  op: "insertSpan"
+  /** Byte offset the text is inserted at. */
+  at: number
+  text: string
+  /** Text expected to begin at `at` — the drift guard. */
+  context?: string
+  /** Further guarded edits applied in the same write (a capture's import line). */
+  also?: SpanEdit[]
+}
+
 export type OpResult =
   | { ok: true; text: string }
   | { ok: false; reason: string }
+
+/**
+ * Splice `text` back in at `at` (re-located via `context` when the offset
+ * has drifted), plus any `also` edits — all-or-nothing, like deleteSpan.
+ */
+export const applyInsertSpan = (source: string, op: InsertSpanOp): OpResult => {
+  if (op.text.length === 0) return { ok: false, reason: "insertSpan has nothing to insert" }
+
+  let at = op.at
+  const contextHolds =
+    op.context === undefined || op.context.length === 0
+      ? Number.isInteger(at) && at >= 0 && at <= source.length
+      : source.startsWith(op.context, at)
+  if (!contextHolds) {
+    const ctx = op.context!
+    const first = source.indexOf(ctx)
+    if (first < 0) return { ok: false, reason: "the place to re-insert is no longer in the file" }
+    if (source.indexOf(ctx, first + 1) >= 0)
+      return { ok: false, reason: "the place to re-insert is ambiguous — refusing" }
+    at = first
+  }
+  if (!Number.isInteger(at) || at < 0 || at > source.length)
+    return { ok: false, reason: "insertSpan offset is outside the file — reload" }
+
+  // The `also` edits are resolved against the PRE-insertion text and
+  // applied back-to-front together with the insertion, so their offsets
+  // never have to account for it.
+  const edits: { start: number; end: number; replace: string }[] = [
+    { start: at, end: at, replace: op.text },
+  ]
+  for (const edit of op.also ?? []) {
+    if (edit.expect.length === 0) return { ok: false, reason: "insertSpan edit has no guard" }
+    const { start, end } = edit.span
+    const replace = edit.replace ?? ""
+    if (source.slice(start, end) === edit.expect) {
+      edits.push({ start, end, replace })
+      continue
+    }
+    const first = source.indexOf(edit.expect)
+    if (first < 0) return { ok: false, reason: "the text to restore is no longer in the file" }
+    if (source.indexOf(edit.expect, first + 1) >= 0)
+      return { ok: false, reason: "the text to restore appears more than once — ambiguous" }
+    edits.push({ start: first, end: first + edit.expect.length, replace })
+  }
+  edits.sort((a, b) => b.start - a.start)
+  for (let i = 1; i < edits.length; i++) {
+    if (edits[i]!.end > edits[i - 1]!.start)
+      return { ok: false, reason: "the ranges to restore overlap — refusing" }
+  }
+  let text = source
+  for (const { start, end, replace } of edits)
+    text = text.slice(0, start) + replace + text.slice(end)
+  return { ok: true, text }
+}
+
+/**
+ * Cut `span` out of the source, but only if it still holds `expect`. The
+ * guard is the whole point: a deleteSpan carries no intent a parser could
+ * re-locate, so the moment the bytes underneath have moved it must refuse
+ * rather than delete whatever now sits at those offsets. A single
+ * re-location attempt is allowed — the same text found EXACTLY ONCE
+ * elsewhere is still unambiguously the thing that was inserted.
+ */
+export const applyDeleteSpan = (source: string, op: DeleteSpanOp): OpResult => {
+  const edits: SpanEdit[] = [
+    { span: op.span, expect: op.expect, replace: op.replace },
+    ...(op.also ?? []),
+  ]
+  const resolved: { start: number; end: number; replace: string }[] = []
+  for (const edit of edits) {
+    const { start, end } = edit.span
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start)
+      return { ok: false, reason: "deleteSpan has a malformed span" }
+    if (edit.expect.length === 0) return { ok: false, reason: "deleteSpan has nothing to undo" }
+    const replace = edit.replace ?? ""
+    if (source.slice(start, end) === edit.expect) {
+      resolved.push({ start, end, replace })
+      continue
+    }
+    // The span drifted. The same text found EXACTLY ONCE elsewhere is
+    // still unambiguously the thing that was written; anything less
+    // determinate is refused rather than rewritten blind.
+    const first = source.indexOf(edit.expect)
+    if (first < 0) return { ok: false, reason: "the text to undo is no longer in the file" }
+    if (source.indexOf(edit.expect, first + 1) >= 0)
+      return { ok: false, reason: "the text to undo appears more than once — ambiguous" }
+    resolved.push({ start: first, end: first + edit.expect.length, replace })
+  }
+  // Back-to-front so each edit leaves the earlier offsets valid.
+  resolved.sort((a, b) => b.start - a.start)
+  for (let i = 1; i < resolved.length; i++) {
+    if (resolved[i]!.end > resolved[i - 1]!.start)
+      return { ok: false, reason: "the ranges to undo overlap — refusing" }
+  }
+  let text = source
+  for (const { start, end, replace } of resolved)
+    text = text.slice(0, start) + replace + text.slice(end)
+  return { ok: true, text }
+}
+
+/**
+ * One changed region: the range it occupies in `after`, the text standing
+ * there now, and the text that stood there in `before` (empty for a pure
+ * insertion). Undoing the write is exactly "each `text` becomes `was`".
+ */
+export interface ChangedSpan {
+  start: number
+  end: number
+  /** What the write put there — the guard, in `after`'s coordinates. */
+  text: string
+  /** What it replaced — "" when the region was purely inserted. */
+  was: string
+}
+
+/**
+ * The byte range one insertion added. Kept as the simple case (a single
+ * contiguous pure insertion); `changedSpans` is the general form.
+ */
+export const insertedSpan = (
+  before: string,
+  after: string,
+): { start: number; end: number; text: string } | undefined => {
+  const spans = changedSpans(before, after)
+  if (spans?.length !== 1 || spans[0]!.was !== "") return undefined
+  const { start, end, text } = spans[0]!
+  return { start, end, text }
+}
+
+/**
+ * EVERY region in which `after` differs from `before`, in `after`'s
+ * coordinates — a line-level diff, which is the right granularity here
+ * because the writers emit whole statements and whole import clauses.
+ *
+ * The two-region case is the one that matters: a multi-target checkpoint
+ * capture writes a new `this.play(...)` statement AND rewrites the import
+ * line to add `together`. An insertion-only diff calls that "not
+ * contiguous" and gives up, which would make exactly the ops most worth
+ * undoing the ones that cannot be — so the diff must describe a
+ * replacement as well as an insertion.
+ *
+ * The alignment is a longest-common-subsequence over lines; the file is a
+ * few hundred lines and this runs once per op, so the quadratic table is
+ * free and the result is exact rather than heuristic.
+ */
+export const changedSpans = (before: string, after: string): ChangedSpan[] => {
+  const oldLines = before.split("\n")
+  const newLines = after.split("\n")
+  const n = oldLines.length
+  const m = newLines.length
+
+  // lcs[i][j] = length of the longest common subsequence of the suffixes.
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i]![j] =
+        oldLines[i] === newLines[j]
+          ? lcs[i + 1]![j + 1]! + 1
+          : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!)
+    }
+  }
+
+  // Width of newLines[j] in `after`, including its newline where it has one.
+  const widthOf = (j: number): number => newLines[j]!.length + (j < m - 1 ? 1 : 0)
+  const oldWidthOf = (i: number): number => oldLines[i]!.length + (i < n - 1 ? 1 : 0)
+
+  const spans: ChangedSpan[] = []
+  let offset = 0
+  let run: { start: number; end: number; was: string } | null = null
+  const closeRun = () => {
+    if (!run) return
+    if (run.end > run.start || run.was.length > 0)
+      spans.push({ start: run.start, end: run.end, text: after.slice(run.start, run.end), was: run.was })
+    run = null
+  }
+
+  let i = 0
+  let j = 0
+  while (i < n || j < m) {
+    if (i < n && j < m && oldLines[i] === newLines[j]) {
+      closeRun()
+      offset += widthOf(j)
+      i++
+      j++
+      continue
+    }
+    // Not a common line: advance whichever side the LCS says to drop.
+    const takeNew = j < m && (i >= n || lcs[i]![j + 1]! >= lcs[i + 1]![j]!)
+    if (!run) run = { start: offset, end: offset, was: "" }
+    if (takeNew) {
+      const w = widthOf(j)
+      run.end = offset + w
+      offset += w
+      j++
+    } else {
+      run.was += oldLines[i]! + (i < n - 1 ? "\n" : "")
+      i++
+    }
+  }
+  closeRun()
+  return spans
+}
 
 const project = new Project({
   useInMemoryFileSystem: true,
@@ -352,6 +609,125 @@ export const applySetOverride = (source: string, op: SetOverrideOp): OpResult =>
     overrides.replaceWithText(`{ ${[...kept, `${op.name}: ${lit}`].join(", ")} }`)
   }
   return { ok: true, text: file.getFullText() }
+}
+
+// --- Reading what an op is about to replace (the undo half) ----------------
+//
+// Every op's inverse is the SAME op carrying the value that stood before
+// it — so undo needs no new machinery, only a reader per op run against
+// the file as it is about to be rewritten. These live here, beside the
+// writers, because the two must agree on what "the targeted form" means:
+// a reader that located a different node than its writer would produce an
+// inverse that undoes something else.
+
+/** The construction an applySetOverride would target, by the same rules. */
+const findConstruction = (
+  file: SourceFile,
+  span: { start: number; end: number },
+  className?: string,
+): NewExpression | undefined => {
+  const constructions = pascalConstructions(file)
+  const named = (n: NewExpression) => !className || n.getExpression().getText() === className
+  return (
+    constructions.find((n) => n.getStart() === span.start && n.getEnd() === span.end && named(n)) ??
+    constructions.find((n) => n.getStart() === span.start && named(n)) ??
+    (className
+      ? (() => {
+          const candidates = constructions.filter((n) => n.getExpression().getText() === className)
+          return candidates.length === 1 ? candidates[0] : undefined
+        })()
+      : undefined)
+  )
+}
+
+/**
+ * What `name` holds in the targeted construction right now: a literal's
+ * value, or `absent` when the property is not written there at all (the
+ * inverse of an insertion is a removal, which setOverride cannot express
+ * — see the daemon's note; the editor keeps such an op un-undoable rather
+ * than writing a wrong literal back).
+ */
+export const readOverride = (
+  source: string,
+  op: Pick<SetOverrideOp, "span" | "className" | "name">,
+):
+  | { kind: "literal"; value: number | string | boolean }
+  | { kind: "absent" }
+  | { kind: "unreadable"; reason: string } => {
+  const file = project.createSourceFile("op-read.ts", source, { overwrite: true })
+  const target = findConstruction(file, op.span, op.className)
+  if (!target) return { kind: "unreadable", reason: "no construction at span" }
+  const [firstArg] = target.getArguments()
+  if (!firstArg) return { kind: "absent" }
+  const overrides = firstArg.asKind(SyntaxKind.ObjectLiteralExpression)
+  if (!overrides) return { kind: "unreadable", reason: "argument is not an object literal" }
+  const assignment = overrides.getProperty(op.name)?.asKind(SyntaxKind.PropertyAssignment)
+  if (!assignment) return { kind: "absent" }
+  const init = assignment.getInitializer()
+  if (!init) return { kind: "unreadable", reason: "property has no initializer" }
+  return literalValue(init.getText())
+}
+
+/** A literal's value, or why it is not one (a named constant must not be flattened). */
+const literalValue = (
+  text: string,
+): { kind: "literal"; value: number | string | boolean } | { kind: "unreadable"; reason: string } => {
+  if (text === "true") return { kind: "literal", value: true }
+  if (text === "false") return { kind: "literal", value: false }
+  if (/^-?\d+(\.\d+)?$/.test(text)) return { kind: "literal", value: Number(text) }
+  if (/^-\s*\d+(\.\d+)?$/.test(text)) return { kind: "literal", value: Number(text.replace(/\s+/g, "")) }
+  if (/^(["']).*\1$/s.test(text)) {
+    try {
+      return { kind: "literal", value: JSON.parse(text.replace(/^'|'$/g, '"')) as string }
+    } catch {
+      return { kind: "unreadable", reason: `unparseable string literal ${text}` }
+    }
+  }
+  return { kind: "unreadable", reason: `\`${text}\` is not a literal` }
+}
+
+/** The run_time of the play() call at span, by applySetRunTime's own rules. */
+export const readRunTime = (
+  source: string,
+  span: { start: number; end: number },
+): { kind: "literal"; value: number } | { kind: "default" } | { kind: "unreadable"; reason: string } => {
+  const file = project.createSourceFile("op-read.ts", source, { overwrite: true })
+  const calls = file
+    .getDescendantsOfKind(SyntaxKind.CallExpression)
+    .filter((c) => c.getExpression().getText() === "this.play")
+  const target =
+    calls.find((c) => c.getStart() === span.start && c.getEnd() === span.end) ??
+    calls.find((c) => c.getStart() === span.start)
+  if (!target) return { kind: "unreadable", reason: "no play() call at span" }
+  const runArg = target.getArguments()[1]
+  // `play(anim)` runs the implicit 1s; applySetRunTime makes that
+  // explicit, so the honest inverse is the same number, not a removal.
+  if (!runArg) return { kind: "default" }
+  if (!runArg.asKind(SyntaxKind.NumericLiteral))
+    return { kind: "unreadable", reason: `run_time is \`${runArg.getText()}\`, not a literal` }
+  return { kind: "literal", value: Number(runArg.getText()) }
+}
+
+/** The backdrop spec standing in unfold(), if the line is there at all. */
+export const readBackdrop = (
+  source: string,
+): { kind: "spec"; path: string; offset: number } | { kind: "absent" } | { kind: "unreadable"; reason: string } => {
+  const unfold = findUnfold(source)
+  if (!unfold?.getBody()) return { kind: "unreadable", reason: "no unfold() body" }
+  const call = findBackdropCall(unfold)
+  if (!call) return { kind: "absent" }
+  const [pathArg, optsArg] = call.getArguments()
+  if (!pathArg) return { kind: "unreadable", reason: "backdrop() has no path" }
+  const path = literalValue(pathArg.getText())
+  if (path.kind !== "literal" || typeof path.value !== "string")
+    return { kind: "unreadable", reason: "backdrop path is not a string literal" }
+  const opts = optsArg?.asKind(SyntaxKind.ObjectLiteralExpression)
+  const offsetInit = opts?.getProperty("offset")?.asKind(SyntaxKind.PropertyAssignment)?.getInitializer()
+  if (!offsetInit) return { kind: "spec", path: path.value, offset: 0 }
+  const offset = literalValue(offsetInit.getText())
+  if (offset.kind !== "literal" || typeof offset.value !== "number")
+    return { kind: "unreadable", reason: "backdrop offset is not a numeric literal" }
+  return { kind: "spec", path: path.value, offset: offset.value }
 }
 
 /**
