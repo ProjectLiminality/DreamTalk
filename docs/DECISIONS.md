@@ -322,3 +322,13 @@ operational decisions are entered by the working agent. Format:
   implies 0.888 (less attenuation at no distance, as it must).
   Scene03 states 0.888 locally; the honest fix for all scenes is
   porting S&T's actual distance ramp (extends FIDELITY-LEDGER #10).
+- 2026-09-07 · **A verb reading .value at build time is only safe for
+  params nothing animates** (O-6 finding 3) — pydeation's colours are
+  CONSTRUCTION FLAGS (Rectangle(color=RED) is red the moment it
+  exists); ours are TIMELINE STATE. Morph's faithful port of
+  animator.py's read-both-ends-at-construction made Scene01's morphs
+  depart from a white the nodes had not worn for twenty seconds —
+  faithful to the code, unfaithful to the behaviour. The rule: a
+  verb's DESTINATION values may be construction constants read
+  directly; its SOURCE values must resolve chronologically (.to()'s
+  own semantics). Generalizes to every future verb port.
