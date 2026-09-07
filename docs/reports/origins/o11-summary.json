@@ -4,30 +4,35 @@
   "key": "o06",
   "t0": 154,
   "startOffset": 0.6,
-  "sceneDuration": 81.6,
+  "sceneDuration": 83.6,
   "sourceDuration": 81.0,
-  "verdict": "Scene06 plays COMPLETE and UNTRIMMED in the published video; Scene06_1 is CUT ENTIRELY.",
+  "policy": "David 2026-09-07: replicate only what reached the published video. Scene06 survived the cut INTACT, so the published arc and the source's arc are the same construction; the sole divergence is the closing hold, re-timed to the frames (source would end v235.6, footage ends v237.6).",
+  "verdict": "Scene06 plays COMPLETE and UNTRIMMED in the published video (v154.6-237.6). Scene06_1 is CUT ENTIRELY and is NOT reproduced (experiment, per policy).",
+  "everyFrameIsPublished": "The claimed span is lit end to end in the reference except v193.6-193.8 (2 frames); our render is dark on those two as well. No source-only content is rendered.",
   "dense_1s": {
-    "frames": 80,
+    "frames": 81,
     "passed": 64,
-    "meanCoverageRef": 0.9438,
-    "meanCoverageOurs": 0.9416,
-    "span": "v154.6-235.6"
+    "meanCoverageRef": 0.9531,
+    "meanCoverageOurs": 0.9466,
+    "span": "v154.6-237.4"
   },
   "morphChain_frameByFrame": {
     "frames": 40,
     "passed": 21,
     "meanCoverageRef": 0.8081,
-    "meanCoverageOurs": 0.8321,
     "span": "v211.6-219.6"
   },
   "fitted": {
     "START_OFFSET": 0.6,
-    "GITHUB_DRAW_START": 0.6
+    "GITHUB_DRAW_START": 0.6,
+    "closingHold": 3.2,
+    "closingUnDraw": 0.8
   },
+  "residual": "The remaining ~0.89 plateau through the close is the tension arrows' curve shape ONLY (Connection's Catmull-Rom vs C4D's bezier); cylinder, circle and rectangle are exact.",
   "gates": {
     "tsc": "clean",
     "bunTest": "934 pass / 0 fail",
     "s04Gauntlet": "6/6 PASS"
-  }
+  },
+  "sceneDurationNote": "83.6s = 0.6s START_OFFSET + 83.0s of choreography; ends at video 237.6, the measured end of the published scene."
 }

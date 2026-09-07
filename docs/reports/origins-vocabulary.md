@@ -585,7 +585,16 @@ downloads: 89 GB free.
      Scene06 on, compare against the source's choreography rather than
      the video's re-cut") is unnecessary for THIS scene: the two are
      the same thing, and the frames ARE a frame-exact target. Scored:
-     64/80 PASS dense at 1s, mean coverage 0.944.
+     64/81 PASS dense at 1s, mean coverage 0.953.
+
+     ONE EXCEPTION, and the video wins it: the CLOSING HOLD. The source
+     would end the scene at v235.6 (`wait()` then a 1s UnDraw); the
+     footage holds the finished triad flat from v233.6 to v236.8 and
+     undraws over 0.8s, ending at **v237.6**. The published Scene06 is
+     therefore 82.4s, 1.2s longer than the source's arithmetic, and all
+     of the difference is in that hold. Per David's policy the video
+     decides how long a beat lasts, so o06 carries the measured 3.2s /
+     0.8s rather than the source's 1s / 1s.
 
   3. **§1's "Scene06_1 is a continuation-state duplicate — reproduce
      Scene06 and Scene06_1 as one continuous scene" is wrong on both
@@ -599,8 +608,14 @@ downloads: 89 GB free.
      other scenes (136.6–141.8 = Scene04's pie; 254.6 and 256.4–265.2
      = Scene07's panels/Venn, confirmed by eye). Scene06's closing
      UnDraw is at 236–237s and Scene07 is on screen by 238.6s.
-     Scene06_1 is reproducible from source but UNSCOREABLE, exactly
-     like Scene08_1/08_2.
+     Under David's policy (2026-09-07 — "only replicate what actually
+     made it to the final video; anything only from the source code
+     that is not visible in the footage was likely just an experiment")
+     Scene06_1 is an EXPERIMENT and is not reproduced at all. The same
+     verdict retires the "unscoreable content" category for this
+     chapter: o06 renders nothing the audience did not see. Its span
+     v154.6–237.6 is lit end to end in the reference save for two
+     frames at 193.6–193.8, and o06 is dark on those two as well.
 
   Two smaller findings from the same work: **`liminality`
   (`Circle(radius=250)`) is declared and `add`ed but never played** —

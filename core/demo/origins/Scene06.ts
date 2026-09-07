@@ -50,10 +50,23 @@
  *   59.00     213.6     213.6   Create(repo_triangle)
  *   68.00     222.6     222.6   the chain collapses to repo_circle
  *   73.00     227.6     227.6   Create(repo_cylinder)
- *   81.00     235.6     ~236    the final UnDraw
+ *   76.00     230.6     230.8   the closing transform begins
  *
- * Twelve independent landmarks, none fitted, every one inside a frame
- * (0.2s) of its prediction. The scene is verbatim.
+ * Eleven independent landmarks, none fitted, every one inside a frame
+ * (0.2s) of its prediction — the whole scene up to its last beat.
+ *
+ * THE CLOSING BEAT IS THE EXCEPTION, and the video wins it. The source
+ * would end at v235.6 (`wait()` then a 1s UnDraw); the footage holds
+ * the finished triad until v236.8 and undraws over 0.8s, ending at
+ * v237.6. That hold is re-timed to the frames at the bottom of
+ * `unfold()`, per David's directive that the video decides what exists
+ * and how long it lasts.
+ *
+ * The scene therefore runs 83.6s — 0.6s of START_OFFSET plus 83.0s of
+ * choreography — and lands its last frame on v237.6, the measured end
+ * of the published scene. (The source's own calls sum to 81.0s; the
+ * 2.0s difference is the closing hold, 3.2s where the source says 1s,
+ * less the 0.2s trimmed from the UnDraw.)
  *
  * WHY THE REPORT THOUGHT OTHERWISE. §0 read a "6.2s black gap" at
  * 168.2–174.4 and took it for an editor's cut. There is no gap there —
@@ -101,14 +114,23 @@
  * That completes the accounting for the whole published video: every
  * second of it is now mapped to a source scene, and the ~52s deficit is
  * Scene06_1 (~15s) plus Scene08_1/08_2 (~66s) minus the overlap the
- * re-cut absorbed. THIS FILE THEREFORE REPRODUCES SCENE06 ONLY. The
- * brief asked for the pair "as one continuous scene per the report's
- * continuation-state note"; the note is mistaken about what Scene06_1
- * is, and appending unpublished material to a scene that is verbatim
- * against the frames would corrupt the one thing this chapter can
- * prove. Scene06_1 is reproducible from source and is left for a
- * chapter that wants it — like Scene08_1/08_2, it is UNSCOREABLE: no
- * reference frames for it exist.
+ * re-cut absorbed.
+ *
+ * THIS FILE THEREFORE REPRODUCES SCENE06 ONLY, which is also what
+ * David's policy requires (2026-09-07): "only replicate what actually
+ * made it to the final video. Anything only from the source code that
+ * is not visible in the footage was likely just an experiment and is
+ * not complete or coherent." Scene06_1 never reached the footage, so it
+ * is an experiment and is not reproduced here or anywhere.
+ *
+ * The policy costs this scene nothing, which is the happy accident of
+ * this chapter: Scene06 survived the cut INTACT, so "reproduce the
+ * published arc" and "reproduce the source" name the same 81 seconds of
+ * construction. The one place they diverge is the closing hold, and
+ * there the video wins (see the timing table above). Every frame this
+ * file renders is a frame the audience saw: the span v154.6-237.6 is
+ * lit end to end in the reference save for two frames at 193.6-193.8,
+ * and the scene is dark on those two as well.
  *
  *
  * FRAMING (zoom 3/4, front — the same projection as Scene05)
@@ -849,13 +871,31 @@ export class Scene06Dream extends Dream {
       ),
       3,
     )
-    this.wait(1)
+    // THE ONE PLACE THE VIDEO OVERRULES THE SOURCE.
+    //
+    // The source says `wait()` — 1s — then a 1s UnDraw, which would end
+    // the scene at v235.6. The footage holds the finished triad far
+    // longer than that. Ink counts through the close (each number a
+    // 0.2s frame):
+    //
+    //   230.8-233.6  9,663 → 6,809   the 3s transform, settling
+    //   233.6-236.8  6,809 … 6,595   HELD, essentially flat for 3.2s
+    //   236.8-237.6  6,037 → 0       the undraw, 0.8s
+    //   237.6-238.6  0               black, then Scene07
+    //
+    // So the published scene runs to v237.6, not v235.6 — 1.2s longer
+    // than the source's arithmetic — and the extra time is all in this
+    // hold. Per David's directive (2026-09-07) the VIDEO decides what
+    // exists and how long it lasts; the source stays the authority for
+    // the constructions, not for a beat the editor plainly re-timed.
+    // Both numbers below are therefore measured off the frames.
+    this.wait(3.2)
     this.play(
       together(
         UnDraw(this.repoCylinder.members[0] as Cylinder),
         UnDraw(this.dialecticalThinking),
       ),
-      1,
+      0.8,
     )
   }
 }

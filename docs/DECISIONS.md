@@ -354,3 +354,10 @@ operational decisions are entered by the working agent. Format:
   commented as footage-measured-because-underivable). Corollary kept:
   a sweep that scores byte-identically across values is a bug report
   about wiring, not a finding about the value.
+- 2026-09-07 · **pydeation's *args are path nodes or co-targets — never
+  options** (O-11) — Transform(a, b, scale=1/3) scales BOTH (the same
+  variadic convention as Connection(*nodes); a Connection with point
+  literals is a multi-node PATH, not from-to). The misreading produced
+  two of O-11's four scoring failures (v184.6: 0.24 → 0.94 on the fix,
+  the ring shrinking 241.5→82.5px = 1/3 over the source's own 5s).
+  Transferable to every future pydeation port, the trio included.
