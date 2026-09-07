@@ -478,7 +478,9 @@ pitch.py, 16 scenes; the GitHub pydeation-PL-pitch is a different 2022
 sketch). All 32 SVG assets recovered from the C4D prefs folder (were
 outside version control). Then the visual-only trio #02/#03/#05
 (Key2SVG is an empty stub — trio needs .key files or by-eye; #03 lead:
-PyTalk-CustodianOfTheNoosphere repo). Ground truth:
+PyTalk-CustodianOfTheNoosphere repo; #02 lead: the local seed/ project
+beside the pitch source — seed.py, 339 lines, 6 scenes, per-scene .m4a;
+head.svg gap resolved: head_side.svg is the match). Ground truth:
 docs/reports/origins-vocabulary.md (chapter plan O-1..O-11 §6; missing-
 core list §5 — headline: SVG importer, DrawSteady, TRUE MORPHS (the
 ONTOLOGY-deferred item, now corpus-demanded), Fill/ChangeColor verbs,
