@@ -1,8 +1,17 @@
 # Morph — the first pluggable ability
 
+![Morph](Morph.png)
+
 One shape becoming another. Import this module and every `Stroke` in the
 process learns `.morphTo()`; don't, and nothing in the framework has ever
 heard of morphing.
+
+The face is Scene01 at t = 24.4s, mid-morph: three blue circles on the
+left, and on the right three shapes that are no longer circles and not
+yet rectangles — bowed, leaning, each skewed differently. A noun's face
+shows the finished thing; an ability's face has to show the *becoming*,
+because the becoming is what it contributes. Those leans are also the
+correspondence proof — see below.
 
 ```ts
 import { Morph, MorphShape } from "../../vocabulary/Morph/Morph"

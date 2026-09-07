@@ -41,13 +41,21 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [Sketch](Sketch/) | david portrait, `?scene=sketch` | primitives (geometry/svg; 32 assets) | svg tests (37 subpaths); o1/o2 composites |
 | [Logo](Logo/) | finished mark, `?scene=o09` | primitives | o3 scores 30/30 + 25/26; logo tests (Cramer) |
 | [System](System/) | gears+icon, `?scene=o03` | Sketch (six assets) | o5: 16/16 pixel-exact layout predictions; system tests |
-| [Morph](Morph/) | mid-morph, `?scene=o01` t≈25 | THE FIRST ABILITY MODULE — importing it grafts `.morphTo()` onto every Stroke | o6 scenes + 46 morph/ability tests; f_00190 leaning-quads vindication |
-| [Morph](Morph/) | circle mid-becoming-rectangle, `?scene=o01` | primitives (+geometry/morph) | morph tests (46, incl. the graft + gate); Scene01's six morphs |
 
-The last row is not a noun. **Morph is the first pluggable ABILITY** — a
-verb rather than a thing, which contributes no geometry of its own and
-instead teaches every `Stroke` in the process to morph when the module is
-imported (docs/DECISIONS.md 2026-09-07, "Abilities are pluggable
-DreamNodes"). Its folder is the TEMPLATE every later ability copies:
-`Write`, steering behaviours, `Trace`. See [Morph/README.md](Morph/) for
-the pattern's seven rules.
+## Abilities
+
+One entry so far, and it is a different KIND of thing: not a symbol you
+instantiate but a capability the whole space gains by importing it.
+
+| Ability | Grafts | Onto | Proven by |
+|---|---|---|---|
+| [Morph](Morph/) | `.morphTo()` + the `Morph` verb | every `Stroke` | face: mid-morph, `?scene=o01` t=24.4; Scene01's six simultaneous morphs; 46 morph tests |
+
+An ability is a self-contained DreamNode in `vocabulary/<Ability>/` that
+grafts itself onto all eligible objects when imported — TS declaration
+merging plus prototype augmentation, the one sanctioned side-effect
+import (DECISIONS.md 2026-09-07, "Abilities are pluggable DreamNodes").
+Pure mathematics stays in `src/geometry/`; math is infrastructure, not
+ability. `Morph/README.md` §"The template" is what the next one copies —
+its seven rules are the pattern every later ability (`Write`, steering
+behaviours, `Trace`) inherits.
