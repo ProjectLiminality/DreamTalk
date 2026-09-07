@@ -178,10 +178,51 @@ import { STROKE_MAIN } from "../video01/palette"
  *   offset   0.40   0.50   0.60   0.70   0.80
  *   (see docs/reports/origins/o11-sweep.json for the scored table)
  */
-const START_OFFSET = 0.6
+const START_OFFSET = 0.65
 
 /** The octocat SVG's own height in its own units — the thing `scale` scales. */
 const GITHUB_SOURCE_HEIGHT = 23.388
+
+/**
+ * Where the octocat's pen starts, as a fraction along its single closed
+ * subpath — the scene's second and last fitted number.
+ *
+ * The asset's point list opens at the top of the head: its first point
+ * is (0, 11.694), i.e. angle +90°, and our first cut drew from there,
+ * spreading symmetrically into the top-left. The reference does not.
+ * Tracking the ink's angular extent about the drawing's centre through
+ * `Draw(github)` (v193.6-196.6):
+ *
+ *   v194.0  angles [-31.5, +45.0]   — a short arc on the RIGHT
+ *   v194.4  angles [-75.2, +45.0]   — growing downward
+ *   v194.8  angles [-75.2, +81.3]   — and upward
+ *   v195.2  closed
+ *
+ * so the pen opens on the right and runs both ways from there.
+ *
+ * Fitted by sweeping the value and scoring the draw densely (every
+ * frame of v193.8-196.6, 8 frames), which finds a clean unimodal peak:
+ *
+ *   drawStart  0.45   0.50   0.55   0.575  0.59   0.60   0.61   0.625  0.65
+ *   PASS       1/8    1/8    2/8    4/8    5/8    6/8    6/8    5/8    3/8
+ *   covRef     .5509  .6322  .7268  .7807  .8769  .9263  .8940  .8070  .7454
+ *
+ * This is a PROPERTY OF THE 2021 C4D IMPORT, not of the drawing: C4D's
+ * SVG importer chose its own start vertex when it built the spline, and
+ * that choice is not recoverable from the file — the `d` attribute's
+ * first coordinate is the one we have, and it is demonstrably not the
+ * one C4D drew from. Fitting it against the frames is the only route,
+ * and it is one number for one asset.
+ *
+ * WHERE IT HAS TO GO. `drawStart` is a `Stroke` param, and a Sketch IS
+ * a Stroke — but `Sketch.createAnim` sweeps each CHILD Line's
+ * `creation` (Sketch.ts:125-147) and never reads a `drawStart` of its
+ * own, so setting it on the Sketch is silently inert. The first attempt
+ * did exactly that, and six sweep values scored byte-identically, which
+ * is the signature of a parameter nothing consumes. It is set on the
+ * child Line instead (see `githubOutline`).
+ */
+const GITHUB_DRAW_START = 0.6
 
 export class Scene06Dream extends Dream {
   // ── the video-01 dialectic, quoted (pitch.py:337-352) ─────────────
@@ -214,25 +255,35 @@ export class Scene06Dream extends Dream {
     stroke: STROKE_MAIN,
   })
 
-  // The tension arrows run from each shape to a fixed point below the
-  // cylinder. The source states those as bare tuples; a Connection
-  // anchors on holons, so the fixed ends are Nulls — the same idiom
-  // Scene10 uses for its convergence point.
-  toCylinderLeft = new Null({ x: -20, y: -85 })
-  toCylinderRight = new Null({ x: 20, y: -85 })
+  /**
+   * The tension arrows — and pydeation's `Connection` is VARIADIC, which
+   * is the thing to get right here.
+   *
+   * `Connection(circle, (-20, 0, -85), (0, 0, 40))` is not "from circle
+   * to a point": `def __init__(self, *nodes, …)` (mograph.py:97) takes
+   * ANY number of nodes and traces a spline through all of them, turning
+   * each bare tuple into a Null on the way. So this is a THREE-node
+   * path — the circle, a waypoint low and to the left, then up to a
+   * shared endpoint at (0, 0, 40) beneath the cylinder.
+   *
+   * That third node is what makes the image: both arrows end at the SAME
+   * point and approach it from below, so the pair reads as a Y with its
+   * stem rising toward the cylinder. Read as a two-node connection they
+   * run flat and horizontal instead, which is what the first cut of this
+   * scene did and what the gauntlet caught in the closing composite
+   * (v229.6/v234.6): the circle, rectangle and cylinder in exact yellow
+   * overlap with two green arrows lying flat under a red Y.
+   *
+   * Core's Connection carries intermediate nodes as `via`, so the shape
+   * is stated by anchoring on the endpoint and routing through the
+   * waypoint. pydeation's z is our y throughout.
+   */
+  tensionApex = new Null({ y: 40 })
+  viaLeft = new Null({ x: -20, y: -85 })
+  viaRight = new Null({ x: 20, y: -85 })
 
-  arrowCircle = new Connection(this.circle, this.toCylinderLeft, {
-    offsetStart: 1 / 4,
-    offsetEnd: 0.1,
-    tint: WHITE,
-    stroke: STROKE_MAIN,
-  })
-  arrowRectangle = new Connection(this.rectangle, this.toCylinderRight, {
-    offsetStart: 1 / 4,
-    offsetEnd: 0.1,
-    tint: WHITE,
-    stroke: STROKE_MAIN,
-  })
+  arrowCircle = through(this.circle, this.viaLeft, this.tensionApex, 1 / 4)
+  arrowRectangle = through(this.rectangle, this.viaRight, this.tensionApex, 1 / 4)
 
   tension = new Group({ members: [this.arrowCircle, this.arrowRectangle] })
 
@@ -245,8 +296,9 @@ export class Scene06Dream extends Dream {
       this.circle,
       this.cylinder,
       this.tension,
-      this.toCylinderLeft,
-      this.toCylinderRight,
+      this.tensionApex,
+      this.viaLeft,
+      this.viaRight,
     ],
     y: 15,
     z: -100,
@@ -379,27 +431,32 @@ export class Scene06Dream extends Dream {
   arrowPentagonHexagon = link(this.repoPentagon, this.repoHexagon)
   arrowHexagonCircle = link(this.repoHexagon, this.repoCircle)
 
-  // The last two point INWARD at the rebuilt cylinder, exactly as the
-  // opening triad's tension arrows do.
-  toRepoCylinderLeft = new Null({ x: -30, y: -85 })
-  toRepoCylinderRight = new Null({ x: 30, y: -85 })
-  arrowCircleCylinder = new Connection(
+  // The last two rebuild the same Y under the repo cylinder — the same
+  // three-node form as the opening triad's tension, with the waypoints
+  // 30 units out instead of 20 and a 1/3 start offset.
+  repoApex = new Null({ y: 40 })
+  repoViaLeft = new Null({ x: -30, y: -85 })
+  repoViaRight = new Null({ x: 30, y: -85 })
+  arrowCircleCylinder = through(
     this.repoCircle.members[0] as Circle,
-    this.toRepoCylinderLeft,
-    { offsetStart: 1 / 3, offsetEnd: 0.1, tint: WHITE, stroke: STROKE_MAIN },
+    this.repoViaLeft,
+    this.repoApex,
+    1 / 3,
   )
-  arrowRectangleCylinder = new Connection(
+  arrowRectangleCylinder = through(
     this.repoRectangle.members[0] as Rectangle,
-    this.toRepoCylinderRight,
-    { offsetStart: 1 / 3, offsetEnd: 0.1, tint: WHITE, stroke: STROKE_MAIN },
+    this.repoViaRight,
+    this.repoApex,
+    1 / 3,
   )
 
   repoTension = new Group({
     members: [
       this.arrowCircleCylinder,
       this.arrowRectangleCylinder,
-      this.toRepoCylinderLeft,
-      this.toRepoCylinderRight,
+      this.repoApex,
+      this.repoViaLeft,
+      this.repoViaRight,
     ],
   })
 
@@ -476,7 +533,14 @@ export class Scene06Dream extends Dream {
    */
   get githubOutline() {
     void this.github.parts
-    return this.github.strokes[0]!
+    const outline = this.github.strokes[0]!
+    // The pen's start phase belongs to the LINE, not to the Sketch that
+    // carries it: `Sketch.createAnim` sweeps each child's `creation`
+    // (Sketch.ts:125-147) and never reads a `drawStart` of its own, so
+    // setting it on the container is silently inert — which a sweep of
+    // six values scoring identically is exactly what that looks like.
+    outline.drawStart.value = GITHUB_DRAW_START
+    return outline
   }
 
   // The four chain links, each a PAIR (the shape and its frame), each
@@ -512,6 +576,11 @@ export class Scene06Dream extends Dream {
     this.set(this.observer.zoom.to(3 / 4))
 
     // Everything the source `add`s is staged, morphers included.
+    // Touch the octocat's outline before anything else: the getter is
+    // what settles the Sketch and sets the pen's start phase, and the
+    // draw at beat 6 must already have it.
+    void this.githubOutline
+
     this.stage(this.dialecticalThinking)
     this.stage(this.liminality)
     this.stage(this.github)
@@ -784,6 +853,26 @@ function repo(shape: Circle | Polygon | Rectangle | Cylinder, x: number, z = 0):
     x,
     y: z,
   })
+}
+
+/**
+ * `Connection(source, waypoint, target, …)` — the variadic form, which
+ * core spells as an anchored Connection with one `via` point.
+ */
+function through(
+  source: Holon,
+  waypoint: Null,
+  target: Holon,
+  offsetStart: number,
+): Connection {
+  const c = new Connection(source, target, {
+    offsetStart,
+    offsetEnd: 0.1,
+    tint: WHITE,
+    stroke: STROKE_MAIN,
+  })
+  c.via = [{ x: waypoint.x.value, y: waypoint.y.value, z: 0 }]
+  return c
 }
 
 /** Connection(a, b, offset_start=0.45, offset_end=0.38) — a chain arrow. */

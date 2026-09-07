@@ -506,7 +506,7 @@ const layoutText = async (
   size: number,
 ): Promise<TextHandle> => {
   ensureHarfBuzz()
-  return (await ThreeText.create({
+  const handle = (await ThreeText.create({
     text: content,
     font,
     size,
@@ -520,6 +520,76 @@ const layoutText = async (
     removeOverlaps: true,
     layout: { align: "center" },
   })) as unknown as TextHandle
+  // three-text's `align: "center"` centres lines within a WIDTH, and
+  // with none given the lines stack at a common left origin — the
+  // block-level re-centring below hides it for single-line text only
+  // (o8 diagnosis at f_01545: the reference centres each line; our
+  // shorter lines sat at the longer line's left edge). Passing a width
+  // is NOT the fix: three-text also WRAPS at it, and an ink-width
+  // probe under-measures the advance width, wrapping the long line's
+  // last glyph. So the lines are re-centred in the built geometry
+  // instead: glyphs bucket into lines by their ink-box y-bands (a
+  // newline steps the baseline by a full line height, so the bands
+  // cannot touch), and each line's vertices shift by its own
+  // mid-x — pure translation, no reshaping, no wrap.
+  if (content.includes("\n")) centreLinesInPlace(handle.geometry, size)
+  return handle
+}
+
+/**
+ * Re-centre each text LINE about x = 0 by translating its vertices.
+ * Lines are identified by clustering glyph y-centres: consecutive
+ * baselines differ by a full line height (>= the font size), while ink
+ * within one line spans well under it, so a gap of half the size
+ * separates bands unambiguously.
+ */
+const centreLinesInPlace = (geometry: THREE.BufferGeometry, size: number): void => {
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+  const indexAttr = geometry.getAttribute("glyphIndex") as THREE.BufferAttribute | undefined
+  if (!position || !indexAttr) return
+  const n = position.count
+  // Per-GLYPH y-midpoints cluster tightly within a line (they vary by
+  // at most ~0.35·size around the line's optical middle) while
+  // consecutive baselines step a full line height — banding VERTICES
+  // fails because a line's ink nearly touches its neighbour's, but
+  // banding glyph midpoints separates cleanly at 0.6·size.
+  let glyphCount = 0
+  for (let i = 0; i < n; i++) glyphCount = Math.max(glyphCount, indexAttr.getX(i) + 1)
+  const gMinY = new Float32Array(glyphCount).fill(Infinity)
+  const gMaxY = new Float32Array(glyphCount).fill(-Infinity)
+  for (let i = 0; i < n; i++) {
+    const g = indexAttr.getX(i)
+    const y = position.getY(i)
+    if (y < gMinY[g]!) gMinY[g] = y
+    if (y > gMaxY[g]!) gMaxY[g] = y
+  }
+  const mids = new Float32Array(glyphCount)
+  for (let g = 0; g < glyphCount; g++) mids[g] = (gMinY[g]! + gMaxY[g]!) / 2
+  const order = Array.from({ length: glyphCount }, (_, g) => g).sort(
+    (a, b) => mids[a]! - mids[b]!,
+  )
+  const lineOf = new Int32Array(glyphCount)
+  let line = 0
+  for (let k = 0; k < order.length; k++) {
+    if (k > 0 && mids[order[k]!]! - mids[order[k - 1]!]! > size * 0.6) line++
+    lineOf[order[k]!] = line
+  }
+  if (line === 0) return // one line — the block centring suffices
+  const bands = line + 1
+  const minX = new Array(bands).fill(Infinity)
+  const maxX = new Array(bands).fill(-Infinity)
+  for (let i = 0; i < n; i++) {
+    const b = lineOf[indexAttr.getX(i)]!
+    const x = position.getX(i)
+    if (x < minX[b]!) minX[b] = x
+    if (x > maxX[b]!) maxX[b] = x
+  }
+  for (let i = 0; i < n; i++) {
+    const b = lineOf[indexAttr.getX(i)]!
+    position.setX(i, position.getX(i) - (minX[b]! + maxX[b]!) / 2)
+  }
+  position.needsUpdate = true
+  geometry.computeBoundingBox()
 }
 
 /**

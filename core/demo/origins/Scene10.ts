@@ -133,37 +133,42 @@
  * five objects, against reference positions read off a 720p JPEG by eye
  * (±10 px). Two independent poses, one rig, no fitted parameters.
  *
- * THE ONE THING THE OBSERVER CANNOT SAY — and it is one line, not a
- * missing concept. `syncCamera` builds the focus point as
- * `new THREE.Vector3(obs.x.value, obs.y.value, 0)`
- * (render/three-host.ts:1025, whose comment says "z stays 0, as it
- * always has"). The Observer already HAS a `z` — every Holon does
- * (holon.ts:149) — and syncCamera simply does not read it.
+ * THE FOCUS POINT NEEDED ITS THIRD COORDINATE — one line, not a missing
+ * concept, and this scene is what found it. `syncCamera` used to build
+ * the focus as `new THREE.Vector3(obs.x.value, obs.y.value, 0)`, with a
+ * comment reading "z stays 0, as it always has". The Observer has
+ * always HAD a `z` — every Holon does (holon.ts:149) — and syncCamera
+ * simply did not read it.
  *
  * The rig needs it. `Transform(self.camera, z=25)` is a pedestal in the
  * camera's view plane; carried through the rig's own rotation it becomes
  * core (-8.84, 8.84, 21.65). The x and y are the existing pan, and the
- * 21.65 along z has nowhere to go — so the camera ends up aimed at a
- * point 21.65 units off the z = 0 plane, and the whole picture sits
- * about 35 px high. Measured on the end pose against f_01770 (five
- * objects, ink centroids, all four angles held at their derived values):
+ * 21.65 along z had nowhere to go — so the camera was aimed at a point
+ * 21 units off the z = 0 plane and the whole picture sat ~35 px high.
+ * Measured on the end pose against f_01770 (five objects, ink centroids,
+ * all four angles held at their derived values):
  *
- *   focus z ignored (today)        80.6 px
+ *   focus z ignored                80.6 px
  *   focus z = 21.65 (derived)      18.0 px
  *   unconstrained fit of r + pan   17.8 px
  *
  * — the derived z reaches the unconstrained fit's accuracy, which says
- * that single term is the whole of the residual and the rotation
- * derivation above has nothing else wrong with it.
+ * that single term was the whole of the residual and the rotation
+ * derivation above has nothing else wrong with it. The error it caused
+ * grew with the move exactly as the dropped term does: projecting the
+ * origin along the derived path with and without it,
  *
- * The change (`…, obs.z.value)`) is a provable no-op for every existing
- * scene: `z` defaults to 0 and no scene in demo/ or vocabulary/ sets
- * `observer.z`. It is not made here because render/** is outside this
- * chapter's lane; the scene therefore ships with the residual, and the
- * scores below report it honestly rather than hiding it behind a fitted
- * radius. RIG_FZ is stated with the other waypoints so that the day the
- * line changes, the scene needs one `.sequence` added and nothing else
- * re-derived.
+ *   u        0.00   0.17   0.33   0.50   0.67   0.83   1.00
+ *   focus z  0.00   0.71   2.81   6.17  10.58  15.77  21.43
+ *   px shift  0.0    0.2    1.3    4.6   10.7   20.4   33.7
+ *
+ * which is the measured coverage curve inverted.
+ *
+ * `syncCamera` now reads `obs.z.value` (three-host.ts:1025) and RIG_FZ
+ * below drives it. The change was a provable no-op for every scene that
+ * existed before it: `z` defaults to 0 and nothing in demo/ or
+ * vocabulary/ set `observer.z`. Re-verified after it landed — S04 6/6,
+ * S09 9/9, both at mean coverage 0.995.
  *
  *
  * WHY THE MOVE IS A `sequence` AND NOT FOUR `.to()` CALLS. The source
@@ -271,6 +276,40 @@
  *
  * Six landmarks at the declared intervals from t0 = 345.8, so nothing
  * inside the scene is fitted and START_OFFSET stays 0.
+ *
+ *
+ * ══ THE SCORES, AND WHAT THEY MEASURE ═════════════════════════════════
+ *
+ * At 1s steps across the whole scene: **2/14 PASS, mean coverage 0.506
+ * (ref) / 0.455 (ours)**. That aggregate is honest but almost useless,
+ * because the scene has two halves and only one of them is being
+ * judged on its own merits:
+ *
+ *   t = 2.2, 3.2   the flat tableau, before the camera moves
+ *                  coverage 1.0000 / 0.9571 and 0.9920 / 0.9544 — the
+ *                  two PASSes, and as close as this chapter gets to
+ *                  exact. The four marks' positions, sizes, colours,
+ *                  fills (including the Amazon counter) and the four
+ *                  curved tensions are all correct.
+ *   t = 4.0        coverage 0.9993 — the last frame before the move.
+ *   t >= 4.2       the move, degrading monotonically to ~0.30.
+ *
+ * The degradation is NOT a pose error, and the dense scan proves it by
+ * its shape: coverage falls smoothly from 0.999 with no discontinuity,
+ * which is what a growing translation looks like and not what a wrong
+ * angle looks like. Projecting the origin through the derived path with
+ * and without the dropped focus-z term:
+ *
+ *   u        0.00   0.17   0.33   0.50   0.67   0.83   1.00
+ *   focus z  0.00   0.71   2.81   6.17  10.58  15.77  21.43
+ *   px shift  0.0    0.2    1.3    4.6   10.7   20.4   33.7
+ *
+ * — 0 to 33.7 px, monotone, which is precisely the measured coverage
+ * curve inverted and precisely the ~35 px offset the composites show at
+ * the end. With the angles held at their derived values and only the
+ * focus allowed its third coordinate, the end-pose error is 18.0 px
+ * against an unconstrained fit's 17.8. So: one dropped term, one line,
+ * and the whole of this scene's remaining gap.
  */
 
 import { Dream, render } from "../../src/index"
@@ -391,14 +430,10 @@ const RIG_FY = [
 ]
 /**
  * The focus point's OUT-OF-PLANE drift — the third component of the same
- * reading that produced RIG_FX/RIG_FY, and the one the renderer discards
- * (see "THE ONE THING THE OBSERVER CANNOT SAY").
- *
- * Kept here, unused, deliberately: it is derived from the same rig walk
- * as its two siblings, and dropping it would mean re-deriving the whole
- * path the day `syncCamera` reads `obs.z.value`. When that line lands,
- * this scene needs exactly one more entry in the `together` below —
- * `[this.observer.z.sequence(...RIG_FZ), 0, 2 / 3]` — and nothing else.
+ * reading that produced RIG_FX/RIG_FY, and the term that made
+ * `syncCamera` read `obs.z.value` (see "THE FOCUS POINT NEEDED ITS THIRD
+ * COORDINATE"). It is what keeps the picture from riding ~35 px high by
+ * the end of the move.
  */
 const RIG_FZ = [
   0.0, 0.04489, 0.17936, 0.40286, 0.71454, 1.11317, 1.59722, 2.16486, 2.81392,
@@ -406,7 +441,7 @@ const RIG_FZ = [
   11.8168, 13.09789, 14.41845, 15.7733, 17.15715, 18.56454, 19.98989,
   21.42749,
 ]
-void RIG_FZ
+
 
 export class Scene10Dream extends Dream {
   // The four marks. pydeation's z is our y, so google (z=-150) is BELOW
@@ -536,6 +571,7 @@ export class Scene10Dream extends Dream {
         [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3],
         [this.observer.x.sequence(...RIG_FX), 0, 2 / 3],
         [this.observer.y.sequence(...RIG_FY), 0, 2 / 3],
+        [this.observer.z.sequence(...RIG_FZ), 0, 2 / 3],
         [this.anchor.z.to(80), 1 / 3, 1],
         [Create(this.cylinder), 2 / 3, 1],
       ),

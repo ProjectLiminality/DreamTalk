@@ -165,6 +165,56 @@
  * with the camera pushed in at zoom 100 and pulled back to 1000 over
  * two plays; the rig mapping that would express it is derived in
  * Scene10.ts, where there IS footage to check it against.
+ *
+ *
+ * THE SCORES — AND THE ONE DEFECT, WHICH IS NOT THIS SCENE'S
+ *
+ * At 1s steps across the whole scene: **11/28 PASS, mean coverage 0.964
+ * (ref) / 0.910 (ours)**. Densely across the label beats (299.6-304.2 at
+ * 0.2s): 16/24, mean 0.960 / 0.899.
+ *
+ * Those aggregates are held down by a single defect, and it is in the
+ * text renderer rather than in anything this scene states. Split the
+ * scene by whether text is on screen and it separates completely:
+ *
+ *   316.0-320.0, no text on screen     **11/11 PASS, mean cov_ref
+ *                                      1.0000**, cov_ours 0.9981
+ *   293.0-295.6, the logo building     13/14 PASS, mean 0.963 / 0.985
+ *   any frame with a two-line label    cov_ours pinned at 0.89-0.91
+ *
+ * Every frame without text is exact — the logo, all four spokes, their
+ * 0.2 trims, the arrowheads, the fade windows and the un-draw. Every
+ * frame with text loses the same ~10% of OUR ink, and the composites
+ * say why: **the second line of each label is left-aligned to the first
+ * instead of being centred under it.**
+ *
+ * Measured at f_01545 (t=309.0), our render against the reference:
+ *
+ *   label            line   ours cx   ref cx   ours x0   ref x0
+ *   idea/incubator     1      739.0    768.0      713      745
+ *                      2      767.5    768.0      713      716
+ *   p2p ed./system     1      255.5    256.0      174      177
+ *                      2      216.0    256.0      174      217
+ *
+ * In both, the LONGER line is centred to within half a pixel and the
+ * SHORTER line starts at the longer one's left edge. "de-escalate /
+ * culture war", whose two lines are nearly the same width, is barely
+ * affected; "idea / incubator", the most unequal pair, is worst. The
+ * block as a whole is centred correctly — only the lines within it are
+ * not.
+ *
+ * The cause is in render/text.ts: `layoutText` passes
+ * `layout: { align: "center" }` to three-text, but three-text's
+ * paragraph alignment centres lines within a `width`, and no width is
+ * given — so with no measure to centre against, the lines stack at a
+ * common left origin, and the block-level re-centring that follows
+ * (`geometry.translate(-(box.min.x + box.max.x) / 2, 0, 0)`) then
+ * centres the whole stack rather than fixing the lines. Single-line
+ * text, which is every scene before this one, is unaffected, which is
+ * why the corpus has not met this until now.
+ *
+ * It is not fixed here: render/** is outside this chapter's lane. The
+ * scores above are reported with the defect in rather than around it.
  */
 
 import { Dream, render } from "../../src/index"
