@@ -41,6 +41,7 @@ import { Scene02Dream } from "./origins/Scene02"
 import { Scene03Dream } from "./origins/Scene03"
 import { Scene04Dream } from "./origins/Scene04"
 import { Scene05Dream } from "./origins/Scene05"
+import { Scene06Dream } from "./origins/Scene06"
 import { Scene07Dream } from "./origins/Scene07"
 import { Scene07_1Dream } from "./origins/Scene07_1"
 import { Scene08Dream } from "./origins/Scene08"
@@ -91,6 +92,7 @@ export const scenes: Record<string, DreamClass> = {
   o03: Scene03Dream,
   o04: Scene04Dream,
   o05: Scene05Dream,
+  o06: Scene06Dream,
   o07: Scene07Dream,
   o07_1: Scene07_1Dream,
   o08: Scene08Dream,

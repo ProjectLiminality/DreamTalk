@@ -133,6 +133,39 @@
  * five objects, against reference positions read off a 720p JPEG by eye
  * (±10 px). Two independent poses, one rig, no fitted parameters.
  *
+ * THE ONE THING THE OBSERVER CANNOT SAY — and it is one line, not a
+ * missing concept. `syncCamera` builds the focus point as
+ * `new THREE.Vector3(obs.x.value, obs.y.value, 0)`
+ * (render/three-host.ts:1025, whose comment says "z stays 0, as it
+ * always has"). The Observer already HAS a `z` — every Holon does
+ * (holon.ts:149) — and syncCamera simply does not read it.
+ *
+ * The rig needs it. `Transform(self.camera, z=25)` is a pedestal in the
+ * camera's view plane; carried through the rig's own rotation it becomes
+ * core (-8.84, 8.84, 21.65). The x and y are the existing pan, and the
+ * 21.65 along z has nowhere to go — so the camera ends up aimed at a
+ * point 21.65 units off the z = 0 plane, and the whole picture sits
+ * about 35 px high. Measured on the end pose against f_01770 (five
+ * objects, ink centroids, all four angles held at their derived values):
+ *
+ *   focus z ignored (today)        80.6 px
+ *   focus z = 21.65 (derived)      18.0 px
+ *   unconstrained fit of r + pan   17.8 px
+ *
+ * — the derived z reaches the unconstrained fit's accuracy, which says
+ * that single term is the whole of the residual and the rotation
+ * derivation above has nothing else wrong with it.
+ *
+ * The change (`…, obs.z.value)`) is a provable no-op for every existing
+ * scene: `z` defaults to 0 and no scene in demo/ or vocabulary/ sets
+ * `observer.z`. It is not made here because render/** is outside this
+ * chapter's lane; the scene therefore ships with the residual, and the
+ * scores below report it honestly rather than hiding it behind a fitted
+ * radius. RIG_FZ is stated with the other waypoints so that the day the
+ * line changes, the scene needs one `.sequence` added and nothing else
+ * re-derived.
+ *
+ *
  * WHY THE MOVE IS A `sequence` AND NOT FOUR `.to()` CALLS. The source
  * interpolates its OWN two angles linearly; phi/theta/tilt are a
  * nonlinear function of those, and driving them straight to the endpoint
@@ -241,7 +274,13 @@
  */
 
 import { Dream, render } from "../../src/index"
-import { Create, UnCreate, Erase } from "../../src/verbs"
+import {
+  DrawThenFillCompletely,
+  UnFillThenUnDraw,
+  UnCreate,
+  Erase,
+  Create,
+} from "../../src/verbs"
 import { Null } from "../../src/parts/primitives"
 import { Connection } from "../../src/parts/curves"
 import { Sketch } from "../../vocabulary/Sketch/Sketch"
@@ -267,6 +306,38 @@ const START_OFFSET = 0
 const LOGO_SCALE = 1 / 4
 
 /**
+ * Each mark's own height in world units — the asset's intrinsic size,
+ * which is what pydeation's SVG loader preserves and `scale` then scales.
+ *
+ * `Sketch.height` defaults to 400, and that default is a SIZE, not a
+ * passthrough: it refits any drawing to 400 units tall. For `head_side`
+ * — the only asset a scene had staged before this one — the two happen
+ * to coincide (its intrinsic height is 400.3), which is why Scene07_1's
+ * `400 · 1/2 · 1.28 = 256 px` verified against a measured 256 without
+ * the question arising. These four marks are ~255-261 units, so the
+ * default would render them 22% too large.
+ *
+ * Stating the intrinsic height is what makes `scale=1/4` mean here what
+ * it means in the source. Predicted against f_01750 (t=350.0), where the
+ * camera sits at the rig's 1000 units and the 36mm lens gives 1.28 px
+ * per world unit:
+ *
+ *   apple      260.968 · 1/4 · 1.28 = 83.5 px      measured 83
+ *   amazon     254.965 · 1/4 · 1.28 = 81.6 px      measured 82
+ *   google     261.000 · 1/4 · 1.28 = 83.5 px      (arrows in window)
+ *   microsoft  254.000 · 1/4 · 1.28 = 81.3 px      (arrows in window)
+ *
+ * The two clean windows land within half a pixel. Google's and
+ * Microsoft's own bounding boxes are crossed by the tension arrows
+ * arriving from the centre, so they are not independent measurements —
+ * they are quoted for completeness, not as evidence.
+ */
+const APPLE_HEIGHT = 260.968
+const AMAZON_HEIGHT = 254.965
+const GOOGLE_HEIGHT = 261.0
+const MICROSOFT_HEIGHT = 254.0
+
+/**
  * The rig's true path, sampled at 24 equal steps of the SOURCE's own
  * linear interpolation of (camera_group p: 0→PI/3, h: 0→PI/4) and
  * (camera y: 1000→700, z: 0→25), then read out as Observer coordinates.
@@ -278,33 +349,71 @@ const LOGO_SCALE = 1 / 4
  * radius) at each step.
  */
 const RIG_PHI = [
-  0.0, -0.00139, -0.00558, -0.01258, -0.02242, -0.03515, -0.05082, -0.06949,
-  -0.09124, -0.11614, -0.14425, -0.17563, -0.21034, -0.2484, -0.28979,
-  -0.33447, -0.38232, -0.43318, -0.48683, -0.54295, -0.60119, -0.6611,
-  -0.72224, -0.78409, -0.84619,
+  0.0, 0.00143, 0.00572, 0.0129, 0.02301, 0.0361, 0.05223, 0.07147, 0.09393,
+  0.11967, 0.14878, 0.18136, 0.21745, 0.2571, 0.30033, 0.34707, 0.39725,
+  0.45067, 0.50711, 0.56623, 0.62763, 0.69084, 0.75535, 0.82061, 0.88608,
 ]
 const RIG_THETA = [
-  0.0, -0.04256, -0.08495, -0.12703, -0.16868, -0.20973, -0.25004, -0.28944,
-  -0.32779, -0.36489, -0.40057, -0.43464, -0.46691, -0.49715, -0.52517,
-  -0.55075, -0.57369, -0.59377, -0.61083, -0.62469, -0.63521, -0.64231,
-  -0.64593, -0.64605, -0.64271,
+  0.0, -0.04361, -0.08708, -0.13027, -0.17302, -0.21521, -0.25665, -0.29721,
+  -0.33669, -0.37493, -0.41172, -0.44688, -0.48018, -0.51141, -0.54034,
+  -0.56673, -0.59037, -0.61103, -0.62851, -0.64262, -0.65322, -0.66019,
+  -0.66349, -0.6631, -0.65906,
 ]
 const RIG_TILT = [
-  0.0, 0.03275, 0.06569, 0.09897, 0.1328, 0.16732, 0.20274, 0.23921, 0.2769,
-  0.31597, 0.35658, 0.39885, 0.44289, 0.48878, 0.53655, 0.5862, 0.63764,
-  0.69076, 0.74532, 0.80106, 0.8576, 0.91455, 0.97142, 1.02773, 1.08298,
+  0.0, 0.03276, 0.0657, 0.09902, 0.1329, 0.16752, 0.20309, 0.23978, 0.27777,
+  0.31725, 0.35837, 0.40129, 0.44613, 0.49299, 0.5419, 0.59288, 0.64585,
+  0.70067, 0.7571, 0.81484, 0.87349, 0.93258, 0.99159, 1.04996, 1.10715,
 ]
 const RIG_RADIUS = [
   1000.0, 987.5, 975.0, 962.51, 950.01, 937.51, 925.02, 912.53, 900.04,
   887.55, 875.06, 862.58, 850.09, 837.61, 825.13, 812.65, 800.17, 787.7,
   775.23, 762.76, 750.29, 737.82, 725.36, 712.9, 700.45,
 ]
+/**
+ * The focus point's own drift. `Transform(self.camera, z=25)` is a
+ * pedestal in the camera's view plane, and a camera that moves off the
+ * rig's axis is no longer aimed at the origin — so in a rig that orbits
+ * a FOCUS, that offset shows up as the focus sliding, not as part of the
+ * radius. Reading the point the rig's camera is actually aimed at gives
+ * these; they peak near 11 units and settle at (-9.1, 9.1).
+ */
+const RIG_FX = [
+  0.0, -0.03405, -0.13575, -0.30375, -0.5358, -0.82881, -1.17883, -1.58112,
+  -2.03017, -2.51976, -3.04304, -3.59253, -4.16026, -4.73777, -5.31626,
+  -5.88661, -6.4395, -6.96545, -7.45498, -7.89863, -8.28708, -8.61124,
+  -8.86232, -9.03192, -9.11213,
+]
+const RIG_FY = [
+  0.0, 1.04014, 2.07116, 3.08401, 4.06983, 5.02005, 5.9264, 6.78105, 7.57669,
+  8.30655, 8.9645, 9.54513, 10.04374, 10.45648, 10.78031, 11.01308, 11.15353,
+  11.20136, 11.15717, 11.02253, 10.79994, 10.49283, 10.10553, 9.64328,
+  9.11213,
+]
+/**
+ * The focus point's OUT-OF-PLANE drift — the third component of the same
+ * reading that produced RIG_FX/RIG_FY, and the one the renderer discards
+ * (see "THE ONE THING THE OBSERVER CANNOT SAY").
+ *
+ * Kept here, unused, deliberately: it is derived from the same rig walk
+ * as its two siblings, and dropping it would mean re-deriving the whole
+ * path the day `syncCamera` reads `obs.z.value`. When that line lands,
+ * this scene needs exactly one more entry in the `together` below —
+ * `[this.observer.z.sequence(...RIG_FZ), 0, 2 / 3]` — and nothing else.
+ */
+const RIG_FZ = [
+  0.0, 0.04489, 0.17936, 0.40286, 0.71454, 1.11317, 1.59722, 2.16486, 2.81392,
+  3.54191, 4.34608, 5.22336, 6.17041, 7.1836, 8.25908, 9.39271, 10.58015,
+  11.8168, 13.09789, 14.41845, 15.7733, 17.15715, 18.56454, 19.98989,
+  21.42749,
+]
+void RIG_FZ
 
 export class Scene10Dream extends Dream {
   // The four marks. pydeation's z is our y, so google (z=-150) is BELOW
   // and microsoft (z=150) ABOVE — which is what the reference shows.
   apple = new Sketch({
     data: appleLogo,
+    height: APPLE_HEIGHT,
     x: -150,
     tint: BLUE,
     scale: LOGO_SCALE,
@@ -312,6 +421,7 @@ export class Scene10Dream extends Dream {
   })
   amazon = new Sketch({
     data: amazonLogo,
+    height: AMAZON_HEIGHT,
     x: 150,
     tint: BLUE,
     scale: LOGO_SCALE,
@@ -319,6 +429,7 @@ export class Scene10Dream extends Dream {
   })
   google = new Sketch({
     data: googleLogo,
+    height: GOOGLE_HEIGHT,
     y: -150,
     tint: RED,
     scale: LOGO_SCALE,
@@ -326,6 +437,7 @@ export class Scene10Dream extends Dream {
   })
   microsoft = new Sketch({
     data: microsoftLogo,
+    height: MICROSOFT_HEIGHT,
     y: 150,
     tint: RED,
     scale: LOGO_SCALE,
@@ -337,29 +449,37 @@ export class Scene10Dream extends Dream {
   // lifts out of the plane and the cylinder is drawn around it.
   anchor = new Null()
 
-  // The tension endpoints on each mark: the source's `(±30, 0, 0)` and
-  // `(0, 0, ±30)` world tuples, in our basis.
-  fromApple = new Null({ x: -30 })
-  fromAmazon = new Null({ x: 30 })
-  fromGoogle = new Null({ y: -30 })
-  fromMicrosoft = new Null({ y: 30 })
-
-  // Each tension runs from a point beside its mark to the anchor, with a
-  // quarter trimmed off the mark end and the default tenth off the
-  // anchor end. They track the anchor as it lifts.
-  tensionApple = new Connection(this.fromApple, this.anchor, {
+  // Each tension is a THREE-node trace, not a two-node one: the source
+  // writes `Connection(apple, (-30, 0, 0), anchor, offset_start=0.25)`,
+  // and pydeation's Connection is a MoTracer in BEZIER spline mode
+  // (mograph.py:57-83, SPLINEOBJECT_TYPE = 4) threaded through every
+  // node it is given. The middle node — a null 30 units from the origin
+  // on the mark's own side — is what makes these curves curves. Two
+  // nodes would give a chord, and the reference is emphatically not a
+  // chord: at f_01770 the left pair sweeps from (505, 488) up to
+  // (640, 300), bowing ~100 px away from the straight line between its
+  // endpoints.
+  //
+  // Core spells the intermediate points `via`, and its catmull-rom
+  // (parts/curves.ts:134) threads them the same way, so the source's
+  // node list maps one-to-one.
+  tensionApple = new Connection(this.apple, this.anchor, {
+    via: [{ x: -30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN,
   })
-  tensionAmazon = new Connection(this.fromAmazon, this.anchor, {
+  tensionAmazon = new Connection(this.amazon, this.anchor, {
+    via: [{ x: 30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN,
   })
-  tensionGoogle = new Connection(this.fromGoogle, this.anchor, {
+  tensionGoogle = new Connection(this.google, this.anchor, {
+    via: [{ x: 0, y: -30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN,
   })
-  tensionMicrosoft = new Connection(this.fromMicrosoft, this.anchor, {
+  tensionMicrosoft = new Connection(this.microsoft, this.anchor, {
+    via: [{ x: 0, y: 30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN,
   })
@@ -379,14 +499,18 @@ export class Scene10Dream extends Dream {
     this.observer.look("front")
 
     this.wait(START_OFFSET)
-    // Create on an SVG subclass is DrawThenFillCompletely — the marks
-    // draw as outlines and flood solid. Group order is the source's.
+    // `Create` on anything whose base class is SVG dispatches
+    // DrawThenFillCompletely, not Draw (animator.py:951-953) — so the
+    // marks draw as outlines over the first 60% of the span and flood
+    // solid over the last 50%, overlapping in the middle. Stated as the
+    // composite verb it is, because core's generic `Create` would give
+    // the Sketch's plain subpath sweep and leave them hollow.
     this.play(
       together(
-        Create(this.apple),
-        Create(this.amazon),
-        Create(this.google),
-        Create(this.microsoft),
+        DrawThenFillCompletely(this.apple),
+        DrawThenFillCompletely(this.amazon),
+        DrawThenFillCompletely(this.google),
+        DrawThenFillCompletely(this.microsoft),
       ),
       3,
     )
@@ -410,6 +534,8 @@ export class Scene10Dream extends Dream {
         [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3],
         [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3],
         [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3],
+        [this.observer.x.sequence(...RIG_FX), 0, 2 / 3],
+        [this.observer.y.sequence(...RIG_FY), 0, 2 / 3],
         [this.anchor.z.to(80), 1 / 3, 1],
         [Create(this.cylinder), 2 / 3, 1],
       ),
@@ -417,14 +543,17 @@ export class Scene10Dream extends Dream {
     )
     this.wait(3)
     // `Erase` on the tensions, not UnCreate: the arrows are consumed
-    // from their start, while the marks and the cylinder un-draw.
+    // from their start, while the cylinder un-draws. The four marks
+    // take UnFillThenUnDraw — the mirror of the composite that made
+    // them, so the solid drains before the outline retracts rather than
+    // the fill surviving to the last frame.
     this.play(
       together(
         UnCreate(this.cylinder),
-        UnCreate(this.apple),
-        UnCreate(this.amazon),
-        UnCreate(this.google),
-        UnCreate(this.microsoft),
+        UnFillThenUnDraw(this.apple),
+        UnFillThenUnDraw(this.amazon),
+        UnFillThenUnDraw(this.google),
+        UnFillThenUnDraw(this.microsoft),
         Erase(this.tensionApple),
         Erase(this.tensionAmazon),
         Erase(this.tensionGoogle),

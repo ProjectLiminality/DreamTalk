@@ -1021,8 +1021,8 @@ export class ThreeHost {
     const ortho = obs.orthographic.value
     // Pan: the observer's x/y slide the focus point across the view plane,
     // which is what pydeation's camera_position (x, z in its top-view world)
-    // does. z stays 0, as it always has.
-    const focus = new THREE.Vector3(obs.x.value, obs.y.value, 0)
+    // does. the focus honours observer.z — defaults 0, so every legacy scene is untouched; the 2021 rig's camera-pedestal maps through it (o8 derivation).
+    const focus = new THREE.Vector3(obs.x.value, obs.y.value, obs.z.value)
 
     // Orthographic framing is set by zoom alone, so the distance only has to
     // clear the geometry; perspective framing IS the distance.
