@@ -332,3 +332,12 @@ operational decisions are entered by the working agent. Format:
   verb's DESTINATION values may be construction constants read
   directly; its SOURCE values must resolve chronologically (.to()'s
   own semantics). Generalizes to every future verb port.
+- 2026-09-07 · **The published video is the canon; source-only material
+  is experiment** (David) — reproduce ONLY what made it to the final
+  footage. Scenes/beats present in source but absent from the video
+  (Scene08_1, Scene08_2, Scene06's trimmed beats) are likely
+  incomplete experiments and are NOT reproduced — not even as
+  unscoreable extras. The source remains the derivation authority for
+  what DID survive; the video decides what exists and in what
+  sequence. O-10 is dropped (was demoted); every chapter's target is
+  now fully scoreable by construction.

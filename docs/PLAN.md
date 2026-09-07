@@ -494,7 +494,7 @@ ed92a01 + the winding trilogy). Scorecard: o00 11/13 · o01 17/29 full,
 (o01 draw, o02/o04 sub-strokes, o03 un-draw) await the Maxon licence.
 [~] O-8/O-9 (cameras) in flight — WITH the finding that Scene08_1 +
 08_2 are CUT from the published video (the missing 66s; full segment
-map closed). O-10 is REFRAMED: no reference footage exists — buildable
-from source choreography only, never scoreable; demoted to optional
-post-campaign work. O-11 (Scene06, in the video, trimmed) remains the
+map closed). O-10 is DROPPED (David 2026-09-07: the published
+video is the canon; source-only material is experiment — see
+DECISIONS). O-11 (Scene06, in the video, trimmed) remains the
 queued finale.

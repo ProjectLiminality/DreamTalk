@@ -67043,6 +67043,31 @@ class Scene02Dream extends Dream {
 }
 if (false)
   ;
+
+// vocabulary/Sketch/assets/amazon_logo.ts
+var amazonLogo = {
+  name: "amazon_logo",
+  source: "refs/pitch/svg-assets/svg/amazon_logo.svg",
+  hash: "97b59f96d4a50575",
+  subpaths: [
+    [-3.064, -127.483, -14.068, -127.021, -24.719, -125.7, -34.991, -123.615, -44.859, -120.858, -54.295, -117.526, -63.275, -113.712, -71.772, -109.512, -79.761, -105.019, -87.214, -100.327, -94.106, -95.533, -106.103, -86.012, -115.543, -77.212, -122.218, -69.889, -123.283, -68.36, -123.696, -67.071, -123.574, -66.035, -123.034, -65.266, -121.171, -64.583, -119.048, -65.133, -102.237, -75.236, -92.945, -80.469, -83.029, -85.611, -72.467, -90.504, -61.234, -94.987, -49.305, -98.904, -36.658, -102.094, -23.267, -104.399, -9.108, -105.659, 5.842, -105.717, 21.607, -104.414, 38.212, -101.589, 46.837, -99.557, 55.68, -97.086, 64.746, -94.154, 74.036, -90.744, 83.555, -86.834, 93.304, -82.404, 94.899, -81.935, 96.296, -81.903, 97.423, -82.278, 98.207, -83.033, 98.575, -84.139, 98.456, -85.567, 97.776, -87.288, 96.464, -89.276, 93.359, -92.547, 87.425, -97.639, 78.743, -103.858, 67.394, -110.507, 60.744, -113.775, 53.458, -116.89, 45.545, -119.764, 37.016, -122.311, 27.88, -124.443, 18.148, -126.074, 7.83, -127.116, -3.064, -127.483],
+    [104.071, -109.639, 103.279, -109.408, 102.845, -108.731, 102.838, -107.624, 103.329, -106.102, 105.687, -100.334, 108.959, -90.873, 110.339, -85.847, 111.229, -81.205, 111.39, -77.381, 111.122, -75.913, 110.583, -74.813, 108.619, -73.338, 105.653, -72.417, 101.978, -71.947, 97.888, -71.83, 89.636, -72.253, 83.247, -72.883, 77.112, -73.495, 75.827, -73.379, 75.186, -72.755, 75.397, -71.42, 76.767, -69.955, 79.069, -68.439, 82.076, -66.95, 89.303, -64.366, 96.639, -62.827, 104.15, -62.349, 112.077, -62.658, 118.84, -63.865, 121.291, -64.841, 122.858, -66.082, 123.464, -67.566, 123.696, -69.811, 123.173, -75.959, 121.564, -83.275, 119.147, -90.505, 116.129, -96.726, 112.835, -101.841, 109.663, -105.731, 107.009, -108.279, 105.394, -109.304, 104.071, -109.639],
+    [-26.366, -65.272, -31.608, -65.066, -36.68, -64.451, -41.559, -63.425, -46.222, -61.989, -50.645, -60.142, -54.805, -57.884, -58.679, -55.216, -62.244, -52.137, -65.477, -48.647, -68.354, -44.746, -70.851, -40.434, -72.947, -35.711, -74.618, -30.577, -75.84, -25.032, -76.59, -19.075, -76.845, -12.707, -76.166, -2.853, -74.195, 6.173, -71.034, 14.363, -66.782, 21.705, -61.541, 28.192, -55.41, 33.813, -48.492, 38.558, -40.886, 42.419, -33.704, 45.147, -25.998, 47.34, -17.922, 49.084, -9.632, 50.467, 6.964, 52.5, 22.546, 54.136, 22.546, 58.501, 22.569, 64.728, 22.267, 71.128, 21.085, 77.323, 19.99, 80.226, 18.466, 82.935, 16.751, 85.097, 14.741, 86.929, 10.051, 89.654, 4.836, 91.213, -0.464, 91.71, -5.206, 91.401, -9.734, 90.467, -13.962, 88.904, -17.804, 86.706, -21.174, 83.868, -23.988, 80.384, -26.159, 76.248, -27.601, 71.455, -28.326, 69.23, -29.594, 67.285, -31.325, 65.884, -33.437, 65.287, -66.171, 68.796, -68.224, 69.568, -70.001, 70.98, -71.12, 73.068, -71.198, 75.867, -69.46, 82.983, -67.107, 89.472, -64.184, 95.358, -60.74, 100.664, -56.821, 105.413, -52.473, 109.628, -47.744, 113.331, -42.681, 116.547, -37.331, 119.299, -31.74, 121.608, -25.955, 123.499, -20.024, 124.995, -7.908, 126.891, 4.231, 127.482, 10.596, 127.271, 17.274, 126.606, 24.106, 125.446, 30.935, 123.746, 37.601, 121.464, 43.947, 118.556, 49.813, 114.978, 55.042, 110.687, 57.914, 107.755, 60.393, 104.708, 64.287, 98.286, 66.953, 91.463, 68.621, 84.275, 69.519, 76.763, 69.877, 68.965, 69.889, 52.667, 69.889, 0.103, 70.182, -5.425, 71.008, -10.246, 72.286, -14.48, 73.934, -18.251, 78.016, -24.896, 82.604, -31.163, 83.897, -33.524, 84.407, -35.93, 83.992, -38.193, 82.509, -40.128, 56.653, -62.52, 56.559, -62.426, 54.727, -63.579, 52.681, -64.073, 50.583, -63.946, 48.591, -63.231, 41.71, -57.042, 37.026, -51.828, 33.285, -46.693, 29.233, -40.745, 22.516, -47.22, 16.116, -52.543, 9.84, -56.803, 3.497, -60.089, -3.104, -62.49, -10.153, -64.094, -17.844, -64.992, -26.366, -65.272],
+    [-7.107, -31.303, -3.6, -31.033, -0.211, -30.243, 3.034, -28.956, 6.112, -27.199, 8.995, -24.997, 11.66, -22.376, 14.082, -19.361, 16.235, -15.979, 18.413, -11.63, 20.023, -7.314, 21.151, -2.997, 21.881, 1.354, 22.494, 10.299, 22.546, 19.79, 22.546, 27.095, 13.39, 26.815, 4.423, 25.831, -4.037, 23.929, -7.978, 22.566, -11.672, 20.893, -15.081, 18.884, -18.164, 16.51, -20.882, 13.746, -23.195, 10.565, -25.063, 6.939, -26.447, 2.842, -27.306, -1.752, -27.601, -6.872, -27.252, -12.103, -26.22, -16.833, -24.532, -21.002, -22.211, -24.549, -19.283, -27.412, -15.773, -29.533, -11.706, -30.85, -7.107, -31.303]
+  ],
+  closed: [1, 1, 1, 1]
+};
+// vocabulary/Sketch/assets/apple_logo.ts
+var appleLogo = {
+  name: "apple_logo",
+  source: "refs/pitch/svg-assets/svg/apple_logo.svg",
+  hash: "dee14a50e7efc667",
+  subpaths: [
+    [73.241, -120.006, 67.868, -124.436, 62.383, -127.513, 56.813, -129.371, 51.183, -130.147, 45.518, -129.975, 39.845, -128.99, 34.189, -127.328, 28.576, -125.125, 22.697, -122.94, 16.903, -121.349, 11.152, -120.369, 5.401, -120.012, -0.391, -120.295, -6.267, -121.232, -12.269, -122.837, -18.44, -125.125, -25.811, -127.956, -32.397, -129.732, -38.332, -130.484, -43.747, -130.244, -48.773, -129.045, -53.544, -126.918, -58.19, -123.894, -62.844, -120.006, -69.242, -113.067, -75.167, -105.93, -80.619, -98.624, -85.602, -91.174, -90.117, -83.606, -94.167, -75.947, -97.753, -68.225, -100.877, -60.465, -103.542, -52.693, -105.749, -44.938, -107.501, -37.224, -108.799, -29.578, -109.646, -22.028, -110.044, -14.6, -109.995, -7.319, -109.501, -0.213, -108.563, 6.691, -107.185, 13.368, -105.367, 19.79, -103.113, 25.932, -100.424, 31.766, -97.302, 37.266, -93.749, 42.405, -89.768, 47.158, -85.36, 51.496, -80.527, 55.395, -75.272, 58.827, -69.597, 61.766, -63.503, 64.185, -56.993, 66.058, -50.068, 67.358, -42.732, 68.058, -35.682, 67.293, -29.137, 65.919, -23.055, 64.143, -17.392, 62.171, -7.15, 58.467, -2.485, 57.148, 1.933, 56.46, 8.31, 58.032, 14.65, 60.003, 27.342, 64.312, 33.757, 66.235, 40.259, 67.726, 46.88, 68.577, 53.651, 68.58, 61.629, 67.591, 69.089, 65.955, 76.032, 63.671, 82.458, 60.741, 88.369, 57.162, 93.765, 52.936, 98.647, 48.061, 103.017, 42.538, 95.194, 37.084, 88.643, 30.98, 83.329, 24.338, 79.215, 17.267, 76.264, 9.878, 74.439, 2.281, 73.704, -5.414, 74.021, -13.097, 75.354, -20.658, 77.667, -27.985, 80.922, -34.97, 85.082, -41.502, 90.111, -47.471, 95.972, -52.766, 102.629, -57.278, 110.044, -60.896, 103.298, -77.121, 99.451, -85.04, 95.214, -92.746, 90.529, -100.177, 85.339, -107.269, 79.586, -113.96, 73.215, -120.188, 73.241, -120.006],
+    [0.366, 68.841, 0.296, 74.842, 0.855, 80.682, 2.007, 86.333, 3.717, 91.769, 5.948, 96.964, 8.666, 101.89, 11.833, 106.52, 15.415, 110.829, 19.375, 114.788, 23.679, 118.372, 28.289, 121.553, 33.171, 124.305, 38.289, 126.601, 43.606, 128.414, 49.087, 129.717, 54.696, 130.484, 54.994, 123.596, 54.39, 116.961, 52.97, 110.612, 50.824, 104.581, 48.039, 98.9, 44.703, 93.601, 40.904, 88.719, 36.729, 84.284, 32.267, 80.331, 27.605, 76.89, 22.832, 73.994, 18.035, 71.677, 13.302, 69.971, 8.721, 68.908, 4.379, 68.52, 0.366, 68.841]
+  ],
+  closed: [1, 1]
+};
 // vocabulary/Sketch/assets/cash.ts
 var cash = {
   name: "cash",
@@ -67089,6 +67114,16 @@ var gearSmall = {
   ],
   closed: [1, 1]
 };
+// vocabulary/Sketch/assets/google_logo.ts
+var googleLogo = {
+  name: "google_logo",
+  source: "refs/pitch/svg-assets/svg/google_logo.svg",
+  hash: "452ac1cc3f88c67b",
+  subpaths: [
+    [2.773, -130.5, -6.704, -130.16, -15.996, -129.155, -25.079, -127.509, -33.93, -125.246, -42.526, -122.389, -50.844, -118.962, -58.861, -114.988, -66.555, -110.49, -73.901, -105.493, -80.879, -100.021, -87.464, -94.095, -93.633, -87.741, -99.364, -80.982, -104.634, -73.841, -109.419, -66.342, -113.698, -58.508, -116.86, -51.801, -119.651, -44.9, -122.055, -37.816, -124.056, -30.559, -125.639, -23.138, -126.788, -15.565, -127.489, -7.849, -127.727, 0, -127.489, 7.849, -126.788, 15.565, -125.639, 23.138, -124.056, 30.559, -122.055, 37.816, -119.651, 44.9, -116.86, 51.801, -113.698, 58.508, -109.419, 66.342, -104.634, 73.841, -99.364, 80.982, -93.633, 87.741, -87.464, 94.095, -80.879, 100.021, -73.901, 105.493, -66.555, 110.49, -58.861, 114.988, -50.844, 118.962, -42.526, 122.389, -33.93, 125.246, -25.079, 127.509, -15.996, 129.155, -6.704, 130.16, 2.773, 130.5, 15.714, 129.903, 28.1, 128.148, 39.918, 125.293, 51.153, 121.392, 61.792, 116.502, 71.821, 110.68, 81.225, 103.981, 89.991, 96.461, 52.799, 59.27, 47.536, 63.827, 41.954, 67.788, 36.072, 71.15, 29.907, 73.91, 23.477, 76.063, 16.799, 77.605, 9.892, 78.534, 2.773, 78.844, -3.544, 78.579, -9.721, 77.798, -15.735, 76.522, -21.57, 74.774, -27.204, 72.576, -32.619, 69.949, -37.794, 66.916, -42.711, 63.497, -47.351, 59.715, -51.693, 55.591, -55.719, 51.148, -59.408, 46.408, -62.742, 41.391, -65.701, 36.12, -68.265, 30.617, -70.416, 24.904, -72.162, 18.933, -73.46, 12.778, -74.268, 6.46, -74.547, 0, -74.283, -6.46, -73.501, -12.778, -72.208, -18.933, -70.416, -24.904, -68.265, -30.617, -65.701, -36.12, -62.742, -41.391, -59.408, -46.408, -55.719, -51.148, -51.693, -55.591, -47.351, -59.715, -42.711, -63.497, -37.794, -66.916, -32.619, -69.949, -27.204, -72.576, -21.57, -74.774, -15.735, -76.522, -9.721, -77.798, -3.544, -78.579, 2.773, -78.844, 9.252, -78.623, 15.47, -77.974, 21.423, -76.917, 27.106, -75.473, 32.514, -73.661, 37.642, -71.503, 42.484, -69.019, 47.035, -66.229, 51.962, -62.562, 56.451, -58.509, 60.483, -54.092, 64.041, -49.332, 67.104, -44.251, 69.653, -38.87, 71.67, -33.212, 73.134, -27.297, 2.773, -27.297, 2.773, 21.75, 125.66, 21.75, 127.183, 9.652, 127.727, -2.936, 127.071, -17.521, 125.134, -31.472, 121.957, -44.735, 117.586, -57.257, 112.062, -68.983, 105.43, -79.86, 97.732, -89.835, 89.011, -98.854, 80.569, -105.928, 71.408, -112.194, 61.553, -117.613, 51.031, -122.14, 39.866, -125.734, 28.085, -128.354, 15.712, -129.956, 2.773, -130.5]
+  ],
+  closed: [1]
+};
 // vocabulary/Sketch/assets/head_side.ts
 var headSide = {
   name: "head_side",
@@ -67112,6 +67147,19 @@ var justice = {
     [135.438, 81.078, 178, -51.453, 135.438, -51.453, 135.438, 81.078]
   ],
   closed: [0, 0, 0, 0, 0]
+};
+// vocabulary/Sketch/assets/microsoft_logo.ts
+var microsoftLogo = {
+  name: "microsoft_logo",
+  source: "refs/pitch/svg-assets/svg/microsoft_logo.svg",
+  hash: "db93e9ebc9f63570",
+  subpaths: [
+    [-127, -127, -127, -6.047, -6.047, -6.047, -6.047, -127, -127, -127],
+    [6.047, -127, 6.047, -6.047, 127, -6.047, 127, -127, 6.047, -127],
+    [-127, 6.047, -127, 127, -6.047, 127, -6.047, 6.047, -127, 6.047],
+    [6.047, 6.047, 6.047, 127, 127, 127, 127, 6.047, 6.047, 6.047]
+  ],
+  closed: [1, 1, 1, 1]
 };
 // vocabulary/Sketch/assets/stethoscope.ts
 var stethoscope = {
@@ -67578,6 +67626,85 @@ class Scene07_1Dream extends Dream {
 if (false)
   ;
 
+// demo/origins/Scene08.ts
+var START_OFFSET19 = 0;
+var LABEL_SIZE = 20;
+var SPOKE_TRIM = 0.2;
+
+class Scene08Dream extends Dream {
+  logo = __dt(new Logo({ y: -150, scale: 1 / 4, stroke: STROKE_MAIN }), "core/demo/origins/Scene08.ts:10019:10075");
+  p2pEducation = __dt(new Text({
+    content: `p2p education
+system`,
+    x: -300,
+    y: 50,
+    size: LABEL_SIZE
+  }), "core/demo/origins/Scene08.ts:10299:10398");
+  senseMaking = __dt(new Text({
+    content: `sense-making
+platform`,
+    x: -100,
+    y: 150,
+    size: LABEL_SIZE
+  }), "core/demo/origins/Scene08.ts:10415:10516");
+  cultureWar = __dt(new Text({
+    content: `de-escalate
+culture war`,
+    x: 300,
+    y: 50,
+    size: LABEL_SIZE
+  }), "core/demo/origins/Scene08.ts:10532:10633");
+  ideaIncubator = __dt(new Text({
+    content: `idea
+incubator`,
+    x: 100,
+    y: 150,
+    size: LABEL_SIZE
+  }), "core/demo/origins/Scene08.ts:10652:10745");
+  target1 = __dt(new Null({ x: -300, y: 50 }), "core/demo/origins/Scene08.ts:10897:10925");
+  target2 = __dt(new Null({ x: -100, y: 150 }), "core/demo/origins/Scene08.ts:10938:10967");
+  target3 = __dt(new Null({ x: 300, y: 50 }), "core/demo/origins/Scene08.ts:10980:11007");
+  target4 = __dt(new Null({ x: 100, y: 150 }), "core/demo/origins/Scene08.ts:11020:11048");
+  link1 = __dt(new Connection(this.logo, this.target1, {
+    offsetStart: SPOKE_TRIM,
+    offsetEnd: SPOKE_TRIM,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene08.ts:11254:11381");
+  link2 = __dt(new Connection(this.logo, this.target2, {
+    offsetStart: SPOKE_TRIM,
+    offsetEnd: SPOKE_TRIM,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene08.ts:11392:11519");
+  link3 = __dt(new Connection(this.logo, this.target3, {
+    offsetStart: SPOKE_TRIM,
+    offsetEnd: SPOKE_TRIM,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene08.ts:11530:11657");
+  link4 = __dt(new Connection(this.logo, this.target4, {
+    offsetStart: SPOKE_TRIM,
+    offsetEnd: SPOKE_TRIM,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene08.ts:11668:11795");
+  unfold() {
+    this.observer.look("front");
+    this.wait(START_OFFSET19);
+    __dt(this.play(Create(this.logo), 2), "core/demo/origins/Scene08.ts:12350:12381");
+    __dt(this.play(together(Create(this.p2pEducation), Create(this.link1)), 1), "core/demo/origins/Scene08.ts:12386:12455");
+    this.wait(4);
+    __dt(this.play(together(Create(this.cultureWar), Create(this.link3)), 1), "core/demo/origins/Scene08.ts:12477:12544");
+    this.wait(2);
+    __dt(this.play(together(Create(this.senseMaking), Create(this.link2)), 1), "core/demo/origins/Scene08.ts:12566:12634");
+    this.wait(4);
+    __dt(this.play(together(Create(this.ideaIncubator), Create(this.link4)), 1), "core/demo/origins/Scene08.ts:12656:12726");
+    this.wait(3);
+    __dt(this.play(together(UnCreate(this.ideaIncubator), UnCreate(this.cultureWar), UnCreate(this.senseMaking), UnCreate(this.p2pEducation), restage(FadeOut(this.link1), 0, 2 / 3), restage(FadeOut(this.link2), 0, 2 / 3), restage(FadeOut(this.link3), 0, 2 / 3), restage(FadeOut(this.link4), 0, 2 / 3)), 4), "core/demo/origins/Scene08.ts:13064:13452");
+    this.wait(2);
+    __dt(this.play(UnCreate(this.logo), 3), "core/demo/origins/Scene08.ts:13474:13507");
+  }
+}
+if (false)
+  ;
+
 // demo/origins/Scene09.ts
 class Scene09Dream extends Dream {
   logo = __dt(new Logo({ stroke: STROKE_MAIN }), "core/demo/origins/Scene09.ts:6537:6570");
@@ -67591,8 +67718,189 @@ class Scene09Dream extends Dream {
 if (false)
   ;
 
+// demo/origins/Scene10.ts
+var START_OFFSET20 = 0;
+var LOGO_SCALE = 1 / 4;
+var RIG_PHI = [
+  0,
+  -0.00139,
+  -0.00558,
+  -0.01258,
+  -0.02242,
+  -0.03515,
+  -0.05082,
+  -0.06949,
+  -0.09124,
+  -0.11614,
+  -0.14425,
+  -0.17563,
+  -0.21034,
+  -0.2484,
+  -0.28979,
+  -0.33447,
+  -0.38232,
+  -0.43318,
+  -0.48683,
+  -0.54295,
+  -0.60119,
+  -0.6611,
+  -0.72224,
+  -0.78409,
+  -0.84619
+];
+var RIG_THETA = [
+  0,
+  -0.04256,
+  -0.08495,
+  -0.12703,
+  -0.16868,
+  -0.20973,
+  -0.25004,
+  -0.28944,
+  -0.32779,
+  -0.36489,
+  -0.40057,
+  -0.43464,
+  -0.46691,
+  -0.49715,
+  -0.52517,
+  -0.55075,
+  -0.57369,
+  -0.59377,
+  -0.61083,
+  -0.62469,
+  -0.63521,
+  -0.64231,
+  -0.64593,
+  -0.64605,
+  -0.64271
+];
+var RIG_TILT = [
+  0,
+  0.03275,
+  0.06569,
+  0.09897,
+  0.1328,
+  0.16732,
+  0.20274,
+  0.23921,
+  0.2769,
+  0.31597,
+  0.35658,
+  0.39885,
+  0.44289,
+  0.48878,
+  0.53655,
+  0.5862,
+  0.63764,
+  0.69076,
+  0.74532,
+  0.80106,
+  0.8576,
+  0.91455,
+  0.97142,
+  1.02773,
+  1.08298
+];
+var RIG_RADIUS = [
+  1000,
+  987.5,
+  975,
+  962.51,
+  950.01,
+  937.51,
+  925.02,
+  912.53,
+  900.04,
+  887.55,
+  875.06,
+  862.58,
+  850.09,
+  837.61,
+  825.13,
+  812.65,
+  800.17,
+  787.7,
+  775.23,
+  762.76,
+  750.29,
+  737.82,
+  725.36,
+  712.9,
+  700.45
+];
+
+class Scene10Dream extends Dream {
+  apple = __dt(new Sketch({
+    data: appleLogo,
+    x: -150,
+    tint: BLUE,
+    scale: LOGO_SCALE,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:15530:15645");
+  amazon = __dt(new Sketch({
+    data: amazonLogo,
+    x: 150,
+    tint: BLUE,
+    scale: LOGO_SCALE,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:15657:15772");
+  google = __dt(new Sketch({
+    data: googleLogo,
+    y: -150,
+    tint: RED,
+    scale: LOGO_SCALE,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:15784:15899");
+  microsoft = __dt(new Sketch({
+    data: microsoftLogo,
+    y: 150,
+    tint: RED,
+    scale: LOGO_SCALE,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:15914:16031");
+  anchor = __dt(new Null, "core/demo/origins/Scene10.ts:16257:16267");
+  fromApple = __dt(new Null({ x: -30 }), "core/demo/origins/Scene10.ts:16402:16422");
+  fromAmazon = __dt(new Null({ x: 30 }), "core/demo/origins/Scene10.ts:16438:16457");
+  fromGoogle = __dt(new Null({ y: -30 }), "core/demo/origins/Scene10.ts:16473:16493");
+  fromMicrosoft = __dt(new Null({ y: 30 }), "core/demo/origins/Scene10.ts:16512:16531");
+  tensionApple = __dt(new Connection(this.fromApple, this.anchor, {
+    offsetStart: 0.25,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:16744:16842");
+  tensionAmazon = __dt(new Connection(this.fromAmazon, this.anchor, {
+    offsetStart: 0.25,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:16861:16960");
+  tensionGoogle = __dt(new Connection(this.fromGoogle, this.anchor, {
+    offsetStart: 0.25,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:16979:17078");
+  tensionMicrosoft = __dt(new Connection(this.fromMicrosoft, this.anchor, {
+    offsetStart: 0.25,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:17100:17202");
+  cylinder = __dt(new Cylinder({
+    z: 125,
+    scale: 1 / 2,
+    tint: WHITE,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene10.ts:17403:17494");
+  unfold() {
+    this.observer.look("front");
+    this.wait(START_OFFSET20);
+    __dt(this.play(together(Create(this.apple), Create(this.amazon), Create(this.google), Create(this.microsoft)), 3), "core/demo/origins/Scene10.ts:17788:17956");
+    __dt(this.play(together(Create(this.tensionApple), Create(this.tensionAmazon), Create(this.tensionGoogle), Create(this.tensionMicrosoft)), 1), "core/demo/origins/Scene10.ts:17961:18157");
+    __dt(this.play(together([this.observer.phi.sequence(...RIG_PHI), 0, 2 / 3], [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3], [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3], [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3], [this.anchor.z.to(80), 1 / 3, 1], [Create(this.cylinder), 2 / 3, 1]), 4), "core/demo/origins/Scene10.ts:18469:18856");
+    this.wait(3);
+    __dt(this.play(together(UnCreate(this.cylinder), UnCreate(this.apple), UnCreate(this.amazon), UnCreate(this.google), UnCreate(this.microsoft), Erase(this.tensionApple), Erase(this.tensionAmazon), Erase(this.tensionGoogle), Erase(this.tensionMicrosoft)), 3), "core/demo/origins/Scene10.ts:19015:19366");
+  }
+}
+if (false)
+  ;
+
 // demo/origins/Scene11.ts
-var START_OFFSET19 = 0;
+var START_OFFSET21 = 0;
 
 class Scene11Dream extends Dream {
   graph = kinshipGraph();
@@ -67610,7 +67918,7 @@ class Scene11Dream extends Dream {
     this.stage(this.relatives);
     this.stage(this.relationships);
     this.set(UnFill(this.relatives), FadeOut(this.relationshipsLeft), FadeOut(this.relationshipsRight), FadeOut(this.relationshipsMiddle), UnCreate(this.relationshipsRemaining));
-    this.wait(START_OFFSET19);
+    this.wait(START_OFFSET21);
     __dt(this.play(together(ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 1), "core/demo/origins/Scene11.ts:7632:7878");
     __dt(this.play(together(Fill(this.relatives, { solid: true }), FadeIn(this.relationshipsRight), FadeIn(this.relationshipsLeft), FadeIn(this.relationshipsMiddle)), 4), "core/demo/origins/Scene11.ts:7984:8204");
     this.wait(2);
@@ -67722,7 +68030,9 @@ var scenes = {
   o05: Scene05Dream,
   o07: Scene07Dream,
   o07_1: Scene07_1Dream,
+  o08: Scene08Dream,
   o09: Scene09Dream,
+  o10: Scene10Dream,
   o11: Scene11Dream
 };
 var defaultScene = "founding";
@@ -69153,7 +69463,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render43 = (cached, span) => {
+  const render45 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -69196,7 +69506,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render43(current2);
+        render45(current2);
       return;
     }
     (async () => {
@@ -69206,7 +69516,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render43(cached, {
+      const mark = render45(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -69222,7 +69532,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render43(cached);
+    render45(cached);
   };
   return {
     show: show2,

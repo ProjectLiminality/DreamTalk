@@ -1,0 +1,11 @@
+{
+  "name": "f_01500",
+  "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/origins/o8-scene08/ours-f_01500.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01500.jpg",
+  "iou": 0.5896,
+  "chamfer_ours_px": 0.094,
+  "chamfer_ref_px": 4.727,
+  "coverage_ref": 0.6598,
+  "coverage_ours": 0.9982,
+  "verdict": "FAIL"
+}
