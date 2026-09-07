@@ -228,16 +228,28 @@ export class Logo extends Stroke {
    *
    * The three (0.7, 1) animations run TOGETHER on the small circle —
    * opacity, radius and height — which is what makes it bloom out of the
-   * apex rather than simply appear there. The source's `smoothing_left`
-   * variations across the three (0.1 on the fade, 0 on the other two)
-   * are a tangent detail of C4D's keyframe interpolation that our single
-   * `easing` per track cannot express separately; the shared default
-   * smooth ease is the honest single reading, and the fade's 0.1 differs
-   * from the others by too little to show at 5fps.
+   * apex rather than simply appear there.
    *
-   * `smoothing_right=0` on the leg draw IS expressible and IS kept: the
-   * pen must not decelerate into the apex, because the small circle's
-   * bloom begins the instant it arrives.
+   * The source's per-animation smoothings are carried, because they are
+   * exactly our `Easing` names (anim.ts SMOOTHING) and because the
+   * reference shows them:
+   *
+   *  - `smoothing_right=0` on the leg draw is `easeIn` — the pen must
+   *    not decelerate into the apex, since the bloom begins the instant
+   *    it arrives.
+   *  - `smoothing_left=0` on the radius and the transform is `easeOut`,
+   *    a flattened DEPARTING tangent: the bloom launches at full speed.
+   *    The reference is emphatic about this. The red circle's radius
+   *    goes 0 → 52 → 64 → 70 → 71.5 → 72 px on consecutive frames
+   *    (f_00734-f_00738) — 72% of its full size in the FIRST frame, then
+   *    decelerating. A symmetric ease starts slow and cannot produce
+   *    that; easeOut is the shape the source asks for and the frames
+   *    confirm.
+   *  - the fade's `smoothing_left=0.1` is the one value with no name of
+   *    ours (a tenth, where easeOut is zero and smooth is 0.25). It is
+   *    left on the default smooth ease: opacity has no silhouette, so at
+   *    5fps against a JPEG the difference is unmeasurable, and inventing
+   *    a fourth easing to carry one tenth would be fitting, not porting.
    *
    * Every window goes on through `restage()`, not a plain tuple, and
    * that is not cosmetic — it is the difference between passing and
@@ -267,8 +279,15 @@ export class Logo extends Stroke {
         0.7,
       ),
       restage(this.smallCircle.opacity.sequence(0, 1), 0.7, 1),
-      restage(this.smallCircle.radius.sequence(0, smallRadius), 0.7, 1),
-      restage(this.smallCircle.y.sequence(focalHeight, smallCenter), 0.7, 1),
+      restage(
+        eased(
+          "easeOut",
+          this.smallCircle.radius.sequence(0, smallRadius),
+          this.smallCircle.y.sequence(focalHeight, smallCenter),
+        ),
+        0.7,
+        1,
+      ),
     )
   }
 

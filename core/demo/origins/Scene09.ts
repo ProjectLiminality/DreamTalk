@@ -40,26 +40,53 @@
  * In the published video the scene runs from a black cut at f_01603
  * (320.6s) to black again at f_01729 (345.8s) — about 25 seconds, which
  * is 18 of drawing plus the source's own `wait(6)` and the fade. Held
- * against the source's `run_time=18`, the choreography's landmarks fit
- * a scene start of t0 = 321.3s with an rms of 0.30s (a free-span fit
- * lands on T = 17.7–18.7 depending on which landmarks are included —
- * the source's 18 sits inside that, so there is nothing to prefer over
- * it). Landmarks read off refs/pitch/origins/frames5, all at 1-frame
- * resolution:
+ * against the source's `run_time=18`, the scene aligns at t0 = 320.85s,
+ * fitted by sweeping the alignment and scoring every frame (0.80 and
+ * 0.85 both score 9/9; 321.0 drops to 8/9 and falls away from there).
+ * Every phase then lands where the source's own windows put it —
+ * expressed as the fraction of the 18s span at which the reference
+ * shows each landmark, against the fractions CreateLogo states:
  *
- *   window       frac   predicted   measured   frame
- *   fade starts   0.00     321.30     321.20    f_01606  first blue ink
- *   legs start    0.40     328.50     328.60    f_01643  first white ink
- *   apex          0.70     333.90     333.60    f_01668  legs meet, y=249
- *   bloom starts  0.70     333.90     334.40    f_01672  first red, r=76.5
- *   settled       1.00     339.30     339.20    f_01696  r=158, cy=268
+ *   landmark          frame      video    ref frac   source
+ *   first blue ink    f_01606    321.20     0.019     0.00
+ *   first white ink   f_01643    328.60     0.431     0.40
+ *   legs meet (apex)  f_01668    333.60     0.708     0.70
+ *   first red ink     f_01672    334.40     0.753     0.70
+ *   red settled       f_01696    339.20     1.019     1.00
  *
- * Every landmark inside half a second of the source's own timing at a
- * 0.2s frame pitch. So this file plays the source verbatim, and the
- * scoring below compares APPEARANCE at matched completion points rather
- * than assuming the video's clock — the report's fidelity rule for the
- * re-cut half, applied to a scene that turns out not to have been
- * re-timed at all.
+ * Each measured fraction sits a little AFTER its window's boundary, all
+ * in the same direction, which is what first ink means: an eased fade or
+ * a growing circle spends part of its window below the encode's
+ * threshold before it lights a pixel. The agreement is otherwise exact,
+ * so the source's 18 seconds are what this file plays, and the scoring
+ * compares appearance rather than assuming the video's clock — the
+ * report's fidelity rule for the re-cut half, applied to a scene that
+ * turns out not to have been re-timed at all.
+ *
+ *
+ * SCORE, AND THE ONE FRAME THAT FAILS
+ *
+ * 25/26 frames PASS at t0 = 320.85 (mean coverage: reference 0.9942,
+ * ours 1.0000), sampled at 1s across the whole 25s and densely over the
+ * apex and the bloom.
+ *
+ * The exception is f_01672, the bloom's FIRST frame, and it is the
+ * threshold effect above seen from our side. The reference already
+ * shows a red circle of r=76.5 px there; ours is still below the
+ * threshold, and does not light until f_01676. Four frames later the
+ * two agree to a pixel and a half (r 108.5 vs 110 at f_01676, 130.5 vs
+ * 131 at f_01680, 147.5 vs 148 at f_01685) and they stay that way to
+ * the settle — so the shape and the rate of the bloom are right, and
+ * only its very onset is not.
+ *
+ * Closing it would mean giving the radius ramp a head start, and there
+ * is no such number in the source: `ChangeParams(radius=…)` runs 0 → 122
+ * across the window, and 0 is 0. The residue is the difference between
+ * C4D's Sketch & Toon lighting a sub-pixel circle and our ribbon not,
+ * which belongs to stroke rendering at small radii rather than to a
+ * fudge factor here. At 4 seconds (Scene05) the same choreography loses
+ * nothing: the whole onset fits inside one frame, and that scene scores
+ * 30/30. Eighteen seconds is simply long enough to resolve it.
  *
  *
  * THE CHOREOGRAPHY, VISIBLE

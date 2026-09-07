@@ -548,3 +548,14 @@ downloads: 89 GB free.
 | 03 | The Custodian of the Noosphere | https://www.youtube.com/watch?v=125ihqgmicY |
 | 05 | The Age of Miracles | https://www.youtube.com/watch?v=yrgSwgqclJU |
 | 09 | The Origins of Project Liminality | https://www.youtube.com/watch?v=cmbjQVQ3nbs |
+
+
+## Amendments (2026-09-07, O-3)
+
+- §1 Scene05/Logo: the small circle's z is 72 (= 200−122−6) and the
+  focal height 85.42 (= 72 + 0.11·122) — the source's own arithmetic;
+  the report's 72.2/85.6 were frame-measurement roundings.
+- §0: **Scene09 was NOT re-timed** — its 18s draw plays at full source
+  length in the published video; the editor only moved where it sits
+  (measured window fractions match the source's own to a threshold
+  offset). The re-cut affects placement, not pace, for this scene.

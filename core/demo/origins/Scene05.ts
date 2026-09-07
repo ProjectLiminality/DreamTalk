@@ -93,21 +93,22 @@
  *   f_00764  152.8  title begins to leave
  *   f_00768  153.6  title gone
  *
- * The logo's fade begins at 144.8 and the whole `Create` ends at ~147.7,
- * which is 3s — the source's `rel_end_point=3/4` of 4s — so the play
- * starts at 144.75 and, behind the `wait(2)`, scene t=0 sits at 142.75.
- * The gauntlet maps localT = videoSec − 142, so the leading offset is
- * +0.75s. Every landmark then follows without another free number: the
- * legs' window (0.4, 0.7) of a 3s effect predicts first ink at 145.95
- * (measured 146.0) and the apex at 146.85 (measured 146.8); the bloom's
- * (0.7, 1) predicts the red circle's first frame at 146.85 (measured
- * 146.8) and its settle at 147.75 (measured 147.6).
+ * Every one of those times is a FIRST-INK time, and first ink is not a
+ * window's start: an eased fade or draw spends part of its window below
+ * the encode's threshold before it lights a pixel. So the landmarks are
+ * a lower bound on the lag, not a measurement of it, and the offset is
+ * fitted by sweeping instead (see START_OFFSET). The fitted alignment
+ * puts the play at 144.45-148.45, which places each window start about a
+ * frame or two ahead of the ink it eventually produces — the expected
+ * direction, and the reason the sweep and the landmark arithmetic
+ * disagree by roughly a second.
  *
- * The title's own span is likewise a consequence: 2/3 into the 4s play
- * is 147.42 (first ink measured 147.2, and Write's first letter needs a
- * moment of its domino window before it lights a pixel), running to
- * 148.75 (complete measured 148.4 — the last letters' fills finish
- * inside the encode's tolerance).
+ * What the landmarks DO establish, and what no fit could give, is the
+ * ORDER and the SHAPE: blue whole before any leg ink; both legs before
+ * any red; the red circle's radius jumping to 72% of full in one frame
+ * (f_00734, r=52 of 72) and decelerating after — the flattened departing
+ * tangent of `smoothing_left=0`, which is what the Logo's createAnim
+ * carries as `easeOut`.
  */
 
 import { Dream, render } from "../../src/index"
@@ -118,16 +119,33 @@ import { together } from "../../src/anim"
 import { STROKE_MAIN } from "../video01/palette"
 
 /**
- * The measured head between the audio cue (offset=142, which the
- * gauntlet takes as localT 0) and the scene's actual first frame.
+ * The head between the audio cue (offset=142, which the scorer takes as
+ * localT 0) and the scene's first frame — the ONE fitted number here,
+ * carried as a leading wait so every run_time and wait below stays
+ * verbatim from the source.
  *
- * Fitted once, off the blue circle's fade: it first lights at f_00724
- * (144.8s) and the whole `Create(logo, rel_end_point=3/4)` completes at
- * ~147.7s, a 3-second effect, so the play begins at 144.75 and t=0 —
- * two seconds of `wait` earlier — at 142.75. Carried as a leading wait
- * so that every run_time and wait below stays verbatim from the source.
+ * Fitted by sweeping the alignment against the reference and scoring
+ * every frame of the construction (f_00730-f_00750), rather than by
+ * reading one landmark:
+ *
+ *   offset   0.38   0.42   0.46   0.50   0.54   0.58
+ *   PASS    11/12  12/12  12/12  11/12  11/12  10/12
+ *   covRef  .9880  .9988  1.0000 .9803  .9618  .9389
+ *
+ * A two-sample plateau at 5fps, whose peak (0.45, covRef 1.0000) is
+ * taken. Sweeping is what settled it because the landmark route is
+ * biased: an eased fade or draw needs part of its window before it
+ * lights a pixel above the JPEG's threshold, so every "first ink" time
+ * reads LATE by a frame or two, and reading the offset off one of them
+ * puts the whole scene behind. The frames disagree with such a fit by
+ * about a second, and the sweep is the arbiter — it is scored against
+ * all of the ink, not the moment the first of it crosses a threshold.
+ *
+ * With this offset the play runs video 144.45-148.45, the logo's
+ * `rel_end_point=3/4` closing it at 147.45 and the title's
+ * `rel_start_point=2/3` opening at 147.11.
  */
-const START_OFFSET = 0.75
+const START_OFFSET = 0.45
 
 export class Scene05Dream extends Dream {
   // Logo(z=50, scale=0.6). pydeation's z is our y: the mark rides 50

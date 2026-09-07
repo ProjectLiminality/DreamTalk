@@ -259,6 +259,38 @@ describe("CreateLogo — the source's windows, not a generic draw", () => {
     expect(height!.values[0] as number).toBeGreaterThan(height!.values.at(-1) as number)
   })
 
+  test("the source's smoothings are carried as easings", () => {
+    // These are not decoration: the reference's red circle reaches 72%
+    // of full radius in the first frame of its bloom and decelerates
+    // after, which only a flattened DEPARTING tangent produces. Fitting
+    // Scene05 with the symmetric default instead costs it 17 of 30
+    // frames, so the easings are pinned here.
+    const logo = new Logo()
+    const t = tracksOf(logo)
+    const easingOf = (param: unknown) => t.find((k) => k.param === param)!.easing
+    // smoothing_right=0 on Draw(lines) — the pen does not decelerate
+    // into the apex.
+    expect(easingOf(logo.leftLeg.creation)).toBe("easeIn")
+    expect(easingOf(logo.rightLeg.creation)).toBe("easeIn")
+    // smoothing_left=0 on the radius and the transform — the bloom
+    // launches at full speed.
+    expect(easingOf(logo.smallCircle.radius)).toBe("easeOut")
+    expect(easingOf(logo.smallCircle.y)).toBe("easeOut")
+  })
+
+  test("every window is restaged — tangents stated against the whole span", () => {
+    // pydeation states an ease's tangents against the FULL play span, so
+    // a track filling 0.3 of it carries them proportionally longer
+    // (timeline.ts smoothingFor reads Track.smoothingWindow, which only
+    // restage() sets). Without this the legs draw over 1.0s where the
+    // reference takes 0.6. A plain tuple leaves smoothingWindow unset.
+    for (const track of tracksOf(new Logo())) {
+      expect(track.smoothingWindow).toBeDefined()
+      // Stated against the whole span, not the sub-window it occupies.
+      expect(track.smoothingWindow).toBeGreaterThan(track.relStop - track.relStart)
+    }
+  })
+
   test("the phases tile the span end to end, in order", () => {
     const logo = new Logo()
     const t = tracksOf(logo)
