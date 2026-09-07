@@ -280,3 +280,18 @@ operational decisions are entered by the working agent. Format:
   length rule can flip) + one surviving candidate (cap foreshortening).
   Both laws fall to one controlled C4D experiment — spec in
   docs/reports/stroke-connection.md §2.6/§3.3.
+- 2026-09-07 · **Abilities are pluggable DreamNodes** (David) — an
+  animation ability (Morph first; Write, steering behaviors later) is
+  a SELF-CONTAINED unit in core/vocabulary/<Ability>/ that, when
+  imported, grafts itself onto ALL eligible objects:
+  `circle.morphTo(square)` just works after the import. Mechanism:
+  TS declaration merging + prototype augmentation (the one sanctioned
+  side-effect import — importing an ability teaches the whole space).
+  Eligibility gates at two levels: compile-time (the declaration merges
+  onto the eligible base only — Stroke for line-geometry abilities) and
+  runtime (structural check with a TEACHING error, per the settled-
+  holon precedent). Noun/verb duality: the module exports the free-
+  function verb AND the grafted method, one implementation. This
+  instantiates "symbols travel with functionality" (LOOPS/ONTOLOGY):
+  the Morph DreamNode CONTAINS the morphing. Pure geometry stays in
+  core/src/geometry/ (math is infrastructure, not ability).
