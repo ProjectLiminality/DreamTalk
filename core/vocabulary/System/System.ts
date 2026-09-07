@@ -98,26 +98,50 @@
  * two params for the same reason the source kept them.
  *
  *
- * THERE IS NO CHOREOGRAPHY HERE
+ * THE CHOREOGRAPHY: `Create` ON A System FLOODS IT SOLID
  *
- * Unlike the Logo, `System` has NO dedicated animator in pydeation — no
- * `CreateSystem` exists, so `Create(system)` falls through to the
- * generic path and every spline in the composite draws on together, each
- * over the full span (animator.py's flatten). Core's `Create` default
- * does exactly that (verbs.ts: deep-parallel recursion), so this class
- * defines no `createAnim` and that ABSENCE is the port.
+ * `System` is one of the six classes pydeation's `Create` dispatches on
+ * by name, alongside Eye, Logo, Axes and CustomText:
  *
- * The reference confirms it frame for frame. At f_00486 (t=97.2, a
- * third into the 3s draw) the four gear rims, the four icons and the
- * enclosing circle are ALL partially drawn — no group waits for
- * another, and the icons run ahead of the gear teeth only because a
- * Sketch spends its span across its own subpaths by arc length and an
- * icon has less of it. A staggered composite could not produce that
- * frame.
+ *   elif cobject.__class__.__name__ == "System":
+ *       system_creation = DrawThenFillCompletely(cobject, **params)
+ *          — animator.py:948-950 (inside a Group) and 970-972 (bare)
+ *
+ * So `Create(system)` is NOT a draw-on: the gears and icons draw over
+ * (0, 0.6) of the span and their interiors flood SOLID over (0.5, 1),
+ * the two overlapping by a tenth — `DrawThenFillCompletely`
+ * (animator.py:498-514), which core carries verb-for-verb in
+ * src/verbs.ts. A gear ends the span as a solid toothed ring, not an
+ * outline of one.
+ *
+ * That is easy to miss and expensive to miss, because the scene that
+ * stages it says only `Create(global_system, circle)` — the flood is in
+ * the dispatch table, not at the call site. The reference settles it: a
+ * radial cut ACROSS the teeth of the lower-right gear (Scene03.ts's
+ * header carries the frame-by-frame profiles) is a hollow pair of lines
+ * at f_00488 and a solid 30px band by f_00492, with the gap visibly
+ * filling in between. No draw-on produces that.
+ *
+ * The class-name dispatch is exactly what core's `Create` already does
+ * with `createAnim()` (verbs.ts's header: "a holon that owns a
+ * choreography creates by it"), so the port is one method — and it is
+ * the one thing in this file that is not the constructor.
+ *
+ * Note what is NOT overridden: `unCreateAnim`. pydeation's `UnDraw` is
+ * not a dispatcher — Scene03 calls it directly and it retracts the draw
+ * front on everything it reaches — so the un-draw is the generic one,
+ * and the absence here is as deliberate as the presence above.
+ *
+ * Across the four groups nothing is staggered — at f_00486 all four
+ * gears and all four icons are partially drawn, no group waiting on
+ * another. WITHIN a drawing the subpaths are sequential, shortest
+ * first; see `shortestFirst` below, which is where that order is
+ * derived and defended.
  */
 
 import { color } from "../../src/params"
-import { Group, Stroke } from "../../src/parts/primitives"
+import { restage, together, type Anim } from "../../src/anim"
+import { Stroke } from "../../src/parts/primitives"
 import { Sketch } from "../Sketch/Sketch"
 import {
   cash,
@@ -186,13 +210,97 @@ export const GROUPS = [
   },
 ] as const
 
+/**
+ * Re-emit a drawing's subpaths SHORTEST-FIRST — pydeation's
+ * `stroke_order="short_long"` (object.py:228), realized as data because
+ * a Sketch draws its subpaths in the order it is given them
+ * (Sketch.ts's `sweep`, which spends the span across them in sequence).
+ *
+ * This is the one ordering fact the reference states and the source
+ * does not, so it is worth the paragraph. pydeation's `SVG` never names
+ * a stroke order, which leaves `CObject.__init__`'s default of
+ * `"bottom_top"` (object.py:90) — and `bottom_top` is NOT what the
+ * video shows. For a gear (two subpaths: the toothed rim, arc length
+ * 1600, and the inner circle, 867) the three candidate orders predict:
+ *
+ *   bottom_top  → rim, then circle   (rim's lowest point is lower)
+ *   long_short  → rim, then circle
+ *   short_long  → CIRCLE, then rim
+ *
+ * and the reference draws the CIRCLE first, unambiguously. Measured on
+ * the lower-right gear as percent-complete per frame, inner circle
+ * against tooth band:
+ *
+ *   f_00485  97.0   circle  46%   teeth   0%
+ *   f_00486  97.2   circle  75%   teeth   0%
+ *   f_00487  97.4   circle  80%   teeth  17%
+ *   f_00489  97.8   circle  81%   teeth  47%
+ *   f_00490  98.0   circle  94%   teeth  96%
+ *
+ * The teeth do not begin until the circle is four fifths done. Two of
+ * the three candidate orders are refuted by that table and the third is
+ * `short_long`, which is therefore what this carries.
+ *
+ * The un-draw is the same fact seen from the other side, and it is the
+ * check that the ordering is real rather than fitted to the draw: a
+ * Sketch retracts its subpaths in REVERSE (Sketch.ts windows the
+ * retract as [1-to, 1-from]), so shortest-first ordering necessarily
+ * takes the TEETH away first — and the reference's mid-un-draw frame
+ * shows exactly that, gear rims gone with the inner circles and icons
+ * still standing. One ordering, predicting both ends of the scene.
+ *
+ * Why C4D's `bottom_top` behaves as `short_long` here is not recovered.
+ * The SVG arrives rotated (`p_frozen=-PI/2`) and Sketch & Toon re-cuts
+ * imported paths into its own stroke set before ordering them (the
+ * mechanism Scene00's header documents), so "bottom" is being taken in
+ * a frame or on a stroke set this port cannot see. What can be read
+ * directly is the ORDER, and it is read rather than guessed.
+ *
+ * THIS IS THE CAMPAIGN'S RECURRING BLOCKER, AND HERE IT IS SOLVABLE.
+ * Scene00 met it as stroke connection ("we draw the hair, the reference
+ * draws the jaw"); Scene04 met it as an AnnularSector's four sub-strokes
+ * drawn one at a time "in a per-slice order no screen-space sort
+ * predicts", and stopped after three rounds of probes (commit 13eeb2a,
+ * "the bottom_top law — third sighting"). All three are the same fact:
+ * S&T's pen is SERIAL over a multi-stroke object, and `bottom_top` does
+ * not describe the order it picks.
+ *
+ * What is new here is that this object admits a clean answer. A gear has
+ * exactly TWO strokes of very different length, so the three candidate
+ * orders make three DIFFERENT predictions instead of the near-ties a
+ * four-stroke sector produces — and the reference separates them by 80
+ * percentage points, not by a few. That the same ordering then predicts
+ * the un-draw, which was not used to choose it, is the check that it is
+ * a law and not a fit. It is offered as one datum toward the general
+ * rule rather than as the rule: `short_long` is what these six drawings
+ * are drawn in, and whether that generalises past two-stroke objects is
+ * exactly what Scene04's sectors could not settle.
+ */
+const shortestFirst = (data: SketchData): SketchData => {
+  const withLength = data.subpaths.map((sp, i) => {
+    let length = 0
+    for (let k = 2; k + 1 < sp.length; k += 2) {
+      length += Math.hypot(sp[k]! - sp[k - 2]!, sp[k + 1]! - sp[k - 1]!)
+    }
+    return { sp, closed: data.closed[i] ?? 0, length, i }
+  })
+  // Ties keep document order, so the result is stable and a drawing
+  // whose strokes are all one length is untouched.
+  withLength.sort((a, b) => a.length - b.length || a.i - b.i)
+  return {
+    ...data,
+    subpaths: withLength.map((e) => e.sp),
+    closed: withLength.map((e) => e.closed),
+  }
+}
+
 const ASSET_DATA: Record<string, SketchData> = {
-  justice,
-  factory,
-  cash,
-  stethoscope,
-  gearBig,
-  gearSmall,
+  justice: shortestFirst(justice),
+  factory: shortestFirst(factory),
+  cash: shortestFirst(cash),
+  stethoscope: shortestFirst(stethoscope),
+  gearBig: shortestFirst(gearBig),
+  gearSmall: shortestFirst(gearSmall),
 }
 
 /**
@@ -210,9 +318,9 @@ const ASSET_DATA: Record<string, SketchData> = {
  */
 export class Gearing extends Stroke {
   /** Which drawings, and at what native heights — construction data. */
-  iconData: SketchData = justice
+  iconData: SketchData = ASSET_DATA.justice!
   iconHeight = ASSET_HEIGHT.justice
-  gearData: SketchData = gearBig
+  gearData: SketchData = ASSET_DATA.gearBig!
   gearHeight = ASSET_HEIGHT.gearBig
   /** The gear's own bank — the source's `b=±PI/12` on the small pair. */
   gearBank = 0
@@ -257,6 +365,47 @@ export class System extends Stroke {
   economy = this.gearing("economy")
   finance = this.gearing("finance")
   healthcare = this.gearing("healthcare")
+
+  /**
+   * `Create(system)` → `DrawThenFillCompletely(system)`
+   * (animator.py:948-950): the outline draws over (0, 0.6) of the span
+   * and the interior floods SOLID over (0.5, 1), the two overlapping by
+   * a tenth so the flood begins while the pen is still closing.
+   *
+   * Spelled out of anim.ts primitives rather than by calling core's
+   * `DrawThenFillCompletely(this)`, and that is not a style choice: the
+   * verb is `Draw` + `Fill`, `Draw` IS `Create`, and `Create` consults
+   * `createAnim()` — so delegating to it here would recurse forever.
+   * The Logo has the same shape for the same reason. What is carried
+   * across is the two windows and their `restage`, which is where the
+   * verb's actual content lives (verbs.ts:198: pydeation states an
+   * ease's tangents against the WHOLE play span, so a composite's
+   * sub-windows must rescale rather than re-ease).
+   *
+   * The DRAW half delegates to each Sketch's own `createAnim`, which is
+   * not a detail: a Sketch sequences its subpaths across its span by arc
+   * length (Sketch.ts's `sweep`), so a gear's inner circle and its teeth
+   * are drawn one after the other rather than together. Reaching past
+   * that with `walk()` and stamping `creation` on the eight Sketches'
+   * Line parts would draw every subpath of every drawing in parallel —
+   * a different picture at every mid-draw frame, and one the reference
+   * contradicts (`shortestFirst`'s frame table above). The FILL half
+   * does walk, because `fillOpacity` lives on every Stroke and has no
+   * choreography of its own.
+   */
+  override createAnim(): Anim {
+    const sketches = [this.law, this.economy, this.finance, this.healthcare].flatMap((g) => [
+      g.gear,
+      g.icon,
+    ])
+    const strokes = [...this.walk()].filter((h): h is Stroke => h instanceof Stroke)
+    return together(
+      restage(together(...sketches.map((s) => s.createAnim())), 0, 0.6),
+      // `solid: true` is pydeation's transparency=0 — opaque, not the
+      // 0.07 default wash (object.py:475-477, and what the verb passes).
+      restage(together(...strokes.map((s) => s.fillOpacity.to(1))), 0.5, 1),
+    )
+  }
 
   /** Build one group from its GROUPS entry — the source's constructor. */
   private gearing(name: string): Gearing {

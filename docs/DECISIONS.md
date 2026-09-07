@@ -295,3 +295,22 @@ operational decisions are entered by the working agent. Format:
   instantiates "symbols travel with functionality" (LOOPS/ONTOLOGY):
   the Morph DreamNode CONTAINS the morphing. Pure geometry stays in
   core/src/geometry/ (math is infrastructure, not ability).
+- 2026-09-07 · **The ordering law's first positive data point: gears
+  draw short_long** (O-5) — a gear's two strokes differ enough in
+  length that the three candidate orders separate by 80 points, and
+  the reference picks short_long (inner circle to 80% before the teeth
+  begin) — NOT the material's bottom_top default. Verified as law, not
+  fit: the ordering chosen on the draw PREDICTED the un-draw
+  (0.82→0.96 coverage) which was not used to choose it. Fourth
+  sighting of the S&T ordering question; whether short_long
+  generalizes past two-stroke objects is exactly what the gated C4D
+  experiment settles.
+- 2026-09-07 · **QUEUED FIX: fills need even-odd winding across a
+  drawing's subpaths together** — FillShape fans each closed loop from
+  its centroid, so a gear (annulus + toothed rim, two closed subpaths,
+  nothing marking the hole) floods solid to its centre: 88.6% of
+  Scene03's excess ink sits in the gears' inner discs. The fix is
+  FillShape.setPolygon accepting a whole-drawing even-odd
+  triangulation. Deferred by O-5 (shared render code, O-6 mid-flight
+  in the same file) — dispatch after O-6 lands; most O-5 failures
+  fall with it.

@@ -247,6 +247,39 @@ const washGeometry = (
   if (holon instanceof Circle) return { points: ellipsePolygon(holon.radius.value, holon.radius.value) }
   if (holon instanceof Ellipse && !holon.filled.value)
     return { points: ellipsePolygon(holon.radiusX.value, holon.radiusY.value) }
+  if (holon instanceof Line) {
+    // A Line's own polyline IS its interior when it happens to close on
+    // itself — which is what a MORPHING outline is (geometry/morph.ts:
+    // MorphShape derives a Line whose points run from one closed shape
+    // to another). Scene01's six morphs are between shapes that are
+    // already flooded solid at both ends, so the blend has to carry a
+    // wash the whole way across or the discs read as hollow rings
+    // halfway through; refs/pitch/origins/frames5/f_00190 shows them
+    // solid.
+    //
+    // The gate is the geometry, not the class: an OPEN line (an axis, a
+    // sight line, a grid rule) has no interior and gets none.
+    //
+    // The fan is struck from the CENTROID rather than from the loop's
+    // own first point — `ellipsePolygon` does the same, and for the same
+    // reason. fill.ts's default fan pivots on pts[0], which is correct
+    // only for a shape star-shaped about that particular vertex; a
+    // centroid pivot is correct for any convex loop, which is what a
+    // blend between two convex shapes is (a convex combination of
+    // corresponding points preserves convexity). Scene01's morphs are
+    // circle→circle and circle→rectangle, so this covers them exactly.
+    const pts = holon.points
+    if (pts.length < 4) return undefined
+    const a = pts[0]!
+    const b = pts[pts.length - 1]!
+    if (Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) >= 1e-6) return undefined
+    const loop = pts.slice(0, -1)
+    const c = loop.reduce(
+      (acc, p) => ({ x: acc.x + p.x / loop.length, y: acc.y + p.y / loop.length, z: acc.z + p.z / loop.length }),
+      { x: 0, y: 0, z: 0 },
+    )
+    return { points: [c, ...pts] }
+  }
   return undefined
 }
 

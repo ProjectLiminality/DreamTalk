@@ -63773,6 +63773,18 @@ var washGeometry = (holon) => {
     return { points: ellipsePolygon(holon.radius.value, holon.radius.value) };
   if (holon instanceof Ellipse && !holon.filled.value)
     return { points: ellipsePolygon(holon.radiusX.value, holon.radiusY.value) };
+  if (holon instanceof Line2) {
+    const pts = holon.points;
+    if (pts.length < 4)
+      return;
+    const a2 = pts[0];
+    const b2 = pts[pts.length - 1];
+    if (Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z) >= 0.000001)
+      return;
+    const loop = pts.slice(0, -1);
+    const c2 = loop.reduce((acc, p2) => ({ x: acc.x + p2.x / loop.length, y: acc.y + p2.y / loop.length, z: acc.z + p2.z / loop.length }), { x: 0, y: 0, z: 0 });
+    return { points: [c2, ...pts] };
+  }
   return;
 };
 var polyline = (holon) => {
@@ -64581,6 +64593,22 @@ var UnFill = (holon) => deep(holon, (h2) => h2 instanceof Stroke ? h2.fillOpacit
 var ChangeColor = (holon, target) => deep(holon, (h2) => h2 instanceof Stroke ? h2.tint.to(target) : none);
 var DrawThenFillCompletely = (holon) => together(restage(Draw(holon), 0, 0.6), restage(Fill(holon, { solid: true }), 0.5, 1));
 var UnFillThenUnDraw = (holon) => together(restage(UnFill(holon), 0, 0.6), restage(UnDraw(holon), 0.5, 1));
+var Morph = (shape, source, target, opts = {}) => {
+  const parts = [
+    shape.morph.sequence(0, 1),
+    shape.tint.to(target.tint.value),
+    shape.fillOpacity.to(target.fillOpacity.value),
+    restage(shape.opacity.sequence(0, 1), 0, 0.01)
+  ];
+  const windowed = {
+    tracks: [
+      ...opts.copy ? [] : restage(source.opacity.to(0), 0, 0.01).tracks,
+      ...restage(target.opacity.to(1), 0.99, 1).tracks,
+      ...restage(shape.opacity.to(0), 0.99, 1).tracks
+    ]
+  };
+  return together(...parts, windowed);
+};
 // src/steady.ts
 var polylineLength = (points) => {
   let total = 0;
@@ -66375,8 +66403,440 @@ class Scene00Dream extends Dream {
 if (false)
   ;
 
+// src/geometry/morph.ts
+var MORPH_SAMPLES = 128;
+var dist2 = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+var arcLengths = (points) => {
+  const out = [0];
+  for (let i2 = 1;i2 < points.length; i2++)
+    out.push(out[i2 - 1] + dist2(points[i2 - 1], points[i2]));
+  return out;
+};
+var pointAtArcLength = (points, s2) => {
+  if (points.length === 0)
+    return { x: 0, y: 0, z: 0 };
+  if (points.length === 1)
+    return points[0];
+  const cum = arcLengths(points);
+  const total = cum[cum.length - 1];
+  if (total <= 0)
+    return points[0];
+  const target = Math.min(1, Math.max(0, s2)) * total;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = lo + hi >> 1;
+    if (cum[mid] <= target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const span = cum[hi] - cum[lo];
+  const u2 = span > 0 ? (target - cum[lo]) / span : 0;
+  const a2 = points[lo];
+  const b2 = points[hi];
+  return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
+};
+var resampleUniform = (points, count = MORPH_SAMPLES) => {
+  if (count < 2)
+    return points.length ? [points[0]] : [];
+  if (points.length === 0)
+    return [];
+  const out = [];
+  for (let i2 = 0;i2 < count; i2++)
+    out.push(pointAtArcLength(points, i2 / (count - 1)));
+  return out;
+};
+var morphedPolyline = (source, target, u2, count = MORPH_SAMPLES) => {
+  const t2 = Math.min(1, Math.max(0, u2));
+  const a2 = resampleUniform(source, count);
+  const b2 = resampleUniform(target, count);
+  const n2 = Math.min(a2.length, b2.length);
+  const out = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    const p2 = a2[i2];
+    const q = b2[i2];
+    out.push({
+      x: p2.x + (q.x - p2.x) * t2,
+      y: p2.y + (q.y - p2.y) * t2,
+      z: p2.z + (q.z - p2.z) * t2
+    });
+  }
+  return out;
+};
+var outlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const ring = (rx, ry) => {
+    const pts = [];
+    for (let i2 = 0;i2 <= segments; i2++) {
+      const a2 = i2 / segments * Math.PI * 2;
+      pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
+    }
+    return pts;
+  };
+  let base;
+  if (holon instanceof Circle)
+    base = ring(holon.radius.value, holon.radius.value);
+  else if (holon instanceof Ellipse)
+    base = ring(holon.radiusX.value, holon.radiusY.value);
+  else if (holon instanceof Square) {
+    const s2 = holon.size.value / 2;
+    base = [
+      { x: -s2, y: -s2, z: 0 },
+      { x: s2, y: -s2, z: 0 },
+      { x: s2, y: s2, z: 0 },
+      { x: -s2, y: s2, z: 0 },
+      { x: -s2, y: -s2, z: 0 }
+    ];
+  } else if (holon instanceof Polygon) {
+    const n2 = holon.sides.value;
+    const pts = [];
+    for (let i2 = 0;i2 <= n2; i2++) {
+      const a2 = i2 / n2 * Math.PI * 2 + Math.PI / 2;
+      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
+    }
+    base = pts;
+  } else if (holon instanceof Rectangle) {
+    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
+  } else if (holon instanceof Line2) {
+    base = holon.points.length >= 2 ? [...holon.points] : undefined;
+  }
+  if (!base)
+    return;
+  const phase = holon.drawStart.value;
+  const reversed = holon.drawReversed.value;
+  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
+};
+var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const local = outlineOf(holon, segments);
+  if (!local)
+    return;
+  const chain2 = [];
+  for (let node = holon;node; node = node.parent)
+    chain2.push(node);
+  return local.map((p2) => {
+    let out = p2;
+    for (const node of chain2) {
+      const s2 = node.scale.value;
+      out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
+      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+    }
+    return out;
+  });
+};
+var derivePoints2 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class MorphShape extends Stroke {
+  morph = completion(0);
+  samples = integer(MORPH_SAMPLES);
+  line = new Line2({
+    tint: this.tint,
+    stroke: this.stroke,
+    fillOpacity: this.fillOpacity,
+    opacity: this.opacity
+  });
+  ends;
+  constructor(source, target, overrides = {}) {
+    super(overrides);
+    this.ends = { source, target };
+  }
+  compose() {
+    derivePoints2(this.line, () => {
+      const a2 = worldPosition(this.ends.source);
+      const b2 = worldPosition(this.ends.target);
+      return [
+        this.morph.value,
+        this.samples.value,
+        a2.x,
+        a2.y,
+        a2.z,
+        b2.x,
+        b2.y,
+        b2.z,
+        ...shapeReading(this.ends.source),
+        ...shapeReading(this.ends.target)
+      ];
+    }, () => this.refresh());
+  }
+  refresh() {
+    const n2 = this.samples.value;
+    const a2 = worldOutlineOf(this.ends.source, n2);
+    const b2 = worldOutlineOf(this.ends.target, n2);
+    if (!a2 || !b2) {
+      throw new Error(`Morph: no outline for ${!a2 ? this.ends.source.constructor.name : this.ends.target.constructor.name} ` + `— morphs are defined between the closed plane figures geometry/morph.ts:outlineOf knows`);
+    }
+    return morphedPolyline(a2, b2, this.morph.value, n2);
+  }
+}
+var shapeReading = (holon) => {
+  const frame = [
+    holon.h.value,
+    holon.p.value,
+    holon.b.value,
+    holon.scale.value,
+    holon.drawStart.value,
+    holon.drawReversed.value ? 1 : 0
+  ];
+  if (holon instanceof Circle)
+    return [holon.radius.value, ...frame];
+  if (holon instanceof Ellipse)
+    return [holon.radiusX.value, holon.radiusY.value, ...frame];
+  if (holon instanceof Square)
+    return [holon.size.value, ...frame];
+  if (holon instanceof Polygon)
+    return [holon.radius.value, holon.sides.value, ...frame];
+  if (holon instanceof Rectangle)
+    return [holon.width.value, holon.height.value, holon.rounding.value, ...frame];
+  if (holon instanceof Line2)
+    return [...holon.points.flatMap((p2) => [p2.x, p2.y, p2.z]), ...frame];
+  return frame;
+};
+
+// demo/origins/KinshipGraph.ts
+var RING_RADIUS = 200;
+var NODE_RADIUS = 20;
+var NODE_ANGLES = Array.from({ length: 6 }, (_2, i2) => (i2 + 1) * 2 * PI3 / 6 + PI3 / 2 + PI3 / 6);
+var EDGE_INDICES = {
+  left: [7, 11, 13, 17, 37, 38],
+  right: [21, 22, 27, 28, 33, 34],
+  middle: [0, 1, 2, 3, 4, 5, 6, 12, 18, 24, 30, 36],
+  remaining: [
+    8,
+    9,
+    10,
+    14,
+    15,
+    16,
+    19,
+    20,
+    23,
+    25,
+    26,
+    29,
+    31,
+    32,
+    35,
+    39,
+    40,
+    41
+  ]
+};
+var NODE_INDICES = {
+  left: [1, 2, 6],
+  right: [3, 4, 5],
+  middle: [0]
+};
+var kinshipGraph = () => {
+  const nodes = [__dt(new Circle({ radius: NODE_RADIUS, stroke: STROKE_MAIN }), "core/demo/origins/KinshipGraph.ts:4955:5011")];
+  for (const angle2 of NODE_ANGLES) {
+    nodes.push(__dt(new Circle({
+      radius: NODE_RADIUS,
+      x: RING_RADIUS * Math.cos(angle2),
+      y: RING_RADIUS * Math.sin(angle2),
+      z: 2,
+      stroke: STROKE_MAIN
+    }), "core/demo/origins/KinshipGraph.ts:5072:5320"));
+  }
+  const edges = [];
+  for (const node of nodes) {
+    for (const neighbour of nodes) {
+      if (neighbour === node)
+        continue;
+      edges.push(__dt(new Connection(node, neighbour, {
+        offsetStart: 0,
+        offsetEnd: 0,
+        z: -1,
+        stroke: STROKE_MAIN
+      }), "core/demo/origins/KinshipGraph.ts:5713:5855"));
+    }
+  }
+  for (const edge of edges)
+    edge.line.arrowEnd.value = false;
+  const pick = (items, idx) => idx.map((i2) => items[i2]);
+  const group = (members) => __dt(new Group2({ members }), "core/demo/origins/KinshipGraph.ts:6071:6093");
+  const relativesLeft = group(pick(nodes, NODE_INDICES.left));
+  const relativesRight = group(pick(nodes, NODE_INDICES.right));
+  const relativesMiddle = group(pick(nodes, NODE_INDICES.middle));
+  const relationshipsLeft = group(pick(edges, EDGE_INDICES.left));
+  const relationshipsRight = group(pick(edges, EDGE_INDICES.right));
+  const relationshipsMiddle = group(pick(edges, EDGE_INDICES.middle));
+  const relationshipsRemaining = group(pick(edges, EDGE_INDICES.remaining));
+  return {
+    nodes,
+    edges,
+    relatives: group([relativesLeft, relativesRight, relativesMiddle]),
+    relativesLeft,
+    relativesRight,
+    relativesMiddle,
+    relationships: group([
+      relationshipsLeft,
+      relationshipsRight,
+      relationshipsMiddle,
+      relationshipsRemaining
+    ]),
+    relationshipsLeft,
+    relationshipsRight,
+    relationshipsMiddle,
+    relationshipsRemaining
+  };
+};
+
+// demo/origins/Scene01.ts
+var START_OFFSET12 = 0.1;
+var SEPARATOR_DASH = 8;
+var SEPARATOR_GAP = 8;
+
+class Scene01Dream extends Dream {
+  graph = kinshipGraph();
+  relatives = this.graph.relatives;
+  relativesLeft = this.graph.relativesLeft;
+  relativesRight = this.graph.relativesRight;
+  relativesMiddle = this.graph.relativesMiddle;
+  relationships = this.graph.relationships;
+  relationshipsLeft = this.graph.relationshipsLeft;
+  relationshipsRight = this.graph.relationshipsRight;
+  relationshipsRemaining = this.graph.relationshipsRemaining;
+  rectangle = __dt(new Rectangle({
+    width: 100,
+    height: 200,
+    x: 200,
+    tint: RED,
+    fillOpacity: 1,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene01.ts:9356:9481");
+  circle = __dt(new Circle({ radius: 50, x: -200, tint: BLUE, fillOpacity: 1, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:9493:9577");
+  cylinder = __dt(new Cylinder({ b: -PI3 / 2, y: 100, p: -PI3 / 4, scale: 1 / 2, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:9771:9854");
+  separator = __dt(new DottedLine({
+    points: [
+      { x: 0, y: 400, z: 0 },
+      { x: 0, y: -400, z: 0 }
+    ],
+    dash: SEPARATOR_DASH,
+    gap: SEPARATOR_GAP,
+    stroke: 5 * (STROKE_MAIN / 5)
+  }), "core/demo/origins/Scene01.ts:10015:10203");
+  origin = __dt(new Group2({}), "core/demo/origins/Scene01.ts:10530:10543");
+  arrowCircle = __dt(new Connection(this.circle, this.origin, {
+    via: [{ x: -20, y: 0, z: 0 }],
+    offsetStart: 1 / 4,
+    offsetEnd: 0.1,
+    z: -1,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene01.ts:10560:10722");
+  arrowRectangle = __dt(new Connection(this.rectangle, this.origin, {
+    via: [{ x: 20, y: 0, z: 0 }],
+    offsetStart: 1 / 4,
+    offsetEnd: 0.1,
+    z: -1,
+    stroke: STROKE_MAIN
+  }), "core/demo/origins/Scene01.ts:10742:10906");
+  tension = __dt(new Group2({ members: [this.arrowCircle, this.arrowRectangle] }), "core/demo/origins/Scene01.ts:10919:10982");
+  shapes = __dt(new Group2({
+    members: [this.rectangle, this.circle, this.cylinder, this.separator, this.tension]
+  }), "core/demo/origins/Scene01.ts:10995:11100");
+  eyeLeft = __dt(new Eye({ tint: BLUE, scale: 1 / 3, x: -175, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11292:11359");
+  eyeRight = __dt(new Eye({ tint: RED, scale: 1 / 3, x: 175, b: PI3, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11373:11445");
+  sightTargetLeftLow = __dt(new Group2({ x: 200, y: -125 }), "core/demo/origins/Scene01.ts:11477:11507");
+  sightTargetLeftHigh = __dt(new Group2({ x: 200, y: 125 }), "core/demo/origins/Scene01.ts:11540:11569");
+  sightTargetRightLow = __dt(new Group2({ x: -200, y: -125 }), "core/demo/origins/Scene01.ts:11602:11633");
+  sightTargetRightHigh = __dt(new Group2({ x: -200, y: 125 }), "core/demo/origins/Scene01.ts:11667:11697");
+  sightLeft = __dt(new Group2({
+    members: [
+      __dt(new Connection(this.eyeLeft, this.sightTargetLeftLow, {
+        offsetStart: 0.2,
+        z: -1,
+        stroke: STROKE_MAIN
+      }), "core/demo/origins/Scene01.ts:11745:11879"),
+      __dt(new Connection(this.eyeLeft, this.sightTargetLeftHigh, {
+        offsetStart: 0.2,
+        z: -1,
+        stroke: STROKE_MAIN
+      }), "core/demo/origins/Scene01.ts:11887:12022")
+    ]
+  }), "core/demo/origins/Scene01.ts:11712:12035");
+  sightRight = __dt(new Group2({
+    members: [
+      __dt(new Connection(this.eyeRight, this.sightTargetRightLow, {
+        offsetStart: 0.2,
+        z: -1,
+        stroke: STROKE_MAIN
+      }), "core/demo/origins/Scene01.ts:12084:12220"),
+      __dt(new Connection(this.eyeRight, this.sightTargetRightHigh, {
+        offsetStart: 0.2,
+        z: -1,
+        stroke: STROKE_MAIN
+      }), "core/demo/origins/Scene01.ts:12228:12365")
+    ]
+  }), "core/demo/origins/Scene01.ts:12051:12378");
+  viewLeft = __dt(new Group2({ members: [this.eyeLeft, this.sightLeft] }), "core/demo/origins/Scene01.ts:12392:12446");
+  viewRight = __dt(new Group2({ members: [this.eyeRight, this.sightRight] }), "core/demo/origins/Scene01.ts:12461:12517");
+  eyes = __dt(new Group2({ members: [this.viewLeft, this.viewRight], x: 250 }), "core/demo/origins/Scene01.ts:12527:12590");
+  morphs = this.graph.nodes.length ? [
+    __dt(new MorphShape(this.graph.nodes[1], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:12857:12922"),
+    __dt(new MorphShape(this.graph.nodes[2], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:12932:12997"),
+    __dt(new MorphShape(this.graph.nodes[6], this.circle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13007:13072"),
+    __dt(new MorphShape(this.graph.nodes[3], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13082:13150"),
+    __dt(new MorphShape(this.graph.nodes[4], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13160:13228"),
+    __dt(new MorphShape(this.graph.nodes[5], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene01.ts:13238:13306")
+  ] : [];
+  unfold() {
+    this.observer.look("front");
+    for (const morph of this.morphs)
+      this.stage(morph);
+    this.stage(this.shapes);
+    this.stage(this.eyes);
+    this.set(Create(this.relatives), UnCreate(this.shapes), UnCreate(this.eyes));
+    this.set(this.circle.creation.to(1), this.rectangle.creation.to(1), this.circle.fillOpacity.to(1), this.rectangle.fillOpacity.to(1), FadeOut(this.circle), FadeOut(this.rectangle));
+    this.wait(START_OFFSET12);
+    __dt(this.play(DrawThenFillCompletely(this.relatives), 2), "core/demo/origins/Scene01.ts:15078:15130");
+    __dt(this.play(Create(this.relationships), 2), "core/demo/origins/Scene01.ts:15180:15220");
+    __dt(this.play(together(Create(this.separator), UnCreate(this.relationshipsRemaining), ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 4), "core/demo/origins/Scene01.ts:15367:15692");
+    for (const x2 of [50, -50, 50, -50, 0]) {
+      __dt(this.play(this.relativesMiddle.x.to(x2), 1), "core/demo/origins/Scene01.ts:15872:15914");
+    }
+    this.wait(9);
+    __dt(this.play(together(FadeOut(this.relationships), FadeOut(this.relativesMiddle), UnFill(this.relativesMiddle)), 1), "core/demo/origins/Scene01.ts:16045:16209");
+    this.set(...this.morphs.flatMap((morph, i2) => [
+      morph.tint.to(i2 < 3 ? BLUE : RED),
+      morph.fillOpacity.to(1)
+    ]));
+    __dt(this.play(together(FadeOut(this.separator), Morph(this.morphs[0], this.graph.nodes[1], this.circle), Morph(this.morphs[1], this.graph.nodes[2], this.circle), Morph(this.morphs[2], this.graph.nodes[6], this.circle), Morph(this.morphs[3], this.graph.nodes[3], this.rectangle), Morph(this.morphs[4], this.graph.nodes[4], this.rectangle), Morph(this.morphs[5], this.graph.nodes[5], this.rectangle)), 4), "core/demo/origins/Scene01.ts:17293:17787");
+    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:18172:18363");
+    this.wait(3);
+    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:19454:19712");
+    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:19717:19752");
+    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:19942:19978");
+    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:19983:20050");
+    this.wait(1);
+    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:20343:20618");
+    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:20623:20694");
+    this.wait(2);
+    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:20716:20894");
+    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:20899:20932");
+    this.wait(2);
+    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:20954:20989");
+  }
+}
+if (false)
+  ;
+
 // demo/origins/Scene02.ts
-var START_OFFSET12 = 0.28;
+var START_OFFSET13 = 0.28;
 
 class Slice extends Holon {
   segmentX = 0;
@@ -66413,7 +66873,7 @@ class Scene02Dream extends Dream {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
     this.stage(this.origin);
-    this.wait(START_OFFSET12);
+    this.wait(START_OFFSET13);
     __dt(this.play(DrawThenFillCompletely(this.pie), 2), "core/demo/origins/Scene02.ts:10226:10272");
     this.wait(1);
     __dt(this.play(eased("linear", this.slice1.segment.x.by(20), this.slice2.segment.x.by(20), this.slice3.segment.x.by(20)), 5), "core/demo/origins/Scene02.ts:10597:10776");
@@ -66528,19 +66988,34 @@ var GROUPS = [
     bank: -GEAR_SMALL_BANK
   }
 ];
+var shortestFirst = (data) => {
+  const withLength = data.subpaths.map((sp, i2) => {
+    let length7 = 0;
+    for (let k2 = 2;k2 + 1 < sp.length; k2 += 2) {
+      length7 += Math.hypot(sp[k2] - sp[k2 - 2], sp[k2 + 1] - sp[k2 - 1]);
+    }
+    return { sp, closed: data.closed[i2] ?? 0, length: length7, i: i2 };
+  });
+  withLength.sort((a2, b2) => a2.length - b2.length || a2.i - b2.i);
+  return {
+    ...data,
+    subpaths: withLength.map((e2) => e2.sp),
+    closed: withLength.map((e2) => e2.closed)
+  };
+};
 var ASSET_DATA = {
-  justice,
-  factory,
-  cash,
-  stethoscope,
-  gearBig,
-  gearSmall
+  justice: shortestFirst(justice),
+  factory: shortestFirst(factory),
+  cash: shortestFirst(cash),
+  stethoscope: shortestFirst(stethoscope),
+  gearBig: shortestFirst(gearBig),
+  gearSmall: shortestFirst(gearSmall)
 };
 
 class Gearing extends Stroke {
-  iconData = justice;
+  iconData = ASSET_DATA.justice;
   iconHeight = ASSET_HEIGHT.justice;
-  gearData = gearBig;
+  gearData = ASSET_DATA.gearBig;
   gearHeight = ASSET_HEIGHT.gearBig;
   gearBank = 0;
   tint = color2(WHITE);
@@ -66567,6 +67042,14 @@ class System extends Stroke {
   economy = this.gearing("economy");
   finance = this.gearing("finance");
   healthcare = this.gearing("healthcare");
+  createAnim() {
+    const sketches = [this.law, this.economy, this.finance, this.healthcare].flatMap((g2) => [
+      g2.gear,
+      g2.icon
+    ]);
+    const strokes = [...this.walk()].filter((h2) => h2 instanceof Stroke);
+    return together(restage(together(...sketches.map((s2) => s2.createAnim())), 0, 0.6), restage(together(...strokes.map((s2) => s2.fillOpacity.to(1))), 0.5, 1));
+  }
   gearing(name) {
     const g2 = GROUPS.find((entry) => entry.name === name);
     return new Gearing({
@@ -66586,28 +67069,31 @@ class System extends Stroke {
 }
 
 // demo/origins/Scene03.ts
-var START_OFFSET13 = 0.6;
+var THICKNESS = 5;
+var THICKNESS_DISTANCE_ORTHO = 0.888;
+var STROKE_SYSTEM = THICKNESS * (720 / PIXEL_UNITS_BASE_HEIGHT) * THICKNESS_DISTANCE_ORTHO;
+var START_OFFSET14 = 0.6;
 
 class Scene03Dream extends Dream {
-  system = __dt(new System({ scale: 3 / 4, z: 1, tint: WHITE, gearTint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene03.ts:8295:8380");
-  circle = __dt(new Circle({ radius: 200, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene03.ts:8494:8555");
+  system = __dt(new System({ scale: 3 / 4, z: 1, tint: WHITE, gearTint: WHITE, stroke: STROKE_SYSTEM }), "core/demo/origins/Scene03.ts:16245:16332");
+  circle = __dt(new Circle({ radius: 200, tint: WHITE, stroke: STROKE_SYSTEM }), "core/demo/origins/Scene03.ts:16446:16509");
   unfold() {
     this.set(this.observer.orthographic.to(true), this.observer.zoom.to(1), this.observer.baseHeight.to(700));
-    this.wait(START_OFFSET13);
-    __dt(this.play(together(Create(this.system), Create(this.circle)), 3), "core/demo/origins/Scene03.ts:9088:9152");
+    this.wait(START_OFFSET14);
+    __dt(this.play(together(Create(this.system), Create(this.circle)), 3), "core/demo/origins/Scene03.ts:17042:17106");
     this.wait(1);
-    __dt(this.play(together(Fill(this.system, { transparency: 1 }), ChangeColor(this.system, BLUE), ChangeColor(this.circle, BLUE)), 8), "core/demo/origins/Scene03.ts:9359:9537");
+    __dt(this.play(together(Fill(this.system, { transparency: 1 }), ChangeColor(this.system, BLUE), ChangeColor(this.circle, BLUE)), 8), "core/demo/origins/Scene03.ts:17313:17491");
     this.wait(2);
-    __dt(this.play(UnDraw(this.system), 11), "core/demo/origins/Scene03.ts:9738:9772");
+    __dt(this.play(UnDraw(this.system), 11), "core/demo/origins/Scene03.ts:17692:17726");
     this.wait(3);
-    __dt(this.play(FadeOut(this.circle), 1), "core/demo/origins/Scene03.ts:9856:9890");
+    __dt(this.play(FadeOut(this.circle), 1), "core/demo/origins/Scene03.ts:17810:17844");
   }
 }
 if (false)
   ;
 
 // demo/origins/Scene04.ts
-var START_OFFSET14 = 0.35;
+var START_OFFSET15 = 0.35;
 
 class Scene04Dream extends Dream {
   slice1 = __dt(new Slice({ b: SLICE_HEADINGS[0], segmentX: 120, anchorX: 170, segmentTint: GREEN }), "core/demo/origins/Scene04.ts:10091:10175");
@@ -66623,7 +67109,7 @@ class Scene04Dream extends Dream {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
     this.stage(this.origin);
-    this.wait(START_OFFSET14);
+    this.wait(START_OFFSET15);
     this.wait(2);
     __dt(this.play(DrawThenFillCompletely(this.pie), 3), "core/demo/origins/Scene04.ts:11152:11198");
     this.wait(2);
@@ -66697,7 +67183,7 @@ class Logo extends Stroke {
 }
 
 // demo/origins/Scene05.ts
-var START_OFFSET15 = 0.45;
+var START_OFFSET16 = 0.45;
 
 class Scene05Dream extends Dream {
   logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene05.ts:7035:7087");
@@ -66705,7 +67191,7 @@ class Scene05Dream extends Dream {
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
-    this.wait(START_OFFSET15);
+    this.wait(START_OFFSET16);
     this.wait(2);
     __dt(this.play(together([Create(this.logo), 0, 3 / 4], [Write(this.name), 2 / 3, 1]), 4), "core/demo/origins/Scene05.ts:7742:7869");
     this.wait(4);
@@ -66724,6 +67210,38 @@ class Scene09Dream extends Dream {
     __dt(this.play(Create(this.logo), 18), "core/demo/origins/Scene09.ts:6838:6870");
     this.wait(6);
     __dt(this.play(FadeOut(this.logo), 1), "core/demo/origins/Scene09.ts:7081:7113");
+  }
+}
+if (false)
+  ;
+
+// demo/origins/Scene11.ts
+var START_OFFSET17 = 0;
+
+class Scene11Dream extends Dream {
+  graph = kinshipGraph();
+  relatives = this.graph.relatives;
+  relativesLeft = this.graph.relativesLeft;
+  relativesRight = this.graph.relativesRight;
+  relationships = this.graph.relationships;
+  relationshipsLeft = this.graph.relationshipsLeft;
+  relationshipsRight = this.graph.relationshipsRight;
+  relationshipsMiddle = this.graph.relationshipsMiddle;
+  relationshipsRemaining = this.graph.relationshipsRemaining;
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.relatives);
+    this.stage(this.relationships);
+    this.set(UnFill(this.relatives), FadeOut(this.relationshipsLeft), FadeOut(this.relationshipsRight), FadeOut(this.relationshipsMiddle), UnCreate(this.relationshipsRemaining));
+    this.wait(START_OFFSET17);
+    __dt(this.play(together(ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 1), "core/demo/origins/Scene11.ts:7075:7321");
+    __dt(this.play(together(Fill(this.relatives, { solid: true }), FadeIn(this.relationshipsRight), FadeIn(this.relationshipsLeft), FadeIn(this.relationshipsMiddle)), 4), "core/demo/origins/Scene11.ts:7427:7647");
+    this.wait(2);
+    __dt(this.play(Create(this.relationshipsRemaining), 2), "core/demo/origins/Scene11.ts:7810:7859");
+    this.wait(1);
+    __dt(this.play(together(FadeOut(this.relationships), UnFill(this.relatives)), 1), "core/demo/origins/Scene11.ts:7881:7956");
+    this.wait(1);
   }
 }
 if (false)
@@ -66821,11 +67339,13 @@ var scenes = {
   cable: CableDream,
   sketch: SketchDream,
   o00: Scene00Dream,
+  o01: Scene01Dream,
   o02: Scene02Dream,
   o03: Scene03Dream,
   o04: Scene04Dream,
   o05: Scene05Dream,
-  o09: Scene09Dream
+  o09: Scene09Dream,
+  o11: Scene11Dream
 };
 var defaultScene = "founding";
 
@@ -68255,7 +68775,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render39 = (cached, span) => {
+  const render41 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -68298,7 +68818,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render39(current2);
+        render41(current2);
       return;
     }
     (async () => {
@@ -68308,7 +68828,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render39(cached, {
+      const mark = render41(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -68324,7 +68844,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render39(cached);
+    render41(cached);
   };
   return {
     show: show2,
