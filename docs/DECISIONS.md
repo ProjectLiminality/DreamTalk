@@ -238,3 +238,11 @@ operational decisions are entered by the working agent. Format:
   flight (verified by running the source arithmetic verbatim). Pinned in
   journey.test.ts as a property of the original; scenes wanting a sealed
   wall drive growth past 1.
+- 2026-09-07 · **A holon's field set is FINAL after construction +
+  compose()** — pinned by settled.test.ts. A late Param/Holon own-
+  property THROWS, naming the way through (compose() + this.add());
+  lazy plain-data memo fields stay legal (the guard rejects by VALUE
+  TYPE, never key count — Cable._baked and friends shaped that rule).
+  The repo already obeyed this everywhere (twice with comments saying
+  so). Payoff: the Proxy field-scan ends at settle — thewall scrub
+  −24.7ms/frame, byte-identical over 17 frames.

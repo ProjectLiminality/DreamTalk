@@ -94,3 +94,64 @@ What remains in TheWall, measured, for the ledger:
   register, where today it does), and with other agents live in the
   editor tonight that invariant is not provable from here. Queued: land
   it with a test pinning the contract, in a quiet window.
+
+## Settled-flag findings — the scan ends (thewall scrub 137 → 112 ms/frame)
+
+The queued item, landed. The contract question was asked first and the
+repo answered it cleanly: **no site anywhere adds a Param- or
+Holon-valued own property to a holon after construction.** The codebase
+already forbids the pattern in practice, twice with comments saying so
+— `Connection.anchors` and `Cylinder.cutter` both wrap holon references
+in a pre-initialized plain object precisely so the field scan cannot
+mistake them for parts. There was nothing to break.
+
+What the search did surface, and what shaped the design:
+- A family of **lazy plain-data memo fields** created as new own
+  properties long after settling — `Cable._baked`, `MindVirus._segments`,
+  `Cylinder.section` (written per frame from `refresh()`). So the guard
+  rejects by VALUE TYPE (Param/Holon), never by key count. A blanket
+  "no new keys after settle" rule would have thrown on the first frame.
+- **compose() legitimately assigns Holon fields** — Labyrinth's
+  `this.citadel = this.add(new Circle(...))`. So settling is the last
+  act of `complete()`, strictly after compose() returns, and the trap is
+  never armed while compose() runs.
+- `Object.defineProperty` redefining the already-declared `points` field
+  (curves.ts `derivePoints`, Cable's `derivedLine`) touches no new key
+  and is unaffected.
+
+The mechanism, measured rather than inferred — Object.keys swapped for a
+counter during a thewall scrub:
+
+| per scrub frame | before | after |
+|---|---|---|
+| `Object.keys()` calls | **709,313** | **18** |
+| key strings allocated | **18,783,934** | **342** |
+
+The scan is gone, not reduced. Wall clock, 3 runs each (headless probe,
+`__dt.setT`, which renders twice per frame):
+
+| | before | after |
+|---|---|---|
+| thewall scrub | 135.5 / 138.7 / 136.3 (**136.8**) | 111.2 / 112.9 / 112.2 (**112.1**) |
+| s01 scrub | 3.46 / 3.43 / 3.68 | 3.30 / 3.37 / 3.44 |
+| thewall boot | ~20.2s | ~19.8s |
+| s01 boot | 2.68s | 2.68s |
+
+**−24.7 ms/frame on thewall**, against the ~26ms the profile predicted —
+the ranges do not overlap. s01 holds (marginally better) and boots are
+unchanged-or-better, as required.
+
+The contract is now pinned by `core/test/settled.test.ts` (13 tests):
+the field set is final after construction + compose; a late Param or
+Holon field **throws** an error naming the holon, the field, and the way
+through (`compose()` + `this.add()`) rather than silently failing to
+register; compose() still composes; lazy plain-data fields, param
+rebinding, `parent`/`states` writes and the `derivePoints` accessor all
+still work; and the scan is asserted to run before settling and to be
+absent after.
+
+Gate: **658 tests green**, tsc clean, and byte-identity over the full 17
+frames — gauntlet s04 (8), wall step-12 (7), molocheye t=1/t=3 — every
+capture cmp-equal to the pre-change baseline, with capture determinism
+verified by double-capture first. The real scorer agrees: s04 **6/6
+PASS**, mean coverage ref=0.9946 ours=0.9954.

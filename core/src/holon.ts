@@ -108,9 +108,20 @@ const scan = (target: Holon): void => {
   }
 }
 
-/** Post-construction completion: leftover overrides are typos; compose() runs once. */
+/**
+ * Post-construction completion: leftover overrides are typos; compose()
+ * runs once; then the holon SETTLES.
+ *
+ * Settling is the last act, deliberately: compose() is where dynamic
+ * structure belongs, and it assigns Holon-valued fields of its own
+ * (Labyrinth's `this.citadel`), so the field set is only final once it
+ * has returned. compose() re-enters here — reading `this.parts` inside
+ * it is normal — and the `composed` guard makes the inner call a
+ * no-op scan, leaving the outer call to settle exactly once.
+ */
 const complete = (self: Holon): void => {
   const int = internalsOf(self)
+  if (int.settled) return
   scanViaProxy(self)
   if (int.overrides.size > 0) {
     const bad = [...int.overrides.keys()].join("', '")
@@ -122,6 +133,9 @@ const complete = (self: Holon): void => {
   if (!int.composed) {
     int.composed = true
     self["compose"]()
+    // compose() may have declared fields of its own; catch them, then settle.
+    scanViaProxy(self)
+    int.settled = true
   }
 }
 
@@ -159,8 +173,24 @@ export class Holon {
     INTERNALS.set(this, internals)
     const proxy = new Proxy(this, {
       get(target, prop, receiver) {
-        if (typeof prop === "string") scan(target)
+        // Settled holons skip the scan entirely — no Object.keys per read.
+        if (typeof prop === "string" && !internals.settled) scan(target)
         return Reflect.get(target, prop, receiver)
+      },
+      set(target, prop, value, receiver) {
+        if (
+          internals.settled &&
+          typeof prop === "string" &&
+          (value instanceof Param || value instanceof Holon) &&
+          !Object.prototype.hasOwnProperty.call(target, prop)
+        ) {
+          throw new Error(
+            `${target.constructor.name}: cannot add '${prop}' after construction — ` +
+              `the field set is final once compose() has run. Declare it as a class ` +
+              `field, or add dynamic structure from compose() with this.add().`,
+          )
+        }
+        return Reflect.set(target, prop, value, receiver)
       },
     })
     INTERNALS.set(proxy, internals)
