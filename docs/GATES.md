@@ -92,3 +92,10 @@ script: docs/reports/stroke-connection.md §6.3). Blocker: C4D 2025's
 licence expired (~March 2026). ACTION FOR DAVID: assign/renew in the
 Maxon App Manager, then say "run the C4D experiment" — no GUI needed,
 no open document, ~one session.
+SCOPE EXTENDED 2026-09-07: the experiment now settles THREE phenomena —
+add a variant with one AnnularSector (four sub-strokes) under
+stroke_method="single" + stroke_order="bottom_top": O-4 proved the
+serial pen draws them one at a time in an order no screen-space sort
+predicts (all 19 remaining O-4 frame failures share this root; a
+guessed order moved cov_ref 0.305→0.577 — mechanism confirmed, order
+unknown). One licence, three laws.
