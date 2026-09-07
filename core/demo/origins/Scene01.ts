@@ -417,6 +417,35 @@ export class Scene01Dream extends Dream {
     // the window on a plain animator, where it reaches the Animation's
     // own constructor and the ease scales with it (anim.ts:
     // Track.smoothingWindow).
+    //
+    // `transparency=1` DRAINS them. The shapes arrive from the morph
+    // already solid (the morph's destinations are `solid=True`), and
+    // this play empties them to bare outlines — which reads backwards
+    // from the verb's name until you check the frames. Sampling the
+    // rectangle's interior on frames5 (mean of the RGB box x∈[860,930],
+    // y∈[300,420], where 142 is fully flooded and 0 is empty):
+    //
+    //   localT  26.4   27.6   28.8   30.0   31.2   32.4   33.0
+    //   mean     142    142    138    123     91     30      0
+    //
+    // Flooded through the morph, empty by the end of this span. So
+    // `Fill(…, transparency=1)` is the source spelling a drain, and
+    // core's `Fill` — which reads transparency in the source's own units
+    // and animates 1 − it — lands the same 0.
+    //
+    // ONE DIVERGENCE THIS FILE DOES NOT CHASE. Fitted against those
+    // eleven samples, the reference's drain is best described as an
+    // `easeIn` ramp starting at localT 28.8 over 4.5s (mean squared
+    // error 38), not the script's 27.1 over 6s (526 for the same ease,
+    // 1183 for the default smooth). The published render holds the
+    // shapes solid about 1.7s longer than the script asks and then
+    // empties them faster. That is the same class of re-timing Scene04
+    // documents at its close, reaching one scene earlier than the
+    // report's "from Scene06" boundary predicted. The source's window is
+    // kept, because this chapter reproduces the script and a fitted
+    // window would encode the editor's decision as if it were the
+    // author's; the frames from t=27.2 to t=28.8 fail for it, and that
+    // failure is this divergence rather than an error.
     this.play(
       together(
         [Create(this.tension), 1 / 2, 1],

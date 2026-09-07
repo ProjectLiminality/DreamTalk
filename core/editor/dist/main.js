@@ -66816,20 +66816,20 @@ class Scene01Dream extends Dream {
       morph.fillOpacity.to(1)
     ]));
     __dt(this.play(together(FadeOut(this.separator), Morph(this.morphs[0], this.graph.nodes[1], this.circle), Morph(this.morphs[1], this.graph.nodes[2], this.circle), Morph(this.morphs[2], this.graph.nodes[6], this.circle), Morph(this.morphs[3], this.graph.nodes[3], this.rectangle), Morph(this.morphs[4], this.graph.nodes[4], this.rectangle), Morph(this.morphs[5], this.graph.nodes[5], this.rectangle)), 4), "core/demo/origins/Scene01.ts:17293:17787");
-    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:18172:18363");
+    __dt(this.play(together([Create(this.tension), 1 / 2, 1], Fill(this.rectangle, { transparency: 1 }), Fill(this.circle, { transparency: 1 })), 6), "core/demo/origins/Scene01.ts:19895:20086");
     this.wait(3);
-    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:19454:19712");
-    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:19717:19752");
-    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:19942:19978");
-    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:19983:20050");
+    __dt(this.play(together(this.rectangle.y.by(-100), this.rectangle.scale.to(1 / 2), this.circle.y.by(-100), this.circle.scale.to(1 / 2), this.rectangle.x.by(-75), this.circle.x.by(75)), 3), "core/demo/origins/Scene01.ts:21177:21435");
+    __dt(this.play(Create(this.cylinder), 3), "core/demo/origins/Scene01.ts:21440:21475");
+    __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:21665:21701");
+    __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:21706:21773");
     this.wait(1);
-    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:20343:20618");
-    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:20623:20694");
+    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:22066:22341");
+    __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:22346:22417");
     this.wait(2);
-    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:20716:20894");
-    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:20899:20932");
+    __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:22439:22617");
+    __dt(this.play(this.shapes.x.to(0), 2), "core/demo/origins/Scene01.ts:22622:22655");
     this.wait(2);
-    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:20954:20989");
+    __dt(this.play(UnCreate(this.shapes), 1), "core/demo/origins/Scene01.ts:22677:22712");
   }
 }
 if (false)
@@ -67235,12 +67235,12 @@ class Scene11Dream extends Dream {
     this.stage(this.relationships);
     this.set(UnFill(this.relatives), FadeOut(this.relationshipsLeft), FadeOut(this.relationshipsRight), FadeOut(this.relationshipsMiddle), UnCreate(this.relationshipsRemaining));
     this.wait(START_OFFSET17);
-    __dt(this.play(together(ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 1), "core/demo/origins/Scene11.ts:7075:7321");
-    __dt(this.play(together(Fill(this.relatives, { solid: true }), FadeIn(this.relationshipsRight), FadeIn(this.relationshipsLeft), FadeIn(this.relationshipsMiddle)), 4), "core/demo/origins/Scene11.ts:7427:7647");
+    __dt(this.play(together(ChangeColor(this.relationshipsLeft, BLUE), ChangeColor(this.relativesLeft, BLUE), ChangeColor(this.relationshipsRight, RED), ChangeColor(this.relativesRight, RED)), 1), "core/demo/origins/Scene11.ts:7632:7878");
+    __dt(this.play(together(Fill(this.relatives, { solid: true }), FadeIn(this.relationshipsRight), FadeIn(this.relationshipsLeft), FadeIn(this.relationshipsMiddle)), 4), "core/demo/origins/Scene11.ts:7984:8204");
     this.wait(2);
-    __dt(this.play(Create(this.relationshipsRemaining), 2), "core/demo/origins/Scene11.ts:7810:7859");
+    __dt(this.play(Create(this.relationshipsRemaining), 2), "core/demo/origins/Scene11.ts:8367:8416");
     this.wait(1);
-    __dt(this.play(together(FadeOut(this.relationships), UnFill(this.relatives)), 1), "core/demo/origins/Scene11.ts:7881:7956");
+    __dt(this.play(together(FadeOut(this.relationships), UnFill(this.relatives)), 1), "core/demo/origins/Scene11.ts:8438:8513");
     this.wait(1);
   }
 }

@@ -352,12 +352,25 @@ describe("the Morph verb — pydeation's windows", () => {
     expect(blend.values).toEqual([0, 1])
   })
 
-  test("the colour blends from the source's to the target's over the span", () => {
+  test("the two surfaces blend TO the target's over the whole span", () => {
     const { shape, src, dst } = staged()
-    const tint = Morph(shape, src, dst).tracks.find((t) => t.param === shape.tint)!
-    expect(tint.relStart).toBe(0)
-    expect(tint.relStop).toBe(1)
-    expect(tint.values).toEqual([BLUE, RED])
+    const tracks = Morph(shape, src, dst).tracks
+    for (const [param, want] of [
+      [shape.tint, dst.tint.value],
+      [shape.fillOpacity, dst.fillOpacity.value],
+    ] as const) {
+      const t = tracks.find((tr) => tr.param === param)!
+      expect(t.relStart).toBe(0)
+      expect(t.relStop).toBe(1)
+      // `.to()`, not a frozen two-value sequence: the destination is a
+      // construction constant and is read here, while the START comes
+      // from the timeline. See the Morph verb's header — freezing the
+      // source's BUILD-time surfaces is wrong for any scene whose
+      // source is coloured or filled by an earlier play, which is
+      // Scene01's case exactly.
+      expect(t.mode).toBe("to")
+      expect(t.values).toEqual([want])
+    }
   })
 
   test("exactly one of the three is lit at each end of the span", () => {
