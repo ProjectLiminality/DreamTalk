@@ -165,6 +165,37 @@ Legend: ■ = flaw matched, ideal pending · ◆ = ideal already built ·
     layout error. SWITCH: a monospace face + left-align in
     render/text.ts — queued, out of chapter scope.
 
+    **LANDED (2026-09-08).** `Text` gained two additive options, with
+    defaults unchanged: `font: "mono"` (Cousine Regular, SIL OFL 1.1 —
+    Arimo's fixed-pitch sibling, vendored beside it with its licence in
+    core/demo/fonts/) and `align: "left"` (the block's LEFT EDGE on the
+    holon's x, so a line no longer moves with its own length; under
+    "center" the per-line centring runs exactly as before). The panel
+    band went **0/10 → 9/10 PASS, mean cov_ref 0.8129 → 0.9312**, and
+    the asymmetry that was this entry's whole diagnosis closed with it:
+    cov_ref/cov_ours now track at 0.93/0.94 where they stood at
+    0.81/0.95, and chamfer_ref fell from ~2.3 px to ~0.9. The single
+    remaining failure is the panel's fade-in frame (cov_ours 0.9945,
+    chamfer 0.043 — our ink is in the right place, there is simply less
+    of it yet), which is not a font matter.
+
+    **AND THE MONOSPACE FALSIFIED TWO OF THE THREE CONSTANTS**, which is
+    the part worth keeping. A proportional face has no single advance,
+    so nothing could contradict a wrong one; a fixed-pitch panel makes
+    the grid checkable, and the composite checked it — every line
+    started yellow and split red/green by its end. The advance 8.516 had
+    been taken as each reference line's ink span over its CHARACTER
+    COUNT, but ink runs first-glyph-left to last-glyph-right, i.e.
+    `n − 1` advances plus one glyph. On that basis five clean lines read
+    **8.8788 ± 0.042** — the old number was 4.5% low, which is one
+    character of drift over a 29-character line. The wrapped
+    continuation's indent was likewise col 12 where the reference puts
+    it at column 15.66, i.e. **16** — the hanging indent under
+    `self.play(Transform(`. Both corrected in Scene07; the third
+    constant (half-pitch 17.2) and the row datum survived unchanged.
+    Syntax colouring remains unreproduced (one tint per line holon).
+    Evidence: docs/reports/origins/mono-before/ and mono-final/.
+
 ## The protocol going forward
 
 - Benchmark scenes pass the legacy switches (sealAtOne:false,

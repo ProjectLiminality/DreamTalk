@@ -146,22 +146,31 @@
  * parameters were measured, with each line placed by its own character
  * count. See CODE_LINES.
  *
- * THE COST, STATED PLAINLY: core's Text renders in Arimo, which is
- * PROPORTIONAL, and it is centre-anchored with no left-align. So each
- * line's CENTRE lands where the reference's does, and its glyphs then
- * spread from that centre at Arimo's advances rather than a monospace
- * one. Columns therefore do not align down the panel the way real code
- * does, the lines' widths differ from the reference's by a few percent
- * either way, and the reference's per-token syntax colouring is not
- * reproduced at all (one tint per line holon; the panel is white).
- * Fixing any of that means a monospace font and a left-align in
- * render/text.ts, which is out of this chapter's scope.
+ * THE COST HAS SINCE BEEN PAID (2026-09-08, FIDELITY-LEDGER 18's
+ * queued switch, landed). `Text` now takes `font: "mono"` — Cousine
+ * Regular, Arimo's fixed-pitch sibling, vendored in core/demo/fonts —
+ * and `align: "left"`, which anchors a block's LEFT EDGE on the holon's
+ * x so a line no longer moves with its own length. The panel uses both,
+ * and its columns now run straight down the panel the way real code
+ * does. What remains unreproduced is the reference's per-token syntax
+ * colouring (one tint per line holon; the panel is white).
  *
- * The gauntlet will see this. Frames whose ink is dominated by the code
- * panel — the whole span from the snippet's fill to its un-fill, video
- * 255.8 to 265.8 — score against a reference panel we deliberately do
- * not reproduce glyph-for-glyph, and they are reported EXCLUDED WITH
- * REASON rather than silently failed, on the Scene04-fade precedent.
+ * THE MONOSPACE THEN FALSIFIED TWO OF THE THREE CONSTANTS ABOVE, and
+ * that is the interesting part. Under a proportional face there is no
+ * single advance for a wrong one to contradict; under a fixed-pitch one
+ * the grid is checkable, and the composite checked it — every line
+ * started in agreement and split by its end. The advance had been
+ * measured as ink span over CHARACTER COUNT when ink actually spans
+ * `n − 1` advances plus one glyph, making 8.516 about 4.5% low; the
+ * honest number is 8.8788. The continuation line's indent was 12 where
+ * the reference puts it at 16. Both are corrected below, with their
+ * derivations; the half-pitch and the row datum survived unchanged.
+ *
+ * The band that this note used to exclude — video 255.8 to 264.8 —
+ * now scores **9/10 PASS, mean cov_ref 0.9312** (it was 0/10 at 0.8129),
+ * so it is no longer excluded. The one frame that still fails is the
+ * panel's fade-in at 255.8, where cov_ours is 0.9945 at chamfer 0.043:
+ * our ink is in the right place and there is simply less of it yet.
  *
  *
  * THE SCENE HAS TWO PAIRS OF MORPHS, AND WE CAN STATE ONE OF THEM
@@ -220,9 +229,12 @@
  * WHAT IT SCORES, AND WHICH FRAMES ARE EXCLUDED
  *
  * Run at t0 = 233 over the scene's whole span, 1 s steps:
- * **22/38 PASS, mean coverage 0.881 (ref) / 0.901 (ours)**. The
- * failures are not scattered — they fall into four contiguous bands,
- * two of which are the divergences this header has already derived:
+ * **24/33 PASS, mean coverage 0.885 (ref) / 0.861 (ours)** — measured
+ * after the monospace switch, and the same 33-frame span scored
+ * **15/33 at 0.845** immediately before it, which is the panel band
+ * (below) moving and nothing else. The failures are not scattered —
+ * they fall into contiguous bands, and the two this header derives are
+ * the interesting ones:
  *
  *   frames  video          n   what
  *   ------  -------------  --  --------------------------------------
@@ -241,18 +253,20 @@
  *                              third frame of this band (21.8) now
  *                              PASSES at 0.9998/0.9999, the letters
  *                              having arrived.
- *   22.8-31.8 255.8-264.8  10  EXCLUDED — the code panel. Arimo's
- *                              proportional advances against the
- *                              reference's monospace, and white against
- *                              its syntax colouring; see the ledger.
- *                              cov_ours holds 0.90-0.99 across the whole
- *                              band (our ink IS reference ink) while
- *                              cov_ref sits at 0.80-0.86 (the
- *                              reference's wider glyphs have no
- *                              counterpart) — which is the signature of
- *                              a font difference rather than a layout
- *                              error, and it is why the LINE PLACEMENT
- *                              can be called right while the band fails.
+ *   22.8-31.8 255.8-264.8  10  WAS EXCLUDED — the code panel — and is
+ *                              NOT any more. This band is what the
+ *                              monospace switch was queued for, and
+ *                              since it landed the band scores 9/10
+ *                              PASS at mean cov_ref 0.9312, against
+ *                              0/10 at 0.8129 under Arimo. The
+ *                              asymmetry that justified excluding it
+ *                              (cov_ours 0.90-0.99 vs cov_ref
+ *                              0.80-0.86) is gone: the two now track at
+ *                              0.93/0.94, which is what two renderings
+ *                              of the same glyphs look like. Only the
+ *                              fade-in frame at 255.8 still fails, and
+ *                              on ink QUANTITY (cov_ours 0.9945 at
+ *                              chamfer 0.043), not on placement.
  *   33.8-34.8 266.8-267.8   2  the Rectangle → Circle morph mid-flight.
  *                              Reproduced, and the right SHAPE, but our
  *                              blend runs ahead of the reference's:
@@ -265,10 +279,12 @@
  *                              polygon chain, and the rule is
  *                              deliberate (Morph's README).
  *
- * Excluding the two EXCLUDED bands (12 frames), the scene is **22/26**.
- * Both spans it holds still — the "code ↔ idea" tableau (ten frames at
- * cov_ref 0.988) and the finished Venn diagram (seven frames at cov_ref
- * 1.0000) — are essentially exact.
+ * Only ONE band is excluded now — the Text → Rectangle morph, which is
+ * about `Text`'s representation rather than about this scene. The code
+ * panel's band was the other, and the monospace switch retired it.
+ * Both spans the scene holds still — the "code ↔ idea" tableau (ten
+ * frames at cov_ref 0.988) and the finished Venn diagram (seven frames
+ * at cov_ref 1.0000) — are essentially exact.
  *
  * THE PANELS ONLY FLOOD BECAUSE OF A FIX THIS SCENE PROMPTED. They are
  * `Rectangle`s carrying `fillOpacity`, and `washGeometry` had no
@@ -346,13 +362,42 @@ import { STROKE_MAIN } from "../video01/palette"
 const START_OFFSET = 4.8
 
 /**
- * The code panel's monospace grid, all three of it, measured off
- * f_01310 (see the ledger note in the header for the derivation and the
- * cost). `COL0` is the CENTRE of column zero, not its left edge.
+ * The code panel's monospace grid, measured off the reference.
+ *
+ * THE ADVANCE WAS RE-MEASURED WHEN THE MONOSPACE LANDED, AND THE OLD
+ * NUMBER WAS WRONG. The 8.516 this scene shipped with came from
+ * dividing each reference line's ink span by its CHARACTER COUNT. But a
+ * line's ink runs from the left edge of its first glyph to the right
+ * edge of its last, which is `n − 1` advances plus one glyph — not `n`
+ * advances. On the `n − 1` basis the same six lines read 8.882, 8.906,
+ * 8.869, 8.864, 8.873 and 9.115 world units; the first five (the
+ * long, and therefore precise, ones) mean **8.8788 with a spread of
+ * 0.042**, i.e. half a percent. `self.finish()` at 13 characters is the
+ * noisiest estimator of the six and is the one outlier, so it is left
+ * out of the mean rather than allowed to drag it.
+ *
+ * The old number was not detectably wrong before, and that is the
+ * point: under a PROPORTIONAL face there is no single advance for a
+ * 4.5% error in one to contradict, so it hid. A monospace panel makes
+ * the grid falsifiable, and the composite falsified it — every line
+ * started yellow and split red/green by its end, one character of
+ * accumulated lag over 29 of them, which is exactly 8.516 against
+ * 8.879.
+ *
+ * `COL0` is column zero's INK-LEFT, confirmed independently: the col-0
+ * line's ink starts at screen x 138 and the col-4 lines at 182.8, a gap
+ * of 44.8 px against 4 · advance = 45.5 px.
  */
-const COL0 = -391.4
-const ADVANCE = 8.516
+const COL0 = -392.2
+const ADVANCE = 8.8788
 const HALF_PITCH = 17.2
+
+/**
+ * What a left-aligned line anchors on. `COL0` is already the ink-left
+ * of column zero (see above), so the two coincide — the name is kept
+ * because the placement below is about EDGES now, not centres.
+ */
+const COL0_LEFT = COL0
 
 /**
  * The panel's content and its layout, as (text, indent column, row).
@@ -372,7 +417,14 @@ const CODE_LINES: { text: string; col: number; row: number }[] = [
   { text: "self.add(cylinder)", col: 4, row: 5 },
   { text: "self.play(Create(cylinder))", col: 4, row: 7 },
   { text: "self.play(Transform(cylinder,", col: 4, row: 9 },
-  { text: "h=PI/4, p=PI/6))", col: 12, row: 10 },
+  // Column 16, not 12, and the monospace panel is what caught it: the
+  // reference's continuation ink starts at screen x 316, which on the
+  // re-measured grid is column 15.66 (our col-4 lines land at 3.87 and
+  // this one had been landing at 11.97, so the grid itself reads true
+  // and the constant was the error). 16 is also the principled number —
+  // it aligns the continuation under the `(` of `self.play(Transform(`,
+  // which is the hanging indent Python style would give it.
+  { text: "h=PI/4, p=PI/6))", col: 16, row: 10 },
   { text: "self.play(UnCreate(cylinder))", col: 4, row: 12 },
   { text: "self.finish()", col: 4, row: 14 },
 ]
@@ -390,16 +442,29 @@ const CODE_LINES: { text: string; col: number; row: number }[] = [
 const CODE_TOP = 116.4
 
 /**
- * The panel's glyph size, set by the reference's own ink.
+ * The panel's glyph size — now set by the reference's own ADVANCE
+ * rather than by its ink band, which is what the monospace switch buys.
  *
- * Measured on f_01310 a code line's ink band is 18-20 px tall (the
- * clean lines read 18, 20, 20, 20, 20, 18), which at 1.28 px/unit is
- * about 15 world units of cap-plus-descender. Arimo at `size` renders a
- * band of roughly 1.5·size px here — a first cut at 20 gave 30 px
- * against the reference's 19 and tripled the panel's ink — so the size
- * that lands the band is 20 · 19/30 ≈ 12.7.
+ * Under Arimo this number was solved from the band height (18-20 px on
+ * f_01310's clean lines, ≈ 1.5·size px, hence 12.7), because a
+ * proportional face has no single advance to match: its columns are
+ * whatever its glyphs happen to be, so band height was the only handle.
+ *
+ * Cousine has ONE advance, and it is measurable: laid out through our
+ * own pipeline it comes to **0.600098 · size** world units per column
+ * (measured as the slope of ink width against character count, so the
+ * end side bearings cancel — 10 vs 40 characters). Setting that equal
+ * to the reference's re-measured 8.8788 (see ADVANCE) gives
+ * size = 8.8788 / 0.600098 = **14.796**.
+ *
+ * The ink band that follows is ~13.8 world units ≈ 17.6 px against the
+ * reference's measured 18-20, i.e. still slightly short. That is the
+ * trade taken deliberately: matching the ADVANCE lands every column of
+ * the panel on the reference's column down all eight rows, which is
+ * what the switch exists to do, while matching the band would put the
+ * pitch back off and re-introduce the drift.
  */
-const CODE_SIZE = 12.7
+const CODE_SIZE = 14.796
 
 export class Scene07Dream extends Dream {
   // Text("code", x=-200, z=-15) / Text("idea", x=200, z=-15). pydeation's
@@ -431,10 +496,11 @@ export class Scene07Dream extends Dream {
   frames = new Group({ members: [this.frameCode, this.frameIdea] })
 
   /**
-   * The code panel — one Text per line, centred on the grid. See the
-   * ledger note in the header: the CENTRES are the reference's, the
-   * advances are Arimo's, and the reference's syntax colouring is not
-   * reproduced.
+   * The code panel — one Text per line, LEFT-ALIGNED on the grid in the
+   * bundled monospace (FIDELITY-LEDGER 18's queued switch, landed). The
+   * centres are still the reference's and so, now, are the advances;
+   * what remains unreproduced is the reference's per-token syntax
+   * colouring (one tint per line holon — the panel is white).
    *
    * Held as the line array as well as the Group, because a Text reads
    * its OWN `opacity` in the renderer (render/text.ts: the glyph
@@ -447,10 +513,14 @@ export class Scene07Dream extends Dream {
     ({ text, col, row }) =>
       new Text({
         content: text,
-        // The line's centre = column 0's centre, plus the indent, plus
-        // half the line's own length — a monospace centre, computed
-        // rather than measured per line.
-        x: COL0 + ADVANCE * (col + text.length / 2),
+        font: "mono",
+        align: "left",
+        // The line's LEFT EDGE = column zero's left edge plus the
+        // indent. A left-aligned line no longer moves with its own
+        // length, so a column is at the same x on every row — which is
+        // the whole point of the switch, and what the centred cut could
+        // not do at any advance.
+        x: COL0_LEFT + ADVANCE * col,
         y: CODE_TOP - HALF_PITCH * row,
         size: CODE_SIZE,
         tint: WHITE,

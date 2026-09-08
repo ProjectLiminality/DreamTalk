@@ -1,0 +1,11 @@
+{
+  "name": "f_01289",
+  "ours": "docs/reports/origins/mono-before/ours-f_01289.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/origins/frames5/f_01289.jpg",
+  "iou": 0.6041,
+  "chamfer_ours_px": 0.84,
+  "chamfer_ref_px": 2.302,
+  "coverage_ref": 0.8313,
+  "coverage_ours": 0.9456,
+  "verdict": "FAIL"
+}

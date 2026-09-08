@@ -20,6 +20,11 @@ import {
   writePhases,
   writeWindows,
 } from "../src/parts/text"
+import {
+  DEFAULT_FONT_URL,
+  MONO_FONT_URL,
+  resolveFont,
+} from "../src/render/text"
 import { dominoWindows } from "../src/parts/index"
 import { Create, UnCreate } from "../src/verbs"
 import { WHITE } from "../src/constants"
@@ -152,6 +157,36 @@ describe("Text holon", () => {
     expect(text.stroke.value).toBe(5)
     expect(text.tint.value).toEqual(WHITE)
     expect(text.font).toBeUndefined()
+    // The face and the anchor default to the 2021 look, which is what
+    // makes every scene written before the options existed render
+    // unchanged — pinned here so a future default cannot drift silently.
+    expect(text.align).toBe("center")
+  })
+
+  test("font and align are set through the constructor", () => {
+    const mono = new Text({ content: "def f():", font: "mono", align: "left" })
+    expect(mono.font).toBe("mono")
+    expect(mono.align).toBe("left")
+  })
+})
+
+describe("resolveFont — the face a holon's `font` names", () => {
+  test("unset is the default face", () => {
+    expect(resolveFont(undefined)).toBe(DEFAULT_FONT_URL)
+    // The alias spelling of the same thing, so a scene can be explicit.
+    expect(resolveFont("default")).toBe(DEFAULT_FONT_URL)
+  })
+
+  test("`mono` is the bundled monospace", () => {
+    expect(resolveFont("mono")).toBe(MONO_FONT_URL)
+    expect(MONO_FONT_URL).not.toBe(DEFAULT_FONT_URL)
+  })
+
+  test("anything else passes through as a URL", () => {
+    // `font` has always meant "a URL"; an alias is only a spelling, so
+    // an out-of-tree face must keep working exactly as it did.
+    expect(resolveFont("/fonts/Other.ttf")).toBe("/fonts/Other.ttf")
+    expect(resolveFont("https://example.test/F.ttf")).toBe("https://example.test/F.ttf")
   })
 
   test("content and look are set through the constructor", () => {
