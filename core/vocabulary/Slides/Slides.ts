@@ -375,6 +375,27 @@ export class Slide extends Holon {
   /** One Group per `TSD.GroupArchive`, adopting its members. */
   groups: Group[] = []
   /**
+   * The same Groups, by their archive id — a lookup `groups` alone
+   * cannot give, since it is filtered to the groups whose members
+   * resolved and so does not index against `data.groups`.
+   *
+   * WHY A GROUP SCALE DOES NOT NEED IT, which is worth recording because
+   * the opposite looks obviously true and cost P-9 an hour. A scale
+   * applies about its target's own origin, so scaling a group's members
+   * one at a time would ordinarily grow each about ITS own centre and
+   * leave the assembly's layout untouched. Here it does not: `Slide`
+   * bakes every drawable's geometry into its points and leaves every
+   * holon at x = y = 0, so each member's own origin IS the canvas
+   * centre, and scaling all 42 of deck 17's members individually is
+   * exactly the one transform about one centre that the footage shows.
+   * `buildTargets`' flattening is therefore right for a scale too, and
+   * routing a group scale through the adopting `Group` holon instead is
+   * WRONG — that holon's three.Group has no children (its members are
+   * already the Slide's own parts, attached under the Slide), so it
+   * scales nothing at all.
+   */
+  groupById = new Map<string, Group>()
+  /**
    * One `Connection` per connection line whose endpoints resolved —
    * RECOMPUTED from `connects`, never read from the stored path.
    *
@@ -459,7 +480,11 @@ export class Slide extends Holon {
     // single drawable, requires.
     for (const group of this.data.groups) {
       const members = group.members.map((id) => byId.get(id)).filter((m): m is Holon => !!m)
-      if (members.length > 0) this.groups.push(this.add(new Group({ members })))
+      if (members.length > 0) {
+        const holon = this.add(new Group({ members }))
+        this.groups.push(holon)
+        this.groupById.set(group.id, holon)
+      }
     }
   }
 
@@ -1114,6 +1139,7 @@ export class Slide extends Holon {
 
   build(record: KeyBuild): Anim {
     void this.parts
+
     const targets = this.buildTargets(record)
     if (targets.length === 0) return { tracks: [] }
 

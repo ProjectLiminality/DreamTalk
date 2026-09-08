@@ -690,14 +690,14 @@ file was written.
   what a trace is, not a defect; the correction (inset by half the
   source stroke, or render thinner) is a CONSUMER rendering decision,
   deliberately not guessed at the model level.
-- (2026-09-08, P-9) **The firing model's unit is the GROUP, not the
-  chunk**: consecutive automatic chunks of ONE effect fire together as
-  one firing (deck 16, the sharpest instrument: twelve independent
-  onset fits inside 0.013s — a quarter frame — where the chunk-wise
-  rule predicts a 74s cascade in a 16.4s segment); the
-  one-duration-later rule governs the gap BETWEEN groups (0.95x, 0.93x
-  — consistent with all six confirmations). The chunk list is a firing
-  ORDER; a contiguous same-effect run is one firing.
+- (2026-09-08, P-9, mid-flight claim CORRECTED at close) ~~the firing
+  unit is the GROUP~~ — deck 59 is the discriminator that refutes it:
+  its 33 chunks INTERLEAVE two effects and fire 33 times in strict
+  chunk order. **P-5's settled rule stands (the CHUNK is the unit)**;
+  deck 16 is that rule at a density where twelve steps fall inside one
+  frame. UNEXPLAINED, reported unfitted: deck 59's cascade steps at
+  0.85-0.87x the declared duration where six confirmations measured
+  0.985-1.010x (two candidate readings, one slide — no choice made).
 - (2026-09-08, P-9) **A cascade is TRUNCATED by the outgoing click** —
   deck 16 declares 24 Out builds that never fire (the settled tableau
   holds everything; the presenter clicks away). A slide's declared
@@ -707,11 +707,35 @@ file was written.
   the stroke's two half-widths): k=3.09 — and a SEVENTH ease
   confirmation at 13x separation (0.68 vs 8.87px rms) on a build
   class P-8 never used.
-- (2026-09-08, P-9) BOUNDARY: deck 17→18's FadeThruColor is at 344.8
-  and is INVISIBLE (33 pixels change — deck 18 duplicates deck 17's
-  towers; Keynote crossfades near-identical tableaux); 362.0 is deck
-  18 LEAVING (the window's one true fade-to-black). Corrected: deck 17
-  279.4-344.8, deck 18 344.8-362.0. COROLLARY (beside P-8's): a
-  transition between near-identical slides leaves almost no trace —
-  an ink-difference scan cannot find it; a segment boundary can hide
-  in plain sight.
+- (2026-09-08, P-9, mid-flight claim CORRECTED at close) BOUNDARY,
+  final: deck 17→18 is at **292.0** — not 362.0 (segments.json) and
+  not 344.8 (P-9's own first answer, written up as a wrong answer:
+  the 33-pixel blip was the last frame before a build, the 'ticking
+  bolts' JPEG noise — two real observations, one wrong inference,
+  scan-finds-where-not-what's third strike). The proof is GEOMETRIC:
+  deck 17's shapes reach x 329.7-950.4 and the footage's outer towers
+  sit at ~235/~1040 — deck 17 CANNOT draw them; deck 18's declared
+  1.5s FadeThruColor is plainly visible at 291.8-293.4 (ink 41,571 →
+  5,101). Deck 18 is SEVENTY seconds long. What settled it was the
+  shape census, not a better scan.
+- (2026-09-08, integrator's lesson) Mid-flight findings entered the
+  ground truth too eagerly — two P-9 census claims were corrected by
+  its own close. RULE: chapter findings enter the amendments at
+  chapter CLOSE, not from progress messages.
+- (2026-09-08, P-9 close) Deck 59's ceiling taken (0.1171 FAIL, the
+  file's post-recording edit): the footage's three labels exist in NO
+  archive in the 84-slide file — the drift is translation PLUS
+  deletions; translated, cov reaches 0.9037 with the residual 100%
+  the deleted labels. DECK59_EDIT_OFFSET exported unused and pinned.
+  ASSEMBLY NOTE (lead's ruling): the FILM renders the FILMED state —
+  translation + the three labels reconstructed from footage (the
+  canon policy's inverse case: content in the footage absent from the
+  source is reproduced FROM the footage) — bounded work deferred to
+  the assembly chapter; the chapter score stands as the record of the
+  drift. Deck 17's FAIL is a NAMED framework ceiling: the renderer
+  deliberately holds stroke width constant under scale (Keynote
+  scales it; our ink at 43% under k=3.09 — chamfer 0.077px, every
+  stroke on the reference's centre line) and Connection bakes its
+  dash lattice at compose. GlidingConnection is the existing fix
+  pattern, wired to a different build class. Queued, owned by no one
+  yet.

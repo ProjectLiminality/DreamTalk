@@ -1,0 +1,11 @@
+{
+  "name": "p9mid-f_01446",
+  "ours": "../docs/reports/pl02/ours-p9mid-f_01446.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01446.jpg",
+  "iou": 0.3901,
+  "chamfer_ours_px": 3.642,
+  "chamfer_ref_px": 1.573,
+  "coverage_ref": 0.8548,
+  "coverage_ours": 0.6634,
+  "verdict": "FAIL"
+}
