@@ -1,0 +1,92 @@
+{
+ "scene": "p02l",
+ "at": 1,
+ "frames": 6,
+ "passed": 5,
+ "reports": [
+  {
+   "idx": 1064,
+   "videoSec": 212.6,
+   "heldAt": 212.6,
+   "name": "p10seg-f_01064",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01064.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01064.jpg",
+   "iou": 0.7937,
+   "chamfer_ours_px": 0.388,
+   "chamfer_ref_px": 0.259,
+   "coverage_ref": 0.9819,
+   "coverage_ours": 0.9647,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 1051,
+   "videoSec": 210,
+   "heldAt": 210,
+   "name": "p10seg-f_01051",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01051.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01051.jpg",
+   "iou": 0.8878,
+   "chamfer_ours_px": 0.119,
+   "chamfer_ref_px": 0.135,
+   "coverage_ref": 0.9973,
+   "coverage_ours": 0.9988,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 1030,
+   "videoSec": 205.8,
+   "heldAt": 205.8,
+   "name": "p10seg-f_01030",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01030.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01030.jpg",
+   "iou": 0.8873,
+   "chamfer_ours_px": 0.116,
+   "chamfer_ref_px": 0.141,
+   "coverage_ref": 0.9971,
+   "coverage_ours": 0.999,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 1057,
+   "videoSec": 211.2,
+   "heldAt": 211.2,
+   "name": "p10seg-f_01057",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01057.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01057.jpg",
+   "iou": 0.6688,
+   "chamfer_ours_px": 1.331,
+   "chamfer_ref_px": 1.407,
+   "coverage_ref": 0.8977,
+   "coverage_ours": 0.8748,
+   "verdict": "FAIL"
+  },
+  {
+   "idx": 1080,
+   "videoSec": 215.8,
+   "heldAt": 215.8,
+   "name": "p10seg-f_01080",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01080.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01080.jpg",
+   "iou": 0.9052,
+   "chamfer_ours_px": 0.044,
+   "chamfer_ref_px": 0.1,
+   "coverage_ref": 1,
+   "coverage_ours": 1,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 1093,
+   "videoSec": 218.4,
+   "heldAt": 218.4,
+   "name": "p10seg-f_01093",
+   "ours": "../docs/reports/pl02/ours-p10seg-f_01093.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01093.jpg",
+   "iou": 0.8839,
+   "chamfer_ours_px": 0.088,
+   "chamfer_ref_px": 0.222,
+   "coverage_ref": 0.9821,
+   "coverage_ours": 0.9969,
+   "verdict": "PASS"
+  }
+ ]
+}

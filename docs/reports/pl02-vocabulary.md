@@ -739,3 +739,26 @@ file was written.
   dash lattice at compose. GlidingConnection is the existing fix
   pattern, wired to a different build class. Queued, owned by no one
   yet.
+- (2026-09-08, P-9 final) **Deck 59's translation ADMITTED and applied
+  (scene-level)** — the condition held FIVE ways (no record field can
+  express displacement — the union of every field on every build is
+  enumerable and displacement-free; the incoming transition is a hard
+  cut; the first frame settles at 11 changed pixels; the offset is
+  constant across ten settled frames with whole-frame best-shift dx=0
+  dy=0 throughout; one number, sd 0.00 across every unambiguous
+  drawable). Chamfer 10.587 → 0.521px; the mid-cascade frames the
+  ruling actually recovered (0.03-0.13 → 0.82-0.86 — the offset had
+  been hiding the 33-chunk firing model completely). THE PRECEDENT,
+  stated narrowly: a footage-sourced geometry constant needs a file
+  that PROVABLY post-dates the recording (the thumbnail siding with
+  the deck; drawables deleted outright) — mere disagreement is deck
+  54, and deck 54 was the reproduction being wrong.
+- (2026-09-08, P-9) **QUEUED DEFECT — coplanar fills hide strokes the
+  deck declares ABOVE them**: composeShape emits everything at z=0,
+  so deck z-order survives only as emission order — and deck 59's
+  full-canvas black horizon (z 1 of 42, verified solid black in the
+  stylesheet) wins over strokes declared thirty places up. Costs deck
+  59 ~0.10 cov_ref; pre-existing, independent of the translation;
+  'a slide with a large early background fill' is not a rare shape.
+  P-5/P-8 machinery; owner needed after P-10 closes (Slides.ts is
+  P-10's mid-flight).
