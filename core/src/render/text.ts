@@ -74,7 +74,14 @@ import { uniform } from "three/tsl"
 import * as TSLTyped from "three/tsl"
 import { Text as ThreeText } from "three-text"
 import type { Color } from "../constants"
-import { Text, writeWindows, writePhases, DRAW_WINDOW, FILL_WINDOW } from "../parts/text"
+import {
+  Text,
+  writeWindows,
+  writePhases,
+  DRAW_WINDOW,
+  FILL_WINDOW,
+  type TextAlign,
+} from "../parts/text"
 import { boundaryLoops, closeLoop, insetLoop } from "../parts/outline"
 import type { Vec3Like } from "../parts/index"
 import { RibbonStroke } from "./ribbon"
@@ -113,6 +120,35 @@ const {
  * the file or this URL retunes every Text at once.
  */
 export const DEFAULT_FONT_URL = "/core/demo/fonts/Arimo-Regular.ttf"
+
+/**
+ * The bundled monospace: Cousine Regular (SIL OFL 1.1) — Arimo's
+ * fixed-pitch sibling (same designer, same metric-compatibility
+ * programme; Cousine matches Courier New as Arimo matches Arial).
+ * Vendored beside Arimo with its licence — core/demo/fonts/README.md.
+ *
+ * Reached by name rather than by URL: `Text.font = "mono"`. See
+ * FONT_ALIASES.
+ */
+export const MONO_FONT_URL = "/core/demo/fonts/Cousine-Regular.ttf"
+
+/**
+ * The faces a Text may ask for BY NAME instead of by URL.
+ *
+ * `font` has always been "a URL, or nothing for the default", and it
+ * still is — an alias is only a spelling a scene may use so it does not
+ * have to know where the file lives. Anything not in this table is
+ * passed through to the loader unchanged, so an out-of-tree face keeps
+ * working exactly as before.
+ */
+export const FONT_ALIASES: Readonly<Record<string, string>> = {
+  mono: MONO_FONT_URL,
+  default: DEFAULT_FONT_URL,
+}
+
+/** A holon's `font` (alias, URL, or unset) as the URL to load. */
+export const resolveFont = (font: string | undefined): string =>
+  font === undefined ? DEFAULT_FONT_URL : (FONT_ALIASES[font] ?? font)
 
 /**
  * three-text shapes text with HarfBuzz compiled to WASM, and the binary
@@ -492,7 +528,7 @@ export interface TextBinding {
 }
 
 const layoutKey = (holon: Text): string =>
-  `${holon.content} ${holon.font ?? ""} ${holon.size.value}`
+  `${holon.content} ${holon.font ?? ""} ${holon.align} ${holon.size.value}`
 
 /** three-text's handle: the geometry plus its own disposal. */
 interface TextHandle {
@@ -504,6 +540,7 @@ const layoutText = async (
   content: string,
   font: string,
   size: number,
+  align: TextAlign = "center",
 ): Promise<TextHandle> => {
   ensureHarfBuzz()
   const handle = (await ThreeText.create({
@@ -532,7 +569,14 @@ const layoutText = async (
   // newline steps the baseline by a full line height, so the bands
   // cannot touch), and each line's vertices shift by its own
   // mid-x — pure translation, no reshaping, no wrap.
-  if (content.includes("\n")) centreLinesInPlace(handle.geometry, size)
+  //
+  // ALIGN "left" wants the opposite of all that: every line starting at
+  // the same x. three-text already stacks the lines at a common left
+  // origin (that is the bug the centring above works around), so left
+  // alignment is the ABSENCE of the per-line correction — the block
+  // anchor in relayout() then puts that common left edge on the holon's
+  // own x instead of its mid-x. No per-line pass runs at all.
+  if (align === "center" && content.includes("\n")) centreLinesInPlace(handle.geometry, size)
   return handle
 }
 
@@ -632,7 +676,7 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
   const relayout = (): Promise<void> => {
     currentKey = layoutKey(holon)
     const token = ++layoutToken
-    return layoutText(holon.content, holon.font ?? DEFAULT_FONT_URL, holon.size.value)
+    return layoutText(holon.content, resolveFont(holon.font), holon.size.value, holon.align)
       .then((next) => {
         // Superseded mid-flight, or the binding went away.
         if (token !== layoutToken || disposed) {
@@ -658,9 +702,19 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
         // ink box instead sits the word ~12 units low, because a
         // descender is shorter than an ascender and the ink box knows
         // nothing about the baseline.
+        //
+        // Under `align: "left"` the anchor is the block's LEFT EDGE
+        // rather than its middle: the ink box's min.x goes to the
+        // holon's x, so every line starts at the same place and a line's
+        // own length no longer moves it. Same one translation, same ink
+        // box, different edge of it — and the vertical is left alone in
+        // both cases, for the reason above.
         geometry.computeBoundingBox()
         const box = geometry.boundingBox
-        if (box) geometry.translate(-(box.min.x + box.max.x) / 2, 0, 0)
+        if (box) {
+          const anchor = holon.align === "left" ? box.min.x : (box.min.x + box.max.x) / 2
+          geometry.translate(-anchor, 0, 0)
+        }
         if (!mesh || !material) {
           material = new TextGlyphMaterial()
           mesh = new THREE.Mesh(geometry, material)

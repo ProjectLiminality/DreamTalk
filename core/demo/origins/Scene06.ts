@@ -160,7 +160,7 @@
  * this file is verbatim from the source.
  */
 
-import { Dream, render } from "../../src/index"
+import { Dream, Holon, render } from "../../src/index"
 import {
   Create,
   UnCreate,

@@ -103,6 +103,18 @@ const linearCreation = (param: Param<number>, values: number[]): Anim => {
 }
 
 /**
+ * How a multi-line block sits on the holon's x.
+ *
+ * `center` (the default, and what every video-01 scene renders) puts
+ * each LINE's own middle on the axis — the 2021 C4D text spline's
+ * PRIM_TEXT_ALIGN = 1. `left` puts the block's left EDGE there, so every
+ * line starts at the same x and columns run straight down the block,
+ * which is what code wants and what a proportional centred face cannot
+ * give (FIDELITY-LEDGER 18).
+ */
+export type TextAlign = "center" | "left"
+
+/**
  * Text — content is data (like Line.points), look is params. `size` is
  * the font size (the 2021 `height`, default 50 — "trans-perspectival");
  * `stroke` is the 2021 TEXT_THICKNESS (5), kept because the vocabulary
@@ -110,11 +122,20 @@ const linearCreation = (param: Param<number>, values: number[]): Anim => {
  * renderer draws filled letterforms and does not read it; `font`
  * optionally overrides the renderer's default font URL (bundled Arimo
  * — Helvetica/Arial-class; see the open font question in the
- * vocabulary report's Risks).
+ * vocabulary report's Risks), or names a bundled face (`"mono"`);
+ * `align` chooses the block's anchor. Both default to the 2021 look.
  */
 export class Text extends Holon {
   content = "Text"
+  /**
+   * The face: a font URL, or one of the renderer's aliases — `"mono"`
+   * for the bundled Cousine, `"default"` for Arimo. Unset means the
+   * default, so every scene written before the aliases existed renders
+   * byte-identically.
+   */
   font: string | undefined = undefined
+  /** Where the block sits on this holon's x — see TextAlign. */
+  align: TextAlign = "center"
   size = length(50)
   tint = color(WHITE)
   stroke = length(5)

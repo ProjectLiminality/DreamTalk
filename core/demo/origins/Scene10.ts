@@ -187,12 +187,13 @@
  * at 24 steps of the source's own interpolation, and handed to
  * `Param.sequence`. The residual infidelity is that `sequence` eases
  * each little segment rather than the whole (timeline.ts:202, 232), so
- * the speed wobbles within a segment; at 24 samples over a 2.67 s move
- * that is bounded by ~110 ms of local time distortion along a path whose
- * points are exact, and it is invisible at 5 fps. The alternative — a
- * rig-orbit channel in dream.ts — buys that last wobble at the price of
- * a new concept in the Observer, and the S04 gate exists precisely to
- * discourage paying it.
+ * the speed wobbles within a segment. That wobble has since been
+ * MEASURED rather than bounded: at 24 samples over a 2.67 s move it is
+ * 0.0067 rad worst case, and re-scoring the scene with the ease removed
+ * moves nothing (see the dip section below). The alternative — a
+ * rig-orbit channel in dream.ts — buys a wobble that is already below
+ * the noise floor, at the price of a new concept in the Observer, and
+ * the S04 gate exists precisely to discourage paying it.
  *
  *
  * ══ THE CONSTRUCTIONS ══════════════════════════════════════════════════
@@ -309,19 +310,30 @@
  * radius, the focus — is right. A wrong pose would not converge; it
  * would end wrong and stay wrong.
  *
- * WHAT IT LIKELY IS: the move's own timing. The dip is confined to the
- * first ~1.2 s of a 2.67 s span and is deepest at 350.4, about a third
- * of the way in. Two candidates, neither yet separated, and both worth
- * a chapter of their own rather than a guess here:
+ * WHAT IT IS: the move's own timing. The dip is confined to the first
+ * ~1.2 s of a 2.67 s span and is deepest at 350.4, about a third of the
+ * way in. Two candidates were named here; they have since been
+ * separated by experiment, and only the second survives.
  *
- *   - `sequence` eases each of its 24 segments rather than the span
- *     (timeline.ts:202, 232), so the sampled path's SPEED wobbles even
- *     though its points are exact. The wobble is largest where the
- *     path's curvature is greatest, which is the move's opening.
- *   - the source's own ease over the `rel_end_point=2/3` window may not
- *     be the C4D auto-tangent this framework fits by default.
+ *   - RULED OUT — `sequence` easing each of its 24 segments rather than
+ *     the span (timeline.ts:202, 232). The scene was re-scored with the
+ *     rig channels wrapped in `eased("linear", …)`, which makes the
+ *     waypoints carry all the shaping: 7/14 before and after, mean
+ *     coverage 0.8529 → 0.8535, and the deepest dip frame moved the
+ *     WRONG way (0.7766 → 0.7723). The reason is arithmetic: the
+ *     per-segment ease is symmetric within a segment, so at 24 samples
+ *     it cancels to a worst-case 0.0067 rad — 0.38°, sub-pixel at this
+ *     framing (pinned by test/timeline.test.ts, "dense waypoints make
+ *     the two easings converge"). The wobble is real but four orders of
+ *     magnitude too small to be a 0.22 coverage dip.
+ *   - STANDING — the source's own ease over the `rel_end_point=2/3`
+ *     window is not the C4D auto-tangent this framework fits by
+ *     default. With the sampled path proven exact and its interior
+ *     timing proven irrelevant, the discrepancy has nowhere else to
+ *     live: it is the shape of the ease across the WINDOW, not within
+ *     the segments.
  *
- * Both are timing along a verified path, not geometry — which is why
+ * Both were timing along a verified path, not geometry — which is why
  * the same frames score well on chamfer (2.1-3.2 px) while losing
  * coverage: the right picture, a beat early or late.
  *

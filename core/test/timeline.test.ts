@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Timeline, c4dEaseWith, smoothingFor } from "../src/timeline"
-import { together, chain, restage } from "../src/anim"
+import { together, chain, restage, eased } from "../src/anim"
 import { scalar, completion } from "../src/params"
 
 describe("timeline resolution", () => {
@@ -40,6 +40,61 @@ describe("timeline resolution", () => {
     expect(tl.valueAt(fold, 0)).toBe(1)
     expect(tl.valueAt(fold, 1)).toBeCloseTo(0.1, 10)
     expect(tl.valueAt(fold, 2)).toBe(1)
+  })
+
+  // The three that follow pin down what `sequence` does BETWEEN its
+  // waypoints, and how much it matters. They are the record of the
+  // Scene10 dip experiment (docs/reports/origins/seq-easing.md): the
+  // per-segment ease is real, `eased("linear", …)` is how a scene opts
+  // out of it, and at the waypoint counts a sampled path actually uses
+  // the two converge — which is why the dip was not this.
+  test("sequence(): the default eases each SEGMENT, not the span", () => {
+    const p = scalar(0)
+    const tl = new Timeline([{ anim: p.sequence(0, 10, 20), start: 0, duration: 2 }])
+    // Waypoints land exactly on time…
+    expect(tl.valueAt(p, 1)).toBeCloseTo(10, 10)
+    // …the segment MIDpoints are unmoved, because the ease is
+    // symmetric within a segment…
+    expect(tl.valueAt(p, 0.5)).toBeCloseTo(5, 10)
+    expect(tl.valueAt(p, 1.5)).toBeCloseTo(15, 10)
+    // …but each segment departs and arrives slowly, so its quarter
+    // point sits BEHIND the linear 2.5, and the ease RESTARTS at the
+    // interior waypoint instead of running once across the span.
+    expect(tl.valueAt(p, 0.25)).toBeLessThan(2.5)
+    expect(tl.valueAt(p, 1.25)).toBeLessThan(12.5)
+    // The restart is what makes it a per-segment ease: the two halves
+    // are the same shape, offset by one waypoint.
+    expect(tl.valueAt(p, 1.25) - 10).toBeCloseTo(tl.valueAt(p, 0.25), 10)
+  })
+
+  test("eased('linear'): a scene opts a sequence out of the per-segment ease", () => {
+    const p = scalar(0)
+    const anim = eased("linear", p.sequence(0, 10, 20))
+    const tl = new Timeline([{ anim, start: 0, duration: 2 }])
+    for (const t of [0.25, 0.5, 1, 1.5, 1.75]) {
+      expect(tl.valueAt(p, t)).toBeCloseTo(t * 10, 10)
+    }
+  })
+
+  test("sequence(): dense waypoints make the two easings converge", () => {
+    // A strongly nonlinear path sampled at 24 steps — Scene10's rig
+    // move. The per-segment ease is symmetric within each segment, so
+    // it cancels: the residual is a fraction of a percent of the span,
+    // far too small to be the 0.22 coverage dip it was suspected of.
+    const N = 24
+    const path = (u: number) => -0.846 * u ** 3
+    const waypoints = Array.from({ length: N + 1 }, (_, i) => path(i / N))
+    const a = scalar(0)
+    const b = scalar(0)
+    const smooth = new Timeline([{ anim: a.sequence(...waypoints), start: 0, duration: 4 }])
+    const linear = new Timeline([
+      { anim: eased("linear", b.sequence(...waypoints)), start: 0, duration: 4 },
+    ])
+    let worst = 0
+    for (let t = 0; t <= 4; t += 1 / 60) {
+      worst = Math.max(worst, Math.abs(smooth.valueAt(a, t) - linear.valueAt(b, t)))
+    }
+    expect(worst).toBeLessThan(0.01) // rad — under 0.6°, sub-pixel at Scene10's framing
   })
 
   test("hold-first rule: before its first segment a param holds that segment's initial value", () => {

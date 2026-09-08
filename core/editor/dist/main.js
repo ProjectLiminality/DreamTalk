@@ -49245,6 +49245,7 @@ var linearCreation = (param, values) => {
 class Text extends Holon {
   content = "Text";
   font = undefined;
+  align = "center";
   size = length2(50);
   tint = color2(WHITE);
   stroke = length2(5);
@@ -63401,6 +63402,12 @@ var {
   vec4: vec44
 } = TSL3;
 var DEFAULT_FONT_URL = "/core/demo/fonts/Arimo-Regular.ttf";
+var MONO_FONT_URL = "/core/demo/fonts/Cousine-Regular.ttf";
+var FONT_ALIASES = {
+  mono: MONO_FONT_URL,
+  default: DEFAULT_FONT_URL
+};
+var resolveFont = (font) => font === undefined ? DEFAULT_FONT_URL : FONT_ALIASES[font] ?? font;
 var DEFAULT_HARFBUZZ_URL = "/core/demo/wasm/hb.wasm";
 var DEFAULT_PIXELS_PER_UNIT = 1.28;
 var harfBuzzUrl = DEFAULT_HARFBUZZ_URL;
@@ -63558,8 +63565,8 @@ var syncOutlines = (outlines, holon) => {
     }
   }
 };
-var layoutKey = (holon) => `${holon.content} ${holon.font ?? ""} ${holon.size.value}`;
-var layoutText = async (content, font, size) => {
+var layoutKey = (holon) => `${holon.content} ${holon.font ?? ""} ${holon.align} ${holon.size.value}`;
+var layoutText = async (content, font, size, align = "center") => {
   ensureHarfBuzz();
   const handle = await Text3.create({
     text: content,
@@ -63570,7 +63577,7 @@ var layoutText = async (content, font, size) => {
     removeOverlaps: true,
     layout: { align: "center" }
   });
-  if (content.includes(`
+  if (align === "center" && content.includes(`
 `))
     centreLinesInPlace(handle.geometry, size);
   return handle;
@@ -63656,7 +63663,7 @@ var attachText = (holon, group) => {
   const relayout = () => {
     currentKey = layoutKey(holon);
     const token = ++layoutToken;
-    return layoutText(holon.content, holon.font ?? DEFAULT_FONT_URL, holon.size.value).then((next) => {
+    return layoutText(holon.content, resolveFont(holon.font), holon.size.value, holon.align).then((next) => {
       if (token !== layoutToken || disposed) {
         next.dispose();
         return;
@@ -63665,8 +63672,10 @@ var attachText = (holon, group) => {
       addWriteAttributes(geometry);
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
-      if (box)
-        geometry.translate(-(box.min.x + box.max.x) / 2, 0, 0);
+      if (box) {
+        const anchor = holon.align === "left" ? box.min.x : (box.min.x + box.max.x) / 2;
+        geometry.translate(-anchor, 0, 0);
+      }
       if (!mesh || !material) {
         material = new TextGlyphMaterial;
         mesh = new Mesh(geometry, material);
@@ -67496,14 +67505,14 @@ class Scene06Dream extends Dream {
     y: -100,
     tint: RED,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:13240:13357");
+  }), "core/demo/origins/Scene06.ts:13247:13364");
   circle = __dt(new Circle({
     radius: 75 / 2,
     x: -125,
     y: -100,
     tint: BLUE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:13422:13526");
+  }), "core/demo/origins/Scene06.ts:13429:13533");
   cylinder = __dt(new Cylinder({
     b: -PI3 / 2,
     y: 100,
@@ -67511,13 +67520,13 @@ class Scene06Dream extends Dream {
     scale: 3 / 4,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:13741:13864");
-  tensionApex = __dt(new Null({ y: 40 }), "core/demo/origins/Scene06.ts:15122:15141");
-  viaLeft = __dt(new Null({ x: -20, y: -85 }), "core/demo/origins/Scene06.ts:15154:15182");
-  viaRight = __dt(new Null({ x: 20, y: -85 }), "core/demo/origins/Scene06.ts:15196:15223");
+  }), "core/demo/origins/Scene06.ts:13748:13871");
+  tensionApex = __dt(new Null({ y: 40 }), "core/demo/origins/Scene06.ts:15129:15148");
+  viaLeft = __dt(new Null({ x: -20, y: -85 }), "core/demo/origins/Scene06.ts:15161:15189");
+  viaRight = __dt(new Null({ x: 20, y: -85 }), "core/demo/origins/Scene06.ts:15203:15230");
   arrowCircle = through(this.circle, this.viaLeft, this.tensionApex, 1 / 4);
   arrowRectangle = through(this.rectangle, this.viaRight, this.tensionApex, 1 / 4);
-  tension = __dt(new Group2({ members: [this.arrowCircle, this.arrowRectangle] }), "core/demo/origins/Scene06.ts:15397:15460");
+  tension = __dt(new Group2({ members: [this.arrowCircle, this.arrowRectangle] }), "core/demo/origins/Scene06.ts:15404:15467");
   dialecticalThinking = __dt(new Group2({
     members: [
       this.rectangle,
@@ -67530,15 +67539,15 @@ class Scene06Dream extends Dream {
     ],
     y: 15,
     z: -100
-  }), "core/demo/origins/Scene06.ts:15676:15885");
-  logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:16178:16230");
-  liminality = __dt(new Circle({ radius: 250, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:17097:17157");
+  }), "core/demo/origins/Scene06.ts:15683:15892");
+  logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:16185:16237");
+  liminality = __dt(new Circle({ radius: 250, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:17104:17164");
   github = __dt(new Sketch({
     data: github,
     height: GITHUB_SOURCE_HEIGHT * 14,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:17307:17430");
+  }), "core/demo/origins/Scene06.ts:17314:17437");
   nodes = __dt(new Group2({
     members: NODE_XS.map((x2, i2) => __dt(new Circle({
       x: x2,
@@ -67546,8 +67555,8 @@ class Scene06Dream extends Dream {
       radius: 10,
       tint: WHITE,
       stroke: STROKE_MAIN
-    }), "core/demo/origins/Scene06.ts:17890:18028"))
-  }), "core/demo/origins/Scene06.ts:17828:18041");
+    }), "core/demo/origins/Scene06.ts:17897:18035"))
+  }), "core/demo/origins/Scene06.ts:17835:18048");
   edges = __dt(new Group2({
     members: NODE_XS.map((_2, i2) => {
       const angle2 = PI3 / 6 * (i2 - 1);
@@ -67565,23 +67574,23 @@ class Scene06Dream extends Dream {
         points: trimByArcLength(anchors2, 0, 0.1),
         tint: WHITE,
         stroke: STROKE_MAIN
-      }), "core/demo/origins/Scene06.ts:20031:20289");
+      }), "core/demo/origins/Scene06.ts:20038:20296");
     })
-  }), "core/demo/origins/Scene06.ts:19377:20302");
-  repoTriangle = repo(__dt(new Polygon({ sides: 3, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20642:20712"), -300);
-  repoSquare = repo(__dt(new Polygon({ sides: 4, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20740:20810"), -150);
-  repoPentagon = repo(__dt(new Polygon({ sides: 5, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20840:20910"), 0);
-  repoHexagon = repo(__dt(new Polygon({ sides: 6, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20936:21006"), 150);
-  repoCircle = repo(__dt(new Circle({ radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21033:21092"), 300);
-  repoRectangle = repo(__dt(new Rectangle({ width: 30, height: 60, tint: RED, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21189:21261"), 120, -100);
-  repoCylinder = repo(__dt(new Cylinder({ b: -PI3 * 3 / 4, p: -PI3 / 4, scale: 1 / 3, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21313:21407"), 0, 100);
+  }), "core/demo/origins/Scene06.ts:19384:20309");
+  repoTriangle = repo(__dt(new Polygon({ sides: 3, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20649:20719"), -300);
+  repoSquare = repo(__dt(new Polygon({ sides: 4, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20747:20817"), -150);
+  repoPentagon = repo(__dt(new Polygon({ sides: 5, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20847:20917"), 0);
+  repoHexagon = repo(__dt(new Polygon({ sides: 6, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20943:21013"), 150);
+  repoCircle = repo(__dt(new Circle({ radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21040:21099"), 300);
+  repoRectangle = repo(__dt(new Rectangle({ width: 30, height: 60, tint: RED, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21196:21268"), 120, -100);
+  repoCylinder = repo(__dt(new Cylinder({ b: -PI3 * 3 / 4, p: -PI3 / 4, scale: 1 / 3, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21320:21414"), 0, 100);
   arrowTriangleSquare = link2(this.repoTriangle, this.repoSquare);
   arrowSquarePentagon = link2(this.repoSquare, this.repoPentagon);
   arrowPentagonHexagon = link2(this.repoPentagon, this.repoHexagon);
   arrowHexagonCircle = link2(this.repoHexagon, this.repoCircle);
-  repoApex = __dt(new Null({ y: 40 }), "core/demo/origins/Scene06.ts:21977:21996");
-  repoViaLeft = __dt(new Null({ x: -30, y: -85 }), "core/demo/origins/Scene06.ts:22013:22041");
-  repoViaRight = __dt(new Null({ x: 30, y: -85 }), "core/demo/origins/Scene06.ts:22059:22086");
+  repoApex = __dt(new Null({ y: 40 }), "core/demo/origins/Scene06.ts:21984:22003");
+  repoViaLeft = __dt(new Null({ x: -30, y: -85 }), "core/demo/origins/Scene06.ts:22020:22048");
+  repoViaRight = __dt(new Null({ x: 30, y: -85 }), "core/demo/origins/Scene06.ts:22066:22093");
   arrowCircleCylinder = through(this.repoCircle.members[0], this.repoViaLeft, this.repoApex, 1 / 3);
   arrowRectangleCylinder = through(this.repoRectangle.members[0], this.repoViaRight, this.repoApex, 1 / 3);
   repoTension = __dt(new Group2({
@@ -67592,7 +67601,7 @@ class Scene06Dream extends Dream {
       this.repoViaLeft,
       this.repoViaRight
     ]
-  }), "core/demo/origins/Scene06.ts:22376:22551");
+  }), "core/demo/origins/Scene06.ts:22383:22558");
   arrows = __dt(new Group2({
     members: [
       this.arrowTriangleSquare,
@@ -67600,11 +67609,11 @@ class Scene06Dream extends Dream {
       this.arrowPentagonHexagon,
       this.arrowHexagonCircle
     ]
-  }), "core/demo/origins/Scene06.ts:22564:22730");
-  logo2 = __dt(new Logo({ x: -250, scale: 0.9, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:22815:22869");
+  }), "core/demo/origins/Scene06.ts:22571:22737");
+  logo2 = __dt(new Logo({ x: -250, scale: 0.9, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:22822:22876");
   #githubMorph;
   get githubMorph() {
-    this.#githubMorph ??= __dt(new MorphShape(this.githubOutline, this.repoTriangle.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:25171:25289");
+    this.#githubMorph ??= __dt(new MorphShape(this.githubOutline, this.repoTriangle.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:25178:25296");
     return this.#githubMorph;
   }
   get githubOutline() {
@@ -67615,22 +67624,22 @@ class Scene06Dream extends Dream {
   }
   chainMorphs = __dt(new Group2({
     members: [
-      __dt(new MorphShape(this.repoTriangle.members[0], this.repoSquare.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:26564:26674"),
-      __dt(new MorphShape(this.repoTriangle.members[1], this.repoSquare.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:26682:26796"),
-      __dt(new MorphShape(this.repoSquare.members[0], this.repoPentagon.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:26804:26914"),
-      __dt(new MorphShape(this.repoSquare.members[1], this.repoPentagon.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:26922:27036"),
-      __dt(new MorphShape(this.repoPentagon.members[0], this.repoHexagon.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:27044:27155"),
-      __dt(new MorphShape(this.repoPentagon.members[1], this.repoHexagon.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:27163:27278"),
-      __dt(new MorphShape(this.repoHexagon.members[0], this.repoCircle.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:27286:27394"),
-      __dt(new MorphShape(this.repoHexagon.members[1], this.repoCircle.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:27402:27515")
+      __dt(new MorphShape(this.repoTriangle.members[0], this.repoSquare.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:26571:26681"),
+      __dt(new MorphShape(this.repoTriangle.members[1], this.repoSquare.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:26689:26803"),
+      __dt(new MorphShape(this.repoSquare.members[0], this.repoPentagon.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:26811:26921"),
+      __dt(new MorphShape(this.repoSquare.members[1], this.repoPentagon.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:26929:27043"),
+      __dt(new MorphShape(this.repoPentagon.members[0], this.repoHexagon.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:27051:27162"),
+      __dt(new MorphShape(this.repoPentagon.members[1], this.repoHexagon.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:27170:27285"),
+      __dt(new MorphShape(this.repoHexagon.members[0], this.repoCircle.members[0], { opacity: 0 }), "core/demo/origins/Scene06.ts:27293:27401"),
+      __dt(new MorphShape(this.repoHexagon.members[1], this.repoCircle.members[1], { opacity: 0 }), "core/demo/origins/Scene06.ts:27409:27522")
     ]
-  }), "core/demo/origins/Scene06.ts:26531:27528");
+  }), "core/demo/origins/Scene06.ts:26538:27535");
   closingMorphs = __dt(new Group2({
     members: [
-      __dt(new MorphShape(this.repoCircle.members[0], this.circle, { opacity: 0 }), "core/demo/origins/Scene06.ts:27692:27773"),
-      __dt(new MorphShape(this.repoRectangle.members[0], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene06.ts:27781:27871")
+      __dt(new MorphShape(this.repoCircle.members[0], this.circle, { opacity: 0 }), "core/demo/origins/Scene06.ts:27699:27780"),
+      __dt(new MorphShape(this.repoRectangle.members[0], this.rectangle, { opacity: 0 }), "core/demo/origins/Scene06.ts:27788:27878")
     ]
-  }), "core/demo/origins/Scene06.ts:27659:27884");
+  }), "core/demo/origins/Scene06.ts:27666:27891");
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
@@ -67657,24 +67666,24 @@ class Scene06Dream extends Dream {
     this.set(this.dialecticalThinking.creation.to(0), this.liminality.creation.to(0), this.github.creation.to(0), this.nodes.creation.to(0), this.edges.creation.to(0), this.logo2.creation.to(0), this.repoTriangle.creation.to(0), this.repoRectangle.creation.to(0), this.repoCylinder.creation.to(0), this.arrows.creation.to(0), this.repoTension.creation.to(0));
     this.set(this.repoSquare.creation.to(1), this.repoPentagon.creation.to(1), this.repoHexagon.creation.to(1), this.repoCircle.creation.to(1), FadeOut(this.repoSquare), FadeOut(this.repoPentagon), FadeOut(this.repoHexagon), FadeOut(this.repoCircle));
     this.wait(START_OFFSET17);
-    __dt(this.play(together(this.logo.y.to(0), this.logo.scale.to(5 / 4)), 10), "core/demo/origins/Scene06.ts:31065:31178");
-    __dt(this.play(together(FadeOut(this.logo.smallCircle), FadeOut(this.logo.leftLeg), FadeOut(this.logo.rightLeg)), 4), "core/demo/origins/Scene06.ts:31665:31828");
+    __dt(this.play(together(this.logo.y.to(0), this.logo.scale.to(5 / 4)), 10), "core/demo/origins/Scene06.ts:31072:31185");
+    __dt(this.play(together(FadeOut(this.logo.smallCircle), FadeOut(this.logo.leftLeg), FadeOut(this.logo.rightLeg)), 4), "core/demo/origins/Scene06.ts:31672:31835");
     this.wait(6);
-    __dt(this.play(Create(this.dialecticalThinking), 4), "core/demo/origins/Scene06.ts:32127:32173");
+    __dt(this.play(Create(this.dialecticalThinking), 4), "core/demo/origins/Scene06.ts:32134:32180");
     this.wait(4);
-    __dt(this.play(together(this.logo.scale.to(5 / 4 * (1 / 3)), this.dialecticalThinking.scale.to(1 / 3), this.dialecticalThinking.y.to(15 / 3), this.dialecticalThinking.z.to(-100 / 3)), 5), "core/demo/origins/Scene06.ts:33124:33367");
-    __dt(this.play(Create(this.edges), 5 / 3), "core/demo/origins/Scene06.ts:33446:33482");
-    __dt(this.play(Create(this.nodes), 1 / 3), "core/demo/origins/Scene06.ts:33487:33523");
+    __dt(this.play(together(this.logo.scale.to(5 / 4 * (1 / 3)), this.dialecticalThinking.scale.to(1 / 3), this.dialecticalThinking.y.to(15 / 3), this.dialecticalThinking.z.to(-100 / 3)), 5), "core/demo/origins/Scene06.ts:33131:33374");
+    __dt(this.play(Create(this.edges), 5 / 3), "core/demo/origins/Scene06.ts:33453:33489");
+    __dt(this.play(Create(this.nodes), 1 / 3), "core/demo/origins/Scene06.ts:33494:33530");
     this.wait(2);
-    __dt(this.play(together(FadeOut(this.logo), FadeOut(this.dialecticalThinking), [Erase(this.edges), 0, 3 / 4], [UnCreate(this.nodes), 1 / 4, 1]), 2), "core/demo/origins/Scene06.ts:33754:33956");
-    __dt(this.play(Draw(this.github), 3), "core/demo/origins/Scene06.ts:34035:34066");
-    __dt(this.play(this.github.x.to(250), 1), "core/demo/origins/Scene06.ts:34071:34106");
-    __dt(this.play(Create(this.logo2), 3), "core/demo/origins/Scene06.ts:34111:34143");
+    __dt(this.play(together(FadeOut(this.logo), FadeOut(this.dialecticalThinking), [Erase(this.edges), 0, 3 / 4], [UnCreate(this.nodes), 1 / 4, 1]), 2), "core/demo/origins/Scene06.ts:33761:33963");
+    __dt(this.play(Draw(this.github), 3), "core/demo/origins/Scene06.ts:34042:34073");
+    __dt(this.play(this.github.x.to(250), 1), "core/demo/origins/Scene06.ts:34078:34113");
+    __dt(this.play(Create(this.logo2), 3), "core/demo/origins/Scene06.ts:34118:34150");
     this.wait(8);
-    __dt(this.play(together(this.dialecticalThinking.scale.to(1 / 3 * 3.01), this.dialecticalThinking.y.to(15), this.dialecticalThinking.z.to(-100)), 1), "core/demo/origins/Scene06.ts:34526:34723");
-    __dt(this.play(FadeOut(this.logo2), 2), "core/demo/origins/Scene06.ts:34728:34761");
-    __dt(this.play(Morph(this.githubMorph, this.githubOutline, this.repoTriangle.members[1]), 2), "core/demo/origins/Scene06.ts:34903:35055");
-    __dt(this.play(Create(this.repoTriangle), 1), "core/demo/origins/Scene06.ts:35060:35099");
+    __dt(this.play(together(this.dialecticalThinking.scale.to(1 / 3 * 3.01), this.dialecticalThinking.y.to(15), this.dialecticalThinking.z.to(-100)), 1), "core/demo/origins/Scene06.ts:34533:34730");
+    __dt(this.play(FadeOut(this.logo2), 2), "core/demo/origins/Scene06.ts:34735:34768");
+    __dt(this.play(Morph(this.githubMorph, this.githubOutline, this.repoTriangle.members[1]), 2), "core/demo/origins/Scene06.ts:34910:35062");
+    __dt(this.play(Create(this.repoTriangle), 1), "core/demo/origins/Scene06.ts:35067:35106");
     const chain2 = [
       [this.chainMorphs.members[0], this.chainMorphs.members[1], this.arrowTriangleSquare, this.repoTriangle, this.repoSquare],
       [this.chainMorphs.members[2], this.chainMorphs.members[3], this.arrowSquarePentagon, this.repoSquare, this.repoPentagon],
@@ -67682,29 +67691,29 @@ class Scene06Dream extends Dream {
       [this.chainMorphs.members[6], this.chainMorphs.members[7], this.arrowHexagonCircle, this.repoHexagon, this.repoCircle]
     ];
     for (const [shapeMorph, frameMorph, arrow, from, to] of chain2) {
-      __dt(this.play(together(restage(to.opacity.to(1), 0.99, 1), Morph(shapeMorph, from.members[0], to.members[0], { copy: true }), Morph(frameMorph, from.members[1], to.members[1], { copy: true }), [Create(arrow), 2 / 3, 1]), 1), "core/demo/origins/Scene06.ts:36068:36683");
+      __dt(this.play(together(restage(to.opacity.to(1), 0.99, 1), Morph(shapeMorph, from.members[0], to.members[0], { copy: true }), Morph(frameMorph, from.members[1], to.members[1], { copy: true }), [Create(arrow), 2 / 3, 1]), 1), "core/demo/origins/Scene06.ts:36075:36690");
     }
     this.wait(2);
-    __dt(this.play(together(FadeOut(this.repoTriangle), FadeOut(this.repoSquare), FadeOut(this.repoPentagon), FadeOut(this.repoHexagon), FadeOut(this.arrows)), 2), "core/demo/origins/Scene06.ts:36785:37006");
-    __dt(this.play(together(this.repoCircle.x.to(-120), this.repoCircle.y.to(-100)), 2), "core/demo/origins/Scene06.ts:37073:37170");
-    __dt(this.play(Create(this.repoRectangle), 2), "core/demo/origins/Scene06.ts:37249:37289");
-    __dt(this.play(Create(this.repoTension), 1), "core/demo/origins/Scene06.ts:37294:37332");
-    __dt(this.play(Create(this.repoCylinder), 2), "core/demo/origins/Scene06.ts:37337:37376");
+    __dt(this.play(together(FadeOut(this.repoTriangle), FadeOut(this.repoSquare), FadeOut(this.repoPentagon), FadeOut(this.repoHexagon), FadeOut(this.arrows)), 2), "core/demo/origins/Scene06.ts:36792:37013");
+    __dt(this.play(together(this.repoCircle.x.to(-120), this.repoCircle.y.to(-100)), 2), "core/demo/origins/Scene06.ts:37080:37177");
+    __dt(this.play(Create(this.repoRectangle), 2), "core/demo/origins/Scene06.ts:37256:37296");
+    __dt(this.play(Create(this.repoTension), 1), "core/demo/origins/Scene06.ts:37301:37339");
+    __dt(this.play(Create(this.repoCylinder), 2), "core/demo/origins/Scene06.ts:37344:37383");
     this.wait(1);
-    __dt(this.play(together(restage(this.dialecticalThinking.opacity.to(1), 0.99, 1), [UnCreate(this.repoCylinder.members[1]), 0, 1 / 2], [UnCreate(this.repoCircle.members[1]), 0, 1 / 2], [UnCreate(this.repoRectangle.members[1]), 0, 1 / 2], Morph(this.closingMorphs.members[0], this.repoCircle.members[0], this.circle), Morph(this.closingMorphs.members[1], this.repoRectangle.members[0], this.rectangle), this.repoCylinder.members[0].scale.to(3 / 4), this.repoCylinder.members[0].b.to(-PI3 / 2), this.repoCylinder.members[0].p.to(-PI3 / 4), this.repoCylinder.members[0].y.to(15), this.repoCylinder.members[0].z.to(-100)), 3), "core/demo/origins/Scene06.ts:37753:39035");
+    __dt(this.play(together(restage(this.dialecticalThinking.opacity.to(1), 0.99, 1), [UnCreate(this.repoCylinder.members[1]), 0, 1 / 2], [UnCreate(this.repoCircle.members[1]), 0, 1 / 2], [UnCreate(this.repoRectangle.members[1]), 0, 1 / 2], Morph(this.closingMorphs.members[0], this.repoCircle.members[0], this.circle), Morph(this.closingMorphs.members[1], this.repoRectangle.members[0], this.rectangle), this.repoCylinder.members[0].scale.to(3 / 4), this.repoCylinder.members[0].b.to(-PI3 / 2), this.repoCylinder.members[0].p.to(-PI3 / 4), this.repoCylinder.members[0].y.to(15), this.repoCylinder.members[0].z.to(-100)), 3), "core/demo/origins/Scene06.ts:37760:39042");
     this.wait(3.2);
-    __dt(this.play(together(UnDraw(this.repoCylinder.members[0]), UnDraw(this.dialecticalThinking)), 0.8), "core/demo/origins/Scene06.ts:40033:40185");
+    __dt(this.play(together(UnDraw(this.repoCylinder.members[0]), UnDraw(this.dialecticalThinking)), 0.8), "core/demo/origins/Scene06.ts:40040:40192");
   }
 }
 function repo(shape, x2, z2 = 0) {
   return __dt(new Group2({
     members: [
       shape,
-      __dt(new Rectangle({ width: 100, height: 100, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:40488:40564")
+      __dt(new Rectangle({ width: 100, height: 100, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:40495:40571")
     ],
     x: x2,
     y: z2
-  }), "core/demo/origins/Scene06.ts:40442:40594");
+  }), "core/demo/origins/Scene06.ts:40449:40601");
 }
 function through(source, waypoint, target, offsetStart) {
   const c2 = __dt(new Connection(source, target, {
@@ -67712,7 +67721,7 @@ function through(source, waypoint, target, offsetStart) {
     offsetEnd: 0.1,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:40862:40978");
+  }), "core/demo/origins/Scene06.ts:40869:40985");
   c2.via = [{ x: waypoint.x.value, y: waypoint.y.value, z: 0 }];
   return c2;
 }
@@ -67722,7 +67731,7 @@ function link2(a2, b2) {
     offsetEnd: 0.38,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene06.ts:41190:41303");
+  }), "core/demo/origins/Scene06.ts:41197:41310");
 }
 var NODE_XS = [-93, 0, 93, 200, 200, 200, 93, 0, -93, -200, -200, -200];
 var NODE_ZS = [200, 200, 200, 93, 0, -93, -200, -200, -200, -93, 0, 93];
@@ -68236,7 +68245,7 @@ class Scene10Dream extends Dream {
     tint: BLUE,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24126:24267");
+  }), "core/demo/origins/Scene10.ts:24928:25069");
   amazon = __dt(new Sketch({
     data: amazonLogo,
     height: AMAZON_HEIGHT,
@@ -68244,7 +68253,7 @@ class Scene10Dream extends Dream {
     tint: BLUE,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24279:24421");
+  }), "core/demo/origins/Scene10.ts:25081:25223");
   google = __dt(new Sketch({
     data: googleLogo,
     height: GOOGLE_HEIGHT,
@@ -68252,7 +68261,7 @@ class Scene10Dream extends Dream {
     tint: RED,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24433:24575");
+  }), "core/demo/origins/Scene10.ts:25235:25377");
   microsoft = __dt(new Sketch({
     data: microsoftLogo,
     height: MICROSOFT_HEIGHT,
@@ -68260,42 +68269,42 @@ class Scene10Dream extends Dream {
     tint: RED,
     scale: LOGO_SCALE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:24590:24737");
-  anchor = __dt(new Null, "core/demo/origins/Scene10.ts:24963:24973");
+  }), "core/demo/origins/Scene10.ts:25392:25539");
+  anchor = __dt(new Null, "core/demo/origins/Scene10.ts:25765:25775");
   tensionApple = __dt(new Connection(this.apple, this.anchor, {
     via: [{ x: -30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:25817:25946");
+  }), "core/demo/origins/Scene10.ts:26619:26748");
   tensionAmazon = __dt(new Connection(this.amazon, this.anchor, {
     via: [{ x: 30, y: 0, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:25965:26094");
+  }), "core/demo/origins/Scene10.ts:26767:26896");
   tensionGoogle = __dt(new Connection(this.google, this.anchor, {
     via: [{ x: 0, y: -30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:26113:26243");
+  }), "core/demo/origins/Scene10.ts:26915:27045");
   tensionMicrosoft = __dt(new Connection(this.microsoft, this.anchor, {
     via: [{ x: 0, y: 30, z: 0 }],
     offsetStart: 0.25,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:26265:26397");
+  }), "core/demo/origins/Scene10.ts:27067:27199");
   cylinder = __dt(new Cylinder({
     z: 125,
     scale: 1 / 2,
     tint: WHITE,
     stroke: STROKE_MAIN
-  }), "core/demo/origins/Scene10.ts:26598:26689");
+  }), "core/demo/origins/Scene10.ts:27400:27491");
   unfold() {
     this.observer.look("front");
     this.wait(START_OFFSET21);
-    __dt(this.play(together(DrawThenFillCompletely(this.apple), DrawThenFillCompletely(this.amazon), DrawThenFillCompletely(this.google), DrawThenFillCompletely(this.microsoft)), 3), "core/demo/origins/Scene10.ts:27255:27487");
-    __dt(this.play(together(Create(this.tensionApple), Create(this.tensionAmazon), Create(this.tensionGoogle), Create(this.tensionMicrosoft)), 1), "core/demo/origins/Scene10.ts:27492:27688");
-    __dt(this.play(together([this.observer.phi.sequence(...RIG_PHI), 0, 2 / 3], [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3], [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3], [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3], [this.observer.x.sequence(...RIG_FX), 0, 2 / 3], [this.observer.y.sequence(...RIG_FY), 0, 2 / 3], [this.observer.z.sequence(...RIG_FZ), 0, 2 / 3], [this.anchor.z.to(80), 1 / 3, 1], [Create(this.cylinder), 2 / 3, 1]), 4), "core/demo/origins/Scene10.ts:28000:28558");
+    __dt(this.play(together(DrawThenFillCompletely(this.apple), DrawThenFillCompletely(this.amazon), DrawThenFillCompletely(this.google), DrawThenFillCompletely(this.microsoft)), 3), "core/demo/origins/Scene10.ts:28057:28289");
+    __dt(this.play(together(Create(this.tensionApple), Create(this.tensionAmazon), Create(this.tensionGoogle), Create(this.tensionMicrosoft)), 1), "core/demo/origins/Scene10.ts:28294:28490");
+    __dt(this.play(together([this.observer.phi.sequence(...RIG_PHI), 0, 2 / 3], [this.observer.theta.sequence(...RIG_THETA), 0, 2 / 3], [this.observer.tilt.sequence(...RIG_TILT), 0, 2 / 3], [this.observer.radius.sequence(...RIG_RADIUS), 0, 2 / 3], [this.observer.x.sequence(...RIG_FX), 0, 2 / 3], [this.observer.y.sequence(...RIG_FY), 0, 2 / 3], [this.observer.z.sequence(...RIG_FZ), 0, 2 / 3], [this.anchor.z.to(80), 1 / 3, 1], [Create(this.cylinder), 2 / 3, 1]), 4), "core/demo/origins/Scene10.ts:28802:29360");
     this.wait(3);
-    __dt(this.play(together(UnCreate(this.cylinder), UnFillThenUnDraw(this.apple), UnFillThenUnDraw(this.amazon), UnFillThenUnDraw(this.google), UnFillThenUnDraw(this.microsoft), Erase(this.tensionApple), Erase(this.tensionAmazon), Erase(this.tensionGoogle), Erase(this.tensionMicrosoft)), 3), "core/demo/origins/Scene10.ts:28906:29289");
+    __dt(this.play(together(UnCreate(this.cylinder), UnFillThenUnDraw(this.apple), UnFillThenUnDraw(this.amazon), UnFillThenUnDraw(this.google), UnFillThenUnDraw(this.microsoft), Erase(this.tensionApple), Erase(this.tensionAmazon), Erase(this.tensionGoogle), Erase(this.tensionMicrosoft)), 3), "core/demo/origins/Scene10.ts:29708:30091");
   }
 }
 if (false)
