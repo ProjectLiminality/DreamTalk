@@ -617,6 +617,18 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, out_images, skippe
         rec["stroke"] = st
     if fl:
         rec["fill"] = fl
+    # A connection line's ENDPOINTS. Keynote recomputes a connection
+    # line's path from the two objects it joins, so the stored path can
+    # be stale — 15 of the deck's 547 are (P-3 found one on slide 3
+    # whose stored path is a short lower-left diagonal while its
+    # endpoints demand a long horizontal). Carrying the references lets
+    # a consumer detect that case and derive the line instead, without
+    # re-decoding the deck.
+    if pbtype == "TSD.ConnectionLineArchive":
+        cf = (obj.get("connectedFrom") or {}).get("identifier")
+        ct = (obj.get("connectedTo") or {}).get("identifier")
+        if cf or ct:
+            rec["connects"] = {"from": cf, "to": ct}
     out_drawables.append(rec)
 
 

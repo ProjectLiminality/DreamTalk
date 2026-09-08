@@ -24,11 +24,12 @@ have ink it lacks.
 The P-1 whole-frame FAIL was the FONT and only the font; P-2 has since
 closed it and the title card now passes whole-frame. See §4.
 
-**Since first writing, six corrections have landed in §1**, all of them
+**Since first writing, eight corrections have landed in §1**, all of them
 to this importer's own claims and all caught by teammates whose chapters
 exercised what P-1's single-slide gate did not: group children are
-relative (P-2); build order, `direction` and the firing model; and motion
-paths and the dotted-line cap (P-3). Every one is fixed and guarded by
+relative (P-2); build order, `direction` and the firing model; motion
+paths and the dotted-line cap; the images, which ARE load-bearing; and
+stale connection-line paths (P-3). Every one is fixed and guarded by
 tests. §1 also corrects the recon report on three counts of its own, and
 retracts one of my own corrections to it — see the firing model, which is
 open rather than settled.
@@ -38,8 +39,10 @@ open rather than settled.
 The decode walks the show's own slide order and each slide's own
 `drawablesZOrder`. Across slides 1–58 it yields **1,750 shapes, 91 text
 records, 561 groups, 384 builds and 58 transitions**, and skips exactly
-one archive type: `TSD.ImageArchive`, on four slides (the images the
-recon found, none load-bearing).
+one archive type: `TSD.ImageArchive` — 12 of them inside slides 1-58,
+whose BOXES are kept even though their pixels cannot be. The recon
+called these "none load-bearing"; that is wrong, and the correction below
+matters for four segments.
 
 Shapes run *above* the report's 1,378 because connection lines (517 in
 the deck) arrive as ordinary shapes here rather than as a separate
@@ -195,6 +198,99 @@ reference's 10. Three independent confirmations of one value read from
 the file rather than fitted to pixels. `SlideShapeData.cap` is now
 emitted alongside `dash`; the consumer change is in `Slides.ts`'s
 `composeShape`, which P-3 owns.
+
+### CORRECTION (P-3, third round): the images ARE load-bearing
+
+§1 above records `TSD.ImageArchive` as the one skipped type and repeats
+the recon's judgement that the deck's images are "none load-bearing"
+(report §5: "image/photo support — explicitly NOT needed; 29 images in
+the whole deck, none load-bearing in slides 1-58"). **I took that on the
+recon's authority and it is wrong.** P-3 measured it: on slide 2 the five
+images are **46.9% of that frame's reference ink**, and they are why that
+segment's `coverage_ref` sits at 0.49 no matter what the vector
+reproduction does.
+
+The exact scope, counted from the archives: **31 images in the file, 12
+of them inside slides 1-58**, on four slides —
+
+| deck slide | images | what |
+|---|---|---|
+| 2 | 5 | the Vitruvian figure (481×481 slide units) + four lightning glyphs |
+| 3 | 1 | 481×481 |
+| 17 | 4 | the broadcast-tower set piece |
+| 18 | 2 | the mass-hypnosis slide |
+
+So the largest single drawable on the video's opening tableau is an
+image, and slides 2, 3, 17 and 18 have a **hard ceiling on `coverage_ref`**
+that no amount of vector fidelity can lift. That is not an importer bug
+— an image is a raster and this framework draws strokes — but it is a
+scoring fact every chapter touching those four slides needs, and
+"explicitly NOT needed" is the wrong summary of it.
+
+The image BOXES are now carried in the model (`KeyImage`, on
+`SlideData.images`) so a chapter can mask against the deck's declared
+geometry without re-decoding the deck. The pixels are not: this framework
+draws strokes, and an image is a raster.
+
+P-3's handling is the right pattern and worth copying: score the whole
+frame as the headline, and score again with the deck's **own declared
+image boxes** masked, reporting both. Masking those five boxes on slide 2
+moves it from 0.4909/0.8725 to 0.9092/0.9244 (PASS); masking the dotted
+lines too, leaving just the four icons the builds actually target, gives
+0.9664/1.0000 with a 0.001 px chamfer. Stating the mask as the deck's
+declared geometry rather than a hand-drawn crop is what keeps that
+honest.
+
+Whether the images should eventually be imported (they are stored in the
+unpacked `Data/` directory and could be textured quads) is a real
+question for P-9, which owns slide 17. It is not one P-1 should have
+foreclosed by quoting the recon.
+
+### CORRECTION (P-3, fourth round): connection-line paths can be STALE
+
+**7. `connectedFrom` / `connectedTo` are now carried, and the survey P-3
+asked for is done.** Keynote recomputes a `TSD.ConnectionLineArchive`'s
+path from the two objects it joins, so a stored path can be a leftover
+from wherever those objects used to sit — with no local sign anything is
+wrong. P-3's example, slide 3's line 4515938: it joins the tree
+(4515966) to the Vitruvian image (4515878), whose box centres both sit at
+slide y 540 — video row 360, exactly where the reference draws a long
+horizontal dotted line. Its stored path fits to (465, 727) → (743, 653),
+a short lower-left diagonal the footage does not contain anywhere.
+
+**The survey, across all 547 connection lines**, testing whether each
+stored endpoint lands within 20 slide units of the box of the object it
+connects to:
+
+| | count |
+|---|---|
+| **FRESH** — endpoints touch their boxes | **472** |
+| **STALE** — endpoints far from them | **15** |
+| unresolvable — no `connectedFrom`/`connectedTo` at all | 60 |
+
+So the answer to P-3's question is **"a handful"**: special-casing the 15
+is warranted, deriving all 547 is not. That matters most for **P-4**,
+which owns the connection meshes (10–30 lines per slide, 70 on slide 11)
+and would otherwise have found this the expensive way.
+
+A methodological note, because I got it wrong first. My initial survey
+compared stored endpoints against connected-object **centres** and found
+339 lines "near (12–60 units)" — which looked alarming and was
+meaningless, since connection lines attach to object EDGES, not centres.
+My second attempt tested the chord's **angle** and passed P-3's line,
+because both the stale and the true line slope gently; the length ratio
+0.30 was the tell my ±0.4–1.2 band let through. Only the third test —
+distance from each endpoint to its object's BOX — separates the cases
+cleanly and catches the known-bad one. Two wrong instruments before a
+right one, on a question whose answer changes a chapter's plan.
+
+The endpoints are carried; the derivation is deliberately NOT performed
+here. Where a line should run when its stored path disagrees — which
+edge it attaches to, whether it routes around anything — is a rendering
+decision belonging to P-4. Note the interaction that makes slide 3's case
+doubly awkward: it connects to an IMAGE, whose pixels this importer does
+not carry, so deriving that one needs `SlideData.images` too — which is
+the second reason those boxes are kept.
 
 ### The recon's slide list is off by one from slide 18 onward
 
@@ -456,7 +552,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1044 pass, 0 fail** (961 baseline + 54 mine + teammates').
+- `bun test` — **1046 pass, 0 fail** (961 baseline + 56 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
@@ -483,10 +579,13 @@ Carry forward:
    fails a different test (§1's P-3 correction). Resolve it against
    measured onsets before building timing on either. No `DissolveCharacters`
    verb is owed — nothing in the video delivers per character.
-4. **Groups translate; they do not scale or rotate.** Verified across all
+4. **Do not trust a connection line's stored path blindly.** 15 of 547
+   are stale; the endpoints are carried so P-4 can detect and derive
+   them. See §1's fourth P-3 correction.
+5. **Groups translate; they do not scale or rotate.** Verified across all
    678. If a future slide looks scaled, suspect the fit rule or a stale
    group box before adding a scale term.
-5. The face is declared per text record (`fontName`, `tracking`), so a
+6. The face is declared per text record (`fontName`, `tracking`), so a
    font map is a renderer-side lookup, not an importer change.
 
 **On the lesson.** The group bug shipped because P-1's gate — the title

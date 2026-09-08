@@ -686,6 +686,25 @@ describe("builds", () => {
     expect(slide01.images).toBeUndefined()
   })
 
+  test("connection lines carry their endpoints, because stored paths can be stale", async () => {
+    const { slide03 } = await import("../vocabulary/Slides/assets/pl02/slide03")
+    // P-3's case: line 4515938 joins the tree to the Vitruvian image.
+    // Its stored path fits to a short lower-left diagonal the footage
+    // does not contain; the endpoints' box centres are both at slide
+    // y 540 — video row 360, where the reference draws a long
+    // horizontal. 15 of the deck's 547 connection lines are stale like
+    // this, so the endpoints are the recourse.
+    const line = slide03.shapes.find((s) => s.id === "4515938")
+    expect(line).toBeDefined()
+    expect(line!.connects).toEqual({ from: "4515966", to: "4515878" })
+    // The stale one connects TO an image, so deriving it needs the image
+    // boxes as well — which is the interaction that makes this case
+    // awkward and the reason KeyImage exists.
+    expect(slide03.images!.some((i) => i.id === "4515878")).toBe(true)
+    // And the endpoint it comes FROM is an ordinary shape on the slide.
+    expect(slide03.shapes.some((s) => s.id === "4515966")).toBe(true)
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

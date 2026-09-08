@@ -938,4 +938,41 @@ export interface SlideShapeData {
   /** Hex fill colour; absent when unfilled or gradient-filled. */
   fill?: string
   opacity: number
+  /**
+   * For a `TSD.ConnectionLineArchive`: the two drawables it joins.
+   *
+   * READ THIS BEFORE TRUSTING THE PATH. Keynote recomputes a connection
+   * line's geometry from the objects it connects, so a STORED path can
+   * be stale — left over from wherever those objects used to sit — and
+   * there is no local sign that anything is wrong. A chapter that trusts
+   * stored paths will draw lines in the wrong places silently.
+   *
+   * P-3 found the worked example on slide 3: line 4515938 joins the tree
+   * (4515966) to the Vitruvian image (4515878), whose box centres are
+   * both at slide y 540 — video row 360, exactly where the reference
+   * draws a long horizontal dotted line. The stored path fits to
+   * (465, 727) -> (743, 653), a short lower-left diagonal the footage
+   * does not contain anywhere.
+   *
+   * HOW COMMON: surveyed across all 547 connection lines by testing
+   * whether each stored endpoint lands on the box of the object it
+   * connects to (within 20 slide units) —
+   *
+   *   472  FRESH — endpoints touch their boxes
+   *    15  STALE — endpoints far from them
+   *    60  unresolvable (no `connectedFrom`/`connectedTo` at all)
+   *
+   * So stale paths are a HANDFUL, not the norm: derive-everything is not
+   * warranted, and special-casing the 15 is. Note the interaction that
+   * makes slide 3's line doubly awkward — it connects to an IMAGE, whose
+   * pixels this importer does not carry, so deriving that particular
+   * line needs `KeySlide.images` too (which is why those boxes are kept).
+   *
+   * The endpoints are carried and the derivation is NOT performed here:
+   * where a line should run when its stored path disagrees is a
+   * rendering decision (which edge does it attach to, does it route
+   * around anything) that belongs to P-4, the chapter that owns
+   * connection meshes.
+   */
+  connects?: { from?: string; to?: string }
 }
