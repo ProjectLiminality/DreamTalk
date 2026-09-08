@@ -625,10 +625,40 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, out_images, skippe
     # a consumer detect that case and derive the line instead, without
     # re-decoding the deck.
     if pbtype == "TSD.ConnectionLineArchive":
+        # ALWAYS marked, even when the endpoints are absent — 60 of the
+        # deck's 547 lines have no connectedFrom/connectedTo at all, and
+        # a consumer that identifies connection lines by the presence of
+        # `connects` will conclude a slide has none. (Slide 15 has eight
+        # such lines; they import correctly but carry no endpoints.)
+        rec["isConnectionLine"] = True
         cf = (obj.get("connectedFrom") or {}).get("identifier")
         ct = (obj.get("connectedTo") or {}).get("identifier")
         if cf or ct:
             rec["connects"] = {"from": cf, "to": ct}
+        cl = (src or {}).get("connectionLinePathSource") or {}
+        # The ROUTING type. Not uniform: 541 quadratic, 6 orthogonal.
+        rec["lineType"] = cl.get("type")
+        # How far the drawn line stands OFF each endpoint. Emphatically
+        # not 0.0 throughout — see KeySlideShape.outset.
+        of, ot = cl.get("outsetFrom"), cl.get("outsetTo")
+        if of or ot:
+            rec["outset"] = {"from": of or 0.0, "to": ot or 0.0}
+
+    # Arrowheads, resolved through the style chain (the style archive
+    # lives in the GLOBAL DocumentStylesheet, not the slide file). Only
+    # the shape matters here, so the whole record is passed through:
+    # deriving the drawn SCALE needs more samples than the deck's three,
+    # and belongs to the consumer.
+    for slot, key in (("headLineEnd", "head"), ("tailLineEnd", "tail")):
+        end = props.get(slot)
+        if isinstance(end, dict) and end.get("identifier") not in (None, "none"):
+            rec.setdefault("lineEnds", {})[key] = {
+                "identifier": end.get("identifier"),
+                "path": (end.get("path") or {}).get("elements") or [],
+                "endPoint": end.get("endPoint"),
+                "isFilled": bool(end.get("isFilled", False)),
+                "lineJoin": end.get("lineJoin"),
+            }
     out_drawables.append(rec)
 
 
@@ -816,7 +846,11 @@ def main():
             {
                 "index": i,
                 "id": sid,
-                "source": f"refs/pitch/pl02/key/Index/Slide-{sid}.iwa",
+                # The file actually opened, not a name reconstructed from
+                # the id — slide 18 lives in the unsuffixed `Slide.iwa`,
+                # so `Slide-4593439.iwa` names a file that does not exist
+                # and breaks the hash's provenance.
+                "source": os.path.relpath(path, os.getcwd()),
                 "hash": sha16(path),
                 "drawables": drawables,
                 "groups": groups,

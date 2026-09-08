@@ -103,7 +103,7 @@ const SIZE_BUDGET_KB = 2048
  * whole point of the codegen is that the same input gives the same
  * output on every machine.)
  */
-const CHAPTER_SLIDES = [1, 2, 3, 4, 5, 6, 19, 32]
+const CHAPTER_SLIDES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18, 19, 32]
 
 const fmt = (n: number): string => {
   const s = n.toFixed(PRECISION)
@@ -120,6 +120,10 @@ interface DecodedShape {
   id: string
   icon?: string
   connects?: { from?: string; to?: string }
+  isConnectionLine?: boolean
+  lineType?: string
+  outset?: { from: number; to: number }
+  lineEnds?: Record<string, unknown>
   frame: KeyGeometry
   elements: KeyPathElement[]
   opacity: number
@@ -198,10 +202,15 @@ const emitShape = (shape: DecodedShape): string[] => {
   lines.push("    {")
   lines.push(`      id: ${JSON.stringify(shape.id)},`)
   if (shape.icon) lines.push(`      icon: ${JSON.stringify(shape.icon)},`)
-  // A connection line's endpoint references — see SlideShapeData.connects.
+  // Connection-line facts. `isConnectionLine` is unconditional because
+  // `connects` is not — 60 of the deck's 547 lines have no endpoints.
+  if (shape.isConnectionLine) lines.push("      isConnectionLine: true,")
   if (shape.connects) {
     lines.push(`      connects: ${JSON.stringify(dropNulls(shape.connects))},`)
   }
+  if (shape.lineType) lines.push(`      lineType: ${JSON.stringify(shape.lineType)},`)
+  if (shape.outset) lines.push(`      outset: ${JSON.stringify(shape.outset)},`)
+  if (shape.lineEnds) lines.push(`      lineEnds: ${JSON.stringify(shape.lineEnds)},`)
   lines.push("      subpaths: [")
   for (const sp of subpaths) {
     lines.push(`        [${sp.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(", ")}],`)

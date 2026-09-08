@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { readFileSync, existsSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { join, resolve } from "node:path"
 import {
@@ -721,6 +721,64 @@ describe("builds", () => {
       expect(from === "4513444" || to === "4513444").toBe(true)
     }
     expect(slide02.images!.some((i) => i.id === "4513444")).toBe(true)
+  })
+
+  test("a connection line is marked even when it has no endpoints", async () => {
+    // 27 in-scope lines declare no connectedFrom/connectedTo, so a
+    // consumer that identifies them by `connects` sees none. Slide 15 is
+    // that case exactly: eight lines, all imported, none with endpoints
+    // — which read as "slide 15 has 0 connection lines".
+    const { slide15 } = await import("../vocabulary/Slides/assets/pl02/slide15")
+    const lines = slide15.shapes.filter((s) => s.isConnectionLine)
+    expect(lines).toHaveLength(8)
+    expect(lines.every((l) => l.connects === undefined)).toBe(true)
+  })
+
+  test("outsets are carried and are NOT zero throughout", async () => {
+    // P-1 claimed "both 0.0 throughout this deck"; P-4 refuted it. 164 of
+    // the 467 in-scope lines carry a non-zero outset, clustered on the
+    // densest meshes — slide 8 at 30/30, slide 11 at 10/10.
+    const { slide08 } = await import("../vocabulary/Slides/assets/pl02/slide08")
+    const outsets = slide08.shapes.filter((s) => s.isConnectionLine).map((s) => s.outset)
+    expect(outsets.length).toBeGreaterThan(0)
+    expect(outsets.some((o) => o && o.from === 30 && o.to === 30)).toBe(true)
+  })
+
+  test("arrowheads resolve through the global stylesheet", async () => {
+    // Slide 11 carries 70 of the deck's 123 in-scope heads — every one
+    // of its connection lines — which is why P-10 needs this too.
+    const { slide11 } = await import("../vocabulary/Slides/assets/pl02/slide11")
+    const withHead = slide11.shapes.filter((s) => s.lineEnds?.head)
+    expect(withHead).toHaveLength(70)
+    const head = withHead[0]!.lineEnds!.head!
+    // The simple arrow: a filled triangle moveTo(0,0) lineTo(3,6)
+    // lineTo(6,0), endPoint (3,0). Carried whole and uninterpreted —
+    // the drawn SCALE is the consumer's to derive.
+    expect(head.identifier).toBe("simple arrow")
+    expect(head.isFilled).toBe(true)
+    expect(head.endPoint).toEqual({ x: 3, y: 0 })
+    expect(head.path).toHaveLength(4)
+  })
+
+  test("every in-scope connection line is quadratic", async () => {
+    // Six orthogonal lines exist in the file; all are on out-of-scope
+    // slides, so within 1-58 the routing is uniform.
+    const { slide11 } = await import("../vocabulary/Slides/assets/pl02/slide11")
+    const lines = slide11.shapes.filter((s) => s.isConnectionLine)
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      expect(line.lineType).toBe("kTSDConnectionLineTypeQuadratic")
+    }
+  })
+
+  test("every module's recorded source is a file that exists", async () => {
+    // Slide 18 lives in the unsuffixed `Slide.iwa`, so a source path
+    // reconstructed from the id named a file that does not exist and
+    // broke the hash's provenance.
+    const { slide18 } = await import("../vocabulary/Slides/assets/pl02/slide18")
+    expect(slide18.source).toBe("refs/pitch/pl02/key/Index/Slide.iwa")
+    expect(existsSync(join(REPO, slide18.source))).toBe(true)
+    expect(existsSync(join(REPO, slide01.source))).toBe(true)
   })
 
   test("no build in the deck delivers per character", async () => {

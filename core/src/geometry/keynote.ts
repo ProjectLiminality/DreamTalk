@@ -1021,4 +1021,86 @@ export interface SlideShapeData {
    * connection meshes.
    */
   connects?: { from?: string; to?: string }
+  /**
+   * True for a `TSD.ConnectionLineArchive`, whatever else it carries.
+   *
+   * Set unconditionally BECAUSE `connects` is not: 60 of the deck's 547
+   * connection lines declare no `connectedFrom`/`connectedTo` at all, so
+   * a consumer that identifies connection lines by the presence of
+   * `connects` will conclude a slide has none. Slide 15 is exactly that
+   * case — eight connection lines, all imported correctly, none with
+   * endpoints.
+   */
+  isConnectionLine?: boolean
+  /**
+   * `kTSDConnectionLineTypeQuadratic` | `kTSDConnectionLineTypeOrthogonal`.
+   *
+   * Across the whole 83-slide file: 541 quadratic, 6 orthogonal. But
+   * **within slides 1-58 every one of the 467 lines is quadratic** — all
+   * six orthogonals are on out-of-scope slides — so P-4's "all
+   * quadratic" is right for the video, and the field is carried because
+   * the file is not uniform, not because the reproduction is. And the
+   * quadratic form is a real quadratic — P-4 proved Keynote renders the
+   * 3-point path as a curve THROUGH the middle point rather than as a
+   * 2-segment polyline, by ink-hit rate on slide 11's 70 solid strokes
+   * (0.951 +/- 0.058 for quad-through against 0.711 +/- 0.252 for
+   * polyline) plus a control-polygon bounding argument on line 4107905.
+   *
+   * That supersedes the straight centre-to-centre rule recorded under
+   * `connects`, which holds only as the degenerate case where the middle
+   * point is collinear with the ends.
+   */
+  lineType?: string
+  /**
+   * How far the drawn line stands OFF each endpoint, in slide units.
+   *
+   * **This corrects a claim P-1 made and P-4 refuted.** An earlier
+   * version of the `connects` note said `outsetFrom`/`outsetTo` were
+   * "both 0.0 throughout this deck". They are per-line, and non-zero
+   * exactly on the biggest meshes — which is the worst place for a
+   * consumer to have assumed zero on my say-so. Across all 547:
+   *
+   * In scope (slides 1-58, 467 lines): 303 are (0, 0), 78 are
+   * (0.0, 10.0), 74 are (10.0, 10.0) and 12 are (30.0, 30.0).
+   *
+   * So **164 of the 467 in-scope lines carry a non-zero outset**, and
+   * they cluster on the densest meshes — slide 8's are 30.0/30.0 and
+   * slide 11's 10.0/10.0, which is the worst possible place for a
+   * consumer to have assumed zero on my say-so. Absent here means both
+   * are zero.
+   */
+  outset?: { from: number; to: number }
+  /**
+   * Arrowheads, resolved through the style chain — the style archive
+   * lives in the GLOBAL `Index/DocumentStylesheet.iwa`, not in the slide
+   * file, so this is a document-wide id lookup.
+   *
+   * Richer than a single arrow convention: 124 in-scope drawables carry
+   * an end decoration — 123 a head, one a tail — and across the whole
+   * file two use a `filled circle` rather than the `simple arrow`. The arrow's own path is a filled triangle —
+   * moveTo(0,0), lineTo(3,6), lineTo(6,0), close — with `endPoint`
+   * (3,0) and a MiterJoin.
+   *
+   * The record is passed through WHOLE and uninterpreted. P-4 measured
+   * the drawn head at 9.66 x 4.67 half-width slide units, whose aspect
+   * matches the path's 2.0, but could not pin the absolute scale rule
+   * from three samples — so the data is here and the scale derivation
+   * belongs to the consumer that has more of them.
+   */
+  lineEnds?: {
+    head?: KeyLineEnd
+    tail?: KeyLineEnd
+  }
+}
+
+/** One end decoration (arrowhead, dot) as the stylesheet states it. */
+export interface KeyLineEnd {
+  /** `simple arrow`, `filled circle`, … */
+  identifier?: string
+  /** The decoration's own outline, in its own small design units. */
+  path: KeyPathElement[]
+  /** Where the line's end sits within that outline. */
+  endPoint?: Vec2
+  isFilled: boolean
+  lineJoin?: string
 }

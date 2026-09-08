@@ -120,7 +120,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275342",
+      isConnectionLine: true,
       connects: {"from":"5275302","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1217.218,453.361, 1273.443,483.975, 1329.669,514.588],
       ],
@@ -133,7 +136,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275367",
+      isConnectionLine: true,
       connects: {"from":"5275369","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1221.905,616.177, 1281.61,584.279, 1341.315,552.38],
       ],
@@ -146,7 +152,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275326",
+      isConnectionLine: true,
       connects: {"from":"5275365","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1368.32,693.654, 1369.05,640.419, 1369.779,587.185],
       ],
@@ -159,7 +168,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275381",
+      isConnectionLine: true,
       connects: {"from":"5275303","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1514.888,615.989, 1457.124,584.317, 1399.36,552.644],
       ],
@@ -172,7 +184,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275385",
+      isConnectionLine: true,
       connects: {"from":"5275306","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1519.616,453.463, 1465.389,483.764, 1411.162,514.065],
       ],
@@ -185,7 +200,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275296",
+      isConnectionLine: true,
       connects: {"from":"5275336","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1368.311,375.011, 1369.02,428.121, 1369.729,481.232],
       ],
@@ -264,7 +282,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275332",
+      isConnectionLine: true,
       connects: {"from":"5275372","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1447.044,668.956, 1421.969,625.68, 1396.893,582.405],
       ],
@@ -277,7 +298,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275357",
+      isConnectionLine: true,
       connects: {"to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1550.08,536.757, 1479.875,536.775, 1409.671,536.793],
       ],
@@ -290,7 +314,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275311",
+      isConnectionLine: true,
       connects: {"from":"5275370","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1458.346,400.823, 1428.676,446.734, 1399.006,492.646],
       ],
@@ -303,7 +330,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275297",
+      isConnectionLine: true,
       connects: {"from":"5275289","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1292.182,400.823, 1318.086,445.817, 1343.991,490.812],
       ],
@@ -316,7 +346,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275300",
+      isConnectionLine: true,
       connects: {"from":"5275299","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1207,536.026, 1269.103,536.321, 1331.207,536.617],
       ],
@@ -329,7 +362,10 @@ export const slide19: SlideData = {
     },
     {
       id: "5275328",
+      isConnectionLine: true,
       connects: {"from":"5275355","to":"5275338"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: {"from":0,"to":10},
       subpaths: [
         [1289.201,669.508, 1316.779,624.475, 1344.358,579.442],
       ],
@@ -408,7 +444,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274894",
+      isConnectionLine: true,
       connects: {"from":"5274842","to":"5274922"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [407.463,438.308, 476.472,396.303, 545.481,354.297],
       ],
@@ -421,7 +459,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274892",
+      isConnectionLine: true,
       connects: {"from":"5274840","to":"5274842"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [392.941,599.755, 392.941,535.911, 392.941,472.067],
       ],
@@ -434,7 +474,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274900",
+      isConnectionLine: true,
       connects: {"from":"5274840","to":"5274887"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [402.58,630.364, 471.506,670.903, 540.433,711.442],
       ],
@@ -447,7 +489,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274905",
+      isConnectionLine: true,
       connects: {"from":"5274866","to":"5274887"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [708.248,630.345, 638.928,670.912, 569.607,711.48],
       ],
@@ -460,7 +504,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274909",
+      isConnectionLine: true,
       connects: {"from":"5274866","to":"5274853"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [717.902,599.755, 717.902,535.911, 717.902,472.067],
       ],
@@ -473,7 +519,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274880",
+      isConnectionLine: true,
       connects: {"from":"5274853","to":"5274922"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [703.369,438.346, 633.968,396.311, 564.567,354.277],
       ],
@@ -486,7 +534,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274843",
+      isConnectionLine: true,
       connects: {"from":"5274887","to":"5274922"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [555.016,695.078, 555.016,534.245, 555.016,373.412],
       ],
@@ -499,7 +549,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274855",
+      isConnectionLine: true,
       connects: {"from":"5274866","to":"5274842"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [703.254,616.692, 553.017,534.608, 402.781,452.524],
       ],
@@ -512,7 +564,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274870",
+      isConnectionLine: true,
       connects: {"from":"5274853","to":"5274840"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [708.061,452.524, 557.825,534.608, 407.589,616.693],
       ],
@@ -525,7 +579,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274903",
+      isConnectionLine: true,
       connects: {"from":"5274866","to":"5274840"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [706.32,624.695, 555.421,624.695, 404.522,624.695],
       ],
@@ -538,7 +594,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274914",
+      isConnectionLine: true,
       connects: {"from":"5274922","to":"5274840"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [540.394,373.412, 472.248,489.544, 404.102,605.675],
       ],
@@ -551,7 +609,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274890",
+      isConnectionLine: true,
       connects: {"from":"5274842","to":"5274887"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [407.743,472.067, 475.764,586.589, 543.785,701.11],
       ],
@@ -564,7 +624,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274848",
+      isConnectionLine: true,
       connects: {"from":"5274853","to":"5274887"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [703.026,472.067, 634.646,586.621, 566.265,701.174],
       ],
@@ -577,7 +639,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274896",
+      isConnectionLine: true,
       connects: {"from":"5274853","to":"5274842"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [706.32,447.148, 555.421,447.148, 404.522,447.148],
       ],
@@ -590,7 +654,9 @@ export const slide19: SlideData = {
     },
     {
       id: "5274884",
+      isConnectionLine: true,
       connects: {"from":"5274866","to":"5274922"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [706.708,605.715, 638.21,489.564, 569.712,373.412],
       ],

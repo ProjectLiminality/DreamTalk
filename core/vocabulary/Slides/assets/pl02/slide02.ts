@@ -67,7 +67,9 @@ export const slide02: SlideData = {
     },
     {
       id: "4514184",
+      isConnectionLine: true,
       connects: {"from":"4514076","to":"4513444"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1485.976,336.61, 1339.006,409.855, 1192.036,483.1],
       ],
@@ -80,7 +82,9 @@ export const slide02: SlideData = {
     },
     {
       id: "4514292",
+      isConnectionLine: true,
       connects: {"from":"4514136","to":"4513444"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1548.243,820.586, 1373.957,750.59, 1199.67,680.594],
       ],
@@ -93,7 +97,9 @@ export const slide02: SlideData = {
     },
     {
       id: "4514353",
+      isConnectionLine: true,
       connects: {"from":"4513444","to":"4513603"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1176.62,474.445, 1324.24,388.855, 1471.86,303.264],
       ],
@@ -106,7 +112,9 @@ export const slide02: SlideData = {
     },
     {
       id: "4514420",
+      isConnectionLine: true,
       connects: {"from":"4513669","to":"4513444"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [522.577,281.691, 649.553,368.244, 776.53,454.797],
       ],

@@ -33,7 +33,9 @@ export const slide03: SlideData = {
     },
     {
       id: "4515938",
+      isConnectionLine: true,
       connects: {"from":"4515966","to":"4515878"},
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [464.927,727.052, 604.145,689.927, 743.363,652.802],
       ],

@@ -327,6 +327,57 @@ doubly awkward: it connects to an IMAGE, whose pixels this importer does
 not carry, so deriving that one needs `SlideData.images` too — which is
 the second reason those boxes are kept.
 
+### CORRECTION (P-4): outsets, line ends, routing type, and two data bugs
+
+**9. `outsetFrom`/`outsetTo` are NOT 0.0 throughout — my claim, refuted.**
+The `connects` note said "both 0.0 throughout this deck". I had checked
+two slides and written "throughout". P-4 found they are per-line and
+non-zero *exactly on the biggest meshes* — the worst place for a consumer
+to have assumed zero on my say-so. In scope (slides 1-58, 467 lines): 303
+are (0,0), 78 are (0,10), 74 are (10,10), 12 are (30,30). **164 of 467
+carry a non-zero outset**; slide 8's are 30/30 and slide 11's 10/10, the
+two densest meshes in the video. Now carried as `SlideShapeData.outset`.
+
+**10. Arrowheads are carried**, resolved through the style chain — the
+style archive lives in the GLOBAL `Index/DocumentStylesheet.iwa`, so it
+is a document-wide id lookup, not a slide-file one. 124 in-scope
+drawables carry an end decoration; slide 11 alone holds 70 of them, on
+every one of its connection lines. Richer than a single convention: 123
+heads, one tail, and across the whole file two `filled circle` rather
+than `simple arrow`. The record passes through whole — P-4 measured the
+drawn head at 9.66 x 4.67 half-width slide units, matching the path's 2.0
+aspect, but could not pin the absolute scale from three samples, so the
+data is here and the scale derivation belongs to the consumer.
+
+**11. `connectionLinePathSource.type` is carried, and the quadratic is a
+real curve.** P-4 proved Keynote renders the 3-point form as a quadratic
+THROUGH the middle point, not as a 2-segment polyline — ink-hit rate
+0.951 +/- 0.058 against 0.711 +/- 0.252 on slide 11's 70 solid strokes,
+plus a control-polygon bounding argument on line 4107905. **That
+supersedes the straight centre-to-centre rule** recorded under
+Correction 8, which holds only as the degenerate collinear case.
+
+One refinement to P-4's report: across the whole 83-slide file the deck
+has 541 quadratic and **6 orthogonal** lines — but all six orthogonals
+are out of scope, so within slides 1-58 every one of the 467 lines is
+quadratic and P-4's "all quadratic" is right for the video. The field is
+carried because the file is not uniform, not because the reproduction is.
+
+**12. Two data bugs, both mine, both fixed.**
+
+- *Slide 15 reported 0 connection lines where its archive holds 8.* The
+  lines imported correctly all along; they were invisible because a
+  consumer identifies connection lines by the presence of `connects`,
+  and these eight declare no `connectedFrom`/`connectedTo` (27 in-scope
+  lines are like this). Fixed by marking every connection line
+  unconditionally with `isConnectionLine`, so identity no longer depends
+  on a field that is legitimately absent.
+- *Slide 18's recorded source named `Slide-4593439.iwa`, which does not
+  exist* — my own hidden-slide gotcha, biting the provenance this time:
+  the path was reconstructed from the id rather than taken from the file
+  actually opened. Now `os.path.relpath` of the real path, and a test
+  asserts every module's source resolves on disk.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -587,7 +638,11 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1067 pass, 0 fail** (961 baseline + 57 mine + teammates').
+- `bun test` — **1070 pass, 2 fail** (961 baseline + 62 mine + teammates').
+  The two failures are a PRE-EXISTING collision between P-4's new
+  `Connection` holon and P-3's older `DottedLine` expectations in
+  `test/builds.test.ts` — verified by stashing every change of mine and
+  re-running, which reproduces both. Not mine to fix; flagged to P-3/P-4.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
