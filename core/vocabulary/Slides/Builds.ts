@@ -279,16 +279,40 @@ export const INSTANT_WINDOW = 0.001
  * why this chapter is where it surfaces, and why the correction is
  * reported rather than treated as a defect in P-7's work.
  *
- * IT IS APPLIED TO EVERY BUILD THIS DECK DECLARES `kEaseBoth` ON —
- * motion, scale and dissolve alike — because that is what the four
- * measurements above cover and the deck names one curve, not two. The
- * dissolves were nearly left on `smooth` for the defensible reason that
- * moving them perturbs mid-build frames P-3, P-4, P-5 and P-7 already
- * scored; deck 43's two 2.0s ramps are what made that unnecessary, since
- * a 2.0s ramp at 5 fps has the interior samples a 1.0s one does not.
- * The prior chapters' segment scores are unaffected either way — they
- * are SETTLED frames, chosen after each segment's last event — and their
- * mid-build frames were re-run (see §Gates in the P-8 report).
+ * A COMPLICATION WORTH STATING: HALF THE DECK DECLARES NO EASING AT ALL.
+ *
+ * `acceleration` splits the 384 in-scope builds cleanly by CLASS, not by
+ * slide:
+ *
+ *     kEaseBoth   155   every action-motion-path (19), every
+ *                       action-scale (5), every LineDraw (130), one
+ *                       dissolve character
+ *     absent      229   every dissolve (90), 120 of the 121 dissolve
+ *                       characters, every appear, fade-and-move
+ *
+ * So on the archive's own word, the dissolves state no curve — and yet
+ * the two 2.0s dissolves measured above are the ones that fit s = 0.42
+ * best, at 4x and 9x better than linear. Both facts are real: the field
+ * is absent AND the ramp eases.
+ *
+ * The reading taken here is that an absent `acceleration` is a DEFAULT
+ * rather than an assertion of linearity, and Keynote's default for a
+ * build is the same ease-both its actions name. That is inference, so it
+ * is written down as one. What it is not is a fit: the curve was
+ * measured on builds that declare it, and the question here is only
+ * whether builds that declare nothing take the same one. The footage
+ * says they do.
+ *
+ * The alternative — dissolves on the framework's `smooth`, motion on
+ * Keynote's — was tested rather than argued away: it changes NOTHING on
+ * P-5's regression frames (deck 29's frame 2686 scores 0.9664 either
+ * way, because its builds have all settled by the scored time) and it
+ * would leave the two measured 2.0s ramps fitted 2-4x worse. One curve
+ * for one deck, then.
+ *
+ * The prior chapters' settled scores are unaffected by construction —
+ * they are chosen after each segment's last event — and their mid-build
+ * frames were re-run (see §Gates in the P-8 report).
  */
 export const KEYNOTE_EASE_S = 0.42
 

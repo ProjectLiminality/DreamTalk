@@ -583,12 +583,16 @@ file was written.
   baseline fix contributes ALL cross-chapter gains (P-3 seg 6
   FAIL→PASS +0.116, P-4 slide 9 +0.024, P-2 slides +0.083/+0.029);
   the fills contribute 0.0003 on ONE frame. The SlideFill capability
-  has VERIFIED WINDING but UNTESTED OCCLUSION (P-3's push-back,
-  accepted: the motivating frame never exercised hiding — occlusion
-  order, black-stage interaction, and whether hidden ink disappears
-  are all unexercised). P-9/P-10 (70 + 15 fills) must run the cheap
-  check FIRST — one genuinely-overlapping filled shape rendered both
-  ways — before trusting it at scale.
+  is REAL and TESTED AT SCALE (P-8, deck 43: 60 fills, 30 overlapping
+  pairs) — fills genuinely hide what is behind them in the deck's own
+  z-order, and hidden ink genuinely disappears. P-5's capability was
+  sound; its EXTENT was a stroke-width too large in every direction
+  (a fill triangulated to the stroke's own path covers the ribbon's
+  inner half, and fills blend NORMAL where strokes blend MAX) — fixed
+  by SlideFill.inset (winding-aware bisector offset by half the
+  stroke), wrongly-hidden ink down 72%. Further insetting refused
+  (monotone, no optimum = fitting; and AA is a SCREEN pixel, not
+  world geometry). P-9/P-10's fills can be trusted.
 - (2026-09-08, P-5) **The one systematic gap nobody owns: text strokes
   are FAT** — ink 1.3-2.28x the reference at the same threshold on
   text-dense tableaux. Geometry and type metrics are now right; the
@@ -628,3 +632,22 @@ file was written.
   four-vanish/fade-out match. The lead's footage-measured-positions
   ruling was RETRACTED as moot (conditionally sound doctrine, false
   antecedent).
+- (2026-09-08, P-8) **Standing instruction: a chapter row's title is
+  a hypothesis** — two of eight have now dissolved on measurement
+  (P-5's dimmed palette, P-8's fractal instancing). Read the build
+  census and shape structure FIRST; name the work from the data.
+- (2026-09-08, P-8) The ease refinement: `acceleration` splits builds
+  by CLASS — 155 declare kEaseBoth, 229 declare NOTHING (every plain
+  dissolve/appear/fade-and-move). The absent field is read as a
+  DEFAULT (inference, stated as such; the alternative tested — smooth
+  on dissolves fits 2-4x worse and moves nothing else). Deck 56's
+  action-scale factor MEASURED admissibly (crosses empty stage;
+  0.795 ink-corrected, k=0.8 predicts the arrival box to ~1px);
+  ACTION_SCALE stays out of SUPPORTED — per-build opt-in. Sixth
+  firing-model confirmation (sharpest: one slide, no pooling; gaps
+  0.985-1.010x vs manual 2.275x); ONE new-shape apparent exception
+  (deck 43 chunk 8 fires WITH its predecessor) reported unresolved.
+  Measurement note: overlapping group boxes need EXCLUSIVE masks
+  (onsets move up to 0.18s — most of a frame). THE COROLLARY LESSON:
+  two settled frames do not show what happened between them, and a
+  segment boundary is exactly where that bites.

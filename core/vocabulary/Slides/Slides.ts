@@ -164,12 +164,163 @@ export class SlideFill extends Stroke {
   override tint = color(WHITE)
   override fillOpacity = completion(1)
 
+  /**
+   * How far to pull the filled region back from the path, in world units
+   * — normally HALF the outline's stroke width.
+   *
+   * WHY IT IS NOT ZERO (P-8; this is a correction to P-5's fill).
+   *
+   * A stroke is drawn CENTRED on its path, so a 3-unit outline puts 1.5
+   * units of ribbon on each side of the loop. A fill triangulated to
+   * that same loop therefore covers the ribbon's whole inner half — and
+   * fills blend NORMAL where strokes blend MAX (render/fill.ts: "a fill
+   * must be able to COVER what is behind it"), so on this deck's black
+   * fills the drawable's own outline loses half its width to its own
+   * interior.
+   *
+   * MEASURED on deck 43's head icons, one row across a head's widest
+   * point, the four pixels of its left edge:
+   *
+   *     reference        142  246  205   36
+   *     fills OFF        142  232  204   33      <- agrees
+   *     fills ON         142  204    0    0      <- inner two zeroed
+   *
+   * At deck scale a 3.0-unit stroke is 2 video px wide, and the two
+   * pixels lost are exactly its inner half. Across the whole fractal
+   * tableau the uninset fills hid 13,346 px of our own ink, of which
+   * 10,472 — 78% — was ink the reference draws, and every one of those
+   * was a filled drawable's OWN outline. That is what P-3 meant by
+   * "verified winding, untested occlusion": the winding was right and
+   * the occluder was a stroke-width too big in every direction.
+   *
+   * The remaining 22% is genuine inter-object occlusion — a neighbouring
+   * head's outline crossing behind this one — and it is correct. So the
+   * capability was sound and its extent was not.
+   *
+   * WHY HALF THE STROKE AND NOT MORE. Half a stroke width is where the
+   * ribbon's own geometry ends, and it is a GEOMETRIC quantity: it
+   * scales with the drawing and holds at any output size. The ribbon
+   * then fades over a further antialias band (render/ribbon.ts's
+   * `AA_PX = 1.0`), and insetting past that band does recover a little
+   * more — swept on this same frame:
+   *
+   *     extra inset   0       +0.39   +0.78   +1.17   (world units)
+   *     coverage_ref  0.9544  0.9566  0.9587  0.9606
+   *
+   * It was NOT taken. The gain is monotone with no optimum, which is the
+   * signature of fitting rather than reading: the curve is only "hide
+   * less of your own edge", and it has no natural stopping point short
+   * of disabling occlusion altogether. And `AA_PX` is one SCREEN pixel,
+   * so folding it into a world-space inset would make the geometry
+   * depend on the render resolution. Half the stroke is the edge the
+   * shape actually has; the antialias band belongs to whoever owns the
+   * ribbon.
+   */
+  inset = length(0)
+
   protected override compose(): void {
     for (const points of this.loops) {
-      this.add(new Line({ points, tint: this.tint, stroke: 0, creation: 0 }))
+      this.add(
+        new Line({
+          points: insetLoop(points, this.inset.value),
+          tint: this.tint,
+          stroke: 0,
+          creation: 0,
+        }),
+      )
     }
   }
 }
+
+/**
+ * A closed loop pulled `d` world units toward its own interior.
+ *
+ * Each vertex moves along the bisector of its two edge normals, scaled
+ * so the OFFSET EDGES land `d` from the originals rather than the
+ * vertices landing `d` from theirs — which for a sharp corner are very
+ * different distances (the bisector step is `d / sin(theta/2)`).
+ *
+ * Interior side is read from the loop's signed area, so a hole wound the
+ * other way insets the way a hole should: even-odd fills alternate, and
+ * an inner loop's "interior" is the material around it. `Notebook_109`'s
+ * screen rectangle is the case, and getting it backwards would grow the
+ * hole instead of shrinking it.
+ *
+ * Degenerate cases fall back to the original loop rather than to a
+ * self-intersecting one: a step longer than the local feature size
+ * (a 1-unit-wide icon detail under a 1.5-unit inset) would fold the
+ * polygon, and an unshrunk fill is a smaller error than an inverted one.
+ * Guarded by `MAX_INSET_RATIO`.
+ */
+const insetLoop = (points: readonly Vec3Like[], d: number): Vec3Like[] => {
+  const pts = points.slice()
+  if (d <= 0 || pts.length < 4) return pts
+  // The loop repeats its first point at the end; work on the open ring.
+  const first = pts[0]!
+  const last = pts[pts.length - 1]!
+  const closed = Math.hypot(last.x - first.x, last.y - first.y) < 1e-9
+  const ring = closed ? pts.slice(0, -1) : pts
+  const n = ring.length
+  if (n < 3) return pts
+
+  let area2 = 0
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!
+    const b = ring[(i + 1) % n]!
+    area2 += a.x * b.y - b.x * a.y
+  }
+  // A counter-clockwise loop (positive area in a y-up frame) has its
+  // interior to the LEFT of each edge; clockwise, to the right.
+  const side = area2 >= 0 ? 1 : -1
+
+  const out: Vec3Like[] = []
+  for (let i = 0; i < n; i++) {
+    const prev = ring[(i - 1 + n) % n]!
+    const cur = ring[i]!
+    const next = ring[(i + 1) % n]!
+    // Inward normals of the two edges meeting at `cur`.
+    const e0 = { x: cur.x - prev.x, y: cur.y - prev.y }
+    const e1 = { x: next.x - cur.x, y: next.y - cur.y }
+    const l0 = Math.hypot(e0.x, e0.y)
+    const l1 = Math.hypot(e1.x, e1.y)
+    if (l0 < 1e-12 || l1 < 1e-12) {
+      out.push({ x: cur.x, y: cur.y, z: cur.z })
+      continue
+    }
+    const n0 = { x: (-e0.y / l0) * side, y: (e0.x / l0) * side }
+    const n1 = { x: (-e1.y / l1) * side, y: (e1.x / l1) * side }
+    const bx = n0.x + n1.x
+    const by = n0.y + n1.y
+    const bl = Math.hypot(bx, by)
+    if (bl < 1e-9) {
+      // A 180-degree reversal — a spike. Offsetting it has no meaning.
+      out.push({ x: cur.x, y: cur.y, z: cur.z })
+      continue
+    }
+    // `bl/2` is cos(theta/2) for the half-angle between the normals, so
+    // dividing by it turns an edge offset of d into the bisector step.
+    const step = d / (bl / 2)
+    if (!Number.isFinite(step) || step > d * MAX_INSET_RATIO) return pts
+    out.push({
+      x: cur.x + (bx / bl) * step,
+      y: cur.y + (by / bl) * step,
+      z: cur.z,
+    })
+  }
+  if (closed) out.push({ x: out[0]!.x, y: out[0]!.y, z: out[0]!.z })
+  return out
+}
+
+/**
+ * How far past `d` a bisector step may go before the inset is abandoned.
+ *
+ * A corner sharper than about 23 degrees needs a step over 5x the edge
+ * offset, and pushing a vertex that far turns a small feature inside
+ * out. Falling back to the uninset loop there costs half a stroke width
+ * on that one drawable and keeps the polygon simple, which is the
+ * cheaper error.
+ */
+const MAX_INSET_RATIO = 5
 
 /** Total length of a polyline — the weight a subpath carries in a draw. */
 const arcLength = (points: readonly Vec3Like[]): number => {
@@ -648,7 +799,7 @@ export class Slide extends Holon {
     // Sketch has, reached for the same reason.
     // Hoisted so the narrowing survives the loop below — `shape.fill`
     // is optional and TypeScript widens it again inside the closure.
-    const fillHex = shape.fill
+    const fillHex = this.fills ? shape.fill : undefined
     if (fillHex) {
       const loops: Vec3Like[][] = []
       for (let i = 0; i < shape.subpaths.length; i++) {
@@ -680,6 +831,13 @@ export class Slide extends Holon {
               loops,
               tint: hexToColor(fillHex),
               opacity: shape.opacity,
+              // HALF the outline's width, because a stroke is centred on
+              // its path and a fill triangulated to that same path would
+              // cover the ribbon's inner half — see `SlideFill.inset` for
+              // the measurement. A drawable with no stroke of its own
+              // gets no inset: there is no ribbon to protect, and the
+              // fill's edge IS the shape's edge.
+              inset: (shape.strokeWidth ?? 0) > 0 ? width / 2 : 0,
             }),
           ),
         )
@@ -930,6 +1088,29 @@ export class Slide extends Holon {
    * (`Builds.ACTION_SCALE_D56`). The other four stay unscored.
    */
   scaleFactors: Record<string, number> = {}
+
+  /**
+   * Compose the deck's opaque fills, or leave them out — the A/B switch
+   * for the occlusion question P-5 left open (P-8).
+   *
+   * P-5 built `SlideFill` and verified its WINDING, and P-3's push-back
+   * was accepted at the time: the motivating frame never exercised
+   * HIDING, so occlusion order, black-stage interaction and whether
+   * hidden ink actually disappears were all untested, and P-9/P-10 were
+   * told to run a cheap check before trusting it at scale.
+   *
+   * Deck 43 is where that check is cheap: 60 black-filled shapes with 30
+   * genuinely overlapping pairs and 39 unfilled drawables crossing them,
+   * on a tableau whose whole construction is cone lines passing BEHIND
+   * ellipses. Flipping this to false and re-scoring the same frame is
+   * the measurement; the numbers are in `docs/reports/pl02/p8-fractal.md`.
+   *
+   * Default true — the deck's own behaviour. This exists so the
+   * comparison is a parameter rather than an edit-and-revert, which is
+   * the difference between a measurement someone can repeat and a claim
+   * they have to take on trust.
+   */
+  fills = true
 
   build(record: KeyBuild): Anim {
     void this.parts

@@ -1,0 +1,11 @@
+{
+  "name": "p8seg-f_03987",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/p8/final-seg/ours-p8seg-f_03987.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03987.jpg",
+  "iou": 0.9074,
+  "chamfer_ours_px": 0.102,
+  "chamfer_ref_px": 0.097,
+  "coverage_ref": 1.0,
+  "coverage_ours": 0.9958,
+  "verdict": "PASS"
+}
