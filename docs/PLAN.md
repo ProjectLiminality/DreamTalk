@@ -508,3 +508,19 @@ is the SOURCE'S WINDOWED EASE, by elimination — per-segment easing
 deviates 0.38 deg worst-case from linear along the rig path, four
 orders too small for the 0.22 dip. Remaining (narrow, optional):
 fit the source's ease across its rel_end_point=2/3 window.
+
+## PL02 build phase COMPLETE (2026-09-08 evening)
+
+P-1..P-10 all closed. Scorecard (settled/mid where measured): title
+1/1 whole-frame · p02a 3/5 (traced images landed; two remaining are
+its own) · p02d 9/10 · p02e 7/7 · p02f/g mid-glide to 0.78/0.90 (dash
+phase open) · p02i 9/9 + 7/7 · p02j 7/7 + 7/7 · p02k 2/4 (both named:
+stroke-under-scale; deck 59's post-edit) · p02l 7/7. The firing model
+SETTLED (three states via referent); the importer drops NOTHING and
+carries no unresolved marks; 1218 tests. Open residuals, all named:
+dash-lattice phase (P-6), stroke-width-under-scale (deck 17, a
+framework question), deck 59's stepping ratio + post-edit remainder,
+slide 8's outset geometry, the cursor glyph (synthesis-unverified,
+announced in-model). NEXT: the ASSEMBLY — the 903.4s film at the
+video's own boundaries, deck 59 rendered in its FILMED state per the
+ruling (translation + the three deleted labels from footage).

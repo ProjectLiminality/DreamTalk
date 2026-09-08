@@ -467,10 +467,6 @@ export class Slide extends Holon {
       this.labels.push(label)
     }
 
-    /** A group adopts the FIRST part of each member — see `byId`. */
-    const byId = new Map<string, Holon>()
-    for (const [id, parts] of this.byId) if (parts[0]) byId.set(id, parts[0])
-
     // Groups adopt what already exists rather than owning construction.
     // The importer lifts every grouped child onto the canvas before this
     // sees it (keydecode.py's walk accumulates the enclosing chain), so a
@@ -478,8 +474,42 @@ export class Slide extends Holon {
     // every part's own identity intact, which is what a scene animating
     // one member of a group needs — and what a build, which names a
     // single drawable, requires.
+    //
+    // A GROUP ADOPTS ALL OF A MEMBER'S PARTS, AND THAT IS A Z-ORDER FIX
+    // (P-10). It used to adopt only `parts[0]`, and for a member with one
+    // part that is the same thing — but a FILLED drawable composes TWO,
+    // its `SlideFill` first and its outline second, and adopting only the
+    // first re-parented the fill while leaving the stroke behind.
+    //
+    // That matters because `Group.compose` calls `add` on each member,
+    // which MOVES it to the end of this holon's part list, and the host
+    // hands out render order by attach sequence (three-host.ts's
+    // `nextFillOrder`: "attach order IS composite order"). Groups are
+    // built after the whole shape loop, so an adopted fill jumped past
+    // every ungrouped stroke and every earlier group's — while its own
+    // outline stayed put. The deck's z-order survived for unfilled
+    // drawables and inverted for filled grouped ones.
+    //
+    // Slide 9's Logo is the case that shows it. Five members, emitted
+    // 5149772 (outer circle, black fill), 5149786 (inner circle, black
+    // fill), then the three unfilled Lambda strokes. The outer circle's
+    // fill was adopted and so painted LAST, over the inner circle's
+    // stroke and both Lambda legs. Measured on `f_00950`: with fills off
+    // the frame scores coverage_ref 1.0000, with them on 0.9771, and the
+    // 773 pixels that differ all lie inside the outer circle at radii
+    // 2.7-42.8 video px — its whole interior, which is exactly what its
+    // fill covers. Adopting every part restores the deck's order and the
+    // frame returns to 1.0000.
+    //
+    // Deck 59's full-canvas background fill (P-9) is the same defect at
+    // the largest possible scale: one grouped filled drawable, declared
+    // first, painting over strokes declared thirty places above it.
+    //
+    // `byId` still maps a drawable to ALL its parts, and `buildTargets`
+    // still reaches every one, so nothing about build targeting changes;
+    // what changes is only where the parts sit in the attach sequence.
     for (const group of this.data.groups) {
-      const members = group.members.map((id) => byId.get(id)).filter((m): m is Holon => !!m)
+      const members = group.members.flatMap((id) => this.byId.get(id) ?? [])
       if (members.length > 0) {
         const holon = this.add(new Group({ members }))
         this.groups.push(holon)

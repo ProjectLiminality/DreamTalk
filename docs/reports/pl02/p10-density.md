@@ -247,7 +247,72 @@ error is what the refused-fits rule forbids, and I confirmed it makes the
 reproduction worse in exactly the way P-8 warned — it raises nothing and
 moves geometry.
 
-## 5. The outset verdict
+## 5. The coplanar z-order defect — a group adopted only half of a filled member
+
+Handed to this chapter mid-flight because it was blocking two closed
+chapters' numbers. **The cause was not coplanar z at all**, which is what
+made it hard to find: `composeShape` does emit fills and strokes in the
+deck's order, and the host does honour attach order. The reordering
+happened between them.
+
+**`Slide.compose` handed each `Group` only `parts[0]` of each member.**
+For an unfilled drawable that is its only part and nothing changed. For a
+**filled** one `parts[0]` is the `SlideFill` and the outline was left
+behind — and since `Group.compose` re-`add`s its members, moving them to
+the end of the Slide's part list, an adopted fill jumped past every
+ungrouped stroke and every earlier group while its own outline did not.
+The deck's z-order held for unfilled drawables and **inverted for filled
+grouped ones**.
+
+Slide 9's Logo is the demonstration. Five members: `5149772` (outer
+circle, black fill), `5149786` (inner circle, black fill), then three
+unfilled Λ strokes. The outer circle's fill was adopted and painted last,
+over everything inside it.
+
+Isolated by rendering the slide twice, fills on and off — the A/B P-8
+built for a different question:
+
+| | coverage_ref | coverage_ours |
+|---|---|---|
+| fills OFF | **1.0000** | 0.9898 |
+| fills ON, before the fix | 0.9771 | 0.9952 |
+| **fills ON, after the fix** | **1.0000** | **0.9954** |
+
+The 773 pixels that differ between on and off all lie inside the outer
+circle at radii 2.7–42.8 video px — its entire interior, which is exactly
+what its fill covers. Note the corrected `coverage_ours` (0.9954) is
+*better* than the fills-off number (0.9898): the fills are doing real
+occlusion work, and were doing it in the wrong order rather than
+wrongly.
+
+**The fix is one line** — a group adopts every part of each member,
+preserving their relative order — and it is a restoration of the deck's
+stated order rather than a new rule.
+
+**Why it survived three chapters.** A black fill on a black stage paints
+nothing visible of its own; the only symptom is *other* ink quietly
+missing. It is the same hazard P-4's §5 named — a failure that renders
+plausibly — and it is why the four tests pinning it assert the structural
+relationship (every part of every grouped member is adopted) rather than
+a score. Reverting the fix fails three of them.
+
+**What it moved, across the campaign** (all re-run, freshness-guarded):
+
+| | before | after | |
+|---|---|---|---|
+| P-4 slide 9 settled `f_00950` | 0.9771 | **1.0000** | the lead's acceptance |
+| P-9 deck 59 `f_04460` | 0.6752 | **0.7352** | +0.060, chamfer 4.355 → 3.632 |
+| P-8 `f_04245` | 0.9467 | **0.9986** | |
+| P-8 `f_04220` | 0.9285 | **0.9872** | |
+| P-5 `f_02686` | 0.9664 | **0.9966** | |
+| P-7 `f_03941` | 0.9634 | **0.9704** | |
+| P-10 deck 11 | 7/7 | **7/7** | every frame improved slightly |
+
+Deck 59's gain is **+0.060 rather than the ~0.10 predicted**; the
+remainder is its own documented post-recording edit, which no rendering
+change can reach. Reported as measured rather than as the target.
+
+## 6. The outset verdict
 
 **10/10 behaves.** Every one of the 70 corridors reaches a peak ink-hit
 rate of **1.000** in the settled frame (mean 1.000 over 70 lines),
@@ -265,7 +330,7 @@ different geometry class (lines to campfire GROUPS whose member ellipse
 dominates the silhouette), and nothing measured here reaches that case.
 **Slide 8 stays open**, with the search space reduced to its own geometry.
 
-## 6. The boundaries
+## 7. The boundaries
 
 From this chapter's own sweep of frames 965–1145 (sweep, never landmark).
 Decks 12/13/14 were separated by **shape census** — head-centre positions
@@ -286,7 +351,7 @@ The recon's table gives slide 11 as 199.4–214.4 and slide 14 as
 214.2 (ink 0), and the recon's rows for "12" (214.4–217.0) and "13"
 (217.0–219.4) only roughly bracket the settled holds above.
 
-## 7. Scores
+## 8. Scores
 
 Unmasked whole-frame throughout — **these three slides carry zero
 images**, so there is no coverage ceiling to excuse and no masked variant
@@ -325,19 +390,21 @@ both end in the same tableau. `f_01030` and `f_01057` are the only frames
 where a wrong firing model is visible at all, which is why the scored set
 contains one of each case.
 
-## 8. Files
+## 9. Files
 
 | path | what |
 |---|---|
 | `core/demo/pl02/Density01.ts` | **new** — deck slides 11/12/13, registered `p02l`; `firingTimes` is the rule |
-| `core/vocabulary/Slides/Slides.ts` | **additive** — `Slide.drawsInStoredOrder`, default off |
-| `core/test/density.test.ts` | **new** — 20 tests |
+| `core/scripts/pl02-front.py` | **new** — the draw-front measurement rig (§4), reusable per slide |
+| `core/vocabulary/Slides/Slides.ts` | **additive** — `Slide.drawsInStoredOrder`, default off; **and the z-order fix** (§5), one line |
+| `core/test/density.test.ts` | **new** — 24 tests |
 | `core/demo/scenes.ts` | one import, one registry entry |
 
 Routed to the lead rather than changed here: `KeyBuildChunk.referent`
-(landed), and the two `Connection` draw-on gaps in §4.
+(landed), and the two `Connection` draw-on gaps in §4 (landed as
+`a4775dc`).
 
-## 9. What later work inherits
+## 10. What later work inherits
 
 1. **The firing model is settled and now has three parts**, not two.
    `referent` is the field; deck 11 is the discriminator; the two
@@ -358,45 +425,78 @@ Routed to the lead rather than changed here: `KeyBuildChunk.referent`
 6. **A settled frame cannot test a firing model.** Any future chapter
    claiming a cascade shape must score a mid-cascade frame; deck 11's
    105 declared builds settle into a tableau identical under both
-   readings.
+   readings. Both draw-on gaps in §4 were likewise invisible in every
+   settled frame in the campaign.
+7. **The z-order defect is closed, and its shape is worth keeping.** It
+   was not what it looked like: not coplanar z, but a group adopting
+   half of a filled member. Three chapters' numbers were suppressed by
+   it because a black fill on a black stage has no symptom of its own —
+   only *other* ink quietly missing.
+8. **A negative result is a result.** Slide 9 cannot separate the two
+   draw curves and slide 8 cannot answer the arrowhead question; both
+   are recorded as inconclusive rather than resolved in the direction
+   deck 11 points. `pl02-front.py` enforces that itself, printing "NOT a
+   separation" below a 1.5x threshold, so the next chapter cannot read a
+   1.4x ratio as confirmation.
 
-## 10. Gates
+## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1208 pass, 0 fail** across 60 files (1188 baseline +
-  20 mine).
+- `bun test` — **1218 pass, 0 fail** across 60 files (24 mine).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's, P-3's and P-4's to four
-  decimals, so nothing here perturbed the video-01 reproduction.
-- **P-10 segments — 7/7 PASS** (§7).
+  decimals, so neither the draw-on fixes nor the z-order fix perturbed
+  the video-01 reproduction.
+- **P-10 segments — 7/7 PASS** (§8).
 
 ### Regression spots, freshness-guarded
 
-Every one re-run after the `Connection` fixes landed, since a chapter
-figure that survived a teammate's landing unmoved is unverified until
-re-run (P-4's rule).
+All re-run after BOTH landings — P-4's two draw-on fixes (`a4775dc`) and
+this chapter's z-order fix — since a figure that survived a teammate's
+landing unmoved is unverified until re-run (P-4's rule).
 
 | chapter | scene | result | |
 |---|---|---|---|
 | P-3 | `p02a` | **3/5** | unchanged; the two FAILs are its traced-image slides |
-| P-4 | `p02d` | **9/10** | **improved** — see below |
-| P-5 | `p02e` | **7/7** | unchanged |
-| P-7 | `p02i` | **9/9** | unchanged |
-| P-8 | `p02j` | **7/7** | unchanged |
-| P-9 | `p02k` | **2/4** | unchanged; both FAILs are its own documented ceilings (deck 17's stroke-width-under-scale, deck 59's post-recording edit) |
+| P-4 | `p02d` | **9/10** | **improved twice** — see below |
+| P-5 | `p02e` | **7/7** | held; `f_02686` 0.9664 → **0.9966** |
+| P-7 | `p02i` | **9/9** | held; four frames improved |
+| P-8 | `p02j` | **7/7** | held; `f_04245` 0.9467 → **0.9986**, `f_04220` 0.9285 → **0.9872** |
+| P-9 | `p02k` | **2/4** | deck 59 **+0.060**; both FAILs remain its own documented ceilings (deck 17's stroke-width-under-scale, deck 59's post-recording edit) |
 
-**P-4's mid-draw pair moved, exactly as §4 predicted.** Its two standing
-mid-draw FAILs on deck 9's fifteen-line cascade were attributed to 5 fps
-sampling of a 2.0s ramp; they were the linear front:
+**P-4's deck 9 moved twice, and each time for a reason stated in advance.**
 
-| frame | P-4 reported | now | |
+Its two mid-draw FAILs were attributed to 5 fps sampling of a 2.0s ramp;
+they were the linear front (§4):
+
+| frame | P-4 reported | after the draw-on fixes | |
 |---|---|---|---|
 | f_00862 | 0.8614 | **0.9101** | FAIL → **PASS** |
 | f_00866 | 0.8466 | **0.8862** | still FAIL, `cov_ref` 1.0000 |
-| f_00869 | 0.9966 | 0.9330 | PASS |
 
-P-4's four settled frames are unchanged to four decimals, which is the
-check that the fix moved only what it should. The prediction in §4 was
-made from deck 11's measurements before these frames were re-run, and it
-held — which is the strongest evidence available that the two gaps were
-correctly identified rather than fitted to deck 11.
+Its *settled* frame then moved on the z-order fix (§5): `f_00950`
+**0.9771 → 1.0000**, the lead's stated acceptance. Between them P-4 goes
+from 4/6 on its mid-draw set to 5/6, and its gate frame is exact again.
+
+The §4 prediction was made from deck 11's measurements **before** P-4's
+frames were re-run, and it held. That is the strongest evidence available
+that the two draw-on gaps were correctly identified rather than fitted to
+deck 11 — a fit explains the slide it was made on and nothing else.
+
+### One honest negative, recorded
+
+Asked to confirm the eased front independently on P-4's slide 9, my own
+rig **could not**: 0.0998 eased against 0.1384 linear, a ratio of 1.4x,
+below the separation threshold the script itself enforces. P-4's
+inability to reproduce it was not a coarse instrument — slide 9's window
+is genuinely uninformative (fifteen lines, 2.0s, and direction 53 draws
+from the middle, halving the effective travel). **The eased-front finding
+rests on deck 11 alone**; slide 9 is consistent with it but cannot
+discriminate. The same applies to the arrowhead: slide 8's corridors pass
+over other campfires, so its far-corridor ink reads 0.3–0.8 and is
+uninterpretable. Deck 11's flat 0.000 across ten frames is the evidence.
+
+The measurement rig is packaged at **`core/scripts/pl02-front.py`** so
+any chapter can re-run either test on its own slide, and it prints "NOT a
+separation" rather than the better-by-a-hair number when the window
+cannot tell two curves apart.

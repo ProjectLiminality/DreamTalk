@@ -69390,12 +69390,8 @@ class Slide extends Holon {
       this.byId.set(text.id, [label3]);
       this.labels.push(label3);
     }
-    const byId = new Map;
-    for (const [id, parts] of this.byId)
-      if (parts[0])
-        byId.set(id, parts[0]);
     for (const group of this.data.groups) {
-      const members = group.members.map((id) => byId.get(id)).filter((m2) => !!m2);
+      const members = group.members.flatMap((id) => this.byId.get(id) ?? []);
       if (members.length > 0) {
         const holon = this.add(new Group2({ members }));
         this.groups.push(holon);

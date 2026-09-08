@@ -296,6 +296,83 @@ describe("the draw-direction flag", () => {
   })
 })
 
+describe("the coplanar z-order fix — a group adopts ALL of a member's parts", () => {
+  // THE DEFECT THIS PINS. `compose` used to hand each Group only
+  // `parts[0]` of each member. For an unfilled drawable that is its only
+  // part and nothing changed; for a FILLED one it is the `SlideFill`,
+  // and the outline was left behind. Because `Group.compose` re-adds its
+  // members — moving them to the end of the Slide's part list — and the
+  // host assigns render order by attach sequence, an adopted fill jumped
+  // past every ungrouped stroke while its own outline did not. The
+  // deck's z-order held for unfilled drawables and inverted for filled
+  // grouped ones.
+  //
+  // It rendered plausibly, which is why it survived three chapters: a
+  // black fill on a black stage paints nothing visible of its own, so
+  // the only symptom is other ink quietly missing.
+
+  test("slide 9's Logo: the group holds both parts of each filled member", () => {
+    const page = new Slide({ data: slide09 })
+    void page.parts
+    const logo = page.groupById.get("5149755")
+    expect(logo).toBeDefined()
+    // Five members, two of them black-filled — so seven parts, not five.
+    // P-5 recorded this count when fills landed; the bug was that the
+    // GROUP only ever saw five of them.
+    const filled = slide09.shapes.filter(
+      (s) => ["5149772", "5149786"].includes(s.id) && s.fill,
+    )
+    expect(filled.length).toBe(2)
+    expect(logo?.members.length).toBe(5 + filled.length)
+  })
+
+  test("every filled grouped drawable contributes its fill AND its outline", () => {
+    // Stated over the whole slide rather than one group, so a future
+    // change that fixes the Logo and misses the general case fails here.
+    const page = new Slide({ data: slide09 })
+    void page.parts
+    const adopted = new Set<unknown>()
+    for (const g of page.groups) for (const m of g.members) adopted.add(m)
+    for (const group of slide09.groups) {
+      for (const id of group.members) {
+        const parts = page.byId.get(id)
+        if (!parts) continue
+        for (const part of parts) {
+          expect(adopted.has(part)).toBe(true)
+        }
+      }
+    }
+  })
+
+  test("deck 11's nodes adopt their fills too — 70 filled heads", () => {
+    // Deck 11 is the scale case: every one of its 70 `Head_652` carries a
+    // black fill, and they are what keep far heads from showing through
+    // near ones where clusters overlap.
+    const page = new Slide({ data: slide11 })
+    void page.parts
+    const filled = slide11.shapes.filter((s) => s.fill)
+    expect(filled.length).toBe(70)
+    const adopted = new Set<unknown>()
+    for (const g of page.groups) for (const m of g.members) adopted.add(m)
+    for (const shape of filled) {
+      const parts = page.byId.get(shape.id) ?? []
+      expect(parts.length).toBe(2) // the SlideFill and the outline
+      for (const part of parts) expect(adopted.has(part)).toBe(true)
+    }
+  })
+
+  test("build targeting is unaffected — every build still reaches its parts", () => {
+    // `byId` always mapped a drawable to ALL its parts; only adoption
+    // changed. This states that so a future reader does not "simplify"
+    // the flatMap back to parts[0] believing targeting depends on it.
+    const page = new Slide({ data: slide11 })
+    void page.parts
+    for (const build of slide11.builds) {
+      expect(page.buildTargets(build).length).toBeGreaterThan(0)
+    }
+  })
+})
+
 describe("what P-10 scored", () => {
   test("the scored set covers both firing cases mid-flight", () => {
     // A settled frame cannot tell a stepping cascade from a simultaneous

@@ -762,3 +762,44 @@ file was written.
   'a slide with a large early background fill' is not a rare shape.
   P-5/P-8 machinery; owner needed after P-10 closes (Slides.ts is
   P-10's mid-flight).
+
+## P-10 close (2026-09-08) — the final build-chapter amendments
+
+- **THE FIRING MODEL, SETTLED** (three states): automatic:false waits
+  for a click; automatic + referent:true steps one declared duration
+  after its predecessor; automatic + referent:false fires WITH its
+  referent — no step. Deck 11 is the sole discriminator (both cases,
+  one slide, identical declarations): 35 stepped dissolves at ratio
+  1.0000 (sd 0.050s — the campaign's sharpest, no pooling); 70 lines
+  spanning 0.40s where the old rule reads 157.5s (NOT truncation —
+  all settled with 1.4s to spare). The retrodiction table covers
+  every measurement on record; BOTH standing chunk-order exceptions
+  (deck 43 chunk 8, deck 53) were referent:false — the same fact.
+  Deck 59's 0.85-0.87x stepping ratio is NOT explained and stays open.
+- **The z-order defect was not coplanar z**: Slide.compose adopted
+  only parts[0] of each group member — an adopted FILL jumped to the
+  end of the part list while its outline stayed, inverting the deck's
+  order for filled grouped drawables only (invisible for three
+  chapters because a black fill on a black stage has no symptom of
+  its own — only OTHER ink quietly missing). One line restores the
+  stated order; slide 9 back to 1.0000 with cov_ours BEATING
+  fills-off (the fills work, they were mis-ordered); P-8 and P-5
+  gained UNANNOUNCED (the defect suppressed more chapters than the
+  two identified); deck 59 gained +0.060 measured (not the ~0.10
+  predicted — the rest is its own post-edit). Tests pin the
+  STRUCTURAL relationship, not a score.
+- Census: deck 11 is 7 clusters × K5 = 70 lines over 35 nodes
+  (clusters identical to 0.0010 units; the recon's "14 organisms ×
+  7-node mesh" is wrong); deck 12's two K6 meshes are SUPERIMPOSED —
+  decks 11-14 are one organism DIVIDING. drawsReversed's page-centre
+  fallback is scoped to deck 2's premise (chance on deck 11, where
+  56/70 draw from the stored from end — drawsInStoredOrder is the
+  per-slide opt-in; the disagreement stays visible). Outsets 10/10
+  behave (hit-rate 1.000 × 70) — slide 8's residual stays OPEN,
+  narrowed to its own geometry. Eighth kEaseBoth confirmation.
+- **Honest negatives**: slide 9 cannot separate the draw curves
+  (1.4x, below the rig's threshold); slide 8 cannot answer the
+  arrowhead question. The eased-front and travelling-head findings
+  rest on deck 11 ALONE. The rig (core/scripts/pl02-front.py) prints
+  "NOT a separation" below 1.5x so a near-tie can never read as
+  confirmation.
