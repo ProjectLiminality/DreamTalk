@@ -12,12 +12,12 @@ ceiling to excuse and the unmasked number is the whole story.
 |---|---|---|---|---|---|---|
 | 7 | f_00808 | 161.4 | 0.9505 | 0.9345 | 0.607/0.447 | **PASS** |
 | 8 | f_00851 | 170.0 | 0.9554 | 0.9234 | 0.755/0.465 | **PASS** |
-| **9** | **f_00950** | **189.8** | **1.0000** | **0.9898** | **0.286/0.043** | **PASS** |
+| **9** | **f_00950** | **189.8** | **1.0000** | **0.9954** | **0.245/0.043** | **PASS** |
 | 14 | f_01111 | 222.0 | 0.9915 | 0.9988 | 0.071/0.128 | **PASS** |
 
 Slide 9 — the chapter's gate, a complete K6 of fifteen dotted lines —
 reaches `coverage_ref 1.0000`: every ink pixel the reference has, we
-have, at `coverage_ours 0.9898`. Slide 14's two thirty-line meshes score
+have, at `coverage_ours 0.9954`. Slide 14's two thirty-line meshes score
 **0.9915 / 0.9988 with a 0.071 px chamfer**, which is identity to the
 limit the encode allows. And a mid-segment frame of slide 9 after its
 mesh has settled but before its Logo arrives (f_00900, 179.8s) scores
@@ -274,12 +274,32 @@ of the Logo's five shapes carry a black fill, and P-5's opaque-fill work
 composes a `SlideFill` alongside each filled shape's outline (they need
 separate holons because a white-stroked, black-filled icon cannot be one
 colour). P-5 rewrote the assertion to state the relationship —
-`members.length + filled.length` — rather than the bare 5, which is the
-better test and is why the number moving did not cost anything. Verified
-here that the new parts are reached by all three opacity paths
-(`visible`, `preBuild`, the build's own ramp) and that `cutIn` still
-leaves a pending build's targets dark: an unreached fill would be P-3's
+`members.length + filled.length` — rather than the bare 5. Verified here
+that the new parts are reached by all three opacity paths (`visible`,
+`preBuild`, the build's own ramp) and that `cutIn` still leaves a
+pending build's targets dark: an unreached fill would be P-3's
 seventy-second ghost wearing a new coat.
+
+**AND THAT SEVEN WAS HIDING A BUG OF MINE, which P-10 later found.**
+`byId` held all seven parts, but `Slide.compose` handed each `Group`
+only `parts[0]` of each member — so a filled shape contributed its
+`SlideFill` and left its outline behind. Because `Group.compose`
+re-`add`s its members, moving them to the end of the page's part list,
+the adopted fill jumped past every ungrouped stroke while its own
+outline stayed put, and the Logo's outer black fill painted over the
+middle circle's stroke. Measured: the reference inks that circle's ring
+**360/360** and we inked **86/360**, which is what dropped f_00950's
+`coverage_ref` from 1.0000 to 0.9771. One line fixes it — a group adopts
+EVERY part of each member.
+
+The lesson is sharper than the bug. Both P-5 and I checked the seven
+parts on `buildTargets` and neither of us checked them on `page.groups`:
+we were measuring the right relationship on the wrong collection, and the
+assertion passed while the thing it was meant to guard was broken. My
+own §5 note above records the seven as a curiosity — "why does a
+five-member group resolve to seven?" — when it was in fact the visible
+edge of a real defect. A test now asserts the adoption on `page.groups`
+and I verified it bites by reverting the line.
 
 **Segment 9's score also moved upward in the same window**, from
 `coverage_ours` 0.9654 to **0.9898** and its chamfer from 0.364/0.045 to
@@ -557,13 +577,13 @@ attributed. Both pass.
 ## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1214 pass, 0 fail** (1067 baseline + 30 mine + the
+- `bun test` — **1218 pass, 0 fail** (1067 baseline + 30 mine + the
   baseline's own movement as other agents landed work).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's and P-3's to four decimals, so
   nothing here perturbed the video-01 reproduction.
-- **P-4 segments — 4/4 whole-frame PASS**, unmasked, no images to mask.
-- Mid-draw — 4/5 after P-10's eased-front and travelling-head fixes,
-  up from 4/7; the one remaining failure has `coverage_ref` 1.0000 (§7).
+- **P-4 scenes — 9/10** across settled and mid-draw frames together
+  (`p02d`), unmasked, no images to mask. The four settled segments all
+  PASS; the one failure is f_00866 at `coverage_ref` 1.0000 (§7).
 - P-3's opening arc — **3/5**, up from its reported 2/5; five of its
   five segments improved (§9).

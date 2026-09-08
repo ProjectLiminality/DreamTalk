@@ -495,6 +495,25 @@ describe("the meshes compose, at scale", () => {
     )
     expect(filled).toHaveLength(2)
     expect(parts).toHaveLength(group.members.length + filled.length)
+
+    // …AND THE `Group` HOLON MUST ADOPT THE SAME SEVEN. Asserting the
+    // relationship on `buildTargets` alone was measuring the right thing
+    // on the wrong collection: `byId` held all seven parts while
+    // `Slide.compose` handed the Group only `parts[0]` of each member,
+    // so a filled shape contributed its `SlideFill` and left its outline
+    // behind. Since `Group.compose` re-`add`s its members — moving them
+    // to the end of the page's part list — the adopted fill jumped past
+    // every ungrouped stroke while its own outline stayed put, and the
+    // Logo's middle circle was painted over by the outer circle's fill.
+    // Measured on the settled frame: the reference inks that circle's
+    // ring 360/360 and we inked 86/360, dropping f_00950's coverage_ref
+    // from 1.0000 to 0.9771 (P-10 diagnosed and fixed it).
+    const adopted = page.groups.find((g) => {
+      void g.parts
+      return g.members.length === parts.length
+    })
+    expect(adopted).toBeDefined()
+    for (const part of parts) expect(adopted!.members).toContain(part)
   })
 })
 
