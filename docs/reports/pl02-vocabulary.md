@@ -536,3 +536,13 @@ file was written.
   geometry, not a chosen crop; whether pixels import as textured quads
   is P-9's question. Reporting convention: unmasked whole-frame as
   headline, masked as what the builds did on the ink they own.
+- (2026-09-08, P-1) **The images are LINE ART, not photographs** — the
+  Vitruvian figure and its kin are white strokes on transparent alpha
+  (RGB exactly 255,255,255, zero variance, 7.5-14% opaque): david.svg's
+  exact case, traced drawings whose vector form lives outside the
+  file. Only FOUR line-art files serve all 12 in-scope images. The
+  image ceiling is therefore REMOVABLE: trace/source those four as
+  paths through Sketch (all-strokes, draw-on preserved) rather than
+  textured quads. Bounded work, queued for P-9's image-heavy slides.
+  The stale-line recompute is independent of this (lines need only
+  the image's geometry box, which is carried).

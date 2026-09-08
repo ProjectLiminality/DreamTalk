@@ -298,6 +298,29 @@ export type KeyDrawable = KeyShape | KeyText
  * with these boxes masked — and say that the mask is the deck's own
  * declared geometry rather than a chosen crop. Masking slide 2's five
  * moves it from 0.4909/0.8725 to 0.9092/0.9244.
+ *
+ * WHAT THE PIXELS ACTUALLY ARE, which changes the recommendation.
+ * `refs/pitch/pl02/key/Data/Man-10520.png` (the Vitruvian figure) and
+ * `lightning-11152.png` are **white line art on transparent alpha** —
+ * RGB exactly (255,255,255) with ZERO channel variance, 7.5% and 14.3%
+ * opaque. They are not photographs. Only FOUR assets in the deck's whole
+ * 117-file Data directory are line art of this kind, and the 12 in-scope
+ * images draw from a handful of them (the figure once per slide, the
+ * lightning glyph repeated).
+ *
+ * So this is `david.svg` all over again (the Origins campaign's O-1): a
+ * traced drawing whose vector form lives outside the file that uses it.
+ * Which means the eventual fix is probably NOT "render a textured quad"
+ * — it is to trace or source these four assets as paths and import them
+ * through `Sketch`, the doorway that already exists for exactly this.
+ * That keeps the reproduction all-strokes and preserves draw-on, which a
+ * quad could never do. It is real work and it belongs to whichever
+ * chapter needs slide 2 or 17 to score whole-frame, but it is bounded
+ * work on four assets rather than an open-ended raster pipeline.
+ *
+ * P-3 measured the cost of leaving them out: the images are 47% of
+ * segment 2's reference ink and 59% of segment 3's, so those segments
+ * have a hard `coverage_ref` ceiling until something draws them.
  */
 export interface KeyImage {
   id: string

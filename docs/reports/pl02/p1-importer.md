@@ -227,6 +227,22 @@ that no amount of vector fidelity can lift. That is not an importer bug
 scoring fact every chapter touching those four slides needs, and
 "explicitly NOT needed" is the wrong summary of it.
 
+**What the pixels actually are** (found while closing P-3): the deck's
+`Data/Man-10520.png` (the Vitruvian figure) and `lightning-11152.png` are
+**white line art on transparent alpha** — RGB exactly (255,255,255) with
+zero channel variance, 7.5% and 14.3% opaque. Not photographs. Only
+**four** of the 117 files in the deck's `Data/` directory are line art of
+this kind, and the 12 in-scope images draw from a handful of them.
+
+That reframes the eventual fix. This is `david.svg` again — the Origins
+campaign's O-1 case, a traced drawing whose vector form lives outside the
+file that uses it. So the answer is probably **not** "render a textured
+quad": it is to trace or source those four assets as paths and import
+them through `Sketch`, the doorway that already exists for precisely
+this. That keeps the reproduction all-strokes and preserves draw-on,
+which a quad could never do. Real work, but bounded work on four assets
+rather than an open-ended raster pipeline.
+
 The image BOXES are now carried in the model (`KeyImage`, on
 `SlideData.images`) so a chapter can mask against the deck's declared
 geometry without re-decoding the deck. The pixels are not: this framework
@@ -571,7 +587,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1065 pass, 0 fail** (961 baseline + 57 mine + teammates').
+- `bun test` — **1067 pass, 0 fail** (961 baseline + 57 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
