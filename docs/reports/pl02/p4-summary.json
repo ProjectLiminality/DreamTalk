@@ -39,11 +39,11 @@
    "name": "p4-f_00950",
    "ours": "docs/reports/pl02/ours-p4-f_00950.png",
    "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00950.jpg",
-   "iou": 0.8726,
-   "chamfer_ours_px": 0.364,
-   "chamfer_ref_px": 0.045,
+   "iou": 0.8741,
+   "chamfer_ours_px": 0.286,
+   "chamfer_ref_px": 0.043,
    "coverage_ref": 1,
-   "coverage_ours": 0.9654,
+   "coverage_ours": 0.9898,
    "verdict": "PASS"
   },
   {

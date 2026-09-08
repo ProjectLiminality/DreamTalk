@@ -2,10 +2,10 @@
   "name": "p3mid-f_00025",
   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3mid-f_00025.png",
   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00025.jpg",
-  "iou": 0.1239,
-  "chamfer_ours_px": 2.091,
-  "chamfer_ref_px": 11.789,
-  "coverage_ref": 0.1551,
-  "coverage_ours": 0.8371,
+  "iou": 0.1437,
+  "chamfer_ours_px": 0.168,
+  "chamfer_ref_px": 11.378,
+  "coverage_ref": 0.186,
+  "coverage_ours": 0.9916,
   "verdict": "FAIL"
 }

@@ -31,9 +31,12 @@
  * hidden rather than merely ignored.
  */
 
+import { ensureFreshDemoBundle } from "./fresh"
 import { mkdirSync, existsSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import puppeteer from "puppeteer-core"
+
+ensureFreshDemoBundle()
 
 const args = process.argv.slice(2)
 const flag = (name: string, dflt: string): string => {

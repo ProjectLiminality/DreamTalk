@@ -8,9 +8,12 @@
  *
  * Usage: bun ogauntlet.ts <sceneKey> <t0> <startSec> <endSec> <outDir> [--step N] [--port P]
  */
+import { ensureFreshDemoBundle } from "./fresh"
 import { mkdirSync, existsSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import puppeteer from "puppeteer-core"
+
+ensureFreshDemoBundle()
 
 const args = process.argv.slice(2)
 const num = (flag: string, dflt: number): number => {

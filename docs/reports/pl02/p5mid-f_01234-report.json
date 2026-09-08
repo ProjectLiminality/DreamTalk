@@ -3,9 +3,9 @@
   "ours": "docs/reports/pl02/ours-p5mid-f_01234.png",
   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_01234.jpg",
   "iou": 0.7264,
-  "chamfer_ours_px": 0.757,
-  "chamfer_ref_px": 0.353,
+  "chamfer_ours_px": 0.66,
+  "chamfer_ref_px": 0.352,
   "coverage_ref": 0.9528,
-  "coverage_ours": 0.9246,
+  "coverage_ours": 0.9621,
   "verdict": "PASS"
 }

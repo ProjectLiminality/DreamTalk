@@ -7,11 +7,18 @@ footage's own measured onsets, on deck slides 2-6 (video 0.6-134.8s).
 **The timing gate is met outright, and it is the chapter's real claim.**
 All twenty implemented builds fire within **0.1s** of the value fitted
 from the footage — inside the 0.2s frame interval of the 5 fps reference,
-so the residual is not resolvable. The stills gate is met on the two
-segments that carry no inherited importer gap (0.9999/0.9471 and
-1.000/0.9029) and on three of the other three once those gaps are
-excluded region by region; the unmasked scores on segments 2, 3 and 6 are
-below the bar and §4 says exactly what each is made of.
+so the residual is not resolvable. The stills gate is met on the three
+segments that carry no inherited importer gap, and on both of the other
+two once those gaps are excluded region by region; §4 says exactly what
+each remaining number is made of.
+
+**Post-chapter (2026-09-08): 2/5 became 3/5 with no change to this
+chapter's code.** A `textBaseline` fix landed by P-5 — the `middle`
+branch was off by half a descent, affecting 43 of the deck's 44 text
+records — moved segment 6 from 0.9979/0.8515 FAIL to **1.0000/0.9670
+PASS**, and lifted every other segment's `coverage_ours` with it. §4
+carries both readings and §5.4 records what I got wrong about the
+original number.
 
 ## 1. The two verbs, as the data names them
 
@@ -195,17 +202,22 @@ chamfers ≤ 3.0 px.
 
 ### Whole frame, nothing excluded
 
-| seg | frame | video s | cov_ref | cov_ours | chamfer | verdict |
-|---|---|---|---|---|---|---|
-| 2 | f_00081 | 16.0 | 0.4878 | 0.9143 | 0.924/7.029 | FAIL |
-| 3 | f_00201 | 40.0 | 0.3675 | 0.9236 | 0.738/8.712 | FAIL |
-| **4** | **f_00451** | **90.0** | **0.9999** | **0.9471** | **0.516/0.052** | **PASS** |
-| **5** | **f_00591** | **118.0** | **1.0000** | **0.9029** | **0.944/0.032** | **PASS** |
-| 6 | f_00651 | 130.0 | 0.9979 | 0.8515 | 1.362/0.153 | FAIL |
+At the chapter's close, and again after P-5's `textBaseline` fix landed:
 
-**2/5.** Segments 4 and 5 carry no inherited gap and pass cleanly;
-5's 1.000/0.9029 is P-2's own slide-5 number to four decimals, which is
-the check that the builds cost the type nothing.
+| seg | frame | video s | at close | after the baseline fix | verdict |
+|---|---|---|---|---|---|
+| 2 | f_00081 | 16.0 | 0.4878 / 0.9143 | 0.5134 / 0.9732 | FAIL |
+| 3 | f_00201 | 40.0 | 0.3675 / 0.9236 | 0.4059 / 0.9959 | FAIL |
+| **4** | **f_00451** | **90.0** | 0.9999 / 0.9471 | **0.9999 / 0.9920** | **PASS** |
+| **5** | **f_00591** | **118.0** | 1.0000 / 0.9029 | **1.0000 / 0.9853** | **PASS** |
+| **6** | **f_00651** | **130.0** | 0.9979 / 0.8515 | **1.0000 / 0.9670** | **PASS** |
+
+**2/5 at the close, 3/5 now.** Segments 4, 5 and 6 carry no inherited gap
+and pass; 2 and 3 keep their verdicts because they are capped by ink no
+type fix can supply (§5.1).
+
+The chamfers after the fix are 0.211/6.701, 0.217/8.350, 0.356/0.040,
+0.647/0.000 and 0.807/0.003 — every ours→ref figure now under 0.9 px.
 
 ### Decomposed, with regions excluded from DECLARED geometry
 
@@ -288,13 +300,40 @@ P-1 carried the path; implemented here as a windowed `Move` (§6), which
 took segment 3 from 0.7969 to **0.9236** `coverage_ours` and its chamfer
 from 2.314 to 0.738 px.
 
-**4. The antialiasing shoulder, which is pre-existing.** Our ink runs
-wider than the reference's at the same threshold — 1.31x on P-2's title
-card, 1.58x on P-2's slide 5, 1.75x on segment 6. That ratio is what
-caps `coverage_ours`, and segment 6 is the arc's most text-dense frame
-(three labels against one thin circle), which is why it sits highest.
-Segment 6's 0.9979 `coverage_ref` says the geometry and type are right;
-its 0.8515 the other way is the shoulder, and it is not a build.
+**4. The antialiasing shoulder — and a CORRECTION, because I attributed
+too much to it.**
+
+Our ink runs wider than the reference's at the same threshold: 1.31x on
+P-2's title card, 1.58x on P-2's slide 5, 1.75x on segment 6. I read
+segment 6's 0.8515 `coverage_ours` as that shoulder and wrote that it
+"is not a build". The second half holds. **The first half was too
+confident.**
+
+A systematic BASELINE OFFSET was also in that number — the `middle`
+branch of `textBaseline` was off by half a descent, on 43 of the deck's
+44 text records (found and fixed by P-5). With it corrected, segment 6
+goes to **1.0000 / 0.9670** and passes.
+
+The diagnosis I should have run, and did only afterwards: the render
+before and after the fix **lost 2012 px and gained 2104 px**, in the same
+x-range, with the two bounding boxes about ten rows apart (lost y
+294-571, gained y 304-581). That is type moving DOWN onto the reference's
+baseline. Meanwhile the ink RATIO barely moved — 1.745x to 1.757x —
+which is the tell: the shoulder was real and unchanged, and it was
+sitting in the wrong place.
+
+**The lesson, stated against my own §10.4.** I compared segment 6's ink
+ratio against P-2's frames, found it consistent, and stopped. A ratio can
+be right while the ink is displaced; volume and position are independent,
+and "how much ink" cannot answer "is it where the reference has it". The
+residual now is 465 px of 14106 (3.3%) further than 3 px from any
+reference ink, and 382 of those sit in the "Liminality" band — the
+largest type on the slide, where any remaining metric error shows most.
+
+For the record, **this chapter's arc cannot test P-5's fills at all**:
+not one shape in slides 2-6 carries a fill (0 of 8, 5, 4, 2 and 1
+respectively), so `SlideFill` composes nothing here. All five segments'
+gains are the baseline fix.
 
 ## 6. Two fixes landed in this chapter's own area
 
@@ -424,5 +463,11 @@ appears at its first.
    it.** P-2's lesson, and §4's table is what following it looks like:
    the same frame reads 0.4878 or 0.9673 depending on whether you have
    accounted for what the importer did not compose.
+5. **Ink VOLUME and ink POSITION are independent, and a ratio answers
+   only the first.** §5.4 is my own violation of this: I matched segment
+   6's ink ratio against P-2's frames, found it consistent, and called
+   the residual antialiasing. Half of it was a baseline offset. The check
+   that would have caught it costs one line — how much of our ink sits
+   further than the tolerance from ANY reference ink, and where.
 5. **A motion scan is not an event detector.** Use the object's own ink
    mask, especially where a transition and a build are close.

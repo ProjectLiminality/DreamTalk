@@ -1,62 +1,62 @@
 [
  {
   "label": "seg2 f_00081 (v 16.0s)  five dropped images masked",
-  "coverage_ref": 0.9113,
-  "coverage_ours": 0.9263,
-  "chamfer_ours_px": 0.813,
-  "chamfer_ref_px": 1.061,
+  "coverage_ref": 0.9631,
+  "coverage_ours": 0.9778,
+  "chamfer_ours_px": 0.18,
+  "chamfer_ref_px": 0.342,
   "masked_ref_ink": 15295,
   "total_ref_ink": 32481,
   "verdict": "PASS"
  },
  {
   "label": "seg2 f_00081            + the four stale connection lines (the ICONS alone)",
-  "coverage_ref": 0.9673,
-  "coverage_ours": 1.0,
-  "chamfer_ours_px": 0.001,
-  "chamfer_ref_px": 0.506,
+  "coverage_ref": 0.9921,
+  "coverage_ours": 0.9968,
+  "chamfer_ours_px": 0.042,
+  "chamfer_ref_px": 0.132,
   "masked_ref_ink": 17229,
   "total_ref_ink": 32481,
   "verdict": "PASS"
  },
  {
   "label": "seg3 f_00201 (v 40.0s)  dropped image masked",
-  "coverage_ref": 0.889,
-  "coverage_ours": 0.9577,
-  "chamfer_ours_px": 0.376,
-  "chamfer_ref_px": 1.51,
+  "coverage_ref": 0.9999,
+  "coverage_ours": 0.9959,
+  "chamfer_ours_px": 0.217,
+  "chamfer_ref_px": 0.081,
   "masked_ref_ink": 12923,
   "total_ref_ink": 21753,
-  "verdict": "FAIL"
+  "verdict": "PASS"
  },
  {
   "label": "seg3 f_00201            + the stale connection line",
   "coverage_ref": 0.9999,
-  "coverage_ours": 0.9522,
-  "chamfer_ours_px": 0.416,
-  "chamfer_ref_px": 0.065,
+  "coverage_ours": 0.9949,
+  "chamfer_ours_px": 0.25,
+  "chamfer_ref_px": 0.052,
   "masked_ref_ink": 14882,
   "total_ref_ink": 21753,
   "verdict": "PASS"
  },
  {
   "label": "mid  f_00035 (v  6.8s)  tree mid-dissolve, images masked",
-  "coverage_ref": 0.9279,
-  "coverage_ours": 0.9649,
-  "chamfer_ours_px": 0.472,
-  "chamfer_ref_px": 0.979,
+  "coverage_ref": 0.9352,
+  "coverage_ours": 0.9599,
+  "chamfer_ours_px": 0.303,
+  "chamfer_ref_px": 0.524,
   "masked_ref_ink": 12988,
   "total_ref_ink": 21352,
   "verdict": "PASS"
  },
  {
   "label": "mid  f_00025 (v  4.8s)  eagle mid-dissolve, images masked",
-  "coverage_ref": 0.8176,
-  "coverage_ours": 0.9066,
-  "chamfer_ours_px": 1.235,
-  "chamfer_ref_px": 2.429,
+  "coverage_ref": 0.9716,
+  "coverage_ours": 0.9922,
+  "chamfer_ours_px": 0.158,
+  "chamfer_ref_px": 0.313,
   "masked_ref_ink": 13089,
   "total_ref_ink": 16153,
-  "verdict": "FAIL"
+  "verdict": "PASS"
  }
 ]

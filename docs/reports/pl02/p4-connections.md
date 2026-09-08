@@ -12,16 +12,16 @@ ceiling to excuse and the unmasked number is the whole story.
 |---|---|---|---|---|---|---|
 | 7 | f_00808 | 161.4 | 0.9505 | 0.9345 | 0.607/0.447 | **PASS** |
 | 8 | f_00851 | 170.0 | 0.9554 | 0.9234 | 0.755/0.465 | **PASS** |
-| **9** | **f_00950** | **189.8** | **1.0000** | **0.9654** | **0.364/0.045** | **PASS** |
+| **9** | **f_00950** | **189.8** | **1.0000** | **0.9898** | **0.286/0.043** | **PASS** |
 | 14 | f_01111 | 222.0 | 0.9915 | 0.9988 | 0.071/0.128 | **PASS** |
 
 Slide 9 — the chapter's gate, a complete K6 of fifteen dotted lines —
 reaches `coverage_ref 1.0000`: every ink pixel the reference has, we
-have. Slide 14's two thirty-line meshes score **0.9915 / 0.9988 with a
-0.071 px chamfer**, which is identity to the limit the encode allows.
-And a mid-segment frame of slide 9 after its mesh has settled but before
-its Logo arrives (f_00900, 179.8s) scores **1.0000 / 1.0000, chamfer
-0.065/0.062** — a perfect frame.
+have, at `coverage_ours 0.9898`. Slide 14's two thirty-line meshes score
+**0.9915 / 0.9988 with a 0.071 px chamfer**, which is identity to the
+limit the encode allows. And a mid-segment frame of slide 9 after its
+mesh has settled but before its Logo arrives (f_00900, 179.8s) scores
+**1.0000 / 1.0000, chamfer 0.065/0.062** — a perfect frame.
 
 The chapter's one-line summary: **the recompute rule holds, and every
 one of the four bugs it took to get there was invisible in the render.**
@@ -277,10 +277,26 @@ better test and is why the number moving did not cost anything. Verified
 here that the new parts are reached by all three opacity paths
 (`visible`, `preBuild`, the build's own ramp) and that `cutIn` still
 leaves a pending build's targets dark: an unreached fill would be P-3's
-seventy-second ghost wearing a new coat. My four segment scores are
-unchanged to four decimals, because a fill only bites where a stroke
-passes behind one and these slides' filled circles have nothing behind
-them.
+seventy-second ghost wearing a new coat.
+
+**Those two fills also moved segment 9's score, upward**, from
+`coverage_ours` 0.9654 to **0.9898** and its chamfer from 0.364/0.045 to
+0.286/0.043 — the black discs occlude a little of what the outlines
+alone left showing through. Segments 7, 8 and 14 are identical to four
+decimals, and so is every mid-draw frame including f_00900's perfect
+1.0000/1.0000, because the Logo has not arrived at 179.8s. The table
+above carries the corrected number.
+
+*A process note, since it cost two people an hour between them.* Both
+P-5's withdrawn "single-loop fills don't render" caveat and my own first
+reading of 0.9654 were **stale-bundle artifacts**: the demo serves
+`core/demo/dist/main.js`, a build artifact that does not rebuild itself,
+so a score taken after someone else's source change but before a
+`bun build` silently measures the previous state. It is the same
+epistemic hazard as this chapter's three rendering bugs — a plausible
+number produced by something other than what you think you are
+measuring. Rebuild before scoring, and treat any figure that survived a
+teammate's landing without moving as unverified until it has.
 
 **3. The midpoint sweep gave its outermost dashes a zero-width window.**
 Dividing by the distance to the last dash rather than by the number of
@@ -344,7 +360,7 @@ only thing that can see a timing error:
 | f_00862 | 172.2 | slide 9, mesh opening | 1.0000 | 0.8614 | FAIL |
 | f_00866 | 173.0 | slide 9, mesh half-drawn | 1.0000 | 0.8466 | FAIL |
 | f_00869 | 173.6 | slide 9, mesh nearly done | 0.9882 | 0.9966 | **PASS** |
-| f_00900 | 179.8 | slide 9, settled | **1.0000** | **1.0000** | **PASS** |
+| f_00900 | 179.8 | slide 9, settled (pre-Logo) | **1.0000** | **1.0000** | **PASS** |
 
 The two FAILs both have `coverage_ref` at 1.0000 — everything the
 reference has, we have — and fail only the other way, which is the
@@ -386,16 +402,25 @@ The recompute **improved P-3's own slides** without touching its code.
 Slide 2's four connection lines are among the 25% stale, and P-3 had to
 exclude them region-by-region to score its segment. With them recomputed:
 
-| | P-3's report | now |
-|---|---|---|
-| segment 2 `coverage_ours` | 0.9143 | **0.9732** |
-| segment 2 ours→ref chamfer | 0.924 px | **0.211 px** |
-| segment 3 `coverage_ours` | 0.9236 | **0.9614** |
-| segment 3 ours→ref chamfer | 0.738 px | **0.351 px** |
+| seg | `coverage_ours`, P-3's report | now | chamfer then → now |
+|---|---|---|---|
+| 2 | 0.9143 | **0.9732** | 0.924 → **0.211 px** |
+| 3 | 0.9236 | **0.9959** | 0.738 → **0.217 px** |
+| 4 | 0.9471 | **0.9920** | 0.516 → **0.356 px** |
+| 5 | 0.9029 | **0.9853** | 0.944 → **0.647 px** |
+| 6 | 0.8515 | **0.9670** | 1.362 → **0.807 px** |
 
-Its verdicts are unchanged (2/5, same frames) because those segments are
-capped by the dropped images, not by the lines. But the ink that IS drawn
-is now 4.3x closer to the reference.
+**P-3's arc is now 3/5 rather than 2/5** — segment 6 crossed the bar.
+Part of that is this chapter's recompute (segments 2 and 3 carry the
+stale lines), and part is P-5's opaque fills, which closed gaps P-3 had
+attributed to the antialiasing shoulder: segment 6 has no connection
+lines at all and still moved 0.116. Segments 2 and 3 remain FAIL because
+they are capped by the dropped images, which neither chapter touched.
+
+The general point for the campaign: **a chapter's residuals are not
+always its own**, and P-3's §5 was right to decompose them by cause
+rather than absorb them into a stroke-width story. Two of its four named
+causes have since been removed by other chapters.
 
 **For P-10** (slide 11, the density peak): its structure is **7 clusters
 × K5 = 70 lines**, not the "~14 organisms × 7-node mesh" the recon
@@ -429,11 +454,12 @@ attributed. Both pass.
 ## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1121 pass, 0 fail** (1067 baseline + 30 mine + the
+- `bun test` — **1123 pass, 0 fail** (1067 baseline + 30 mine + the
   baseline's own movement as other agents landed work).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's and P-3's to four decimals, so
   nothing here perturbed the video-01 reproduction.
 - **P-4 segments — 4/4 whole-frame PASS**, unmasked, no images to mask.
 - Mid-draw — 4/6, both failures `coverage_ref` 1.0000 (§7).
-- P-3's opening arc — 2/5, unchanged verdicts, two segments improved (§9).
+- P-3's opening arc — **3/5**, up from its reported 2/5; five of its
+  five segments improved (§9).

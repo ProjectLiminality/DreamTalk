@@ -19,9 +19,12 @@
  * Emits <outDir>/summary.json: per-frame metrics + the aggregate verdict.
  */
 
+import { ensureFreshDemoBundle } from "./fresh"
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import puppeteer from "puppeteer-core"
+
+ensureFreshDemoBundle()
 
 const args = process.argv.slice(2)
 const stepFlag = args.indexOf("--step")

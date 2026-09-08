@@ -15,6 +15,7 @@
  *                                     [--scene KEY] [--frames a,b,c]
  */
 
+import { ensureFreshDemoBundle } from "./fresh"
 import { mkdirSync, existsSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import puppeteer from "puppeteer-core"
@@ -112,6 +113,8 @@ try {
       "-c",
       `
 import sys
+
+ensureFreshDemoBundle()
 from PIL import Image
 img = Image.open(sys.argv[1]).convert("RGB").crop((0, 0, 1280, 720))
 left = (1280 - 720) // 2
