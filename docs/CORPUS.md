@@ -28,7 +28,7 @@ when that video's reproduction chapter begins.
 | # | Date | Title | Dur | Views | Technique | Tier |
 |---|------|-------|-----|-------|-----------|------|
 | 01 | 2021-10-22 | Dialectical Thinking | 2:37 | 41k | pydeation-legacy | **T1** |
-| 02 | 2023-02-15 | Project Liminality | 15:04 | 5.7k | pydeation + Keynote ⚠ | T2 |
+| 02 | 2023-02-15 | Project Liminality | 15:04 | 5.7k | Keynote ONLY (deck found + decoded; recon 2026-09-08) | T2 |
 | 03 | 2023-05-07 | The Custodian of the Noosphere | 25:48 | 7.7k | pydeation symbols + Keynote ⚠ | T2 |
 | 04 | 2023-08-16 | Love is that which enables Choice | 2:37 | 1.4k | external footage + symbol overlays ⚠ | T4 |
 | 05 | 2023-08-16 | The Age of Miracles | 46:28 | 7k | pydeation symbols + Keynote ⚠ | T2 |

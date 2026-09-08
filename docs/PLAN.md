@@ -478,8 +478,14 @@ pitch.py, 16 scenes; the GitHub pydeation-PL-pitch is a different 2022
 sketch). All 32 SVG assets recovered from the C4D prefs folder (were
 outside version control). Then the visual-only trio #02/#03/#05
 (Key2SVG is an empty stub — trio needs .key files or by-eye; #03 lead:
-PyTalk-CustodianOfTheNoosphere repo; #02 lead: the local seed/ project
-beside the pitch source — seed.py, 339 lines, 6 scenes, per-scene .m4a;
+PyTalk-CustodianOfTheNoosphere repo; #02 lead REFUTED by recon (seed.py
+belongs to #09's story, not #02) — instead THE DECK ITSELF FOUND:
+ProjectLiminalityLogo/"ProjectLiminality Pitch.key", 88 slides,
+decoded by keynote-parser to full bezier geometry + transitions +
+text (four proofs incl. sub-pixel circle prediction); PL02 is 100%
+KeYNOTE, zero pydeation. #05's deck found too
+(~/SecondBrain/Attachments/Keynote/TheAgeOfMiracles.key, 1.8GB);
+#03 deck-hunt lead: DreamTalkVocabulary/Noosphere/*.key cluster;
 head.svg gap resolved: head_side.svg is the match). Ground truth:
 docs/reports/origins-vocabulary.md (chapter plan O-1..O-11 §6; missing-
 core list §5 — headline: SVG importer, DrawSteady, TRUE MORPHS (the
