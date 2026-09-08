@@ -74,6 +74,7 @@ export const slide02: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -85,6 +86,7 @@ export const slide02: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -96,6 +98,7 @@ export const slide02: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -107,6 +110,7 @@ export const slide02: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
   ],

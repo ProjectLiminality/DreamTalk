@@ -362,6 +362,32 @@ export interface KeyBuild {
    * against measured onsets.
    */
   eventTrigger?: number
+  /**
+   * Where an `apple:action-motion-path` build moves its target — typed
+   * path elements, RELATIVE to the drawable's own position, in slide
+   * units.
+   *
+   * This is declared data, not something to derive from the footage.
+   * P-3 found it by scoring slide 3, where "Story" (text 4516215) sits
+   * at (1049.522, 485.569) in the deck and the reference draws it 230
+   * units higher: the build's path is a straight (-1.388, -229.910), and
+   * 485.569 - 229.910 = 255.66 slide units is video row 170, against the
+   * reference's glyph band at rows 158-189. Rendered unmoved, that
+   * segment scores coverage_ref 0.328 with the label sitting inside an
+   * ellipse it should be above.
+   *
+   * Carried as a full element list rather than a `{dx, dy}` because a
+   * translation is not general enough: of the deck's 34 motion paths, 32
+   * are two-node straight runs but TWO are three-node curves with real
+   * control points. Flatten it with `flattenElements` like any other
+   * path — the straight ones arrive as degenerate curves whose controls
+   * sit on their endpoints, so one code path serves both.
+   *
+   * The MOTION itself belongs to P-7 (the `action-motion-path` build
+   * class, 19 builds in the recon's accounting); the importer's job is
+   * only to stop throwing the geometry away.
+   */
+  motionPath?: KeyPathElement[]
 }
 
 /**
@@ -842,8 +868,39 @@ export interface SlideShapeData {
   stroke?: string
   /** Stroke width in slide units. */
   strokeWidth?: number
-  /** The dash array in stroke-width multiples; absent when solid. */
+  /**
+   * The dash array in stroke-width multiples; absent when solid.
+   *
+   * READ THIS WITH `cap`. Keynote's period is the dash plus the gap
+   * plus, under a round cap, one further stroke width — because a round
+   * cap paints a half-disc beyond each end of the run, so a dash of
+   * length d occupies d + w on the line. The deck's dotted mesh is
+   * stated as (0.001, 2.0), a deliberate ZERO dash meaning "paint
+   * nothing but the cap", which is only visible at all under RoundCap.
+   * See `cap` for the evidence.
+   */
   dash?: number[]
+  /**
+   * `ButtCap` | `RoundCap` — and on a dashed stroke it changes the
+   * PERIOD, not just the end shape.
+   *
+   * The deck splits perfectly along this line: every (0.001, 2.0) dotted
+   * pattern is `RoundCap`, and every other dash pattern — (6, 6) and
+   * (1, 1) — is `ButtCap`. That is read from the stylesheet, not
+   * inferred, and it is what makes the dot period derivable rather than
+   * fitted.
+   *
+   * The arithmetic, on slide 2's connection lines (stroke width 11 slide
+   * units = 7.333 video px, pattern (0.001, 2.0)):
+   *
+   *   butt  (dash + gap) · w       = 14.674 px   — 33% short
+   *   round (dash + gap + 1) · w   = 22.007 px   — 0.5% off
+   *
+   * against P-3's measured 21.9 px in the eagle corridor; and it turns
+   * our 14 dots over that corridor into 9.33 against the reference's 10.
+   * Three independent confirmations of one value stated in the file.
+   */
+  cap?: string
   /** Hex fill colour; absent when unfilled or gradient-filled. */
   fill?: string
   opacity: number

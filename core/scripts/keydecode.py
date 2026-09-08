@@ -656,6 +656,17 @@ def builds_of(slide, slide_archive):
             # predicts the footage — see KeyBuildChunk's header.
             "eventTrigger": attrs.get("eventTrigger"),
         }
+        # An `apple:action-motion-path` build declares WHERE it moves its
+        # target, in the same node form every editable bezier uses — so
+        # it is flattened by the same helper and needs no special case.
+        # 34 exist deck-wide; 32 are two-node straight translations, but
+        # TWO are three-node curves with real control points, which is
+        # why the whole path is carried rather than a {dx, dy}.
+        motion = attrs.get("actionMotionPathSource")
+        if isinstance(motion, dict):
+            eb = motion.get("editableBezierPathSource")
+            if isinstance(eb, dict):
+                rec["motionPath"] = editable_elements(eb)
         if anim.get("direction") is not None:
             rec["direction"] = anim["direction"]
         out.append(rec)

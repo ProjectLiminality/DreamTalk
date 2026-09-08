@@ -127,6 +127,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -138,6 +139,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -149,6 +151,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -160,6 +163,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -171,6 +175,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -182,6 +187,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -259,6 +265,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -270,6 +277,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -281,6 +289,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -292,6 +301,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -303,6 +313,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -314,6 +325,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -391,6 +403,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -402,6 +415,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -413,6 +427,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -424,6 +439,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -435,6 +451,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -446,6 +463,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -457,6 +475,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -468,6 +487,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -479,6 +499,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -490,6 +511,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -501,6 +523,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -512,6 +535,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -523,6 +547,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -534,6 +559,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {
@@ -545,6 +571,7 @@ export const slide19: SlideData = {
       stroke: "#ffffff",
       strokeWidth: 5,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1,
     },
     {

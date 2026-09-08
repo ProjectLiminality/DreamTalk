@@ -21,6 +21,7 @@ import {
   slideToWorld,
   slidePointToWorld,
   flattenElements,
+  FLATTEN_TOLERANCE_SLIDE,
   fitToFrame,
   importShapePath,
   textBaseline,
@@ -399,6 +400,30 @@ describe("the title slide against the recon's measurements", () => {
   test("the shapes carry the deck's 6-unit stroke", () => {
     for (const shape of slide01.shapes) expect(shape.strokeWidth).toBe(6)
   })
+
+  test("dotted strokes are RoundCap, and that is what sets the dot period", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const dotted = slide02.shapes.filter((s) => s.dash)
+    expect(dotted.length).toBeGreaterThan(0)
+    for (const shape of dotted) {
+      // The deck splits perfectly: every (0.001, 2.0) dotted pattern is
+      // RoundCap, every other dash pattern is ButtCap. A 0.001 dash is a
+      // deliberate zero — "paint nothing but the cap" — which is only
+      // visible under a round cap at all.
+      expect(shape.dash).toEqual([0.001, 2])
+      expect(shape.cap).toBe("RoundCap")
+    }
+    // And the period follows from it. A round cap paints a half-disc
+    // past each end, so a dash of length d occupies d + w on the line:
+    //   butt  (0.001 + 2) * 7.333 = 14.674 px  — 33% short
+    //   round (0.001 + 2 + 1) * 7.333 = 22.007 px — 0.5% off
+    // against P-3's measured 21.9 px in the eagle corridor.
+    const w = dotted[0]!.strokeWidth! / SLIDE_UNITS_PER_VIDEO_PIXEL
+    const [dash, gap] = dotted[0]!.dash as [number, number]
+    expect((dash + gap + 1) * w).toBeCloseTo(22.007, 2)
+    expect(Math.abs((dash + gap + 1) * w - 21.9) / 21.9).toBeLessThan(0.01)
+    expect(Math.abs((dash + gap) * w - 21.9) / 21.9).toBeGreaterThan(0.3)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -622,6 +647,25 @@ describe("builds", () => {
     // not. Both orders are the archive's own; neither is sorted.
     expect([...chunkOrder].sort()).toEqual([...buildOrder].sort())
     expect(chunkOrder).not.toEqual(buildOrder)
+  })
+
+  test("a motion-path build carries its declared offset", async () => {
+    const { slide03 } = await import("../vocabulary/Slides/assets/pl02/slide03")
+    const move = slide03.builds.find((b) => b.effect === "apple:action-motion-path")
+    expect(move).toBeDefined()
+    expect(move!.target).toBe("4516215") // the "Story" label
+    expect(move!.motionPath).toBeDefined()
+    // Flattens to the straight (-1.388, -229.910) P-3 measured against
+    // the footage: the label's 485.569 becomes 255.66 slide units, which
+    // is video row 170 against the reference's glyph band at 158-189.
+    const flat = flattenElements(move!.motionPath!, FLATTEN_TOLERANCE_SLIDE)
+    const pts = flat[0]!.points
+    const end = pts[pts.length - 1]!
+    expect(end.x).toBeCloseTo(-1.388, 2)
+    expect(end.y).toBeCloseTo(-229.91, 2)
+    const label = slide03.texts.find((t) => t.id === "4516215")
+    expect(label).toBeDefined()
+    expect((label!.frame.position.y + end.y) / SLIDE_UNITS_PER_VIDEO_PIXEL).toBeCloseTo(170, 0)
   })
 
   test("no build in the deck delivers per character", async () => {

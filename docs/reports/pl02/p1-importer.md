@@ -24,12 +24,14 @@ have ink it lacks.
 The P-1 whole-frame FAIL was the FONT and only the font; P-2 has since
 closed it and the title card now passes whole-frame. See §4.
 
-**Since first writing, three corrections have landed in §1** — two of them
-to this importer's own claims, caught by teammates whose chapters
+**Since first writing, six corrections have landed in §1**, all of them
+to this importer's own claims and all caught by teammates whose chapters
 exercised what P-1's single-slide gate did not: group children are
-relative (P-2), and build order, `direction` and the firing model (P-3).
-Both are fixed and guarded by tests. §1 also corrects the recon report on
-three counts of its own.
+relative (P-2); build order, `direction` and the firing model; and motion
+paths and the dotted-line cap (P-3). Every one is fixed and guarded by
+tests. §1 also corrects the recon report on three counts of its own, and
+retracts one of my own corrections to it — see the firing model, which is
+open rather than settled.
 
 ## 1. What survives keynote-parser, and what is dropped
 
@@ -150,6 +152,50 @@ builds") **is not owed to any chapter**, not just the opening arc. The
 effect name does not imply a cascade; `delivery` does, and here it never
 says so.
 
+### CORRECTION (P-3, second round): motion paths and the dash cap
+
+**5. `apple:action-motion-path` builds now carry their declared path.**
+P-3 found it scoring slide 3: the "Story" label (text 4516215) sits at
+(1049.522, 485.569) in the deck, and the build declares a straight
+(-1.388, -229.910) move that the importer was discarding — so the label
+rendered 230 units low, inside an ellipse it should sit above, scoring
+coverage_ref 0.328. 485.569 − 229.910 = 255.66 slide units is video row
+170, against the reference's glyph band at rows 158–189.
+
+Carried as a full `KeyPathElement[]` rather than a `{dx, dy}`, because a
+translation is not general enough: of the deck's **34 motion paths, 32
+are two-node straight runs but two are three-node curves with real
+control points**. The straight ones arrive as degenerate curves whose
+controls sit on their endpoints, so `flattenElements` serves both and
+there is no special case. The motion itself is P-7's; the importer's job
+was only to stop throwing the geometry away.
+
+**6. The dotted-line period: RoundCap, settled from the file.** P-3
+measured our dot period 33% short (14 dots where the reference draws 10)
+and correctly declined to fit a constant to one good corridor. It did not
+need fitting — the answer is stated in the stylesheet, and the importer
+was dropping the field that carries it.
+
+Counting every dashed stroke style in the deck gives a **perfect split**:
+every `(0.001, 2.0)` dotted pattern is **`RoundCap`**, and every other
+dash pattern — `(6, 6)` and `(1, 1)` — is `ButtCap`. The 0.001 dash is
+the tell: a deliberate zero meaning "paint nothing but the cap", which is
+only visible at all under a round cap.
+
+That makes the period derivable. A round cap paints a half-disc past each
+end, so a dash of length d occupies d + w:
+
+| | period at w = 7.333 px | vs P-3's measured 21.9 px |
+|---|---|---|
+| butt, `(dash + gap)·w` | 14.674 px | 33% short |
+| **round, `(dash + gap + 1)·w`** | **22.007 px** | **0.5%** |
+
+And it converts our 14 dots over the eagle corridor to 9.33 against the
+reference's 10. Three independent confirmations of one value read from
+the file rather than fitted to pixels. `SlideShapeData.cap` is now
+emitted alongside `dash`; the consumer change is in `Slides.ts`'s
+`composeShape`, which P-3 owns.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -215,9 +261,11 @@ resolved flat fill, opacity, and the geometry box. Per text: content,
 box, horizontal and vertical alignment, padding, line spacing, point
 size, PostScript face name, bold/italic, colour, tracking. Per slide:
 builds in the deck's own order (id, target, effect, type, duration,
-delay, delivery, acceleration, direction), the build chunks that say when
-they fire, and the transition (effect, duration, delay, timing curve,
-fade-unmatched).
+delay, delivery, acceleration, direction, eventTrigger, and a motion
+path where one is declared), the build chunks that say when they fire,
+and the transition (effect, duration, delay, timing curve,
+fade-unmatched). Stroke `cap` rides alongside `dash`, because on a
+dashed stroke it changes the period.
 
 **Dropped, and named in each module's header:** gradient fills (no slide
 in 1–58 depends on one), images, and Keynote's shadow/reflection
@@ -408,7 +456,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1042 pass, 0 fail** (961 baseline + 52 mine + teammates').
+- `bun test` — **1044 pass, 0 fail** (961 baseline + 54 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 

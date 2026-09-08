@@ -205,7 +205,13 @@ const emitShape = (shape: DecodedShape): string[] => {
     lines.push(`      stroke: ${JSON.stringify(colorToHex(shape.stroke.color))},`)
     lines.push(`      strokeWidth: ${fmt(shape.stroke.width)},`)
     const dash = dashOf(shape.stroke)
-    if (dash) lines.push(`      dash: [${dash.map(fmt).join(", ")}],`)
+    if (dash) {
+      lines.push(`      dash: [${dash.map(fmt).join(", ")}],`)
+      // The cap is emitted only alongside a dash, because that is where
+      // it changes the geometry: a round cap adds one stroke width to
+      // the period. See SlideShapeData.cap.
+      lines.push(`      cap: ${JSON.stringify(shape.stroke.cap)},`)
+    }
   }
   if (shape.fill) lines.push(`      fill: ${JSON.stringify(colorToHex(shape.fill.color))},`)
   lines.push(`      opacity: ${fmt(shape.opacity * (shape.stroke?.color.a ?? 1))},`)
