@@ -547,13 +547,28 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, out_images, skippe
 
     if pbtype not in SHAPE_TYPES:
         if pbtype == "TSD.ImageArchive":
-            # An image cannot be drawn as strokes, so it is not a
-            # drawable here — but its BOX is recorded, because it is
-            # load-bearing for scoring. On slide 2 the five images are
-            # 46.9% of the reference frame's ink, so any chapter touching
-            # slides 2, 3, 17 or 18 has a hard ceiling on coverage_ref
-            # and needs the deck's own declared geometry to mask against
-            # rather than a hand-drawn crop.
+            # AN IMAGE IS NOT A RASTER HERE — IT CARRIES ITS OWN OUTLINE.
+            #
+            # `TSD.ImageArchive.tracedPath` is Keynote's instant-alpha
+            # vectorization, stored in the SAME typed element form as
+            # every bezierPathSource and stated in the image's own
+            # `naturalSize` design box. So an image projects through the
+            # identical shape fit as any other drawable and arrives as
+            # ordinary strokes: no tracer, no rasteriser, no tolerance
+            # constant, no PNG to hash.
+            #
+            # Every one of the file's 31 images carries one, and the 12
+            # in scope are served by exactly two assets — a 35-element
+            # lightning glyph (10 instances) and the 2,239-element,
+            # 194-subpath Vitruvian figure (2). That meets the "four
+            # line-art files in Data/" finding from the other direction
+            # and RETIRES the plan to trace them from the footage: this
+            # is a reading of the file, at the same standard as the
+            # title card, rather than a measurement.
+            #
+            # The BOX is still recorded alongside, because chapters mask
+            # against it while scoring and nothing that masks today
+            # should break.
             g = geometry_of(obj)
             if g:
                 out_images.append(
@@ -569,7 +584,43 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, out_images, skippe
                         },
                     }
                 )
-            skipped.append(pbtype)
+                # …and the traced outline as a drawable, so it renders.
+                traced = (obj.get("tracedPath") or {}).get("elements") or []
+                if traced:
+                    frame = dict(g)
+                    frame["position"] = {
+                        "x": g["position"].get("x", 0.0) + offset[0],
+                        "y": g["position"].get("y", 0.0) + offset[1],
+                    }
+                    frame["flags"] = 0
+                    out_drawables.append(
+                        {
+                            "kind": "shape",
+                            "id": ident,
+                            "frame": frame,
+                            "elements": traced,
+                            "opacity": opacity_of(obj),
+                            # The deck's images are white line art on
+                            # transparent alpha (RGB exactly 255,255,255,
+                            # zero channel variance), so the trace is a
+                            # white stroke. Width is the body line-work's
+                            # own, since the raster carries none.
+                            "stroke": {
+                                "color": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+                                "width": 2.0,
+                                "patternType": "TSDSolidPattern",
+                                "pattern": [],
+                                "cap": "ButtCap",
+                                "join": "MiterJoin",
+                            },
+                            "fromTracedImage": True,
+                        }
+                    )
+                else:
+                    # No trace to draw: the box is all there is.
+                    skipped.append(pbtype)
+            else:
+                skipped.append(pbtype)
         elif pbtype:
             skipped.append(pbtype)
         return

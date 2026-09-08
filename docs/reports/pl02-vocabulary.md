@@ -679,3 +679,14 @@ file was written.
   mid-dissolve; the video closes by returning to deck 1. The Viterbi's
   row-61 assignment sits at correlation 0.114 — noise, not evidence.
   Score the closing segment against deck 1.
+- (2026-09-08, P-1) **tracedPath landed — nothing is dropped any
+  more**: TSD.ImageArchive was the last skipped type; `skipped` now
+  holds only one gradient fill and the unverified arrow synthesis.
+  Slide 2's ceiling: cov_ref 0.4878 → 0.9036. THE SILHOUETTE
+  PROPERTY, carried forward: an instant-alpha trace follows the ink's
+  OUTER BOUNDARY, not its centreline — a stroked line's silhouette is
+  its two outer edges, so traced outlines render ~6.5px/side larger
+  (back-projecting to a ~37 design-px source stroke). Inherent to
+  what a trace is, not a defect; the correction (inset by half the
+  source stroke, or render thinner) is a CONSUMER rendering decision,
+  deliberately not guessed at the model level.

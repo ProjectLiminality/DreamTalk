@@ -241,14 +241,20 @@ describe("builds reach what actually draws", () => {
 })
 
 describe("missing build targets are reported, not swallowed", () => {
-  test("slide 2's five image builds are named", () => {
+  test("slide 2's five image builds RESOLVE — tracedPath made images drawables", () => {
     const page = new Slide({ data: slide02 })
     void page.parts
-    const missing = page.missingBuildTargets().map((b) => b.target).sort()
-    // The Vitruvian figure and the four lightning glyphs — TSD.ImageArchive,
-    // which the importer skips. A build with nothing to drive must look
-    // different from a build that never existed.
-    expect(missing).toEqual(["4513444", "5473642", "5473703", "5473765", "5473826"])
+    // This test originally asserted these five targets were MISSING —
+    // the Vitruvian figure and the four lightning glyphs, whose
+    // TSD.ImageArchive the importer skipped. tracedPath (P-9's find,
+    // P-1's landing) made images drawables, so the premise is obsolete
+    // and the assertion flips: nothing on slide 2 is missing any more,
+    // and each former ghost now yields a real target.
+    expect(page.missingBuildTargets()).toEqual([])
+    for (const id of ["4513444", "5473642", "5473703", "5473765", "5473826"]) {
+      const build = slide02.builds.find((b) => b.target === id)!
+      expect(page.buildTargets(build).length).toBeGreaterThan(0)
+    }
   })
 
   test("slides 3-5 have no missing targets", () => {

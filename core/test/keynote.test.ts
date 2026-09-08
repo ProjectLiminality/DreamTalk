@@ -447,8 +447,10 @@ describe("the shape census", () => {
   const census: Record<number, { drawables: number; groups: number; builds: number }> = {
     // slide: sh + cn (+ the text boxes the report folded into `sh`), gr, builds
     1: { drawables: 5, groups: 0, builds: 0 },
-    2: { drawables: 8, groups: 0, builds: 13 },
-    3: { drawables: 6, groups: 0, builds: 5 },
+    // Slides 2 and 3 gained their traced image outlines as drawables
+    // (five on slide 2, one on slide 3) once tracedPath was read.
+    2: { drawables: 13, groups: 0, builds: 13 },
+    3: { drawables: 7, groups: 0, builds: 5 },
     4: { drawables: 9, groups: 0, builds: 4 },
     5: { drawables: 7, groups: 0, builds: 3 },
     6: { drawables: 5, groups: 0, builds: 0 },
@@ -880,6 +882,39 @@ describe("builds", () => {
     expect(slide59.shapes.filter((s) => s.isConnectionLine)).toHaveLength(22)
     expect(slide59.groups).toHaveLength(15)
     expect(slide59.builds).toHaveLength(34)
+  })
+
+  test("images carry their own traced outline, and it renders as strokes", async () => {
+    // TSD.ImageArchive.tracedPath is Keynote's instant-alpha
+    // vectorization, in the same typed element form as every other path
+    // and in the image's naturalSize design box — so it projects through
+    // the identical shape fit. All 31 images in the file carry one; the
+    // 12 in scope are served by two assets.
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const traced = slide02.shapes.filter((s) => s.fromTracedImage)
+    expect(traced).toHaveLength(5)
+    // The boxes are still carried alongside, so masking still works.
+    expect(slide02.images).toHaveLength(5)
+    for (const shape of traced) {
+      expect(slide02.images!.some((i) => i.id === shape.id)).toBe(true)
+      expect(shape.stroke).toBe("#ffffff")
+    }
+    // The Vitruvian: 193 subpaths from its 2,239 elements and 194
+    // moveTos — the last is Keynote's redundant trailing moveTo, which
+    // the length guard drops exactly as it does on a built-in circle.
+    const vitruvian = traced.find((s) => s.id === "4513444")!
+    expect(vitruvian.subpaths.length).toBe(193)
+    let minX = Infinity
+    let maxX = -Infinity
+    for (const flat of vitruvian.subpaths) {
+      for (let i = 0; i + 1 < flat.length; i += 2) {
+        minX = Math.min(minX, flat[i]!)
+        maxX = Math.max(maxX, flat[i]!)
+      }
+    }
+    const box = slide02.images!.find((i) => i.id === "4513444")!.frame
+    expect(minX).toBeCloseTo(box.position.x, 1)
+    expect(maxX).toBeCloseTo(box.position.x + box.size.width, 1)
   })
 
   test("no build in the deck delivers per character", async () => {

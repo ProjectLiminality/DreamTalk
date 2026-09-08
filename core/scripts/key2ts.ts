@@ -124,6 +124,7 @@ interface DecodedShape {
   icon?: string
   connects?: { from?: string; to?: string }
   isConnectionLine?: boolean
+  fromTracedImage?: boolean
   lineType?: string
   outset?: { from: number; to: number }
   lineEnds?: Record<string, unknown>
@@ -208,6 +209,7 @@ const emitShape = (shape: DecodedShape): string[] => {
   // Connection-line facts. `isConnectionLine` is unconditional because
   // `connects` is not — 60 of the deck's 547 lines have no endpoints.
   if (shape.isConnectionLine) lines.push("      isConnectionLine: true,")
+  if (shape.fromTracedImage) lines.push("      fromTracedImage: true,")
   if (shape.connects) {
     lines.push(`      connects: ${JSON.stringify(dropNulls(shape.connects))},`)
   }

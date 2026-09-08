@@ -1154,6 +1154,40 @@ export interface SlideShapeData {
    */
   isConnectionLine?: boolean
   /**
+   * True when this shape is an IMAGE'S OWN TRACED OUTLINE, projected
+   * through the ordinary shape fit rather than rasterized.
+   *
+   * `TSD.ImageArchive.tracedPath` is Keynote's instant-alpha
+   * vectorization, stored in the same typed element form as every
+   * bezierPathSource and stated in the image's `naturalSize` design box
+   * — so it needs no special handling at all beyond being noticed. All
+   * 31 images in the file carry one; the 12 in scope are served by two
+   * assets, a 35-element lightning glyph and the 2,239-element,
+   * 194-subpath Vitruvian figure.
+   *
+   * This RETIRES the plan recorded earlier in this file to trace those
+   * assets from the footage. The deck vectorized them itself, so what
+   * was going to be a measurement is a reading — at the same standard as
+   * the title card. The image's BOX is still carried on
+   * `SlideData.images` for chapters that mask while scoring.
+   *
+   * ONE PROPERTY A CONSUMER MUST KNOW. An instant-alpha trace follows
+   * the OUTER boundary of the drawn ink, not its centreline — it is the
+   * silhouette of an opaque region, and a stroked line's silhouette is
+   * its two outer edges. So a traced outline renders slightly LARGER
+   * than the raster's own line: on slide 2 the Vitruvian's outer circle
+   * measures 322 video px across against the reference's 309, i.e. about
+   * 6.5 px per side, which back-projects to a source stroke roughly 37
+   * design px wide. Scoring lifts `coverage_ref` on that frame from
+   * 0.4878 to 0.9036 even so.
+   *
+   * That is inherent to what a trace IS, not an importer defect, and the
+   * correction (inset by half the source stroke, or render the trace
+   * thinner) is a rendering decision. It is left to the consumer rather
+   * than guessed at here.
+   */
+  fromTracedImage?: boolean
+  /**
    * `kTSDConnectionLineTypeQuadratic` | `kTSDConnectionLineTypeOrthogonal`.
    *
    * Across the whole 83-slide file: 541 quadratic, 6 orthogonal. But

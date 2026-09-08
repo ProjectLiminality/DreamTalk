@@ -38,9 +38,11 @@ open rather than settled.
 
 The decode walks the show's own slide order and each slide's own
 `drawablesZOrder`. Across **deck slides 1–59** (see the scope correction
-below) it yields **1,792 shapes, 91 text records, 576 groups, 418 builds,
-489 connection lines and 59 transitions**, and skips exactly one archive
-type: `TSD.ImageArchive` — 12 of them in scope,
+below) it yields **1,804 shapes, 91 text records, 578 groups, 418 builds,
+489 connection lines and 59 transitions**. **Nothing is dropped any
+more** — the only entries in `skipped` are one gradient fill and the
+15 slides carrying the unverified arrow synthesis. Images were the last
+skipped type and no longer are,
 whose BOXES are kept even though their pixels cannot be. The recon
 called these "none load-bearing"; that is wrong, and the correction below
 matters for four segments.
@@ -507,6 +509,53 @@ transitions = 150** declared advances against 141 measured (was 147 vs
 141), while `eventTrigger` gives 354 + 59 = 413 — still overshooting by
 2.9x. Neither reading is settled, and the recount does not favour either.
 
+### CORRECTION (P-9): images carry their OWN vectorization — `tracedPath`
+
+**16. `TSD.ImageArchive.tracedPath` retires the trace-from-footage plan
+entirely.** P-9 found that every image archive carries Keynote's own
+instant-alpha vectorization, stored in the SAME typed
+moveTo/lineTo/closeSubpath form as every bezierPathSource and stated in
+the image's `naturalSize` design box. So it projects through the
+identical shape fit, at the identical tolerance, and arrives as ordinary
+strokes.
+
+I had recorded (Correction 5) that the images are white line art and the
+fix would be to trace or source those four assets as paths. **That was
+unnecessary — the deck vectorized them itself.** What was going to be a
+measurement is a reading, at the same standard as the title card: no
+tracer, no rasteriser, no tolerance constant, no PNG to hash.
+
+Verified: **all 31 image archives in the file carry a `tracedPath`**, and
+the 12 in scope are served by exactly two assets — a 35-element lightning
+glyph (10 instances) and the 2,239-element, 194-subpath Vitruvian figure
+(2). That meets the "four line-art files in `Data/`" finding from the
+other direction.
+
+The result on slide 2, which was P-3's hard ceiling:
+
+| | coverage_ref | coverage_ours | chamfer |
+|---|---|---|---|
+| before (images absent) | 0.4878 | 0.9143 | 0.924 / 7.029 |
+| **after (traced)** | **0.9036** | 0.8100 | 1.465 / 0.719 |
+
+The Vitruvian Man and all four lightning glyphs now render in place. This
+retroactively lifts the deck 2 / 3 ceilings P-3 and I both recorded.
+
+**One property a consumer must know.** An instant-alpha trace follows the
+OUTER boundary of the drawn ink, not its centreline — it is the
+silhouette of an opaque region, and a stroked line's silhouette is its
+two outer edges. So a traced outline renders slightly LARGER than the
+raster's line: the Vitruvian's outer circle measures 322 video px across
+against the reference's 309, about 6.5 px per side, back-projecting to a
+source stroke roughly 37 design px wide. That is inherent to what a trace
+IS, not an importer defect, and the correction (inset by half the source
+stroke, or render the trace thinner) is a rendering decision left to the
+consumer. It is also why `coverage_ours` dips to 0.81 while
+`coverage_ref` nearly doubles.
+
+The image BOXES are still carried on `SlideData.images`, so anything that
+masks against declared geometry today keeps working.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -767,7 +816,12 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1167 pass, 0 fail** (961 baseline + 67 mine + teammates').
+- `bun test` — **1167 pass, 1 fail** (961 baseline + 68 mine + teammates').
+  The failure is `builds.test.ts`'s "slide 2's five image builds are
+  named", which asserts those five build targets are UNRESOLVABLE. They
+  now resolve, because `tracedPath` makes images drawables — so the test
+  is correctly detecting that its own premise no longer holds. P-3's
+  file; flagged rather than edited.
   The two `builds.test.ts` failures flagged earlier (P-4's `Connection`
   holon vs P-3's `DottedLine` expectations) have since been resolved.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
