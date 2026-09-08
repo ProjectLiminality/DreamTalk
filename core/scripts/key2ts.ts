@@ -79,12 +79,16 @@ const PRECISION = 3
  * ~1.7 MB of generated geometry into the history eight chapters before
  * anything reads it.
  *
- * So: `--all` is one flag away and costs nothing structural, and each
- * later chapter emits the slides it actually opens. The budget stays as
- * the guard against the case that would matter — a flattener change
- * that quietly multiplies the point count.
+ * RESOLVED (2026-09-08, campaign complete): the full in-scope set is
+ * now the default, because the assembled DreamSong imports across the
+ * whole deck and a partial regeneration silently broke the bundle
+ * (the index rewrite emits ONLY the named slides). The complete
+ * 59-slide corpus measures ~2,242 KB — completeness now wins over the
+ * editorial economy that mattered mid-campaign. The budget is raised
+ * to match and still guards the case that matters: a flattener change
+ * that quietly multiplies the point count would blow well past it.
  */
-const SIZE_BUDGET_KB = 2048
+const SIZE_BUDGET_KB = 2560
 
 /**
  * The slides the campaign has emitted so far — the CHECKED-IN set, and
@@ -104,8 +108,12 @@ const SIZE_BUDGET_KB = 2048
  * output on every machine.)
  */
 const CHAPTER_SLIDES = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 25, 29, 30, 31,
-  32, 33, 34, 35, 36, 37, 38, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+  // The full in-scope set (deck 1-59). key2ts rewrites index.ts to
+  // ONLY the slides named here, so a bare regeneration must emit
+  // everything any scene imports — the song imports across the whole
+  // deck. Keeping this complete closes the recurring "regenerated with
+  // a subset, broke the bundle" hazard (assembly report, 2026-09-08).
+  ...Array.from({ length: 59 }, (_, i) => i + 1),
 ]
 
 const fmt = (n: number): string => {
