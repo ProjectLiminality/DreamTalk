@@ -33,8 +33,43 @@ Shapes run *above* the report's 1,378 because connection lines (517 in
 the deck) arrive as ordinary shapes here rather than as a separate
 column. Groups run below its 676 because the importer records only groups
 whose members actually reached the drawable list; a group of images
-contributes nothing, and since groups carry no transform (see below) an
-unrecorded empty group changes no geometry.
+contributes nothing.
+
+### CORRECTION (P-2): group children are RELATIVE, not absolute
+
+This section originally claimed "Keynote stores group children in
+absolute canvas coordinates, so a group carries identity but no
+transform, and recording the member list is lossless". **That was
+wrong.** P-1's gate never exercised it — the title slide has no groups —
+and P-2 caught it on slide 32, where the whole tableau collapsed toward
+the canvas origin (coverage 0.29/0.28, chamfer ~10 px).
+
+Children are stored **relative to their enclosing group, and groups
+nest**, so the offsets compose down the chain. The landmark: slide 32's
+"InterLogos" text box has geometry (118.41, 121.54) inside group 5688069
+at (841.59, 773.70); the sum **(960.00, 895.24)** is horizontally dead
+centre on the 1920 canvas, which is where frame `f_02826` draws it.
+
+The transform is a **pure translation**, and that is verified rather than
+assumed. Across all 678 groups in the deck: not one carries a nonzero
+angle, and every apparent group-box/child-extent mismatch (176 after
+accounting for rotation) is either a rotated child — whose axis-aligned
+box does not bound its own ink — or a stale group box that does not
+tightly bound its children. Group 4524553's box is 51.13×18.75 and its
+child 4524569 is *exactly* 51.13×18.75 at (0,0), with two siblings
+overflowing; group 4095005's 8.9-unit "excess" is entirely its two
+67°/113° rotated Logo legs. Every child sits at its natural size, so
+there is no scale, and deriving one from the box ratio would move
+geometry that is currently correct.
+
+`keydecode.py`'s `walk()` now accumulates the chain and lifts each
+drawable onto the canvas once, before anything downstream sees it — so
+the fit, the frame change and the emitted modules all work in plain
+canvas coordinates and no consumer needs to know groups existed.
+`slide01.ts` regenerates byte-identical, confirming the fix is scoped to
+grouped drawables. Four tests guard it, including the InterLogos
+landmark and a "nothing stranded at the canvas corner" check that is the
+bug's exact signature.
 
 The build count needs its own section, because it is not a discrepancy in
 counting.
@@ -192,7 +227,13 @@ window would letterbox and the resize to 720 would squash the geometry by
 | | coverage_ref | coverage_ours | chamfer_ours | chamfer_ref | IoU | verdict |
 |---|---|---|---|---|---|---|
 | **geometry only** | **1.000** | **1.000** | **0.397 px** | **0.000 px** | 0.754 | **PASS** |
-| whole frame | 0.848 | 0.902 | 1.034 px | 1.349 px | 0.579 | FAIL |
+| whole frame, at P-1 | 0.848 | 0.902 | 1.034 px | 1.349 px | 0.579 | FAIL |
+| **whole frame, after P-2** | **0.9986** | **0.9757** | **0.474 px** | **0.109 px** | 0.751 | **PASS** |
+
+The third row is P-2's work landing on top of this importer: HelveticaNeue-Bold
+extracted from the system `.ttc`, plus the deck's `tracking: -0.02`. The
+geometry row is unchanged by it, which is the point — the type was the
+only thing between P-1's importer and a whole-frame pass.
 
 Landmark measurements against `f_04510`:
 
@@ -207,13 +248,19 @@ The one-pixel radius excess on each is the stroke's own half-width, not a
 placement error — the chamfer of 0.000 px from every reference line pixel
 to ours says the centre lines are coincident.
 
-**The whole-frame FAIL is entirely the typeface, and it is P-2's
-subject.** The word's baseline and cap height are right — the reference's
-dense-glyph band runs rows 522…577 and ours runs 522…578 — but the
-bundled **Arimo sets "Project Liminality" 580 px wide against
-HelveticaNeue-Bold's 608, 4.6% narrower**. Same baseline, same cap
-height, different widths. Nothing in the importer can fix that; the deck
-declares `HelveticaNeue-Bold` and the renderer does not have it.
+**The whole-frame FAIL was entirely the typeface, and P-2 has since
+closed it.** At P-1 the word's baseline and cap height were right — the
+reference's dense-glyph band runs rows 522…577 and ours ran 522…578 —
+but the bundled **Arimo set "Project Liminality" 580 px wide against
+HelveticaNeue-Bold's 608**. Nothing in the importer could fix that; the
+deck declares `HelveticaNeue-Bold` and the renderer did not have it.
+
+P-2 loaded the real face and then found the remaining 5% was the deck's
+**tracking of −0.02 em**, which this decoder was dropping. It is now
+carried on `KeyText.tracking` (optional, additive). Worth knowing: across
+the whole stylesheet **exactly one style carries a nonzero tracking** —
+the 116-pt title — and every other is 0.0, so it can perturb no other
+chapter's geometry. Pinned by test.
 
 ### The vertical placement, which is a conversion and not a fit
 
@@ -283,18 +330,39 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **999 pass, 0 fail** (961 baseline + 38 new).
+- `bun test` — **1034 pass, 0 fail** (961 baseline + 44 mine + P-2's).
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
+- Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
-## 8. What P-2 inherits
+The checked-in slide set is 1–6, 19 and 32 (`CHAPTER_SLIDES` in
+`key2ts.ts`). **Keep that list in sync when a chapter emits a new
+slide**: `--slides N` rewrites `index.ts` to hold exactly what that run
+emitted, so running it alone drops the others from the barrel. Adding N
+to `CHAPTER_SLIDES` and re-running bare puts the set back. Merging into
+the existing barrel was rejected deliberately — it would make the
+generated directory depend on what happened to be on disk.
 
-The importer is done and the geometry is exact. P-2's whole subject is
-the remaining 4.6%: get HelveticaNeue (or a metrically compatible face)
-into the renderer and the title card closes. Two things to carry:
+## 8. What later chapters inherit
+
+The importer is done, the geometry is exact, and P-2 has closed the type.
+Carry forward:
 
 1. **Do not use `core/vocabulary/Logo`.** The deck's mark is a hand
    redraw — small/main radius ratio **0.64902** against pydeation's 0.61,
    centre offset **0.34003·r** against 0.36. At title-card size that is
    six pixels of red-circle radius. A test guards the substitution.
-2. The face is declared per text record (`fontName`), so a font map is a
-   renderer-side lookup, not an importer change.
+2. **The recon's segment table is off by one from slide 18 on**, and its
+   segment 17 is two slides. See §1's correction before scoping P-9.
+3. **Groups translate; they do not scale or rotate.** Verified across all
+   678. If a future slide looks scaled, suspect the fit rule or a stale
+   group box before adding a scale term.
+4. The face is declared per text record (`fontName`, `tracking`), so a
+   font map is a renderer-side lookup, not an importer change.
+
+**On the lesson.** The group bug shipped because P-1's gate — the title
+card — has no groups, so a claim in the prose was never touched by a
+test. The four group tests now exist for that reason, and the general
+form of the lesson is worth stating: a gate that exercises one slide
+validates the importer only for the features that slide happens to use.
+P-4 (`Connection` meshes and groups at scale) is where the next such gap
+would surface.

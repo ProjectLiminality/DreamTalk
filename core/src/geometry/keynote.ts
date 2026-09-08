@@ -246,6 +246,21 @@ export interface KeyText {
    *  title card — Keynote's tight-leading default for the Basic Black
    *  theme's title style). */
   lineSpacing: number
+  /**
+   * TRACKING — extra advance after each character, as a fraction of the
+   * em; negative tightens. Optional, so a module generated before this
+   * field existed still typechecks; absent reads as 0, the face's own
+   * advance.
+   *
+   * It is declared in the THEME stylesheet's character style rather than
+   * on the slide, so it reaches the model only through the decoder's
+   * merged style chain — and it is load-bearing on the title card, whose
+   * -0.02 is exactly the difference between the deck's 610 px word and
+   * HelveticaNeue-Bold's untracked 640 at 720p (P-2). The shaper's
+   * `letterSpacing` is the same quantity in the same units, so it is a
+   * pass-through and not a conversion.
+   */
+  tracking?: number
   /** Point size, in SLIDE units (the deck's 24 / 32 / 34 / 50 / 116). */
   fontSize: number
   /** PostScript face name — `HelveticaNeue-Bold`, `HelveticaNeue`. */

@@ -233,6 +233,23 @@ export class Slide extends Holon {
         content: text.content,
         size: text.fontSize * scale,
         align: text.align === "center" ? "center" : "left",
+        // The deck names its face per record, by PostScript name
+        // (`HelveticaNeue-Bold` on the title card). The renderer's
+        // fallback chain turns that into the locally extracted system
+        // face where the machine has it and the vendored Arimo where it
+        // does not — render/fonts.ts, which is where the whole licensing
+        // question lives. Nothing here has to know which one it got.
+        font: text.fontName,
+        // Keynote's line spacing is a multiple of the font size and so
+        // is the shaper's `lineHeight`, so this is a pass-through, not a
+        // conversion. A record with no spacing declared leaves it unset,
+        // which takes the face's own line height.
+        lineHeight: text.lineSpacing > 0 ? text.lineSpacing : undefined,
+        // Tracking is the same em-fraction in both worlds, so it too is
+        // a pass-through. The title card's -0.02 is worth 30 px of word
+        // width at 720p, which is the whole gap between a face that is
+        // merely right and a card that matches.
+        tracking: text.tracking ?? 0,
         tint: this.overrideTint
           ? this.tint.value
           : { r: text.color.r, g: text.color.g, b: text.color.b },

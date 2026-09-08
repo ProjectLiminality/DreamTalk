@@ -1,0 +1,11 @@
+{
+  "name": "p2-slide32-f_02826",
+  "ours": "docs/reports/pl02/ours-p2-slide32-f_02826.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_02826.jpg",
+  "iou": 0.1544,
+  "chamfer_ours_px": 9.997,
+  "chamfer_ref_px": 9.162,
+  "coverage_ref": 0.2916,
+  "coverage_ours": 0.2769,
+  "verdict": "FAIL"
+}

@@ -435,6 +435,13 @@ def text_of(drawable, slide, doc_styles, skipped, shape_props=None):
         },
         "lineSpacing": (para.get("lineSpacing") or {}).get("amount", 1.0),
         "fontSize": char.get("fontSize", 50.0),
+        # TRACKING: extra advance after each character as a fraction of
+        # the em. It lives in the THEME stylesheet's character style, not
+        # in the slide, so it arrives here only through the merged
+        # resolve_char_props chain — and it is load-bearing: the title
+        # card's -0.02 is the difference between the deck's 610 px word
+        # and HelveticaNeue-Bold's untracked 640 at 720p (P-2).
+        "tracking": char.get("tracking", 0.0),
         "fontName": char.get("fontName", "HelveticaNeue"),
         "bold": bool(char.get("bold", False)),
         "italic": bool(char.get("italic", False)),
@@ -456,19 +463,52 @@ def opacity_of(drawable):
 SHAPE_TYPES = ("TSWP.ShapeInfoArchive", "KN.PlaceholderArchive", "TSD.ConnectionLineArchive")
 
 
-def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order):
-    """Depth-first over ownedDrawables, flattening groups to membership."""
+def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order, offset=(0.0, 0.0)):
+    """Depth-first over ownedDrawables, flattening groups to membership.
+
+    GROUP CHILDREN ARE STORED RELATIVE TO THEIR PARENT GROUP, and groups
+    nest — so `offset` accumulates every enclosing group's position down
+    the chain and is added to each drawable's own position.
+
+    This corrects P-1's original claim that children were absolute. That
+    claim was never exercised by P-1's gate (the title slide has no
+    groups) and it is false: on slide 32 the "InterLogos" text box has
+    geometry (118.41, 121.54) inside group 5688069 at (841.59, 773.70),
+    and the sum (960.00, 895.24) is where frame f_02826 draws it —
+    horizontally dead centre on the 1920 canvas. Taken as absolute it
+    sits against the canvas's top-left corner, which is what our render
+    did (P-2 measured coverage 0.29/0.28 on that slide).
+
+    The composition is a pure TRANSLATION, verified across all 678 groups
+    in the deck: not one carries a nonzero angle, and every apparent
+    group-box/child-extent mismatch is either a rotated child (whose
+    axis-aligned box does not bound its own ink) or a stale group box
+    that does not tightly bound its children. In every case each child
+    sits at its natural size — group 4524553's box is 51.13x18.75 and its
+    child 4524569 is exactly 51.13x18.75 at (0, 0), while two siblings
+    simply overflow the box; group 4095005's 8.9-unit "excess" is
+    entirely its two 67deg/113deg rotated Logo legs. So there is no scale
+    to apply, and deriving one from the box ratio would move geometry
+    that is currently correct.
+    """
     obj = slide.get(ident)
     if obj is None:
         return
     pbtype = obj.get("_pbtype")
 
     if pbtype == "TSD.GroupArchive":
+        gg = geometry_of(obj)
+        inner = offset
+        if gg:
+            inner = (
+                offset[0] + gg["position"].get("x", 0.0),
+                offset[1] + gg["position"].get("y", 0.0),
+            )
         members = []
         for child in (obj.get("children") or obj.get("childInfos") or []):
             cid = child["identifier"]
             before = len(out_drawables)
-            walk(cid, slide, doc_styles, out_drawables, out_groups, skipped, order)
+            walk(cid, slide, doc_styles, out_drawables, out_groups, skipped, order, inner)
             if len(out_drawables) > before:
                 members.append(cid)
         if members:
@@ -485,6 +525,16 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order):
     geom = geometry_of(obj)
     if geom is None:
         return
+    # Lift the drawable out of its group chain and onto the canvas. Done
+    # here, once, so everything downstream — the fit, the frame change,
+    # the emitted module — sees plain canvas coordinates and no consumer
+    # has to know groups existed.
+    if offset != (0.0, 0.0):
+        geom = dict(geom)
+        geom["position"] = {
+            "x": geom["position"].get("x", 0.0) + offset[0],
+            "y": geom["position"].get("y", 0.0) + offset[1],
+        }
 
     # Find the pathsource and the style, at whatever nesting this archive uses.
     src, style_ref = None, None

@@ -84,9 +84,24 @@ const PRECISION = 3
  */
 const SIZE_BUDGET_KB = 2048
 
-/** The slides P-2 and P-3 need: the title card (1 / 19 / closing is one
- *  slide reused) and the opening arc, slides 2-6. */
-const CHAPTER_SLIDES = [1, 2, 3, 4, 5, 6, 19]
+/**
+ * The slides the campaign has emitted so far — the CHECKED-IN set, and
+ * therefore what a bare run must reproduce.
+ *
+ * 1 (the title card, reused as the 19th segment and the closing frame)
+ * and 2-6 (the opening arc) for P-2 and P-3; deck 19 alongside; 32 as
+ * P-2's grouped-slide proof, the one that caught the group-offset bug.
+ *
+ * KEEP THIS IN SYNC when a chapter emits a new slide. `--slides N`
+ * rewrites index.ts to hold exactly what that run emitted, so running
+ * `--slides 32` alone would drop the other seven from the barrel; adding
+ * N here and re-running bare is what puts the set back. (The alternative
+ * — merging into the existing barrel — was rejected: it would make the
+ * generated directory depend on what happened to be on disk, and the
+ * whole point of the codegen is that the same input gives the same
+ * output on every machine.)
+ */
+const CHAPTER_SLIDES = [1, 2, 3, 4, 5, 6, 19, 32]
 
 const fmt = (n: number): string => {
   const s = n.toFixed(PRECISION)
@@ -118,6 +133,7 @@ interface DecodedText {
   verticalAlign: string
   padding: { left: number; top: number; right: number; bottom: number }
   lineSpacing: number
+  tracking?: number
   fontSize: number
   fontName: string
   bold: boolean
@@ -208,6 +224,10 @@ const emitText = (text: DecodedText): string[] => [
   `      padding: { left: ${fmt(text.padding.left)}, top: ${fmt(text.padding.top)},` +
     ` right: ${fmt(text.padding.right)}, bottom: ${fmt(text.padding.bottom)} },`,
   `      lineSpacing: ${fmt(text.lineSpacing)},`,
+  // Tracking is emitted only when the deck declares one, so a record
+  // that never had it produces the same bytes it always did — and an
+  // untracked record reads as the face's own advance either way.
+  ...(text.tracking ? [`      tracking: ${fmt(text.tracking)},`] : []),
   `      fontSize: ${fmt(text.fontSize)},`,
   `      fontName: ${JSON.stringify(text.fontName)},`,
   `      bold: ${text.bold},`,

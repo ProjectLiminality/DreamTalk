@@ -85,6 +85,7 @@ import {
 import { boundaryLoops, closeLoop, insetLoop } from "../parts/outline"
 import type { Vec3Like } from "../parts/index"
 import { RibbonStroke } from "./ribbon"
+import { fontChain } from "./fonts"
 
 /**
  * Same escape hatch as ribbon.ts: @types/three's TSL typings lag the
@@ -149,6 +150,41 @@ export const FONT_ALIASES: Readonly<Record<string, string>> = {
 /** A holon's `font` (alias, URL, or unset) as the URL to load. */
 export const resolveFont = (font: string | undefined): string =>
   font === undefined ? DEFAULT_FONT_URL : (FONT_ALIASES[font] ?? font)
+
+/**
+ * The URLs to try for a holon's `font`, best first.
+ *
+ * An alias or a URL is one entry — `resolveFont`'s answer, unchanged.
+ * A PostScript face name the repo can source from the system (PL02's
+ * HelveticaNeue family, fonts.ts SYSTEM_FACES) is two: the locally
+ * extracted face, then the vendored fallback. `layoutText` walks the
+ * list and takes the first that loads, so a machine without the cache
+ * renders in Arimo rather than failing.
+ *
+ * Deliberately NOT a probe: the chain is data, the walk is the loader's,
+ * and the only thing that decides which face a run used is whether the
+ * fetch succeeded — see fonts.ts's header.
+ */
+export const fontCandidates = (font: string | undefined): string[] => {
+  if (font === undefined) return [DEFAULT_FONT_URL]
+  if (font in FONT_ALIASES) return [FONT_ALIASES[font]!]
+  const chain = fontChain(font)
+  // fontChain passes an unknown name straight through, which for a URL
+  // is resolveFont's own answer; only a SYSTEM_FACES name grows a tail.
+  return chain
+}
+
+/**
+ * Which URL each face name actually loaded from, this session.
+ *
+ * The honest record of whether a render got the real face or the
+ * fallback: a report that quotes a fidelity number reads it rather than
+ * assuming the cache was populated.
+ */
+const resolved = new Map<string, string>()
+
+/** The face → loaded-URL map, for a harness or a report to state. */
+export const loadedFaces = (): ReadonlyMap<string, string> => resolved
 
 /**
  * three-text shapes text with HarfBuzz compiled to WASM, and the binary
@@ -528,7 +564,8 @@ export interface TextBinding {
 }
 
 const layoutKey = (holon: Text): string =>
-  `${holon.content} ${holon.font ?? ""} ${holon.align} ${holon.size.value}`
+  `${holon.content} ${holon.font ?? ""} ${holon.align} ${holon.size.value}` +
+  ` ${holon.lineHeight ?? ""} ${holon.tracking}`
 
 /** three-text's handle: the geometry plus its own disposal. */
 interface TextHandle {
@@ -536,48 +573,103 @@ interface TextHandle {
   dispose(): void
 }
 
+/**
+ * Lay a string out, taking the first face in the chain that loads.
+ *
+ * The walk is what makes the system-font arrangement honest: the cached
+ * HelveticaNeue is tried, and a machine that has not run the extraction
+ * (or is not a Mac) falls through to the vendored Arimo instead of
+ * throwing. Only the LAST candidate's failure is a real failure, and it
+ * propagates to relayout()'s catch exactly as before.
+ *
+ * A single-candidate chain — every scene written before this existed —
+ * takes the same one await it always did.
+ */
+const layoutWithChain = async (
+  candidates: readonly string[],
+  create: (font: string) => Promise<TextHandle>,
+  faceKey: string,
+): Promise<TextHandle> => {
+  let last: unknown
+  for (const font of candidates) {
+    try {
+      const handle = await create(font)
+      resolved.set(faceKey, font)
+      return handle
+    } catch (err) {
+      last = err
+    }
+  }
+  throw last
+}
+
 const layoutText = async (
   content: string,
-  font: string,
+  fontOrChain: string | readonly string[],
   size: number,
   align: TextAlign = "center",
+  lineHeight?: number,
+  tracking = 0,
 ): Promise<TextHandle> => {
   ensureHarfBuzz()
-  const handle = (await ThreeText.create({
-    text: content,
-    font,
-    size,
-    // Flat text: no extrusion, so the glyphs live in the XY plane like
-    // every other holon's geometry.
-    depth: 0,
-    // The hook the Write domino runs on.
-    perGlyphAttributes: true,
-    // Overlapping contours would otherwise double up under max
-    // blending while the letter is at partial strength.
-    removeOverlaps: true,
-    layout: { align: "center" },
-  })) as unknown as TextHandle
-  // three-text's `align: "center"` centres lines within a WIDTH, and
-  // with none given the lines stack at a common left origin — the
-  // block-level re-centring below hides it for single-line text only
-  // (o8 diagnosis at f_01545: the reference centres each line; our
-  // shorter lines sat at the longer line's left edge). Passing a width
-  // is NOT the fix: three-text also WRAPS at it, and an ink-width
-  // probe under-measures the advance width, wrapping the long line's
-  // last glyph. So the lines are re-centred in the built geometry
-  // instead: glyphs bucket into lines by their ink-box y-bands (a
-  // newline steps the baseline by a full line height, so the bands
-  // cannot touch), and each line's vertices shift by its own
-  // mid-x — pure translation, no reshaping, no wrap.
-  //
-  // ALIGN "left" wants the opposite of all that: every line starting at
-  // the same x. three-text already stacks the lines at a common left
-  // origin (that is the bug the centring above works around), so left
-  // alignment is the ABSENCE of the per-line correction — the block
-  // anchor in relayout() then puts that common left edge on the holon's
-  // own x instead of its mid-x. No per-line pass runs at all.
-  if (align === "center" && content.includes("\n")) centreLinesInPlace(handle.geometry, size)
-  return handle
+  const candidates = typeof fontOrChain === "string" ? [fontOrChain] : fontOrChain
+  const build = async (font: string): Promise<TextHandle> => {
+    const handle = (await ThreeText.create({
+      text: content,
+      font,
+      size,
+      // Flat text: no extrusion, so the glyphs live in the XY plane like
+      // every other holon's geometry.
+      depth: 0,
+      // The hook the Write domino runs on.
+      perGlyphAttributes: true,
+      // Overlapping contours would otherwise double up under max
+      // blending while the letter is at partial strength.
+      removeOverlaps: true,
+      // Keynote states line spacing as a MULTIPLE of the font size and
+      // three-text's `lineHeight` is the same multiple, so a deck's
+      // record passes straight through. Omitted when unset, so every
+      // scene written before this existed takes three-text's own default
+      // and lays out byte-identically.
+      ...(lineHeight === undefined ? {} : { lineHeight }),
+      // Keynote's TRACKING and three-text's `letterSpacing` are the same
+      // quantity in the same units — extra advance after each glyph as a
+      // fraction of the em — so a deck's value is a pass-through. Zero
+      // is the shaper's own advance, and omitting it keeps every
+      // pre-existing scene byte-identical.
+      ...(tracking === 0 ? {} : { letterSpacing: tracking }),
+      layout: { align: "center" },
+    })) as unknown as TextHandle
+    // three-text's `align: "center"` centres lines within a WIDTH, and
+    // with none given the lines stack at a common left origin — the
+    // block-level re-centring below hides it for single-line text only
+    // (o8 diagnosis at f_01545: the reference centres each line; our
+    // shorter lines sat at the longer line's left edge). Passing a width
+    // is NOT the fix: three-text also WRAPS at it, and an ink-width
+    // probe under-measures the advance width, wrapping the long line's
+    // last glyph. So the lines are re-centred in the built geometry
+    // instead: glyphs bucket into lines by their ink-box y-bands (a
+    // newline steps the baseline by a full line height, so the bands
+    // cannot touch), and each line's vertices shift by its own
+    // mid-x — pure translation, no reshaping, no wrap.
+    //
+    // ALIGN "left" wants the opposite of all that: every line starting at
+    // the same x. three-text already stacks the lines at a common left
+    // origin (that is the bug the centring above works around), so left
+    // alignment is the ABSENCE of the per-line correction — the block
+    // anchor in relayout() then puts that common left edge on the holon's
+    // own x instead of its mid-x. No per-line pass runs at all.
+    //
+    // The banding threshold follows the line height: Keynote's own line
+    // spacing can pull consecutive baselines to well under one em (the
+    // deck's multi-line labels sit at 0.9), and a fixed 0.6·size band
+    // would then fuse two lines into one.
+    if (align === "center" && content.includes("\n")) {
+      centreLinesInPlace(handle.geometry, size * (lineHeight ?? 1))
+    }
+    return handle
+  }
+  return layoutWithChain(candidates, build, candidates[0] ?? "")
 }
 
 /**
@@ -676,7 +768,14 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
   const relayout = (): Promise<void> => {
     currentKey = layoutKey(holon)
     const token = ++layoutToken
-    return layoutText(holon.content, resolveFont(holon.font), holon.size.value, holon.align)
+    return layoutText(
+      holon.content,
+      fontCandidates(holon.font),
+      holon.size.value,
+      holon.align,
+      holon.lineHeight,
+      holon.tracking,
+    )
       .then((next) => {
         // Superseded mid-flight, or the binding went away.
         if (token !== layoutToken || disposed) {

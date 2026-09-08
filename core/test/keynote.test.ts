@@ -466,6 +466,89 @@ describe("the shape census", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Groups — the offset bug P-2 caught
+// ---------------------------------------------------------------------------
+
+describe("group children are lifted onto the canvas", () => {
+  /**
+   * Group children are stored RELATIVE to their parent group, and groups
+   * nest. P-1 originally claimed they were absolute; the title slide has
+   * no groups, so its gate never exercised the claim and it shipped
+   * false. These tests are the guard.
+   *
+   * The landmark is slide 32's "InterLogos" text box: geometry
+   * (118.41, 121.54) inside group 5688069 at (841.59, 773.70), summing
+   * to (960.00, 895.24) — horizontally dead centre on the 1920 canvas,
+   * which is where frame f_02826 draws it. Taken as absolute it would
+   * sit against the top-left corner.
+   */
+  test("a grouped text box lands where the footage draws it", async () => {
+    const { slide32 } = await import("../vocabulary/Slides/assets/pl02/slide32")
+    const interlogos = slide32.texts.find((t) => t.content === "InterLogos")
+    expect(interlogos).toBeDefined()
+    expect(interlogos!.frame.position.x).toBeCloseTo(960.0, 1)
+    expect(interlogos!.frame.position.y).toBeCloseTo(895.24, 1)
+    // The un-lifted value, which is what the bug produced.
+    expect(interlogos!.frame.position.x).not.toBeCloseTo(118.41, 1)
+  })
+
+  test("no drawable on a grouped slide is stranded at the canvas corner", () => {
+    // The bug's signature: the whole tableau collapsed toward the origin.
+    // Nothing in this deck is authored against the very corner, so a
+    // cluster of drawables in the top-left 5% is the tell.
+    return import("../vocabulary/Slides/assets/pl02/slide32").then(({ slide32 }) => {
+      const stranded = [...slide32.shapes, ...slide32.texts].filter((d) => {
+        const p = "frame" in d ? d.frame.position : null
+        if (p) return p.x < SLIDE_WIDTH * 0.05 && p.y < SLIDE_HEIGHT * 0.05
+        const flat = (d as { subpaths: number[][] }).subpaths[0]
+        return flat ? flat[0]! < SLIDE_WIDTH * 0.05 && flat[1]! < SLIDE_HEIGHT * 0.05 : false
+      })
+      expect(stranded).toHaveLength(0)
+    })
+  })
+
+  test("the slide's drawables span the canvas the way a composed tableau does", async () => {
+    const { slide32 } = await import("../vocabulary/Slides/assets/pl02/slide32")
+    let minX = Infinity
+    let maxX = -Infinity
+    for (const shape of slide32.shapes) {
+      for (const flat of shape.subpaths) {
+        for (let i = 0; i + 1 < flat.length; i += 2) {
+          minX = Math.min(minX, flat[i]!)
+          maxX = Math.max(maxX, flat[i]!)
+        }
+      }
+    }
+    // Centred composition: the ink straddles the canvas midline rather
+    // than hugging one edge.
+    expect(minX).toBeLessThan(SLIDE_WIDTH / 2)
+    expect(maxX).toBeGreaterThan(SLIDE_WIDTH / 2)
+  })
+
+  test("groups record membership and every member resolves", async () => {
+    const { slide32 } = await import("../vocabulary/Slides/assets/pl02/slide32")
+    expect(slide32.groups.length).toBeGreaterThan(0)
+    const ids = new Set([
+      ...slide32.shapes.map((s) => s.id),
+      ...slide32.texts.map((t) => t.id),
+      ...slide32.groups.map((g) => g.id),
+    ])
+    for (const group of slide32.groups) {
+      expect(group.members.length).toBeGreaterThan(0)
+      for (const member of group.members) expect(ids.has(member)).toBe(true)
+    }
+  })
+
+  test("the title card, having no groups, is untouched by the lift", () => {
+    // The fix must be scoped to grouped drawables: slide 1's geometry is
+    // already validated against the footage to sub-pixel and must not
+    // move. (§ the main-circle test above pins the actual numbers; this
+    // pins the structural fact that produced them.)
+    expect(slide01.groups).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Text records
 // ---------------------------------------------------------------------------
 
@@ -481,6 +564,20 @@ describe("text records", () => {
     expect(title.frame.size.width).toBeCloseTo(1730.0002, 3)
     expect(title.frame.size.height).toBeCloseTo(366, 3)
     expect(title.color).toEqual({ r: 1, g: 1, b: 1, a: 1 })
+  })
+
+  test("the deck's tracking survives, and only the title style carries it", () => {
+    // P-2: tracking is an em fraction of extra advance after each glyph,
+    // and the title card's -0.02 is the difference between an untracked
+    // 640 px word and the deck's 610 at 720p. Across the whole
+    // stylesheet exactly ONE style carries a nonzero value — the 116-pt
+    // title — so it can perturb no other chapter's geometry.
+    expect(title.tracking).toBeCloseTo(-0.02, 6)
+    for (const data of [slide01]) {
+      for (const text of data.texts) {
+        if (text.fontSize !== 116) expect(text.tracking ?? 0).toBe(0)
+      }
+    }
   })
 
   test("the block anchors on the box's horizontal centre", () => {

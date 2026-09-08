@@ -68,6 +68,7 @@ export const slide01: SlideData = {
       verticalAlign: "bottom",
       padding: { left: 4, top: 4, right: 4, bottom: 4 },
       lineSpacing: 0.8,
+      tracking: -0.02,
       fontSize: 116,
       fontName: "HelveticaNeue-Bold",
       bold: true,

@@ -136,6 +136,31 @@ export class Text extends Holon {
   font: string | undefined = undefined
   /** Where the block sits on this holon's x — see TextAlign. */
   align: TextAlign = "center"
+  /**
+   * Baseline-to-baseline distance as a MULTIPLE of `size`, or unset for
+   * the shaper's own default (which is the face's own line height).
+   *
+   * Keynote states line spacing exactly this way — a multiple, per
+   * paragraph style — so a deck's record passes straight through
+   * (PL02's multi-line labels carry 0.9). Unset means untouched, so
+   * every scene written before this existed lays out identically.
+   */
+  lineHeight: number | undefined = undefined
+  /**
+   * Extra advance after each glyph, as a fraction of the em. Negative
+   * tightens.
+   *
+   * Keynote calls this TRACKING and states it exactly this way — a
+   * fraction of the em, applied per character — so a deck's value passes
+   * straight through to the shaper's `letterSpacing`. It is DERIVED, not
+   * fitted: PL02's title style carries `tracking: -0.02` in the theme
+   * stylesheet, which is why the card's word is 610 px wide at 720p and
+   * not the 640 px HelveticaNeue-Bold sets untracked.
+   *
+   * Unset (0) is the shaper's own advance, so every scene written before
+   * this existed lays out identically.
+   */
+  tracking = 0
   size = length(50)
   tint = color(WHITE)
   stroke = length(5)
