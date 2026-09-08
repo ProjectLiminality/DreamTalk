@@ -507,3 +507,13 @@ file was written.
 - **Palette from the stylesheet, not the encode**: #00A2FF and #FF644E
   — constants.ts's BLUE and RED to the byte. The deck and the
   pydeation corpus share ONE palette.
+- (2026-09-08, P-1 §1) **The deck DECLARES its cascades** — §0's "every
+  build advances on click" is contradicted by KN.BuildChunkArchive:
+  across slides 1-58, 295 of 384 chunks are AUTOMATIC and only 89
+  click-advanced. 89 clicks + 58 transitions = 147 declared advances
+  vs the 141 measured events (4%; residual = events too subtle for the
+  motion scan). Only the 89 click onsets are genuinely footage-only.
+  Build order now comes from the slide's own builds list (a defensive
+  sort was hiding it); `direction` carried uninterpreted (absent on
+  114/158 LineDrawForLine builds — absence is the default; values
+  51/52/53 observed); chunk and build durations agree in all 384 cases.

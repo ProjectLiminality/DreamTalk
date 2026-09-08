@@ -96,11 +96,18 @@ export const slide03: SlideData = {
   ],
   groups: [],
   builds: [
-    {"target":"4516215","effect":"apple:action-motion-path","animationType":"Action","duration":1,"delay":0,"delivery":"All at Once","acceleration":"kEaseBoth"},
-    {"target":"4516215","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"4517073","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"4895361","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"4895406","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4895353","target":"4895361","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4890648","target":"4516215","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4890801","target":"4516215","effect":"apple:action-motion-path","animationType":"Action","duration":1,"delay":0,"delivery":"All at Once","acceleration":"kEaseBoth"},
+    {"id":"4895689","target":"4895406","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4890815","target":"4517073","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+  ],
+  buildChunks: [
+    {"build":"4890648","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"4890801","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"4890815","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"4895353","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"4895689","duration":1,"delay":0,"automatic":true,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

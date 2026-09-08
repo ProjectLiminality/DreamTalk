@@ -15,11 +15,21 @@ have ink it lacks.
 |---|---|
 | `p1-title-geom-composite.png` | the geometry overlay, PASS 1.000/1.000 |
 | `p1-title-geom-report.json` | its metrics |
-| `p1-f_04510-composite.png` | the whole frame including type, FAIL 0.848/0.902 |
+| `p1-f_04510-composite.png` | the whole frame at P-1, FAIL 0.848/0.902 (type not yet solved) |
 | `p1-f_04510-report.json` | its metrics |
+| `p1-title-after-p2-composite.png` | the whole frame after P-2's type, **PASS 0.9986/0.9757** |
+| `p1-title-after-p2-report.json` | its metrics |
 | `ours-p1-f_04510.png` | the render itself |
 
-The whole-frame FAIL is the FONT, and only the font — see §4.
+The P-1 whole-frame FAIL was the FONT and only the font; P-2 has since
+closed it and the title card now passes whole-frame. See §4.
+
+**Since first writing, three corrections have landed in §1** — two of them
+to this importer's own claims, caught by teammates whose chapters
+exercised what P-1's single-slide gate did not: group children are
+relative (P-2), and build order, `direction` and the firing model (P-3).
+Both are fixed and guarded by tests. §1 also corrects the recon report on
+three counts of its own.
 
 ## 1. What survives keynote-parser, and what is dropped
 
@@ -71,8 +81,54 @@ grouped drawables. Four tests guard it, including the InterLogos
 landmark and a "nothing stranded at the canvas corner" check that is the
 bug's exact signature.
 
-The build count needs its own section, because it is not a discrepancy in
-counting.
+### CORRECTION (P-3): build order, direction, and the firing model
+
+Three fixes, prompted by P-3 with footage evidence:
+
+**1. The sort was a bug.** `builds_of()` sorted by `(target, effect)`,
+defensively, to keep the determinism test safe from unstable archive
+iteration. The defence was unnecessary — decoding the same `.iwa` three
+times yields identical archive order — and it destroyed the deck's build
+sequence. Builds now arrive in the order the slide's own
+`KN.SlideArchive.builds` list states, which is the format's declaration
+rather than the importer's observation.
+
+**2. `direction` is now carried, uninterpreted.** LineDrawForLine draws
+the stroke on from one END, and the stored point order does not predict
+which: P-3 measured slide 2's four connection lines in the footage and
+found all four draw centre-outward, two of them *against* their stored
+order (dir 52) and one with it (dir 51). The field is what disambiguates.
+
+Worth knowing before generalising from slide 2, which is unrepresentative:
+`direction` appears on only **5 of the 58 slides** and is **absent on 114
+of the 158 LineDrawForLine builds**, so absence is the default. Three
+values occur — 51 once, 52 twenty-eight times, 53 fifteen times — and deck
+slide 9 uses 53 for all fifteen of its builds. It is emitted raw; naming
+what 51/52/53 mean in general from four measured samples would be a
+guess, so a consumer that needs a rule states its own reading.
+
+**3. `buildChunks` is now carried, and it corrects the recon report.**
+Report §0 says "every one of the 413 build events has `isAutomatic` and
+`automaticDelay` absent, i.e. Keynote's default: advance on click", and
+concludes that the shape of each animation is in the file while the
+moment it fires is not. That reads `isAutomatic` on the build's
+`animationAttributes` — the wrong field. Keynote states firing on the
+`KN.BuildChunkArchive`, and its own `automatic` flag says: across slides
+1–58, **89 of 384 chunks are click-advanced and 295 are automatic.** The
+deck *does* declare its cascades; only the clicks are missing.
+
+The arithmetic corroborates independently: **89 clicks + 58 slide
+transitions = 147 declared advances, against the 141 animation events the
+recon measured** from `frames5` — within 4%, the residual being events too
+subtle or too closely spaced for a motion scan to separate. That is a
+tighter account of the video's 141 events than "413 builds compress by
+clicking", and it means a reproduction has more declared timing available
+than the report supposed: only the 89 click onsets are genuinely
+footage-only.
+
+One thing the chunk does *not* add is timing. Its `duration` agrees with
+its build's `animationAttributes.duration` in all 384 cases, so there is
+no second duration to reconcile — the value worth having is `automatic`.
 
 ### The recon's slide list is off by one from slide 18 onward
 
@@ -137,9 +193,11 @@ Per shape the model keeps: id, `localizationKey`, flattened subpaths with
 closed flags, resolved stroke (colour, width, dash pattern, cap, join),
 resolved flat fill, opacity, and the geometry box. Per text: content,
 box, horizontal and vertical alignment, padding, line spacing, point
-size, PostScript face name, bold/italic, colour. Per slide: builds
-(target, effect, type, duration, delay, delivery, acceleration) and the
-transition (effect, duration, delay, timing curve, fade-unmatched).
+size, PostScript face name, bold/italic, colour, tracking. Per slide:
+builds in the deck's own order (id, target, effect, type, duration,
+delay, delivery, acceleration, direction), the build chunks that say when
+they fire, and the transition (effect, duration, delay, timing curve,
+fade-unmatched).
 
 **Dropped, and named in each module's header:** gradient fills (no slide
 in 1–58 depends on one), images, and Keynote's shadow/reflection
@@ -330,7 +388,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1034 pass, 0 fail** (961 baseline + 44 mine + P-2's).
+- `bun test` — **1040 pass, 0 fail** (961 baseline + 50 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
@@ -353,10 +411,13 @@ Carry forward:
    six pixels of red-circle radius. A test guards the substitution.
 2. **The recon's segment table is off by one from slide 18 on**, and its
    segment 17 is two slides. See §1's correction before scoping P-9.
-3. **Groups translate; they do not scale or rotate.** Verified across all
+3. **The deck declares its cascades.** 295 of 384 chunks are automatic;
+   only 89 are clicks. P-9's timing target is therefore 89 onsets to
+   measure, not 413 — see §1's P-3 correction.
+4. **Groups translate; they do not scale or rotate.** Verified across all
    678. If a future slide looks scaled, suspect the fit rule or a stale
    group box before adding a scale term.
-4. The face is declared per text record (`fontName`, `tracking`), so a
+5. The face is declared per text record (`fontName`, `tracking`), so a
    font map is a renderer-side lookup, not an importer change.
 
 **On the lesson.** The group bug shipped because P-1's gate — the title

@@ -49,6 +49,7 @@ import {
   type KeyColor,
   type KeyStroke,
   type KeyBuild,
+  type KeyBuildChunk,
   type KeyGroup,
   type KeyTransition,
 } from "../src/geometry/keynote"
@@ -150,6 +151,7 @@ interface DecodedSlide {
   drawables: (DecodedShape | DecodedText)[]
   groups: KeyGroup[]
   builds: KeyBuild[]
+  buildChunks: KeyBuildChunk[]
   transition?: KeyTransition | null
   skipped: string[]
 }
@@ -277,9 +279,18 @@ const convert = (slide: DecodedSlide): { name: string; bytes: number } => {
   for (const text of texts) lines.push(...emitText(text))
   lines.push("  ],")
   lines.push(`  groups: ${JSON.stringify(slide.groups)},`)
+  // Builds in the deck's declared order — NOT sorted. The order is the
+  // slide's own `builds` list and P-3 reads it as the build sequence.
   lines.push("  builds: [")
   for (const build of slide.builds) lines.push(`    ${JSON.stringify(dropNulls(build))},`)
   lines.push("  ],")
+  // The click grouping, in click order. Emitted only when the slide has
+  // one, so a build-free slide stays terse.
+  if (slide.buildChunks?.length) {
+    lines.push("  buildChunks: [")
+    for (const chunk of slide.buildChunks) lines.push(`    ${JSON.stringify(chunk)},`)
+    lines.push("  ],")
+  }
   if (slide.transition) {
     lines.push(`  transition: ${JSON.stringify(dropNulls(slide.transition))},`)
   }

@@ -598,26 +598,94 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order, of
     out_drawables.append(rec)
 
 
-def builds_of(slide):
+def builds_of(slide, slide_archive):
+    """The slide's builds, IN THE DECK'S OWN ORDER.
+
+    The order is the `KN.SlideArchive.builds` list, which is the slide's
+    own declared sequence — not archive iteration order, and emphatically
+    not a sort. An earlier version of this function sorted by
+    (target, effect) to defend the determinism test against unstable
+    archive iteration. That defence was unnecessary (decoding the same
+    .iwa three times yields identical archive order) and it destroyed the
+    sequence a reproduction needs, so it is gone. `builds` is the right
+    key anyway: it is stated by the format rather than observed.
+
+    `direction` is carried because LineDrawForLine needs it and it cannot
+    be recovered from geometry. It selects which END of the stroke the
+    draw starts from, and the deck's stored point order does NOT predict
+    it — P-3 measured slide 2's four connection lines in the footage and
+    found all four draw centre-outward, two of them against their stored
+    order (dir 52) and one with it (dir 51).
+
+    It appears on only 5 slides and is absent on 114 of the 158
+    LineDrawForLine builds, so absence is the default and slide 2 is
+    unrepresentative. Deck slide 9 (archive 4705361) uses direction 53
+    for all fifteen of its builds. Emitted as-is, uninterpreted: naming
+    what 51/52/53 mean in general would be a guess from four samples, and
+    the consumer that needs a rule should state its own reading against
+    the footage rather than inherit one from here.
+    """
+    ordered = [ref["identifier"] for ref in (slide_archive.get("builds") or [])]
+    seen = set(ordered)
+    # Anything the list somehow omits still gets carried, after the
+    # declared ones, so a malformed slide loses no build.
+    for ident, obj in slide.items():
+        if obj.get("_pbtype") == "KN.BuildArchive" and ident not in seen:
+            ordered.append(ident)
+
     out = []
-    for obj in slide.values():
-        if obj.get("_pbtype") != "KN.BuildArchive":
+    for ident in ordered:
+        obj = slide.get(ident)
+        if not obj or obj.get("_pbtype") != "KN.BuildArchive":
             continue
         attrs = obj.get("attributes") or {}
         anim = attrs.get("animationAttributes") or {}
         drawable = obj.get("drawable") or {}
+        rec = {
+            "id": ident,
+            "target": drawable.get("identifier", ""),
+            "effect": anim.get("effect", "none"),
+            "animationType": anim.get("animationType", "In"),
+            "duration": anim.get("duration", 0.0),
+            "delay": anim.get("delay", 0.0),
+            "delivery": obj.get("delivery", "All at Once"),
+            "acceleration": attrs.get("actionAcceleration"),
+        }
+        if anim.get("direction") is not None:
+            rec["direction"] = anim["direction"]
+        out.append(rec)
+    return out
+
+
+def build_chunks_of(slide, slide_archive):
+    """The CLICK grouping — how the builds fire, and when.
+
+    A `KN.BuildChunkArchive` is what one click advances, in click order,
+    and it is where the real timing lives: the build's own `duration` is
+    often 0.0 while its chunk carries 1.0, and `automatic: false` is the
+    click-advance the recon measured (every one of the deck's builds
+    advances on click; nothing is auto-timed).
+
+    This is what turns the recon's "413 declared builds compress to 141
+    visible events" from an observation into a readable structure —
+    several builds share a chunk and fire together. P-3 owns the
+    interpretation; the importer's job is to stop throwing it away.
+    """
+    out = []
+    for ref in slide_archive.get("buildChunks") or []:
+        obj = slide.get(ref["identifier"])
+        if not obj or obj.get("_pbtype") != "KN.BuildChunkArchive":
+            continue
+        build = obj.get("build") or {}
         out.append(
             {
-                "target": drawable.get("identifier", ""),
-                "effect": anim.get("effect", "none"),
-                "animationType": anim.get("animationType", "In"),
-                "duration": anim.get("duration", 0.0),
-                "delay": anim.get("delay", 0.0),
-                "delivery": obj.get("delivery", "All at Once"),
-                "acceleration": attrs.get("actionAcceleration"),
+                "build": build.get("identifier", ""),
+                "duration": obj.get("duration", 0.0),
+                "delay": obj.get("delay", 0.0),
+                "automatic": bool(obj.get("automatic", False)),
+                "chunkId": (obj.get("buildChunkIdentifier") or {}).get("buildChunkId", 0),
             }
         )
-    out.sort(key=lambda b: (b["target"], b["effect"]))
     return out
 
 
@@ -702,7 +770,8 @@ def main():
                 "hash": sha16(path),
                 "drawables": drawables,
                 "groups": groups,
-                "builds": builds_of(slide),
+                "builds": builds_of(slide, archive),
+                "buildChunks": build_chunks_of(slide, archive),
                 "transition": transition_of(archive),
                 "skipped": sorted(set(skipped)),
             }

@@ -54,7 +54,18 @@ import {
   type SlideData,
   type SlideShapeData,
   type KeyText,
+  type KeyBuild,
 } from "../../src/geometry/keynote"
+import {
+  LINE_DRAW,
+  SUPPORTED,
+  buildAnim,
+  drawsReversed,
+  lineDrawAnim,
+  preBuildAnim,
+  strokeEnds,
+  unsupportedBuilds,
+} from "./Builds"
 
 /** An empty page, so a Slide with no data is still a valid holon. */
 const EMPTY: SlideData = {
@@ -129,32 +140,44 @@ export class Slide extends Holon {
   /** One Group per `TSD.GroupArchive`, adopting its members. */
   groups: Group[] = []
 
+  /**
+   * Every drawable this page composed, by its KEYNOTE id.
+   *
+   * Groups need it to adopt their members, and so does anything that
+   * reads the deck's other per-drawable records — a build names its
+   * target by this id and nothing else (`KeyBuild.target`), so a build
+   * cannot be applied without it. A shape with several subpaths maps to
+   * ALL of them, because a build fires on the whole drawable: slide 2's
+   * Tree_70 is three subpaths and one `dissolve character`.
+   */
+  byId = new Map<string, Holon[]>()
+
   protected override compose(): void {
     const scale = slideToWorld(this.height.value)
 
-    /** Every drawable by its Keynote id, so groups can adopt them. */
-    const byId = new Map<string, Holon>()
-
     for (const shape of this.data.shapes) {
       const parts = this.composeShape(shape, scale)
-      // A shape's subpaths are one drawable; when it has several the
-      // group id maps to the first, which is all the group needs to
-      // reach it (and MagicMove will match on the shape id itself).
-      if (parts[0]) byId.set(shape.id, parts[0])
+      if (parts.length > 0) this.byId.set(shape.id, parts)
       this.strokes.push(...parts)
     }
 
     for (const text of this.data.texts) {
       const label = this.composeText(text, scale)
-      byId.set(text.id, label)
+      this.byId.set(text.id, [label])
       this.labels.push(label)
     }
 
-    // Groups adopt what already exists rather than owning construction —
-    // Keynote stores its children in ABSOLUTE canvas coordinates, so a
-    // group contributes identity, not a transform (geometry/keynote.ts
-    // KeyGroup). Adopting keeps every part's own identity intact, which
-    // is what a scene animating one member of a group needs.
+    /** A group adopts the FIRST part of each member — see `byId`. */
+    const byId = new Map<string, Holon>()
+    for (const [id, parts] of this.byId) if (parts[0]) byId.set(id, parts[0])
+
+    // Groups adopt what already exists rather than owning construction.
+    // The importer lifts every grouped child onto the canvas before this
+    // sees it (keydecode.py's walk accumulates the enclosing chain), so a
+    // group contributes identity here, not a transform. Adopting keeps
+    // every part's own identity intact, which is what a scene animating
+    // one member of a group needs — and what a build, which names a
+    // single drawable, requires.
     for (const group of this.data.groups) {
       const members = group.members.map((id) => byId.get(id)).filter((m): m is Holon => !!m)
       if (members.length > 0) this.groups.push(this.add(new Group({ members })))
@@ -292,6 +315,87 @@ export class Slide extends Holon {
       items.push([label.creation.sequence(0, 1), strokeSpan, 1])
     }
     return items.length > 0 ? together(...items) : { tracks: [] }
+  }
+
+  /**
+   * The parts one build's target names, or none when the deck's target
+   * is a drawable the importer dropped.
+   *
+   * Slide 2 has five such: four `dissolve` builds on lightning glyphs and
+   * one on the Vitruvian figure, all `TSD.ImageArchive` (the four images
+   * P-1's decode skips). A missing target is REPORTED, not silently
+   * skipped — `missingBuildTargets` is what a scene checks, and what
+   * keeps a dropped build from looking like a build that never existed.
+   */
+  buildTargets(build: KeyBuild): Holon[] {
+    void this.parts
+    return this.byId.get(build.target) ?? []
+  }
+
+  /** Build records whose target this page did not compose. */
+  missingBuildTargets(): KeyBuild[] {
+    void this.parts
+    return this.data.builds.filter((b) => this.buildTargets(b).length === 0)
+  }
+
+  /**
+   * Put the page into its PRE-BUILD state: everything an `In` build will
+   * bring on is pushed back to nothing, everything else stays as composed.
+   *
+   * A scene calls this once, at its cursor, before playing any build. It
+   * is the counterpart of the fact that `Slide` composes finished — see
+   * Builds.ts `preBuildAnim` for why that default is right and why this
+   * has to exist alongside it.
+   */
+  preBuild(builds: readonly KeyBuild[] = this.data.builds): Anim {
+    void this.parts
+    const items: Anim[] = []
+    for (const record of builds) {
+      if (!SUPPORTED.has(record.effect)) continue
+      for (const target of this.buildTargets(record)) {
+        items.push(preBuildAnim(record, target))
+      }
+    }
+    return items.length > 0 ? together(...items) : { tracks: [] }
+  }
+
+  /**
+   * One build record as an Anim over this page's own parts.
+   *
+   * The whole of the build's SHAPE comes from the record (effect,
+   * animationType) and the whole of its SCHEDULE comes from the caller.
+   * That division is the chapter's central claim: the deck declares
+   * durations and easings and does not declare pacing (every one of its
+   * 384 builds is `advance on click`), so a duration read from the record
+   * and an onset measured from the footage are different KINDS of number
+   * and must not be mixed. See DECISIONS' refused-fits rule as O-11
+   * refined it.
+   */
+  build(record: KeyBuild): Anim {
+    void this.parts
+    const targets = this.buildTargets(record)
+    if (targets.length === 0) return { tracks: [] }
+
+    const items: Anim[] = []
+    for (const target of targets) {
+      if (record.effect === LINE_DRAW) {
+        const ends = target instanceof Stroke ? strokeEnds(target) : undefined
+        // The page's own centre in world coordinates — the origin, since
+        // slidePointToWorld puts the canvas centre there.
+        const reversed = ends
+          ? drawsReversed(record, ends, { x: 0, y: 0 })
+          : false
+        items.push(lineDrawAnim(target, reversed, record.animationType === "Out"))
+      } else {
+        items.push(buildAnim(record, target))
+      }
+    }
+    return together(...items)
+  }
+
+  /** Every build on this page whose effect P-3 does not implement. */
+  unsupported(): KeyBuild[] {
+    return unsupportedBuilds(this.data.builds)
   }
 
   /** The same walk, retracting — the pen goes back the way it came. */

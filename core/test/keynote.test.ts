@@ -549,6 +549,84 @@ describe("group children are lifted onto the canvas", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Builds — order, direction, and the click model (P-3)
+// ---------------------------------------------------------------------------
+
+describe("builds", () => {
+  test("arrive in the deck's declared order, not sorted", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    // The slide's own `builds` list opens with a LineDrawForLine on
+    // 4514353 and closes with one on 4514292, with dissolves between —
+    // an order the old (target, effect) sort destroyed.
+    expect(slide02.builds[0]!.target).toBe("4514353")
+    expect(slide02.builds[slide02.builds.length - 1]!.target).toBe("4514292")
+    const targets = slide02.builds.map((b) => b.target)
+    expect(targets).not.toEqual([...targets].sort())
+  })
+
+  test("LineDrawForLine carries its direction, uninterpreted", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    // P-3 measured these four against the footage: all draw
+    // centre-outward, two against their stored point order.
+    const dirs = Object.fromEntries(
+      slide02.builds
+        .filter((b) => b.effect === "com.apple.iWork.Keynote.LineDrawForLine")
+        .map((b) => [b.target, b.direction]),
+    )
+    expect(dirs).toEqual({
+      "4514353": 51,
+      "4514420": 52,
+      "4514184": 52,
+      "4514292": 52,
+    })
+  })
+
+  test("direction is absent where the deck omits it — absence is the default", async () => {
+    const { slide03 } = await import("../vocabulary/Slides/assets/pl02/slide03")
+    // Only 5 of the 58 slides state a direction at all; 114 of the 158
+    // LineDrawForLine builds have none. A consumer must handle absence.
+    for (const build of slide03.builds) {
+      if (build.effect !== "com.apple.iWork.Keynote.LineDrawForLine") {
+        expect(build.direction).toBeUndefined()
+      }
+    }
+  })
+
+  test("every build has an id a chunk can refer to", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const ids = new Set(slide02.builds.map((b) => b.id))
+    expect(ids.size).toBe(slide02.builds.length)
+    for (const chunk of slide02.buildChunks ?? []) expect(ids.has(chunk.build)).toBe(true)
+  })
+
+  test("the click model: a slide's chunks are one click then a cascade", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const chunks = slide02.buildChunks ?? []
+    expect(chunks.length).toBe(slide02.builds.length)
+    // The recon read `isAutomatic` on the BUILD and concluded every
+    // advance is a click. The CHUNK's own flag says otherwise: this
+    // slide opens on a click and cascades from there.
+    expect(chunks[0]!.automatic).toBe(false)
+    expect(chunks.filter((c) => c.automatic).length).toBeGreaterThan(0)
+  })
+
+  test("chunk duration agrees with its build's — the chunk adds firing, not timing", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    // Checked across the whole deck: all 384 chunks agree with the
+    // `animationAttributes.duration` of the build they fire. So a chunk
+    // contributes the WHEN (click or cascade) and never a second
+    // duration to reconcile. (The 0.0 that looks like a disagreement is
+    // KN.BuildArchive's own outer `duration` field, which is not the
+    // animation's and which this importer does not read.)
+    for (const chunk of slide02.buildChunks ?? []) {
+      const build = slide02.builds.find((b) => b.id === chunk.build)
+      expect(build).toBeDefined()
+      expect(chunk.duration).toBeCloseTo(build!.duration, 9)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Text records
 // ---------------------------------------------------------------------------
 

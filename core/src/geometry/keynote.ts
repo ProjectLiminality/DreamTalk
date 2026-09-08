@@ -292,8 +292,16 @@ export interface KeyGroup {
   members: string[]
 }
 
-/** A build (Keynote's per-object animation), as declared. */
+/**
+ * A build (Keynote's per-object animation), as declared.
+ *
+ * Builds arrive in the DECK'S OWN ORDER — the `KN.SlideArchive.builds`
+ * list, which the format states rather than the importer observing. When
+ * they FIRE is a separate question, answered by `KeySlide.buildChunks`.
+ */
 export interface KeyBuild {
+  /** The `KN.BuildArchive` id — what a build chunk refers to. */
+  id: string
   /** The drawable this build animates. */
   target: string
   /** `com.apple.iWork.Keynote.LineDrawForLine`, `apple:dissolve`, … */
@@ -306,6 +314,63 @@ export interface KeyBuild {
   delivery: string
   /** `kEaseBoth`, … — the acceleration curve Keynote names. */
   acceleration?: string
+  /**
+   * Which END of the stroke a `LineDrawForLine` draws from — the field
+   * that disambiguates a direction the geometry cannot supply.
+   *
+   * Carried UNINTERPRETED, on purpose. The deck uses three values (51
+   * once, 52 twenty-eight times, 53 fifteen times) and omits the field
+   * entirely on 114 of its 158 LineDrawForLine builds, so absence is the
+   * default and only five slides state it at all — deck slide 9 uses 53
+   * throughout. P-3 measured slide 2's four connection lines against the
+   * footage and found all four draw centre-outward, two of them AGAINST
+   * their stored point order (52) and one with it (51); four samples
+   * name the field's role but not its general semantics, so a consumer
+   * that needs a rule states its own reading rather than inheriting a
+   * guess from here.
+   */
+  direction?: number
+}
+
+/**
+ * One chunk of animation — the firing model, and the real timing.
+ *
+ * Keynote separates WHAT animates (a build) from WHEN it fires (a
+ * chunk). Chunks are listed in firing order. The chunk's `duration`
+ * agrees with its build's in all 384 cases here, so a chunk contributes
+ * the WHEN and never a second duration to reconcile — the value worth
+ * having is `automatic`.
+ *
+ * THIS CORRECTS THE RECON REPORT. Its §0 states "every one of the 413
+ * build events has `isAutomatic` and `automaticDelay` absent, i.e.
+ * Keynote's default: advance on click", and concludes the shape of each
+ * animation is in the file while the moment it fires is not. That reads
+ * `isAutomatic` on the build's `animationAttributes` — the wrong field.
+ * The chunk's own `automatic` flag tells a different story: across
+ * slides 1-58, **89 of 384 chunks are click-advanced and 295 are
+ * automatic**. So the deck DOES declare its cascades; only the clicks
+ * are missing from it.
+ *
+ * The arithmetic corroborates: 89 clicks + 58 slide transitions = 147
+ * declared advances, against the 141 animation events the recon measured
+ * from `frames5` — within 4%, the residual being events too subtle or
+ * too closely spaced for a motion scan to separate. That is a much
+ * tighter account of the video's 141 events than "413 builds compress by
+ * clicking", and it means a reproduction has more declared timing
+ * available to it than the report supposed: only the 89 click onsets are
+ * genuinely footage-only.
+ */
+export interface KeyBuildChunk {
+  /** The `KeyBuild.id` this chunk fires. */
+  build: string
+  duration: number
+  delay: number
+  /**
+   * True when this chunk follows its predecessor automatically; false
+   * when it waits for a click. 295 true / 89 false across slides 1-58.
+   */
+  automatic: boolean
+  chunkId: number
 }
 
 /** The slide's incoming transition. */
@@ -329,7 +394,10 @@ export interface KeySlide {
   /** Drawables in z-order, back to front. */
   drawables: KeyDrawable[]
   groups: KeyGroup[]
+  /** Builds in the deck's own declared order. */
   builds: KeyBuild[]
+  /** The click grouping, in click order — see KeyBuildChunk. */
+  buildChunks: KeyBuildChunk[]
   transition?: KeyTransition
   /** Element kinds encountered but not converted, for the caller to report. */
   skipped: string[]
@@ -702,7 +770,11 @@ export interface SlideData {
   shapes: SlideShapeData[]
   texts: KeyText[]
   groups: KeyGroup[]
+  /** Builds in the deck's own declared order. */
   builds: KeyBuild[]
+  /** The click grouping, in click order. Optional so modules generated
+   *  before P-3 still typecheck. */
+  buildChunks?: KeyBuildChunk[]
   transition?: KeyTransition
 }
 

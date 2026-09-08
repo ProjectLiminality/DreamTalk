@@ -264,10 +264,16 @@ export const slide32: SlideData = {
   ],
   groups: [{"id":"4762952","members":["4763177","4763248"]},{"id":"4762953","members":["4763092"]},{"id":"4762954","members":["4763080"]},{"id":"4762951","members":["4763187","4762952","4762953","4762954"]},{"id":"4762943","members":["4763107","4763244"]},{"id":"4762944","members":["4763098"]},{"id":"4762945","members":["4763273"]},{"id":"4762942","members":["4763201","4762943","4762944","4762945"]},{"id":"4762956","members":["4763192","4763199","4763242","4763158","4763076"]},{"id":"5688069","members":["5688056","5688067"]}],
   builds: [
-    {"target":"4762951","effect":"apple:dissolve","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"4771298","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"5686494","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"target":"5688069","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4772390","target":"4771298","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"5688294","target":"5688069","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"5686486","target":"5686494","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"4762970","target":"4762951","effect":"apple:dissolve","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once"},
+  ],
+  buildChunks: [
+    {"build":"4762970","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"4772390","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"5688294","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5686486","duration":1,"delay":0,"automatic":false,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},
 }
