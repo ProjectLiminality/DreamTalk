@@ -51,6 +51,7 @@ import {
   type KeyBuild,
   type KeyBuildChunk,
   type KeyGroup,
+  type KeyImage,
   type KeyTransition,
 } from "../src/geometry/keynote"
 
@@ -118,6 +119,7 @@ interface DecodedShape {
   kind: "shape"
   id: string
   icon?: string
+  connects?: { from?: string; to?: string }
   frame: KeyGeometry
   elements: KeyPathElement[]
   opacity: number
@@ -150,6 +152,7 @@ interface DecodedSlide {
   hash: string
   drawables: (DecodedShape | DecodedText)[]
   groups: KeyGroup[]
+  images: KeyImage[]
   builds: KeyBuild[]
   buildChunks: KeyBuildChunk[]
   transition?: KeyTransition | null
@@ -195,6 +198,10 @@ const emitShape = (shape: DecodedShape): string[] => {
   lines.push("    {")
   lines.push(`      id: ${JSON.stringify(shape.id)},`)
   if (shape.icon) lines.push(`      icon: ${JSON.stringify(shape.icon)},`)
+  // A connection line's endpoint references — see SlideShapeData.connects.
+  if (shape.connects) {
+    lines.push(`      connects: ${JSON.stringify(dropNulls(shape.connects))},`)
+  }
   lines.push("      subpaths: [")
   for (const sp of subpaths) {
     lines.push(`        [${sp.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(", ")}],`)
@@ -285,6 +292,13 @@ const convert = (slide: DecodedSlide): { name: string; bytes: number } => {
   for (const text of texts) lines.push(...emitText(text))
   lines.push("  ],")
   lines.push(`  groups: ${JSON.stringify(slide.groups)},`)
+  // Image BOXES, not image data — this framework draws strokes and an
+  // image is a raster. They are carried because they are load-bearing
+  // for SCORING: on slide 2 they are 46.9% of the reference frame's ink,
+  // so a chapter needs the deck's own declared geometry to mask against.
+  if (slide.images?.length) {
+    lines.push(`  images: ${JSON.stringify(slide.images)},`)
+  }
   // Builds in the deck's declared order — NOT sorted. The order is the
   // slide's own `builds` list and P-3 reads it as the build sequence.
   lines.push("  builds: [")

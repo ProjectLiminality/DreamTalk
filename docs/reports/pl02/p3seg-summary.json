@@ -1,0 +1,78 @@
+{
+ "scene": "p02a",
+ "at": 1,
+ "frames": 5,
+ "passed": 2,
+ "reports": [
+  {
+   "idx": 81,
+   "videoSec": 16,
+   "heldAt": 16,
+   "name": "p3seg-f_00081",
+   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3seg-f_00081.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00081.jpg",
+   "iou": 0.4055,
+   "chamfer_ours_px": 0.924,
+   "chamfer_ref_px": 7.029,
+   "coverage_ref": 0.4878,
+   "coverage_ours": 0.9143,
+   "verdict": "FAIL"
+  },
+  {
+   "idx": 201,
+   "videoSec": 40,
+   "heldAt": 40,
+   "name": "p3seg-f_00201",
+   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3seg-f_00201.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00201.jpg",
+   "iou": 0.3102,
+   "chamfer_ours_px": 0.738,
+   "chamfer_ref_px": 8.712,
+   "coverage_ref": 0.3675,
+   "coverage_ours": 0.9236,
+   "verdict": "FAIL"
+  },
+  {
+   "idx": 451,
+   "videoSec": 90,
+   "heldAt": 90,
+   "name": "p3seg-f_00451",
+   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3seg-f_00451.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00451.jpg",
+   "iou": 0.8492,
+   "chamfer_ours_px": 0.516,
+   "chamfer_ref_px": 0.052,
+   "coverage_ref": 0.9999,
+   "coverage_ours": 0.9471,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 591,
+   "videoSec": 118,
+   "heldAt": 118,
+   "name": "p3seg-f_00591",
+   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3seg-f_00591.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00591.jpg",
+   "iou": 0.7442,
+   "chamfer_ours_px": 0.944,
+   "chamfer_ref_px": 0.032,
+   "coverage_ref": 1,
+   "coverage_ours": 0.9029,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 651,
+   "videoSec": 130,
+   "heldAt": 130,
+   "name": "p3seg-f_00651",
+   "ours": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/docs/reports/pl02/ours-p3seg-f_00651.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00651.jpg",
+   "iou": 0.6445,
+   "chamfer_ours_px": 1.362,
+   "chamfer_ref_px": 0.153,
+   "coverage_ref": 0.9979,
+   "coverage_ours": 0.8515,
+   "verdict": "FAIL"
+  }
+ ]
+}

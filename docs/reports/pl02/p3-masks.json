@@ -1,0 +1,212 @@
+[
+ {
+  "label": "seg2 f_00081 (v 16.0s)  five dropped images masked",
+  "ours": "docs/reports/pl02/ours-p3seg-f_00081.png",
+  "ref": "refs/pitch/pl02/frames5/f_00081.jpg",
+  "boxes": [
+   [
+    230,
+    558,
+    487,
+    814
+   ],
+   [
+    185,
+    248,
+    851,
+    914
+   ],
+   [
+    185,
+    248,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    851,
+    914
+   ]
+  ]
+ },
+ {
+  "label": "seg2 f_00081            + the four stale connection lines (the ICONS alone)",
+  "ours": "docs/reports/pl02/ours-p3seg-f_00081.png",
+  "ref": "refs/pitch/pl02/frames5/f_00081.jpg",
+  "boxes": [
+   [
+    230,
+    558,
+    487,
+    814
+   ],
+   [
+    185,
+    248,
+    851,
+    914
+   ],
+   [
+    185,
+    248,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    851,
+    914
+   ],
+   [
+    177,
+    314,
+    338,
+    528
+   ],
+   [
+    214,
+    333,
+    784,
+    1001
+   ],
+   [
+    443,
+    558,
+    789,
+    1043
+   ],
+   [
+    192,
+    327,
+    774,
+    992
+   ]
+  ]
+ },
+ {
+  "label": "seg3 f_00201 (v 40.0s)  dropped image masked",
+  "ours": "docs/reports/pl02/ours-p3seg-f_00201.png",
+  "ref": "refs/pitch/pl02/frames5/f_00201.jpg",
+  "boxes": [
+   [
+    196,
+    524,
+    187,
+    514
+   ]
+  ]
+ },
+ {
+  "label": "seg3 f_00201            + the stale connection line",
+  "ours": "docs/reports/pl02/ours-p3seg-f_00201.png",
+  "ref": "refs/pitch/pl02/frames5/f_00201.jpg",
+  "boxes": [
+   [
+    196,
+    524,
+    187,
+    514
+   ],
+   [
+    423,
+    497,
+    297,
+    508
+   ],
+   [
+    328,
+    393,
+    338,
+    990
+   ]
+  ]
+ },
+ {
+  "label": "mid  f_00035 (v  6.8s)  tree mid-dissolve, images masked",
+  "ours": "docs/reports/pl02/ours-p3mid-f_00035.png",
+  "ref": "refs/pitch/pl02/frames5/f_00035.jpg",
+  "boxes": [
+   [
+    230,
+    558,
+    487,
+    814
+   ],
+   [
+    185,
+    248,
+    851,
+    914
+   ],
+   [
+    185,
+    248,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    851,
+    914
+   ]
+  ]
+ },
+ {
+  "label": "mid  f_00025 (v  4.8s)  eagle mid-dissolve, images masked",
+  "ours": "docs/reports/pl02/ours-p3mid-f_00025.png",
+  "ref": "refs/pitch/pl02/frames5/f_00025.jpg",
+  "boxes": [
+   [
+    230,
+    558,
+    487,
+    814
+   ],
+   [
+    185,
+    248,
+    851,
+    914
+   ],
+   [
+    185,
+    248,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    388,
+    451
+   ],
+   [
+    409,
+    472,
+    851,
+    914
+   ]
+  ]
+ }
+]

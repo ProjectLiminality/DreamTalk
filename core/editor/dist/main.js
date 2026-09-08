@@ -68509,7 +68509,20 @@ var textAnchorX = (text) => {
 var LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine";
 var DISSOLVE = "apple:dissolve";
 var DISSOLVE_CHARACTER = "apple:dissolve character";
-var SUPPORTED = new Set([LINE_DRAW, DISSOLVE, DISSOLVE_CHARACTER]);
+var MOTION_PATH = "apple:action-motion-path";
+var SUPPORTED = new Set([LINE_DRAW, DISSOLVE, DISSOLVE_CHARACTER, MOTION_PATH]);
+var motionAnim = (record, target, scale2) => {
+  const end = motionEndpoint(record);
+  if (!end)
+    return { tracks: [] };
+  return together(target.x.by(end.x * scale2), target.y.by(-end.y * scale2));
+};
+var motionEndpoint = (record) => {
+  const last = record.motionPath?.[record.motionPath.length - 1];
+  const pts = last?.points;
+  const pt = pts?.[pts.length - 1];
+  return pt ? { x: pt.x, y: pt.y } : undefined;
+};
 var drawsReversed = (build, ends, centre) => {
   const d2 = (p2) => (p2.x - centre.x) ** 2 + (p2.y - centre.y) ** 2;
   return d2(ends.start) > d2(ends.end);
@@ -68519,7 +68532,9 @@ var buildAnim = (record, target) => {
   if (record.effect === LINE_DRAW) {
     return lineDrawAnim(target, false, out);
   }
-  return out ? target.opacity.to(0) : target.opacity.sequence(0, 1);
+  if (record.effect === MOTION_PATH)
+    return { tracks: [] };
+  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1]);
 };
 var lineDrawAnim = (target, reversed, out = false) => {
   if (target instanceof DottedLine) {
@@ -68541,10 +68556,12 @@ var lineDrawAnim = (target, reversed, out = false) => {
     target.drawReversed.value = reversed;
     return out ? target.creation.to(0) : target.creation.sequence(0, 1);
   }
-  return out ? target.opacity.to(0) : target.opacity.sequence(0, 1);
+  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1]);
 };
 var preBuildAnim = (record, target) => {
   if (record.animationType === "Out")
+    return { tracks: [] };
+  if (record.animationType === "Action")
     return { tracks: [] };
   if (record.effect === LINE_DRAW) {
     if (target instanceof DottedLine) {
@@ -68553,7 +68570,7 @@ var preBuildAnim = (record, target) => {
     }
     return target.creation.to(0);
   }
-  return target.opacity.to(0);
+  return rampOpacity(target, [0]);
 };
 var unsupportedBuilds = (builds) => builds.filter((b2) => !SUPPORTED.has(b2.effect));
 var strokeEnds = (stroke) => {
@@ -68563,6 +68580,10 @@ var strokeEnds = (stroke) => {
   const a2 = pts[0];
   const b2 = pts[pts.length - 1];
   return { start: { x: a2.x, y: a2.y }, end: { x: b2.x, y: b2.y } };
+};
+var rampOpacity = (target, values) => {
+  const drawn = target instanceof DottedLine ? (void target.parts, target.dashes) : [target];
+  return together(...drawn.map((h2) => values.length === 1 ? h2.opacity.to(values[0]) : h2.opacity.sequence(...values)));
 };
 
 // vocabulary/Slides/Slides.ts
@@ -68636,10 +68657,12 @@ class Slide extends Holon {
       if (points.length < 2)
         continue;
       if (shape.dash && shape.dash.length >= 2) {
+        const round3 = shape.cap === "RoundCap";
+        const dash = Math.max(shape.dash[0] * width, width * 0.05);
         out.push(this.add(new DottedLine({
           points,
-          dash: Math.max(shape.dash[0] * width, width * 0.05),
-          gap: shape.dash[1] * width,
+          dash,
+          gap: round3 ? (shape.dash[1] + 1) * width - dash : shape.dash[1] * width,
           tint,
           stroke: width,
           opacity: shape.opacity
@@ -68718,6 +68741,8 @@ class Slide extends Holon {
         const ends = target instanceof Stroke ? strokeEnds(target) : undefined;
         const reversed = ends ? drawsReversed(record, ends, { x: 0, y: 0 }) : false;
         items.push(lineDrawAnim(target, reversed, record.animationType === "Out"));
+      } else if (record.effect === MOTION_PATH) {
+        items.push(motionAnim(record, target, slideToWorld(this.height.value)));
       } else {
         items.push(buildAnim(record, target));
       }
@@ -68726,6 +68751,42 @@ class Slide extends Holon {
   }
   unsupported() {
     return unsupportedBuilds(this.data.builds);
+  }
+  visible(on) {
+    this.parts;
+    const items = [];
+    for (const stroke of this.strokes)
+      items.push(...opacityOf(stroke, on ? 1 : 0));
+    for (const label3 of this.labels)
+      items.push(label3.opacity.to(on ? 1 : 0));
+    return items.length > 0 ? together(...items) : { tracks: [] };
+  }
+  builtTargets() {
+    const owned = new Set;
+    for (const record of this.data.builds) {
+      if (!SUPPORTED.has(record.effect))
+        continue;
+      if (record.animationType === "Out")
+        continue;
+      if (record.effect === LINE_DRAW)
+        continue;
+      if (record.animationType === "Action")
+        continue;
+      for (const target of this.buildTargets(record))
+        owned.add(target);
+    }
+    return owned;
+  }
+  cutIn() {
+    this.parts;
+    const built = this.builtTargets();
+    const items = [];
+    for (const part of [...this.strokes, ...this.labels]) {
+      if (built.has(part))
+        continue;
+      items.push(...opacityOf(part, 1));
+    }
+    return items.length > 0 ? together(...items) : { tracks: [] };
   }
   unCreateAnim() {
     this.parts;
@@ -68740,6 +68801,13 @@ class Slide extends Holon {
   }
 }
 var strokePoints = (stroke) => stroke instanceof Line2 || stroke instanceof DottedLine ? stroke.points : [];
+var opacityOf = (holon, v2) => {
+  if (holon instanceof DottedLine) {
+    holon.parts;
+    return holon.dashes.map((d2) => d2.opacity.to(v2));
+  }
+  return [holon.opacity.to(v2)];
+};
 
 // vocabulary/Slides/assets/pl02/slide01.ts
 var slide01 = {
@@ -69080,10 +69148,10 @@ Node`,
   ],
   groups: [{ id: "4762952", members: ["4763177", "4763248"] }, { id: "4762953", members: ["4763092"] }, { id: "4762954", members: ["4763080"] }, { id: "4762951", members: ["4763187", "4762952", "4762953", "4762954"] }, { id: "4762943", members: ["4763107", "4763244"] }, { id: "4762944", members: ["4763098"] }, { id: "4762945", members: ["4763273"] }, { id: "4762942", members: ["4763201", "4762943", "4762944", "4762945"] }, { id: "4762956", members: ["4763192", "4763199", "4763242", "4763158", "4763076"] }, { id: "5688069", members: ["5688056", "5688067"] }],
   builds: [
-    { id: "4772390", target: "4771298", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5688294", target: "5688069", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5686486", target: "5686494", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4762970", target: "4762951", effect: "apple:dissolve", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once" }
+    { id: "4772390", target: "4771298", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5688294", target: "5688069", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5686486", target: "5686494", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4762970", target: "4762951", effect: "apple:dissolve", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
   buildChunks: [
     { build: "4762970", duration: 1, delay: 0, automatic: true, chunkId: 1 },
@@ -69218,9 +69286,9 @@ var slide05 = {
   ],
   groups: [],
   builds: [
-    { id: "5538696", target: "4519522", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5538697", target: "4519531", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5538698", target: "4519577", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once" }
+    { id: "5538696", target: "4519522", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5538697", target: "4519531", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5538698", target: "4519577", effect: "apple:dissolve character", animationType: "Out", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
   buildChunks: [
     { build: "5538696", duration: 1, delay: 0, automatic: false, chunkId: 1 },
@@ -69297,6 +69365,7 @@ var slide02 = {
     },
     {
       id: "4514184",
+      connects: { from: "4514076", to: "4513444" },
       subpaths: [
         [1485.976, 336.61, 1339.006, 409.855, 1192.036, 483.1]
       ],
@@ -69304,10 +69373,12 @@ var slide02 = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1
     },
     {
       id: "4514292",
+      connects: { from: "4514136", to: "4513444" },
       subpaths: [
         [1548.243, 820.586, 1373.957, 750.59, 1199.67, 680.594]
       ],
@@ -69315,10 +69386,12 @@ var slide02 = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1
     },
     {
       id: "4514353",
+      connects: { from: "4513444", to: "4513603" },
       subpaths: [
         [1176.62, 474.445, 1324.24, 388.855, 1471.86, 303.264]
       ],
@@ -69326,10 +69399,12 @@ var slide02 = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1
     },
     {
       id: "4514420",
+      connects: { from: "4513669", to: "4513444" },
       subpaths: [
         [522.577, 281.691, 649.553, 368.244, 776.53, 454.797]
       ],
@@ -69337,25 +69412,27 @@ var slide02 = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1
     }
   ],
   texts: [],
   groups: [],
+  images: [{ id: "4513444", frame: { position: { x: 735.52344, y: 350.28925 }, size: { width: 480.95312, height: 480.95312 }, angle: 0 } }, { id: "5473642", frame: { position: { x: 1281.39, y: 283.45517 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473703", frame: { position: { x: 586.8776, y: 283.45517 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473765", frame: { position: { x: 586.8776, y: 618.88806 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473826", frame: { position: { x: 1281.39, y: 618.88806 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }],
   builds: [
-    { id: "4880370", target: "4514353", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", direction: 51 },
-    { id: "4881284", target: "4514420", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", direction: 52 },
-    { id: "4881256", target: "4513669", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4882704", target: "4514184", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", direction: 52 },
-    { id: "4880412", target: "4513603", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth" },
-    { id: "5474736", target: "5473826", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5473892", target: "5473703", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5474735", target: "5473765", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5474734", target: "5473642", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4882723", target: "4514076", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4880359", target: "4513444", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4883958", target: "4514136", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4882778", target: "4514292", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", direction: 52 }
+    { id: "4880370", target: "4514353", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 51 },
+    { id: "4881284", target: "4514420", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 52 },
+    { id: "4881256", target: "4513669", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4882704", target: "4514184", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 52 },
+    { id: "4880412", target: "4513603", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "5474736", target: "5473826", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5473892", target: "5473703", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5474735", target: "5473765", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5474734", target: "5473642", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4882723", target: "4514076", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4880359", target: "4513444", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4883958", target: "4514136", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4882778", target: "4514292", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 52 }
   ],
   buildChunks: [
     { build: "4880359", duration: 1, delay: 0, automatic: false, chunkId: 1 },
@@ -69396,6 +69473,7 @@ var slide03 = {
     },
     {
       id: "4515938",
+      connects: { from: "4515966", to: "4515878" },
       subpaths: [
         [464.927, 727.052, 604.145, 689.927, 743.363, 652.802]
       ],
@@ -69403,6 +69481,7 @@ var slide03 = {
       stroke: "#ffffff",
       strokeWidth: 11,
       dash: [0.001, 2],
+      cap: "RoundCap",
       opacity: 1
     },
     {
@@ -69458,12 +69537,13 @@ var slide03 = {
     }
   ],
   groups: [],
+  images: [{ id: "4515878", frame: { position: { x: 285.52344, y: 299.52344 }, size: { width: 480.95312, height: 480.95312 }, angle: 0 } }],
   builds: [
-    { id: "4895353", target: "4895361", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4890648", target: "4516215", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4890801", target: "4516215", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth" },
-    { id: "4895689", target: "4895406", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4890815", target: "4517073", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" }
+    { id: "4895353", target: "4895361", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4890648", target: "4516215", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4890801", target: "4516215", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -1.3881216, y: -229.91022 }, { x: -1.3881216, y: -229.91022 }] }] },
+    { id: "4895689", target: "4895406", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4890815", target: "4517073", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
   buildChunks: [
     { build: "4890648", duration: 1, delay: 0, automatic: false, chunkId: 1 },
@@ -69612,10 +69692,10 @@ var slide04 = {
   ],
   groups: [],
   builds: [
-    { id: "5538572", target: "5538531", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "5538573", target: "5538529", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4897553", target: "4895634", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" },
-    { id: "4895439", target: "4519203", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once" }
+    { id: "5538572", target: "5538531", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5538573", target: "5538529", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4897553", target: "4895634", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4895439", target: "4519203", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
   buildChunks: [
     { build: "4895439", duration: 1, delay: 0, automatic: false, chunkId: 1 },
@@ -69716,14 +69796,14 @@ var slide06 = {
 // demo/pl02/Arc01.ts
 var SLIDE02 = [
   { build: "4880359", at: 2.4 },
-  { build: "4881284", at: 3.4 },
-  { build: "4881256", at: 4.2 },
-  { build: "4880370", at: 5.2 },
-  { build: "4880412", at: 6.2 },
+  { build: "4881284", at: 3.2 },
+  { build: "4881256", at: 4.228 },
+  { build: "4880370", at: 5.215 },
+  { build: "4880412", at: 6.233 },
   { build: "4882704", at: 7.6 },
-  { build: "4882723", at: 8.3 },
-  { build: "4882778", at: 9.4 },
-  { build: "4883958", at: 10.3 },
+  { build: "4882723", at: 8.238 },
+  { build: "4882778", at: 9.2 },
+  { build: "4883958", at: 10.22 },
   { build: "5473892", at: 11.6 },
   { build: "5474734", at: 11.6 },
   { build: "5474735", at: 11.6 },
@@ -69731,6 +69811,7 @@ var SLIDE02 = [
 ];
 var SLIDE03 = [
   { build: "4890648", at: 32 },
+  { build: "4890801", at: 32 },
   { build: "4890815", at: 32 },
   { build: "4895353", at: 33.4 },
   { build: "4895689", at: 33.4 }
@@ -69742,9 +69823,9 @@ var SLIDE04 = [
   { build: "5538573", at: 46 }
 ];
 var SLIDE05 = [
-  { build: "5538696", at: 98.2 },
-  { build: "5538697", at: 98.2 },
-  { build: "5538698", at: 98.2 }
+  { build: "5538696", at: 115.85 },
+  { build: "5538697", at: 115.85 },
+  { build: "5538698", at: 115.85 }
 ];
 var PAGES = [
   { data: slide02, onsets: SLIDE02, from: 0.6, to: 19.2 },
@@ -69752,10 +69833,9 @@ var PAGES = [
   { data: slide04, onsets: SLIDE04, from: 45.8, to: 97.6 },
   { data: slide05, onsets: SLIDE05, from: 99.4, to: 118.8 }
 ];
-
 class Arc01Dream extends Dream {
-  pages = PAGES.map((p2) => __dt(new Slide({ data: p2.data }), "core/demo/pl02/Arc01.ts:8724:8751"));
-  liminality = __dt(new Slide({ data: slide06 }), "core/demo/pl02/Arc01.ts:8844:8872");
+  pages = PAGES.map((p2) => __dt(new Slide({ data: p2.data }), "core/demo/pl02/Arc01.ts:13430:13457"));
+  liminality = __dt(new Slide({ data: slide06 }), "core/demo/pl02/Arc01.ts:13550:13578");
   #now = 0;
   at(t2) {
     if (t2 > this.#now) {
@@ -69763,20 +69843,31 @@ class Arc01Dream extends Dream {
       this.#now = t2;
     }
   }
+  playAt(anim, at2, runTime) {
+    const clip = __dt(this.play(anim, runTime), "core/demo/pl02/Arc01.ts:14969:14993");
+    clip.start = at2;
+    this.#now = Math.max(this.#now, at2 + runTime);
+  }
+  setAt(at2, ...anims) {
+    for (const anim of anims) {
+      const clip = __dt(this.play(anim, 0), "core/demo/pl02/Arc01.ts:15241:15259");
+      clip.start = at2;
+    }
+    this.#now = Math.max(this.#now, at2);
+  }
   unfold() {
     this.observer.look("front");
     const all3 = [...this.pages, this.liminality];
     for (const page of all3) {
-      this.set(page.creation.to(1), page.opacity.to(0), page.preBuild());
+      this.setAt(0, page.creation.to(1), page.visible(false), page.preBuild());
     }
     for (let i2 = 0;i2 < PAGES.length; i2++) {
       const spec = PAGES[i2];
       const page = this.pages[i2];
-      this.at(spec.from);
-      this.set(page.opacity.to(1));
+      this.setAt(spec.from, page.cutIn());
       if (i2 > 0)
-        this.set(this.pages[i2 - 1].opacity.to(0));
-      const clicks = __dt(new Map, "core/demo/pl02/Arc01.ts:10796:10843");
+        this.setAt(spec.from, this.pages[i2 - 1].visible(false));
+      const clicks = __dt(new Map, "core/demo/pl02/Arc01.ts:16604:16651");
       for (const onset of spec.onsets) {
         const group = clicks.get(onset.at);
         if (group)
@@ -69791,22 +69882,23 @@ class Arc01Dream extends Dream {
           const record = spec.data.builds.find((b2) => b2.id === onset.build);
           if (!record)
             continue;
-          const chunk = spec.data.buildChunks.find((c2) => c2.build === onset.build);
+          const chunk = spec.data.buildChunks?.find((c2) => c2.build === onset.build);
           span = chunk?.duration ?? record.duration ?? 1;
           anims.push(page.build(record));
         }
         if (anims.length === 0)
           continue;
-        this.at(at2);
-        __dt(this.play(together(...anims), span), "core/demo/pl02/Arc01.ts:11750:11785");
-        this.#now = at2 + span;
+        this.playAt(together(...anims), at2, span);
       }
-      this.at(spec.to);
     }
-    this.at(120.4);
-    this.set(this.pages[this.pages.length - 1].opacity.to(0));
-    this.set(this.liminality.opacity.to(1));
-    this.at(134.8);
+    this.setAt(120.4, this.pages[this.pages.length - 1].visible(false));
+    this.setAt(120.4, this.liminality.cutIn());
+    this.hold(134.8);
+  }
+  hold(until) {
+    const clip = __dt(this.play({ tracks: [] }, 0), "core/demo/pl02/Arc01.ts:18738:18766");
+    clip.start = until;
+    this.#now = Math.max(this.#now, until);
   }
 }
 if (false)

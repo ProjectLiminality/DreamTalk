@@ -58,10 +58,12 @@ import {
 } from "../../src/geometry/keynote"
 import {
   LINE_DRAW,
+  MOTION_PATH,
   SUPPORTED,
   buildAnim,
   drawsReversed,
   lineDrawAnim,
+  motionAnim,
   preBuildAnim,
   strokeEnds,
   unsupportedBuilds,
@@ -213,12 +215,34 @@ export class Slide extends Holon {
         // Keynote states the dash array in STROKE-WIDTH multiples, which
         // is why the deck's fine mesh reads as (0.001, 2.0) rather than
         // as a length: on a 1pt line that is a dot every 2 units.
+        //
+        // THE CAP IS PART OF THE PERIOD, and this is the deck's own
+        // arithmetic rather than a tuned constant. A round cap paints
+        // half a stroke width beyond each end of a dash, so a dash of
+        // length d occupies d + w and the period is (d + gap + 1)·w
+        // rather than (d + gap)·w. On slide 2's connection lines — w =
+        // 11 slide units = 7.333 video px, pattern (0.001, 2.0) — that
+        // is 22.007 px against 14.674, and the footage's eagle corridor
+        // measures 21.9. Without it we drew 14 dots where the reference
+        // draws 10.
+        //
+        // The deck splits cleanly on this: every (0.001, 2.0) dotted
+        // pattern is RoundCap and every other pattern is ButtCap, read
+        // from the stylesheet (geometry/keynote.ts SlideShapeData.cap).
+        // So the branch is a reading, not a heuristic.
+        const round = shape.cap === "RoundCap"
+        const dash = Math.max(shape.dash[0]! * width, width * 0.05)
         out.push(
           this.add(
             new DottedLine({
               points,
-              dash: Math.max(shape.dash[0]! * width, width * 0.05),
-              gap: shape.dash[1]! * width,
+              dash,
+              // The gap the primitive is given must be the period minus
+              // the dash it actually draws, because `dashRuns` knows
+              // nothing about caps — it lays out centre-line lengths.
+              gap: round
+                ? (shape.dash[1]! + 1) * width - dash
+                : shape.dash[1]! * width,
               tint,
               stroke: width,
               opacity: shape.opacity,
@@ -386,6 +410,11 @@ export class Slide extends Holon {
           ? drawsReversed(record, ends, { x: 0, y: 0 })
           : false
         items.push(lineDrawAnim(target, reversed, record.animationType === "Out"))
+      } else if (record.effect === MOTION_PATH) {
+        // The only build that needs the frame change, because it is the
+        // only one whose value is a DISTANCE. Routed here rather than in
+        // Builds.ts because the scale is the holon's.
+        items.push(motionAnim(record, target, slideToWorld(this.height.value)))
       } else {
         items.push(buildAnim(record, target))
       }
@@ -396,6 +425,74 @@ export class Slide extends Holon {
   /** Every build on this page whose effect P-3 does not implement. */
   unsupported(): KeyBuild[] {
     return unsupportedBuilds(this.data.builds)
+  }
+
+  /**
+   * Show or hide the whole page, by driving every PART's own opacity.
+   *
+   * `Slide.opacity` is the holon-level parameter and the renderer does
+   * not composite it: opacity is read per drawable (render/three-host.ts
+   * multiplies each stroke's and each glyph mesh's own `opacity`), with
+   * no parent inheritance. So a scene that stages several pages and cuts
+   * between them cannot use `page.opacity` to do it — the first attempt
+   * here drew all five slides of the opening arc on top of one another.
+   *
+   * `visible` is therefore the page-level control a multi-slide scene
+   * actually needs, and it is deliberately NOT a fade: it composes with
+   * a build's own opacity by MULTIPLYING into the same param, so hiding
+   * a page whose builds have already run and showing it again would lose
+   * their state. It is used for cuts, which is all this chapter's
+   * transitions are (Magic Move is P-6's).
+   */
+  visible(on: boolean): Anim {
+    void this.parts
+    const items: Anim[] = []
+    for (const stroke of this.strokes) items.push(...opacityOf(stroke, on ? 1 : 0))
+    for (const label of this.labels) items.push(label.opacity.to(on ? 1 : 0))
+    return items.length > 0 ? together(...items) : { tracks: [] }
+  }
+
+  /**
+   * The parts a build owns, so a cut can restore them without undoing
+   * the build. `visible(true)` would light an unbuilt label; this is
+   * what a page's cut-in uses instead.
+   */
+  private builtTargets(): Set<Holon> {
+    const owned = new Set<Holon>()
+    for (const record of this.data.builds) {
+      if (!SUPPORTED.has(record.effect)) continue
+      if (record.animationType === "Out") continue
+      // A LineDrawForLine target is held back by its DRAW FRONT, not by
+      // its opacity (preBuildAnim puts `creation` to 0), so it must be
+      // lit by the cut like anything else — leaving it dark would mean a
+      // line that draws on invisibly and appears all at once at the end.
+      if (record.effect === LINE_DRAW) continue
+      // An Action build's target is on screen already — see preBuildAnim.
+      if (record.animationType === "Action") continue
+      for (const target of this.buildTargets(record)) owned.add(target)
+    }
+    return owned
+  }
+
+  /**
+   * Cut this page IN: everything that is not the target of a pending
+   * `In` build becomes visible, and everything that is stays dark until
+   * its build fires.
+   *
+   * This is the pairing of `visible()` with `preBuild()`, and it has to
+   * be one act rather than two because the two disagree about the same
+   * param — P-2's slide-32 lesson (a held page over-draws an unbuilt
+   * label) is exactly what a plain `visible(true)` would reintroduce.
+   */
+  cutIn(): Anim {
+    void this.parts
+    const built = this.builtTargets()
+    const items: Anim[] = []
+    for (const part of [...this.strokes, ...this.labels]) {
+      if (built.has(part)) continue
+      items.push(...opacityOf(part, 1))
+    }
+    return items.length > 0 ? together(...items) : { tracks: [] }
   }
 
   /** The same walk, retracting — the pen goes back the way it came. */
@@ -414,3 +511,21 @@ export class Slide extends Holon {
 /** A Stroke's polyline, whichever primitive it is. */
 const strokePoints = (stroke: Stroke): Vec3Like[] =>
   stroke instanceof Line || stroke instanceof DottedLine ? stroke.points : []
+
+/**
+ * Set a drawable's opacity, reaching a DottedLine's dashes.
+ *
+ * The renderer reads opacity per drawn primitive and does not inherit it
+ * down the tree (render/three-host.ts), and a DottedLine draws nothing
+ * itself — it is a parent of one `Line` per dash. So setting a
+ * DottedLine's own opacity changes no pixel, which is how slide 2's four
+ * connection lines survived a `visible(false)` and were still on screen
+ * seventy seconds after their page was cut away.
+ */
+const opacityOf = (holon: Holon, v: number): Anim[] => {
+  if (holon instanceof DottedLine) {
+    void holon.parts
+    return holon.dashes.map((d) => d.opacity.to(v))
+  }
+  return [holon.opacity.to(v)]
+}

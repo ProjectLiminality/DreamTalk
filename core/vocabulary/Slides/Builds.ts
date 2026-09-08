@@ -95,13 +95,15 @@ import { together, type Anim, type Windowed } from "../../src/anim"
 import { DottedLine, Line, Stroke } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import type { Holon } from "../../src/holon"
-import type { KeyBuild } from "../../src/geometry/keynote"
+import type { KeyBuild, KeyPathElement } from "../../src/geometry/keynote"
 
 /** Keynote's stroke-draw-on. Core's `Create`, at Keynote's pacing. */
 export const LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine"
 /** The whole-object opacity ramp, under both of the deck's spellings. */
 export const DISSOLVE = "apple:dissolve"
 export const DISSOLVE_CHARACTER = "apple:dissolve character"
+/** On-slide motion along a declared path — see `motionAnim`. */
+export const MOTION_PATH = "apple:action-motion-path"
 
 /**
  * The two effects this chapter implements. A build whose effect is not
@@ -110,7 +112,70 @@ export const DISSOLVE_CHARACTER = "apple:dissolve character"
  * never had one, and P-2's slide-32 lesson (a held page over-draws an
  * unbuilt label) is the same failure wearing the opposite mask.
  */
-export const SUPPORTED = new Set([LINE_DRAW, DISSOLVE, DISSOLVE_CHARACTER])
+export const SUPPORTED = new Set([LINE_DRAW, DISSOLVE, DISSOLVE_CHARACTER, MOTION_PATH])
+
+/**
+ * An `apple:action-motion-path` as a windowed `Move`.
+ *
+ * NOT one of the chapter's two verbs, and included for a specific
+ * reason: slide 3's "Story" carries one, and rendering it unmoved put
+ * the label inside the lens ellipse it should sit above — worth 30
+ * points of that segment's `coverage_ref`. Once P-1 carried the path
+ * (this chapter's finding), leaving it unimplemented would have meant
+ * scoring a frame we knew to be wrong for a reason we could have fixed.
+ *
+ * The path is DECLARED, relative to the drawable's own position, in
+ * slide units — so this reads the endpoint and moves there. The deck's
+ * two curved paths (of 34) would need the intermediate points; both are
+ * outside the opening arc, and a straight run to the endpoint is exactly
+ * right for the 32 that are straight, so the curve case is left to P-7,
+ * which owns this build class properly. `motionIsStraight` says which
+ * kind a record is, so P-7 inherits a boundary rather than a surprise.
+ */
+export const motionAnim = (
+  record: KeyBuild & { motionPath?: readonly KeyPathElement[] },
+  target: Holon,
+  scale: number,
+): Anim => {
+  const end = motionEndpoint(record)
+  if (!end) return { tracks: [] }
+  // Slide units are y-DOWN and world units y-up, the same flip
+  // slidePointToWorld performs; a delta takes the flip without the
+  // origin shift.
+  return together(target.x.by(end.x * scale), target.y.by(-end.y * scale))
+}
+
+/** A motion path's final point, relative to the drawable's position. */
+export const motionEndpoint = (
+  record: KeyBuild & { motionPath?: readonly KeyPathElement[] },
+): { x: number; y: number } | undefined => {
+  const last = record.motionPath?.[record.motionPath.length - 1]
+  const pts = last?.points
+  const pt = pts?.[pts.length - 1]
+  return pt ? { x: pt.x, y: pt.y } : undefined
+}
+
+/**
+ * Whether a motion path is a straight run — two nodes whose controls sit
+ * on their endpoints. The deck has 34 motion paths, 32 straight and 2
+ * genuinely curved; only the straight ones are honoured here.
+ */
+export const motionIsStraight = (
+  record: KeyBuild & { motionPath?: readonly KeyPathElement[] },
+): boolean => {
+  const path = record.motionPath
+  if (!path || path.length !== 2) return false
+  const pts = path[1]!.points ?? []
+  if (pts.length !== 3) return pts.length === 1
+  const [c1, c2, end] = pts as [
+    { x: number; y: number },
+    { x: number; y: number },
+    { x: number; y: number },
+  ]
+  const on = (p: { x: number; y: number }, q: { x: number; y: number }): boolean =>
+    Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6
+  return (on(c1, { x: 0, y: 0 }) || on(c1, end)) && on(c2, end)
+}
 
 /**
  * Whether a LineDrawForLine draws against its subpath's stored order.
@@ -176,10 +241,14 @@ export const buildAnim = (record: KeyBuild, target: Holon): Anim => {
     return lineDrawAnim(target, false, out)
   }
 
+  // A motion path needs the slide-to-world scale, which only the Slide
+  // has; `Slide.build` routes it before reaching here.
+  if (record.effect === MOTION_PATH) return { tracks: [] }
+
   // dissolve / dissolve character: one uniform opacity ramp. The deck's
   // `delivery: "All at Once"` is what makes the two identical; see the
   // module header for the footage that confirms it.
-  return out ? target.opacity.to(0) : target.opacity.sequence(0, 1)
+  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1])
 }
 
 /**
@@ -218,7 +287,7 @@ export const lineDrawAnim = (
   }
   // Not a stroke — a build the deck applied to something with no draw
   // front. Fall back to the ramp rather than animating nothing.
-  return out ? target.opacity.to(0) : target.opacity.sequence(0, 1)
+  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1])
 }
 
 /**
@@ -235,6 +304,10 @@ export const lineDrawAnim = (
  */
 export const preBuildAnim = (record: KeyBuild, target: Holon): Anim => {
   if (record.animationType === "Out") return { tracks: [] }
+  // An Action build (a motion path, a scale) operates on something the
+  // page is already showing — there is nothing to hold back, and hiding
+  // it would blank a drawable the footage has on screen throughout.
+  if (record.animationType === "Action") return { tracks: [] }
   if (record.effect === LINE_DRAW) {
     if (target instanceof DottedLine) {
       void target.parts
@@ -242,7 +315,7 @@ export const preBuildAnim = (record: KeyBuild, target: Holon): Anim => {
     }
     return target.creation.to(0)
   }
-  return target.opacity.to(0)
+  return rampOpacity(target, [0])
 }
 
 /** Builds whose effect this chapter does not implement, for reporting. */
@@ -264,3 +337,28 @@ export const strokeEnds = (
 /** True when a holon is one of the things a build can drive. */
 export const isBuildable = (h: Holon): boolean =>
   h instanceof Stroke || h instanceof Text
+
+/**
+ * An opacity ramp that reaches what actually draws.
+ *
+ * The renderer reads opacity per drawn primitive with no inheritance
+ * (render/three-host.ts), and a `DottedLine` draws nothing itself — it
+ * parents one `Line` per dash. So a dissolve stated on a DottedLine
+ * changes no pixel. Every opacity in this module goes through here for
+ * that reason; it is the same fact `Slides.ts`'s `opacityOf` records,
+ * and both exist because the two files reach it from different sides.
+ */
+export const rampOpacity = (
+  target: Holon,
+  values: readonly number[],
+): Anim => {
+  const drawn: Holon[] =
+    target instanceof DottedLine ? (void target.parts, target.dashes) : [target]
+  return together(
+    ...drawn.map((h) =>
+      values.length === 1
+        ? h.opacity.to(values[0]!)
+        : h.opacity.sequence(...values),
+    ),
+  )
+}
