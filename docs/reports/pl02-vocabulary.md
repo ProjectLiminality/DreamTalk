@@ -658,3 +658,14 @@ file was written.
   (onsets move up to 0.18s — most of a frame). THE COROLLARY LESSON:
   two settled frames do not show what happened between them, and a
   segment boundary is exactly where that bites.
+- (2026-09-08, P-9, superseding the trace-from-footage plan) **The
+  image ceiling is REMOVED by a reading: Keynote stores its own
+  vectorization** — TSD.ImageArchive.tracedPath carries the
+  instant-alpha trace in typed path form in the image's naturalSize
+  box; all twelve in-scope images have one (two assets serve them:
+  the 33-point lightning, the 2,239-element Vitruvian), and
+  projection through the standard shape fit lands SUB-PIXEL against
+  footage. No tracer, no tolerance constant, no PNG hash — the
+  trace-or-source amendment is retired. P-3's deck 2/3 ceilings lift
+  retroactively once the importer emits it. Stroke-only rendering is
+  the honest first reading (the footage shows white line art).
