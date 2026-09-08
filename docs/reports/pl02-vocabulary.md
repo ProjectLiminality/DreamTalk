@@ -593,3 +593,10 @@ file was written.
   are FAT** — ink 1.3-2.28x the reference at the same threshold on
   text-dense tableaux. Geometry and type metrics are now right; the
   stroke weight caps coverage_ours on every text-heavy frame. Queued.
+- (2026-09-08, P-7) **Firing-model refinement**: the delay an automatic
+  chunk waits is its predecessor's EFFECTIVE duration — an instant
+  build (bc-appear measures INSTANT against its declared 1.0s) waits
+  zero (three isolated arrows, gap under one frame where the literal
+  rule predicts a second). Second measured chunk-order exception:
+  deck 53's two LineDraws LEAD the fade-and-move by 0.68s where the
+  chunk list says they trail by 2.0s (joins P-5's deck-25 chunk 4).
