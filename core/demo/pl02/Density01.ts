@@ -160,6 +160,60 @@
  * unexplained 0.85-0.87x stepping ratio. Deck 11's own steps measure
  * 1.0000x, so that anomaly is untouched and stays open.
  *
+ * 4. THE DRAW DIRECTION — A FALLBACK MEETING THE EDGE OF ITS PREMISE.
+ *
+ * None of the 105 builds declares a `direction`, so all seventy lines
+ * take the absent-is-default path, and this chapter's first mid-draw
+ * composite showed every one of them with our front and the reference's
+ * as mirror images — P-4's exact signature for direction 53, arrived at
+ * from the other side.
+ *
+ * It is not 53. `drawsReversed`'s fallback derives its answer from a
+ * premise P-3 measured on deck 2: "the deck's connection lines run
+ * between a centre and a periphery, and the footage shows them drawing
+ * centre-outward". True of deck 2. Deck 11's lines run between two nodes
+ * of one five-node cluster, so "further from the slide's centre" is
+ * nearly a coin toss between two points a few dozen units apart.
+ *
+ * Measured, per line, at f_01055 (~0.4s into the 2.25s draw), corridor
+ * sampled with both endpoint node boxes excluded:
+ *
+ *     draws from the `from` end : 56 / 70
+ *     draws from the `to`   end :  0 / 70
+ *     ambiguous                 : 14 / 70
+ *     page-centre fallback agrees with the footage : 31 / 70
+ *
+ * Zero counter-examples in seventy lines, against a fallback performing
+ * at chance. On this slide the stored order IS the draw order, and the
+ * scene says so through `Slide.drawsInStoredOrder` rather than by
+ * changing the fallback: two slides now disagree about the absent case
+ * with footage behind each, and flipping the shared default on P-10's
+ * evidence would move P-3's arc. The disagreement is left visible.
+ *
+ * 5. TWO DRAW-ON GAPS THESE FRAMES FOUND, NEITHER VISIBLE WHEN SETTLED.
+ *
+ * The connection draw-on distributed its dashes over uniform windows —
+ * a LINEAR front where Keynote's is kEaseBoth. Measured on front
+ * position over the 20 longest lines, duration held at the declared
+ * 2.25 and only the offset free: eased fits at rms 0.0120 against
+ * linear's 0.0617, 5.1x better, and pointwise the footage tracks the
+ * eased curve (at t=211.2, eased predicts 0.405 and the measurement is
+ * 0.397, where linear says 0.444). The campaign's EIGHTH independent
+ * kEaseBoth confirmation, on a build class P-8 never used.
+ *
+ * And the arrowhead was drawn LAST, on the assumption that it "arrives
+ * at the end of the shaft because that is where the shaft reaches it".
+ * The footage carries it AT THE ADVANCING FRONT from the first frame.
+ * Measured on the 25 longest lines: ink in the far 15% of each corridor
+ * is 0.000 at every frame while the front advances 0.164 -> 0.540. A
+ * head waiting at its final position would read ~1.0 there.
+ *
+ * Both were routed rather than changed here (they are P-4's files), both
+ * have since landed, and both moved these frames as predicted — the two
+ * mid-draw scores went from 0.8215/0.7890 on coverage_ours to
+ * 0.9575/0.9586, and P-4's own long-standing deck-9 mid-draw FAIL
+ * crossed to PASS on the same change. See p10-density.md §4.
+ *
  * WHY THIS SCENE DERIVES ITS ONSETS RATHER THAN LISTING THEM
  *
  * Every prior chapter hand-listed a measured onset per build, which is
@@ -230,20 +284,48 @@ import { slide11, slide12, slide13 } from "../../vocabulary/Slides/assets/pl02/i
  * The two measured clicks on deck 11, and nothing else.
  *
  * `at` is the video second the chunk at `chunk` fires. Both are read off
- * the footage: the first from the first ink in the frame after deck 10's
- * fade to black (f_00998), the second from the 70 corridors' common
- * onset, which measure 211.20-211.60 with the draw beginning as the
- * plateau at 22,656 ink breaks at f_01053.
+ * the footage, and both by P-3's method where the ramp allows it —
+ * invert the deck's OWN declared curve through the measured ink and
+ * solve for the offset only, never for the duration.
  *
- * The line click is quoted at 210.4 rather than at the corridors' 211.4
- * half-brightness crossing because a 2.25s LineDrawForLine on Keynote's
- * ease reaches half its length about a second in; 210.4 is where the
- * ink actually departs the settled plateau, which is the onset. The
- * corridor numbers are what establish that all seventy share it.
+ * The first is the first ink in the frame after deck 10's fade to black
+ * (f_00998, t = 199.40); a 0.30s dissolve sampled at 5 fps gives at most
+ * two points on its ramp, so the frame itself is the measurement and
+ * 0.2s is the honest resolution. The 35 steps that follow it land at
+ * ratio 1.0000, which is the check on it.
+ *
+ * The second IS fitted properly, because seventy simultaneous 2.25s
+ * draws give a clean ramp. The observable is each line's FRONT POSITION
+ * — the furthest contiguous fraction of its own corridor that has lit —
+ * averaged over the twenty longest lines, with the duration held at the
+ * declared 2.25 and only the offset free:
+ *
+ *     eased  best onset 210.200s, rms 0.0120
+ *     linear best onset 210.190s, rms 0.0617
+ *
+ * So 210.20, and Keynote's ease fits 5.1x better than linear on a build
+ * class and a slide P-8 never used — the campaign's eighth independent
+ * confirmation of kEaseBoth, thrown off by this measurement rather than
+ * sought.
+ *
+ * TWO WRONG READINGS OF THIS ONSET ARE WORTH RECORDING, because both
+ * produced a plausible number:
+ *
+ * The ink DEPARTS the settled 22,656 plateau at f_01053 (210.4), and
+ * reading that frame as the onset puts the click 0.2s late — an eased
+ * build's visible start is not its onset, since a 2.25s ramp has
+ * revealed only 4% of its length there.
+ *
+ * Fitting TOTAL INK instead of front position gives 210.145 and a worse
+ * separation (2.3x rather than 5.1x), because ink is not proportional to
+ * drawn length here: the arrowhead rides at the advancing front from the
+ * first frame (see the DIRECTION section), so every line contributes a
+ * head's worth of ink before it has any length. Fitting the contaminated
+ * observable moved the answer by 0.055s and looked fine doing it.
  */
 const CLICKS: readonly { chunk: number; at: number }[] = [
   { chunk: 0, at: 199.4 }, // the 35-node dissolve cascade opens
-  { chunk: 35, at: 210.4 }, // …and every one of the 70 lines strikes at once
+  { chunk: 35, at: 210.2 }, // …and every one of the 70 lines strikes at once
 ]
 
 /**
@@ -305,24 +387,37 @@ const PAGES: readonly {
 /**
  * Reference frames, one settled and two mid-cascade per the methodology.
  *
- * The mid-cascade pair is chosen to test the two firing cases against
+ * The mid-cascade frames are chosen to test the two firing cases against
  * each other: f_01030 sits 26 nodes into the 35-step cascade (a settled
- * frame cannot see a step at all), and f_01057 sits 0.8s into the
- * seventy simultaneous draws, where a stepped reading would have drawn
- * one line and a simultaneous reading draws seventy part-way. Those two
- * frames are where a wrong firing model is visible and nowhere else.
+ * frame cannot see a step at all), and f_01055/f_01057 sit 0.6 and 1.0s
+ * into the seventy simultaneous draws, where a stepped reading would
+ * have drawn one line and a simultaneous reading draws seventy part-way.
+ * Those are where a wrong firing model is visible and nowhere else.
+ *
+ * They also caught both draw-on gaps in §4 — the linear front and the
+ * arrowhead's position — neither of which any settled frame can see.
  */
 export const SCORED = [
-  { frame: 1064, seg: 11, at: 212.6 }, // deck 11 settled: all 70 lines in
+  { frame: 1030, seg: 11, at: 205.8 }, // MID-STEP: 26 of 35 nodes
   { frame: 1051, seg: 11, at: 210.0 }, // the 35 nodes settled, before the lines
-  { frame: 1030, seg: 11, at: 205.8 }, // MID-CASCADE: 26 of 35 nodes
-  { frame: 1057, seg: 11, at: 211.2 }, // MID-DRAW: 70 lines together, ~0.8s in
+  { frame: 1055, seg: 11, at: 210.8 }, // MID-DRAW: 70 lines together, ~0.3 in
+  { frame: 1057, seg: 11, at: 211.2 }, // MID-DRAW: 70 lines together, ~0.45 in
+  { frame: 1064, seg: 11, at: 212.6 }, // deck 11 settled: all 70 lines in
   { frame: 1080, seg: 12, at: 215.8 }, // deck 12 settled hold
   { frame: 1093, seg: 13, at: 218.4 }, // deck 13 settled hold
 ] as const
 
 export class Density01Dream extends Dream {
-  pages = PAGES.map((p) => new Slide({ data: p.data }))
+  pages = PAGES.map((p) => {
+    const page = new Slide({ data: p.data })
+    // Deck 11's seventy lines declare no `direction`, and the page-centre
+    // fallback's premise does not hold on them — see the header's
+    // DIRECTION section and Slide.drawsInStoredOrder. Measured here:
+    // 56 of 70 draw from the stored `from` end, 0 from the `to` end.
+    // Decks 12 and 13 have no builds at all, so the flag is deck 11's.
+    if (p.data.index === 11) page.drawsInStoredOrder = true
+    return page
+  })
 
   /** The scene cursor in VIDEO seconds. */
   #now = 0

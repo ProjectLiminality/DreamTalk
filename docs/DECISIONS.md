@@ -372,3 +372,14 @@ operational decisions are entered by the working agent. Format:
   co-landing fixes credit NEITHER until each is scored with the other
   held constant; a screenshot on disk is not the render; a gate
   validates only the branches its slide uses.
+- 2026-09-08 · **Tools must be able to say "I don't know"** (P-4/P-10)
+  — P-10's front-measurement rig carries a refusal guard that prints
+  "NOT a separation. This window cannot tell the two apart," and its
+  refusal corrected P-4's own self-diagnosis (the probe was fine; the
+  WINDOW was structurally uninformative). The principle: a programme
+  whose central claim is that its constants are MEASURED rather than
+  fitted needs instruments that can refuse, or the claim quietly
+  decays into preferring whichever reading came out ahead. Sibling of
+  the confirmation-signature rule: a draw-curve change moves mid-draw
+  frames and leaves settled ones alone — the ASYMMETRY is the
+  confirmation, not the improvement.

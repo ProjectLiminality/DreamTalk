@@ -68608,6 +68608,35 @@ var textAnchorX = (text) => {
 };
 
 // vocabulary/Slides/Connections.ts
+var KEYNOTE_EASE_S = 0.42;
+var keynoteEaseAt = (u2) => c4dEaseWith(u2, KEYNOTE_EASE_S, KEYNOTE_EASE_S);
+var keynoteEaseInverse = (f2) => {
+  if (f2 <= 0)
+    return 0;
+  if (f2 >= 1)
+    return 1;
+  let lo = 0;
+  let hi = 1;
+  for (let i2 = 0;i2 < 50; i2++) {
+    const mid = (lo + hi) / 2;
+    if (keynoteEaseAt(mid) < f2)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  return (lo + hi) / 2;
+};
+var centroid = (pts) => {
+  let x2 = 0;
+  let y2 = 0;
+  for (const p2 of pts) {
+    x2 += p2.x;
+    y2 += p2.y;
+  }
+  const n2 = Math.max(pts.length, 1);
+  return { x: x2 / n2, y: y2 / n2, z: 0 };
+};
+var dist3 = (a2, b2) => Math.hypot(a2.x - b2.x, a2.y - b2.y);
 var boxCentre = (b2) => ({
   x: b2.x + b2.w / 2,
   y: b2.y + b2.h / 2
@@ -68809,6 +68838,7 @@ class Connection2 extends Holon {
   opacity = completion(1);
   dashes = [];
   arrows = [];
+  headFront = completion(1);
   get arrow() {
     return this.arrows[0];
   }
@@ -68824,15 +68854,32 @@ class Connection2 extends Holon {
         })));
       }
     }
+    const shaft = this.points;
     for (const outline of this.decorations) {
       if (outline.length < 2)
         continue;
-      this.arrows.push(this.add(new Line2({
-        points: outline.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })),
+      const finished = outline.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
+      const line = this.add(new Line2({
+        points: finished,
         tint: this.tint.value,
         stroke: this.stroke.value,
         opacity: this.opacity.value
-      })));
+      }));
+      if (shaft.length >= 2) {
+        const tip = centroid(finished);
+        const atEnd = dist3(tip, shaft[shaft.length - 1]) <= dist3(tip, shaft[0]);
+        derivePoints3(line, () => [this.headFront.value], () => {
+          const u2 = this.headFront.value;
+          if (!atEnd || u2 >= 1)
+            return finished;
+          const here = pointAtLength(shaft.map((p2) => ({ x: p2.x, y: p2.y })), polylineLength2(shaft.map((p2) => ({ x: p2.x, y: p2.y }))) * u2);
+          const end = shaft[shaft.length - 1];
+          const dx = here.x - end.x;
+          const dy = here.y - end.y;
+          return finished.map((p2) => ({ x: p2.x + dx, y: p2.y + dy, z: 0 }));
+        });
+      }
+      this.arrows.push(line);
     }
   }
   drawn() {
@@ -68841,15 +68888,21 @@ class Connection2 extends Holon {
   }
   createAnim() {
     this.parts;
-    const items = this.drawn();
+    const items = this.dashes;
     const n2 = items.length;
     if (n2 === 0)
       return { tracks: [] };
-    return together(...items.map((d2, i2) => [
+    const tracks = items.map((d2, i2) => [
       d2.creation.sequence(0, 1),
-      i2 / n2,
-      (i2 + 1) / n2
-    ]));
+      keynoteEaseInverse(i2 / n2),
+      keynoteEaseInverse((i2 + 1) / n2)
+    ]);
+    if (this.arrows.length > 0) {
+      tracks.push([this.headFront.sequence(0, 1), 0, 1]);
+      for (const a2 of this.arrows)
+        tracks.push([a2.creation.to(1), 0, 0]);
+    }
+    return together(...tracks);
   }
   unCreateAnim() {
     this.parts;
@@ -69006,8 +69059,8 @@ var SUPPORTED = new Set([
 ]);
 var isInstant = (record) => record.effect === BC_APPEAR || record.effect === APPEAR;
 var INSTANT_WINDOW = 0.001;
-var KEYNOTE_EASE_S = 0.42;
-var keynoteEase = (u2) => c4dEaseWith(u2, KEYNOTE_EASE_S, KEYNOTE_EASE_S);
+var KEYNOTE_EASE_S2 = 0.42;
+var keynoteEase = (u2) => c4dEaseWith(u2, KEYNOTE_EASE_S2, KEYNOTE_EASE_S2);
 var EASE_SAMPLES = 32;
 var keynoteWaypoints = (from, to) => {
   const out = [];
@@ -69104,33 +69157,50 @@ var buildAnim = (record, target) => {
   }
   return out ? rampOpacity(target, [0], true) : rampOpacity(target, [0, 1], true);
 };
+var headTracks = (target, out) => {
+  target.parts;
+  if (target.arrows.length === 0)
+    return [];
+  const tracks = [
+    [out ? target.headFront.sequence(1, 0) : target.headFront.sequence(0, 1), 0, 1]
+  ];
+  for (const a2 of target.arrows) {
+    tracks.push([a2.creation.to(out ? 0 : 1), 0, 0]);
+  }
+  return tracks;
+};
 var lineDrawAnim = (target, reversed, out = false, fromMiddle = false) => {
   if (target instanceof Connection2) {
     target.parts;
-    const items = target.drawn();
+    const items = target.dashes;
     const n2 = items.length;
     if (n2 === 0)
       return { tracks: [] };
+    const front = (f2) => out ? 1 - keynoteEaseInverse(1 - f2) : keynoteEaseInverse(f2);
     if (fromMiddle) {
       const mid = (n2 - 1) / 2;
       const steps = Math.max(mid + 0.5, 0.000000001);
-      return together(...items.map((d2, i2) => {
+      const midTracks = items.map((d2, i2) => {
         const from = Math.abs(i2 - mid) - 0.5;
         return [
           out ? d2.creation.to(0) : d2.creation.sequence(0, 1),
-          Math.max(0, from / steps),
-          Math.min(1, (from + 1) / steps)
+          front(Math.max(0, from / steps)),
+          front(Math.min(1, (from + 1) / steps))
         ];
-      }));
+      });
+      midTracks.push(...headTracks(target, out));
+      return together(...midTracks);
     }
-    return together(...items.map((d2, i2) => {
+    const tracks = items.map((d2, i2) => {
       const k2 = reversed ? n2 - 1 - i2 : i2;
       return [
         out ? d2.creation.to(0) : d2.creation.sequence(0, 1),
-        k2 / n2,
-        (k2 + 1) / n2
+        front(k2 / n2),
+        front((k2 + 1) / n2)
       ];
-    }));
+    });
+    tracks.push(...headTracks(target, out));
+    return together(...tracks);
   }
   if (target instanceof DottedLine) {
     target.parts;
@@ -69161,7 +69231,7 @@ var preBuildAnim = (record, target) => {
   if (record.effect === LINE_DRAW) {
     if (target instanceof Connection2) {
       target.parts;
-      return together(...target.drawn().map((d2) => d2.creation.to(0)));
+      return together(...target.drawn().map((d2) => d2.creation.to(0)), target.headFront.to(0));
     }
     if (target instanceof DottedLine) {
       target.parts;
@@ -69621,6 +69691,7 @@ class Slide extends Holon {
     return items.length > 0 ? together(...items) : { tracks: [] };
   }
   scaleFactors = {};
+  drawsInStoredOrder = false;
   fills = true;
   build(record) {
     this.parts;
@@ -69631,7 +69702,7 @@ class Slide extends Holon {
     for (const target of targets) {
       if (record.effect === LINE_DRAW) {
         const ends = target instanceof Stroke || target instanceof Connection2 ? strokeEnds(target) : undefined;
-        const reversed = ends ? drawsReversed(record, ends, { x: 0, y: 0 }) : false;
+        const reversed = this.drawsInStoredOrder && record.direction === undefined ? false : ends ? drawsReversed(record, ends, { x: 0, y: 0 }) : false;
         items.push(lineDrawAnim(target, reversed, record.animationType === "Out", drawsFromMiddle(record)));
       } else if (record.effect === MOTION_PATH) {
         items.push(motionAnim(record, target, slideToWorld(this.height.value)));
@@ -92378,11 +92449,11 @@ if (false)
 // demo/pl02/Density01.ts
 var CLICKS = [
   { chunk: 0, at: 199.4 },
-  { chunk: 35, at: 210.4 }
+  { chunk: 35, at: 210.2 }
 ];
 var firingTimes = (chunks, clicks) => {
-  const at2 = __dt(new Map, "core/demo/pl02/Density01.ts:14149:14174");
-  const clickAt = __dt(new Map(clicks.map((c2) => [c2.chunk, c2.at])), "core/demo/pl02/Density01.ts:14193:14236");
+  const at2 = __dt(new Map, "core/demo/pl02/Density01.ts:18462:18487");
+  const clickAt = __dt(new Map(clicks.map((c2) => [c2.chunk, c2.at])), "core/demo/pl02/Density01.ts:18506:18549");
   let referentTime = 0;
   let referentDuration = 0;
   for (let i2 = 0;i2 < chunks.length; i2++) {
@@ -92404,16 +92475,21 @@ var PAGES7 = [
   { data: slide13, clicks: [], from: 218.4, to: 219.8 }
 ];
 class Density01Dream extends Dream {
-  pages = PAGES7.map((p2) => __dt(new Slide({ data: p2.data }), "core/demo/pl02/Density01.ts:16495:16522"));
+  pages = PAGES7.map((p2) => {
+    const page = __dt(new Slide({ data: p2.data }), "core/demo/pl02/Density01.ts:21054:21081");
+    if (p2.data.index === 11)
+      page.drawsInStoredOrder = true;
+    return page;
+  });
   #now = 0;
   playAt(anim, at2, runTime) {
-    const clip = __dt(this.play(anim, runTime), "core/demo/pl02/Density01.ts:16730:16754");
+    const clip = __dt(this.play(anim, runTime), "core/demo/pl02/Density01.ts:21723:21747");
     clip.start = at2;
     this.#now = Math.max(this.#now, at2 + runTime);
   }
   setAt(at2, ...anims) {
     for (const anim of anims) {
-      const clip = __dt(this.play(anim, 0), "core/demo/pl02/Density01.ts:17002:17020");
+      const clip = __dt(this.play(anim, 0), "core/demo/pl02/Density01.ts:21995:22013");
       clip.start = at2;
     }
     this.#now = Math.max(this.#now, at2);
@@ -92433,7 +92509,7 @@ class Density01Dream extends Dream {
       if (chunks.length === 0)
         continue;
       const times = firingTimes(chunks, spec.clicks);
-      const byInstant = __dt(new Map, "core/demo/pl02/Density01.ts:17897:17924");
+      const byInstant = __dt(new Map, "core/demo/pl02/Density01.ts:22890:22917");
       for (const chunk of chunks) {
         const t2 = times.get(chunk.build);
         if (t2 === undefined)
@@ -92460,7 +92536,7 @@ class Density01Dream extends Dream {
         this.playAt(together(...anims), at2, span);
       }
     }
-    const last = __dt(this.play({ tracks: [] }, 0), "core/demo/pl02/Density01.ts:19000:19028");
+    const last = __dt(this.play({ tracks: [] }, 0), "core/demo/pl02/Density01.ts:23993:24021");
     last.start = 220;
     this.#now = Math.max(this.#now, 220);
   }

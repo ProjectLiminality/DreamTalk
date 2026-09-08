@@ -1115,6 +1115,44 @@ export class Slide extends Holon {
   scaleFactors: Record<string, number> = {}
 
   /**
+   * Draw every undeclared `LineDrawForLine` in its subpath's STORED
+   * order, instead of consulting the page-centre fallback — supplied by
+   * the SCENE, because it is a reading of that slide's own footage.
+   *
+   * The fallback in `drawsReversed` derives its answer from a premise
+   * P-3 measured on deck 2: "the deck's connection lines run between a
+   * centre and a periphery, and the footage shows them drawing
+   * centre-outward". That premise is a property of deck 2's tableau, not
+   * of the format, and it does not hold everywhere. On deck 11 every
+   * line runs between two nodes of one small five-node cluster, so
+   * "further from the slide's centre" is close to a coin toss between
+   * two points a few dozen units apart.
+   *
+   * P-10 measured it there. Sampling each line's own corridor at
+   * fractions early in the draw (f_01055, ~0.4s into the 2.25s window),
+   * with both endpoint node boxes excluded:
+   *
+   *     draws from the `from` end : 56 / 70
+   *     draws from the `to`   end :  0 / 70
+   *     ambiguous                 : 14 / 70
+   *
+   * Zero counter-examples in seventy lines. The page-centre fallback
+   * agrees with the footage on 31 of 70 — near chance, which is what a
+   * rule reads like when its premise is absent. So on this slide the
+   * stored order IS the draw order.
+   *
+   * This is deliberately NOT a change to `drawsReversed`. Two slides now
+   * disagree about what the absent case means and each has its own
+   * footage behind it; deciding which generalises needs more slides than
+   * either chapter has, and silently flipping the default would move
+   * P-3's arc on P-10's evidence. So the fallback keeps deck 2's answer,
+   * this flag states deck 11's, and the disagreement is visible rather
+   * than averaged away. A `direction` code on the record still wins over
+   * both — those are read, not inferred.
+   */
+  drawsInStoredOrder = false
+
+  /**
    * Compose the deck's opaque fills, or leave them out — the A/B switch
    * for the occlusion question P-5 left open (P-8).
    *
@@ -1157,9 +1195,15 @@ export class Slide extends Holon {
             : undefined
         // The page's own centre in world coordinates — the origin, since
         // slidePointToWorld puts the canvas centre there.
-        const reversed = ends
-          ? drawsReversed(record, ends, { x: 0, y: 0 })
-          : false
+        // A declared `direction` still wins; `drawsInStoredOrder` only
+        // replaces the page-centre fallback, and only where a scene has
+        // measured that this slide's undeclared lines draw as stored.
+        const reversed =
+          this.drawsInStoredOrder && record.direction === undefined
+            ? false
+            : ends
+              ? drawsReversed(record, ends, { x: 0, y: 0 })
+              : false
         items.push(
           lineDrawAnim(
             target,

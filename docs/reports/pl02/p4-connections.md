@@ -304,6 +304,19 @@ change is `buildTargets`, which returns seven parts rather than five;
 that is a consequence of composing fills at all, not of them improving
 anything, and it is why the test assertion moved while the score did not.
 
+*On instruments that refuse to answer.* The packaged front rig
+(`core/scripts/pl02-front.py`) reports "NOT a separation — this window
+cannot tell the two apart" rather than handing back the
+better-by-a-hair number, and that refusal is worth more to this chapter
+than another confirmation would have been. It is what stopped me
+writing up slide 9 as independent evidence for the ease when it is
+merely consistent with it. The same principle governs quoting deck 11's
+packaged 4.6x over the ad-hoc 5.1x: the reproducible number beats the
+more flattering one. A programme whose central claim is that its
+constants are MEASURED rather than fitted needs tools that can say "I
+do not know", or the claim decays into a habit of preferring whichever
+reading came out ahead.
+
 *A process note, since this claim was corrected twice.* Three separate
 things produced confident wrong readings in one afternoon: a stale
 screenshot analysed instead of a fresh render, a stale demo bundle
@@ -390,10 +403,9 @@ already written down: both have `coverage_ref` at exactly 1.0000 with
 the whole deficit in `coverage_ours`, i.e. one-directional OVERDRAW.
 Sampling noise scatters both ways across frames; this did not.
 
-P-10 measured the real cause on deck slide 11's seventy lines: **the
-draw front is EASED and mine was LINEAR** (eased rms 0.0120 against
-linear 0.0617, a 5.1x separation), and a linear front runs ahead of an
-eased one through the whole first half — exactly the signature above.
+P-10 measured the real cause on **deck slide 11**: the draw front is
+EASED and mine was LINEAR. A linear front runs ahead of an eased one
+through the whole first half, which is exactly the signature above.
 Windowing the dashes through the ease's INVERSE fixes it:
 
 | frame | linear front | eased front |
@@ -401,20 +413,52 @@ Windowing the dashes through the ease's INVERSE fixes it:
 | f_00862 | 0.8614 FAIL | **0.9101 PASS** |
 | f_00866 | 0.8466 FAIL | 0.8862 FAIL |
 
-Both moved in the predicted direction and one crossed the bar. Worth
-stating plainly: **I could not reproduce P-10's measurement myself.**
-Slide 9's fifteen lines all cross each other, so a chord walk picks up
-other lines' ink, and my probe resolves 0.1 of a line at best — eased
-and linear differ by less than that over a 2.0s window, giving rms
-0.159 for both, i.e. no separation at all. The confirmation here is
-indirect: the acceptance frames moved as predicted. Deck 11's seventy
-long corridors are simply a better instrument than anything slide 9
-offers, which is the reason the finding came from that chapter.
+**WHERE THE EASE IS CONFIRMED, AND WHERE IT IS ONLY CONSISTENT.** This
+distinction is load-bearing and the packaged rig
+(`core/scripts/pl02-front.py`, P-10's) enforces it rather than leaving
+it to prose. Run on **deck 11** — seventy lines, 2.25s builds,
+one-ended draws, empty corridors between clusters — it separates the
+two readings cleanly:
+
+    eased   rms 0.0131      linear  rms 0.0604      4.6x
+
+Run on **this chapter's slide 9** it does not, and says so itself:
+
+    eased   rms 0.0998      linear  rms 0.1384      1.4x
+    -- NOT a separation. This window cannot tell the two apart.
+
+I reproduced both on my own machine. **So slide 9 does not confirm the
+ease; it is merely consistent with it**, and the reason is structural
+rather than instrumental — I first assumed my probe was too coarse, and
+it was not. Slide 9's window is genuinely uninformative: fifteen lines,
+2.0s, and direction 53 draws from the MIDDLE outward, which halves the
+effective travel and makes the reach measure plateau. The rig's own
+guard refuses to report the better-by-a-hair number in that case, which
+is the right shape for a tool in a programme whose whole claim is that
+its constants are measured rather than fitted.
+
+What DOES confirm the fix on my own slides is the frames: the two
+mid-draw ones moved and the four settled ones did not budge to four
+decimals. That is the signature of a draw-curve change and of nothing
+else. But note the residual — **f_00866 is still FAIL at `coverage_ref`
+1.0000**, so the ease explains a large part of slide 9's mid-draw gap,
+not all of it. What remains is smaller than a frame interval's worth of
+front travel, and I am not claiming it away.
 
 P-10 also measured that **the arrowhead travels with the front** rather
-than waiting at the tip — zero ink beyond the front across four
-consecutive frames on the 25 longest corridors, where a parked head
-would light the far column immediately. My own code comment had stated
+than waiting at the tip. Reproduced here on deck 11: the far 15% of each
+corridor reads a flat **0.000** through seven consecutive frames while
+the front advances 0.09 -> 0.80, lighting only at 0.277 once the front
+reaches 0.888. A head parked at its final position would read ~1.0 in
+that column from the first frame.
+
+**Slide 8 cannot answer this question**, and my own failed attempt to
+check it there was the same confound from a different angle: its lines
+pass OVER other campfires, so the "far corridor" contains other objects'
+ink and comes back at 0.3-0.8, jittering frame to frame. My probe landed
+on the ellipses; P-10's widened-pad probe landed on the same problem.
+Deck 11's corridors are empty between clusters, which is why it is the
+slide that can answer it. My own code comment had stated
 the opposite ("the arrowhead arriving at the end of the shaft because
 that is where the shaft reaches it"), which is an assumption wearing
 the clothes of a derivation, and is the fourth invisible-in-the-render
