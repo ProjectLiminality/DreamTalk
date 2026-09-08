@@ -7,7 +7,7 @@
  * (docs/reports/pl02-vocabulary.md). Only slides 1-58 are in scope:
  * 59-83 are later additions that appear nowhere in the video.
  *
- * Emitted here: slide01, slide02, slide03, slide04, slide05, slide06, slide07, slide08, slide09, slide10, slide11, slide12, slide13, slide14, slide15, slide18, slide19, slide22, slide23, slide24, slide25, slide29, slide30, slide31, slide32, slide33, slide34, slide35, slide36, slide37, slide38, slide43, slide44, slide45, slide46, slide47, slide48, slide49, slide50, slide51, slide52, slide53, slide54, slide55, slide56, slide57, slide58, slide59.
+ * Emitted here: slide01, slide02, slide03, slide04, slide05, slide06, slide07, slide08, slide09, slide10, slide11, slide12, slide13, slide14, slide15, slide16, slide17, slide18, slide19, slide22, slide23, slide24, slide25, slide29, slide30, slide31, slide32, slide33, slide34, slide35, slide36, slide37, slide38, slide43, slide44, slide45, slide46, slide47, slide48, slide49, slide50, slide51, slide52, slide53, slide54, slide55, slide56, slide57, slide58, slide59.
  * The rest generate on demand — `bun core/scripts/key2ts.ts --slides N`.
  */
 
@@ -26,6 +26,8 @@ export { slide12 } from "./slide12"
 export { slide13 } from "./slide13"
 export { slide14 } from "./slide14"
 export { slide15 } from "./slide15"
+export { slide16 } from "./slide16"
+export { slide17 } from "./slide17"
 export { slide18 } from "./slide18"
 export { slide19 } from "./slide19"
 export { slide22 } from "./slide22"

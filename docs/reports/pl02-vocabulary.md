@@ -690,3 +690,28 @@ file was written.
   what a trace is, not a defect; the correction (inset by half the
   source stroke, or render thinner) is a CONSUMER rendering decision,
   deliberately not guessed at the model level.
+- (2026-09-08, P-9) **The firing model's unit is the GROUP, not the
+  chunk**: consecutive automatic chunks of ONE effect fire together as
+  one firing (deck 16, the sharpest instrument: twelve independent
+  onset fits inside 0.013s — a quarter frame — where the chunk-wise
+  rule predicts a 74s cascade in a 16.4s segment); the
+  one-duration-later rule governs the gap BETWEEN groups (0.95x, 0.93x
+  — consistent with all six confirmations). The chunk list is a firing
+  ORDER; a contiguous same-effect run is one firing.
+- (2026-09-08, P-9) **A cascade is TRUNCATED by the outgoing click** —
+  deck 16 declares 24 Out builds that never fire (the settled tableau
+  holds everything; the presenter clicks away). A slide's declared
+  build list can overstate what the video contains by HALF.
+- (2026-09-08, P-9) Deck 17's action-scale factor measured admissibly
+  (isolable target, empty stage, declared start size matching within
+  the stroke's two half-widths): k=3.09 — and a SEVENTH ease
+  confirmation at 13x separation (0.68 vs 8.87px rms) on a build
+  class P-8 never used.
+- (2026-09-08, P-9) BOUNDARY: deck 17→18's FadeThruColor is at 344.8
+  and is INVISIBLE (33 pixels change — deck 18 duplicates deck 17's
+  towers; Keynote crossfades near-identical tableaux); 362.0 is deck
+  18 LEAVING (the window's one true fade-to-black). Corrected: deck 17
+  279.4-344.8, deck 18 344.8-362.0. COROLLARY (beside P-8's): a
+  transition between near-identical slides leaves almost no trace —
+  an ink-difference scan cannot find it; a segment boundary can hide
+  in plain sight.
