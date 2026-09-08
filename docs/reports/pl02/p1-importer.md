@@ -386,6 +386,40 @@ carried because the file is not uniform, not because the reproduction is.
   actually opened. Now `os.path.relpath` of the real path, and a test
   asserts every module's source resolves on disk.
 
+### CORRECTION (P-7): the arrow synthesis is wrong, and `flags` is not flips
+
+**13. `kTSDRightSingleArrow` does not synthesise correctly, and the
+decoder now says so.** P-7 traced the seven out-of-arc
+`action-motion-path` builds to one drawable (4475306) and found the
+footage draws a **mouse pointer**, where my synthesis produces a
+pentagon.
+
+It is wrong for a structural reason, and for all 20 instances rather than
+one. My reading takes `point.x` as the shaft thickness in natural units;
+every instance in the deck has `point.x > naturalSize.height`, so
+`t = min(px, h)/2` saturates at `h/2`, the shaft fills the full height,
+and the shape collapses to a rectangle with a triangular bump — aspect
+1.488. Isolating the glyph by differencing `f_03640` against `f_03635`
+gives a narrow shaft with a solid triangular head, 18×25 video px. It is
+neither the pentagon nor the rotated declared box (28.6×31.7).
+
+So this is a Keynote built-in whose outline is not derivable from its two
+parameters, and guessing further would be fitting. The synthesis is left
+in place but **announced**: every affected slide now carries
+`kTSDRightSingleArrow:synthesis-unverified` in `SlideData.skipped`, on 15
+slides. Whoever needs these shapes should trace the silhouette from the
+footage or find the shape library — the same answer as the images.
+
+**14. `geometry.flags` is NOT a flip mask**, and P-7's reading of
+`flags: 3` as "both flip bits set" is not the explanation for the cursor.
+Keynote states flips on the PATH SOURCE (`horizontalFlip` /
+`verticalFlip`), and **both are `false` on every drawable in the deck**.
+`geometry.flags` is a validity mask: 3 on 2,743 drawables, 7 on 92, 0 on
+89. `keydecode.py` overwrites the field with the real flip bits before it
+reaches the model, so `fitToFrame` never mirrors anything — the pipeline
+was correct and only my `KeyGeometry.flags` comment was misleading. Now
+corrected, with the trap named.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -646,11 +680,9 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1070 pass, 2 fail** (961 baseline + 62 mine + teammates').
-  The two failures are a PRE-EXISTING collision between P-4's new
-  `Connection` holon and P-3's older `DottedLine` expectations in
-  `test/builds.test.ts` — verified by stashing every change of mine and
-  re-running, which reproduces both. Not mine to fix; flagged to P-3/P-4.
+- `bun test` — **1148 pass, 0 fail** (961 baseline + 65 mine + teammates').
+  The two `builds.test.ts` failures flagged earlier (P-4's `Connection`
+  holon vs P-3's `DottedLine` expectations) have since been resolved.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
