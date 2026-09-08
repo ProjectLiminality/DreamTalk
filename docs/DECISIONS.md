@@ -361,3 +361,14 @@ operational decisions are entered by the working agent. Format:
   two of O-11's four scoring failures (v184.6: 0.24 → 0.94 on the fix,
   the ring shrinking 241.5→82.5px = 1/3 over the source's own 5s).
   Transferable to every future pydeation port, the trio included.
+- 2026-09-08 · **Contaminated evidence does not refute the conclusion
+  it argued for** (P-5's three-error arc) — a stale artifact behind a
+  claim invalidates the REASONING; the claim must be re-derived, not
+  assumed to fall with its evidence. P-5 withdrew a correct renderer
+  request on discovering its screenshot was stale; the isolation
+  experiment (forced by P-3's push-back) proved the mechanism real —
+  fills hid zero ink across two chapters, 273 saturated pixels the
+  reference lacks. Sibling rules from the same campaign: two
+  co-landing fixes credit NEITHER until each is scored with the other
+  held constant; a screenshot on disk is not the render; a gate
+  validates only the branches its slide uses.
