@@ -56,6 +56,9 @@ import { DeadLivingSlideDream } from "./pl02/DeadLivingSlide"
 import { Arc01Dream } from "./pl02/Arc01"
 import { Mesh01Dream } from "./pl02/Mesh01"
 import { Chain01Dream } from "./pl02/Chain01"
+import { MagicMove01Dream } from "./pl02/MagicMove01"
+import { MagicMove02Dream } from "./pl02/MagicMove02"
+// import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -115,6 +118,9 @@ export const scenes: Record<string, DreamClass> = {
   p02a: Arc01Dream,
   p02d: Mesh01Dream,
   p02e: Chain01Dream,
+  p02f: MagicMove01Dream,
+  p02g: MagicMove02Dream,
+  // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
 export const defaultScene = "founding"

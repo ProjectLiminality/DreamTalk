@@ -290,6 +290,15 @@ const washGeometry = (
     // blend between two convex shapes is (a convex combination of
     // corresponding points preserves convexity). Scene01's morphs are
     // circle→circle and circle→rectangle, so this covers them exactly.
+    //
+    // THE PRECONDITION IS CONVEXITY, AND IT IS NARROW (P-5). A centroid
+    // fan paints triangles OUTSIDE a concave silhouette, so this branch
+    // is correct only for the convex loops named above. Anything whose
+    // outline can be concave — a traced icon, a Keynote shape library
+    // glyph — must reach `drawingSubpaths` and the even-odd scanline
+    // instead, which is why that gate now admits a single child. See its
+    // note; the deck's head icon (61 points, both cross-product signs)
+    // is the case that forced the distinction.
     const pts = holon.points
     if (pts.length < 4) return undefined
     const a = pts[0]!
@@ -331,10 +340,23 @@ const closesOnItself = (pts: readonly Vec3Like[]): boolean => {
  * (an Axes' two rules, an AnnularSector's arcs and edges) has no
  * interior to speak of and gets none, and a stroke with no children at
  * all is not a drawing.
+ *
+ * ONE CHILD IS A DRAWING TOO (P-5, ruled 2026-09-08). This gate was
+ * `< 2`, which sent a single-loop parent to `washGeometry`'s centroid
+ * fan instead — correct only for a CONVEX loop (see its note), and
+ * silently producing NO MESH AT ALL for a holon that class does not
+ * recognise. The PL02 deck is the case: 21 of its 22 filled drawables
+ * are single closed loops, none of them instantiated an occluder, and
+ * deck slide 23 drew 273 saturated blue and red pixels the reference
+ * does not have — a lower copy of a composition that the upper copy's
+ * black-filled heads are supposed to hide. Even-odd handles one loop as
+ * correctly as several (it is a scanline, not a fan), so admitting the
+ * single-child case is right on the geometry rather than a concession:
+ * a concave silhouette has an interior that no fan can express.
  */
 const drawingSubpaths = (holon: Stroke): Vec3Like[][] | undefined => {
   const parts = holon.parts
-  if (parts.length < 2) return undefined
+  if (parts.length < 1) return undefined
   const loops: Vec3Like[][] = []
   for (const part of parts) {
     if (!(part instanceof Line)) return undefined

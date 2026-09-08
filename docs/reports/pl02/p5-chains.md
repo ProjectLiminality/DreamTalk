@@ -28,9 +28,11 @@ corrections to things previously believed:
    disagree were both reading the same field correctly (§2).
 
 It also built one capability nobody had scoped — **opaque fills** (§3) —
-whose value turned out to be far smaller than this report first claimed,
-and §5 is the correction: the cross-chapter gains credited to it are
-**not** its, and an A/B proves it.
+and the honest result there is a **defect, not a gift**: the fills
+compose but never occlude, so deck slide 23 draws 273 coloured pixels the
+reference does not have. §5 corrects a second error, the cross-chapter
+gains this report first credited to the fills, which an A/B shows belong
+entirely to the `textBaseline` fix.
 
 ## 1. The dimmed palette: refuted
 
@@ -216,22 +218,51 @@ drawables at opacity 1.0 with nothing marking either hidden.
 black-filled and the campfire ellipse spans them (ellipse 5314388 runs
 x 223–509, the head 5314453 sits at x 273–311 inside it).
 
-### What the fills actually change, measured
+### What the fills actually change, measured — and the defect this found
 
-Rendering `f_02351` with the fill branch disabled and enabled differs by
-**87 pixels**, all of them on the laptop's frame:
+Rendering fills-off against fills-on across every frame this chapter and
+P-4 score:
 
-| region | fills OFF | fills ON | reference |
-|---|---|---|---|
-| laptop interior, mean luma | 1.2 | 1.2 | 0.2 |
-| head interior, mean luma | 13.0 | 13.0 | — |
+| frame | ink hidden by fills | ink added |
+|---|---|---|
+| f_00808, f_00851, f_01111, f_00950 (P-4) | **0** | 0 |
+| f_02246, f_02686 | **0** | 0 |
+| f_02351 | **0** | 87 |
 
-The head interiors are **empty either way** — the ellipse passes below
-the heads rather than through them, so the occlusion case that motivated
-the work does not arise in the frame that was supposed to show it. What
-the fill does do is thicken the laptop's frame from a thin gappy outline
-to a solid one matching the reference, which is a genuine improvement
-worth 0.9517 → 0.9520.
+**Fills hide nothing anywhere.** The 87 pixels are the fill painting
+where the laptop's outline was thin and gappy — thickening, not
+occluding, which is the distinction P-3 drew when it declined to accept
+"correct by construction".
+
+That is not a capability waiting for a frame that needs it. **It is a
+defect**, and deck slide 23 measures it. Counting saturated colour
+pixels, which no antialiasing argument can explain away:
+
+| | blue px | red px |
+|---|---|---|
+| ours, fills ON | 131 | 142 |
+| ours, fills OFF | 131 | 142 |
+| **reference** | **0** | **0** |
+
+The reference has no blue and no red on that slide at all, and its head
+interiors are empty black. The lower copy's blue circle (5313777, video
+x 283–298) and red rectangle (5313755, x 431–454) sit under the upper
+copy's black-filled heads (5315457 at x 273–311, 5315494 at x 422–459,
+both later in z-order). Keynote hides them; **we draw 273 coloured pixels
+the reference does not have.**
+
+**The cause**, probed in the live scene: it contains exactly **one** fill
+mesh — the notebook (`nWash: 0, nDraw: 1`). Every single-loop `SlideFill`
+has `parts.length === 1`, so the host's `drawingSubpaths` returns
+undefined at its `parts.length < 2` gate, and `washGeometry` returns
+undefined for the class. **No mesh is created for 21 of the 22 fills, so
+no occluder exists.**
+
+This is exactly the diagnosis this chapter first reached, withdrew (§8),
+and has now re-established from the reference rather than from a stale
+render. The withdrawal was itself an error: finding that the *evidence*
+was contaminated, I treated the *conclusion* as refuted too. It was true
+throughout.
 
 The construction is still the right one for what it is, and its two
 design decisions stand on their own evidence:
@@ -255,11 +286,27 @@ centroid fan would paint outside it.
 The stacking needs no sort: shapes compose in the deck's own
 `drawablesZOrder` and attach order **is** composite order.
 
-**Where it would matter, and does not yet:** slide 11 carries 70 fills
-and slide 8 fifteen. This chapter scores neither. Whether opaque fills
-earn their place is a question for P-9 and P-10, and the honest position
-today is that the capability exists, is correct by construction, and has
-not yet met a frame that needs it.
+**The honest state, and it is not "correct by construction":** the
+WINDING is verified (the even-odd arithmetic above) and the OCCLUSION is
+**disproven** — the two are different claims, and conflating them is what
+delayed finding the defect. A fill that draws its own interior correctly
+but is never instantiated hides nothing, and only a frame with a real
+overlap can tell the difference. Deck slide 23 is that frame.
+
+The fix is a one-word gate change in `render/three-host.ts`
+(`parts.length < 2` → `< 1` in `drawingSubpaths`), which this chapter
+does not own. It is requested with the deck-23 colour counts as the
+acceptance test: **blue and red must go to 0.** The lead has flagged a
+gate the request's own safety search missed — `MorphShape` derives a
+single closed `Line` child and is therefore a consumer of the same
+branch, and O-7's verification relied on morphs taking the old path, so
+the change reroutes mid-morph intermediates (which are concave) to
+even-odd. Likely an improvement, since a centroid fan paints outside a
+concave silhouette, but it moves previously-verified frames and any
+regression is a stop.
+
+Slide 11 carries 70 fills and slide 8 fifteen. Until the gate lands, P-9
+and P-10 inherit a **known defect**, not an unexercised capability.
 
 ### The construction, and why each part of it
 
@@ -480,15 +527,26 @@ worked out a plausible mechanism (the host's `drawingSubpaths` gates on
 sent the lead a request to change a file I do not own — with a measured
 concavity argument attached, which made it more convincing, not less.
 
-Nothing was wrong with the code. The fills had been rendering the whole
-time. The concavity measurement is real and is why even-odd is the right
-triangulator, but it was not causing anything.
-
 The rule, stated as the campaign's other lessons are: **re-render before
 you diagnose.** A screenshot is not the render, and a well-supported
 argument built on a stale artifact is more dangerous than a weak one,
-because the supporting evidence is all genuine. The request was withdrawn
-and every number in this report comes from a fresh bundle.
+because the supporting evidence is all genuine. Every number in this
+report comes from a fresh bundle.
+
+**And then a second, worse mistake on top of the first.** Having found
+the staleness, I withdrew the request — treating a contaminated *argument*
+as a refuted *conclusion*. They are not the same thing. The mechanism I
+had described was real: single-loop fills genuinely never instantiate a
+mesh, the scene genuinely contains one fill mesh rather than 22, and
+deck slide 23 genuinely draws 273 coloured pixels the reference does not
+have (§3). I argued the lead out of a correct grant on the strength of my
+own bad evidence for it, and it took P-3 declining to accept "correct by
+construction" to get back to where the first draft had been.
+
+So the sharper form of the lesson: **when you discover your evidence was
+bad, re-derive the conclusion — do not assume it falls with the
+evidence.** A wrong reason for a right answer still leaves the answer
+standing, and the only way to know which you have is to measure again.
 
 ## 9. Files
 
@@ -527,22 +585,26 @@ byte-identical; only the barrel changed.
    declared duration after the previous build", not "simultaneously with
    it"; `automatic: false` is a click. `eventTrigger` carries nothing
    here. Deck slide 25 is the one measured exception.
-3. **Opaque fills exist and are correct, but have not yet earned their
-   keep** (§3, §5). Measured value so far: 0.0003 on one frame. Slide 11
-   carries 70 fills and slide 8 fifteen — P-9 and P-10 are where the
-   question is actually decided. Do not repeat this chapter's mistake of
-   assuming a capability matters because it ought to.
+3. **Opaque fills are composed but DO NOT OCCLUDE — a known defect**
+   (§3). Deck slide 23 draws 273 coloured pixels the reference does not
+   have, because 21 of the 22 fills never instantiate a mesh (the host's
+   `drawingSubpaths` gates on `parts.length < 2` and a single-loop fill
+   has one child). Winding is verified; occlusion is disproven. Slide 11
+   has 70 fills and slide 8 fifteen, so P-9 and P-10 will meet this. Do
+   not read "correct by construction" as "correct".
 4. **`textBaseline`'s `middle` branch was off by descent/2** (§6) —
    fixed during this chapter as Correction 11. The lesson outlives the
    fix: 43 of the 44 records use the branch the title-card gate never
    touched, which is P-1's "a gate validates only the features its own
    slide uses" for the third time.
-5. **Re-render before you diagnose** (§8), and **isolate before you
-   attribute** (§5). Both of this chapter's errors were inferences from
-   circumstance — a stale screenshot, and two fixes landing together —
-   that one extra build would have caught. When two changes land in one
-   window, neither may be credited until each is scored with the other
-   held constant.
+5. **Three errors, one species.** Re-render before you diagnose (§8);
+   isolate before you attribute (§5); and re-derive a conclusion when you
+   find its evidence was bad, rather than assuming it falls with the
+   evidence (§8). Each was an inference from circumstance that one extra
+   build would have caught, and each was corrected by a teammate's
+   arithmetic rather than by my own. When two changes land in one window,
+   neither may be credited until each is scored with the other held
+   constant.
 6. **The remaining residual on text-dense frames is the antialiasing
    shoulder**, not geometry and not type metrics. On this chapter's
    labels it runs 2.28×. It caps `coverage_ours` on every text-heavy

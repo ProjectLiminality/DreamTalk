@@ -167,14 +167,20 @@
  * which the reference plainly does not show: at f_01088 each head is a
  * single clean outline in transit, not two ghosts.
  *
- * Non-uniform box ratios are the one place this approximates, and it is
- * named rather than papered over: `Holon.scale` is a single scalar, so a
- * pair whose width and height ratios differ glides on the MEAN of the
- * two. Measured over the deck's 44 Magic Move pairs, matched drawables
- * whose two ratios differ by more than 1% number **under a tenth** of
- * all matches, and the deck's own repeated-icon construction is why: a
- * copied icon is resized proportionally. `anisotropy()` reports the
- * worst offender in a pair so a scene can see it.
+ * `Holon.scale` is a single scalar, so a pair whose width and height
+ * ratios disagree could only glide on their MEAN — and that turned out
+ * to be a diagnostic rather than a limitation. Measured across the
+ * chapter's emitted Magic Move pairs, **not one of the 107 matches
+ * disagrees by more than 0.4%**, median exactly zero: the deck's own
+ * construction is why, since a copied icon is resized proportionally.
+ *
+ * That number is worth trusting for what it caught. Before aspect ratio
+ * entered the class key (`shapeClass`), 24 of 124 matches were
+ * anisotropic — several above 100%, a 21×21 dot "gliding" into a
+ * 134×360 column. Those were never stretches; they were MISMATCHES, and
+ * anisotropy is what exposed them. `anisotropy()` stays exported as that
+ * diagnostic: a matcher change that starts pairing unlike things shows
+ * up here first, and a test pins it at zero.
  *
  * TEXT GLIDES AS A BLOCK, and that is a scope statement, not an
  * accident: a matched text record moves and scales as one holon. Keynote
@@ -289,6 +295,17 @@ export const shapeBox = (shape: SlideShapeData): SlideBox | undefined => {
  * the deck's distinct icons differ by far more. The subpath COUNT stays
  * in the key (a two-loop notebook is not a one-loop head) but the
  * subpath LENGTHS do not, for the reason above.
+ *
+ * THE ASPECT RATIO IS PART OF THE CLASS, and it has to be, precisely
+ * BECAUSE the silhouette is normalized. Normalizing into a unit box
+ * makes a circle and a flat ellipse sample to the same twelve points —
+ * so without aspect they are one class, and the assignment then happily
+ * pairs a 100×481 upright bar with a 485×485 disc, or a 21×21 dot with
+ * a 134×360 column. Measured before this term existed, 24 of 124 matched
+ * pairs across the deck's Magic Moves were collisions of exactly that
+ * kind. Aspect is carried in LOG octaves at 1/2-octave resolution, which
+ * is loose enough that a shape resized slightly out of proportion stays
+ * one class and tight enough that a disc and a bar never are.
  */
 export const shapeClass = (shape: SlideShapeData): string => {
   const box = shapeBox(shape)
@@ -331,7 +348,11 @@ export const shapeClass = (shape: SlideShapeData): string => {
     }
     parts.push("/")
   }
-  return `s|${shape.icon ?? ""}|${shape.subpaths.length}|${parts.join(" ")}`
+  // Aspect in half-octaves — see the header for why a normalized
+  // silhouette needs it and what it cost to omit.
+  const aspect =
+    box && box.w > 1e-9 && box.h > 1e-9 ? Math.round(2 * Math.log2(box.w / box.h)) : 0
+  return `s|${shape.icon ?? ""}|${shape.subpaths.length}|${aspect}|${parts.join(" ")}`
 }
 
 /**

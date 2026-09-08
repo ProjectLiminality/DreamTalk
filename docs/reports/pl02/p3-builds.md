@@ -467,7 +467,13 @@ appears at its first.
    it.** P-2's lesson, and §4's table is what following it looks like:
    the same frame reads 0.5134 or 0.9921 depending on whether you have
    accounted for what the importer did not compose.
-5. **Ink VOLUME and ink POSITION are independent, and a ratio answers
+5. **This arc composes ZERO fills** — 0 of 8, 5, 4, 2 and 1 shapes across
+   slides 2-6, confirmed by walking the composed tree (only `Line`,
+   `Connection`, `Text`, `Slide` appear). That makes it a clean
+   REGRESSION CONTROL for the fill work: `p3-regression-baseline.json`
+   holds the five segment scores, and a fill change that moves any of
+   them has reached something it should not have.
+6. **Ink VOLUME and ink POSITION are independent, and a ratio answers
    only the first.** §5.4 is my own violation of this: I matched segment
    6's ink ratio against P-2's frames, found it consistent, and called
    the residual antialiasing. Half of it was a baseline offset. The check
