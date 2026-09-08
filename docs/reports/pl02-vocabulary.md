@@ -631,7 +631,14 @@ file was written.
   independently by the mini-towers inking from 812.35 and the
   four-vanish/fade-out match. The lead's footage-measured-positions
   ruling was RETRACTED as moot (conditionally sound doctrine, false
-  antecedent).
+  antecedent) — and P-8's post-hoc counter sharpens the doctrine:
+  recovering 'measured' positions would have written the transition's
+  OUTPUT into the slide's INPUT, raising the score while making the
+  reproduction WORSE — the specific failure the refused-fits rule
+  exists to prevent. The thumbnail evidence survives as a second data
+  point for a known quirk (slide 58's precedent): a stored thumbnail
+  is not always the slide's settled first frame — here it shows a
+  post-transition state.
 - (2026-09-08, P-8) **Standing instruction: a chapter row's title is
   a hypothesis** — two of eight have now dissolved on measurement
   (P-5's dimmed palette, P-8's fractal instancing). Read the build
