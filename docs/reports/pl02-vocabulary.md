@@ -566,3 +566,23 @@ file was written.
   ramp, firing ~4s after its neighbours (measured; stroke-core scans
   across seven settled frames find no grey plateau). P-5 is the
   labelled-chain layout at scale — nothing new to build.
+- (2026-09-08, P-5) **The firing model is SETTLED**: `automatic: true`
+  fires ONE DECLARED DURATION after its predecessor; `automatic:
+  false` waits for a click. Deck slide 15 is the discriminator (the
+  only slide with both flag values): automatic gaps 0.995-1.008x the
+  declared duration, manual gaps 2.5-10.9x — pooled with slides 2/8,
+  20 automatic at mean 1.001x vs 4 manual, NO overlap. Slide 2 was
+  never a counter-case: the flag means "fires without waiting for a
+  click", not "fires WITH the predecessor". eventTrigger distinguishes
+  nothing. Chunk order = firing order (one measured exception, deck
+  25 chunk 4, pinned by test). Only true click onsets remain
+  footage-measured.
+- (2026-09-08, P-5/P-3) Segment boundary corrections: 15 settles
+  225.2, out at 262.2; 28 settles 527.6, out at 538.8. ATTRIBUTION
+  NOTE: P-3's segment-6 gain came from the baseline fix, NOT fills
+  (zero fills exist in slides 2-6 — P-3's diff proof); P-5's report
+  credits fills there and stands corrected by P-3.
+- (2026-09-08, P-5) **The one systematic gap nobody owns: text strokes
+  are FAT** — ink 1.3-2.28x the reference at the same threshold on
+  text-dense tableaux. Geometry and type metrics are now right; the
+  stroke weight caps coverage_ours on every text-heavy frame. Queued.
