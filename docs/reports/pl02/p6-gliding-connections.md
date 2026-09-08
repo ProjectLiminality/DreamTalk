@@ -102,52 +102,131 @@ cannot distinguish, the only thing the deck still states is the order it
 states things in. It fires only when two members of one class share a
 position, so every other Magic Move in the deck is untouched.
 
+## 2b. The residual, closed: it was the onset
+
+The ~15-20px residual reported in the first round is **resolved**. It was
+two things, and neither was geometry.
+
+**The measurement artefact.** Comparing the reference's ink CENTROID
+against a predicted BOX CENTRE adds a spurious **+6px downward offset,
+uniform across all twelve heads** — x displacement ≈ 0 (−0.27px mean,
+all within ±1.4px). The head glyph is bottom-heavy (shoulders wider than
+head), so its centroid sits 5.9px below its box centre at settled size.
+That artefact *was* most of the "15-20px". Compare centroid to centroid
+or box to box, never one to the other.
+
+**The onset, off by one frame.** With the artefact removed, recovering
+the transition's own completion per frame — fitting all twelve heads'
+centroids, order-free nearest-neighbour — gives geometry that closes to
+**0.67-1.36px mean, 2.46px worst**. Sub-pixel, no free parameter. So the
+model was right and the *clock* was wrong:
+
+| video | recovered u | `smooth` at old onset 216.2 |
+|---|---|---|
+| 217.0 | 0.400 | 0.544 |
+| 217.2 | 0.590 | 0.718 |
+| 217.4 | 0.740 | 0.872 |
+| 217.6 | 0.865 | 0.981 |
+
+The onset is **216.4, not 216.2**. At f_1082 the ring's pixel count is
+unchanged (8662, identical to f_1081) and the heads have not moved (top
+row still 52, band still 366px) — what changed is the second superposed
+copy becoming visible. The geometry first moves at f_1083. P-6 took the
+first changing *pixel* for the onset; it is the fade that precedes the
+glide.
+
+| reading | rms(u) |
+|---|---|
+| onset 216.2, duration 1.5 (P-6's) | 0.130 |
+| **onset 216.4, duration 1.5 (declared)** | **0.030** |
+| onset 216.30, duration 1.62 (free fit) | 0.011 |
+
+The declared duration at the corrected onset is a 4× improvement with
+nothing fitted. The 1.62s free fit is better by a hair and is **reported
+rather than adopted** — it would be fitting a duration the deck states,
+and 1.62 is inside 5 fps' own resolution of 1.5.
+
+### The four candidates, resolved
+
+1. **Per-object stagger** — *no*. All twelve heads share one completion:
+   their displacements at a common u agree to ±1.4px in x and the spread
+   in y is the glyph artefact, identical for every head. One window.
+2. **Curved travel path** — *no*. At the recovered u the straight-line
+   interpolation reproduces every head to sub-pixel; a curved path has no
+   room left to explain.
+3. **Interpolation domain (centre vs corner lerp)** — *not applicable*.
+   Lerping the corners independently yields the identical centre
+   (`((x0A+Δx0·u)+(x1A+Δx1·u))/2 = cA+Δc·u`), so the two readings differ
+   only in the scale ANCHOR, and centre-anchored scaling already closes
+   to sub-pixel.
+4. **Open residual** — not needed for geometry. What remains is named
+   below and it is a different quantity.
+
+### What remains: dash-lattice phase
+
+Mid-glide our dots and the reference's lie **along the same lines** but
+land at different points along them. Dilation separates the two readings
+cleanly (fraction of reference ink covered by ours, dilated k px):
+
+| frame | 0px | 2px | 4px | 6px |
+|---|---|---|---|---|
+| f_1092 settled (scores 0.982) | 0.938 | 0.994 | 0.998 | 1.000 |
+| f_1087 mid-glide (scores 0.783) | 0.127 | 0.463 | 0.811 | 0.939 |
+
+Settled, dots land on dots at 0px. Mid-glide, 81% of the reference is
+within **4px** of our ink — under half the 10px (15 slide-unit) dash
+period. A geometric error does not close that fast; this is the lattice's
+PHASE, which anchors at the `from` clip, so a sub-pixel difference in
+where the curve leaves a moving silhouette walks every dot along the
+line. That is the next chapter's question and it is a smaller one.
+
 ## 3. MagicMove01 — before and after
 
-Scored at the frames' own scene times. **Note the brief's `@t` values are
-each 0.2s late**: the onset is video 216.2 ↔ scene t=1.0, so f_1087
-(217.2s) is t=2.0, not 2.2. Corrected below; the uncorrected phase
-depresses every number slightly but changes no verdict.
+Scene t = 1.0 is now video **216.4**, so a frame's hold is
+`(idx−1)/5 − 216.4 + 1.0`. (The brief's original `@t` values assumed
+216.2 and were a further 0.2s late again; both corrections are folded in
+below.)
 
-| frame | before (cov_ref/ours) | after | chamfer before → after |
+| frame | P-6 as inherited | + gliding mesh & matcher | + corrected onset |
 |---|---|---|---|
-| f_1082 onset | 1.000 / 1.000 PASS | 1.000 / 1.000 PASS | 0.03 / 0.22 |
-| f_1085 | 0.269 / 0.415 | **0.448 / 0.469** | 5.81 → 4.34 |
-| f_1087 | 0.249 / 0.242 | **0.374 / 0.309** | 8.91 → 7.64 |
-| f_1088 | 0.220 / 0.194 | **0.357 / 0.278** | 9.49 → 8.22 |
-| f_1089 | 0.276 / 0.230 | **0.370 / 0.273** | 9.26 → 8.29 |
-| f_1092 settled | 0.982 / 0.997 PASS | 0.982 / 0.997 PASS | 0.09 / 0.22 |
+| f_1082 onset | 0.955 PASS | 1.000 PASS | **1.000 PASS** |
+| f_1085 | 0.242 | 0.448 | **0.516** |
+| f_1086 | — | — | **0.583** |
+| f_1087 | 0.253 | 0.374 | **0.783** |
+| f_1088 | 0.228 | 0.357 | **0.730** |
+| f_1089 | 0.351 | 0.370 | **0.579** |
+| f_1092 settled | 0.982 PASS | 0.982 PASS | **0.982 PASS** |
 
-Every mid-glide frame improved substantially (+0.10 to +0.18 cov_ref,
-chamfer down ~1.3px throughout) and **the mid-glide frames still FAIL**.
-Both endpoints are exact — 1.000 at onset, 0.982 settled — so the defect
-is entirely interior. The structure is now visibly right: in the f_1087
-composite every head has a red/green partner within a few pixels and the
-mesh re-derives between them; what remains is a small, uniform
-**vertical/phase offset**, our tableau sitting ~15-20px ahead of the
-reference's along the same path.
+(cov_ref; chamfer on f_1087 falls 9.38 → 7.64 → **1.97** px.)
 
-## 4. The residual, and what it is NOT
+Mid-glide cov_ref roughly **tripled** — f_1087 from 0.253 to 0.783 — and
+the frames still FAIL the bar. Both endpoints are exact and the geometry
+is sub-pixel at the recovered completion, so what is left is not shape
+and not timing but the dash lattice's phase (§2b).
 
-Three candidates were tested and refused rather than fitted.
+A sub-frame sweep shows how sharply the score now turns on alignment:
+f_1089 reaches **0.872** at hold 2.1 against 0.579 at 2.2. That
+sensitivity is itself evidence the geometry is right — only well-aligned
+ink can be that sensitive to a tenth of a second.
 
-- **Ease shape.** Fitting the top head pair's centroid track (a clean
-  118px signal) over onset × duration grids: `smooth` 6.69px, `easeOut`
-  5.41, `linear` 6.35, `easeIn` 7.64 — all within each other's noise at
-  5 fps. `smooth` at the *declared* onset/duration gives 8.99px, under
-  8% of travel. The ease is not the residual.
+## 4. Hypotheses tested and refused
+
+Kept as a record, since several were plausible enough to be worth the
+measurement and one of them (the ease) nearly absorbed the onset error.
+
+- **Ease shape.** Against the recovered completions, fitting onset ×
+  duration per ease: `easeOut` rms 0.009, `smooth` 0.011, `linear`
+  0.017, `easeIn` 0.020 — indistinguishable, and `smooth` (the deck's
+  own, shared with the DreamSong level) fits at the declared duration.
+  No ease change is warranted.
 - **The declared `delay: 0.5`.** Both transitions carry it and neither
-  scene reads it. It is **excluded by the footage**: a 0.5s delay puts
-  the onset at 216.7, and the tableau is already moving at 216.4.
-- **Onset/duration.** Best fit is onset 216.10, duration 1.55s against
-  the declared 1.5 and measured 216.2 — the deck's numbers are right and
-  were not re-fitted (DECISIONS' refused-fits rule).
-
-The honest statement: the residual is a ~15-20px phase-like offset whose
-source is not the connections, not the matcher, not the ease, and not the
-declared delay. A hold-time sweep makes every frame *worse* when held
-later, so we are not simply running early. It is the next chapter's
-question, and it now sits on a mesh and a matcher that are both correct.
+  scene reads it. **Excluded by the footage**: it would put the onset at
+  216.9, and the tableau is demonstrably moving at 216.6.
+- **Duration.** The free fit prefers 1.55-1.62s; the declared 1.5s at
+  the corrected onset fits at rms 0.030, inside 5 fps' resolution. Not
+  re-fitted (DECISIONS' refused-fits rule).
+- **Per-object stagger, curved paths, corner-lerp** — all refuted in
+  §2b.
 
 ## 5. MagicMove02's residual — the curvature verdict
 
@@ -191,8 +270,9 @@ would be footage-only, and the footage says there is none. MM02's
   `glidingMeshSetup/Anim/Swap`, `coincident`, `Matchable.order`, and the
   superposed branch in `matchSlides`; `magicMoveSwap` takes an optional
   mesh.
-- `core/demo/pl02/MagicMove01.ts` — stages the mesh; header records what
-  slide 12 actually is.
+- `core/demo/pl02/MagicMove01.ts` — stages the mesh; `ONSET_VIDEO`
+  216.4; header records what slide 12 actually is, how the onset was
+  re-measured, and the centroid-vs-box-centre trap.
 - `core/test/gliding-connections.test.ts` — 10 tests.
 
 `src/geometry/morph.ts`, the importer trio and `render/**` are untouched.

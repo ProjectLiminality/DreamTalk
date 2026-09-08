@@ -34,30 +34,55 @@
  *
  * The chapter's central division, and both halves are checkable.
  *
- * MEASURED — the onset. A frame-differenced scan over 214-222s puts the
- * only motion in this segment at **216.2s** (frames f_01081 → f_01082
- * step from 0.00000 to 0.00295 mean absolute difference, after five
- * perfectly still frames). That is a click, and a click exists only in
- * the footage.
+ * MEASURED — the onset, at **216.4s**, and WHICH EVENT that is matters.
+ * A frame-differenced scan finds the segment's first changing pixels one
+ * frame earlier, at 216.2 (f_01081 → f_01082, after five perfectly still
+ * frames), and P-6 first took that for the onset. It is not: at f_01082
+ * the ring's pixel count is UNCHANGED (8662, identical to f_01081) and
+ * the heads have not moved at all (top ink row still 52, band still 366
+ * px wide) — what changed is that the second superposed copy became
+ * visible. The GEOMETRY first moves at f_01083, and the glide's onset is
+ * the glide, not the fade that precedes it.
+ *
+ * The difference is worth a paragraph because it is 0.2s of a 1.5s
+ * window — 13% of the whole crossing — and because the earlier reading
+ * survived a whole chapter by being *nearly* right.
  *
  * READ — the duration. The deck declares 1.5s (`KeyTransition.duration`
- * on slide 13), and the footage CONFIRMS it rather than supplying it.
- * Tracking the mesh's top ink edge through the glide — the head band's
- * upper bound, which contracts monotonically from video row 52 to row
- * 159 — and fitting the deck's own ease against candidate durations:
+ * on slide 13) and the footage CONFIRMS it rather than supplying it, on
+ * a far stronger instrument than the ink-edge track P-6 first used.
+ * Recovering the transition's own completion per frame — fitting all
+ * twelve heads' measured centroids against the interpolation, which
+ * closes to 0.7-1.4 px mean (see below) — gives u directly:
  *
- *     duration   1.2    1.4    1.5    1.6    1.8    2.0
- *     rms (px)  12.7    9.2    9.7   11.4   16.7   22.3
+ *     video      217.0   217.2   217.4   217.6
+ *     recovered  0.400   0.590   0.740   0.865
  *
- * The minimum sits at the declared 1.5s (1.4 and 1.5 are inside each
- * other's noise at 5 fps), and 2.0s is decisively excluded. Worth
- * recording because the raw frame-difference window looks like 2.0s —
- * motion runs 216.2 to 218.2 — and it is not: the last half second is
- * the unmatched fade-IN, which by `BUILD_FRACTION` occupies the tail of
- * the window and keeps changing pixels after the glide has arrived. A
- * chapter that fitted the duration to the motion window would have
- * "corrected" a number the deck states correctly, which is exactly what
- * DECISIONS' refused-fits rule forbids.
+ * and against `smooth` on the deck's own numbers:
+ *
+ *     reading                              rms(u)
+ *     onset 216.2, duration 1.5 (P-6's)    0.130
+ *     onset 216.4, duration 1.5 (DECLARED) 0.030
+ *     onset 216.30, duration 1.62 (fitted) 0.011
+ *
+ * The declared duration at the corrected onset is a 4x improvement with
+ * NOTHING fitted. The 1.62s free fit is better still by a hair and is
+ * REPORTED RATHER THAN ADOPTED — adopting it would be fitting a duration
+ * the deck states, which DECISIONS' refused-fits rule forbids, and 1.62
+ * is inside 5 fps sampling's own resolution of 1.5.
+ *
+ * THE GEOMETRY IS EXACT; THE RESIDUAL WAS ALWAYS THE CLOCK.
+ *
+ * At the recovered completion the model reproduces all twelve heads to
+ * **0.67-1.36 px mean, 2.46 px worst** — sub-pixel, with no free
+ * parameter. So the ~15-20px mid-glide error P-6 reported was not
+ * geometry: it was this onset, plus a measurement artefact worth naming
+ * so it is not rediscovered. Comparing the reference's ink CENTROID
+ * against a predicted BOX CENTRE adds a spurious +6 px downward offset,
+ * uniform across every head, because the glyph is bottom-heavy
+ * (shoulders wider than head) and its centroid sits 5.9 px below its box
+ * centre at settled size. Compare centroid to centroid, or box to box —
+ * never one to the other.
  *
  * WHAT IS STAGED
  *
@@ -83,8 +108,17 @@ import {
 import { slide12 } from "../../vocabulary/Slides/assets/pl02/slide12"
 import { slide13 } from "../../vocabulary/Slides/assets/pl02/slide13"
 
-/** The measured click, as an offset into this scene's own clock. */
+/**
+ * The measured onset, as an offset into this scene's own clock.
+ *
+ * Scene t = 1.0 IS video 216.4 — the frame the geometry first moves, not
+ * the frame the first pixel changes. See the header: 216.2 is the second
+ * superposed copy appearing, and using it put the whole glide 0.2s
+ * early.
+ */
 const ONSET = 1.0
+/** Video seconds at ONSET — what a scored frame's `@t` must be read from. */
+export const ONSET_VIDEO = 216.4
 /** The deck's own declared duration for this transition. READ, not fitted. */
 const DURATION = slide13.transition?.duration ?? 1.5
 
