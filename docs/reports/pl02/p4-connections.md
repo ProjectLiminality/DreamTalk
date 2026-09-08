@@ -279,24 +279,43 @@ here that the new parts are reached by all three opacity paths
 leaves a pending build's targets dark: an unreached fill would be P-3's
 seventy-second ghost wearing a new coat.
 
-**Those two fills also moved segment 9's score, upward**, from
+**Segment 9's score also moved upward in the same window**, from
 `coverage_ours` 0.9654 to **0.9898** and its chamfer from 0.364/0.045 to
-0.286/0.043 — the black discs occlude a little of what the outlines
-alone left showing through. Segments 7, 8 and 14 are identical to four
-decimals, and so is every mid-draw frame including f_00900's perfect
-1.0000/1.0000, because the Logo has not arrived at 179.8s. The table
-above carries the corrected number.
+0.286/0.043 — but **not because of the fills**. The credit belongs to
+P-2's `textBaseline` middle-branch correction (P-5 found it, P-2
+reproduced it independently): a `middle`-aligned block centres its CAP
+BOX, with no descent term, so the old branch put every such label
+`descent/2` too high.
 
-*A process note, since it cost two people an hour between them.* Both
-P-5's withdrawn "single-loop fills don't render" caveat and my own first
-reading of 0.9654 were **stale-bundle artifacts**: the demo serves
-`core/demo/dist/main.js`, a build artifact that does not rebuild itself,
-so a score taken after someone else's source change but before a
-`bun build` silently measures the previous state. It is the same
-epistemic hazard as this chapter's three rendering bugs — a plausible
+Slide 9 has exactly one text record, "Social Organism", and it is
+`verticalAlign: middle` at size 40 — so the predicted shift is
+`40 × 0.212 / 2 = 4.24` slide units = **2.83 video px**. Checked against
+the footage here, independently of anyone's before/after scores: the
+reference's glyph band in f_00950 runs rows **628–653**, the corrected
+branch predicts a cap top at **628.6**, and the old one 625.8. The new
+branch is right to within 0.6 px and the old is three pixels high, which
+is `descent/2` to the decimal.
+
+The fills are composing on this slide and change **no scoring pixel** —
+its two black-filled circles have nothing behind them. What they do
+change is `buildTargets`, which returns seven parts rather than five;
+that is a consequence of composing fills at all, not of them improving
+anything, and it is why the test assertion moved while the score did not.
+
+*A process note, since this claim was corrected twice.* Three separate
+things produced confident wrong readings in one afternoon: a stale
+screenshot analysed instead of a fresh render, a stale demo bundle
+(`core/demo/dist/main.js` is a build artifact the server does not
+rebuild, so a score taken after a teammate's source change silently
+measures the previous state — since fixed, the gauntlets now enforce
+freshness), and two fixes landing in one window with the improvement
+attributed to whichever was more interesting. All three are the same
+epistemic hazard as this chapter's own rendering bugs: **a plausible
 number produced by something other than what you think you are
-measuring. Rebuild before scoring, and treat any figure that survived a
-teammate's landing without moving as unverified until it has.
+measuring.** The rules that fell out — rebuild before scoring; treat a
+figure that survived a teammate's landing unmoved as unverified until
+re-run; and when two changes land together, credit neither until each is
+scored with the other held constant.
 
 **3. The midpoint sweep gave its outermost dashes a zero-width window.**
 Dividing by the distance to the last dash rather than by the number of
@@ -411,16 +430,21 @@ exclude them region-by-region to score its segment. With them recomputed:
 | 6 | 0.8515 | **0.9670** | 1.362 → **0.807 px** |
 
 **P-3's arc is now 3/5 rather than 2/5** — segment 6 crossed the bar.
-Part of that is this chapter's recompute (segments 2 and 3 carry the
-stale lines), and part is P-5's opaque fills, which closed gaps P-3 had
-attributed to the antialiasing shoulder: segment 6 has no connection
-lines at all and still moved 0.116. Segments 2 and 3 remain FAIL because
-they are capped by the dropped images, which neither chapter touched.
+Segments 2 and 3 carry the stale lines this chapter recomputes; segment
+6 has **no connection lines at all** and still moved 0.116, so that one
+is P-2's `textBaseline` correction, not anything of mine. (I first
+credited P-5's fills for it, on the circumstantial ground that they
+landed in the same window. P-3 challenged the attribution and P-5's 2×2
+settled it — the fills move nothing that scores on either arc.)
+Segments 2 and 3 remain FAIL because they are capped by the dropped
+images, which no chapter has yet touched.
 
 The general point for the campaign: **a chapter's residuals are not
 always its own**, and P-3's §5 was right to decompose them by cause
 rather than absorb them into a stroke-width story. Two of its four named
-causes have since been removed by other chapters.
+causes have since been removed by other chapters — but which cause a
+later gain belongs to is a question that needs isolating, not inferring,
+which is the lesson of the paragraph above.
 
 **For P-10** (slide 11, the density peak): its structure is **7 clusters
 × K5 = 70 lines**, not the "~14 organisms × 7-node mesh" the recon

@@ -644,7 +644,10 @@ export class Slide extends Holon {
     // marks the children as washed-by-ancestor so no child floods its
     // own loop as well (three-host.ts). It is the same construction a
     // Sketch has, reached for the same reason.
-    if (shape.fill) {
+    // Hoisted so the narrowing survives the loop below — `shape.fill`
+    // is optional and TypeScript widens it again inside the closure.
+    const fillHex = shape.fill
+    if (fillHex) {
       const loops: Vec3Like[][] = []
       for (let i = 0; i < shape.subpaths.length; i++) {
         if (!shape.closed[i]) continue
@@ -673,7 +676,7 @@ export class Slide extends Holon {
           this.add(
             new SlideFill({
               loops,
-              tint: hexToColor(shape.fill),
+              tint: hexToColor(fillHex),
               opacity: shape.opacity,
             }),
           ),
