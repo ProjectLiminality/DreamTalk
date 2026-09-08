@@ -37,9 +37,10 @@ open rather than settled.
 ## 1. What survives keynote-parser, and what is dropped
 
 The decode walks the show's own slide order and each slide's own
-`drawablesZOrder`. Across slides 1–58 it yields **1,750 shapes, 91 text
-records, 561 groups, 384 builds and 58 transitions**, and skips exactly
-one archive type: `TSD.ImageArchive` — 12 of them inside slides 1-58,
+`drawablesZOrder`. Across **deck slides 1–59** (see the scope correction
+below) it yields **1,792 shapes, 91 text records, 576 groups, 418 builds,
+489 connection lines and 59 transitions**, and skips exactly one archive
+type: `TSD.ImageArchive` — 12 of them in scope,
 whose BOXES are kept even though their pixels cannot be. The recon
 called these "none load-bearing"; that is wrong, and the correction below
 matters for four segments.
@@ -461,6 +462,51 @@ fitting the reproduction to the answer. A test pins the archive's actual
 content so the question is not silently re-opened, and so an invented-
 position "fix" would fail loudly.
 
+### CORRECTION (P-9): the in-scope range is deck 1..59, not 1..58
+
+**15. The decoder's `[:58]` cutoff dropped the video's last content
+slide, and the contradiction was mine.** This report established that
+the recon's slide list omits the hidden slide 18 and is off by one from
+there — and then left a cutoff written from that same list's "1-58".
+Self-contradictory: if the recon's 58 rows map to deck positions with a
++1 shift from 18 on, the video's 58 content segments span **deck 1..59**.
+
+Deck 59 (4853219) is the "Liminal Flow" set piece — 24 shapes, 22
+connection lines, 34 builds — matching the recon's own row-58 census to
+the build. Confirmed in the footage: `f_04460` (t = 891.8s) draws
+Collective Intelligence, Syntropy and the "Liminal Flow" title.
+
+One refinement to P-9's account. The video does **not** close on deck 60
+or 61 — those are "Interaction Topology" bullet slides that appear
+nowhere in it. `f_04490` (t = 897.8s) is **the title card mid-dissolve**:
+the video closes by returning to deck 1, exactly as §1's original note
+said. The recon's Viterbi assigns that segment to its own position 61
+with a correlation of 0.114, which is noise.
+
+**Every in-scope figure in this report was recounted, not adjusted.** The
+ones that moved:
+
+| | was (1-58) | now (1-59) |
+|---|---|---|
+| shapes | 1,750 | **1,792** |
+| groups | 561 | **576** |
+| builds | 384 | **418** |
+| transitions | 58 | **59** |
+| connection lines | 467 | **489** |
+| lines with no endpoints | 27 | **31** |
+| drawables with line ends | 124 | **142** |
+| click-advanced chunks | 89 | **91** |
+| builds with `eventTrigger: 1` | 320 | **354** |
+
+Unchanged: 91 texts, 12 images, 164 non-zero outsets, 19 motion paths
+with exactly one curved, zero orthogonal lines, zero per-character
+deliveries.
+
+The firing-model arithmetic survives the recount: **91 clicks + 59
+transitions = 150** declared advances against 141 measured (was 147 vs
+141), while `eventTrigger` gives 354 + 59 = 413 — still overshooting by
+2.9x. Neither reading is settled, and the recount does not favour either.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -721,7 +767,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1153 pass, 0 fail** (961 baseline + 66 mine + teammates').
+- `bun test` — **1167 pass, 0 fail** (961 baseline + 67 mine + teammates').
   The two `builds.test.ts` failures flagged earlier (P-4's `Connection`
   holon vs P-3's `DottedLine` expectations) have since been resolved.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.

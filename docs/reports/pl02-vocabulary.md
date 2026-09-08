@@ -669,3 +669,13 @@ file was written.
   trace-or-source amendment is retired. P-3's deck 2/3 ceilings lift
   retroactively once the importer emits it. Stroke-only rendering is
   the honest first reading (the footage shows white line art).
+- (2026-09-08, P-1) **Deck 59 emitted (the [:58] cutoff was one slide
+  short — the hidden-slide shift's last consequence)**; census
+  recounted, not adjusted (shapes 1,792; builds 418; transitions 59;
+  connection lines 489; clicks 91 — the firing arithmetic survives at
+  150 vs 141 measured; eventTrigger still 2.9x over; open). AND the
+  closing-segment correction: the video does NOT close on decks 60/61
+  (bullet slides appearing nowhere in it) — f_04490 is the TITLE CARD
+  mid-dissolve; the video closes by returning to deck 1. The Viterbi's
+  row-61 assignment sits at correlation 0.114 — noise, not evidence.
+  Score the closing segment against deck 1.

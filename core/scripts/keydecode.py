@@ -854,9 +854,30 @@ def main():
                 files.setdefault(ident, path)
 
     slides = []
-    # Per the canon policy (DECISIONS 2026-09-07) only slides 1-58 are in
-    # the video; 59-83 are later additions and out of scope.
-    wanted = slide_ids[: limit or 58]
+    # THE IN-SCOPE RANGE IS DECK 1..59, NOT 1..58.
+    #
+    # The recon report says "reproduce slides 1-58", and this cutoff was
+    # written from it — but that count came from a slide list that OMITS
+    # the hidden slide 18 (see the off-by-one correction in
+    # docs/reports/pl02/p1-importer.md). The video's 58 content segments
+    # therefore span deck positions 1..59, and a `[:58]` cutoff drops the
+    # LAST one.
+    #
+    # Deck 59 (4853219) is the "Liminal Flow" set piece: 24 shapes, 22
+    # connection lines, 16 groups, 34 builds, which matches the recon's
+    # own row-58 census to the build. The footage confirms it — f_04460
+    # (t = 891.8s) draws Collective Intelligence, Syntropy and the
+    # "Liminal Flow" title.
+    #
+    # The video then CLOSES by returning to deck 1: f_04490 (t = 897.8s)
+    # is the title card mid-dissolve, not a separate closing slide. (The
+    # recon's Viterbi assigns that segment to its own position 61 with a
+    # correlation of 0.114 — noise. Decks 60 and 61 are "Interaction
+    # Topology" bullet slides that appear nowhere in the video.)
+    #
+    # So: deck 1..59 is the content, deck 1 is also the closing frame,
+    # and 60+ are the later additions the canon policy excludes.
+    wanted = slide_ids[: limit or 59]
     for i, sid in enumerate(wanted, start=1):
         path = files.get(sid)
         if not path:

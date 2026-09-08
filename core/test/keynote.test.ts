@@ -862,6 +862,26 @@ describe("builds", () => {
     }
   })
 
+  test("the in-scope range is deck 1..59, and deck 59 is the last content slide", async () => {
+    // The recon says "reproduce slides 1-58", but that count comes from
+    // a list omitting the hidden slide 18 — so the video's 58 content
+    // segments span deck 1..59 and a [:58] cutoff dropped the last one.
+    // Deck 59 is the "Liminal Flow" set piece; f_04460 (t=891.8s) draws
+    // it. The video then closes by returning to deck 1 (f_04490 is the
+    // title card mid-dissolve), not on a separate closing slide.
+    const { slide59 } = await import("../vocabulary/Slides/assets/pl02/slide59")
+    expect(slide59.index).toBe(59)
+    expect(slide59.id).toBe("4853219")
+    // Matches the recon's own row-58 census: 24 shapes / 22 connection
+    // lines / 34 builds. The group count is 15 here against the
+    // archive's 16, which is the documented behaviour — the importer
+    // records only groups whose members reached the drawable list, so a
+    // group of images contributes none.
+    expect(slide59.shapes.filter((s) => s.isConnectionLine)).toHaveLength(22)
+    expect(slide59.groups).toHaveLength(15)
+    expect(slide59.builds).toHaveLength(34)
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

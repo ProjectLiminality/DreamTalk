@@ -69211,12 +69211,72 @@ class SlideFill extends Stroke {
   loops = [];
   tint = color2(WHITE);
   fillOpacity = completion(1);
+  inset = length2(0);
   compose() {
     for (const points of this.loops) {
-      this.add(new Line2({ points, tint: this.tint, stroke: 0, creation: 0 }));
+      this.add(new Line2({
+        points: insetLoop2(points, this.inset.value),
+        tint: this.tint,
+        stroke: 0,
+        creation: 0
+      }));
     }
   }
 }
+var insetLoop2 = (points, d2) => {
+  const pts = points.slice();
+  if (d2 <= 0 || pts.length < 4)
+    return pts;
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const closed = Math.hypot(last.x - first.x, last.y - first.y) < 0.000000001;
+  const ring = closed ? pts.slice(0, -1) : pts;
+  const n2 = ring.length;
+  if (n2 < 3)
+    return pts;
+  let area2 = 0;
+  for (let i2 = 0;i2 < n2; i2++) {
+    const a2 = ring[i2];
+    const b2 = ring[(i2 + 1) % n2];
+    area2 += a2.x * b2.y - b2.x * a2.y;
+  }
+  const side = area2 >= 0 ? 1 : -1;
+  const out = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    const prev = ring[(i2 - 1 + n2) % n2];
+    const cur = ring[i2];
+    const next = ring[(i2 + 1) % n2];
+    const e0 = { x: cur.x - prev.x, y: cur.y - prev.y };
+    const e1 = { x: next.x - cur.x, y: next.y - cur.y };
+    const l0 = Math.hypot(e0.x, e0.y);
+    const l1 = Math.hypot(e1.x, e1.y);
+    if (l0 < 0.000000000001 || l1 < 0.000000000001) {
+      out.push({ x: cur.x, y: cur.y, z: cur.z });
+      continue;
+    }
+    const n0 = { x: -e0.y / l0 * side, y: e0.x / l0 * side };
+    const n1 = { x: -e1.y / l1 * side, y: e1.x / l1 * side };
+    const bx = n0.x + n1.x;
+    const by = n0.y + n1.y;
+    const bl = Math.hypot(bx, by);
+    if (bl < 0.000000001) {
+      out.push({ x: cur.x, y: cur.y, z: cur.z });
+      continue;
+    }
+    const step4 = d2 / (bl / 2);
+    if (!Number.isFinite(step4) || step4 > d2 * MAX_INSET_RATIO)
+      return pts;
+    out.push({
+      x: cur.x + bx / bl * step4,
+      y: cur.y + by / bl * step4,
+      z: cur.z
+    });
+  }
+  if (closed)
+    out.push({ x: out[0].x, y: out[0].y, z: out[0].z });
+  return out;
+};
+var MAX_INSET_RATIO = 5;
 var arcLength2 = (points) => {
   let total = 0;
   for (let i2 = 1;i2 < points.length; i2++) {
@@ -69444,7 +69504,8 @@ class Slide extends Holon {
         out.push(this.add(new SlideFill({
           loops,
           tint: hexToColor(fillHex),
-          opacity: shape.opacity
+          opacity: shape.opacity,
+          inset: (shape.strokeWidth ?? 0) > 0 ? width / 2 : 0
         })));
       }
     }

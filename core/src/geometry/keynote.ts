@@ -297,14 +297,15 @@ export type KeyDrawable = KeyShape | KeyText
  * report says otherwise.
  *
  * Report §5 lists image support under "explicitly NOT needed — 29 images
- * in the whole deck, none load-bearing in slides 1-58". P-1 repeated
+ * in the whole deck, none load-bearing in slides 1-58" (its count).
+ * P-1 repeated
  * that on the recon's authority; P-3 measured it and it is wrong. On
  * slide 2 the five images are **46.9% of the reference frame's ink** —
  * the Vitruvian figure alone is 481x481 slide units, the largest single
  * drawable on the video's opening tableau — and they hold that segment's
  * `coverage_ref` near 0.49 however good the vector reproduction is.
  *
- * **12 images fall inside slides 1-58, on four slides: 2 (five), 3
+ * **12 images fall inside deck 1-59, on four slides: 2 (five), 3
  * (one), 17 (four) and 18 (two).** Those four have a hard ceiling on
  * `coverage_ref` that no stroke fidelity can lift, so a chapter touching
  * them should score twice — the whole frame as the headline, and again
@@ -380,8 +381,8 @@ export interface KeyBuild {
    * field that says whether an `apple:dissolve character` build actually
    * cascades per glyph.
    *
-   * In this deck it never does. **All 384 builds across slides 1-58 are
-   * `All at Once`** — including all 121 `dissolve character` ones. There
+   * In this deck it never does. **All 418 in-scope builds are
+   * `All at Once`** — including every `dissolve character` one. There
    * is not a single per-character delivery in the video.
    *
    * P-3 confirmed it in the footage rather than only in the file: slide
@@ -417,11 +418,11 @@ export interface KeyBuild {
    */
   direction?: number
   /**
-   * Keynote's on-click / after-previous flag: 1 on 320 of the 384 builds
-   * in slides 1-58, 0 on the other 64.
+   * Keynote's on-click / after-previous flag: 1 on 354 of the 418 in-scope
+   * builds, 0 on the other 64.
    *
    * Carried UNINTERPRETED and alongside `KeyBuildChunk.automatic`,
-   * because the two disagree on 330 chunks and neither alone predicts
+   * because the two disagree on 263 chunks and neither alone predicts
    * the footage. See KeyBuildChunk's header for the evidence on both
    * sides; do not treat either as the firing model without testing it
    * against measured onsets.
@@ -446,8 +447,8 @@ export interface KeyBuild {
    * scope, and a chapter reading only the deck-wide figure looks for two
    * curves and finds one:
    *
-   *   whole 83-slide FILE:  34 motion paths, 2 genuinely curved
-   *   **in scope (1-58):    19 motion paths, exactly ONE curved**
+   *   whole 83-slide FILE:   34 motion paths, 2 genuinely curved
+   *   **in scope (deck 1-59): 19 motion paths, exactly ONE curved**
    *
    * The in-scope curve is build 5602009 on deck slide 56 — 3.0s, two
    * cubic segments, travel (-284.4, -171.0). Every other in-scope path
@@ -467,7 +468,7 @@ export interface KeyBuild {
  *
  * Keynote separates WHAT animates (a build) from WHEN it fires (a
  * chunk). Chunks are listed in firing order. The chunk's `duration`
- * agrees with its build's in all 384 cases here, so a chunk contributes
+ * agrees with its build's in all 418 cases here, so a chunk contributes
  * the WHEN and never a second duration to reconcile — the value worth
  * having is `automatic`.
  *
@@ -475,20 +476,20 @@ export interface KeyBuild {
  * IS. Three candidate fields exist and no single one of them predicts
  * the footage:
  *
- *  - `automatic` (here, on the chunk). 89 of 384 false, 295 true across
- *    slides 1-58. Deck-wide arithmetic is excellent — 89 clicks + 58
- *    transitions = 147 declared advances against the recon's 141
- *    measured animation events, within 4%. But it fails LOCALLY: slide 2
+ *  - `automatic` (here, on the chunk). 91 of 418 false, 327 true in
+ *    scope. Deck-wide arithmetic is excellent — 91 clicks + 59
+ *    transitions = 150 declared advances against the recon's 141
+ *    measured animation events, within 7%. But it fails LOCALLY: slide 2
  *    has exactly one false, so this reading fires all 13 of its builds
  *    as a single cascade, and P-3 measured its four connection lines
  *    drawing at plainly separated times (7 events in the segment).
  *
- *  - `eventTrigger` (on the build's `attributes`). 320 of 384 are 1
- *    ("on click") across slides 1-58, including ALL 13 on slide 2 —
- *    which fits P-3's local measurement. But 320 + 58 = 378 declared
- *    advances against 141 measured overshoots by 2.7x.
+ *  - `eventTrigger` (on the build's `attributes`). 354 of 418 are 1
+ *    ("on click") in scope, including ALL 13 on slide 2 —
+ *    which fits P-3's local measurement. But 354 + 59 = 413 declared
+ *    advances against 141 measured overshoots by 2.9x.
  *
- *  - The two DISAGREE constantly (330 chunks are `automatic: true` while
+ *  - The two DISAGREE constantly (263 chunks are `automatic: true` while
  *    their build says `eventTrigger: 1`), so they are not two spellings
  *    of one fact.
  *
@@ -513,7 +514,7 @@ export interface KeyBuildChunk {
   delay: number
   /**
    * True when this chunk follows its predecessor automatically; false
-   * when it waits for a click. 295 true / 89 false across slides 1-58.
+   * when it waits for a click. 327 true / 91 false in scope.
    */
   automatic: boolean
   chunkId: number
@@ -1097,7 +1098,8 @@ export interface SlideShapeData {
    * does not contain anywhere.
    *
    * HOW COMMON: 25%, and the working assumption should be that a
-   * stored path is UNRELIABLE. Surveyed across all 547 connection lines
+   * stored path is UNRELIABLE. Surveyed across all 547 connection
+   * lines in the file (489 of them in scope)
    * by testing whether the stored chord's axis aims at BOTH connected
    * objects' centres (within 3 slide units) —
    *
@@ -1143,7 +1145,7 @@ export interface SlideShapeData {
   /**
    * True for a `TSD.ConnectionLineArchive`, whatever else it carries.
    *
-   * Set unconditionally BECAUSE `connects` is not: 60 of the deck's 547
+   * Set unconditionally BECAUSE `connects` is not: 31 of the 489 in-scope
    * connection lines declare no `connectedFrom`/`connectedTo` at all, so
    * a consumer that identifies connection lines by the presence of
    * `connects` will conclude a slide has none. Slide 15 is exactly that
@@ -1155,7 +1157,7 @@ export interface SlideShapeData {
    * `kTSDConnectionLineTypeQuadratic` | `kTSDConnectionLineTypeOrthogonal`.
    *
    * Across the whole 83-slide file: 541 quadratic, 6 orthogonal. But
-   * **within slides 1-58 every one of the 467 lines is quadratic** — all
+   * **within deck 1-59 every one of the 489 lines is quadratic** — all
    * six orthogonals are on out-of-scope slides — so P-4's "all
    * quadratic" is right for the video, and the field is carried because
    * the file is not uniform, not because the reproduction is. And the
@@ -1177,12 +1179,12 @@ export interface SlideShapeData {
    * version of the `connects` note said `outsetFrom`/`outsetTo` were
    * "both 0.0 throughout this deck". They are per-line, and non-zero
    * exactly on the biggest meshes — which is the worst place for a
-   * consumer to have assumed zero on my say-so. Across all 547:
+   * consumer to have assumed zero on my say-so.
    *
-   * In scope (slides 1-58, 467 lines): 303 are (0, 0), 78 are
+   * In scope (deck 1-59, 489 lines): 325 are (0, 0), 78 are
    * (0.0, 10.0), 74 are (10.0, 10.0) and 12 are (30.0, 30.0).
    *
-   * So **164 of the 467 in-scope lines carry a non-zero outset**, and
+   * So **164 of the 489 in-scope lines carry a non-zero outset**, and
    * they cluster on the densest meshes — slide 8's are 30.0/30.0 and
    * slide 11's 10.0/10.0, which is the worst possible place for a
    * consumer to have assumed zero on my say-so. Absent here means both
@@ -1194,8 +1196,8 @@ export interface SlideShapeData {
    * lives in the GLOBAL `Index/DocumentStylesheet.iwa`, not in the slide
    * file, so this is a document-wide id lookup.
    *
-   * Richer than a single arrow convention: 124 in-scope drawables carry
-   * an end decoration — 123 a head, one a tail — and across the whole
+   * Richer than a single arrow convention: 142 in-scope drawables carry
+   * an end decoration — and across the whole
    * file two use a `filled circle` rather than the `simple arrow`. The arrow's own path is a filled triangle —
    * moveTo(0,0), lineTo(3,6), lineTo(6,0), close — with `endPoint`
    * (3,0) and a MiterJoin.
