@@ -600,3 +600,16 @@ file was written.
   rule predicts a second). Second measured chunk-order exception:
   deck 53's two LineDraws LEAD the fade-and-move by 0.68s where the
   chunk list says they trail by 2.0s (joins P-5's deck-25 chunk 4).
+- (2026-09-08, P-8) **Keynote's kEaseBoth is CSS ease-in-out
+  (cubic-bezier 0.42, 0, 0.58, 1), NOT the framework's smooth
+  (s=0.25)** — the fitted minimum lands on a NAMED standard curve,
+  which is what makes it a reading rather than a fit. Measured on two
+  unrelated build classes four ways (motion rms 8.90 -> 1.29 on deck
+  56's 3.0s curve; dissolves bracket 0.41-0.45); linear decisively
+  excluded. Implemented as waypoints stamped linear (src/ untouched;
+  reconstruction 0.0005 vs 0.054 curve separation). P-7's cursors
+  couldn't separate the two eases (54.8px at 5fps); deck 56's 3.0s
+  travel can. Mid-build frames of P-3/4/5/7 may move — P-8 re-runs
+  them as gates. Side effect: dissolves P-7's per-pair ripple problem
+  (a linear sequence has no ease to fight); its ripple tests
+  rewritten to assert the stronger property.
