@@ -301,8 +301,11 @@ target) is untouched.
 
 ## 6. A finding owed to another chapter: `textBaseline`'s `middle` branch
 
-Not fixed here, because `core/src/geometry/keynote.ts` is not this
-chapter's. Reported to the lead and to P-2 with the measurements.
+**Landed during the chapter.** Found here, reported to the lead and P-2
+rather than fixed here (`core/src/geometry/keynote.ts` is not this
+chapter's file); P-2 reproduced it independently on two further texts at
+two more point sizes and applied it as Correction 11. The measurements
+below are the ones this chapter contributed.
 
 `textBaseline`'s `middle` branch centres the **cap + descent** block on
 the box. Keynote centres the **cap box** alone. Measured on four texts at
@@ -332,8 +335,18 @@ lesson — a gate validates the importer only for the features its slide
 happens to use — recurring for the third time, after the group bug (P-2)
 and the outsets (P-4).
 
-The 7/7 above is **with** this error still present, so correcting it
-should only improve these segments.
+P-2's own slides confirm the size of it: slide 5 goes
+`cov_ours 0.9028 → 0.9853` and slide 32 `0.9364 → 0.9655`, with the title
+card — the one `bottom` record, and so the control — unmoved.
+
+On this chapter's segments the correction is visible in the composites
+rather than in the totals. "Location A" on `f_02686` now spans rows
+421–443 against the reference's 424–439, straddling it symmetrically,
+where before it sat 3–4 px high. The label still shows ours-only in the
+composite, but for a different reason: our ink there runs **2.28×** the
+reference's at the same threshold, which is P-3's pre-existing
+antialiasing shoulder (it measured 1.31×, 1.58× and 1.75×) and is not
+this. The baseline is right; the strokes are fat.
 
 ## 7. Segment boundary corrections
 
@@ -418,7 +431,14 @@ byte-identical; only the barrel changed.
    error is invisible in the sense that the extra shapes look like they
    belong. If a tableau has ink the reference lacks, suspect a fill
    before suspecting the stroke.
-4. **`textBaseline`'s `middle` branch is off by descent/2** (§6), and it
-   is 43 of the 44 text records. Whoever owns it should land the fix
-   before another chapter measures type.
+4. **`textBaseline`'s `middle` branch was off by descent/2** (§6) —
+   fixed during this chapter as Correction 11. The lesson outlives the
+   fix: 43 of the 44 records use the branch the title-card gate never
+   touched, which is P-1's "a gate validates only the features its own
+   slide uses" for the third time.
 5. **Re-render before you diagnose** (§8).
+6. **The remaining residual on text-dense frames is the antialiasing
+   shoulder**, not geometry and not type metrics. On this chapter's
+   labels it runs 2.28×. It caps `coverage_ours` on every text-heavy
+   tableau in the video and is the one systematic gap no chapter has yet
+   owned.

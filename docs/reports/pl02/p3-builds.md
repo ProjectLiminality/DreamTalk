@@ -228,18 +228,18 @@ remains the headline.
 
 | what is excluded | cov_ref | cov_ours | chamfer | verdict |
 |---|---|---|---|---|
-| seg 2, five dropped images (47.1% of ref ink) | 0.9113 | 0.9263 | 0.813/1.061 | PASS |
-| **seg 2**, + the four stale connection lines (53.0%) | **0.9673** | **1.0000** | **0.001**/0.506 | **PASS** |
-| seg 3, the dropped image (59.4%) | 0.8890 | 0.9577 | 0.376/1.510 | FAIL |
-| **seg 3**, + the stale connection line (68.4%) | **0.9999** | **0.9522** | 0.416/0.065 | **PASS** |
+| **seg 2**, five dropped images (47.1% of ref ink) | **0.9631** | **0.9778** | 0.180/0.342 | **PASS** |
+| **seg 2**, + the four stale connection lines (53.0%) | **0.9921** | **0.9968** | 0.042/0.132 | **PASS** |
+| **seg 3**, the dropped image alone (59.4%) | **0.9999** | **0.9959** | 0.217/0.081 | **PASS** |
+| seg 3, + the stale connection line (68.4%) | 0.9999 | 0.9949 | 0.250/0.052 | PASS |
 
-The second row is the chapter's sharpest result: the four icons that the
-`dissolve character` builds drive, alone, score **0.9673 / 1.0000 with a
-chamfer of 0.001 px** from our ink to the reference's. That is identity to
-the limit the encode allows. Segment 3's **0.9999** on the fourth row says
-the same for its lenses, tree and moved label together.
+Segment 3 needs only the dropped image excluded to reach **0.9999 /
+0.9959** — the stale connection line no longer moves it enough to matter.
+Segment 2's second row is the chapter's sharpest: the four icons the
+`dissolve character` builds drive, alone, at **0.9921 / 0.9968** with
+chamfers of 0.042 and 0.132 px.
 
-Both remaining exclusions are the SAME two inherited causes — drawables the
+Every exclusion above is ONE of two inherited causes — drawables the
 importer does not compose, and connection lines whose stored paths are
 stale. Neither is a build.
 
@@ -250,19 +250,21 @@ mid-ramp:
 
 | frame | video s | what | cov_ref | cov_ours | verdict |
 |---|---|---|---|---|---|
-| f_00035 | 6.8 | tree mid-dissolve, images masked | **0.9279** | **0.9649** | **PASS** |
-| f_00025 | 4.8 | eagle mid-dissolve, images masked | 0.8176 | 0.9066 | FAIL |
-| f_00233 | 46.4 | slide 4 labels mid-dissolve | 0.9999 | 0.7289 | FAIL |
-| f_00585 | 116.8 | slide 5 Out mid-dissolve | 1.0000 | 0.4839 | FAIL |
+| **f_00025** | **4.8** | eagle mid-dissolve, images masked | **0.9716** | **0.9922** | **PASS** |
+| **f_00035** | **6.8** | tree mid-dissolve, images masked | **0.9352** | **0.9599** | **PASS** |
+| f_00233 | 46.4 | slide 4 labels mid-dissolve | 0.9999 | 0.7431 | FAIL |
+| f_00585 | 116.8 | slide 5 Out mid-dissolve | 1.0000 | 0.5295 | FAIL |
 
-f_00035 is a genuine mid-dissolve frame passing in-band, which is the
-strongest single evidence for the ramp. The last two have `coverage_ref`
-at 1.0 — everything the reference has, we have — and low `coverage_ours`
-because at 0.01 alpha our antialiased strokes still cross the overlay's
-luma-32 threshold where the reference's JPEG has quantised to black. The
-ramps agree: ours runs 0.920 / 0.697 / 0.433 / 0.182 / 0.011 against the
-reference's measured 0.970 / 0.738 / 0.379 / 0.117 / 0.000, within 0.05
-at every sample.
+**Two genuine mid-dissolve frames now pass in-band** — the strongest
+evidence in the chapter for the ramp itself, since a settled frame cannot
+distinguish a correct ramp from a correct endpoint.
+
+The last two have `coverage_ref` at 1.0 — everything the reference has,
+we have — and low `coverage_ours` because at 0.01 alpha our antialiased
+strokes still cross the overlay's luma-32 threshold where the reference's
+JPEG has quantised to black. The ramps themselves agree: ours runs
+0.920 / 0.697 / 0.433 / 0.182 / 0.011 against the reference's measured
+0.970 / 0.738 / 0.379 / 0.117 / 0.000, within 0.05 at every sample.
 
 ## 5. What is NOT this chapter's, with each residual named
 
@@ -441,13 +443,15 @@ appears at its first.
 ## 9. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1067 pass, 0 fail** (1047 baseline + 20 new; the baseline moved during the chapter as other agents landed tests).
+- `bun test` — **1123 pass, 0 fail** at the last re-run (20 mine; the
+  baseline keeps moving as other chapters land tests).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's and P-2's to four decimals, so nothing
   in this chapter perturbed the video-01 reproduction.
-- Opening arc — **2/5 whole-frame**, 4/5 once the two inherited importer
-  gaps are excluded region by region (§4); **20/20 onsets within 0.1s**
-  (§3).
+- Opening arc — **3/5 whole-frame** (2/5 at the chapter's close; P-5's
+  `textBaseline` fix moved segment 6), **5/5** once the two inherited
+  importer gaps are excluded region by region (§4); **20/20 onsets within
+  0.1s** (§3).
 
 ## 10. What P-4 and later chapters inherit
 
@@ -461,7 +465,7 @@ appears at its first.
    cursor silently lags the whole scene and settled frames cannot see it.
 4. **Score the coverage PAIR, and decompose a failure before believing
    it.** P-2's lesson, and §4's table is what following it looks like:
-   the same frame reads 0.4878 or 0.9673 depending on whether you have
+   the same frame reads 0.5134 or 0.9921 depending on whether you have
    accounted for what the importer did not compose.
 5. **Ink VOLUME and ink POSITION are independent, and a ratio answers
    only the first.** §5.4 is my own violation of this: I matched segment
