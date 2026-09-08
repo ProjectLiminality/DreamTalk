@@ -96,6 +96,7 @@ import { DottedLine, Line, Stroke } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import type { Holon } from "../../src/holon"
 import type { KeyBuild, KeyPathElement } from "../../src/geometry/keynote"
+import { Connection } from "./Connections"
 
 /** Keynote's stroke-draw-on. Core's `Create`, at Keynote's pacing. */
 export const LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine"
@@ -204,6 +205,50 @@ export const drawsReversed = (
 }
 
 /**
+ * Direction 53 — the draw that opens at the line's OWN MIDDLE and runs
+ * to both ends at once. P-4's finding, measured.
+ *
+ * P-1 carried `direction` uninterpreted and said so: three values occur
+ * (51 once, 52 twenty-eight times, 53 fifteen times), the field is
+ * absent on 114 of the deck's 158 LineDrawForLine builds, and naming
+ * what they mean from four samples would be a guess. P-3 measured 51 and
+ * 52 on slide 2 and found both drawing centre-outward *relative to the
+ * page*, which its geometric fallback reproduces without reading the
+ * field at all.
+ *
+ * **53 is not that, and the fallback gets it backwards.** All fifteen of
+ * deck slide 9's builds declare it — the only slide in the deck that
+ * does — and the footage shows each line growing from its own midpoint
+ * symmetrically outward. Sampling ink at fractions along one 594-unit
+ * mesh line as it draws (f_00861..871, the 2.0s window from 172.08):
+ *
+ *     t       0%  10%  20%  30%  40%  50%  60%  70%  80%  90% 100%
+ *     172.4    -    -    -    -    -  255    -    -    -    -    -
+ *     172.8    -    -    -    -  173  255    -    -    -    -    -
+ *     173.0    -    -    -    -  254  255  255    -    -    -    -
+ *     173.2    -    -    -  255  254  255  255  253    -    -    -
+ *     173.4    -    -  251  255  254  255  255  253  255    -    -
+ *     173.8    -  255  255  255  254  255  255  253  253  255    -
+ *
+ * The middle lights first and the front advances in BOTH directions at
+ * the same rate, reaching 40/60 together, then 30/70, then 20/80. Two
+ * other lines of different lengths repeat it exactly. A one-ended draw
+ * — in either direction — would light one column at a time from one
+ * side, which is what our render did and what the mid-draw composite
+ * showed as mirrored red/green fronts.
+ *
+ * Only 53 is claimed here. 51 and 52 keep P-3's geometric resolution,
+ * because that is what was measured for them, and the absent case stays
+ * the default.
+ */
+export const DIRECTION_FROM_MIDDLE = 53
+
+/** Whether a build's declared direction is the midpoint-outward draw. */
+export const drawsFromMiddle = (
+  build: KeyBuild & { direction?: number },
+): boolean => build.direction === DIRECTION_FROM_MIDDLE
+
+/**
  * One build as a windowed Anim.
  *
  * `at` and `span` are in the SCENE's own seconds — a build occupies
@@ -264,7 +309,56 @@ export const lineDrawAnim = (
   target: Holon,
   reversed: boolean,
   out = false,
+  fromMiddle = false,
 ): Anim => {
+  // A `Connection` owns its own continuous dash lattice and its
+  // arrowhead, and draws them in one ordering — from the `from` end,
+  // from the `to` end, or (direction 53) from its own middle outward to
+  // both. It is the mesh's whole draw-on: slide 9 fires fifteen of
+  // these, slide 11 seventy.
+  if (target instanceof Connection) {
+    void target.parts
+    const items = target.drawn()
+    const n = items.length
+    if (n === 0) return { tracks: [] }
+    if (fromMiddle) {
+      // Each dash's window is set by its DISTANCE from the middle, so
+      // the two fronts advance together and the whole line finishes at
+      // the same instant however unevenly the dashes sit about the
+      // centre. See `DIRECTION_FROM_MIDDLE` for the footage.
+      //
+      // The reach is the number of STEPS each front takes, not the
+      // distance to the last dash's index: with an even dash count the
+      // middle falls between two dashes, so the outermost sits
+      // (n-1)/2 away and needs a window ENDING at 1, which means
+      // dividing by that distance plus the one step that covers it.
+      // Dividing by the distance alone gave the outermost dash a
+      // [1, 1] window — zero width, so the two ends of every mesh line
+      // silently never drew.
+      const mid = (n - 1) / 2
+      const steps = Math.max(mid + 0.5, 1e-9)
+      return together(
+        ...items.map((d, i): Windowed => {
+          const from = Math.abs(i - mid) - 0.5
+          return [
+            out ? d.creation.to(0) : d.creation.sequence(0, 1),
+            Math.max(0, from / steps),
+            Math.min(1, (from + 1) / steps),
+          ]
+        }),
+      )
+    }
+    return together(
+      ...items.map((d, i): Windowed => {
+        const k = reversed ? n - 1 - i : i
+        return [
+          out ? d.creation.to(0) : d.creation.sequence(0, 1),
+          k / n,
+          (k + 1) / n,
+        ]
+      }),
+    )
+  }
   if (target instanceof DottedLine) {
     void target.parts
     const dashes = target.dashes
@@ -309,6 +403,10 @@ export const preBuildAnim = (record: KeyBuild, target: Holon): Anim => {
   // it would blank a drawable the footage has on screen throughout.
   if (record.animationType === "Action") return { tracks: [] }
   if (record.effect === LINE_DRAW) {
+    if (target instanceof Connection) {
+      void target.parts
+      return together(...target.drawn().map((d) => d.creation.to(0)))
+    }
     if (target instanceof DottedLine) {
       void target.parts
       return together(...target.dashes.map((d) => d.creation.to(0)))
@@ -324,10 +422,12 @@ export const unsupportedBuilds = (builds: readonly KeyBuild[]): KeyBuild[] =>
 
 /** A Stroke's polyline endpoints, for the direction fallback. */
 export const strokeEnds = (
-  stroke: Stroke,
+  stroke: Holon,
 ): { start: { x: number; y: number }; end: { x: number; y: number } } | undefined => {
   const pts =
-    stroke instanceof Line || stroke instanceof DottedLine ? stroke.points : []
+    stroke instanceof Line || stroke instanceof DottedLine || stroke instanceof Connection
+      ? stroke.points
+      : []
   if (pts.length < 2) return undefined
   const a = pts[0]!
   const b = pts[pts.length - 1]!
@@ -353,7 +453,11 @@ export const rampOpacity = (
   values: readonly number[],
 ): Anim => {
   const drawn: Holon[] =
-    target instanceof DottedLine ? (void target.parts, target.dashes) : [target]
+    target instanceof Connection
+      ? (void target.parts, target.drawn())
+      : target instanceof DottedLine
+        ? (void target.parts, target.dashes)
+        : [target]
   return together(
     ...drawn.map((h) =>
       values.length === 1

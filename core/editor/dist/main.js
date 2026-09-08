@@ -68505,6 +68505,239 @@ var textAnchorX = (text) => {
   }
 };
 
+// vocabulary/Slides/Connections.ts
+var boxCentre = (b2) => ({
+  x: b2.x + b2.w / 2,
+  y: b2.y + b2.h / 2
+});
+var unionBoxes = (boxes) => {
+  if (boxes.length === 0)
+    return;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const b2 of boxes) {
+    x0 = Math.min(x0, b2.x);
+    y0 = Math.min(y0, b2.y);
+    x1 = Math.max(x1, b2.x + b2.w);
+    y1 = Math.max(y1, b2.y + b2.h);
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+};
+var controlThrough = (a2, mid, b2) => ({
+  x: 2 * mid.x - (a2.x + b2.x) / 2,
+  y: 2 * mid.y - (a2.y + b2.y) / 2
+});
+var quadAt = (a2, c2, b2, t2) => {
+  const mt = 1 - t2;
+  return {
+    x: mt * mt * a2.x + 2 * mt * t2 * c2.x + t2 * t2 * b2.x,
+    y: mt * mt * a2.y + 2 * mt * t2 * c2.y + t2 * t2 * b2.y
+  };
+};
+var flattenQuad = (a2, c2, b2, tolerance = 0.25) => {
+  const dev = Math.hypot(c2.x - (a2.x + b2.x) / 2, c2.y - (a2.y + b2.y) / 2);
+  const span = Math.hypot(b2.x - a2.x, b2.y - a2.y) + dev;
+  const n2 = Math.max(2, Math.ceil(Math.sqrt(span / Math.max(tolerance, 0.000001))));
+  const out = [];
+  for (let i2 = 0;i2 <= n2; i2++)
+    out.push(quadAt(a2, c2, b2, i2 / n2));
+  return out;
+};
+var segmentCross = (a2, b2, c2, d2) => {
+  const rx = b2.x - a2.x;
+  const ry = b2.y - a2.y;
+  const sx = d2.x - c2.x;
+  const sy = d2.y - c2.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 0.000000000001)
+    return;
+  const t2 = ((c2.x - a2.x) * sy - (c2.y - a2.y) * sx) / den;
+  const u2 = ((c2.x - a2.x) * ry - (c2.y - a2.y) * rx) / den;
+  return t2 >= 0 && t2 <= 1 && u2 >= 0 && u2 <= 1 ? t2 : undefined;
+};
+var outlineExit = (polyline2, target) => {
+  let best = 0;
+  let travelled = 0;
+  for (let i2 = 0;i2 + 1 < polyline2.length; i2++) {
+    const a2 = polyline2[i2];
+    const b2 = polyline2[i2 + 1];
+    const seg = Math.hypot(b2.x - a2.x, b2.y - a2.y);
+    for (const sub7 of target.outline) {
+      for (let j2 = 0;j2 + 1 < sub7.length; j2++) {
+        const t2 = segmentCross(a2, b2, sub7[j2], sub7[j2 + 1]);
+        if (t2 !== undefined)
+          best = Math.max(best, travelled + t2 * seg);
+      }
+    }
+    travelled += seg;
+  }
+  return best;
+};
+var outlineExitFromEnd = (polyline2, target) => {
+  const reversed = [...polyline2].reverse();
+  return outlineExit(reversed, target);
+};
+var polylineLength2 = (points) => {
+  let total = 0;
+  for (let i2 = 0;i2 + 1 < points.length; i2++) {
+    total += Math.hypot(points[i2 + 1].x - points[i2].x, points[i2 + 1].y - points[i2].y);
+  }
+  return total;
+};
+var pointAtLength = (points, d2) => {
+  if (points.length === 0)
+    return { x: 0, y: 0 };
+  if (d2 <= 0)
+    return points[0];
+  let travelled = 0;
+  for (let i2 = 0;i2 + 1 < points.length; i2++) {
+    const a2 = points[i2];
+    const b2 = points[i2 + 1];
+    const seg = Math.hypot(b2.x - a2.x, b2.y - a2.y);
+    if (travelled + seg >= d2) {
+      const u2 = seg > 0.000000000001 ? (d2 - travelled) / seg : 0;
+      return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 };
+    }
+    travelled += seg;
+  }
+  return points[points.length - 1];
+};
+var trimPolyline = (points, from, to) => {
+  if (to <= from)
+    return [];
+  const out = [pointAtLength(points, from)];
+  let travelled = 0;
+  for (let i2 = 0;i2 + 1 < points.length; i2++) {
+    const seg = Math.hypot(points[i2 + 1].x - points[i2].x, points[i2 + 1].y - points[i2].y);
+    const at2 = travelled + seg;
+    if (at2 > from && at2 < to)
+      out.push(points[i2 + 1]);
+    travelled = at2;
+  }
+  out.push(pointAtLength(points, to));
+  return out;
+};
+var dashAlong = (points, dash, period) => {
+  const total = polylineLength2(points);
+  if (total <= 0 || dash <= 0 || period <= 0)
+    return [[...points]];
+  const runs = [];
+  for (let d2 = 0;d2 < total - 0.000000001; d2 += period) {
+    const run = trimPolyline(points, d2, Math.min(total, d2 + dash));
+    if (run.length >= 2)
+      runs.push(run);
+  }
+  return runs;
+};
+var connectionPath = (from, to, mid, outset = {}) => {
+  const a2 = boxCentre(from.box);
+  const b2 = boxCentre(to.box);
+  const straight = Math.hypot(b2.x - a2.x, b2.y - a2.y) < 0.000000001;
+  if (straight)
+    return { points: [], full: [], clipFrom: 0, clipTo: 0 };
+  const full = mid ? flattenQuad(a2, controlThrough(a2, mid, b2), b2) : [a2, b2];
+  const total = polylineLength2(full);
+  const exitFrom = from.outline.length > 0 ? outlineExit(full, from) : outlineExit(full, boxAsTarget(from));
+  const exitTo = to.outline.length > 0 ? outlineExitFromEnd(full, to) : outlineExitFromEnd(full, boxAsTarget(to));
+  const clipFrom = Math.min(total, exitFrom + (outset.from ?? 0));
+  const clipTo = Math.max(0, total - exitTo - (outset.to ?? 0));
+  return { points: trimPolyline(full, clipFrom, clipTo), full, clipFrom, clipTo };
+};
+var boxAsTarget = (t2) => ({
+  id: t2.id,
+  box: t2.box,
+  outline: [
+    [
+      { x: t2.box.x, y: t2.box.y },
+      { x: t2.box.x + t2.box.w, y: t2.box.y },
+      { x: t2.box.x + t2.box.w, y: t2.box.y + t2.box.h },
+      { x: t2.box.x, y: t2.box.y + t2.box.h },
+      { x: t2.box.x, y: t2.box.y }
+    ]
+  ]
+});
+var arrowHead = (tip, towards, size, halfWidth = size / 2) => {
+  const dx = tip.x - towards.x;
+  const dy = tip.y - towards.y;
+  const len3 = Math.hypot(dx, dy);
+  if (len3 < 0.000000001 || size <= 0)
+    return [];
+  const ux = dx / len3;
+  const uy = dy / len3;
+  const base = { x: tip.x - ux * size, y: tip.y - uy * size };
+  const nx = -uy;
+  const ny = ux;
+  return [
+    { x: base.x + nx * halfWidth, y: base.y + ny * halfWidth },
+    tip,
+    { x: base.x - nx * halfWidth, y: base.y - ny * halfWidth },
+    { x: base.x + nx * halfWidth, y: base.y + ny * halfWidth }
+  ];
+};
+
+class Connection2 extends Holon {
+  points = [];
+  head = [];
+  dash = length2(0);
+  period = length2(0);
+  tint = color2(WHITE);
+  stroke = length2(1);
+  opacity = completion(1);
+  dashes = [];
+  arrow;
+  compose() {
+    if (this.points.length >= 2) {
+      const runs = this.dash.value > 0 && this.period.value > 0 ? dashAlong(this.points.map((p2) => ({ x: p2.x, y: p2.y })), this.dash.value, this.period.value) : [this.points.map((p2) => ({ x: p2.x, y: p2.y }))];
+      for (const run of runs) {
+        this.dashes.push(this.add(new Line2({
+          points: run.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })),
+          tint: this.tint.value,
+          stroke: this.stroke.value,
+          opacity: this.opacity.value
+        })));
+      }
+    }
+    if (this.head.length >= 2) {
+      this.arrow = this.add(new Line2({
+        points: this.head.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })),
+        tint: this.tint.value,
+        stroke: this.stroke.value,
+        opacity: this.opacity.value
+      }));
+    }
+  }
+  drawn() {
+    this.parts;
+    return this.arrow ? [...this.dashes, this.arrow] : [...this.dashes];
+  }
+  createAnim() {
+    this.parts;
+    const items = this.drawn();
+    const n2 = items.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    return together(...items.map((d2, i2) => [
+      d2.creation.sequence(0, 1),
+      i2 / n2,
+      (i2 + 1) / n2
+    ]));
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = this.drawn();
+    const n2 = items.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    return together(...items.map((d2, i2) => [
+      d2.creation.to(0),
+      1 - (i2 + 1) / n2,
+      1 - i2 / n2
+    ]));
+  }
+}
+
 // vocabulary/Slides/Builds.ts
 var LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine";
 var DISSOLVE = "apple:dissolve";
@@ -68537,6 +68770,21 @@ var buildAnim = (record, target) => {
   return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1]);
 };
 var lineDrawAnim = (target, reversed, out = false) => {
+  if (target instanceof Connection2) {
+    target.parts;
+    const items = target.drawn();
+    const n2 = items.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    return together(...items.map((d2, i2) => {
+      const k2 = reversed ? n2 - 1 - i2 : i2;
+      return [
+        out ? d2.creation.to(0) : d2.creation.sequence(0, 1),
+        k2 / n2,
+        (k2 + 1) / n2
+      ];
+    }));
+  }
   if (target instanceof DottedLine) {
     target.parts;
     const dashes = target.dashes;
@@ -68564,6 +68812,10 @@ var preBuildAnim = (record, target) => {
   if (record.animationType === "Action")
     return { tracks: [] };
   if (record.effect === LINE_DRAW) {
+    if (target instanceof Connection2) {
+      target.parts;
+      return together(...target.drawn().map((d2) => d2.creation.to(0)));
+    }
     if (target instanceof DottedLine) {
       target.parts;
       return together(...target.dashes.map((d2) => d2.creation.to(0)));
@@ -68574,7 +68826,7 @@ var preBuildAnim = (record, target) => {
 };
 var unsupportedBuilds = (builds) => builds.filter((b2) => !SUPPORTED.has(b2.effect));
 var strokeEnds = (stroke) => {
-  const pts = stroke instanceof Line2 || stroke instanceof DottedLine ? stroke.points : [];
+  const pts = stroke instanceof Line2 || stroke instanceof DottedLine || stroke instanceof Connection2 ? stroke.points : [];
   if (pts.length < 2)
     return;
   const a2 = pts[0];
@@ -68582,7 +68834,7 @@ var strokeEnds = (stroke) => {
   return { start: { x: a2.x, y: a2.y }, end: { x: b2.x, y: b2.y } };
 };
 var rampOpacity = (target, values) => {
-  const drawn = target instanceof DottedLine ? (void target.parts, target.dashes) : [target];
+  const drawn = target instanceof Connection2 ? (void target.parts, target.drawn()) : target instanceof DottedLine ? (void target.parts, target.dashes) : [target];
   return together(...drawn.map((h2) => values.length === 1 ? h2.opacity.to(values[0]) : h2.opacity.sequence(...values)));
 };
 
@@ -68620,10 +68872,19 @@ class Slide extends Holon {
   strokes = [];
   labels = [];
   groups = [];
+  connections = [];
+  headSize = length2(9.66);
   byId = new Map;
   compose() {
     const scale2 = slideToWorld(this.height.value);
+    const geom = this.slideGeometry();
     for (const shape of this.data.shapes) {
+      const rebuilt = shape.connects ? this.composeConnection(shape, geom, scale2) : undefined;
+      if (rebuilt) {
+        this.byId.set(shape.id, [rebuilt]);
+        this.connections.push(rebuilt);
+        continue;
+      }
       const parts = this.composeShape(shape, scale2);
       if (parts.length > 0)
         this.byId.set(shape.id, parts);
@@ -68643,6 +68904,126 @@ class Slide extends Holon {
       if (members.length > 0)
         this.groups.push(this.add(new Group2({ members })));
     }
+  }
+  slideGeometry() {
+    const out = new Map;
+    for (const shape of this.data.shapes) {
+      if (shape.connects)
+        continue;
+      const outline = [];
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const flat of shape.subpaths) {
+        const poly = [];
+        for (let i2 = 0;i2 + 1 < flat.length; i2 += 2) {
+          const x2 = flat[i2];
+          const y2 = flat[i2 + 1];
+          poly.push({ x: x2, y: y2 });
+          x0 = Math.min(x0, x2);
+          y0 = Math.min(y0, y2);
+          x1 = Math.max(x1, x2);
+          y1 = Math.max(y1, y2);
+        }
+        if (poly.length >= 2)
+          outline.push(poly);
+      }
+      if (outline.length === 0)
+        continue;
+      out.set(shape.id, {
+        id: shape.id,
+        box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
+        outline
+      });
+    }
+    for (const text of this.data.texts) {
+      const f2 = text.frame;
+      out.set(text.id, {
+        id: text.id,
+        box: { x: f2.position.x, y: f2.position.y, w: f2.size.width, h: f2.size.height },
+        outline: []
+      });
+    }
+    for (const image of this.data.images ?? []) {
+      const f2 = image.frame;
+      out.set(image.id, {
+        id: image.id,
+        box: { x: f2.position.x, y: f2.position.y, w: f2.size.width, h: f2.size.height },
+        outline: []
+      });
+    }
+    const pending = new Map(this.data.groups.map((g2) => [g2.id, g2.members]));
+    let progress = true;
+    while (progress && pending.size > 0) {
+      progress = false;
+      for (const [id, members] of [...pending]) {
+        const parts = members.map((m2) => out.get(m2)).filter((t2) => !!t2);
+        if (parts.length < members.filter((m2) => out.has(m2) || pending.has(m2)).length)
+          continue;
+        if (parts.length === 0)
+          continue;
+        const box = unionBoxes(parts.map((p2) => p2.box));
+        if (!box)
+          continue;
+        out.set(id, { id, box, outline: parts.flatMap((p2) => p2.outline) });
+        pending.delete(id);
+        progress = true;
+      }
+    }
+    return out;
+  }
+  composeConnection(shape, geom, scale2) {
+    const from = shape.connects?.from ? geom.get(shape.connects.from) : undefined;
+    const to = shape.connects?.to ? geom.get(shape.connects.to) : undefined;
+    if (!from || !to)
+      return;
+    const flat = shape.subpaths[0];
+    const mid = flat && flat.length >= 6 ? { x: flat[flat.length - 4], y: flat[flat.length - 3] } : undefined;
+    const path = connectionPath(from, to, mid, shape.outset);
+    if (path.points.length < 2)
+      return;
+    const width = (shape.strokeWidth ?? 1) * this.height.value / SLIDE_HEIGHT;
+    const tint = this.overrideTint ? this.tint.value : shape.stroke ? hexToColor(shape.stroke) : this.tint.value;
+    let dash = 0;
+    let period = 0;
+    if (shape.dash && shape.dash.length >= 2) {
+      const round3 = shape.cap === "RoundCap";
+      dash = Math.max(shape.dash[0] * width, width * 0.05);
+      period = (shape.dash[0] + shape.dash[1] + (round3 ? 1 : 0)) * width;
+    }
+    const world2 = path.points.map((p2) => {
+      const w4 = slidePointToWorld(p2, scale2);
+      return { x: w4.x, y: w4.y, z: 0 };
+    });
+    const head = [];
+    const toWorld = (p2) => {
+      const w4 = slidePointToWorld(p2, scale2);
+      return { x: w4.x, y: w4.y, z: 0 };
+    };
+    const decorate = (end, tip, prev) => {
+      if (!end)
+        return;
+      for (const p2 of arrowHead(tip, prev, this.headSize.value))
+        head.push(toWorld(p2));
+    };
+    if (path.points.length >= 2) {
+      const n2 = path.points.length;
+      decorate(shape.lineEnds?.head, path.points[n2 - 1], path.points[n2 - 2]);
+    }
+    return this.add(new Connection2({
+      points: world2,
+      head,
+      dash,
+      period,
+      tint,
+      stroke: width,
+      opacity: shape.opacity
+    }));
+  }
+  stalePaths() {
+    this.parts;
+    return this.data.shapes.filter((s2) => s2.connects && !(this.byId.get(s2.id)?.[0] instanceof Connection2));
   }
   composeShape(shape, scale2) {
     const tint = this.overrideTint ? this.tint.value : shape.stroke ? hexToColor(shape.stroke) : this.tint.value;
@@ -68694,16 +69075,17 @@ class Slide extends Holon {
   createAnim() {
     this.parts;
     const items = [];
-    const lengths = this.strokes.map((s2) => arcLength2(strokePoints(s2)));
+    const drawn = [...this.strokes, ...this.connections];
+    const lengths = drawn.map((s2) => s2 instanceof Connection2 ? arcLength2(s2.points) : arcLength2(strokePoints(s2)));
     const total = lengths.reduce((a2, b2) => a2 + b2, 0);
-    const n2 = this.strokes.length;
+    const n2 = drawn.length;
     const strokeSpan = this.labels.length > 0 ? 0.8 : 1;
     let at2 = 0;
     for (let i2 = 0;i2 < n2; i2++) {
       const share = total > 0.000000001 ? lengths[i2] / total * strokeSpan : strokeSpan / n2;
       const from = at2;
       at2 += share;
-      items.push([this.strokes[i2].creation.sequence(0, 1), from, i2 === n2 - 1 ? strokeSpan : at2]);
+      items.push([drawn[i2].creation.sequence(0, 1), from, i2 === n2 - 1 ? strokeSpan : at2]);
     }
     for (const label3 of this.labels) {
       items.push([label3.creation.sequence(0, 1), strokeSpan, 1]);
@@ -68738,7 +69120,7 @@ class Slide extends Holon {
     const items = [];
     for (const target of targets) {
       if (record.effect === LINE_DRAW) {
-        const ends = target instanceof Stroke ? strokeEnds(target) : undefined;
+        const ends = target instanceof Stroke || target instanceof Connection2 ? strokeEnds(target) : undefined;
         const reversed = ends ? drawsReversed(record, ends, { x: 0, y: 0 }) : false;
         items.push(lineDrawAnim(target, reversed, record.animationType === "Out"));
       } else if (record.effect === MOTION_PATH) {
@@ -68757,6 +69139,8 @@ class Slide extends Holon {
     const items = [];
     for (const stroke of this.strokes)
       items.push(...opacityOf(stroke, on ? 1 : 0));
+    for (const line of this.connections)
+      items.push(...opacityOf(line, on ? 1 : 0));
     for (const label3 of this.labels)
       items.push(label3.opacity.to(on ? 1 : 0));
     return items.length > 0 ? together(...items) : { tracks: [] };
@@ -68781,7 +69165,7 @@ class Slide extends Holon {
     this.parts;
     const built = this.builtTargets();
     const items = [];
-    for (const part of [...this.strokes, ...this.labels]) {
+    for (const part of [...this.strokes, ...this.connections, ...this.labels]) {
       if (built.has(part))
         continue;
       items.push(...opacityOf(part, 1));
@@ -68793,9 +69177,10 @@ class Slide extends Holon {
     const items = [];
     for (const label3 of this.labels)
       items.push([label3.erasure.sequence(0, 1), 0, 0.2]);
-    const n2 = this.strokes.length;
+    const drawn = [...this.strokes, ...this.connections];
+    const n2 = drawn.length;
     for (let i2 = 0;i2 < n2; i2++) {
-      items.push([this.strokes[i2].creation.to(0), 0.2 + 0.8 * i2 / n2, 0.2 + 0.8 * (i2 + 1) / n2]);
+      items.push([drawn[i2].creation.to(0), 0.2 + 0.8 * i2 / n2, 0.2 + 0.8 * (i2 + 1) / n2]);
     }
     return items.length > 0 ? together(...items) : { tracks: [] };
   }
@@ -68805,6 +69190,9 @@ var opacityOf = (holon, v2) => {
   if (holon instanceof DottedLine) {
     holon.parts;
     return holon.dashes.map((d2) => d2.opacity.to(v2));
+  }
+  if (holon instanceof Connection2) {
+    return holon.drawn().map((d2) => d2.opacity.to(v2));
   }
   return [holon.opacity.to(v2)];
 };
@@ -69365,7 +69753,9 @@ var slide02 = {
     },
     {
       id: "4514184",
+      isConnectionLine: true,
       connects: { from: "4514076", to: "4513444" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1485.976, 336.61, 1339.006, 409.855, 1192.036, 483.1]
       ],
@@ -69378,7 +69768,9 @@ var slide02 = {
     },
     {
       id: "4514292",
+      isConnectionLine: true,
       connects: { from: "4514136", to: "4513444" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1548.243, 820.586, 1373.957, 750.59, 1199.67, 680.594]
       ],
@@ -69391,7 +69783,9 @@ var slide02 = {
     },
     {
       id: "4514353",
+      isConnectionLine: true,
       connects: { from: "4513444", to: "4513603" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [1176.62, 474.445, 1324.24, 388.855, 1471.86, 303.264]
       ],
@@ -69404,7 +69798,9 @@ var slide02 = {
     },
     {
       id: "4514420",
+      isConnectionLine: true,
       connects: { from: "4513669", to: "4513444" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [522.577, 281.691, 649.553, 368.244, 776.53, 454.797]
       ],
@@ -69473,7 +69869,9 @@ var slide03 = {
     },
     {
       id: "4515938",
+      isConnectionLine: true,
       connects: { from: "4515966", to: "4515878" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
       subpaths: [
         [464.927, 727.052, 604.145, 689.927, 743.363, 652.802]
       ],
@@ -69793,6 +70191,2063 @@ var slide06 = {
   builds: [],
   transition: { effect: "com.apple.iWork.Keynote.BLTFadeThruColor", duration: 1.5, delay: 0.5 }
 };
+// vocabulary/Slides/assets/pl02/slide07.ts
+var slide07 = {
+  index: 7,
+  id: "4056861",
+  source: "refs/pitch/pl02/key/Index/Slide-4056861.iwa",
+  hash: "e7d87817431d935d",
+  shapes: [
+    {
+      id: "4898429",
+      subpaths: [
+        [1322.943, 530.585, 1341.148, 537.607, 1358.178, 544.881, 1374.034, 552.388, 1388.715, 560.113, 1402.222, 568.039, 1414.554, 576.149, 1425.712, 584.426, 1435.695, 592.854, 1444.504, 601.415, 1452.138, 610.094, 1458.598, 618.873, 1463.883, 627.735, 1467.994, 636.664, 1470.93, 645.644, 1472.692, 654.657, 1473.279, 663.687, 1472.692, 672.717, 1470.93, 681.73, 1467.994, 690.709, 1463.883, 699.639, 1458.598, 708.501, 1452.138, 717.28, 1444.504, 725.958, 1435.695, 734.52, 1425.712, 742.947, 1414.554, 751.225, 1402.222, 759.334, 1388.715, 767.26, 1374.034, 774.985, 1358.178, 782.493, 1341.148, 789.766, 1322.943, 796.789, 1303.794, 803.465, 1283.961, 809.711, 1263.489, 815.526, 1242.424, 820.91, 1220.812, 825.863, 1198.698, 830.386, 1176.128, 834.478, 1153.147, 838.139, 1129.802, 841.369, 1106.138, 844.169, 1082.199, 846.538, 1058.033, 848.476, 1033.685, 849.984, 1009.199, 851.06, 984.622, 851.706, 960, 851.922, 935.378, 851.706, 910.801, 851.06, 886.315, 849.984, 861.967, 848.476, 837.801, 846.538, 813.862, 844.169, 790.198, 841.369, 766.852, 838.139, 743.872, 834.478, 721.302, 830.386, 699.188, 825.863, 677.576, 820.91, 656.511, 815.526, 636.039, 809.711, 616.206, 803.465, 597.057, 796.789, 578.852, 789.766, 561.822, 782.493, 545.966, 774.985, 531.285, 767.26, 517.778, 759.334, 505.446, 751.225, 494.288, 742.947, 484.305, 734.52, 475.496, 725.958, 467.862, 717.28, 461.402, 708.501, 456.117, 699.639, 452.006, 690.709, 449.07, 681.73, 447.308, 672.717, 446.721, 663.687, 447.308, 654.657, 449.07, 645.644, 452.006, 636.664, 456.117, 627.735, 461.402, 618.873, 467.862, 610.094, 475.496, 601.415, 484.305, 592.854, 494.288, 584.426, 505.446, 576.149, 517.778, 568.039, 531.285, 560.113, 545.966, 552.388, 561.822, 544.881, 578.852, 537.607, 597.057, 530.585, 616.206, 523.908, 636.039, 517.663, 656.511, 511.848, 677.576, 506.464, 699.188, 501.511, 721.302, 496.988, 743.872, 492.896, 766.852, 489.235, 790.198, 486.005, 813.862, 483.205, 837.801, 480.836, 861.967, 478.898, 886.315, 477.39, 910.801, 476.313, 935.378, 475.667, 960, 475.452, 984.622, 475.667, 1009.199, 476.313, 1033.685, 477.39, 1058.033, 478.898, 1082.199, 480.836, 1106.138, 483.205, 1129.802, 486.005, 1153.147, 489.235, 1176.128, 492.896, 1198.698, 496.988, 1220.812, 501.511, 1242.424, 506.464, 1263.489, 511.848, 1283.961, 517.663, 1303.794, 523.908, 1322.943, 530.585]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4898413",
+      icon: "Fire_80",
+      subpaths: [
+        [972.952, 446.45, 962.509, 452.2, 953.38, 458.399, 945.486, 464.979, 938.747, 471.874, 933.084, 479.018, 928.416, 486.343, 924.666, 493.782, 921.752, 501.27, 919.595, 508.739, 918.115, 516.123, 917.234, 523.355, 916.87, 530.367, 916.945, 537.094, 917.379, 543.468, 919.005, 554.893, 913.741, 549.231, 911.22, 545.743, 908.854, 541.781, 906.703, 537.318, 904.827, 532.326, 903.286, 526.778, 902.14, 520.647, 899.167, 526.13, 896.739, 531.65, 894.849, 537.193, 893.485, 542.745, 892.639, 548.291, 892.301, 553.817, 892.461, 559.309, 893.109, 564.752, 894.237, 570.131, 895.834, 575.434, 897.891, 580.644, 900.398, 585.748, 903.346, 590.732, 906.724, 595.58, 910.524, 600.28, 914.736, 604.815, 919.6, 600.758, 925.517, 594.944, 931.908, 587.386, 938.192, 578.098, 941.114, 572.809, 943.791, 567.092, 946.151, 560.949, 948.123, 554.382, 949.633, 547.392, 950.609, 539.98, 950.978, 532.149, 950.668, 523.901, 955.637, 527.521, 960.101, 532.362, 964.028, 538.237, 967.383, 544.958, 970.132, 552.339, 972.24, 560.193, 973.674, 568.332, 974.4, 576.569, 979.442, 571.567, 984.035, 565.224, 987.863, 557.897, 990.609, 549.944, 994.557, 555.104, 997.912, 560.932, 1000.649, 567.337, 1002.746, 574.227, 1004.177, 581.511, 1004.919, 589.098, 1004.95, 596.897, 1004.244, 604.815, 1004.516, 604.815, 1010.657, 599.503, 1015.842, 593.298, 1020.08, 586.336, 1023.378, 578.751, 1025.742, 570.678, 1027.18, 562.251, 1027.699, 553.604, 1027.307, 544.872, 1026.01, 536.19, 1023.815, 527.692, 1020.73, 519.513, 1016.763, 511.788, 1011.919, 504.65, 1006.207, 498.234, 999.633, 492.675, 992.205, 488.108, 993.881, 492.49, 995.109, 496.881, 996.379, 505.582, 996.323, 513.993, 995.249, 521.896, 989.51, 515.813, 983.946, 509.378, 978.89, 502.287, 974.678, 494.241, 972.993, 489.764, 971.644, 484.935, 970.673, 479.716, 970.122, 474.07, 970.033, 467.957, 970.447, 461.342, 971.406, 454.185, 972.952, 446.45]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4898412",
+      subpaths: [
+        [891.475, 603.816, 888.196, 603.88, 885.023, 604.599, 881.988, 605.886, 879.121, 607.654, 876.453, 609.817, 874.016, 612.287, 869.955, 617.805, 867.186, 623.513, 865.956, 628.717, 865.996, 630.914, 866.514, 632.724, 867.541, 634.062, 869.107, 634.84, 881.515, 637.563, 893.924, 640.405, 874.821, 644.668, 870.982, 645.932, 868.271, 647.748, 866.598, 650.024, 865.873, 652.666, 866.005, 655.579, 866.902, 658.671, 868.474, 661.847, 870.631, 665.014, 873.28, 668.078, 876.332, 670.945, 879.695, 673.522, 883.279, 675.714, 886.993, 677.429, 890.746, 678.573, 894.447, 679.051, 898.005, 678.771, 907.621, 676.219, 921.549, 671.789, 959.884, 659.233, 998.301, 671.789, 1012.285, 676.219, 1021.926, 678.771, 1025.484, 679.051, 1029.185, 678.573, 1032.938, 677.429, 1036.652, 675.714, 1040.236, 673.522, 1043.599, 670.945, 1046.651, 668.078, 1049.3, 665.014, 1051.457, 661.847, 1053.029, 658.671, 1053.926, 655.579, 1054.058, 652.666, 1053.333, 650.024, 1051.66, 647.748, 1048.949, 645.932, 1045.11, 644.668, 1026.007, 640.405, 1038.416, 637.563, 1050.987, 634.84, 1052.636, 633.99, 1053.67, 632.511, 1054.127, 630.509, 1054.044, 628.089, 1053.461, 625.355, 1052.414, 622.413, 1049.084, 616.324, 1046.877, 613.387, 1044.36, 610.662, 1041.57, 608.255, 1038.545, 606.269, 1035.324, 604.81, 1031.945, 603.983, 1028.446, 603.893, 1024.864, 604.645, 1000.929, 612.558, 983.011, 617.988, 959.884, 624.42, 936.782, 617.988, 918.921, 612.558, 895.067, 604.645, 891.475, 603.816]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4898971",
+      icon: "Head_652",
+      subpaths: [
+        [683.325, 481.53, 676.351, 481.816, 669.824, 482.653, 663.745, 484.014, 658.114, 485.869, 652.932, 488.189, 648.198, 490.944, 643.914, 494.106, 640.079, 497.646, 636.694, 501.534, 633.76, 505.742, 631.276, 510.24, 629.242, 515, 627.66, 519.992, 626.53, 525.187, 625.851, 530.556, 625.625, 536.07, 625.821, 541.569, 626.378, 546.915, 628.388, 557.179, 631.288, 566.914, 634.708, 576.176, 641.628, 593.491, 644.39, 601.653, 646.194, 609.556, 646.593, 613.366, 646.618, 616.999, 645.74, 623.698, 643.944, 629.575, 641.614, 634.555, 639.134, 638.56, 636.887, 641.516, 634.629, 643.971, 709.259, 643.971, 711.215, 635.76, 713.51, 629.964, 716.079, 626.172, 718.86, 623.975, 721.786, 622.961, 724.796, 622.719, 730.804, 622.908, 736.821, 622.243, 739.706, 621.441, 742.301, 620.232, 744.453, 618.542, 746.008, 616.303, 746.811, 613.441, 746.707, 609.885, 746.325, 605.42, 746.756, 602.16, 747.894, 599.517, 749.636, 596.9, 750.292, 595.525, 750.354, 594.221, 749.322, 591.969, 747.787, 590.415, 746.998, 589.837, 750.08, 588.087, 751.033, 587.327, 751.678, 586.324, 751.98, 585.17, 751.906, 583.953, 751.373, 581.556, 751.262, 579.251, 751.85, 577.232, 753.063, 575.632, 754.823, 574.582, 757.927, 573.08, 760.149, 571.336, 761.068, 569.988, 761.417, 568.385, 761.233, 566.713, 760.555, 565.16, 748.457, 545.606, 747.246, 543.026, 746.914, 540.675, 747.202, 538.469, 747.856, 536.321, 749.231, 531.861, 749.441, 529.377, 748.989, 526.61, 746.273, 516.926, 744.465, 512.429, 742.33, 508.182, 739.846, 504.197, 736.99, 500.488, 733.743, 497.068, 730.081, 493.951, 725.985, 491.15, 721.432, 488.678, 716.401, 486.55, 710.871, 484.779, 704.819, 483.378, 698.226, 482.36, 691.068, 481.74, 683.325, 481.53]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4898973",
+      subpaths: [
+        [707.239, 524.7, 710.67, 528.901, 713.121, 533.559, 714.592, 538.522, 715.082, 543.637, 714.592, 548.752, 713.121, 553.715, 710.67, 558.373, 707.239, 562.574, 703.037, 566.005, 698.379, 568.457, 693.417, 569.927, 688.302, 570.418, 683.187, 569.927, 678.224, 568.457, 673.566, 566.005, 669.365, 562.574, 665.933, 558.373, 663.482, 553.715, 662.011, 548.752, 661.521, 543.637, 662.011, 538.522, 663.482, 533.559, 665.933, 528.901, 669.365, 524.7, 673.566, 521.268, 678.224, 518.817, 683.187, 517.347, 688.302, 516.856, 693.417, 517.347, 698.379, 518.817, 703.037, 521.268, 707.239, 524.7]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4899173",
+      icon: "Head_652",
+      subpaths: [
+        [1216.283, 481.53, 1209.309, 481.816, 1202.782, 482.654, 1196.703, 484.014, 1191.072, 485.869, 1185.89, 488.189, 1181.156, 490.944, 1176.872, 494.106, 1173.037, 497.646, 1169.652, 501.534, 1166.718, 505.742, 1164.234, 510.24, 1162.2, 515, 1160.618, 519.992, 1159.488, 525.187, 1158.809, 530.556, 1158.583, 536.07, 1158.779, 541.569, 1159.335, 546.916, 1161.346, 557.179, 1164.246, 566.915, 1167.665, 576.176, 1174.586, 593.491, 1177.348, 601.653, 1179.152, 609.556, 1179.551, 613.366, 1179.576, 617, 1178.698, 623.698, 1176.902, 629.575, 1174.572, 634.555, 1172.092, 638.56, 1169.845, 641.516, 1167.587, 643.971, 1242.217, 643.971, 1244.173, 635.76, 1246.468, 629.964, 1249.037, 626.173, 1251.818, 623.975, 1254.744, 622.961, 1257.753, 622.719, 1263.762, 622.909, 1269.779, 622.243, 1272.664, 621.441, 1275.259, 620.232, 1277.411, 618.543, 1278.966, 616.303, 1279.769, 613.441, 1279.665, 609.885, 1279.283, 605.42, 1279.714, 602.16, 1280.852, 599.517, 1282.594, 596.9, 1283.25, 595.525, 1283.312, 594.222, 1282.279, 591.969, 1280.745, 590.416, 1279.956, 589.837, 1283.038, 588.087, 1283.991, 587.327, 1284.636, 586.324, 1284.938, 585.17, 1284.864, 583.953, 1284.331, 581.556, 1284.22, 579.251, 1284.808, 577.232, 1286.02, 575.632, 1287.781, 574.582, 1290.885, 573.081, 1293.107, 571.336, 1294.026, 569.988, 1294.375, 568.385, 1294.191, 566.713, 1293.513, 565.16, 1281.415, 545.606, 1280.204, 543.026, 1279.871, 540.675, 1280.16, 538.469, 1280.813, 536.321, 1282.189, 531.861, 1282.399, 529.377, 1281.947, 526.61, 1279.231, 516.926, 1277.423, 512.43, 1275.288, 508.182, 1272.804, 504.197, 1269.948, 500.488, 1266.701, 497.068, 1263.039, 493.951, 1258.943, 491.15, 1254.39, 488.679, 1249.359, 486.55, 1243.829, 484.779, 1237.777, 483.378, 1231.183, 482.36, 1224.026, 481.74, 1216.283, 481.53]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4899165",
+      subpaths: [
+        [1206.617, 515.646, 1260.178, 515.646, 1260.178, 571.628, 1206.617, 571.628, 1206.617, 515.646]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4898410",
+      icon: "Cylinder_563",
+      subpaths: [
+        [913.243, 333.486, 913.439, 340.25, 914.026, 346.813, 915.005, 352.973, 916.376, 358.53, 918.056, 363.068, 919.918, 366.31, 921.901, 368.255, 923.946, 368.904, 925.99, 368.255, 927.974, 366.31, 929.836, 363.068, 931.515, 358.53, 932.887, 352.973, 933.867, 346.813, 934.455, 340.25, 934.651, 333.486, 934.455, 326.721, 933.867, 320.158, 932.887, 313.998, 931.515, 308.442, 929.836, 303.903, 927.974, 300.661, 925.99, 298.716, 923.946, 298.068, 921.901, 298.716, 919.918, 300.661, 918.056, 303.903, 916.376, 308.442, 915.005, 313.998, 914.026, 320.158, 913.439, 326.721, 913.243, 333.486],
+        [928.799, 368.903, 995.468, 368.903, 997.648, 368.183, 999.723, 366.12, 1001.634, 362.854, 1003.326, 358.53, 1004.742, 353.288, 1005.823, 347.272, 1006.514, 340.624, 1006.757, 333.486, 1006.514, 326.348, 1005.823, 319.7, 1004.742, 313.683, 1003.326, 308.442, 1001.634, 304.117, 999.723, 300.852, 997.648, 298.788, 995.468, 298.069, 928.799, 298.069, 930.405, 300.363, 931.87, 303.418, 934.286, 311.508, 935.868, 321.732, 936.435, 333.486, 935.868, 345.239, 934.286, 355.464, 931.87, 363.553, 930.405, 366.609, 928.799, 368.903]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4902569",
+      subpaths: [
+        [904.798, 789.803, 959.24, 742.655]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4902584",
+      subpaths: [
+        [1015.151, 789.757, 959.198, 742.701]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4902582",
+      subpaths: [
+        [1026.558, 737.322, 1033.019, 739.944, 1038.619, 742.737, 1043.358, 745.678, 1047.234, 748.741, 1050.25, 751.903, 1052.404, 755.138, 1053.696, 758.422, 1054.127, 761.731, 1053.696, 765.039, 1052.404, 768.324, 1050.25, 771.559, 1047.234, 774.72, 1043.358, 777.784, 1038.619, 780.724, 1033.019, 783.518, 1026.558, 786.139, 1019.409, 788.509, 1011.792, 790.563, 1003.773, 792.3, 995.42, 793.722, 977.978, 795.618, 960, 796.25, 942.022, 795.618, 924.58, 793.722, 916.227, 792.3, 908.208, 790.563, 900.591, 788.509, 893.442, 786.139, 886.981, 783.518, 881.381, 780.724, 876.642, 777.784, 872.765, 774.72, 869.75, 771.559, 867.596, 768.324, 866.304, 765.039, 865.873, 761.731, 866.304, 758.422, 867.596, 755.138, 869.75, 751.903, 872.765, 748.741, 876.642, 745.678, 881.381, 742.737, 886.981, 739.944, 893.442, 737.322, 900.591, 734.952, 908.208, 732.899, 916.227, 731.161, 924.58, 729.739, 942.022, 727.843, 960, 727.212, 977.978, 727.843, 995.42, 729.739, 1003.773, 731.161, 1011.792, 732.899, 1019.409, 734.952, 1026.558, 737.322]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4902590",
+      subpaths: [
+        [1003.197, 734.15, 1011.025, 737.665, 1014.101, 739.574, 1016.617, 741.562, 1018.574, 743.614, 1019.972, 745.713, 1020.811, 747.845, 1021.09, 749.992, 1020.811, 752.14, 1019.972, 754.271, 1018.574, 756.371, 1016.617, 758.423, 1014.101, 760.411, 1011.025, 762.319, 1003.197, 765.834, 993.614, 768.705, 982.988, 770.755, 971.668, 771.986, 960, 772.396, 948.332, 771.986, 937.012, 770.755, 926.386, 768.705, 916.803, 765.834, 908.975, 762.319, 905.899, 760.411, 903.383, 758.423, 901.426, 756.371, 900.028, 754.271, 899.189, 752.14, 898.91, 749.992, 899.189, 747.845, 900.028, 745.713, 901.426, 743.614, 903.383, 741.562, 905.899, 739.574, 908.975, 737.665, 916.803, 734.15, 926.386, 731.28, 937.012, 729.229, 948.332, 727.999, 960, 727.589, 971.668, 727.999, 982.988, 729.229, 993.614, 731.28, 1003.197, 734.15]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    }
+  ],
+  texts: [],
+  groups: [{ id: "4898391", members: ["4898413", "4898412"] }],
+  builds: [
+    { id: "4902536", target: "4898410", effect: "apple:fade and move character", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", eventTrigger: 1, direction: 14 },
+    { id: "4899359", target: "4899165", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4902700", target: "4902569", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4899602", target: "4898971", effect: "apple:fade and move character", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4902695", target: "4902590", effect: "com.apple.iWork.Keynote.LineDraw", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4899360", target: "4898973", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4902694", target: "4902582", effect: "com.apple.iWork.Keynote.LineDraw", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4899603", target: "4899173", effect: "apple:fade and move character", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", eventTrigger: 1, direction: 12 },
+    { id: "4898956", target: "4898391", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "4902699", target: "4902584", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 }
+  ],
+  buildChunks: [
+    { build: "4898956", duration: 1, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4899602", duration: 2, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4899603", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4899360", duration: 1, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4899359", duration: 1, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4902536", duration: 2, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4902694", duration: 2, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4902695", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4902699", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4902700", duration: 2, delay: 0, automatic: true, chunkId: 1 }
+  ],
+  transition: { effect: "apple:magic-move-implied-motion-path", duration: 2, delay: 0.5, fadeUnmatched: true }
+};
+// vocabulary/Slides/assets/pl02/slide08.ts
+var slide08 = {
+  index: 8,
+  id: "4099697",
+  source: "refs/pitch/pl02/key/Index/Slide-4099697.iwa",
+  hash: "da85486557b37f6f",
+  shapes: [
+    {
+      id: "4105549",
+      isConnectionLine: true,
+      connects: { from: "4526072", to: "4526293" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [652.283, 777.996, 600.76, 687.125, 526.819, 594.374]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4107870",
+      isConnectionLine: true,
+      connects: { from: "4526293", to: "4525831" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [610.763, 538.488, 939.85, 643.577, 1246.168, 806.487]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4107905",
+      isConnectionLine: true,
+      connects: { from: "4524549", to: "4526293" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [1350.057, 496.513, 982.546, 526.674, 613.564, 511.228]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4107941",
+      isConnectionLine: true,
+      connects: { from: "4903327", to: "4526293" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [915.057, 289.224, 755.077, 400.167, 571.937, 463.74]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4107977",
+      isConnectionLine: true,
+      connects: { from: "4526072", to: "4525831" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [831.605, 832.564, 1015.619, 818.626, 1199.632, 832.564]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4108007",
+      isConnectionLine: true,
+      connects: { from: "4526072", to: "4524549" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [775.978, 804.541, 1053.542, 633.774, 1356.64, 518.935]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4108036",
+      isConnectionLine: true,
+      connects: { from: "4903327", to: "4526072" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [983.814, 299.238, 891.499, 566.146, 738.567, 804.235]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4108075",
+      isConnectionLine: true,
+      connects: { from: "4525831", to: "4524549" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [1352.743, 754.439, 1377.225, 652.028, 1436.702, 566.916]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4108188",
+      isConnectionLine: true,
+      connects: { from: "4525831", to: "4903327" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [1291.092, 805.274, 1129.075, 567.493, 1026.922, 299.099]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4108292",
+      isConnectionLine: true,
+      connects: { from: "4524549", to: "4903327" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      outset: { from: 30, to: 30 },
+      lineEnds: { head: { identifier: "simple arrow", path: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "lineTo", points: [{ x: 3, y: 6 }] }, { type: "lineTo", points: [{ x: 6, y: 0 }] }, { type: "closeSubpath" }], endPoint: { x: 3, y: 0 }, isFilled: true, lineJoin: "MiterJoin" } },
+      subpaths: [
+        [1388.378, 438.298, 1229.535, 386.361, 1092.037, 289.457]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      dash: [6, 6],
+      cap: "ButtCap",
+      opacity: 1
+    },
+    {
+      id: "4903327",
+      subpaths: [
+        [1102.582, 180.932, 1112.152, 184.815, 1120.447, 188.953, 1127.465, 193.308, 1133.207, 197.846, 1137.673, 202.528, 1140.864, 207.32, 1142.778, 212.184, 1143.416, 217.085, 1142.778, 221.986, 1140.864, 226.85, 1137.673, 231.642, 1133.207, 236.325, 1127.465, 240.862, 1120.447, 245.217, 1112.152, 249.355, 1102.582, 253.238, 1091.993, 256.748, 1080.711, 259.79, 1068.835, 262.363, 1056.462, 264.469, 1043.694, 266.107, 1030.628, 267.277, 1017.363, 267.979, 1004, 268.213, 990.637, 267.979, 977.372, 267.277, 964.306, 266.107, 951.538, 264.469, 939.166, 262.363, 927.289, 259.79, 916.007, 256.748, 905.418, 253.238, 895.848, 249.355, 887.553, 245.217, 880.535, 240.862, 874.793, 236.325, 870.327, 231.642, 867.136, 226.85, 865.222, 221.986, 864.584, 217.085, 865.222, 212.184, 867.136, 207.32, 870.327, 202.528, 874.793, 197.846, 880.535, 193.308, 887.553, 188.953, 895.848, 184.815, 905.418, 180.932, 916.007, 177.422, 927.289, 174.381, 939.166, 171.807, 951.538, 169.701, 964.306, 168.063, 977.372, 166.893, 990.637, 166.191, 1004, 165.957, 1017.363, 166.191, 1030.628, 166.893, 1043.694, 168.063, 1056.462, 169.701, 1068.835, 171.807, 1080.711, 174.381, 1091.993, 177.422, 1102.582, 180.932]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903265",
+      icon: "Fire_80",
+      subpaths: [
+        [1007.582, 158.08, 1002.25, 161.325, 998.264, 164.985, 995.45, 168.915, 993.634, 172.97, 992.644, 177.004, 992.305, 180.873, 992.443, 184.432, 992.886, 187.535, 991.452, 185.997, 990.121, 183.973, 989.024, 181.405, 988.292, 178.233, 986.821, 181.222, 985.934, 184.235, 985.612, 187.243, 985.832, 190.213, 986.574, 193.114, 987.817, 195.915, 989.541, 198.586, 991.723, 201.095, 994.66, 198.413, 998.113, 193.838, 999.638, 190.848, 1000.818, 187.396, 1001.495, 183.484, 1001.511, 179.117, 1004.081, 181.415, 1006.065, 184.836, 1007.388, 188.974, 1007.976, 193.422, 1010.601, 190.341, 1012.391, 186.191, 1014.381, 189.175, 1015.698, 192.786, 1016.29, 196.825, 1016.106, 201.095, 1016.18, 201.095, 1019.265, 197.966, 1021.318, 194.015, 1022.354, 189.533, 1022.388, 184.813, 1021.437, 180.147, 1019.516, 175.827, 1016.641, 172.145, 1012.826, 169.395, 1013.618, 171.778, 1013.963, 174.141, 1013.655, 178.572, 1010.576, 175.172, 1008.052, 171.06, 1007.225, 168.533, 1006.811, 165.582, 1006.899, 162.125, 1007.582, 158.08]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4903289",
+      subpaths: [
+        [985.39, 200.823, 983.637, 201.037, 982.033, 201.869, 980.646, 203.133, 979.543, 204.637, 978.456, 207.612, 978.608, 208.704, 979.312, 209.281, 982.684, 210.024, 986.055, 210.799, 980.865, 211.961, 979.085, 212.801, 978.434, 214.141, 978.713, 215.778, 979.726, 217.508, 981.275, 219.125, 983.163, 220.425, 985.192, 221.204, 987.164, 221.258, 993.562, 219.355, 1003.978, 215.932, 1014.416, 219.355, 1020.836, 221.258, 1022.808, 221.204, 1024.837, 220.425, 1026.725, 219.125, 1028.274, 217.508, 1029.287, 215.778, 1029.566, 214.141, 1028.915, 212.801, 1027.135, 211.961, 1021.945, 210.799, 1025.316, 210.024, 1028.732, 209.281, 1029.461, 208.646, 1029.563, 207.441, 1029.12, 205.893, 1028.215, 204.233, 1026.931, 202.69, 1025.351, 201.492, 1023.558, 200.868, 1021.634, 201.049, 1015.13, 203.207, 1003.978, 206.44, 992.848, 203.207, 986.366, 201.049, 985.39, 200.823]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4903718",
+      icon: "Head_652",
+      subpaths: [
+        [928.85, 167.608, 925.183, 167.913, 922.003, 168.787, 919.309, 170.165, 917.104, 171.985, 915.387, 174.184, 914.16, 176.699, 913.424, 179.466, 913.178, 182.422, 913.382, 185.368, 913.929, 188.156, 915.645, 193.316, 917.525, 198.019, 918.765, 202.382, 918.88, 204.404, 918.641, 206.223, 917.521, 209.172, 916.237, 211.063, 915.624, 211.73, 935.894, 211.73, 937.049, 207.925, 938.502, 206.299, 940.114, 205.957, 941.746, 206.009, 943.381, 205.828, 944.869, 205.282, 945.876, 204.215, 946.066, 202.472, 946.079, 200.373, 946.862, 198.945, 947.056, 198.217, 946.776, 197.605, 946.145, 197.026, 946.982, 196.551, 947.416, 196.072, 947.478, 195.428, 947.333, 194.777, 947.463, 193.602, 948.27, 192.883, 949.717, 192.001, 950.061, 191.199, 949.827, 190.323, 946.541, 185.012, 946.122, 183.673, 946.378, 182.49, 946.752, 181.279, 946.686, 179.853, 945.948, 177.222, 944.877, 174.847, 943.427, 172.757, 941.55, 170.982, 939.201, 169.55, 936.332, 168.491, 932.898, 167.834, 928.85, 167.608]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4903705",
+      subpaths: [
+        [935.346, 179.334, 936.943, 181.74, 937.476, 184.477, 936.943, 187.215, 935.346, 189.621, 932.939, 191.219, 930.202, 191.752, 927.465, 191.219, 925.058, 189.621, 923.461, 187.215, 922.928, 184.477, 923.461, 181.74, 925.058, 179.334, 927.465, 177.736, 930.202, 177.203, 932.939, 177.736, 935.346, 179.334]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903627",
+      icon: "Head_652",
+      subpaths: [
+        [1073.611, 167.608, 1069.944, 167.913, 1066.763, 168.787, 1064.07, 170.165, 1061.865, 171.985, 1060.148, 174.185, 1058.921, 176.699, 1058.184, 179.466, 1057.939, 182.422, 1058.143, 185.368, 1058.689, 188.156, 1060.406, 193.316, 1062.285, 198.019, 1063.526, 202.382, 1063.641, 204.404, 1063.402, 206.223, 1062.281, 209.172, 1060.998, 211.063, 1060.384, 211.73, 1080.655, 211.73, 1081.81, 207.925, 1083.263, 206.299, 1084.875, 205.957, 1086.507, 206.009, 1088.142, 205.828, 1089.63, 205.282, 1090.637, 204.215, 1090.827, 202.472, 1090.84, 200.373, 1091.622, 198.945, 1091.817, 198.217, 1091.537, 197.605, 1090.906, 197.026, 1091.743, 196.551, 1092.177, 196.072, 1092.239, 195.428, 1092.094, 194.777, 1092.224, 193.602, 1093.031, 192.883, 1094.478, 192.001, 1094.822, 191.199, 1094.588, 190.323, 1091.302, 185.012, 1090.883, 183.673, 1091.139, 182.49, 1091.512, 181.279, 1091.447, 179.853, 1090.709, 177.222, 1089.638, 174.847, 1088.187, 172.757, 1086.311, 170.982, 1083.962, 169.55, 1081.093, 168.491, 1077.658, 167.834, 1073.611, 167.608]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4903640",
+      subpaths: [
+        [1067.3, 176.875, 1089.22, 176.875, 1089.22, 192.08, 1067.3, 192.08, 1067.3, 176.875]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903290",
+      icon: "Cylinder_563",
+      subpaths: [
+        [991.3, 127.397, 991.513, 131.017, 992.151, 134.199, 993.113, 136.312, 994.207, 137.017, 995.301, 136.312, 996.263, 134.199, 996.902, 131.017, 997.115, 127.397, 996.902, 123.777, 996.263, 120.594, 995.301, 118.481, 994.207, 117.776, 993.113, 118.481, 992.151, 120.594, 991.513, 123.777, 991.3, 127.397],
+        [995.525, 137.017, 1013.634, 137.017, 1014.789, 136.261, 1015.768, 134.199, 1016.446, 131.141, 1016.7, 127.397, 1016.446, 123.652, 1015.768, 120.594, 1014.789, 118.533, 1013.634, 117.777, 995.525, 117.777, 996.359, 119.23, 997.016, 121.427, 997.599, 127.397, 997.016, 133.366, 996.359, 135.564, 995.525, 137.017]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4903520",
+      subpaths: [
+        [989.006, 251.34, 1003.794, 238.534]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903534",
+      subpaths: [
+        [1018.98, 251.328, 1003.782, 238.547]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903539",
+      subpaths: [
+        [1022.078, 237.086, 1025.354, 238.556, 1027.694, 240.187, 1029.098, 241.925, 1029.566, 243.715, 1029.098, 245.506, 1027.694, 247.244, 1025.354, 248.874, 1022.078, 250.345, 1018.068, 251.547, 1013.621, 252.405, 1004, 253.091, 994.379, 252.405, 989.932, 251.547, 985.922, 250.345, 982.646, 248.874, 980.306, 247.244, 978.902, 245.506, 978.434, 243.715, 978.902, 241.925, 980.306, 240.187, 982.646, 238.556, 985.922, 237.086, 989.932, 235.884, 994.379, 235.026, 1004, 234.339, 1013.621, 235.026, 1018.068, 235.884, 1022.078, 237.086]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4903533",
+      subpaths: [
+        [1015.733, 236.224, 1017.859, 237.179, 1019.378, 238.237, 1020.289, 239.365, 1020.593, 240.527, 1020.289, 241.689, 1019.378, 242.817, 1017.859, 243.875, 1015.733, 244.83, 1010.244, 246.167, 1004, 246.612, 997.756, 246.167, 992.267, 244.83, 990.141, 243.875, 988.622, 242.817, 987.711, 241.689, 987.407, 240.527, 987.711, 239.365, 988.622, 238.237, 990.141, 237.179, 992.267, 236.224, 997.756, 234.887, 1004, 234.442, 1010.244, 234.887, 1015.733, 236.224]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524619",
+      subpaths: [
+        [1619.466, 457.411, 1629.036, 461.294, 1637.331, 465.432, 1644.349, 469.787, 1650.091, 474.324, 1654.558, 479.007, 1657.748, 483.799, 1659.662, 488.663, 1660.3, 493.564, 1659.662, 498.465, 1657.748, 503.329, 1654.558, 508.121, 1650.091, 512.803, 1644.349, 517.341, 1637.331, 521.696, 1629.036, 525.834, 1619.466, 529.717, 1608.878, 533.227, 1597.595, 536.268, 1585.719, 538.842, 1573.346, 540.948, 1560.578, 542.586, 1547.512, 543.756, 1534.248, 544.458, 1520.884, 544.692, 1507.521, 544.458, 1494.257, 543.756, 1481.191, 542.586, 1468.422, 540.948, 1456.05, 538.842, 1444.173, 536.268, 1432.891, 533.227, 1422.302, 529.717, 1412.732, 525.834, 1404.438, 521.696, 1397.419, 517.341, 1391.677, 512.803, 1387.211, 508.121, 1384.021, 503.329, 1382.107, 498.465, 1381.468, 493.564, 1382.107, 488.663, 1384.021, 483.799, 1387.211, 479.007, 1391.677, 474.324, 1397.419, 469.787, 1404.438, 465.432, 1412.732, 461.294, 1422.302, 457.411, 1432.891, 453.901, 1444.173, 450.86, 1456.05, 448.286, 1468.422, 446.18, 1481.191, 444.542, 1494.257, 443.372, 1507.521, 442.67, 1520.884, 442.436, 1534.248, 442.67, 1547.512, 443.372, 1560.578, 444.542, 1573.346, 446.18, 1585.719, 448.286, 1597.595, 450.86, 1608.878, 453.901, 1619.466, 457.411]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524556",
+      icon: "Fire_80",
+      subpaths: [
+        [1524.466, 434.559, 1519.134, 437.804, 1515.148, 441.464, 1512.334, 445.394, 1510.518, 449.449, 1509.528, 453.483, 1509.189, 457.352, 1509.327, 460.911, 1509.77, 464.014, 1508.336, 462.476, 1507.005, 460.452, 1505.908, 457.884, 1505.176, 454.712, 1503.705, 457.7, 1502.818, 460.714, 1502.496, 463.721, 1502.716, 466.691, 1503.458, 469.593, 1504.702, 472.394, 1506.425, 475.065, 1508.607, 477.573, 1511.544, 474.892, 1514.997, 470.317, 1516.522, 467.327, 1517.702, 463.875, 1518.379, 459.963, 1518.396, 455.596, 1520.965, 457.894, 1522.949, 461.315, 1524.272, 465.453, 1524.86, 469.901, 1527.485, 466.82, 1529.276, 462.67, 1531.265, 465.654, 1532.582, 469.265, 1533.174, 473.304, 1532.99, 477.573, 1533.064, 477.573, 1536.15, 474.445, 1538.202, 470.494, 1539.238, 466.012, 1539.273, 461.292, 1538.321, 456.626, 1536.4, 452.305, 1533.525, 448.624, 1529.71, 445.874, 1530.502, 448.257, 1530.848, 450.62, 1530.54, 455.051, 1527.461, 451.651, 1524.936, 447.539, 1524.11, 445.012, 1523.695, 442.061, 1523.783, 438.604, 1524.466, 434.559]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4524581",
+      subpaths: [
+        [1502.274, 477.302, 1500.521, 477.515, 1498.917, 478.348, 1497.53, 479.612, 1496.427, 481.116, 1495.34, 484.091, 1495.492, 485.183, 1496.196, 485.76, 1499.568, 486.503, 1502.939, 487.278, 1497.749, 488.44, 1495.969, 489.279, 1495.318, 490.62, 1495.597, 492.257, 1496.61, 493.987, 1498.159, 495.604, 1500.047, 496.904, 1502.076, 497.683, 1504.049, 497.737, 1510.446, 495.834, 1520.862, 492.411, 1531.301, 495.834, 1537.72, 497.737, 1539.692, 497.683, 1541.721, 496.904, 1543.609, 495.604, 1545.158, 493.987, 1546.171, 492.257, 1546.451, 490.62, 1545.799, 489.279, 1544.019, 488.44, 1538.829, 487.278, 1542.2, 486.503, 1545.616, 485.76, 1546.345, 485.125, 1546.447, 483.92, 1546.004, 482.372, 1545.099, 480.712, 1543.816, 479.169, 1542.236, 477.971, 1540.442, 477.347, 1538.518, 477.528, 1532.015, 479.686, 1520.862, 482.919, 1509.732, 479.685, 1503.25, 477.528, 1502.274, 477.302]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4524560",
+      icon: "Head_652",
+      subpaths: [
+        [1445.734, 444.087, 1442.067, 444.392, 1438.887, 445.266, 1436.193, 446.644, 1433.988, 448.464, 1432.272, 450.663, 1431.045, 453.178, 1430.308, 455.945, 1430.062, 458.901, 1430.266, 461.847, 1430.813, 464.635, 1432.529, 469.794, 1434.409, 474.498, 1435.649, 478.861, 1435.764, 480.883, 1435.526, 482.702, 1434.405, 485.651, 1433.121, 487.542, 1432.508, 488.209, 1452.778, 488.209, 1453.933, 484.404, 1455.386, 482.778, 1456.999, 482.436, 1458.631, 482.488, 1460.265, 482.307, 1461.753, 481.761, 1462.76, 480.694, 1462.95, 478.951, 1462.963, 476.852, 1463.746, 475.424, 1463.941, 474.696, 1463.66, 474.084, 1463.029, 473.505, 1463.866, 473.03, 1464.3, 472.551, 1464.362, 471.907, 1464.218, 471.256, 1464.347, 470.081, 1465.154, 469.362, 1466.601, 468.48, 1466.946, 467.678, 1466.711, 466.802, 1463.425, 461.491, 1463.006, 460.152, 1463.262, 458.969, 1463.636, 457.758, 1463.57, 456.332, 1462.832, 453.701, 1461.761, 451.326, 1460.311, 449.236, 1458.434, 447.461, 1456.085, 446.029, 1453.216, 444.969, 1449.782, 444.312, 1445.734, 444.087]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4524563",
+      subpaths: [
+        [1452.23, 455.813, 1453.828, 458.219, 1454.36, 460.956, 1453.828, 463.694, 1452.23, 466.1, 1449.823, 467.698, 1447.086, 468.23, 1444.349, 467.698, 1441.943, 466.1, 1440.345, 463.694, 1439.812, 460.956, 1440.345, 458.219, 1441.943, 455.813, 1444.349, 454.215, 1447.086, 453.682, 1449.823, 454.215, 1452.23, 455.813]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524614",
+      icon: "Head_652",
+      subpaths: [
+        [1590.495, 444.087, 1586.828, 444.392, 1583.647, 445.266, 1580.954, 446.644, 1578.749, 448.464, 1577.032, 450.663, 1575.805, 453.178, 1575.069, 455.945, 1574.823, 458.901, 1575.027, 461.847, 1575.573, 464.635, 1577.29, 469.794, 1579.169, 474.498, 1580.41, 478.861, 1580.525, 480.883, 1580.286, 482.702, 1579.166, 485.651, 1577.882, 487.542, 1577.268, 488.209, 1597.539, 488.209, 1598.694, 484.404, 1600.147, 482.778, 1601.759, 482.436, 1603.391, 482.488, 1605.026, 482.307, 1606.514, 481.761, 1607.521, 480.694, 1607.711, 478.951, 1607.724, 476.852, 1608.506, 475.424, 1608.701, 474.696, 1608.421, 474.084, 1607.79, 473.505, 1608.627, 473.03, 1609.061, 472.551, 1609.123, 471.907, 1608.978, 471.256, 1609.108, 470.081, 1609.915, 469.362, 1611.362, 468.48, 1611.706, 467.678, 1611.472, 466.802, 1608.186, 461.491, 1607.767, 460.152, 1608.023, 458.969, 1608.396, 457.758, 1608.331, 456.332, 1607.593, 453.701, 1606.522, 451.326, 1605.072, 449.236, 1603.195, 447.461, 1600.846, 446.029, 1597.977, 444.97, 1594.542, 444.313, 1590.495, 444.087]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4524587",
+      subpaths: [
+        [1584.184, 453.353, 1606.104, 453.353, 1606.104, 468.559, 1584.184, 468.559, 1584.184, 453.353]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524582",
+      icon: "Cylinder_563",
+      subpaths: [
+        [1508.184, 403.876, 1508.397, 407.496, 1509.035, 410.678, 1509.997, 412.791, 1511.091, 413.496, 1512.185, 412.791, 1513.147, 410.678, 1513.786, 407.495, 1513.999, 403.876, 1513.786, 400.256, 1513.147, 397.073, 1512.185, 394.96, 1511.091, 394.255, 1509.997, 394.96, 1509.035, 397.073, 1508.397, 400.256, 1508.184, 403.876],
+        [1512.41, 413.495, 1530.518, 413.495, 1531.674, 412.74, 1532.652, 410.678, 1533.331, 407.62, 1533.584, 403.876, 1533.331, 400.131, 1532.652, 397.073, 1531.674, 395.012, 1530.518, 394.256, 1512.41, 394.256, 1513.244, 395.709, 1513.9, 397.906, 1514.483, 403.876, 1513.9, 409.845, 1513.244, 412.042, 1512.41, 413.495]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4524574",
+      subpaths: [
+        [1505.89, 527.819, 1520.678, 515.013]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524580",
+      subpaths: [
+        [1535.864, 527.807, 1520.666, 515.026]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524569",
+      subpaths: [
+        [1538.962, 513.565, 1542.239, 515.035, 1544.579, 516.666, 1545.983, 518.404, 1546.451, 520.194, 1545.983, 521.985, 1544.579, 523.723, 1542.239, 525.353, 1538.962, 526.824, 1534.952, 528.026, 1530.505, 528.884, 1520.884, 529.57, 1511.263, 528.884, 1506.817, 528.026, 1502.806, 526.824, 1499.53, 525.353, 1497.19, 523.723, 1495.786, 521.985, 1495.318, 520.194, 1495.786, 518.404, 1497.19, 516.666, 1499.53, 515.035, 1502.806, 513.565, 1506.817, 512.363, 1511.263, 511.505, 1520.884, 510.818, 1530.505, 511.505, 1534.952, 512.363, 1538.962, 513.565]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4524572",
+      subpaths: [
+        [1532.617, 512.703, 1534.744, 513.658, 1536.262, 514.716, 1537.174, 515.844, 1537.477, 517.006, 1537.174, 518.168, 1536.262, 519.296, 1534.744, 520.354, 1532.617, 521.309, 1527.128, 522.646, 1520.884, 523.091, 1514.64, 522.646, 1509.151, 521.309, 1507.025, 520.354, 1505.506, 519.296, 1504.595, 518.168, 1504.291, 517.006, 1504.595, 515.844, 1505.506, 514.716, 1507.025, 513.658, 1509.151, 512.703, 1514.64, 511.366, 1520.884, 510.921, 1527.128, 511.366, 1532.617, 512.703]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525885",
+      subpaths: [
+        [1435.255, 848.99, 1444.826, 852.873, 1453.12, 857.011, 1460.139, 861.366, 1465.881, 865.903, 1470.347, 870.586, 1473.537, 875.378, 1475.451, 880.242, 1476.089, 885.143, 1475.451, 890.044, 1473.537, 894.908, 1470.347, 899.7, 1465.881, 904.382, 1460.139, 908.92, 1453.12, 913.275, 1444.826, 917.413, 1435.255, 921.296, 1424.667, 924.806, 1413.385, 927.847, 1401.508, 930.421, 1389.136, 932.527, 1376.367, 934.165, 1363.301, 935.335, 1350.037, 936.037, 1336.674, 936.271, 1323.31, 936.037, 1310.046, 935.335, 1296.98, 934.165, 1284.211, 932.527, 1271.839, 930.421, 1259.962, 927.847, 1248.68, 924.806, 1238.092, 921.296, 1228.521, 917.413, 1220.227, 913.275, 1213.209, 908.92, 1207.466, 904.382, 1203, 899.7, 1199.81, 894.908, 1197.896, 890.044, 1197.258, 885.143, 1197.896, 880.242, 1199.81, 875.378, 1203, 870.586, 1207.466, 865.903, 1213.209, 861.366, 1220.227, 857.011, 1228.521, 852.873, 1238.092, 848.99, 1248.68, 845.48, 1259.962, 842.438, 1271.839, 839.865, 1284.211, 837.759, 1296.98, 836.121, 1310.046, 834.951, 1323.31, 834.249, 1336.674, 834.015, 1350.037, 834.249, 1363.301, 834.951, 1376.367, 836.121, 1389.136, 837.759, 1401.508, 839.865, 1413.385, 842.438, 1424.667, 845.48, 1435.255, 848.99]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525899",
+      icon: "Fire_80",
+      subpaths: [
+        [1340.255, 826.138, 1334.924, 829.383, 1330.938, 833.043, 1328.124, 836.973, 1326.308, 841.028, 1325.317, 845.062, 1324.978, 848.931, 1325.117, 852.49, 1325.56, 855.593, 1324.126, 854.055, 1322.795, 852.031, 1321.698, 849.463, 1320.966, 846.291, 1319.494, 849.279, 1318.608, 852.293, 1318.285, 855.3, 1318.506, 858.27, 1319.248, 861.172, 1320.491, 863.973, 1322.214, 866.644, 1324.397, 869.152, 1327.334, 866.471, 1330.787, 861.896, 1332.312, 858.906, 1333.492, 855.454, 1334.169, 851.542, 1334.185, 847.175, 1336.755, 849.473, 1338.738, 852.894, 1340.061, 857.032, 1340.65, 861.48, 1343.275, 858.399, 1345.065, 854.248, 1347.055, 857.233, 1348.371, 860.844, 1348.963, 864.883, 1348.78, 869.152, 1348.854, 869.152, 1351.939, 866.024, 1353.992, 862.073, 1355.028, 857.591, 1355.062, 852.871, 1354.111, 848.204, 1352.19, 843.884, 1349.314, 840.203, 1345.5, 837.453, 1346.291, 839.836, 1346.637, 842.199, 1346.329, 846.63, 1343.25, 843.23, 1340.726, 839.118, 1339.899, 836.591, 1339.484, 833.64, 1339.573, 830.183, 1340.255, 826.138]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4525861",
+      subpaths: [
+        [1318.064, 868.881, 1316.311, 869.094, 1314.707, 869.927, 1313.32, 871.191, 1312.216, 872.695, 1311.13, 875.67, 1311.281, 876.762, 1311.986, 877.339, 1315.357, 878.082, 1318.729, 878.856, 1313.539, 880.019, 1311.759, 880.858, 1311.107, 882.199, 1311.387, 883.836, 1312.4, 885.566, 1313.949, 887.183, 1315.837, 888.483, 1317.866, 889.262, 1319.838, 889.316, 1326.235, 887.413, 1336.652, 883.989, 1347.09, 887.413, 1353.509, 889.316, 1355.482, 889.262, 1357.511, 888.483, 1359.398, 887.183, 1360.948, 885.566, 1361.961, 883.836, 1362.24, 882.199, 1361.589, 880.858, 1359.809, 880.019, 1354.618, 878.856, 1357.99, 878.082, 1361.406, 877.339, 1362.135, 876.704, 1362.237, 875.499, 1361.794, 873.951, 1360.889, 872.291, 1359.605, 870.748, 1358.025, 869.55, 1356.232, 868.926, 1354.308, 869.107, 1347.804, 871.264, 1336.652, 874.498, 1325.521, 871.264, 1319.04, 869.107, 1318.064, 868.881]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4525898",
+      icon: "Head_652",
+      subpaths: [
+        [1261.524, 835.666, 1257.857, 835.971, 1254.676, 836.845, 1251.983, 838.223, 1249.778, 840.043, 1248.061, 842.242, 1246.834, 844.757, 1246.097, 847.524, 1245.852, 850.48, 1246.056, 853.426, 1246.602, 856.214, 1248.319, 861.373, 1250.198, 866.077, 1251.439, 870.44, 1251.554, 872.462, 1251.315, 874.281, 1250.194, 877.23, 1248.91, 879.121, 1248.297, 879.788, 1268.568, 879.788, 1269.723, 875.983, 1271.176, 874.357, 1272.788, 874.015, 1274.42, 874.067, 1276.054, 873.886, 1277.543, 873.34, 1278.55, 872.273, 1278.739, 870.53, 1278.753, 868.431, 1279.535, 867.003, 1279.73, 866.275, 1279.45, 865.663, 1278.819, 865.084, 1279.656, 864.609, 1280.09, 864.13, 1280.152, 863.486, 1280.007, 862.835, 1280.137, 861.66, 1280.944, 860.94, 1282.391, 860.059, 1282.735, 859.257, 1282.501, 858.381, 1279.215, 853.07, 1278.796, 851.731, 1279.052, 850.548, 1279.425, 849.337, 1279.359, 847.911, 1278.622, 845.28, 1277.551, 842.905, 1276.1, 840.815, 1274.224, 839.04, 1271.874, 837.608, 1269.006, 836.548, 1265.571, 835.891, 1261.524, 835.666]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4525902",
+      subpaths: [
+        [1268.019, 847.392, 1269.617, 849.798, 1270.15, 852.535, 1269.617, 855.273, 1268.019, 857.679, 1265.613, 859.277, 1262.876, 859.809, 1260.138, 859.277, 1257.732, 857.679, 1256.134, 855.273, 1255.602, 852.535, 1256.134, 849.798, 1257.732, 847.392, 1260.138, 845.794, 1262.876, 845.261, 1265.613, 845.794, 1268.019, 847.392]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525879",
+      icon: "Head_652",
+      subpaths: [
+        [1406.285, 835.666, 1402.618, 835.971, 1399.437, 836.845, 1396.744, 838.223, 1394.538, 840.043, 1392.822, 842.242, 1391.595, 844.757, 1390.858, 847.524, 1390.612, 850.48, 1390.817, 853.426, 1391.363, 856.214, 1393.079, 861.373, 1394.959, 866.077, 1396.199, 870.44, 1396.314, 872.462, 1396.076, 874.281, 1394.955, 877.23, 1393.671, 879.121, 1393.058, 879.788, 1413.329, 879.788, 1414.483, 875.983, 1415.936, 874.357, 1417.549, 874.015, 1419.181, 874.067, 1420.815, 873.886, 1422.304, 873.34, 1423.31, 872.273, 1423.5, 870.53, 1423.514, 868.431, 1424.296, 867.003, 1424.491, 866.275, 1424.21, 865.663, 1423.579, 865.084, 1424.416, 864.609, 1424.85, 864.13, 1424.912, 863.486, 1424.768, 862.835, 1424.897, 861.66, 1425.705, 860.941, 1427.151, 860.059, 1427.496, 859.257, 1427.262, 858.381, 1423.976, 853.07, 1423.556, 851.731, 1423.812, 850.548, 1424.186, 849.337, 1424.12, 847.911, 1423.382, 845.28, 1422.311, 842.905, 1420.861, 840.815, 1418.984, 839.04, 1416.635, 837.608, 1413.766, 836.548, 1410.332, 835.891, 1406.285, 835.666]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4525886",
+      subpaths: [
+        [1399.973, 844.932, 1421.893, 844.932, 1421.893, 860.138, 1399.973, 860.138, 1399.973, 844.932]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525908",
+      icon: "Cylinder_563",
+      subpaths: [
+        [1323.974, 795.455, 1324.186, 799.075, 1324.825, 802.257, 1325.787, 804.37, 1326.881, 805.075, 1327.975, 804.37, 1328.937, 802.257, 1329.576, 799.074, 1329.788, 795.455, 1329.576, 791.835, 1328.937, 788.652, 1327.975, 786.539, 1326.881, 785.834, 1325.787, 786.539, 1324.825, 788.652, 1324.186, 791.835, 1323.974, 795.455],
+        [1328.199, 805.074, 1346.308, 805.074, 1347.463, 804.318, 1348.442, 802.257, 1349.12, 799.199, 1349.374, 795.455, 1349.12, 791.71, 1348.442, 788.652, 1347.463, 786.591, 1346.308, 785.835, 1328.199, 785.835, 1329.033, 787.288, 1329.689, 789.485, 1330.273, 795.455, 1329.689, 801.424, 1329.033, 803.621, 1328.199, 805.074]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4525848",
+      subpaths: [
+        [1321.68, 919.398, 1336.467, 906.592]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525895",
+      subpaths: [
+        [1351.654, 919.386, 1336.456, 906.605]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525836",
+      subpaths: [
+        [1354.752, 905.144, 1358.028, 906.614, 1360.368, 908.245, 1361.772, 909.983, 1362.24, 911.773, 1361.772, 913.564, 1360.368, 915.302, 1358.028, 916.932, 1354.752, 918.403, 1350.741, 919.605, 1346.294, 920.463, 1336.674, 921.149, 1327.053, 920.463, 1322.606, 919.605, 1318.595, 918.403, 1315.319, 916.932, 1312.979, 915.302, 1311.575, 913.564, 1311.107, 911.773, 1311.575, 909.983, 1312.979, 908.245, 1315.319, 906.614, 1318.595, 905.144, 1322.606, 903.942, 1327.053, 903.084, 1336.674, 902.397, 1346.294, 903.084, 1350.741, 903.942, 1354.752, 905.144]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4525839",
+      subpaths: [
+        [1348.407, 904.282, 1350.533, 905.237, 1352.052, 906.295, 1352.963, 907.423, 1353.267, 908.585, 1352.963, 909.747, 1352.052, 910.875, 1350.533, 911.933, 1348.407, 912.888, 1342.918, 914.225, 1336.674, 914.67, 1330.43, 914.225, 1324.941, 912.888, 1322.814, 911.933, 1321.296, 910.875, 1320.384, 909.747, 1320.081, 908.585, 1320.384, 907.423, 1321.296, 906.295, 1322.814, 905.237, 1324.941, 904.282, 1330.43, 902.945, 1336.674, 902.5, 1342.918, 902.945, 1348.407, 904.282]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526126",
+      subpaths: [
+        [793.15, 848.99, 802.721, 852.873, 811.015, 857.011, 818.033, 861.366, 823.776, 865.903, 828.242, 870.586, 831.432, 875.378, 833.346, 880.242, 833.984, 885.143, 833.346, 890.044, 831.432, 894.908, 828.242, 899.7, 823.776, 904.382, 818.033, 908.92, 811.015, 913.275, 802.721, 917.413, 793.15, 921.296, 782.562, 924.806, 771.28, 927.847, 759.403, 930.421, 747.031, 932.527, 734.262, 934.165, 721.196, 935.335, 707.932, 936.037, 694.568, 936.271, 681.205, 936.037, 667.941, 935.335, 654.875, 934.165, 642.106, 932.527, 629.734, 930.421, 617.857, 927.847, 606.575, 924.806, 595.987, 921.296, 586.416, 917.413, 578.122, 913.275, 571.104, 908.92, 565.361, 904.382, 560.895, 899.7, 557.705, 894.908, 555.791, 890.044, 555.153, 885.143, 555.791, 880.242, 557.705, 875.378, 560.895, 870.586, 565.361, 865.903, 571.104, 861.366, 578.122, 857.011, 586.416, 852.873, 595.987, 848.99, 606.575, 845.48, 617.857, 842.438, 629.734, 839.865, 642.106, 837.759, 654.875, 836.121, 667.941, 834.951, 681.205, 834.249, 694.568, 834.015, 707.932, 834.249, 721.196, 834.951, 734.262, 836.121, 747.031, 837.759, 759.403, 839.865, 771.28, 842.438, 782.562, 845.48, 793.15, 848.99]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526140",
+      icon: "Fire_80",
+      subpaths: [
+        [698.15, 826.138, 692.818, 829.383, 688.832, 833.043, 686.018, 836.973, 684.203, 841.028, 683.212, 845.062, 682.873, 848.931, 683.012, 852.49, 683.455, 855.593, 682.021, 854.055, 680.689, 852.031, 679.592, 849.463, 678.861, 846.291, 677.389, 849.279, 676.503, 852.293, 676.18, 855.3, 676.4, 858.27, 677.143, 861.172, 678.386, 863.973, 680.109, 866.644, 682.292, 869.152, 685.228, 866.471, 688.681, 861.896, 690.206, 858.906, 691.386, 855.454, 692.064, 851.542, 692.08, 847.175, 694.65, 849.473, 696.633, 852.894, 697.956, 857.032, 698.545, 861.48, 701.169, 858.399, 702.96, 854.248, 704.949, 857.233, 706.266, 860.844, 706.858, 864.883, 706.674, 869.152, 706.748, 869.152, 709.834, 866.024, 711.887, 862.073, 712.922, 857.591, 712.957, 852.871, 712.006, 848.204, 710.085, 843.884, 707.209, 840.203, 703.395, 837.453, 704.186, 839.836, 704.532, 842.199, 704.224, 846.63, 701.145, 843.23, 698.62, 839.118, 697.794, 836.591, 697.379, 833.64, 697.468, 830.183, 698.15, 826.138]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526102",
+      subpaths: [
+        [675.958, 868.881, 674.205, 869.094, 672.602, 869.927, 671.214, 871.191, 670.111, 872.695, 669.025, 875.67, 669.176, 876.762, 669.881, 877.339, 673.252, 878.082, 676.624, 878.856, 671.433, 880.019, 669.653, 880.858, 669.002, 882.199, 669.282, 883.836, 670.295, 885.566, 671.844, 887.183, 673.732, 888.483, 675.76, 889.262, 677.733, 889.316, 684.13, 887.413, 694.546, 883.989, 704.985, 887.413, 711.404, 889.316, 713.377, 889.262, 715.405, 888.483, 717.293, 887.183, 718.842, 885.566, 719.855, 883.836, 720.135, 882.199, 719.484, 880.858, 717.704, 880.019, 712.513, 878.856, 715.885, 878.082, 719.301, 877.339, 720.03, 876.704, 720.131, 875.499, 719.688, 873.951, 718.784, 872.291, 717.5, 870.748, 715.92, 869.55, 714.127, 868.926, 712.203, 869.107, 705.699, 871.264, 694.546, 874.498, 683.416, 871.264, 676.934, 869.107, 675.958, 868.881]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4526139",
+      icon: "Head_652",
+      subpaths: [
+        [619.419, 835.666, 615.752, 835.971, 612.571, 836.845, 609.878, 838.223, 607.672, 840.043, 605.956, 842.242, 604.729, 844.757, 603.992, 847.524, 603.746, 850.48, 603.951, 853.426, 604.497, 856.214, 606.213, 861.373, 608.093, 866.077, 609.333, 870.44, 609.448, 872.462, 609.21, 874.281, 608.089, 877.23, 606.805, 879.121, 606.192, 879.788, 626.463, 879.788, 627.617, 875.983, 629.071, 874.357, 630.683, 874.015, 632.315, 874.067, 633.949, 873.886, 635.438, 873.34, 636.445, 872.273, 636.634, 870.53, 636.648, 868.431, 637.43, 867.003, 637.625, 866.275, 637.345, 865.663, 636.713, 865.084, 637.55, 864.609, 637.984, 864.13, 638.046, 863.486, 637.902, 862.835, 638.031, 861.66, 638.839, 860.94, 640.285, 860.059, 640.63, 859.257, 640.396, 858.381, 637.11, 853.07, 636.69, 851.731, 636.946, 850.548, 637.32, 849.337, 637.254, 847.911, 636.516, 845.28, 635.446, 842.905, 633.995, 840.815, 632.119, 839.04, 629.769, 837.608, 626.901, 836.548, 623.466, 835.891, 619.419, 835.666]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526143",
+      subpaths: [
+        [625.914, 847.392, 627.512, 849.798, 628.045, 852.535, 627.512, 855.273, 625.914, 857.679, 623.508, 859.277, 620.77, 859.809, 618.033, 859.277, 615.627, 857.679, 614.029, 855.273, 613.496, 852.535, 614.029, 849.798, 615.627, 847.392, 618.033, 845.794, 620.77, 845.261, 623.508, 845.794, 625.914, 847.392]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526120",
+      icon: "Head_652",
+      subpaths: [
+        [764.179, 835.666, 760.512, 835.971, 757.332, 836.845, 754.638, 838.223, 752.433, 840.043, 750.717, 842.242, 749.49, 844.757, 748.753, 847.524, 748.507, 850.48, 748.711, 853.426, 749.258, 856.214, 750.974, 861.373, 752.854, 866.077, 754.094, 870.44, 754.209, 872.462, 753.971, 874.281, 752.85, 877.23, 751.566, 879.121, 750.953, 879.788, 771.223, 879.788, 772.378, 875.983, 773.831, 874.357, 775.444, 874.015, 777.076, 874.067, 778.71, 873.886, 780.198, 873.34, 781.205, 872.273, 781.395, 870.53, 781.408, 868.431, 782.191, 867.003, 782.386, 866.275, 782.105, 865.663, 781.474, 865.084, 782.311, 864.609, 782.745, 864.13, 782.807, 863.486, 782.663, 862.835, 782.792, 861.66, 783.599, 860.941, 785.046, 860.059, 785.391, 859.257, 785.156, 858.381, 781.87, 853.07, 781.451, 851.731, 781.707, 850.548, 782.081, 849.337, 782.015, 847.911, 781.277, 845.28, 780.206, 842.905, 778.756, 840.815, 776.879, 839.04, 774.53, 837.608, 771.661, 836.548, 768.227, 835.891, 764.179, 835.666]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526127",
+      subpaths: [
+        [757.868, 844.932, 779.788, 844.932, 779.788, 860.138, 757.868, 860.138, 757.868, 844.932]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526149",
+      icon: "Cylinder_563",
+      subpaths: [
+        [681.869, 795.455, 682.081, 799.075, 682.72, 802.257, 683.681, 804.37, 684.776, 805.075, 685.87, 804.37, 686.832, 802.257, 687.47, 799.074, 687.683, 795.455, 687.47, 791.835, 686.832, 788.652, 685.87, 786.539, 684.776, 785.834, 683.681, 786.539, 682.72, 788.652, 682.081, 791.835, 681.869, 795.455],
+        [686.094, 805.074, 704.202, 805.074, 705.358, 804.318, 706.337, 802.257, 707.015, 799.199, 707.268, 795.455, 707.015, 791.71, 706.337, 788.652, 705.358, 786.591, 704.202, 785.835, 686.094, 785.835, 686.928, 787.288, 687.584, 789.485, 688.168, 795.455, 687.584, 801.424, 686.928, 803.621, 686.094, 805.074]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4526089",
+      subpaths: [
+        [679.575, 919.398, 694.362, 906.592]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526136",
+      subpaths: [
+        [709.548, 919.386, 694.351, 906.605]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526077",
+      subpaths: [
+        [712.647, 905.144, 715.923, 906.614, 718.263, 908.245, 719.667, 909.983, 720.135, 911.773, 719.667, 913.564, 718.263, 915.302, 715.923, 916.932, 712.647, 918.403, 708.636, 919.605, 704.189, 920.463, 694.568, 921.149, 684.948, 920.463, 680.501, 919.605, 676.49, 918.403, 673.214, 916.932, 670.874, 915.302, 669.47, 913.564, 669.002, 911.773, 669.47, 909.983, 670.874, 908.245, 673.214, 906.614, 676.49, 905.144, 680.501, 903.942, 684.948, 903.084, 694.568, 902.397, 704.189, 903.084, 708.636, 903.942, 712.647, 905.144]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526080",
+      subpaths: [
+        [706.302, 904.282, 708.428, 905.237, 709.947, 906.295, 710.858, 907.423, 711.162, 908.585, 710.858, 909.747, 709.947, 910.875, 708.428, 911.933, 706.302, 912.888, 700.813, 914.225, 694.568, 914.67, 688.324, 914.225, 682.835, 912.888, 680.709, 911.933, 679.19, 910.875, 678.279, 909.747, 677.975, 908.585, 678.279, 907.423, 679.19, 906.295, 680.709, 905.237, 682.835, 904.282, 688.324, 902.945, 694.568, 902.5, 700.813, 902.945, 706.302, 904.282]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526347",
+      subpaths: [
+        [541.571, 484.78, 551.142, 488.663, 559.436, 492.8, 566.454, 497.156, 572.197, 501.693, 576.663, 506.376, 579.853, 511.167, 581.767, 516.032, 582.405, 520.932, 581.767, 525.833, 579.853, 530.698, 576.663, 535.489, 572.197, 540.172, 566.454, 544.709, 559.436, 549.065, 551.142, 553.202, 541.571, 557.085, 530.983, 560.595, 519.701, 563.637, 507.824, 566.211, 495.452, 568.317, 482.683, 569.955, 469.617, 571.124, 456.353, 571.826, 442.99, 572.06, 429.626, 571.826, 416.362, 571.124, 403.296, 569.955, 390.527, 568.317, 378.155, 566.211, 366.278, 563.637, 354.996, 560.595, 344.408, 557.085, 334.837, 553.202, 326.543, 549.065, 319.525, 544.709, 313.782, 540.172, 309.316, 535.489, 306.126, 530.698, 304.212, 525.833, 303.574, 520.932, 304.212, 516.032, 306.126, 511.167, 309.316, 506.376, 313.782, 501.693, 319.525, 497.156, 326.543, 492.8, 334.837, 488.663, 344.408, 484.78, 354.996, 481.27, 366.278, 478.228, 378.155, 475.654, 390.527, 473.548, 403.296, 471.91, 416.362, 470.74, 429.626, 470.038, 442.99, 469.804, 456.353, 470.038, 469.617, 470.74, 482.683, 471.91, 495.452, 473.548, 507.824, 475.654, 519.701, 478.228, 530.983, 481.27, 541.571, 484.78]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526361",
+      icon: "Fire_80",
+      subpaths: [
+        [446.571, 461.927, 441.24, 465.173, 437.253, 468.833, 434.439, 472.763, 432.624, 476.817, 431.633, 480.852, 431.294, 484.72, 431.433, 488.279, 431.876, 491.382, 430.442, 489.844, 429.11, 487.821, 428.013, 485.252, 427.282, 482.08, 425.81, 485.069, 424.924, 488.083, 424.601, 491.09, 424.821, 494.06, 425.564, 496.961, 426.807, 499.763, 428.53, 502.433, 430.713, 504.942, 433.649, 502.261, 437.102, 497.685, 438.627, 494.696, 439.808, 491.243, 440.485, 487.332, 440.501, 482.964, 443.071, 485.262, 445.054, 488.684, 446.377, 492.822, 446.966, 497.27, 449.59, 494.188, 451.381, 490.038, 453.371, 493.022, 454.687, 496.634, 455.279, 500.673, 455.095, 504.942, 455.169, 504.942, 458.255, 501.814, 460.308, 497.862, 461.343, 493.381, 461.378, 488.66, 460.427, 483.994, 458.506, 479.674, 455.63, 475.993, 451.816, 473.242, 452.607, 475.625, 452.953, 477.988, 452.645, 482.42, 449.566, 479.019, 447.041, 474.908, 446.215, 472.38, 445.8, 469.429, 445.889, 465.972, 446.571, 461.927]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526323",
+      subpaths: [
+        [424.379, 504.67, 422.626, 504.884, 421.023, 505.717, 419.635, 506.98, 418.532, 508.484, 417.446, 511.459, 417.597, 512.552, 418.302, 513.129, 421.673, 513.871, 425.045, 514.646, 419.854, 515.808, 418.074, 516.648, 417.423, 517.989, 417.703, 519.626, 418.716, 521.355, 420.265, 522.972, 422.153, 524.272, 424.181, 525.052, 426.154, 525.106, 432.551, 523.202, 442.967, 519.779, 453.406, 523.202, 459.825, 525.106, 461.798, 525.052, 463.826, 524.272, 465.714, 522.972, 467.263, 521.355, 468.276, 519.626, 468.556, 517.989, 467.905, 516.648, 466.125, 515.808, 460.934, 514.646, 464.306, 513.871, 467.722, 513.129, 468.451, 512.494, 468.552, 511.288, 468.109, 509.741, 467.205, 508.081, 465.921, 506.537, 464.341, 505.339, 462.548, 504.716, 460.624, 504.896, 454.12, 507.054, 442.967, 510.288, 431.837, 507.054, 425.355, 504.896, 424.379, 504.67]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4526360",
+      icon: "Head_652",
+      subpaths: [
+        [367.84, 471.455, 364.173, 471.761, 360.992, 472.634, 358.299, 474.012, 356.093, 475.833, 354.377, 478.032, 353.15, 480.546, 352.413, 483.313, 352.167, 486.269, 352.372, 489.215, 352.918, 492.003, 354.634, 497.163, 356.514, 501.866, 357.754, 506.229, 357.869, 508.251, 357.631, 510.071, 356.51, 513.02, 355.226, 514.91, 354.613, 515.577, 374.884, 515.577, 376.038, 511.773, 377.492, 510.146, 379.104, 509.805, 380.736, 509.856, 382.37, 509.676, 383.859, 509.129, 384.866, 508.062, 385.055, 506.319, 385.069, 504.221, 385.851, 502.792, 386.046, 502.064, 385.766, 501.452, 385.134, 500.873, 385.972, 500.398, 386.406, 499.919, 386.468, 499.275, 386.323, 498.624, 386.452, 497.45, 387.26, 496.73, 388.706, 495.848, 389.051, 495.047, 388.817, 494.171, 385.531, 488.86, 385.111, 487.52, 385.367, 486.338, 385.741, 485.126, 385.675, 483.7, 384.937, 481.069, 383.867, 478.695, 382.416, 476.605, 380.54, 474.829, 378.19, 473.397, 375.322, 472.338, 371.887, 471.681, 367.84, 471.455]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526364",
+      subpaths: [
+        [374.335, 483.181, 375.933, 485.588, 376.466, 488.325, 375.933, 491.062, 374.335, 493.468, 371.929, 495.066, 369.191, 495.599, 366.454, 495.066, 364.048, 493.468, 362.45, 491.062, 361.917, 488.325, 362.45, 485.588, 364.048, 483.181, 366.454, 481.583, 369.191, 481.051, 371.929, 481.583, 374.335, 483.181]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526341",
+      icon: "Head_652",
+      subpaths: [
+        [512.601, 471.455, 508.933, 471.761, 505.753, 472.634, 503.059, 474.012, 500.854, 475.833, 499.138, 478.032, 497.911, 480.546, 497.174, 483.313, 496.928, 486.27, 497.133, 489.215, 497.679, 492.003, 499.395, 497.163, 501.275, 501.866, 502.515, 506.229, 502.63, 508.251, 502.392, 510.071, 501.271, 513.02, 499.987, 514.91, 499.374, 515.577, 519.644, 515.577, 520.799, 511.773, 522.252, 510.146, 523.865, 509.805, 525.497, 509.856, 527.131, 509.676, 528.619, 509.129, 529.626, 508.062, 529.816, 506.319, 529.829, 504.221, 530.612, 502.792, 530.807, 502.064, 530.526, 501.453, 529.895, 500.874, 530.732, 500.398, 531.166, 499.919, 531.228, 499.275, 531.084, 498.624, 531.213, 497.45, 532.02, 496.73, 533.467, 495.848, 533.812, 495.047, 533.577, 494.171, 530.291, 488.86, 529.872, 487.52, 530.128, 486.338, 530.502, 485.126, 530.436, 483.7, 529.698, 481.07, 528.627, 478.695, 527.177, 476.605, 525.3, 474.829, 522.951, 473.397, 520.082, 472.338, 516.648, 471.681, 512.601, 471.455]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "4526348",
+      subpaths: [
+        [506.289, 480.722, 528.209, 480.722, 528.209, 495.928, 506.289, 495.928, 506.289, 480.722]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526370",
+      icon: "Cylinder_563",
+      subpaths: [
+        [430.29, 431.244, 430.502, 434.864, 431.141, 438.046, 432.102, 440.16, 433.197, 440.864, 434.291, 440.16, 435.253, 438.046, 435.891, 434.864, 436.104, 431.244, 435.891, 427.624, 435.253, 424.442, 434.291, 422.328, 433.197, 421.624, 432.102, 422.328, 431.141, 424.442, 430.502, 427.624, 430.29, 431.244],
+        [434.515, 440.864, 452.623, 440.864, 453.779, 440.108, 454.758, 438.046, 455.436, 434.989, 455.689, 431.244, 455.436, 427.499, 454.758, 424.442, 453.779, 422.38, 452.623, 421.624, 434.515, 421.624, 435.349, 423.077, 436.005, 425.274, 436.589, 431.244, 436.005, 437.214, 435.349, 439.411, 434.515, 440.864]
+      ],
+      closed: [1, 1],
+      stroke: "#ffffff",
+      strokeWidth: 4,
+      opacity: 1
+    },
+    {
+      id: "4526310",
+      subpaths: [
+        [427.996, 555.188, 442.783, 542.382]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526357",
+      subpaths: [
+        [457.969, 555.175, 442.772, 542.394]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526298",
+      subpaths: [
+        [461.068, 540.933, 464.344, 542.404, 466.684, 544.035, 468.088, 545.772, 468.556, 547.563, 468.088, 549.354, 466.684, 551.091, 464.344, 552.722, 461.068, 554.193, 457.057, 555.394, 452.61, 556.252, 442.99, 556.939, 433.369, 556.252, 428.922, 555.394, 424.911, 554.193, 421.635, 552.722, 419.295, 551.091, 417.891, 549.354, 417.423, 547.563, 417.891, 545.772, 419.295, 544.035, 421.635, 542.404, 424.911, 540.933, 428.922, 539.732, 433.369, 538.873, 442.99, 538.187, 452.61, 538.873, 457.057, 539.732, 461.068, 540.933]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "4526301",
+      subpaths: [
+        [454.723, 540.072, 456.849, 541.026, 458.368, 542.085, 459.279, 543.212, 459.583, 544.374, 459.279, 545.537, 458.368, 546.664, 456.849, 547.723, 454.723, 548.677, 449.234, 550.014, 442.99, 550.46, 436.745, 550.014, 431.256, 548.677, 429.13, 547.723, 427.611, 546.664, 426.7, 545.537, 426.396, 544.374, 426.7, 543.212, 427.611, 542.085, 429.13, 541.026, 431.256, 540.072, 436.745, 538.735, 442.99, 538.289, 449.234, 538.735, 454.723, 540.072]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    }
+  ],
+  texts: [],
+  groups: [{ id: "4903260", members: ["4903265", "4903289"] }, { id: "4524550", members: ["4524556", "4524581"] }, { id: "4524551", members: ["4524560", "4524563"] }, { id: "4524552", members: ["4524614", "4524587"] }, { id: "4524553", members: ["4524574", "4524580", "4524569", "4524572"] }, { id: "4524549", members: ["4524619", "4524550", "4524551", "4524552", "4524582", "4524553"] }, { id: "4525832", members: ["4525899", "4525861"] }, { id: "4525833", members: ["4525898", "4525902"] }, { id: "4525834", members: ["4525879", "4525886"] }, { id: "4525835", members: ["4525848", "4525895", "4525836", "4525839"] }, { id: "4525831", members: ["4525885", "4525832", "4525833", "4525834", "4525908", "4525835"] }, { id: "4526073", members: ["4526140", "4526102"] }, { id: "4526074", members: ["4526139", "4526143"] }, { id: "4526075", members: ["4526120", "4526127"] }, { id: "4526076", members: ["4526089", "4526136", "4526077", "4526080"] }, { id: "4526072", members: ["4526126", "4526073", "4526074", "4526075", "4526149", "4526076"] }, { id: "4526294", members: ["4526361", "4526323"] }, { id: "4526295", members: ["4526360", "4526364"] }, { id: "4526296", members: ["4526341", "4526348"] }, { id: "4526297", members: ["4526310", "4526357", "4526298", "4526301"] }, { id: "4526293", members: ["4526347", "4526294", "4526295", "4526296", "4526370", "4526297"] }],
+  builds: [
+    { id: "4108635", target: "4105549", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108630", target: "4108188", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108636", target: "4107977", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108629", target: "4108036", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108633", target: "4107870", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108628", target: "4108292", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108627", target: "4107941", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108634", target: "4108075", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108631", target: "4107905", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 },
+    { id: "4108632", target: "4108007", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 0.5, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1 }
+  ],
+  buildChunks: [
+    { build: "4108627", duration: 0.5, delay: 0, automatic: false, chunkId: 1 },
+    { build: "4108628", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108629", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108630", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108631", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108632", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108633", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108634", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108635", duration: 0.5, delay: 0, automatic: true, chunkId: 1 },
+    { build: "4108636", duration: 0.5, delay: 0, automatic: true, chunkId: 1 }
+  ],
+  transition: { effect: "com.apple.iWork.Keynote.BLTFadeThruColor", duration: 2, delay: 0.5, fadeUnmatched: true }
+};
+// vocabulary/Slides/assets/pl02/slide09.ts
+var slide09 = {
+  index: 9,
+  id: "4705361",
+  source: "refs/pitch/pl02/key/Index/Slide-4705361.iwa",
+  hash: "9f4f9fc98a689b3d",
+  shapes: [
+    {
+      id: "5094973",
+      isConnectionLine: true,
+      connects: { from: "5094939", to: "5094913" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [722.381, 323.646, 834.301, 255.521, 946.22, 187.395]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094966",
+      isConnectionLine: true,
+      connects: { from: "5094931", to: "5094939" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [700.736, 582.682, 700.736, 478.82, 700.736, 374.959]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094923",
+      isConnectionLine: true,
+      connects: { from: "5094983", to: "5094939" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1198.875, 608.988, 956.919, 476.791, 714.963, 344.594]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094963",
+      isConnectionLine: true,
+      connects: { from: "5094983", to: "5094931" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1203.74, 620.832, 960.641, 620.832, 717.542, 620.832]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094945",
+      isConnectionLine: true,
+      connects: { from: "5094913", to: "5094931" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [937.617, 217.149, 827.563, 404.698, 717.51, 592.247]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094975",
+      isConnectionLine: true,
+      connects: { from: "5094983", to: "5094913" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1203.738, 592.322, 1093.113, 404.735, 982.487, 217.149]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094359",
+      isConnectionLine: true,
+      connects: { from: "5094983", to: "5094392" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1206.433, 629.094, 1094.16, 694.798, 981.886, 760.503]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094366",
+      isConnectionLine: true,
+      connects: { from: "5094983", to: "5094395" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1220.551, 582.485, 1220.551, 478.824, 1220.551, 375.162]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5094367",
+      isConnectionLine: true,
+      connects: { from: "5094395", to: "5094392" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1197.785, 374.959, 1087.339, 559.983, 976.893, 745.007]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5093848",
+      subpaths: [
+        [1221.984, 223.866, 1235.124, 237.659, 1247.417, 251.945, 1258.863, 266.691, 1269.46, 281.864, 1279.21, 297.431, 1288.111, 313.359, 1296.165, 329.616, 1303.372, 346.169, 1309.73, 362.985, 1315.241, 380.03, 1319.904, 397.273, 1323.719, 414.679, 1326.686, 432.218, 1328.805, 449.855, 1330.077, 467.557, 1330.501, 485.292, 1330.077, 503.028, 1328.805, 520.73, 1326.686, 538.367, 1323.719, 555.905, 1319.904, 573.312, 1315.241, 590.555, 1309.73, 607.6, 1303.372, 624.416, 1296.165, 640.968, 1288.111, 657.225, 1279.21, 673.154, 1269.46, 688.721, 1258.863, 703.894, 1247.417, 718.64, 1235.124, 732.926, 1221.984, 746.719, 1208.161, 759.832, 1193.845, 772.099, 1179.068, 783.519, 1163.862, 794.094, 1148.262, 803.823, 1132.3, 812.706, 1116.008, 820.743, 1099.42, 827.934, 1082.568, 834.279, 1065.487, 839.778, 1048.207, 844.431, 1030.763, 848.237, 1013.188, 851.198, 995.513, 853.313, 977.773, 854.582, 960, 855.005, 942.227, 854.582, 924.487, 853.313, 906.812, 851.198, 889.237, 848.237, 871.793, 844.431, 854.513, 839.778, 837.431, 834.279, 820.58, 827.934, 803.992, 820.743, 787.7, 812.706, 771.738, 803.823, 756.138, 794.094, 740.932, 783.519, 726.155, 772.099, 711.839, 759.832, 698.016, 746.719, 684.875, 732.926, 672.582, 718.64, 661.137, 703.894, 650.54, 688.721, 640.79, 673.154, 631.889, 657.225, 623.835, 640.968, 616.628, 624.416, 610.27, 607.6, 604.759, 590.555, 600.096, 573.312, 596.281, 555.905, 593.314, 538.367, 591.195, 520.73, 589.923, 503.028, 589.499, 485.292, 589.923, 467.557, 591.195, 449.855, 593.314, 432.218, 596.281, 414.679, 600.096, 397.273, 604.759, 380.03, 610.27, 362.985, 616.628, 346.169, 623.835, 329.616, 631.889, 313.359, 640.79, 297.431, 650.54, 281.864, 661.137, 266.691, 672.582, 251.945, 684.875, 237.659, 698.016, 223.866, 711.839, 210.753, 726.155, 198.486, 740.932, 187.065, 756.138, 176.491, 771.738, 166.762, 787.7, 157.879, 803.992, 149.842, 820.58, 142.651, 837.431, 136.306, 854.513, 130.807, 871.793, 126.154, 889.237, 122.347, 906.812, 119.386, 924.487, 117.271, 942.227, 116.002, 960, 115.579, 977.773, 116.002, 995.513, 117.271, 1013.188, 119.386, 1030.763, 122.347, 1048.207, 126.154, 1065.487, 130.807, 1082.568, 136.306, 1099.42, 142.651, 1116.008, 149.842, 1132.3, 157.879, 1148.262, 166.762, 1163.862, 176.491, 1179.068, 187.065, 1193.845, 198.486, 1208.161, 210.753, 1221.984, 223.866]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 5,
+      opacity: 1
+    },
+    {
+      id: "5094913",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [959.999, 141.664, 956.621, 141.881, 953.614, 142.512, 950.971, 143.525, 948.688, 144.888, 946.759, 146.569, 945.179, 148.537, 943.943, 150.759, 943.044, 153.205, 942.254, 158.433, 942.367, 164.335, 940.614, 164.335, 939.697, 164.699, 939.217, 165.601, 939.309, 168.553, 940.371, 172.259, 941.881, 175.793, 942.773, 176.428, 943.633, 176.341, 944.304, 180.811, 945.218, 183.981, 946.501, 186.408, 948.281, 188.648, 948.233, 192.023, 947.717, 195.316, 946.324, 198.259, 944.138, 200.8, 941.244, 202.886, 940.197, 203.433, 937.048, 204.557, 933.735, 205.008, 930.171, 205.381, 927.179, 206.119, 924.682, 207.187, 922.602, 208.555, 920.86, 210.188, 919.38, 212.054, 916.89, 216.357, 959.999, 216.357, 1003.102, 216.357, 1000.612, 212.054, 999.131, 210.188, 997.39, 208.555, 995.31, 207.187, 992.813, 206.119, 989.821, 205.381, 986.257, 205.008, 982.936, 204.549, 979.795, 203.433, 978.748, 202.886, 975.851, 200.8, 973.66, 198.259, 972.266, 195.316, 971.759, 192.023, 971.718, 188.648, 973.494, 186.408, 974.77, 183.981, 975.68, 180.811, 976.359, 176.341, 977.21, 176.445, 978.111, 175.793, 979.632, 172.259, 980.695, 168.553, 980.784, 165.601, 980.303, 164.699, 979.384, 164.335, 977.632, 164.335, 977.75, 158.441, 976.948, 153.205, 976.05, 150.759, 974.814, 148.537, 973.235, 146.569, 971.307, 144.888, 969.025, 143.525, 966.384, 142.512, 963.377, 141.881, 959.999, 141.664]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5094983",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1220.555, 583.485, 1217.177, 583.703, 1214.169, 584.334, 1211.527, 585.346, 1209.243, 586.709, 1207.315, 588.39, 1205.735, 590.358, 1204.498, 592.58, 1203.6, 595.026, 1202.809, 600.254, 1202.922, 606.156, 1201.17, 606.156, 1200.252, 606.521, 1199.772, 607.423, 1199.864, 610.374, 1200.926, 614.081, 1202.436, 617.614, 1203.329, 618.25, 1204.188, 618.162, 1204.859, 622.632, 1205.773, 625.802, 1207.056, 628.229, 1208.836, 630.469, 1208.788, 633.844, 1208.272, 637.137, 1206.879, 640.08, 1204.693, 642.621, 1201.799, 644.707, 1200.752, 645.254, 1197.604, 646.378, 1194.291, 646.829, 1190.726, 647.202, 1187.734, 647.94, 1185.237, 649.009, 1183.157, 650.376, 1181.416, 652.009, 1179.935, 653.876, 1177.445, 658.178, 1220.555, 658.178, 1263.658, 658.178, 1261.167, 653.876, 1259.687, 652.009, 1257.946, 650.376, 1255.865, 649.009, 1253.369, 647.94, 1250.377, 647.202, 1246.812, 646.829, 1243.491, 646.37, 1240.351, 645.254, 1239.303, 644.707, 1236.406, 642.621, 1234.215, 640.08, 1232.821, 637.137, 1232.314, 633.844, 1232.273, 630.469, 1234.049, 628.229, 1235.325, 625.802, 1236.235, 622.632, 1236.914, 618.162, 1237.766, 618.266, 1238.667, 617.614, 1240.187, 614.081, 1241.25, 610.374, 1241.34, 607.423, 1240.858, 606.521, 1239.94, 606.156, 1238.187, 606.156, 1238.305, 600.262, 1237.503, 595.026, 1236.605, 592.58, 1235.369, 590.358, 1233.79, 588.39, 1231.863, 586.709, 1229.581, 585.346, 1226.939, 584.334, 1223.932, 583.703, 1220.555, 583.485]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5094931",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [700.74, 583.485, 697.362, 583.703, 694.354, 584.334, 691.711, 585.346, 689.428, 586.709, 687.499, 588.39, 685.919, 590.358, 684.683, 592.58, 683.785, 595.026, 682.994, 600.254, 683.107, 606.156, 681.355, 606.156, 680.437, 606.521, 679.957, 607.423, 680.049, 610.374, 681.111, 614.081, 682.621, 617.614, 683.514, 618.25, 684.373, 618.162, 685.044, 622.632, 685.958, 625.802, 687.241, 628.229, 689.021, 630.469, 688.973, 633.844, 688.457, 637.137, 687.064, 640.08, 684.878, 642.621, 681.984, 644.707, 680.937, 645.254, 677.788, 646.378, 674.475, 646.829, 670.911, 647.202, 667.919, 647.94, 665.422, 649.009, 663.342, 650.376, 661.601, 652.009, 660.12, 653.876, 657.63, 658.178, 700.74, 658.178, 743.843, 658.178, 741.352, 653.876, 739.872, 652.009, 738.131, 650.376, 736.05, 649.009, 733.553, 647.94, 730.562, 647.202, 726.997, 646.829, 723.676, 646.37, 720.535, 645.254, 719.488, 644.707, 716.591, 642.621, 714.4, 640.08, 713.006, 637.137, 712.499, 633.844, 712.458, 630.469, 714.234, 628.229, 715.51, 625.802, 716.42, 622.632, 717.099, 618.162, 717.951, 618.266, 718.852, 617.614, 720.372, 614.081, 721.435, 610.374, 721.524, 607.423, 721.043, 606.521, 720.125, 606.156, 718.372, 606.156, 718.49, 600.262, 717.688, 595.026, 716.79, 592.58, 715.554, 590.358, 713.975, 588.39, 712.048, 586.709, 709.766, 585.346, 707.124, 584.334, 704.117, 583.703, 700.74, 583.485]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5094939",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [700.74, 299.475, 697.362, 299.692, 694.354, 300.323, 691.711, 301.336, 689.428, 302.699, 687.499, 304.38, 685.919, 306.347, 684.683, 308.57, 683.785, 311.015, 682.994, 316.244, 683.107, 322.145, 681.355, 322.145, 680.437, 322.51, 679.957, 323.412, 680.049, 326.363, 681.111, 330.07, 682.621, 333.604, 683.514, 334.239, 684.373, 334.151, 685.044, 338.622, 685.958, 341.792, 687.241, 344.218, 689.021, 346.459, 688.973, 349.833, 688.457, 353.126, 687.064, 356.07, 684.878, 358.611, 681.984, 360.696, 680.937, 361.244, 677.788, 362.368, 674.475, 362.818, 670.911, 363.192, 667.919, 363.929, 665.422, 364.998, 663.342, 366.365, 661.601, 367.999, 660.12, 369.865, 657.63, 374.167, 700.74, 374.167, 743.843, 374.167, 741.352, 369.865, 739.872, 367.999, 738.131, 366.365, 736.05, 364.998, 733.553, 363.929, 730.562, 363.192, 726.997, 362.818, 723.676, 362.36, 720.535, 361.244, 719.488, 360.696, 716.591, 358.611, 714.4, 356.07, 713.006, 353.126, 712.499, 349.833, 712.458, 346.459, 714.234, 344.218, 715.51, 341.792, 716.42, 338.622, 717.099, 334.151, 717.951, 334.255, 718.852, 333.604, 720.372, 330.07, 721.435, 326.363, 721.524, 323.412, 721.043, 322.51, 720.125, 322.145, 718.372, 322.145, 718.49, 316.252, 717.688, 311.015, 716.79, 308.57, 715.554, 306.347, 713.975, 304.38, 712.048, 302.699, 709.766, 301.336, 707.124, 300.323, 704.117, 299.692, 700.74, 299.475]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5094395",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1220.555, 299.475, 1217.177, 299.692, 1214.169, 300.323, 1211.527, 301.336, 1209.243, 302.699, 1207.315, 304.38, 1205.735, 306.347, 1204.498, 308.57, 1203.6, 311.015, 1202.809, 316.244, 1202.922, 322.145, 1201.17, 322.145, 1200.252, 322.51, 1199.772, 323.412, 1199.864, 326.363, 1200.926, 330.07, 1202.436, 333.604, 1203.329, 334.239, 1204.188, 334.151, 1204.859, 338.622, 1205.773, 341.792, 1207.056, 344.218, 1208.836, 346.459, 1208.788, 349.833, 1208.272, 353.126, 1206.879, 356.07, 1204.693, 358.611, 1201.799, 360.696, 1200.752, 361.244, 1197.604, 362.368, 1194.291, 362.818, 1190.726, 363.192, 1187.734, 363.929, 1185.237, 364.998, 1183.157, 366.365, 1181.416, 367.999, 1179.935, 369.865, 1177.445, 374.167, 1220.555, 374.167, 1263.658, 374.167, 1261.167, 369.865, 1259.687, 367.999, 1257.946, 366.365, 1255.865, 364.998, 1253.369, 363.929, 1250.377, 363.192, 1246.812, 362.818, 1243.491, 362.36, 1240.351, 361.244, 1239.303, 360.696, 1236.406, 358.611, 1234.215, 356.07, 1232.821, 353.126, 1232.314, 349.833, 1232.273, 346.459, 1234.049, 344.218, 1235.325, 341.792, 1236.235, 338.622, 1236.914, 334.151, 1237.766, 334.255, 1238.667, 333.604, 1240.187, 330.07, 1241.25, 326.363, 1241.34, 323.412, 1240.858, 322.51, 1239.94, 322.145, 1238.187, 322.145, 1238.305, 316.252, 1237.503, 311.015, 1236.605, 308.57, 1235.369, 306.347, 1233.79, 304.38, 1231.863, 302.699, 1229.581, 301.336, 1226.939, 300.323, 1223.932, 299.692, 1220.555, 299.475]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5094392",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [959.999, 735.967, 956.621, 736.185, 953.614, 736.816, 950.971, 737.828, 948.688, 739.191, 946.759, 740.872, 945.179, 742.84, 943.943, 745.062, 943.044, 747.508, 942.254, 752.736, 942.367, 758.638, 940.614, 758.638, 939.697, 759.003, 939.217, 759.905, 939.309, 762.856, 940.371, 766.562, 941.881, 770.096, 942.773, 770.732, 943.633, 770.644, 944.304, 775.114, 945.218, 778.284, 946.501, 780.711, 948.281, 782.951, 948.233, 786.326, 947.717, 789.619, 946.324, 792.562, 944.138, 795.103, 941.244, 797.189, 940.197, 797.736, 937.048, 798.86, 933.735, 799.311, 930.171, 799.684, 927.179, 800.422, 924.682, 801.491, 922.602, 802.858, 920.86, 804.491, 919.38, 806.358, 916.89, 810.66, 959.999, 810.66, 1003.102, 810.66, 1000.612, 806.358, 999.131, 804.491, 997.39, 802.858, 995.31, 801.491, 992.813, 800.422, 989.821, 799.684, 986.257, 799.311, 982.936, 798.852, 979.795, 797.736, 978.748, 797.189, 975.851, 795.103, 973.66, 792.562, 972.266, 789.619, 971.759, 786.326, 971.718, 782.951, 973.494, 780.711, 974.77, 778.284, 975.68, 775.114, 976.359, 770.644, 977.21, 770.748, 978.111, 770.096, 979.632, 766.562, 980.695, 762.856, 980.784, 759.905, 980.303, 759.003, 979.384, 758.638, 977.632, 758.638, 977.75, 752.744, 976.948, 747.508, 976.05, 745.062, 974.814, 742.84, 973.235, 740.872, 971.307, 739.191, 969.025, 737.828, 966.384, 736.816, 963.377, 736.185, 959.999, 735.967]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "5137044",
+      isConnectionLine: true,
+      connects: { from: "5094392", to: "5094931" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [938.115, 760.445, 826.477, 694.785, 714.838, 629.126]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5137128",
+      isConnectionLine: true,
+      connects: { from: "5094392", to: "5094939" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [943.004, 744.705, 833.257, 559.934, 723.51, 375.162]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5137206",
+      isConnectionLine: true,
+      connects: { from: "5094392", to: "5094913" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [959.996, 734.967, 959.996, 476.159, 959.996, 217.352]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5137275",
+      isConnectionLine: true,
+      connects: { from: "5094395", to: "5094913" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1198.707, 323.591, 1086.34, 255.533, 973.972, 187.475]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5137355",
+      isConnectionLine: true,
+      connects: { from: "5094395", to: "5094939" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1203.557, 336.821, 960.647, 336.821, 717.738, 336.821]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5137426",
+      isConnectionLine: true,
+      connects: { from: "5094395", to: "5094931" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1206.158, 344.685, 964.393, 476.778, 722.627, 608.871]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "5149772",
+      subpaths: [
+        [1005.791, 439.702, 1010.236, 444.599, 1014.089, 449.817, 1017.349, 455.309, 1020.016, 461.031, 1022.091, 466.936, 1023.573, 472.978, 1024.462, 479.112, 1024.758, 485.292, 1024.462, 491.472, 1023.573, 497.607, 1022.091, 503.649, 1020.016, 509.554, 1017.349, 515.276, 1014.089, 520.768, 1010.236, 525.986, 1005.791, 530.883, 1000.873, 535.308, 995.632, 539.144, 990.115, 542.39, 984.369, 545.046, 978.438, 547.111, 972.368, 548.586, 966.207, 549.471, 960, 549.767, 953.793, 549.471, 947.632, 548.586, 941.562, 547.111, 935.631, 545.046, 929.885, 542.39, 924.368, 539.144, 919.127, 535.308, 914.209, 530.883, 909.764, 525.986, 905.911, 520.768, 902.651, 515.276, 899.984, 509.554, 897.909, 503.649, 896.427, 497.607, 895.538, 491.472, 895.242, 485.292, 895.538, 479.112, 896.427, 472.978, 897.909, 466.936, 899.984, 461.031, 902.651, 455.309, 905.911, 449.817, 909.764, 444.599, 914.209, 439.702, 919.127, 435.276, 924.368, 431.441, 929.885, 428.195, 935.631, 425.539, 941.562, 423.474, 947.632, 421.999, 953.793, 421.113, 960, 420.818, 966.207, 421.113, 972.368, 421.999, 978.438, 423.474, 984.369, 425.539, 990.115, 428.195, 995.632, 431.441, 1000.873, 435.276, 1005.791, 439.702]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "5149786",
+      subpaths: [
+        [995.06, 450.315, 998.464, 454.064, 1001.414, 458.059, 1003.91, 462.265, 1005.953, 466.646, 1007.541, 471.168, 1008.676, 475.794, 1009.357, 480.491, 1009.584, 485.224, 1009.357, 489.956, 1008.676, 494.653, 1007.541, 499.279, 1005.953, 503.801, 1003.91, 508.182, 1001.414, 512.388, 998.464, 516.383, 995.06, 520.132, 991.294, 523.521, 987.281, 526.458, 983.057, 528.944, 978.657, 530.977, 974.115, 532.558, 969.468, 533.688, 964.751, 534.366, 959.998, 534.592, 955.245, 534.366, 950.527, 533.688, 945.88, 532.558, 941.338, 530.977, 936.938, 528.944, 932.714, 526.458, 928.701, 523.521, 924.935, 520.132, 921.531, 516.383, 918.581, 512.388, 916.085, 508.182, 914.043, 503.801, 912.454, 499.279, 911.319, 494.653, 910.639, 489.956, 910.412, 485.224, 910.639, 480.491, 911.319, 475.794, 912.454, 471.168, 914.043, 466.646, 916.085, 462.265, 918.581, 458.059, 921.531, 454.064, 924.935, 450.315, 928.701, 446.926, 932.714, 443.989, 936.938, 441.503, 941.338, 439.47, 945.88, 437.889, 950.527, 436.759, 955.245, 436.081, 959.998, 435.855, 964.751, 436.081, 969.468, 436.759, 974.115, 437.889, 978.657, 439.47, 983.057, 441.503, 987.281, 443.989, 991.294, 446.926, 995.06, 450.315]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      fill: "#000000",
+      opacity: 1
+    },
+    {
+      id: "5149776",
+      subpaths: [
+        [930.917, 525.371, 959.598, 457.943]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "5149779",
+      subpaths: [
+        [989.051, 525.305, 959.575, 458.008]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    },
+    {
+      id: "5149785",
+      subpaths: [
+        [982.754, 445.779, 986.878, 450.805, 989.823, 456.378, 991.591, 462.316, 992.18, 468.436, 991.591, 474.555, 989.823, 480.493, 986.878, 486.066, 982.754, 491.092, 977.705, 495.198, 972.108, 498.13, 966.144, 499.89, 959.998, 500.477, 953.851, 499.89, 947.887, 498.13, 942.29, 495.198, 937.241, 491.092, 933.117, 486.066, 930.172, 480.493, 928.405, 474.555, 927.815, 468.436, 928.405, 462.316, 930.172, 456.378, 933.117, 450.805, 937.241, 445.779, 942.29, 441.673, 947.887, 438.741, 953.851, 436.981, 959.998, 436.395, 966.144, 436.981, 972.108, 438.741, 977.705, 441.673, 982.754, 445.779]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 3,
+      opacity: 1
+    }
+  ],
+  texts: [
+    {
+      kind: "text",
+      id: "5093770",
+      content: "Social Organism",
+      frame: { position: { x: 960, y: 957.179 }, size: { width: 0, height: 0 }, angle: 0 },
+      align: "center",
+      verticalAlign: "middle",
+      padding: { left: 4, top: 4, right: 4, bottom: 4 },
+      lineSpacing: 1,
+      fontSize: 40,
+      fontName: "HelveticaNeue",
+      bold: false,
+      italic: false,
+      color: { r: 1, g: 1, b: 1, a: 1 },
+      opacity: 1
+    }
+  ],
+  groups: [{ id: "5149755", members: ["5149772", "5149786", "5149776", "5149779", "5149785"] }],
+  builds: [
+    { id: "5095181", target: "5094945", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5147682", target: "5093770", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5137353", target: "5137355", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5114880", target: "5093848", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5095197", target: "5094366", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5137269", target: "5137275", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5095190", target: "5094923", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5095178", target: "5094973", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5137422", target: "5137426", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5095182", target: "5094975", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5137042", target: "5137044", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5095199", target: "5094963", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5137197", target: "5137206", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5095196", target: "5094367", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5095192", target: "5094966", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 },
+    { id: "5160213", target: "5149755", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
+    { id: "5137121", target: "5137128", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 0, direction: 53 },
+    { id: "5095200", target: "5094359", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 2, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 53 }
+  ],
+  buildChunks: [
+    { build: "5095178", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095181", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095182", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095190", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095192", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095196", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095197", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095199", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5095200", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137042", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137121", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137197", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137269", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137353", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5137422", duration: 2, delay: 0, automatic: true, chunkId: 1 },
+    { build: "5114880", duration: 1, delay: 0, automatic: false, chunkId: 1 },
+    { build: "5160213", duration: 1, delay: 0, automatic: false, chunkId: 1 },
+    { build: "5147682", duration: 1, delay: 0, automatic: false, chunkId: 1 }
+  ],
+  transition: { effect: "apple:magic-move-implied-motion-path", duration: 2, delay: 0.5, fadeUnmatched: true }
+};
+// vocabulary/Slides/assets/pl02/slide14.ts
+var slide14 = {
+  index: 14,
+  id: "4541201",
+  source: "refs/pitch/pl02/key/Index/Slide-4541201.iwa",
+  hash: "104af7e797e8c131",
+  shapes: [
+    {
+      id: "4541748",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [574.056, 260.064, 571.28, 260.242, 568.808, 260.761, 566.637, 261.593, 564.76, 262.713, 563.175, 264.095, 561.877, 265.712, 560.122, 269.548, 559.473, 273.845, 559.565, 278.695, 558.125, 278.695, 557.371, 278.994, 556.977, 279.736, 557.053, 282.161, 557.925, 285.207, 559.166, 288.111, 559.9, 288.633, 560.606, 288.561, 561.157, 292.235, 561.908, 294.84, 562.963, 296.834, 564.426, 298.675, 564.386, 301.449, 563.962, 304.155, 562.817, 306.574, 561.021, 308.662, 558.643, 310.376, 557.782, 310.826, 555.195, 311.75, 552.472, 312.12, 549.543, 312.427, 547.084, 313.033, 545.032, 313.911, 543.323, 315.035, 540.675, 317.911, 538.628, 321.446, 574.056, 321.446, 609.478, 321.446, 607.431, 317.911, 604.784, 315.035, 603.074, 313.911, 601.022, 313.033, 598.564, 312.427, 595.634, 312.12, 592.905, 311.743, 590.324, 310.826, 589.464, 310.376, 587.083, 308.662, 585.282, 306.574, 584.137, 304.155, 583.72, 301.449, 583.686, 298.675, 585.146, 296.834, 586.194, 294.84, 586.942, 292.235, 587.5, 288.561, 588.2, 288.647, 588.94, 288.111, 590.19, 285.207, 591.063, 282.161, 591.137, 279.736, 590.741, 278.994, 589.987, 278.695, 588.547, 278.695, 588.643, 273.851, 587.984, 269.548, 586.231, 265.712, 584.933, 264.095, 583.349, 262.713, 581.474, 261.593, 579.303, 260.761, 576.832, 260.242, 574.056, 260.064]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541702",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [788.181, 389.753, 785.405, 389.931, 782.933, 390.45, 780.761, 391.282, 778.885, 392.402, 777.3, 393.784, 776.002, 395.401, 774.247, 399.237, 773.597, 403.534, 773.69, 408.384, 772.25, 408.384, 771.496, 408.683, 771.102, 409.425, 771.178, 411.85, 772.05, 414.896, 773.291, 417.8, 774.024, 418.322, 774.731, 418.25, 775.282, 421.924, 776.033, 424.529, 777.088, 426.523, 778.55, 428.364, 778.511, 431.138, 778.087, 433.844, 776.942, 436.263, 775.146, 438.351, 772.768, 440.065, 771.907, 440.515, 769.319, 441.439, 766.597, 441.809, 763.667, 442.116, 761.209, 442.722, 759.157, 443.6, 757.447, 444.724, 754.8, 447.6, 752.753, 451.135, 788.181, 451.135, 823.603, 451.135, 821.556, 447.6, 818.909, 444.724, 817.199, 443.6, 815.147, 442.722, 812.689, 442.116, 809.759, 441.809, 807.03, 441.432, 804.449, 440.515, 803.588, 440.065, 801.208, 438.351, 799.407, 436.263, 798.261, 433.844, 797.845, 431.138, 797.811, 428.364, 799.27, 426.523, 800.319, 424.529, 801.067, 421.924, 801.625, 418.25, 802.325, 418.336, 803.065, 417.8, 804.315, 414.896, 805.188, 411.85, 805.262, 409.425, 804.866, 408.683, 804.112, 408.384, 802.671, 408.384, 802.768, 403.54, 802.109, 399.237, 800.355, 395.401, 799.058, 393.784, 797.474, 392.402, 795.599, 391.282, 793.428, 390.45, 790.957, 389.931, 788.181, 389.753]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541750",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [788.181, 623.153, 785.405, 623.332, 782.933, 623.85, 780.761, 624.683, 778.885, 625.803, 777.3, 627.184, 776.002, 628.801, 774.247, 632.637, 773.597, 636.934, 773.69, 641.784, 772.25, 641.784, 771.496, 642.084, 771.102, 642.825, 771.178, 645.25, 772.05, 648.297, 773.291, 651.201, 774.024, 651.723, 774.731, 651.651, 775.282, 655.324, 776.033, 657.93, 777.088, 659.924, 778.55, 661.765, 778.511, 664.538, 778.087, 667.244, 776.942, 669.663, 775.146, 671.751, 772.768, 673.465, 771.907, 673.915, 769.319, 674.839, 766.597, 675.209, 763.667, 675.516, 761.209, 676.122, 759.157, 677, 757.447, 678.124, 754.8, 681, 752.753, 684.536, 788.181, 684.536, 823.603, 684.536, 821.556, 681, 818.909, 678.124, 817.199, 677, 815.147, 676.122, 812.689, 675.516, 809.759, 675.209, 807.03, 674.832, 804.449, 673.915, 803.588, 673.465, 801.208, 671.751, 799.407, 669.663, 798.261, 667.244, 797.845, 664.538, 797.811, 661.765, 799.27, 659.924, 800.319, 657.93, 801.067, 655.324, 801.625, 651.651, 802.325, 651.736, 803.065, 651.201, 804.315, 648.297, 805.188, 645.25, 805.262, 642.825, 804.866, 642.084, 804.112, 641.784, 802.671, 641.784, 802.768, 636.941, 802.109, 632.637, 800.355, 628.801, 799.058, 627.184, 797.474, 625.803, 795.599, 624.683, 793.428, 623.85, 790.957, 623.332, 788.181, 623.153]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541763",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [574.056, 748.463, 571.28, 748.642, 568.808, 749.16, 566.637, 749.993, 564.76, 751.113, 563.175, 752.494, 561.877, 754.111, 560.122, 757.947, 559.473, 762.244, 559.565, 767.094, 558.125, 767.094, 557.371, 767.394, 556.977, 768.135, 557.053, 770.56, 557.925, 773.607, 559.166, 776.511, 559.9, 777.033, 560.606, 776.961, 561.157, 780.634, 561.908, 783.239, 562.963, 785.234, 564.426, 787.075, 564.386, 789.848, 563.962, 792.554, 562.817, 794.973, 561.021, 797.061, 558.643, 798.775, 557.782, 799.225, 555.195, 800.149, 552.472, 800.519, 549.543, 800.826, 547.084, 801.432, 545.032, 802.31, 543.323, 803.434, 540.675, 806.31, 538.628, 809.846, 574.056, 809.846, 609.478, 809.846, 607.431, 806.31, 604.784, 803.434, 603.074, 802.31, 601.022, 801.432, 598.564, 800.826, 595.634, 800.519, 592.905, 800.142, 590.324, 799.225, 589.464, 798.775, 587.083, 797.061, 585.282, 794.973, 584.137, 792.554, 583.72, 789.848, 583.686, 787.075, 585.146, 785.234, 586.194, 783.239, 586.942, 780.634, 587.5, 776.961, 588.2, 777.046, 588.94, 776.511, 590.19, 773.606, 591.063, 770.56, 591.137, 768.135, 590.741, 767.394, 589.987, 767.094, 588.547, 767.094, 588.643, 762.251, 587.984, 757.947, 586.231, 754.111, 584.933, 752.494, 583.349, 751.113, 581.474, 749.993, 579.303, 749.16, 576.832, 748.642, 574.056, 748.463]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541651",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [360.996, 623.153, 358.22, 623.332, 355.748, 623.85, 353.577, 624.683, 351.7, 625.803, 350.115, 627.184, 348.817, 628.801, 347.062, 632.637, 346.413, 636.934, 346.505, 641.784, 345.065, 641.784, 344.311, 642.084, 343.917, 642.825, 343.993, 645.25, 344.865, 648.297, 346.106, 651.201, 346.84, 651.723, 347.546, 651.651, 348.097, 655.324, 348.848, 657.93, 349.903, 659.924, 351.366, 661.765, 351.326, 664.538, 350.902, 667.244, 349.757, 669.663, 347.961, 671.751, 345.583, 673.465, 344.722, 673.915, 342.135, 674.839, 339.412, 675.209, 336.483, 675.516, 334.024, 676.122, 331.972, 677, 330.263, 678.124, 327.615, 681, 325.568, 684.536, 360.996, 684.536, 396.418, 684.536, 394.371, 681, 391.724, 678.124, 390.014, 677, 387.962, 676.122, 385.504, 675.516, 382.574, 675.209, 379.845, 674.832, 377.264, 673.915, 376.404, 673.465, 374.023, 671.751, 372.222, 669.663, 371.077, 667.244, 370.66, 664.538, 370.626, 661.765, 372.086, 659.924, 373.134, 657.93, 373.882, 655.324, 374.44, 651.651, 375.14, 651.736, 375.88, 651.201, 377.13, 648.297, 378.003, 645.25, 378.077, 642.825, 377.681, 642.084, 376.927, 641.784, 375.487, 641.784, 375.583, 636.941, 374.924, 632.637, 373.171, 628.801, 371.873, 627.184, 370.289, 625.803, 368.414, 624.683, 366.243, 623.85, 363.772, 623.332, 360.996, 623.153]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541682",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [360.996, 389.753, 358.22, 389.931, 355.748, 390.45, 353.577, 391.282, 351.7, 392.402, 350.115, 393.784, 348.817, 395.401, 347.062, 399.237, 346.413, 403.534, 346.505, 408.384, 345.065, 408.384, 344.311, 408.683, 343.917, 409.425, 343.993, 411.85, 344.865, 414.896, 346.106, 417.8, 346.84, 418.322, 347.546, 418.25, 348.097, 421.924, 348.848, 424.529, 349.903, 426.523, 351.366, 428.364, 351.326, 431.138, 350.902, 433.844, 349.757, 436.263, 347.961, 438.351, 345.583, 440.065, 344.722, 440.515, 342.135, 441.439, 339.412, 441.809, 336.483, 442.116, 334.024, 442.722, 331.972, 443.6, 330.263, 444.724, 327.615, 447.6, 325.568, 451.135, 360.996, 451.135, 396.418, 451.135, 394.371, 447.6, 391.724, 444.724, 390.014, 443.6, 387.962, 442.722, 385.504, 442.116, 382.574, 441.809, 379.845, 441.432, 377.264, 440.515, 376.404, 440.065, 374.023, 438.351, 372.222, 436.263, 371.077, 433.844, 370.66, 431.138, 370.626, 428.364, 372.086, 426.523, 373.134, 424.529, 373.882, 421.924, 374.44, 418.25, 375.14, 418.336, 375.88, 417.8, 377.13, 414.896, 378.003, 411.85, 378.077, 409.425, 377.681, 408.683, 376.927, 408.384, 375.487, 408.384, 375.583, 403.54, 374.924, 399.237, 373.171, 395.401, 371.873, 393.784, 370.289, 392.402, 368.414, 391.282, 366.243, 390.45, 363.772, 389.931, 360.996, 389.753]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4541697",
+      isConnectionLine: true,
+      connects: { from: "4541682", to: "4541748" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [379.415, 409.231, 470.788, 353.613, 562.16, 297.994]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541680",
+      isConnectionLine: true,
+      connects: { from: "4541651", to: "4541682" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [360.993, 621.821, 360.993, 537.15, 360.993, 452.478]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541710",
+      isConnectionLine: true,
+      connects: { from: "4541651", to: "4541763" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [373.007, 660.91, 464.305, 714.607, 555.603, 768.303]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541657",
+      isConnectionLine: true,
+      connects: { from: "4541750", to: "4541763" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [776.141, 660.889, 684.341, 714.612, 592.541, 768.335]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541757",
+      isConnectionLine: true,
+      connects: { from: "4541750", to: "4541702" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [788.178, 621.821, 788.178, 537.15, 788.178, 452.478]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541752",
+      isConnectionLine: true,
+      connects: { from: "4541702", to: "4541748" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [769.776, 409.298, 677.868, 353.633, 585.96, 297.967]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541722",
+      isConnectionLine: true,
+      connects: { from: "4541763", to: "4541748" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [574.053, 747.131, 574.053, 534.96, 574.053, 322.789]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541758",
+      isConnectionLine: true,
+      connects: { from: "4541750", to: "4541682" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [769.688, 643.742, 571.473, 535.444, 373.258, 427.145]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541733",
+      isConnectionLine: true,
+      connects: { from: "4541702", to: "4541651" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [775.908, 427.148, 577.712, 535.436, 379.517, 643.724]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541781",
+      isConnectionLine: true,
+      connects: { from: "4541750", to: "4541651" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [773.688, 653.844, 574.582, 653.844, 375.476, 653.844]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541764",
+      isConnectionLine: true,
+      connects: { from: "4541748", to: "4541651" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [555.256, 322.789, 465.224, 476.218, 375.193, 629.646]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541760",
+      isConnectionLine: true,
+      connects: { from: "4541682", to: "4541763" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [380.02, 452.478, 469.9, 603.801, 559.779, 755.123]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541667",
+      isConnectionLine: true,
+      connects: { from: "4541702", to: "4541763" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [769.056, 452.478, 678.71, 603.829, 588.364, 755.181]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541681",
+      isConnectionLine: true,
+      connects: { from: "4541702", to: "4541682" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [773.688, 420.444, 574.582, 420.444, 375.476, 420.444]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4541737",
+      isConnectionLine: true,
+      connects: { from: "4541750", to: "4541748" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [773.95, 629.718, 683.447, 476.254, 592.945, 322.789]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542265",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1358.592, 260.064, 1355.816, 260.242, 1353.345, 260.761, 1351.173, 261.593, 1349.297, 262.713, 1347.712, 264.095, 1346.413, 265.712, 1344.659, 269.548, 1344.009, 273.844, 1344.102, 278.695, 1342.662, 278.695, 1341.908, 278.994, 1341.513, 279.736, 1341.589, 282.161, 1342.461, 285.207, 1343.702, 288.111, 1344.436, 288.633, 1345.142, 288.561, 1345.694, 292.235, 1346.445, 294.84, 1347.499, 296.834, 1348.962, 298.675, 1348.923, 301.449, 1348.499, 304.155, 1347.354, 306.574, 1345.558, 308.662, 1343.179, 310.376, 1342.319, 310.826, 1339.731, 311.75, 1337.008, 312.12, 1334.079, 312.427, 1331.62, 313.033, 1329.568, 313.911, 1327.859, 315.035, 1325.211, 317.911, 1323.165, 321.446, 1358.592, 321.446, 1394.014, 321.446, 1391.968, 317.911, 1389.32, 315.035, 1387.611, 313.911, 1385.559, 313.033, 1383.1, 312.427, 1380.171, 312.12, 1377.441, 311.743, 1374.861, 310.826, 1374, 310.376, 1371.619, 308.662, 1369.819, 306.574, 1368.673, 304.155, 1368.257, 301.449, 1368.223, 298.675, 1369.682, 296.834, 1370.731, 294.84, 1371.479, 292.235, 1372.037, 288.561, 1372.736, 288.647, 1373.477, 288.111, 1374.726, 285.207, 1375.6, 282.161, 1375.673, 279.736, 1375.278, 278.994, 1374.523, 278.695, 1373.083, 278.695, 1373.18, 273.851, 1372.52, 269.548, 1370.767, 265.712, 1369.469, 264.095, 1367.885, 262.713, 1366.01, 261.593, 1363.839, 260.761, 1361.368, 260.242, 1358.592, 260.064]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542316",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1572.717, 389.753, 1569.941, 389.931, 1567.47, 390.45, 1565.298, 391.282, 1563.422, 392.402, 1561.836, 393.784, 1560.538, 395.401, 1558.784, 399.237, 1558.134, 403.534, 1558.227, 408.384, 1556.787, 408.384, 1556.032, 408.683, 1555.638, 409.425, 1555.714, 411.85, 1556.586, 414.896, 1557.827, 417.8, 1558.561, 418.322, 1559.267, 418.25, 1559.819, 421.924, 1560.57, 424.529, 1561.624, 426.523, 1563.087, 428.364, 1563.048, 431.138, 1562.623, 433.844, 1561.479, 436.263, 1559.682, 438.351, 1557.304, 440.065, 1556.443, 440.515, 1553.856, 441.439, 1551.133, 441.809, 1548.204, 442.116, 1545.745, 442.722, 1543.693, 443.6, 1541.984, 444.724, 1539.336, 447.6, 1537.29, 451.135, 1572.717, 451.135, 1608.139, 451.135, 1606.093, 447.6, 1603.445, 444.724, 1601.736, 443.6, 1599.684, 442.722, 1597.225, 442.116, 1594.296, 441.809, 1591.566, 441.432, 1588.985, 440.515, 1588.125, 440.065, 1585.744, 438.351, 1583.944, 436.263, 1582.798, 433.844, 1582.381, 431.138, 1582.348, 428.364, 1583.807, 426.523, 1584.855, 424.529, 1585.604, 421.924, 1586.162, 418.25, 1586.861, 418.336, 1587.602, 417.8, 1588.851, 414.896, 1589.725, 411.85, 1589.798, 409.425, 1589.403, 408.683, 1588.648, 408.384, 1587.208, 408.384, 1587.305, 403.54, 1586.645, 399.237, 1584.892, 395.401, 1583.594, 393.784, 1582.01, 392.402, 1580.135, 391.282, 1577.964, 390.45, 1575.493, 389.931, 1572.717, 389.753]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542313",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1572.717, 623.153, 1569.941, 623.332, 1567.47, 623.85, 1565.298, 624.683, 1563.422, 625.803, 1561.836, 627.184, 1560.538, 628.801, 1558.784, 632.637, 1558.134, 636.934, 1558.227, 641.784, 1556.787, 641.784, 1556.032, 642.084, 1555.638, 642.825, 1555.714, 645.25, 1556.586, 648.297, 1557.827, 651.201, 1558.561, 651.723, 1559.267, 651.651, 1559.819, 655.324, 1560.57, 657.929, 1561.624, 659.924, 1563.087, 661.765, 1563.048, 664.538, 1562.623, 667.244, 1561.479, 669.663, 1559.682, 671.751, 1557.304, 673.465, 1556.443, 673.915, 1553.856, 674.839, 1551.133, 675.209, 1548.204, 675.516, 1545.745, 676.122, 1543.693, 677, 1541.984, 678.124, 1539.336, 681, 1537.29, 684.536, 1572.717, 684.536, 1608.139, 684.536, 1606.093, 681, 1603.445, 678.124, 1601.736, 677, 1599.684, 676.122, 1597.225, 675.516, 1594.296, 675.209, 1591.566, 674.832, 1588.985, 673.915, 1588.125, 673.465, 1585.744, 671.751, 1583.944, 669.663, 1582.798, 667.244, 1582.381, 664.538, 1582.348, 661.765, 1583.807, 659.924, 1584.855, 657.929, 1585.604, 655.324, 1586.162, 651.651, 1586.861, 651.736, 1587.602, 651.201, 1588.851, 648.297, 1589.725, 645.25, 1589.798, 642.825, 1589.403, 642.084, 1588.648, 641.784, 1587.208, 641.784, 1587.305, 636.941, 1586.645, 632.637, 1584.892, 628.801, 1583.594, 627.184, 1582.01, 625.803, 1580.135, 624.683, 1577.964, 623.85, 1575.493, 623.332, 1572.717, 623.153]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542279",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1358.592, 748.463, 1355.816, 748.642, 1353.345, 749.16, 1351.173, 749.993, 1349.297, 751.113, 1347.712, 752.494, 1346.413, 754.111, 1344.659, 757.947, 1344.009, 762.244, 1344.102, 767.094, 1342.662, 767.094, 1341.908, 767.394, 1341.513, 768.135, 1341.589, 770.56, 1342.461, 773.606, 1343.702, 776.511, 1344.436, 777.033, 1345.142, 776.961, 1345.694, 780.634, 1346.445, 783.239, 1347.499, 785.234, 1348.962, 787.075, 1348.923, 789.848, 1348.499, 792.554, 1347.354, 794.973, 1345.558, 797.061, 1343.179, 798.775, 1342.319, 799.225, 1339.731, 800.149, 1337.008, 800.519, 1334.079, 800.826, 1331.62, 801.432, 1329.568, 802.31, 1327.859, 803.434, 1325.211, 806.31, 1323.165, 809.846, 1358.592, 809.846, 1394.014, 809.846, 1391.968, 806.31, 1389.32, 803.434, 1387.611, 802.31, 1385.559, 801.432, 1383.1, 800.826, 1380.171, 800.519, 1377.441, 800.142, 1374.861, 799.225, 1374, 798.775, 1371.619, 797.061, 1369.819, 794.973, 1368.673, 792.554, 1368.257, 789.848, 1368.223, 787.075, 1369.682, 785.234, 1370.731, 783.239, 1371.479, 780.634, 1372.037, 776.961, 1372.736, 777.046, 1373.477, 776.511, 1374.726, 773.606, 1375.6, 770.56, 1375.673, 768.135, 1375.278, 767.394, 1374.523, 767.094, 1373.083, 767.094, 1373.18, 762.251, 1372.52, 757.947, 1370.767, 754.111, 1369.469, 752.494, 1367.885, 751.113, 1366.01, 749.993, 1363.839, 749.16, 1361.368, 748.642, 1358.592, 748.463]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542304",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1145.532, 623.153, 1142.756, 623.332, 1140.285, 623.85, 1138.113, 624.683, 1136.237, 625.803, 1134.652, 627.184, 1133.353, 628.801, 1131.599, 632.637, 1130.949, 636.934, 1131.042, 641.784, 1129.602, 641.784, 1128.848, 642.084, 1128.453, 642.825, 1128.529, 645.25, 1129.401, 648.297, 1130.642, 651.201, 1131.376, 651.723, 1132.082, 651.651, 1132.634, 655.324, 1133.385, 657.929, 1134.439, 659.924, 1135.902, 661.765, 1135.863, 664.538, 1135.439, 667.244, 1134.294, 669.663, 1132.498, 671.751, 1130.119, 673.465, 1129.259, 673.915, 1126.671, 674.839, 1123.948, 675.209, 1121.019, 675.516, 1118.56, 676.122, 1116.508, 677, 1114.799, 678.124, 1112.151, 681, 1110.105, 684.536, 1145.532, 684.536, 1180.954, 684.536, 1178.908, 681, 1176.26, 678.124, 1174.551, 677, 1172.499, 676.122, 1170.04, 675.516, 1167.111, 675.209, 1164.381, 674.832, 1161.801, 673.915, 1160.94, 673.465, 1158.559, 671.751, 1156.759, 669.663, 1155.613, 667.244, 1155.197, 664.538, 1155.163, 661.765, 1156.622, 659.924, 1157.671, 657.929, 1158.419, 655.324, 1158.977, 651.651, 1159.676, 651.736, 1160.417, 651.201, 1161.666, 648.297, 1162.54, 645.25, 1162.613, 642.825, 1162.218, 642.084, 1161.463, 641.784, 1160.023, 641.784, 1160.12, 636.941, 1159.46, 632.637, 1157.707, 628.801, 1156.409, 627.184, 1154.825, 625.803, 1152.95, 624.683, 1150.779, 623.85, 1148.308, 623.332, 1145.532, 623.153]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542284",
+      icon: "Head with Shoulders_826",
+      subpaths: [
+        [1145.532, 389.753, 1142.756, 389.931, 1140.285, 390.45, 1138.113, 391.282, 1136.237, 392.402, 1134.652, 393.784, 1133.353, 395.401, 1131.599, 399.237, 1130.949, 403.534, 1131.042, 408.384, 1129.602, 408.384, 1128.848, 408.683, 1128.453, 409.425, 1128.529, 411.85, 1129.401, 414.896, 1130.642, 417.8, 1131.376, 418.322, 1132.082, 418.25, 1132.634, 421.924, 1133.385, 424.529, 1134.439, 426.523, 1135.902, 428.364, 1135.863, 431.138, 1135.439, 433.844, 1134.294, 436.263, 1132.498, 438.351, 1130.119, 440.065, 1129.259, 440.515, 1126.671, 441.439, 1123.948, 441.809, 1121.019, 442.116, 1118.56, 442.722, 1116.508, 443.6, 1114.799, 444.724, 1112.151, 447.6, 1110.105, 451.135, 1145.532, 451.135, 1180.954, 451.135, 1178.908, 447.6, 1176.26, 444.724, 1174.551, 443.6, 1172.499, 442.722, 1170.04, 442.116, 1167.111, 441.809, 1164.381, 441.432, 1161.801, 440.515, 1160.94, 440.065, 1158.559, 438.351, 1156.759, 436.263, 1155.613, 433.844, 1155.197, 431.138, 1155.163, 428.364, 1156.622, 426.523, 1157.671, 424.529, 1158.419, 421.924, 1158.977, 418.25, 1159.676, 418.336, 1160.417, 417.8, 1161.666, 414.896, 1162.54, 411.85, 1162.613, 409.425, 1162.218, 408.683, 1161.463, 408.384, 1160.023, 408.384, 1160.12, 403.54, 1159.46, 399.237, 1157.707, 395.401, 1156.409, 393.784, 1154.825, 392.402, 1152.95, 391.282, 1150.779, 390.45, 1148.308, 389.931, 1145.532, 389.753]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 2,
+      opacity: 1
+    },
+    {
+      id: "4542344",
+      isConnectionLine: true,
+      connects: { from: "4542284", to: "4542265" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1163.952, 409.231, 1255.324, 353.613, 1346.696, 297.994]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542338",
+      isConnectionLine: true,
+      connects: { from: "4542304", to: "4542284" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1145.53, 621.821, 1145.53, 537.15, 1145.53, 452.478]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542318",
+      isConnectionLine: true,
+      connects: { from: "4542304", to: "4542279" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1157.544, 660.91, 1248.841, 714.607, 1340.139, 768.303]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542262",
+      isConnectionLine: true,
+      connects: { from: "4542313", to: "4542279" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1560.678, 660.889, 1468.878, 714.612, 1377.078, 768.335]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542264",
+      isConnectionLine: true,
+      connects: { from: "4542313", to: "4542316" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1572.714, 621.821, 1572.714, 537.15, 1572.714, 452.478]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542286",
+      isConnectionLine: true,
+      connects: { from: "4542316", to: "4542265" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1554.312, 409.298, 1462.404, 353.633, 1370.497, 297.967]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542327",
+      isConnectionLine: true,
+      connects: { from: "4542279", to: "4542265" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1358.59, 747.131, 1358.59, 534.96, 1358.59, 322.789]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542280",
+      isConnectionLine: true,
+      connects: { from: "4542313", to: "4542284" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1554.225, 643.742, 1356.009, 535.444, 1157.794, 427.145]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542312",
+      isConnectionLine: true,
+      connects: { from: "4542316", to: "4542304" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1560.444, 427.148, 1362.249, 535.436, 1164.053, 643.724]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542295",
+      isConnectionLine: true,
+      connects: { from: "4542313", to: "4542304" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1558.224, 653.844, 1359.118, 653.844, 1160.012, 653.844]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542325",
+      isConnectionLine: true,
+      connects: { from: "4542265", to: "4542304" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1339.792, 322.789, 1249.761, 476.218, 1159.729, 629.646]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542331",
+      isConnectionLine: true,
+      connects: { from: "4542284", to: "4542279" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1164.557, 452.478, 1254.436, 603.801, 1344.316, 755.123]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542329",
+      isConnectionLine: true,
+      connects: { from: "4542316", to: "4542279" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1553.592, 452.478, 1463.246, 603.829, 1372.9, 755.181]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542297",
+      isConnectionLine: true,
+      connects: { from: "4542316", to: "4542284" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1558.224, 420.444, 1359.118, 420.444, 1160.012, 420.444]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4542342",
+      isConnectionLine: true,
+      connects: { from: "4542313", to: "4542265" },
+      lineType: "kTSDConnectionLineTypeQuadratic",
+      subpaths: [
+        [1558.486, 629.718, 1467.984, 476.254, 1377.481, 322.789]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      dash: [0.001, 2],
+      cap: "RoundCap",
+      opacity: 1
+    },
+    {
+      id: "4543753",
+      subpaths: [
+        [794.48, 324.11, 805.509, 335.687, 815.827, 347.678, 825.434, 360.054, 834.328, 372.79, 842.512, 385.856, 849.983, 399.225, 856.743, 412.87, 862.792, 426.764, 868.129, 440.878, 872.754, 455.185, 876.668, 469.657, 879.87, 484.268, 882.361, 498.988, 884.139, 513.791, 885.207, 528.65, 885.563, 543.536, 885.207, 558.422, 884.139, 573.28, 882.361, 588.084, 879.87, 602.804, 876.668, 617.415, 872.754, 631.887, 868.129, 646.194, 862.792, 660.308, 856.743, 674.201, 849.983, 687.847, 842.512, 701.216, 834.328, 714.282, 825.434, 727.017, 815.827, 739.394, 805.509, 751.385, 794.48, 762.962, 782.878, 773.968, 770.861, 784.264, 758.458, 793.85, 745.696, 802.726, 732.602, 810.892, 719.204, 818.348, 705.53, 825.094, 691.607, 831.129, 677.463, 836.455, 663.125, 841.07, 648.622, 844.976, 633.98, 848.171, 619.228, 850.656, 604.394, 852.431, 589.503, 853.496, 574.586, 853.852, 559.668, 853.496, 544.778, 852.431, 529.943, 850.656, 515.191, 848.171, 500.549, 844.976, 486.046, 841.07, 471.709, 836.455, 457.565, 831.129, 443.642, 825.094, 429.967, 818.348, 416.569, 810.892, 403.475, 802.726, 390.713, 793.85, 378.31, 784.264, 366.294, 773.968, 354.692, 762.962, 343.662, 751.385, 333.344, 739.394, 323.738, 727.017, 314.843, 714.282, 306.66, 701.216, 299.188, 687.847, 292.428, 674.201, 286.379, 660.308, 281.042, 646.194, 276.417, 631.887, 272.503, 617.415, 269.301, 602.804, 266.811, 588.084, 265.032, 573.28, 263.964, 558.422, 263.609, 543.536, 263.964, 528.65, 265.032, 513.791, 266.811, 498.988, 269.301, 484.268, 272.503, 469.657, 276.417, 455.185, 281.042, 440.878, 286.379, 426.764, 292.428, 412.87, 299.188, 399.225, 306.66, 385.856, 314.843, 372.79, 323.738, 360.054, 333.344, 347.678, 343.662, 335.687, 354.692, 324.11, 366.294, 313.104, 378.31, 302.807, 390.713, 293.221, 403.475, 284.346, 416.569, 276.18, 429.967, 268.724, 443.642, 261.978, 457.565, 255.943, 471.709, 250.617, 486.046, 246.002, 500.549, 242.096, 515.191, 238.901, 529.943, 236.416, 544.778, 234.64, 559.668, 233.575, 574.586, 233.22, 589.503, 233.575, 604.394, 234.64, 619.228, 236.416, 633.98, 238.901, 648.622, 242.096, 663.125, 246.002, 677.463, 250.617, 691.607, 255.943, 705.53, 261.978, 719.204, 268.724, 732.602, 276.18, 745.696, 284.346, 758.458, 293.221, 770.861, 302.807, 782.878, 313.104, 794.48, 324.11]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 5,
+      opacity: 1
+    },
+    {
+      id: "4544020",
+      subpaths: [
+        [1579.016, 315.528, 1590.046, 327.106, 1600.364, 339.096, 1609.97, 351.473, 1618.865, 364.208, 1627.048, 377.275, 1634.52, 390.644, 1641.28, 404.289, 1647.328, 418.183, 1652.665, 432.297, 1657.29, 446.604, 1661.204, 461.076, 1664.406, 475.686, 1666.897, 490.407, 1668.676, 505.21, 1669.743, 520.069, 1670.099, 534.955, 1669.743, 549.841, 1668.676, 564.699, 1666.897, 579.503, 1664.406, 594.223, 1661.204, 608.833, 1657.29, 623.306, 1652.665, 637.613, 1647.328, 651.727, 1641.28, 665.62, 1634.52, 679.265, 1627.048, 692.635, 1618.865, 705.701, 1609.97, 718.436, 1600.364, 730.813, 1590.046, 742.804, 1579.016, 754.381, 1567.414, 765.387, 1555.398, 775.683, 1542.995, 785.269, 1530.232, 794.145, 1517.138, 802.311, 1503.74, 809.767, 1490.066, 816.512, 1476.143, 822.548, 1461.999, 827.874, 1447.661, 832.489, 1433.158, 836.394, 1418.517, 839.59, 1403.765, 842.075, 1388.93, 843.85, 1374.04, 844.915, 1359.122, 845.27, 1344.204, 844.915, 1329.314, 843.85, 1314.479, 842.075, 1299.727, 839.59, 1285.086, 836.394, 1270.583, 832.489, 1256.245, 827.874, 1242.101, 822.548, 1228.178, 816.512, 1214.504, 809.767, 1201.106, 802.311, 1188.012, 794.145, 1175.249, 785.269, 1162.846, 775.683, 1150.83, 765.387, 1139.228, 754.381, 1128.198, 742.804, 1117.88, 730.813, 1108.274, 718.436, 1099.379, 705.701, 1091.196, 692.635, 1083.724, 679.265, 1076.964, 665.62, 1070.916, 651.727, 1065.579, 637.613, 1060.954, 623.306, 1057.04, 608.833, 1053.838, 594.223, 1051.347, 579.503, 1049.568, 564.699, 1048.501, 549.841, 1048.145, 534.955, 1048.501, 520.069, 1049.568, 505.21, 1051.347, 490.407, 1053.838, 475.686, 1057.04, 461.076, 1060.954, 446.604, 1065.579, 432.297, 1070.916, 418.183, 1076.964, 404.289, 1083.724, 390.644, 1091.196, 377.275, 1099.379, 364.208, 1108.274, 351.473, 1117.88, 339.096, 1128.198, 327.106, 1139.228, 315.528, 1150.83, 304.522, 1162.846, 294.226, 1175.249, 284.64, 1188.012, 275.764, 1201.106, 267.599, 1214.504, 260.143, 1228.178, 253.397, 1242.101, 247.361, 1256.245, 242.036, 1270.583, 237.42, 1285.086, 233.515, 1299.727, 230.32, 1314.479, 227.834, 1329.314, 226.059, 1344.204, 224.994, 1359.122, 224.639, 1374.04, 224.994, 1388.93, 226.059, 1403.765, 227.834, 1418.517, 230.32, 1433.158, 233.515, 1447.661, 237.42, 1461.999, 242.036, 1476.143, 247.361, 1490.066, 253.397, 1503.74, 260.143, 1517.138, 267.599, 1530.232, 275.764, 1542.995, 284.64, 1555.398, 294.226, 1567.414, 304.522, 1579.016, 315.528]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 5,
+      opacity: 1
+    },
+    {
+      id: "4544154",
+      subpaths: [
+        [911.854, 534.955, 949.254, 507.317, 949.254, 512.955, 984.454, 512.955, 984.454, 507.317, 1021.854, 534.955, 984.454, 562.593, 984.454, 556.955, 949.254, 556.955, 949.254, 562.593, 911.854, 534.955]
+      ],
+      closed: [1],
+      stroke: "#ffffff",
+      strokeWidth: 5,
+      opacity: 1
+    }
+  ],
+  texts: [],
+  groups: [{ id: "4541643", members: ["4541748", "4541702", "4541750", "4541763", "4541651", "4541682", "4541697", "4541680", "4541710", "4541657", "4541757", "4541752", "4541722", "4541758", "4541733", "4541781", "4541764", "4541760", "4541667", "4541681", "4541737"] }, { id: "4541642", members: ["4541643"] }, { id: "4542261", members: ["4542265", "4542316", "4542313", "4542279", "4542304", "4542284", "4542344", "4542338", "4542318", "4542262", "4542264", "4542286", "4542327", "4542280", "4542312", "4542295", "4542325", "4542331", "4542329", "4542297", "4542342"] }, { id: "4543714", members: ["4543753"] }, { id: "4544011", members: ["4544020"] }],
+  builds: [],
+  transition: { effect: "com.apple.iWork.Keynote.BLTFadeThruColor", duration: 1.5, delay: 0.5 }
+};
 // demo/pl02/Arc01.ts
 var SLIDE02 = [
   { build: "4880359", at: 2.4 },
@@ -69899,6 +72354,116 @@ class Arc01Dream extends Dream {
     const clip = __dt(this.play({ tracks: [] }, 0), "core/demo/pl02/Arc01.ts:18738:18766");
     clip.start = until;
     this.#now = Math.max(this.#now, until);
+  }
+}
+if (false)
+  ;
+
+// demo/pl02/Mesh01.ts
+var SLIDE07 = [
+  { build: "4898956", at: 136.4 },
+  { build: "4899602", at: 139.8 },
+  { build: "4899603", at: 139.8 },
+  { build: "4899360", at: 151.2 },
+  { build: "4899359", at: 151.2 },
+  { build: "4902536", at: 161.6 },
+  { build: "4902694", at: 161.6 },
+  { build: "4902695", at: 161.6 },
+  { build: "4902699", at: 161.6 },
+  { build: "4902700", at: 161.6 }
+];
+var SLIDE08 = [
+  { build: "4108627", at: 164.73 },
+  { build: "4108628", at: 165.21 },
+  { build: "4108629", at: 166.72 },
+  { build: "4108630", at: 166.31 },
+  { build: "4108631", at: 166.72 },
+  { build: "4108632", at: 167.34 },
+  { build: "4108633", at: 167.62 },
+  { build: "4108634", at: 168.33 },
+  { build: "4108635", at: 168.74 },
+  { build: "4108636", at: 169.24 }
+];
+var SLIDE09 = [
+  { build: "5095178", at: 172.08 },
+  { build: "5095181", at: 172.08 },
+  { build: "5095182", at: 172.08 },
+  { build: "5095190", at: 172.08 },
+  { build: "5095192", at: 172.08 },
+  { build: "5095196", at: 172.08 },
+  { build: "5095197", at: 172.08 },
+  { build: "5095199", at: 172.08 },
+  { build: "5095200", at: 172.08 },
+  { build: "5137042", at: 172.08 },
+  { build: "5137121", at: 172.08 },
+  { build: "5137197", at: 172.08 },
+  { build: "5137269", at: 172.08 },
+  { build: "5137353", at: 172.08 },
+  { build: "5137422", at: 172.08 },
+  { build: "5114880", at: 174.79 },
+  { build: "5160213", at: 184.32 },
+  { build: "5147682", at: 186.25 }
+];
+var SLIDE14 = [];
+var PAGES2 = [
+  { data: slide07, onsets: SLIDE07, from: 134.8, to: 161.8 },
+  { data: slide08, onsets: SLIDE08, from: 163.8, to: 170.4 },
+  { data: slide09, onsets: SLIDE09, from: 171.2, to: 191.8 },
+  { data: slide14, onsets: SLIDE14, from: 220.4, to: 227 }
+];
+class Mesh01Dream extends Dream {
+  pages = PAGES2.map((p2) => __dt(new Slide({ data: p2.data }), "core/demo/pl02/Mesh01.ts:11369:11396"));
+  #now = 0;
+  playAt(anim, at2, runTime) {
+    const clip = __dt(this.play(anim, runTime), "core/demo/pl02/Mesh01.ts:11966:11990");
+    clip.start = at2;
+    this.#now = Math.max(this.#now, at2 + runTime);
+  }
+  setAt(at2, ...anims) {
+    for (const anim of anims) {
+      const clip = __dt(this.play(anim, 0), "core/demo/pl02/Mesh01.ts:12238:12256");
+      clip.start = at2;
+    }
+    this.#now = Math.max(this.#now, at2);
+  }
+  unfold() {
+    this.observer.look("front");
+    for (const page of this.pages) {
+      this.setAt(0, page.creation.to(1), page.visible(false), page.preBuild());
+    }
+    for (let i2 = 0;i2 < PAGES2.length; i2++) {
+      const spec = PAGES2[i2];
+      const page = this.pages[i2];
+      this.setAt(spec.from, page.cutIn());
+      if (i2 > 0)
+        this.setAt(spec.from, this.pages[i2 - 1].visible(false));
+      const clicks = __dt(new Map, "core/demo/pl02/Mesh01.ts:13016:13065");
+      for (const onset of spec.onsets) {
+        const group = clicks.get(onset.at);
+        if (group)
+          group.push(onset);
+        else
+          clicks.set(onset.at, [onset]);
+      }
+      for (const [at2, group] of [...clicks].sort((a2, b2) => a2[0] - b2[0])) {
+        const anims = [];
+        let span = 1;
+        for (const onset of group) {
+          const record = spec.data.builds.find((b2) => b2.id === onset.build);
+          if (!record)
+            continue;
+          const chunk = spec.data.buildChunks?.find((c2) => c2.build === onset.build);
+          span = chunk?.duration ?? record.duration ?? 1;
+          anims.push(page.build(record));
+        }
+        if (anims.length === 0)
+          continue;
+        this.playAt(together(...anims), at2, span);
+      }
+    }
+    const last = __dt(this.play({ tracks: [] }, 0), "core/demo/pl02/Mesh01.ts:14036:14064");
+    last.start = 227;
+    this.#now = Math.max(this.#now, 227);
   }
 }
 if (false)
@@ -70013,7 +72578,8 @@ var scenes = {
   slide: TitleSlideDream,
   slide32: StoryPlaceSlideDream,
   slide05: DeadLivingSlideDream,
-  p02a: Arc01Dream
+  p02a: Arc01Dream,
+  p02d: Mesh01Dream
 };
 var defaultScene = "founding";
 
@@ -71443,7 +74009,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render52 = (cached, span) => {
+  const render53 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -71486,7 +74052,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render52(current2);
+        render53(current2);
       return;
     }
     (async () => {
@@ -71496,7 +74062,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render52(cached, {
+      const mark = render53(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -71512,7 +74078,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render52(cached);
+    render53(cached);
   };
   return {
     show: show2,

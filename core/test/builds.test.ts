@@ -23,6 +23,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { Slide } from "../vocabulary/Slides/Slides"
+import { Connection } from "../vocabulary/Slides/Connections"
 import {
   DISSOLVE,
   DISSOLVE_CHARACTER,
@@ -143,10 +144,17 @@ describe("the draw direction is centre-outward", () => {
     void page.parts
     const d2 = (p: { x: number; y: number }): number => p.x * p.x + p.y * p.y
 
+    // P-4 NOTE: these four are `Connection`s now, not `DottedLine`s.
+    // Their paths are RECOMPUTED from `connects` rather than read —
+    // 25% of the deck's stored connection paths are stale, and these
+    // four are among them (all aim at the dropped Vitruvian image).
+    // What this test asserts is unchanged and is still about the
+    // DIRECTION: whichever end the recompute produces, the sweep must
+    // open at the end nearest the page's centre.
     const storedOrders: boolean[] = []
     for (const record of slide02.builds.filter((b) => b.effect === LINE_DRAW)) {
-      const line = page.buildTargets(record)[0] as DottedLine
-      expect(line).toBeInstanceOf(DottedLine)
+      const line = page.buildTargets(record)[0] as Connection
+      expect(line).toBeInstanceOf(Connection)
       void line.parts
 
       const pts = line.points
@@ -163,7 +171,7 @@ describe("the draw direction is centre-outward", () => {
       let firstDash = anim.tracks[0]!
       for (const t of anim.tracks) if (t.relStart < firstDash.relStart) firstDash = t
       const opener = firstDash.param.owner as Line
-      const others = line.dashes.filter((d) => d !== opener)
+      const others = line.drawn().filter((d) => d !== opener)
       expect(where(opener)).toBeLessThan(Math.max(...others.map(where)))
     }
 
@@ -175,18 +183,23 @@ describe("the draw direction is centre-outward", () => {
 })
 
 describe("builds reach what actually draws", () => {
-  test("a dissolve on a DottedLine drives its DASHES, not the parent", () => {
+  test("a dissolve on a dashed line drives its DASHES, not the parent", () => {
+    // P-4 NOTE: slide 2's dashed lines are `Connection`s now — the same
+    // fact one level up. A Connection also draws nothing itself; it
+    // parents one Line per dash plus an arrowhead. So the hazard this
+    // test guards is identical and the assertion is unchanged: a page
+    // hide must reach every drawn primitive, or four connection lines
+    // stay on screen after their slide is cut away, which is exactly
+    // what P-3 measured for seventy seconds.
     const page = new Slide({ data: slide02 })
     void page.parts
-    const line = page.strokes.find((s) => s instanceof DottedLine) as DottedLine
-    void line.parts
-    expect(line.dashes.length).toBeGreaterThan(0)
+    const line = page.connections[0]
+    expect(line).toBeDefined()
+    void line!.parts
+    expect(line!.drawn().length).toBeGreaterThan(0)
 
-    // The renderer reads opacity per drawn primitive with no inheritance,
-    // so a page hide must touch every dash. If this regresses, four
-    // connection lines stay on screen after their slide is cut away.
     const owners = new Set(page.visible(false).tracks.map((t) => t.param.owner))
-    for (const dash of line.dashes) expect(owners.has(dash)).toBe(true)
+    for (const dash of line!.drawn()) expect(owners.has(dash)).toBe(true)
   })
 
   test("preBuild pushes In targets back to nothing, and leaves Out targets alone", () => {

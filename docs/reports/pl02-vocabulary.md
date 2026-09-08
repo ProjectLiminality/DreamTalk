@@ -546,3 +546,14 @@ file was written.
   textured quads. Bounded work, queued for P-9's image-heavy slides.
   The stale-line recompute is independent of this (lines need only
   the image's geometry box, which is carried).
+- (2026-09-08, P-4) **The clip rule is universal**: Keynote clips
+  connection lines against the object's actual FLATTENED SILHOUETTE
+  (no per-class table; the concave head icon proves it — dots in the
+  shoulder notches, none in the head). Firing-model evidence: slide
+  8's ten builds cascade from ONE click in chunk order (fits
+  `automatic` there; slide 2 fits `eventTrigger` — the fields may
+  each be right on different slides; still open). `direction: 53` is
+  midpoint-outward draw. Segment boundaries corrected: 14 settles
+  220.2-223.8 (not 227.0); 7 likewise re-measured (see p4 report).
+  Slide 10 unscored on principle: its action-scale declares no
+  factor, and scoring would fit an undeclared magnitude.

@@ -1,0 +1,11 @@
+{
+  "name": "p4mid-f_00862",
+  "ours": "docs/reports/pl02/ours-p4mid-f_00862.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_00862.jpg",
+  "iou": 0.7753,
+  "chamfer_ours_px": 2.029,
+  "chamfer_ref_px": 0.022,
+  "coverage_ref": 1.0,
+  "coverage_ours": 0.8614,
+  "verdict": "FAIL"
+}

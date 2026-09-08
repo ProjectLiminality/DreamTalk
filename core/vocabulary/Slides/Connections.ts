@@ -1,0 +1,635 @@
+/**
+ * Connections — Keynote's connection lines, RECOMPUTED rather than read.
+ *
+ * WHY THIS MODULE EXISTS AT ALL: THE STORED PATH IS UNRELIABLE
+ *
+ * A `TSD.ConnectionLineArchive` is not an independent drawing. Keynote
+ * recomputes it from the two objects it joins whenever either one moves,
+ * and the copy that ends up in the file is whatever the last recompute
+ * left there — which is not necessarily where the slide draws it. P-1's
+ * survey across all 547 lines in the deck (keynote.ts,
+ * `SlideShapeData.connects`) found **135 (25%) STALE**: the stored
+ * chord's axis does not aim at both connected objects' centres. There is
+ * no local sign that anything is wrong, so a chapter that trusts stored
+ * paths draws lines in the wrong places silently, and P-3 measured
+ * exactly that on slides 2 and 3.
+ *
+ * So every connection this module draws is REBUILT from `connects`, and
+ * the stored path is used for nothing but a fallback when the endpoints
+ * cannot be resolved.
+ *
+ * THE RULE, AS DERIVED AND AS MEASURED
+ *
+ * Stated first, then the evidence for each clause.
+ *
+ *   1. The line runs from the `from` drawable's CENTRE to the `to`
+ *      drawable's CENTRE, where "centre" is the centre of its geometry
+ *      box, and a GROUP's box is the union of its members' (recursively).
+ *   2. It is a QUADRATIC BEZIER THROUGH the stored path's middle point,
+ *      not a polyline and not a curve with that point as its control.
+ *   3. It is CLIPPED at each end where the curve last leaves that
+ *      object's own FLATTENED PATH — its actual drawn silhouette, not
+ *      its bounding box and not an ellipse fitted to that box.
+ *   4. The dash lattice is laid by ARC LENGTH from the clipped start,
+ *      continuously across the whole curve.
+ *
+ * **Clause 1 and 3, measured on deck slide 9** — six identical
+ * `Head with Shoulders_826` icons in a hexagon, fifteen lines, a complete
+ * K6, settled frame `f_00950`. Walking each centre-to-centre chord and
+ * locating the first dot: it lands **-0.14 +/- 1.45 slide units** from
+ * the path-clip point across all fifteen. One slide unit is 2/3 of a
+ * video pixel, so that is sub-pixel agreement with no free parameter.
+ * The alternatives are not close: clipping at the bounding box misses by
+ * **-15.4 +/- 13.1** and at a box-fitted ellipse by **-10.7 +/- 11.5**.
+ * The footage says the same thing by eye — zoom the top icon in f_00950
+ * and a dot sits in each shoulder notch, INSIDE the bounding box, while
+ * no dot lies inside the head.
+ *
+ * It is not an artefact of one icon. Deck slide 10 repeats it at three
+ * more silhouettes — `Cell_302` 1.32 +/- 0.77, `Bacteria_814`
+ * 1.89 +/- 1.03, `Neuron_815` 0.12 +/- 2.67 — and its left cluster,
+ * once its own declared `action-motion-path` and `action-scale` are
+ * applied, gives **0.340 +/- 0.417**, tighter than slide 9.
+ *
+ * **Clause 4, and P-1's cap derivation confirmed at scale.** Fitting the
+ * dot lattice on each of slide 9's fifteen chords gives a period of
+ * **15.003 +/- 0.009** slide units against the round-cap prediction
+ * `(0.001 + 2.0 + 1) * 5.0 = 15.005`. P-1 settled the cap rule from the
+ * stylesheet on one corridor of one slide; fifteen independent lines
+ * agree with it to 0.01%.
+ *
+ * The lattice's PHASE is what forces this module to lay dashes itself
+ * rather than hand the curve to `DottedLine`. The primitive restarts its
+ * pattern at every vertex (`primitives.ts` `compose` calls `dashRuns`
+ * per segment), which is invisible on a straight two-point line — every
+ * connection P-3 met — and wrong on a flattened curve, where it would
+ * reset the phase dozens of times along one line. Slide 9's measurement
+ * also says which end anchors it: the first dot sits at the clip to
+ * within 1.45 units while the LAST dot scatters over 9.31 +/- 11.93,
+ * a spread bounded by exactly one period. The lattice starts at the
+ * `from` clip and runs; the far end is ragged by construction.
+ *
+ * **Clause 2, measured on the curved lines.** The stored form is always
+ * three points (moveTo + lineTo + lineTo) and the archives call it
+ * `kTSDConnectionLineTypeQuadratic`. Sampling reference ink along each
+ * candidate reading, dash-aware, on slide 8's ten lines (a 10-unit
+ * offset null control scores 0.007-0.015):
+ *
+ *     quadratic THROUGH the middle point   0.463 - 0.547
+ *     straight polyline through it         0.072 - 0.468
+ *     quadratic with it as CONTROL point   0.000 - 0.025
+ *
+ * 0.52 is what a perfect match to a 50%-duty (6,6) dash scores, since
+ * half the samples fall in the gaps. Slide 11's seventy SOLID strokes
+ * separate the two live readings much further — **0.951 +/- 0.058**
+ * for the quadratic against 0.711 +/- 0.252 for the polyline, with the
+ * middle point averaging 12.94 units off the chord. And one line settles
+ * it without any footage at all: 4107905's stored path spans 1078 units
+ * of x inside a stored frame 736.5 wide, which a polyline cannot do and
+ * a curve bounded by its control polygon does exactly.
+ *
+ * A quadratic through P at t=1/2 has control `2P - (A + B)/2`; that is
+ * `controlThrough` below, and it is arithmetic rather than a fit.
+ *
+ * THE OUTSET — A MISSING FIELD THAT LOOKED LIKE A MISSING RULE
+ *
+ * `outsetFrom` / `outsetTo` is a per-line stand-off Keynote applies
+ * beyond the clip, and it is worth recording how it was found because
+ * the failure mode is the instructive part.
+ *
+ * The rule above closes to sub-pixel on slides 9 and 10 and did not
+ * close at all on slide 8, whose lines all ran long. Six candidate
+ * boundary rules were tested against that slide's own drawn extents —
+ * the ellipse's path, the group box, an inscribed ellipse, the
+ * ellipse's box, the member-path union, a circumscribed circle — and
+ * NONE gave a constant residual; the best had a standard deviation of
+ * 11.3 slide units, and five of the ten lines sat exactly 30 units
+ * beyond the group box while the other five scattered from -37.7 to
+ * +6.0. The temptation at that point is a per-slide constant, which
+ * would have "worked" on slide 8 and been wrong everywhere else.
+ *
+ * It was not a missing rule. P-1's note had recorded these as "both 0.0
+ * throughout this deck" and they are per-line: **164 of the 467
+ * in-scope lines are non-zero**, clustered on exactly the densest meshes
+ * (slide 8 is 30/30, slide 11 is 10/10, slides 9 and 10 are 0/0). P-1
+ * has since carried the field and `connectionPath` reads it. The five
+ * lines that matched at 30 were the ones whose ray happened to leave
+ * near the ellipse's extreme, where box and silhouette agree — a
+ * coincidence that would have made a fitted constant look justified.
+ *
+ * ARROWHEADS are read the same way, from `lineEnds`: 123 in-scope heads
+ * and one tail, resolved through the style chain in the GLOBAL
+ * stylesheet. See `arrowHead` for what is measured about the drawn size
+ * and what is not.
+ */
+
+import { color, completion, length } from "../../src/params"
+import { together, type Anim, type Windowed } from "../../src/anim"
+import { Line, Group, type Vec3Like } from "../../src/parts/primitives"
+import { Holon } from "../../src/holon"
+import { WHITE, type Color } from "../../src/constants"
+
+/** A point on the slide canvas: 1920x1080, y DOWN, origin top-left. */
+export interface SlidePoint {
+  x: number
+  y: number
+}
+
+/** An axis-aligned box on the slide canvas. */
+export interface SlideBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * What a connection can attach to: the drawable's box, and its actual
+ * drawn outline as flattened polylines in CANVAS coordinates.
+ *
+ * Both are needed and they are not interchangeable — clause 3 above is
+ * the whole reason this interface carries `outline` at all. A target
+ * with no outline (a group whose members were dropped, an image whose
+ * pixels this framework does not draw) falls back to its box, which is
+ * the honest degradation: the box is what the deck states about it.
+ */
+export interface ConnectTarget {
+  id: string
+  box: SlideBox
+  /** One polyline per subpath, in canvas coordinates. May be empty. */
+  outline: readonly (readonly SlidePoint[])[]
+}
+
+/** The centre of a box — where a connection line aims. */
+export const boxCentre = (b: SlideBox): SlidePoint => ({
+  x: b.x + b.w / 2,
+  y: b.y + b.h / 2,
+})
+
+/** The union of boxes, or undefined when there are none. */
+export const unionBoxes = (boxes: readonly SlideBox[]): SlideBox | undefined => {
+  if (boxes.length === 0) return undefined
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const b of boxes) {
+    x0 = Math.min(x0, b.x)
+    y0 = Math.min(y0, b.y)
+    x1 = Math.max(x1, b.x + b.w)
+    y1 = Math.max(y1, b.y + b.h)
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/**
+ * The control point of the quadratic that PASSES THROUGH `mid` at
+ * t = 1/2, given endpoints `a` and `b`.
+ *
+ * B(1/2) = (a + 2c + b)/4, so c = 2*mid - (a + b)/2. Clause 2's
+ * arithmetic, and the reason the stored middle point must not be used as
+ * a control point directly — doing so scores 0.000-0.025 against ink
+ * where this scores 0.463-0.547.
+ */
+export const controlThrough = (
+  a: SlidePoint,
+  mid: SlidePoint,
+  b: SlidePoint,
+): SlidePoint => ({
+  x: 2 * mid.x - (a.x + b.x) / 2,
+  y: 2 * mid.y - (a.y + b.y) / 2,
+})
+
+/** A quadratic Bezier sampled at t. */
+export const quadAt = (
+  a: SlidePoint,
+  c: SlidePoint,
+  b: SlidePoint,
+  t: number,
+): SlidePoint => {
+  const mt = 1 - t
+  return {
+    x: mt * mt * a.x + 2 * mt * t * c.x + t * t * b.x,
+    y: mt * mt * a.y + 2 * mt * t * c.y + t * t * b.y,
+  }
+}
+
+/**
+ * The quadratic as a polyline.
+ *
+ * The sample count is chosen from the control polygon's own size so a
+ * long line and a short one are flattened to the same fidelity — the
+ * same call `keynote.ts`'s flattener makes, and for the same reason:
+ * a fixed count would make a 600-unit mesh line coarser than a 90-unit
+ * one, and the dash lattice reads arc length off this polyline.
+ */
+export const flattenQuad = (
+  a: SlidePoint,
+  c: SlidePoint,
+  b: SlidePoint,
+  tolerance = 0.25,
+): SlidePoint[] => {
+  const dev = Math.hypot(c.x - (a.x + b.x) / 2, c.y - (a.y + b.y) / 2)
+  const span = Math.hypot(b.x - a.x, b.y - a.y) + dev
+  const n = Math.max(2, Math.ceil(Math.sqrt(span / Math.max(tolerance, 1e-6))))
+  const out: SlidePoint[] = []
+  for (let i = 0; i <= n; i++) out.push(quadAt(a, c, b, i / n))
+  return out
+}
+
+/** Where segment `a`->`b` crosses segment `c`->`d`, as a t along a->b. */
+const segmentCross = (
+  a: SlidePoint,
+  b: SlidePoint,
+  c: SlidePoint,
+  d: SlidePoint,
+): number | undefined => {
+  const rx = b.x - a.x
+  const ry = b.y - a.y
+  const sx = d.x - c.x
+  const sy = d.y - c.y
+  const den = rx * sy - ry * sx
+  if (Math.abs(den) < 1e-12) return undefined
+  const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den
+  const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : undefined
+}
+
+/**
+ * The arc length at which a polyline LAST leaves a target's outline,
+ * walking from `polyline[0]`.
+ *
+ * "Last", not "first", and that is clause 3 doing real work: an icon
+ * like `Head with Shoulders_826` is a concave silhouette, so a ray from
+ * its centre can cross its own outline several times — out of the neck,
+ * back through a shoulder, out again. Keynote draws from the outermost
+ * crossing, which is what the footage shows (a dot sits in each shoulder
+ * notch and none inside the head).
+ *
+ * Returns 0 when the outline is empty or is never crossed — the honest
+ * answer for a target whose shape this framework does not have, and the
+ * caller then has the box to fall back on.
+ */
+export const outlineExit = (
+  polyline: readonly SlidePoint[],
+  target: ConnectTarget,
+): number => {
+  let best = 0
+  let travelled = 0
+  for (let i = 0; i + 1 < polyline.length; i++) {
+    const a = polyline[i]!
+    const b = polyline[i + 1]!
+    const seg = Math.hypot(b.x - a.x, b.y - a.y)
+    for (const sub of target.outline) {
+      for (let j = 0; j + 1 < sub.length; j++) {
+        const t = segmentCross(a, b, sub[j]!, sub[j + 1]!)
+        if (t !== undefined) best = Math.max(best, travelled + t * seg)
+      }
+    }
+    travelled += seg
+  }
+  return best
+}
+
+/** The same, measured from the FAR end — the `to` object's clip. */
+export const outlineExitFromEnd = (
+  polyline: readonly SlidePoint[],
+  target: ConnectTarget,
+): number => {
+  const reversed = [...polyline].reverse()
+  return outlineExit(reversed, target)
+}
+
+/** The total length of a polyline. */
+export const polylineLength = (points: readonly SlidePoint[]): number => {
+  let total = 0
+  for (let i = 0; i + 1 < points.length; i++) {
+    total += Math.hypot(
+      points[i + 1]!.x - points[i]!.x,
+      points[i + 1]!.y - points[i]!.y,
+    )
+  }
+  return total
+}
+
+/** The point at arc length `d` along a polyline, clamped to its ends. */
+export const pointAtLength = (
+  points: readonly SlidePoint[],
+  d: number,
+): SlidePoint => {
+  if (points.length === 0) return { x: 0, y: 0 }
+  if (d <= 0) return points[0]!
+  let travelled = 0
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i]!
+    const b = points[i + 1]!
+    const seg = Math.hypot(b.x - a.x, b.y - a.y)
+    if (travelled + seg >= d) {
+      const u = seg > 1e-12 ? (d - travelled) / seg : 0
+      return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }
+    }
+    travelled += seg
+  }
+  return points[points.length - 1]!
+}
+
+/** The sub-polyline between two arc lengths, endpoints included. */
+export const trimPolyline = (
+  points: readonly SlidePoint[],
+  from: number,
+  to: number,
+): SlidePoint[] => {
+  if (to <= from) return []
+  const out: SlidePoint[] = [pointAtLength(points, from)]
+  let travelled = 0
+  for (let i = 0; i + 1 < points.length; i++) {
+    const seg = Math.hypot(
+      points[i + 1]!.x - points[i]!.x,
+      points[i + 1]!.y - points[i]!.y,
+    )
+    const at = travelled + seg
+    if (at > from && at < to) out.push(points[i + 1]!)
+    travelled = at
+  }
+  out.push(pointAtLength(points, to))
+  return out
+}
+
+/**
+ * The dash runs along a polyline, by CONTINUOUS ARC LENGTH.
+ *
+ * This is the difference from `primitives.ts`'s `dashRuns`, which lays a
+ * pattern per SEGMENT and so restarts its phase at every vertex. That is
+ * invisible on the straight two-point connections P-3 met and wrong on a
+ * flattened curve, where a mesh line is dozens of segments and the
+ * lattice would reset dozens of times. Slide 9's measured period holds
+ * to 15.003 +/- 0.009 over lines up to 594 units long, which only a
+ * continuous lattice reproduces.
+ *
+ * `period` is the caller's, because the cap is part of it — P-1's
+ * derivation, `(dash + gap + 1) * width` under a round cap and
+ * `(dash + gap) * width` under a butt cap. This function takes the
+ * finished numbers rather than re-deriving them, so there is one place
+ * that arithmetic lives.
+ */
+export const dashAlong = (
+  points: readonly SlidePoint[],
+  dash: number,
+  period: number,
+): SlidePoint[][] => {
+  const total = polylineLength(points)
+  if (total <= 0 || dash <= 0 || period <= 0) return [[...points]]
+  const runs: SlidePoint[][] = []
+  for (let d = 0; d < total - 1e-9; d += period) {
+    const run = trimPolyline(points, d, Math.min(total, d + dash))
+    if (run.length >= 2) runs.push(run)
+  }
+  return runs
+}
+
+/**
+ * One connection line's recomputed geometry, in slide coordinates.
+ *
+ * Everything above, applied in order. Separated from the holon because
+ * it is pure arithmetic over the deck's own numbers and is where the
+ * tests reach — the same division `keynote.ts` keeps from `Slides.ts`.
+ */
+export interface ConnectionPath {
+  /** The clipped, flattened curve. Empty when the ends coincide. */
+  points: SlidePoint[]
+  /** The unclipped curve, for tests and for reporting the clip amounts. */
+  full: SlidePoint[]
+  /** Arc length at which the `from` clip fell. */
+  clipFrom: number
+  /** Arc length at which the `to` clip fell, from the start. */
+  clipTo: number
+}
+
+/**
+ * Recompute a connection line between two targets.
+ *
+ * `mid` is the stored path's middle point, which is the ONLY thing taken
+ * from the stored geometry and is taken because it carries the curve's
+ * bow — the endpoints it sits between are recomputed, but how far the
+ * line bellies out between them is a real authored quantity with no
+ * other source. Passing it undefined gives a straight line, which is
+ * what the great majority of the deck's connections are.
+ *
+ * `outset` is Keynote's `outsetFrom`/`outsetTo`, a further inset beyond
+ * the silhouette clip. It defaults to 0 because that is what the slides
+ * this rule is derived on declare; see the module header for why a
+ * non-zero one is not modelled from the footage.
+ */
+export const connectionPath = (
+  from: ConnectTarget,
+  to: ConnectTarget,
+  mid?: SlidePoint,
+  outset: { from?: number; to?: number } = {},
+): ConnectionPath => {
+  const a = boxCentre(from.box)
+  const b = boxCentre(to.box)
+  const straight = Math.hypot(b.x - a.x, b.y - a.y) < 1e-9
+  if (straight) return { points: [], full: [], clipFrom: 0, clipTo: 0 }
+
+  const full = mid
+    ? flattenQuad(a, controlThrough(a, mid, b), b)
+    : [a, b]
+  const total = polylineLength(full)
+
+  // Clause 3: clip at each object's own outline, falling back to its box
+  // when this framework has no outline for it (a dropped image, a group
+  // whose members did not compose). The box fallback is stated rather
+  // than silent because it is measurably worse — -15.4 +/- 13.1 slide
+  // units against the outline's -0.14 +/- 1.45 on slide 9.
+  const exitFrom = from.outline.length > 0
+    ? outlineExit(full, from)
+    : outlineExit(full, boxAsTarget(from))
+  const exitTo = to.outline.length > 0
+    ? outlineExitFromEnd(full, to)
+    : outlineExitFromEnd(full, boxAsTarget(to))
+
+  const clipFrom = Math.min(total, exitFrom + (outset.from ?? 0))
+  const clipTo = Math.max(0, total - exitTo - (outset.to ?? 0))
+  return { points: trimPolyline(full, clipFrom, clipTo), full, clipFrom, clipTo }
+}
+
+/** A target's box as a closed rectangle outline — the clip fallback. */
+export const boxAsTarget = (t: ConnectTarget): ConnectTarget => ({
+  id: t.id,
+  box: t.box,
+  outline: [
+    [
+      { x: t.box.x, y: t.box.y },
+      { x: t.box.x + t.box.w, y: t.box.y },
+      { x: t.box.x + t.box.w, y: t.box.y + t.box.h },
+      { x: t.box.x, y: t.box.y + t.box.h },
+      { x: t.box.x, y: t.box.y },
+    ],
+  ],
+})
+
+/**
+ * An arrowhead's outline, in slide coordinates.
+ *
+ * The deck's one and only head is `"simple arrow"`: a filled triangle
+ * whose path is (0,0) (3,6) (6,0), joined to the line at (3,0) — so it
+ * is 6 wide across the base and 6 long, its tip forward and its base
+ * centred on the line's end. All 119 of the deck's arrowed lines carry
+ * that identical value, and none carries a tail.
+ *
+ * `size` is the drawn length. Measured on three of slide 8's lines the
+ * head runs **9.66 +/- 0.10** long by **4.67 +/- 0.20** half-width, an
+ * aspect of 2.07 against the path's own 6/3 = 2.0 — so the SHAPE is the
+ * declared one and only the scale is in question. That scale is not a
+ * clean multiple of the 2.0 stroke width and three samples cannot
+ * establish the rule, so it is a caller-supplied length here rather than
+ * a constant derived from too little.
+ *
+ * This framework draws strokes, so the filled triangle is drawn as its
+ * closed outline. On a 2-unit stroke at slide scale the difference is
+ * under a pixel of the frame, and a fill would be the wrong claim to
+ * make while `isFilled` is a field the model does not carry.
+ */
+export const arrowHead = (
+  tip: SlidePoint,
+  towards: SlidePoint,
+  size: number,
+  halfWidth = size / 2,
+): SlidePoint[] => {
+  const dx = tip.x - towards.x
+  const dy = tip.y - towards.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-9 || size <= 0) return []
+  const ux = dx / len
+  const uy = dy / len
+  const base = { x: tip.x - ux * size, y: tip.y - uy * size }
+  // The normal, in the canvas's own y-down frame.
+  const nx = -uy
+  const ny = ux
+  return [
+    { x: base.x + nx * halfWidth, y: base.y + ny * halfWidth },
+    tip,
+    { x: base.x - nx * halfWidth, y: base.y - ny * halfWidth },
+    { x: base.x + nx * halfWidth, y: base.y + ny * halfWidth },
+  ]
+}
+
+/**
+ * A connection line as a holon: the dashes (or the solid stroke) plus
+ * its arrowhead, sharing one draw front.
+ *
+ * WHY A HOLON RATHER THAN A `DottedLine`
+ *
+ * Two reasons, both measured. The lattice must be continuous across a
+ * flattened curve, which `DottedLine` cannot do (module header). And a
+ * `LineDrawForLine` build on an arrowed line must draw the head with the
+ * shaft rather than as a separate object, which needs them under one
+ * parent with one `creation` ordering.
+ *
+ * It composes one `Line` per dash exactly as `DottedLine` does, so every
+ * stroke in the mesh goes through the identical ribbon path as every
+ * other stroke in the framework. There is no connection-specific
+ * rendering anywhere, which is `Slide`'s own contract one level down.
+ */
+export class Connection extends Holon {
+  /** The clipped curve, in WORLD coordinates. */
+  points: Vec3Like[] = []
+  /** The arrowhead outline in world coordinates; empty when there is none. */
+  head: Vec3Like[] = []
+
+  /** Dash length and full period, in world units. Zero dash = solid. */
+  dash = length(0)
+  period = length(0)
+
+  tint = color(WHITE)
+  stroke = length(1)
+  override opacity = completion(1)
+
+  /** One Line per dash, in draw order from the `from` end. */
+  dashes: Line[] = []
+  /** The arrowhead, when the deck declares one. */
+  arrow?: Line
+
+  protected override compose(): void {
+    if (this.points.length >= 2) {
+      const runs =
+        this.dash.value > 0 && this.period.value > 0
+          ? dashAlong(
+              this.points.map((p) => ({ x: p.x, y: p.y })),
+              this.dash.value,
+              this.period.value,
+            )
+          : [this.points.map((p) => ({ x: p.x, y: p.y }))]
+      for (const run of runs) {
+        this.dashes.push(
+          this.add(
+            new Line({
+              points: run.map((p) => ({ x: p.x, y: p.y, z: 0 })),
+              tint: this.tint.value,
+              stroke: this.stroke.value,
+              opacity: this.opacity.value,
+            }),
+          ),
+        )
+      }
+    }
+    if (this.head.length >= 2) {
+      this.arrow = this.add(
+        new Line({
+          points: this.head.map((p) => ({ x: p.x, y: p.y, z: 0 })),
+          tint: this.tint.value,
+          stroke: this.stroke.value,
+          opacity: this.opacity.value,
+        }),
+      )
+    }
+  }
+
+  /** Everything that actually draws — what an opacity ramp must reach. */
+  drawn(): Line[] {
+    void this.parts
+    return this.arrow ? [...this.dashes, this.arrow] : [...this.dashes]
+  }
+
+  /**
+   * The draw-on, dash by dash from the `from` end, the head last.
+   *
+   * This is `LineDrawForLine` on a connection: the same spatial sweep
+   * `DottedLine.createAnim` performs, over this holon's own continuous
+   * lattice, with the arrowhead arriving at the end of the shaft because
+   * that is where the shaft reaches it.
+   */
+  override createAnim(): Anim {
+    void this.parts
+    const items = this.drawn()
+    const n = items.length
+    if (n === 0) return { tracks: [] }
+    return together(
+      ...items.map((d, i): Windowed => [
+        d.creation.sequence(0, 1),
+        i / n,
+        (i + 1) / n,
+      ]),
+    )
+  }
+
+  override unCreateAnim(): Anim {
+    void this.parts
+    const items = this.drawn()
+    const n = items.length
+    if (n === 0) return { tracks: [] }
+    return together(
+      ...items.map((d, i): Windowed => [
+        d.creation.to(0),
+        1 - (i + 1) / n,
+        1 - i / n,
+      ]),
+    )
+  }
+}
+
+/** A `Group` of Connections, so a mesh can be moved as one thing. */
+export const meshGroup = (members: readonly Connection[]): Group =>
+  new Group({ members: [...members] })
+
+export type { Color }

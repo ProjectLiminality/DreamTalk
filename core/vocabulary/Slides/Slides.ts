@@ -12,11 +12,23 @@
  * The contract is `Sketch`'s, one level up: a Sketch composes one `Line`
  * per subpath so an imported drawing renders through the IDENTICAL
  * polyline/ribbon path as a Circle; a Slide composes one `Line` (or
- * `DottedLine`) per subpath and one `Text` per text record, so an
- * imported PAGE renders through the identical path as everything else.
- * There is no Keynote-specific rendering anywhere, and the whole stroke
- * surface — tint, stroke width, erasure, drawReversed, fill — applies to
- * it unchanged, because it is literally the same parts.
+ * `DottedLine`) per subpath, one `Text` per text record, and one
+ * `Connection` per connection line, so an imported PAGE renders through
+ * the identical path as everything else. There is no Keynote-specific
+ * rendering anywhere, and the whole stroke surface — tint, stroke width,
+ * erasure, drawReversed, fill — applies to it unchanged, because it is
+ * literally the same parts.
+ *
+ * CONNECTION LINES ARE THE ONE THING NOT READ BUT REBUILT
+ *
+ * A `TSD.ConnectionLineArchive` is Keynote's cached recompute of a line
+ * between two objects, and 25% of the deck's are STALE — leftovers from
+ * wherever those objects used to sit, with no local sign anything is
+ * wrong. So a connection whose endpoints resolve is recomputed from them
+ * rather than read (Connections.ts has the rule and the measurements),
+ * and one whose endpoints do not resolve keeps its stored path and is
+ * named by `stalePaths()`. That is the only place this holon second-
+ * guesses its data, and it is because the data says to.
  *
  * THE FRAME CHANGE LIVES HERE, AND ONLY HERE
  *
@@ -55,12 +67,14 @@ import {
   type SlideShapeData,
   type KeyText,
   type KeyBuild,
+  type KeyLineEnd,
 } from "../../src/geometry/keynote"
 import {
   LINE_DRAW,
   MOTION_PATH,
   SUPPORTED,
   buildAnim,
+  drawsFromMiddle,
   drawsReversed,
   lineDrawAnim,
   motionAnim,
@@ -68,6 +82,15 @@ import {
   strokeEnds,
   unsupportedBuilds,
 } from "./Builds"
+import {
+  Connection,
+  arrowHead,
+  boxCentre,
+  connectionPath,
+  unionBoxes,
+  type ConnectTarget,
+  type SlidePoint,
+} from "./Connections"
 
 /** An empty page, so a Slide with no data is still a valid holon. */
 const EMPTY: SlideData = {
@@ -141,6 +164,36 @@ export class Slide extends Holon {
   labels: Text[] = []
   /** One Group per `TSD.GroupArchive`, adopting its members. */
   groups: Group[] = []
+  /**
+   * One `Connection` per connection line whose endpoints resolved —
+   * RECOMPUTED from `connects`, never read from the stored path.
+   *
+   * See Connections.ts for why: 25% of the deck's stored connection-line
+   * paths are stale leftovers with no local sign anything is wrong, so a
+   * line that can be rebuilt is rebuilt. A line whose endpoints do NOT
+   * resolve keeps its stored path and is listed by `stalePaths()`, which
+   * is the honest reporting of a case this rule cannot reach rather than
+   * a silent fall-through.
+   */
+  connections: Connection[] = []
+
+  /**
+   * The drawn length of an arrowhead, in slide units.
+   *
+   * WHICH lines get one is read from the deck (`SlideShapeData.lineEnds`
+   * — 123 in-scope heads and one tail, resolved through the style chain
+   * in the global stylesheet). HOW BIG it is drawn is not: the deck's
+   * head path is 6 units long, and the head measured in f_00850 runs
+   * **9.66 +/- 0.10 long by 4.67 +/- 0.20 half-width**. The aspect
+   * matches the path's own 2.0, so the SHAPE is the declared one; the
+   * absolute scale is not a clean multiple of the 2.0 stroke width and
+   * three samples cannot establish the rule.
+   *
+   * So it is a parameter carrying the measurement rather than a constant
+   * derived from too little — and the day someone measures enough heads
+   * to state the rule, this becomes its default instead of its value.
+   */
+  headSize = length(9.66)
 
   /**
    * Every drawable this page composed, by its KEYNOTE id.
@@ -156,8 +209,22 @@ export class Slide extends Holon {
 
   protected override compose(): void {
     const scale = slideToWorld(this.height.value)
+    const geom = this.slideGeometry()
 
     for (const shape of this.data.shapes) {
+      // A connection line is not an ordinary shape: its stored path is
+      // Keynote's own cached recompute and is stale 25% of the time
+      // (Connections.ts). Where both endpoints resolve it is rebuilt from
+      // them; where they do not it falls through to the stored path, and
+      // `stalePaths()` says which did.
+      const rebuilt = shape.connects
+        ? this.composeConnection(shape, geom, scale)
+        : undefined
+      if (rebuilt) {
+        this.byId.set(shape.id, [rebuilt])
+        this.connections.push(rebuilt)
+        continue
+      }
       const parts = this.composeShape(shape, scale)
       if (parts.length > 0) this.byId.set(shape.id, parts)
       this.strokes.push(...parts)
@@ -184,6 +251,263 @@ export class Slide extends Holon {
       const members = group.members.map((id) => byId.get(id)).filter((m): m is Holon => !!m)
       if (members.length > 0) this.groups.push(this.add(new Group({ members })))
     }
+  }
+
+  /**
+   * Every id a connection can attach to, with its box and its OUTLINE,
+   * in slide coordinates.
+   *
+   * Both are needed because the clip is against the silhouette, not the
+   * box — Connections.ts's clause 3, measured to -0.14 +/- 1.45 slide
+   * units against the box's -15.4 +/- 13.1.
+   *
+   * GROUPS ARE HERE, AND THEY ARE THE REASON THIS IS NOT A ONE-LINER.
+   * The deck attaches connections to groups as readily as to shapes —
+   * ALL 140 endpoints of slide 11's seventy lines are groups, and all
+   * ten of slide 8's — and `KeyGroup` carries members but no geometry.
+   * So a group's box is the union of its members' boxes and its outline
+   * is their outlines, computed RECURSIVELY because groups nest. That is
+   * a derivation from what the model states, not a fact it is missing:
+   * P-1 verified across all 678 groups in the deck that a group is a
+   * pure translation with no scale and no rotation, and the union agrees
+   * with the deck's own stored connection vectors to 0.0001 slide units
+   * on all seventy of slide 11's lines.
+   */
+  private slideGeometry(): Map<string, ConnectTarget> {
+    const out = new Map<string, ConnectTarget>()
+
+    for (const shape of this.data.shapes) {
+      // A connection line is not something another connection attaches
+      // to, and its own stored box is the stale geometry we are here to
+      // avoid — so it contributes no target.
+      if (shape.connects) continue
+      const outline: SlidePoint[][] = []
+      let x0 = Infinity
+      let y0 = Infinity
+      let x1 = -Infinity
+      let y1 = -Infinity
+      for (const flat of shape.subpaths) {
+        const poly: SlidePoint[] = []
+        for (let i = 0; i + 1 < flat.length; i += 2) {
+          const x = flat[i]!
+          const y = flat[i + 1]!
+          poly.push({ x, y })
+          x0 = Math.min(x0, x)
+          y0 = Math.min(y0, y)
+          x1 = Math.max(x1, x)
+          y1 = Math.max(y1, y)
+        }
+        if (poly.length >= 2) outline.push(poly)
+      }
+      if (outline.length === 0) continue
+      out.set(shape.id, {
+        id: shape.id,
+        box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
+        outline,
+      })
+    }
+
+    for (const text of this.data.texts) {
+      const f = text.frame
+      out.set(text.id, {
+        id: text.id,
+        box: { x: f.position.x, y: f.position.y, w: f.size.width, h: f.size.height },
+        // A text record has no silhouette this framework can clip
+        // against, so it contributes its box and `connectionPath` falls
+        // back to it — stated rather than silent.
+        outline: [],
+      })
+    }
+
+    for (const image of this.data.images ?? []) {
+      const f = image.frame
+      out.set(image.id, {
+        id: image.id,
+        box: { x: f.position.x, y: f.position.y, w: f.size.width, h: f.size.height },
+        // An image is a raster this framework does not draw, so its box
+        // is all there is. P-3's slide-3 case connects to exactly this.
+        outline: [],
+      })
+    }
+
+    // Groups last, and iterated to a fixed point because they nest: a
+    // group whose member is another group cannot be resolved until that
+    // one is. The loop terminates because each pass either resolves at
+    // least one more group or stops.
+    const pending = new Map(this.data.groups.map((g) => [g.id, g.members]))
+    let progress = true
+    while (progress && pending.size > 0) {
+      progress = false
+      for (const [id, members] of [...pending]) {
+        const parts = members.map((m) => out.get(m)).filter((t): t is ConnectTarget => !!t)
+        if (parts.length < members.filter((m) => out.has(m) || pending.has(m)).length) continue
+        if (parts.length === 0) continue
+        const box = unionBoxes(parts.map((p) => p.box))
+        if (!box) continue
+        out.set(id, { id, box, outline: parts.flatMap((p) => p.outline) })
+        pending.delete(id)
+        progress = true
+      }
+    }
+
+    return out
+  }
+
+  /**
+   * One connection line, recomputed from its endpoints.
+   *
+   * Returns undefined when either endpoint is unresolvable, which sends
+   * the shape down the ordinary stored-path route — the only case in
+   * which a stored connection path is drawn, and `stalePaths()` reports
+   * it.
+   */
+  private composeConnection(
+    shape: SlideShapeData,
+    geom: Map<string, ConnectTarget>,
+    scale: number,
+  ): Connection | undefined {
+    const from = shape.connects?.from ? geom.get(shape.connects.from) : undefined
+    const to = shape.connects?.to ? geom.get(shape.connects.to) : undefined
+    if (!from || !to) return undefined
+
+    // THE BOW IS TAKEN AS A SHAPE, NOT AS A POINT, and that distinction
+    // is the whole of this chapter's hardest bug.
+    //
+    // Keynote stores every connection as three points and renders it as
+    // a quadratic THROUGH the middle one (Connections.ts clause 2), so
+    // the middle point is the only authored quantity a recompute cannot
+    // derive — how far the line bellies out has no other source. But it
+    // must not be read as an absolute position, for the same reason the
+    // endpoints must not be: the stored path is stale, and the importer
+    // then fits it into the stored FRAME BOX, which is stale too.
+    //
+    // Slide 8's line 4105549 is the worked example. Its stored subpath
+    // runs (652.3, 778.0) -> (600.8, 687.1) -> (526.8, 594.4), so its
+    // stored chord is (-125.5, -183.6) — exactly HALF the true
+    // centre-to-centre (-251.6, -364.2), because the frame it was fitted
+    // into is a leftover from when the campfires sat closer together.
+    // Read as a position the middle point lands off the line entirely
+    // and the curve bows the wrong way; the composite showed all ten of
+    // slide 8's lines as mirrored red/green pairs about their chords.
+    //
+    // Read as a FRACTION of the stored chord it is scale-free and
+    // stale-proof: the offset of the middle point from the stored chord,
+    // expressed in that chord's own (along, across) frame, transferred
+    // onto the recomputed one. A straight stored line gives zero across
+    // and reproduces the collinear case exactly.
+    const flat = shape.subpaths[0]
+    let mid: SlidePoint | undefined
+    if (flat && flat.length >= 6) {
+      const p0 = { x: flat[0]!, y: flat[1]! }
+      const p1 = { x: flat[flat.length - 4]!, y: flat[flat.length - 3]! }
+      const p2 = { x: flat[flat.length - 2]!, y: flat[flat.length - 1]! }
+      const cx = p2.x - p0.x
+      const cy = p2.y - p0.y
+      const chord = Math.hypot(cx, cy)
+      if (chord > 1e-9) {
+        // The middle point in the stored chord's own basis.
+        const ux = cx / chord
+        const uy = cy / chord
+        const dx = p1.x - p0.x
+        const dy = p1.y - p0.y
+        const along = (dx * ux + dy * uy) / chord
+        const across = (dx * -uy + dy * ux) / chord
+        // …transferred onto the recomputed chord.
+        const a = boxCentre(from.box)
+        const b = boxCentre(to.box)
+        const vx = b.x - a.x
+        const vy = b.y - a.y
+        mid = {
+          x: a.x + vx * along + -vy * across,
+          y: a.y + vy * along + vx * across,
+        }
+      }
+    }
+
+    // The outset is READ, not assumed. P-1's first note recorded these
+    // as "both 0.0 throughout this deck"; they are per-line and non-zero
+    // on exactly the densest meshes (164 of the 467 in-scope lines —
+    // slide 8's are 30/30, slide 11's 10/10), which this chapter refuted
+    // and P-1 has since carried.
+    const path = connectionPath(from, to, mid, shape.outset)
+    if (path.points.length < 2) return undefined
+
+    const width = ((shape.strokeWidth ?? 1) * this.height.value) / SLIDE_HEIGHT
+    const tint = this.overrideTint
+      ? this.tint.value
+      : shape.stroke
+        ? hexToColor(shape.stroke)
+        : this.tint.value
+
+    // The cap is part of the PERIOD, exactly as `composeShape` has it —
+    // P-1's derivation from the stylesheet, confirmed here at mesh scale
+    // by fifteen independent lines measuring 15.003 +/- 0.009 slide
+    // units against its prediction of 15.005.
+    let dash = 0
+    let period = 0
+    if (shape.dash && shape.dash.length >= 2) {
+      const round = shape.cap === "RoundCap"
+      dash = Math.max(shape.dash[0]! * width, width * 0.05)
+      period = (shape.dash[0]! + shape.dash[1]! + (round ? 1 : 0)) * width
+    }
+
+    const world = path.points.map((p) => {
+      const w = slidePointToWorld(p, scale)
+      return { x: w.x, y: w.y, z: 0 }
+    })
+
+    // The head, READ from the deck's own resolved `lineEnds` — the
+    // stylesheet field P-1 now carries (123 in-scope heads, one tail).
+    // The head sits on the `to` end and the tail, where one exists, on
+    // the `from` end; `endPoint` is where the line meets the decoration,
+    // which is what makes the two ends the same act with opposite
+    // directions rather than two special cases.
+    const head: Vec3Like[] = []
+    const toWorld = (p: SlidePoint): Vec3Like => {
+      const w = slidePointToWorld(p, scale)
+      return { x: w.x, y: w.y, z: 0 }
+    }
+    const decorate = (
+      end: KeyLineEnd | undefined,
+      tip: SlidePoint,
+      prev: SlidePoint,
+    ): void => {
+      if (!end) return
+      for (const p of arrowHead(tip, prev, this.headSize.value)) head.push(toWorld(p))
+    }
+    if (path.points.length >= 2) {
+      const n = path.points.length
+      decorate(shape.lineEnds?.head, path.points[n - 1]!, path.points[n - 2]!)
+    }
+
+    return this.add(
+      new Connection({
+        points: world,
+        head,
+        dash,
+        period,
+        tint,
+        stroke: width,
+        opacity: shape.opacity,
+      }),
+    )
+  }
+
+  /**
+   * Connection lines whose endpoints did not resolve, so their STALE
+   * stored path was drawn.
+   *
+   * This is the counterpart of `missingBuildTargets()` and exists for
+   * the same reason: a line drawn from a path known to be unreliable
+   * must not look like a line that was recomputed. 25% of the deck's
+   * stored paths are stale, so a silent fall-through here would be a
+   * fidelity claim the data does not support.
+   */
+  stalePaths(): SlideShapeData[] {
+    void this.parts
+    return this.data.shapes.filter(
+      (s) => s.connects && !(this.byId.get(s.id)?.[0] instanceof Connection),
+    )
   }
 
   /** One shape's subpaths as Lines (or DottedLines when the deck dashes). */
@@ -322,9 +646,15 @@ export class Slide extends Holon {
   override createAnim(): Anim {
     void this.parts
     const items: Windowed[] = []
-    const lengths = this.strokes.map((s) => arcLength(strokePoints(s)))
+    // Connections draw with the strokes: they are page ink like any
+    // other, and a page whose mesh appeared all at once at the end of
+    // the sweep would be a worse `Create` than one that draws it in turn.
+    const drawn: Holon[] = [...this.strokes, ...this.connections]
+    const lengths = drawn.map((s) =>
+      s instanceof Connection ? arcLength(s.points) : arcLength(strokePoints(s as Stroke)),
+    )
     const total = lengths.reduce((a, b) => a + b, 0)
-    const n = this.strokes.length
+    const n = drawn.length
     // The type takes the last fifth of the span; the strokes share the
     // rest in proportion to how far the pen must travel.
     const strokeSpan = this.labels.length > 0 ? 0.8 : 1
@@ -333,7 +663,7 @@ export class Slide extends Holon {
       const share = total > 1e-9 ? (lengths[i]! / total) * strokeSpan : strokeSpan / n
       const from = at
       at += share
-      items.push([this.strokes[i]!.creation.sequence(0, 1), from, i === n - 1 ? strokeSpan : at])
+      items.push([drawn[i]!.creation.sequence(0, 1), from, i === n - 1 ? strokeSpan : at])
     }
     for (const label of this.labels) {
       items.push([label.creation.sequence(0, 1), strokeSpan, 1])
@@ -353,7 +683,36 @@ export class Slide extends Holon {
    */
   buildTargets(build: KeyBuild): Holon[] {
     void this.parts
-    return this.byId.get(build.target) ?? []
+    const direct = this.byId.get(build.target)
+    if (direct) return direct
+
+    // A BUILD CAN TARGET A GROUP, and `byId` holds only shapes and
+    // texts. Slide 9's Logo is the case: one `apple:dissolve` on group
+    // 5149755, whose five member shapes are what actually draw. Before
+    // this the build reported as having no target — indistinguishable
+    // from the genuinely absent ones (a dropped image), which is exactly
+    // the confusion `missingBuildTargets` exists to prevent.
+    //
+    // Resolved recursively, because groups nest, and de-duplicated,
+    // because a shape reachable by two paths must not receive the same
+    // opacity ramp twice.
+    const group = this.data.groups.find((g) => g.id === build.target)
+    if (!group) return []
+    const seen = new Set<string>()
+    const out: Holon[] = []
+    const walk = (id: string): void => {
+      if (seen.has(id)) return
+      seen.add(id)
+      const parts = this.byId.get(id)
+      if (parts) {
+        out.push(...parts)
+        return
+      }
+      const nested = this.data.groups.find((g) => g.id === id)
+      if (nested) for (const m of nested.members) walk(m)
+    }
+    for (const member of group.members) walk(member)
+    return out
   }
 
   /** Build records whose target this page did not compose. */
@@ -403,13 +762,28 @@ export class Slide extends Holon {
     const items: Anim[] = []
     for (const target of targets) {
       if (record.effect === LINE_DRAW) {
-        const ends = target instanceof Stroke ? strokeEnds(target) : undefined
+        // A Connection is not a Stroke — it parents them — so the
+        // direction fallback has to reach its own recomputed endpoints,
+        // not the stored path's. On a mesh that matters: slide 9's
+        // fifteen lines are all LineDrawForLine and none of them is a
+        // Stroke any more.
+        const ends =
+          target instanceof Stroke || target instanceof Connection
+            ? strokeEnds(target)
+            : undefined
         // The page's own centre in world coordinates — the origin, since
         // slidePointToWorld puts the canvas centre there.
         const reversed = ends
           ? drawsReversed(record, ends, { x: 0, y: 0 })
           : false
-        items.push(lineDrawAnim(target, reversed, record.animationType === "Out"))
+        items.push(
+          lineDrawAnim(
+            target,
+            reversed,
+            record.animationType === "Out",
+            drawsFromMiddle(record),
+          ),
+        )
       } else if (record.effect === MOTION_PATH) {
         // The only build that needs the frame change, because it is the
         // only one whose value is a DISTANCE. Routed here rather than in
@@ -448,6 +822,7 @@ export class Slide extends Holon {
     void this.parts
     const items: Anim[] = []
     for (const stroke of this.strokes) items.push(...opacityOf(stroke, on ? 1 : 0))
+    for (const line of this.connections) items.push(...opacityOf(line, on ? 1 : 0))
     for (const label of this.labels) items.push(label.opacity.to(on ? 1 : 0))
     return items.length > 0 ? together(...items) : { tracks: [] }
   }
@@ -488,7 +863,7 @@ export class Slide extends Holon {
     void this.parts
     const built = this.builtTargets()
     const items: Anim[] = []
-    for (const part of [...this.strokes, ...this.labels]) {
+    for (const part of [...this.strokes, ...this.connections, ...this.labels]) {
       if (built.has(part)) continue
       items.push(...opacityOf(part, 1))
     }
@@ -500,9 +875,10 @@ export class Slide extends Holon {
     void this.parts
     const items: Windowed[] = []
     for (const label of this.labels) items.push([label.erasure.sequence(0, 1), 0, 0.2])
-    const n = this.strokes.length
+    const drawn: Holon[] = [...this.strokes, ...this.connections]
+    const n = drawn.length
     for (let i = 0; i < n; i++) {
-      items.push([this.strokes[i]!.creation.to(0), 0.2 + (0.8 * i) / n, 0.2 + (0.8 * (i + 1)) / n])
+      items.push([drawn[i]!.creation.to(0), 0.2 + (0.8 * i) / n, 0.2 + (0.8 * (i + 1)) / n])
     }
     return items.length > 0 ? together(...items) : { tracks: [] }
   }
@@ -526,6 +902,14 @@ const opacityOf = (holon: Holon, v: number): Anim[] => {
   if (holon instanceof DottedLine) {
     void holon.parts
     return holon.dashes.map((d) => d.opacity.to(v))
+  }
+  // A Connection is the same shape of problem one level up: it draws
+  // nothing itself, parenting one Line per dash plus an arrowhead. On
+  // slide 9 that is fifteen lines of a dozen dashes each, so a page cut
+  // that missed them would leave a whole mesh on screen — which is
+  // exactly how P-3's four connection lines survived a `visible(false)`.
+  if (holon instanceof Connection) {
+    return holon.drawn().map((d) => d.opacity.to(v))
   }
   return [holon.opacity.to(v)]
 }
