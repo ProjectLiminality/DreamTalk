@@ -166,9 +166,17 @@ coverage_ref 0.328. 485.569 − 229.910 = 255.66 slide units is video row
 170, against the reference's glyph band at rows 158–189.
 
 Carried as a full `KeyPathElement[]` rather than a `{dx, dy}`, because a
-translation is not general enough: of the deck's **34 motion paths, 32
-are two-node straight runs but two are three-node curves with real
-control points**. The straight ones arrive as degenerate curves whose
+translation is not general enough. **The counts differ by scope**, and
+P-7 was right to flag it — a chapter reading the deck-wide figure looks
+for two curves and finds one:
+
+| scope | motion paths | genuinely curved |
+|---|---|---|
+| whole 83-slide file | 34 | 2 |
+| **in scope (slides 1-58)** | **19** | **1** |
+
+The single in-scope curve is build 5602009 on deck slide 56 — 3.0s, two
+cubic segments, travel (-284.4, -171.0). The straight ones arrive as degenerate curves whose
 controls sit on their endpoints, so `flattenElements` serves both and
 there is no special case. The motion itself is P-7's; the importer's job
 was only to stop throwing the geometry away.

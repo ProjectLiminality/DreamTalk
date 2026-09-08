@@ -1,0 +1,78 @@
+{
+ "scene": "p02i",
+ "at": 1,
+ "frames": 5,
+ "passed": 5,
+ "reports": [
+  {
+   "idx": 3521,
+   "videoSec": 704,
+   "heldAt": 704,
+   "name": "p7seg-f_03521",
+   "ours": "../docs/reports/pl02/ours-p7seg-f_03521.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03521.jpg",
+   "iou": 0.8809,
+   "chamfer_ours_px": 0.146,
+   "chamfer_ref_px": 0.118,
+   "coverage_ref": 1,
+   "coverage_ours": 0.9948,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 3591,
+   "videoSec": 718,
+   "heldAt": 718,
+   "name": "p7seg-f_03591",
+   "ours": "../docs/reports/pl02/ours-p7seg-f_03591.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03591.jpg",
+   "iou": 0.9136,
+   "chamfer_ours_px": 0.085,
+   "chamfer_ref_px": 0.092,
+   "coverage_ref": 1,
+   "coverage_ours": 0.9958,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 3626,
+   "videoSec": 725,
+   "heldAt": 725,
+   "name": "p7seg-f_03626",
+   "ours": "../docs/reports/pl02/ours-p7seg-f_03626.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03626.jpg",
+   "iou": 0.9049,
+   "chamfer_ours_px": 0.091,
+   "chamfer_ref_px": 0.102,
+   "coverage_ref": 0.9997,
+   "coverage_ours": 0.9957,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 3661,
+   "videoSec": 732,
+   "heldAt": 732,
+   "name": "p7seg-f_03661",
+   "ours": "../docs/reports/pl02/ours-p7seg-f_03661.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03661.jpg",
+   "iou": 0.9102,
+   "chamfer_ours_px": 0.095,
+   "chamfer_ref_px": 0.095,
+   "coverage_ref": 1,
+   "coverage_ours": 0.9948,
+   "verdict": "PASS"
+  },
+  {
+   "idx": 3686,
+   "videoSec": 737,
+   "heldAt": 737,
+   "name": "p7seg-f_03686",
+   "ours": "../docs/reports/pl02/ours-p7seg-f_03686.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_03686.jpg",
+   "iou": 0.8879,
+   "chamfer_ours_px": 0.102,
+   "chamfer_ref_px": 0.249,
+   "coverage_ref": 0.9896,
+   "coverage_ours": 0.995,
+   "verdict": "PASS"
+  }
+ ]
+}

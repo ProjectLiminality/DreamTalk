@@ -91,11 +91,17 @@
  * importer has not carried it.
  */
 
-import { together, type Anim, type Windowed } from "../../src/anim"
+import { together, type Anim, type Easing, type Windowed } from "../../src/anim"
+import { ease } from "../../src/timeline"
 import { DottedLine, Line, Stroke } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import type { Holon } from "../../src/holon"
-import type { KeyBuild, KeyPathElement } from "../../src/geometry/keynote"
+import {
+  FLATTEN_TOLERANCE_SLIDE,
+  flattenElements,
+  type KeyBuild,
+  type KeyPathElement,
+} from "../../src/geometry/keynote"
 import { Connection } from "./Connections"
 
 /** Keynote's stroke-draw-on. Core's `Create`, at Keynote's pacing. */
@@ -105,15 +111,101 @@ export const DISSOLVE = "apple:dissolve"
 export const DISSOLVE_CHARACTER = "apple:dissolve character"
 /** On-slide motion along a declared path — see `motionAnim`. */
 export const MOTION_PATH = "apple:action-motion-path"
+/**
+ * The INSTANT appear — no ramp, whatever its record's duration says.
+ *
+ * Both spellings occur, and all nine instances in the deck sit on P-7's
+ * own slides: seven `bc-appear` (36, 45, 46, 47, 48, 49, 52), each one
+ * lighting the arrow that the paired `action-motion-path` then glides,
+ * and two `appear` on deck 48 (one In, one Out).
+ *
+ * MEASURED INSTANT, AGAINST ITS OWN DECLARED 1.0s. Every record states
+ * `duration: 1.0`, and the footage shows no ramp at all. Deck 47's
+ * arrow, peak luminance over its own start-position mask against a
+ * clean earlier frame:
+ *
+ *     t      726.4  726.6  726.8  727.0
+ *     max     25     25    255    255
+ *
+ * A 1.0s ease-both ramp sampled at the reference's 0.2s would pass
+ * through roughly 0.03, 0.16, 0.50 and 0.84 of full alpha; nothing
+ * between black and full appears on any frame, on any of the three
+ * arrows that are cleanly isolated (46, 47, 52). So the effect is a
+ * step, and the declared duration is not a ramp length.
+ *
+ * That has a consequence for the firing model, recorded in
+ * `INSTANT_CONSUMES_NO_TIME` below.
+ */
+export const BC_APPEAR = "apple:bc-appear"
+export const APPEAR = "apple:appear"
 
 /**
- * The two effects this chapter implements. A build whose effect is not
- * here is reported by `unsupportedBuilds` rather than silently ignored —
- * a slide that quietly drops a build looks exactly like a slide that
- * never had one, and P-2's slide-32 lesson (a held page over-draws an
- * unbuilt label) is the same failure wearing the opposite mask.
+ * The effects the slide vocabulary implements. A build whose effect is
+ * not here is reported by `unsupportedBuilds` rather than silently
+ * ignored — a slide that quietly drops a build looks exactly like a
+ * slide that never had one, and P-2's slide-32 lesson (a held page
+ * over-draws an unbuilt label) is the same failure wearing the opposite
+ * mask.
  */
-export const SUPPORTED = new Set([LINE_DRAW, DISSOLVE, DISSOLVE_CHARACTER, MOTION_PATH])
+export const SUPPORTED = new Set([
+  LINE_DRAW,
+  DISSOLVE,
+  DISSOLVE_CHARACTER,
+  MOTION_PATH,
+  BC_APPEAR,
+  APPEAR,
+])
+
+/**
+ * An instant build contributes NO delay to the automatic chain.
+ *
+ * P-5 settled the firing model: an `automatic: true` chunk fires one
+ * DECLARED DURATION after its predecessor, an `automatic: false` chunk
+ * waits for a click. P-7's slides are the first to put an INSTANT build
+ * in the predecessor slot, and there the literal rule over-predicts.
+ *
+ * The pattern repeats seven times — `bc-appear` on the arrow
+ * (`automatic: false`, a click), then `action-motion-path` on the SAME
+ * arrow (`automatic: true`, duration 1.0). Read literally, the arrow
+ * appears, sits still for a full second, and only then glides. At the
+ * reference's 5 fps that stationary second is five frames, and it does
+ * not happen on any of the three arrows whose travel is cleanly
+ * isolated from other ink:
+ *
+ *     deck   first arrow ink   fitted motion onset   gap
+ *      46        719.2              719.135         +0.065
+ *      47        726.8              726.735         +0.065
+ *      52        762.0              761.875         +0.125
+ *
+ * Each gap is under one frame interval: the arrow is already moving in
+ * the first frame that shows it. The refinement that reconciles this
+ * with P-5's evidence without weakening it: the delay an automatic
+ * chunk waits is the predecessor's EFFECTIVE duration, and an instant
+ * build's is zero. Every case P-5 measured had a ramping predecessor,
+ * where effective and declared duration coincide, so the two readings
+ * were indistinguishable there and are distinguished here.
+ *
+ * Stated as a constant rather than buried in the scenes because it is a
+ * claim about the deck, and because a later chapter meeting another
+ * instant effect should find it already named.
+ */
+export const INSTANT_CONSUMES_NO_TIME = true
+
+/** Whether an effect lands in one step rather than over its duration. */
+export const isInstant = (record: KeyBuild): boolean =>
+  record.effect === BC_APPEAR || record.effect === APPEAR
+
+/**
+ * The fraction of an instant build's window its ramp is squeezed into.
+ *
+ * Not zero: a zero-width window is a degenerate segment, and
+ * `Timeline.valueAt` returns the END value for `span <= 0`, which would
+ * make the target visible from the clip's start rather than from its
+ * onset. A small positive width keeps the segment well-formed and puts
+ * the whole transition inside one thousandth of the build's duration —
+ * 1 ms on these 1.0s records, against a reference sampled every 200 ms.
+ */
+export const INSTANT_WINDOW = 0.001
 
 /**
  * An `apple:action-motion-path` as a windowed `Move`.
@@ -138,12 +230,146 @@ export const motionAnim = (
   target: Holon,
   scale: number,
 ): Anim => {
+  if (!motionIsStraight(record)) {
+    const curved = curvedMotionAnim(record, target, scale)
+    if (curved) return curved
+  }
   const end = motionEndpoint(record)
   if (!end) return { tracks: [] }
   // Slide units are y-DOWN and world units y-up, the same flip
   // slidePointToWorld performs; a delta takes the flip without the
   // origin shift.
   return together(target.x.by(end.x * scale), target.y.by(-end.y * scale))
+}
+
+/**
+ * How many waypoints a curved path is resampled into.
+ *
+ * The count is set by the RIPPLE it has to suppress, not by the curve's
+ * own shape — see `curvedMotionAnim` for why a resampled path fights the
+ * renderer's per-pair easing. Measured residual against the desired
+ * single ease: 0.036 of the path at 4 waypoints, 0.0060 at 16, 0.0030 at
+ * 32, 0.0015 at 64 — an O(1/N) convergence. 32 puts the worst deviation
+ * at 0.3% of a 285-unit path, i.e. 0.6 slide units or 0.4 video pixels,
+ * comfortably under the 5 fps reference's own resolution, and costs 33
+ * waypoints on ONE build in the whole deck.
+ */
+export const MOTION_SAMPLES = 32
+
+/**
+ * A curved `action-motion-path`, driven arc-length-uniformly.
+ *
+ * P-3 implemented the straight case and named this boundary rather than
+ * hiding it: `motionAnim` read the path's ENDPOINT and moved there,
+ * which is exactly right for a two-node run whose controls sit on its
+ * ends, and silently wrong for a path that bows away from its chord.
+ *
+ * ONE RECORD IN SLIDES 1-58 IS CURVED, AND IT IS DECK SLIDE 56.
+ *
+ * P-1 carried the census as "34 motion paths, 32 straight, 2 curved",
+ * which is the whole 83-slide FILE. Within the video's own scope
+ * (slides 1-58, the canon policy) there are 19 motion paths and exactly
+ * ONE is curved: build 5602009 on deck slide 56, a 3.0s two-segment
+ * cubic run travelling (-284.409, -170.965) slide units with real
+ * control points. The second curved record lives in slides 59-83, which
+ * appear nowhere in the video. That is a correction to the inherited
+ * figure's SCOPE, not to its arithmetic.
+ *
+ * Deck slide 56 is not in P-7's own row (33-38, 45-53), so this code is
+ * written against the DATA and tested synthetically, and the report says
+ * plainly that the footage never exercises it. All seven motion paths
+ * P-7 does own are straight, and they take the endpoint branch above.
+ *
+ * WHY RESAMPLING FIGHTS THE RENDERER, AND WHAT IS DONE ABOUT IT
+ *
+ * The obvious implementation — flatten the curve, hand the points to
+ * `sequence` — produces a visibly wrong motion, and the reason is in
+ * `Timeline.valueAt`: a `sequence` track eases each CONSECUTIVE PAIR of
+ * waypoints over its own sub-span, so N waypoints give N accelerate-
+ * decelerate cycles instead of the one the deck declares. Sampled at
+ * five points the composite runs 0.032/0.092/0.158/0.218/0.250 across
+ * the first quarter where a single ease wants a smooth ramp — the
+ * velocity pulses at every junction.
+ *
+ * So the waypoints are placed to CANCEL that. Waypoint k sits at the
+ * arc-length fraction `ease(k/N)` of the flattened path, and the
+ * renderer's per-pair easing then composes with that placement to
+ * reproduce the single declared ease. The composite converges on the
+ * desired curve as the sample count rises (see `MOTION_SAMPLES`), which
+ * is the test that pins it.
+ *
+ * ARC LENGTH, NOT PARAMETER. A cubic's parameter runs fast where the
+ * control points bunch, so stepping t uniformly would make the target
+ * dawdle and lurch along a path whose own declared timing is uniform.
+ * The flattener returns a polyline; this walks its cumulative chord
+ * length and inverts it, which is the same arc-length reparameterisation
+ * `DrawSteady` uses on a stroke.
+ */
+export const curvedMotionAnim = (
+  record: KeyBuild & { motionPath?: readonly KeyPathElement[] },
+  target: Holon,
+  scale: number,
+): Anim | undefined => {
+  const path = record.motionPath
+  if (!path || path.length < 2) return undefined
+
+  // The flattener is svg.ts's, reached through keynote.ts — same
+  // recursive de Casteljau the shape importer uses, so a motion path and
+  // a drawn outline are flattened by one code path and cannot drift
+  // apart. The path is RELATIVE to the drawable's position and already
+  // in slide units, so it needs no frame fit — only the tolerance.
+  const subpaths = flattenElements(path, FLATTEN_TOLERANCE_SLIDE)
+  const pts = subpaths[0]?.points
+  if (!pts || pts.length < 2) return undefined
+
+  // Cumulative chord length — the arc-length table.
+  const cum: number[] = [0]
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!
+    const b = pts[i]!
+    cum.push(cum[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y))
+  }
+  const total = cum[cum.length - 1]!
+  if (total <= 1e-9) return undefined
+
+  /** The point at arc-length fraction s, by inverting the table. */
+  const atFraction = (s: number): { x: number; y: number } => {
+    const want = s * total
+    let i = 1
+    while (i < cum.length - 1 && cum[i]! < want) i++
+    const a = pts[i - 1]!
+    const b = pts[i]!
+    const seg = cum[i]! - cum[i - 1]!
+    const u = seg <= 1e-9 ? 0 : (want - cum[i - 1]!) / seg
+    return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }
+  }
+
+  // The declared easing. Every action build in the deck states
+  // `kEaseBoth`, which is the framework's symmetric `smooth`; anything
+  // else falls back to it rather than inventing a mapping this deck
+  // gives no example of.
+  const easing: Easing = "smooth"
+
+  const xs: number[] = []
+  const ys: number[] = []
+  for (let k = 0; k <= MOTION_SAMPLES; k++) {
+    const p = atFraction(ease(easing, k / MOTION_SAMPLES))
+    xs.push(p.x * scale)
+    // Slide units are y-DOWN, world y-up — the same flip the straight
+    // branch performs.
+    ys.push(-p.y * scale)
+  }
+
+  // `sequence` states ABSOLUTE waypoints, and the path is relative to
+  // wherever the drawable already sits, so the offsets are added to the
+  // target's current position at compose time. The first sample is the
+  // path's own origin (0,0) and therefore the target's own place.
+  const x0 = target.x.value
+  const y0 = target.y.value
+  return together(
+    target.x.sequence(...xs.map((v) => x0 + v)),
+    target.y.sequence(...ys.map((v) => y0 + v)),
+  )
 }
 
 /** A motion path's final point, relative to the drawable's position. */
@@ -289,6 +515,19 @@ export const buildAnim = (record: KeyBuild, target: Holon): Anim => {
   // A motion path needs the slide-to-world scale, which only the Slide
   // has; `Slide.build` routes it before reaching here.
   if (record.effect === MOTION_PATH) return { tracks: [] }
+
+  // bc-appear / appear: a STEP, not a ramp — see BC_APPEAR for the
+  // footage.
+  //
+  // The step has to be built rather than merely asked for. A `.to()`
+  // spans its whole window (`Timeline` reads it as `[previous, value]`
+  // and interpolates), so stating one over a 1.0s build would produce
+  // exactly the fade the measurement rules out. Squeezing the ramp into
+  // the window's first instant is what makes it a step: at any sampled
+  // time at or past the onset the value has already arrived.
+  if (isInstant(record)) {
+    return together([rampOpacity(target, [out ? 0 : 1]), 0, INSTANT_WINDOW])
+  }
 
   // dissolve / dissolve character: one uniform opacity ramp. The deck's
   // `delivery: "All at Once"` is what makes the two identical; see the

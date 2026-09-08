@@ -7,6 +7,7 @@
  * 10 shapes, 1 texts, 2 groups, 0 builds.
  * Coordinates are in SLIDE units (1920x1080, y down, origin top-left);
  * the frame change to world is the Slide holon's.
+ * Skipped archive types: kTSDRightSingleArrow:synthesis-unverified
  */
 
 import type { SlideData } from "../../../../src/geometry/keynote"
@@ -154,6 +155,7 @@ export const slide37: SlideData = {
     },
   ],
   groups: [{"id":"5368695","members":["5368795","5368774","5368796","5368703","5368747"]},{"id":"5368696","members":["5368798","5368724"]}],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},

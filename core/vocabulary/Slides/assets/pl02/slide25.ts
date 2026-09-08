@@ -7,6 +7,7 @@
  * 20 shapes, 2 texts, 7 groups, 4 builds.
  * Coordinates are in SLIDE units (1920x1080, y down, origin top-left);
  * the frame change to world is the Slide holon's.
+ * Skipped archive types: kTSDRightSingleArrow:synthesis-unverified
  */
 
 import type { SlideData } from "../../../../src/geometry/keynote"
@@ -313,6 +314,7 @@ export const slide25: SlideData = {
     },
   ],
   groups: [{"id":"4697319","members":["4697357"]},{"id":"4697318","members":["4697378"]},{"id":"4697317","members":["4697392"]},{"id":"4697315","members":["4697395"]},{"id":"4697316","members":["4697328"]},{"id":"4697314","members":["4697385","4697391","4697341","4697379","4697329","4697371","4697393","4697368","4697383","4697343","4697319","4697318","4697317","4697315","4697316"]},{"id":"4706554","members":["4706589","4706559","4706569","4706588"]}],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     {"id":"4707179","target":"4706936","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
     {"id":"4709394","target":"4709161","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},

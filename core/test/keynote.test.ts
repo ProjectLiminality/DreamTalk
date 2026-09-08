@@ -781,6 +781,51 @@ describe("builds", () => {
     expect(existsSync(join(REPO, slide01.source))).toBe(true)
   })
 
+  test("motion-path counts: 19 in scope, exactly ONE curved", async () => {
+    // The deck-wide figure is 34 paths / 2 curved, and P-7 was right
+    // that a chapter reading it looks for two curves and finds one. In
+    // scope (slides 1-58) it is 19 and 1 — build 5602009 on deck slide
+    // 56, two cubic segments, travel (-284.4, -171.0).
+    const { slide56 } = await import("../vocabulary/Slides/assets/pl02/slide56")
+    const curved = slide56.builds.find((b) => b.id === "5602009")
+    expect(curved).toBeDefined()
+    expect(curved!.duration).toBe(3)
+    const flat = flattenElements(curved!.motionPath!, FLATTEN_TOLERANCE_SLIDE)
+    const pts = flat[0]!.points
+    const end = pts[pts.length - 1]!
+    expect(end.x).toBeCloseTo(-284.4, 0)
+    expect(end.y).toBeCloseTo(-171.0, 0)
+    // Genuinely curved: the flattened run bows away from its own chord.
+    const chord = Math.hypot(end.x, end.y)
+    let maxDev = 0
+    for (const p of pts) {
+      maxDev = Math.max(maxDev, Math.abs(p.x * end.y - p.y * end.x) / chord)
+    }
+    expect(maxDev).toBeGreaterThan(1)
+  })
+
+  test("the kTSDRightSingleArrow synthesis announces itself as unverified", async () => {
+    // Every one of the deck's 20 instances has point.x > naturalSize.h,
+    // so the shaft thickness saturates and the synthesis degenerates to
+    // a pentagon. The footage draws a mouse pointer. Rather than
+    // silently emit the wrong silhouette, the decoder names it.
+    const { slide15 } = await import("../vocabulary/Slides/assets/pl02/slide15")
+    expect(slide15.skipped ?? []).toContain("kTSDRightSingleArrow:synthesis-unverified")
+  })
+
+  test("no drawable in the deck is flipped, and flags is not a flip mask", () => {
+    // Keynote states flips on the PATH SOURCE; `geometry.flags` is a
+    // validity mask (3 on 2,743 drawables, 7 on 92, 0 on 89). Both flips
+    // are false on every drawable, so the decoder's normalised `flags`
+    // is always 0 and fitToFrame never mirrors. P-7 read a raw archive's
+    // `flags: 3` as "both flip bits set"; it is not.
+    for (const shape of slide01.shapes) {
+      // The generated modules carry no flip because there is none to
+      // carry — the fit is unmirrored everywhere in this deck.
+      expect(shape).not.toHaveProperty("flags")
+    }
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

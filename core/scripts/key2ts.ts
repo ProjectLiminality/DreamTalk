@@ -105,7 +105,7 @@ const SIZE_BUDGET_KB = 2048
  */
 const CHAPTER_SLIDES = [
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 22, 23, 24, 25, 29, 30, 31, 32, 33,
-  34, 35, 36, 37,
+  34, 35, 36, 37, 38, 45, 46, 47, 48, 49, 50, 51, 52, 53, 56,
 ]
 
 const fmt = (n: number): string => {
@@ -304,6 +304,9 @@ const convert = (slide: DecodedSlide): { name: string; bytes: number } => {
   for (const text of texts) lines.push(...emitText(text))
   lines.push("  ],")
   lines.push(`  groups: ${JSON.stringify(slide.groups)},`)
+  if (slide.skipped?.length) {
+    lines.push(`  skipped: ${JSON.stringify(slide.skipped)},`)
+  }
   // Image BOXES, not image data — this framework draws strokes and an
   // image is a raster. They are carried because they are load-bearing
   // for SCORING: on slide 2 they are 46.9% of the reference frame's ink,

@@ -323,8 +323,38 @@ def point_elements(pp, skipped):
         return polyline_elements(pts)
 
     if kind == "kTSDRightSingleArrow":
-        # Shaft of half-thickness `t` running left to the head's base at
-        # x = w - head, then the head's three points.
+        # KNOWN WRONG for this deck, and deliberately left in place with
+        # the shapes NAMED in `skipped` so a consumer can see it.
+        #
+        # The reading below is the obvious one — `point.x` is the shaft
+        # thickness in natural units, `point.y` the head length as a
+        # fraction of the width. It reproduces nothing in this deck,
+        # because every one of the 20 kTSDRightSingleArrow instances has
+        # px > h, so `t` saturates at h/2, the shaft fills the full
+        # height and the shape collapses to a pentagon: a rectangle with
+        # a triangular bump on one side.
+        #
+        # The footage says otherwise. P-7 traced the seven out-of-arc
+        # action-motion-path builds to one drawable (4475306: point
+        # (29.16, 0.303), natural 39.59x26.60, angle 120) and the encode
+        # draws a MOUSE POINTER with a notched two-prong tail. Isolated
+        # by differencing f_03640 against f_03635, the glyph is a narrow
+        # shaft with a solid triangular head, 18x25 video px — against
+        # the pentagon's 1.488 aspect and the rotated declared box's
+        # 28.6x31.7. It is neither.
+        #
+        # Nor is `flags: 3` the explanation: Keynote states flips on the
+        # PATH SOURCE, and `horizontalFlip`/`verticalFlip` are False on
+        # EVERY drawable in this deck (geometry.flags is a validity mask
+        # — 3 on 2,743 drawables, 7 on 92, 0 on 89).
+        #
+        # So this is a Keynote built-in whose outline is not derivable
+        # from its two parameters, and guessing further would be fitting.
+        # Whoever needs these 20 shapes should trace the silhouette from
+        # the footage or find the shape library, exactly as the images
+        # need tracing — and until then the synthesis is announced as
+        # unreliable rather than silently producing a pentagon.
+        skipped.append("kTSDRightSingleArrow:synthesis-unverified")
         t = min(px, h) / 2
         head = min(max(py, 0.0), 1.0) * w
         base = w - head

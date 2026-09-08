@@ -159,7 +159,20 @@ export interface KeyGeometry {
   size: { width: number; height: number }
   /** Rotation in DEGREES, counterclockwise, about the box's centre. */
   angle?: number
-  /** Bit 1 = horizontal flip, bit 2 = vertical flip (Keynote's own). */
+  /**
+   * Flip bits: 1 = horizontal, 2 = vertical.
+   *
+   * NOTE these are the DECODER'S bits, not the archive's. Keynote states
+   * flips on the PATH SOURCE (`horizontalFlip` / `verticalFlip`) and
+   * uses `geometry.flags` for something else entirely — a validity mask,
+   * 3 on 2,743 drawables, 7 on 92 and 0 on 89. `keydecode.py` overwrites
+   * the field with the real flip bits before it reaches here.
+   *
+   * In this deck both flips are FALSE on every drawable, so `flags` is
+   * always 0 and `fitToFrame` never mirrors anything. Do not read a raw
+   * archive's `flags` as flips — P-7 read the cursor glyph's `flags: 3`
+   * as "both flip bits set" and it is nothing of the kind.
+   */
   flags?: number
 }
 
@@ -429,9 +442,16 @@ export interface KeyBuild {
    * ellipse it should be above.
    *
    * Carried as a full element list rather than a `{dx, dy}` because a
-   * translation is not general enough: of the deck's 34 motion paths, 32
-   * are two-node straight runs but TWO are three-node curves with real
-   * control points. Flatten it with `flattenElements` like any other
+   * translation is not general enough — though the numbers differ by
+   * scope, and a chapter reading only the deck-wide figure looks for two
+   * curves and finds one:
+   *
+   *   whole 83-slide FILE:  34 motion paths, 2 genuinely curved
+   *   **in scope (1-58):    19 motion paths, exactly ONE curved**
+   *
+   * The in-scope curve is build 5602009 on deck slide 56 — 3.0s, two
+   * cubic segments, travel (-284.4, -171.0). Every other in-scope path
+   * is a two-node straight run. Flatten it with `flattenElements` like any other
    * path — the straight ones arrive as degenerate curves whose controls
    * sit on their endpoints, so one code path serves both.
    *
@@ -953,6 +973,13 @@ export interface SlideData {
   /** The click grouping, in click order. Optional so modules generated
    *  before P-3 still typecheck. */
   buildChunks?: KeyBuildChunk[]
+  /**
+   * Archive types and syntheses the decode could not handle faithfully,
+   * named so a consumer can see them rather than inheriting silence.
+   * `TSD.ImageArchive` is the common one; the other is
+   * `kTSDRightSingleArrow:synthesis-unverified` (see keydecode.py).
+   */
+  skipped?: string[]
   transition?: KeyTransition
 }
 
