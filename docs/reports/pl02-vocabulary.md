@@ -557,3 +557,12 @@ file was written.
   220.2-223.8 (not 227.0); 7 likewise re-measured (see p4 report).
   Slide 10 unscored on principle: its action-scale declares no
   factor, and scoring would fit an undeclared magnitude.
+- (2026-09-08, P-5) **The dimmed palette is REFUTED at source** — the
+  deck has EXACTLY four colours deck-wide (#FFFFFF 1655, #000000 413,
+  #00A2FF 109, #FF644E 77; zero non-palette occurrences in 1841
+  drawables, every opacity exactly 1.0). #A9A9A9 appears nowhere; no
+  ChangeColor build exists anywhere in the deck. §5's grey was a
+  MID-DISSOLVE FRAME: "Distance" caught ~6% into its declared 1.0s
+  ramp, firing ~4s after its neighbours (measured; stroke-core scans
+  across seven settled frames find no grey plateau). P-5 is the
+  labelled-chain layout at scale — nothing new to build.
