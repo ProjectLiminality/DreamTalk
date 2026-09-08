@@ -578,10 +578,13 @@ file was written.
   25 chunk 4, pinned by test). Only true click onsets remain
   footage-measured.
 - (2026-09-08, P-5/P-3) Segment boundary corrections: 15 settles
-  225.2, out at 262.2; 28 settles 527.6, out at 538.8. ATTRIBUTION
-  NOTE: P-3's segment-6 gain came from the baseline fix, NOT fills
-  (zero fills exist in slides 2-6 — P-3's diff proof); P-5's report
-  credits fills there and stands corrected by P-3.
+  225.2, out at 262.2; 28 settles 527.6, out at 538.8. ATTRIBUTION,
+  FINAL (P-5's own 2x2 factorial, each variant fresh-built): the
+  baseline fix contributes ALL cross-chapter gains (P-3 seg 6
+  FAIL→PASS +0.116, P-4 slide 9 +0.024, P-2 slides +0.083/+0.029);
+  the fills contribute 0.0003 on ONE frame. The SlideFill capability
+  is correct by construction and NOT YET MEETING A FRAME THAT NEEDS
+  IT — P-9/P-10 (70 + 15 fills) decide whether it earns its keep.
 - (2026-09-08, P-5) **The one systematic gap nobody owns: text strokes
   are FAT** — ink 1.3-2.28x the reference at the same threshold on
   text-dense tableaux. Geometry and type metrics are now right; the

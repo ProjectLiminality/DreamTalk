@@ -27,9 +27,10 @@ corrections to things previously believed:
 2. **The firing model is settled**, and the two chapters that appeared to
    disagree were both reading the same field correctly (§2).
 
-It also had to build one capability nobody had scoped — **opaque fills as
-occluders** (§3) — which improved P-3's and P-4's slides without touching
-their code (§5).
+It also built one capability nobody had scoped — **opaque fills** (§3) —
+whose value turned out to be far smaller than this report first claimed,
+and §5 is the correction: the cross-chapter gains credited to it are
+**not** its, and an A/B proves it.
 
 ## 1. The dimmed palette: refuted
 
@@ -187,29 +188,78 @@ re-examined on a slide with more room, not as a refutation of a rule that
 24 gaps support, and it is pinned by a test so a later re-measure that
 moved it would be visible.
 
-## 3. The capability this chapter had to build: fills that occlude
+## 3. The capability this chapter built: opaque fills
 
-Nobody scoped this, and it is not a colour problem — it is an
-**occlusion** problem, which is why counting colours did not predict it.
+**Read §5 before believing anything in this section about its value.**
+An A/B run after P-3 challenged the attribution shows the fills are worth
+**0.0003 `coverage_ours` on one frame** of this chapter and **exactly
+nothing** anywhere else. The construction below is sound and the deck
+facts are real; the claimed impact was not, and the first draft of this
+section made a case far stronger than the measurement supports.
+
 413 of the deck's drawables carry a flat fill. On a black stage a black
-fill paints nothing of its own; its entire visible effect is to **hide
-what is behind it**, and the deck leans on that hard.
+fill paints nothing of its own, so its only possible effect is to **hide
+what is behind it** — an occlusion question, not a colour one, which is
+why counting colours did not predict it.
 
-Two cases, both from this chapter:
-
-**Deck slide 24 — a fill cutting a stroke.** Its head icons are
-black-filled and the campfire ellipse's stroke runs behind them. In the
-reference (`f_02351`) the head interior is unbroken black where the
-ellipse would cross; we drew the ellipse straight through. Zoomed, the
-reference's head is a clean silhouette and ours had a line through it.
+Two cases motivated the work. Both are real in the archives; **only the
+second is visible in any frame this chapter scores**, and even there
+barely.
 
 **Deck slide 23 — a fill hiding a whole shape.** The slide stacks **two
 copies** of one composition: 5313xxx beneath 5315xxx. The lower copy's
 heads contain a small blue circle and a red rectangle; the upper copy's
-heads are black-filled and hide them entirely. Nothing marks the lower
-copy as hidden — both copies are live drawables at opacity 1.0 — so a
-renderer that ignores fills draws a picture with two extra shapes in it
-and no way to know which two.
+heads are black-filled and sit later in z-order. Both copies are live
+drawables at opacity 1.0 with nothing marking either hidden.
+
+**Deck slide 24 — a fill cutting a stroke.** Its head icons are
+black-filled and the campfire ellipse spans them (ellipse 5314388 runs
+x 223–509, the head 5314453 sits at x 273–311 inside it).
+
+### What the fills actually change, measured
+
+Rendering `f_02351` with the fill branch disabled and enabled differs by
+**87 pixels**, all of them on the laptop's frame:
+
+| region | fills OFF | fills ON | reference |
+|---|---|---|---|
+| laptop interior, mean luma | 1.2 | 1.2 | 0.2 |
+| head interior, mean luma | 13.0 | 13.0 | — |
+
+The head interiors are **empty either way** — the ellipse passes below
+the heads rather than through them, so the occlusion case that motivated
+the work does not arise in the frame that was supposed to show it. What
+the fill does do is thicken the laptop's frame from a thin gappy outline
+to a solid one matching the reference, which is a genuine improvement
+worth 0.9517 → 0.9520.
+
+The construction is still the right one for what it is, and its two
+design decisions stand on their own evidence:
+
+**The colours differ**, so the interior is a holon (`SlideFill`) rather
+than a param on the outline. A white-stroked, black-filled head is the
+deck's common case and the host's wash takes the holon's own `tint`; one
+holon cannot be white and black at once.
+
+**The interior is EVEN-ODD across all subpaths.** `Notebook_109` on deck
+slide 24 is one white-filled drawable of two closed subpaths — an outer
+laptop silhouette and an inner screen rectangle — which the reference
+draws as a white frame around a black screen. Filling each loop
+separately paints a solid slab; the hole is not a property of either
+loop. Verified: the triangulated area is 290.79 against an outer loop of
+999.73 and an inner of 708.95, exactly the difference. Even-odd is needed
+even for a single loop, because a Keynote icon silhouette is not convex —
+head icon 5314453 has 61 points and both cross-product signs — so a
+centroid fan would paint outside it.
+
+The stacking needs no sort: shapes compose in the deck's own
+`drawablesZOrder` and attach order **is** composite order.
+
+**Where it would matter, and does not yet:** slide 11 carries 70 fills
+and slide 8 fifteen. This chapter scores neither. Whether opaque fills
+earn their place is a question for P-9 and P-10, and the honest position
+today is that the capability exists, is correct by construction, and has
+not yet met a frame that needs it.
 
 ### The construction, and why each part of it
 
@@ -271,33 +321,84 @@ ramps move too little ink to clear the scan's threshold, so every onset in
 slide that settles the firing model would have looked like the slide with
 the least to say about it.
 
-## 5. What this chapter changed for other chapters
+## 5. A wrong attribution, and the A/B that settled it
 
-The fills improved P-3's and P-4's slides with no change to their code:
+**The first draft of this section credited the fills with improving P-3's
+and P-4's slides. That was wrong. P-3 caught it, and the correction is
+the more useful result.**
 
-| chapter | frame | before | after |
-|---|---|---|---|
-| P-4 slide 9 | f_950 | 1.0000 / 0.9654 | 1.0000 / **0.9898** |
-| P-3 seg 4 | f_451 | 0.9999 / 0.9471 | 0.9999 / **0.9920** |
-| P-3 seg 5 | f_591 | 1.0000 / 0.9029 | 1.0000 / **0.9853** |
-| **P-3 seg 6** | f_651 | 0.9979 / 0.8515 FAIL | **1.0000 / 0.9670 PASS** |
+The claim was that P-3's arc went 2/5 → 3/5 and P-4's slide 9 rose
+0.9654 → 0.9898 because opaque fills stopped ink being drawn behind
+black shapes. P-3 pointed out the disqualifying fact in one line:
+**not one shape in deck slides 2–6 carries a fill** — 0 of 8, 0 of 5,
+0 of 4, 0 of 2, 0 of 1. `SlideFill` composes nothing anywhere in that
+arc and therefore cannot have moved it. P-3 also showed the movement had
+the wrong *shape* for occlusion: ink volume unchanged at 1.75×, and a
+diff of 2012 px lost against 2104 px gained with the bounding boxes ten
+rows apart — text moving down, not interior ink being removed.
 
-**P-3's opening arc goes 2/5 to 3/5.** Segment 6 was its documented
-antialiasing-shoulder failure — "our ink runs wider than the reference's
-at the same threshold... 1.75x on segment 6... its 0.8515 the other way
-is the shoulder, and it is not a build." Part of that excess was not the
-shoulder: it was interior ink the reference does not have, because the
-shapes are filled black and everything passing behind them was being
-drawn. P-3's reading that it was not a build was right; it was not only
-the shoulder either. Segments 2 and 3 keep their verdicts, still capped
-by the dropped images.
+### The A/B
 
-P-4's slide 9 moves because its Logo carries two black-filled circles —
-the same two that make its group build resolve seven parts rather than
-five. One assertion in `test/connections.test.ts` was updated to state
-`members + filled` rather than a bare 5; what the test is about (that a
-group build resolves to what actually draws, rather than reporting no
-target) is untouched.
+Two independent changes landed in the same window — this chapter's fills
+and the `textBaseline` fix (§6) — and I attributed a joint effect to one
+of them without separating them. A 2×2 settles it: each variant built and
+scored from a fresh bundle.
+
+P-3's segment 6 (`f_651`) and segment 5 (`f_591`):
+
+| variant | f_651 | f_591 |
+|---|---|---|
+| **A** new baseline + fills | 1.0000 / 0.9670 **PASS** | 1.0000 / 0.9853 |
+| **B** new baseline, fills OFF | 1.0000 / 0.9670 **PASS** | 1.0000 / 0.9853 |
+| **C** old baseline + fills | 0.9979 / 0.8515 FAIL | 1.0000 / 0.9029 |
+| **D** old baseline, fills OFF | 0.9979 / 0.8515 FAIL | 1.0000 / 0.9029 |
+
+A = B and C = D **to four decimals**. The fills contribute exactly
+nothing; the baseline fix contributes all of it.
+
+P-4's four segments, same design: A = B and C = D exactly, with slide 9's
+0.9654 → 0.9898 falling entirely to the baseline fix (its label "Social
+Organism"), *despite* that slide carrying two black-filled circles — the
+fills are there and still change nothing.
+
+And this chapter's own seven segments: A vs B differ on **one frame by
+0.0003** (`f_2351`, 0.9520 against 0.9517). Everything else is identical.
+
+### What each fix is actually worth
+
+| fix | evidence |
+|---|---|
+| `textBaseline` middle | P-3 seg 6 FAIL→PASS; seg 5 +0.082; seg 4 +0.045; P-4 slide 9 +0.024; P-2's slide 5 +0.083, slide 32 +0.029 |
+| opaque fills | one frame, +0.0003 |
+
+### The correction to P-3's §5.4, which still stands
+
+P-3 wrote that segment 6's 0.8515 was "the shoulder, and it is not a
+build". The second half holds. The first half was too confident — but not
+for the reason I gave. It was not interior ink behind fills; it was a
+systematic **baseline offset**, and the shoulder is genuinely unchanged
+at 1.757×. A ratio can be right while the ink is in the wrong place.
+P-3 is amending its own report accordingly.
+
+### The lesson
+
+This is the chapter's second attribution failure and it has the same root
+as §8's: **I inferred a cause from a coincidence in time rather than
+isolating it.** Two changes landed together, one of them mine, and I
+credited mine. The check that would have caught it costs one extra build
+— disable the change and re-score — and I did not run it until someone
+else's arithmetic forced me to.
+
+The general form, worth carrying: **when two fixes land in one window,
+neither may be credited until each has been scored with the other held
+constant.** A teammate's slide that improved is not evidence for your
+change; it is evidence that *something* changed.
+
+One assertion in `test/connections.test.ts` was still legitimately
+updated by this chapter — slide 9's group build resolves seven parts
+rather than five because two members carry fills. That is a real
+consequence of composing fills, independent of whether they move any
+score.
 
 ## 6. A finding owed to another chapter: `textBaseline`'s `middle` branch
 
@@ -426,17 +527,22 @@ byte-identical; only the barrel changed.
    declared duration after the previous build", not "simultaneously with
    it"; `automatic: false` is a click. `eventTrigger` carries nothing
    here. Deck slide 25 is the one measured exception.
-3. **Fills occlude, and the deck depends on it.** A slide that stacks
-   copies (deck 23) is only correct if fills are honoured — and the
-   error is invisible in the sense that the extra shapes look like they
-   belong. If a tableau has ink the reference lacks, suspect a fill
-   before suspecting the stroke.
+3. **Opaque fills exist and are correct, but have not yet earned their
+   keep** (§3, §5). Measured value so far: 0.0003 on one frame. Slide 11
+   carries 70 fills and slide 8 fifteen — P-9 and P-10 are where the
+   question is actually decided. Do not repeat this chapter's mistake of
+   assuming a capability matters because it ought to.
 4. **`textBaseline`'s `middle` branch was off by descent/2** (§6) —
    fixed during this chapter as Correction 11. The lesson outlives the
    fix: 43 of the 44 records use the branch the title-card gate never
    touched, which is P-1's "a gate validates only the features its own
    slide uses" for the third time.
-5. **Re-render before you diagnose** (§8).
+5. **Re-render before you diagnose** (§8), and **isolate before you
+   attribute** (§5). Both of this chapter's errors were inferences from
+   circumstance — a stale screenshot, and two fixes landing together —
+   that one extra build would have caught. When two changes land in one
+   window, neither may be credited until each is scored with the other
+   held constant.
 6. **The remaining residual on text-dense frames is the antialiasing
    shoulder**, not geometry and not type metrics. On this chapter's
    labels it runs 2.28×. It caps `coverage_ours` on every text-heavy
