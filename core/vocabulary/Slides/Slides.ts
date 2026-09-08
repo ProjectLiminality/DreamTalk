@@ -84,9 +84,9 @@ import {
 } from "./Builds"
 import {
   Connection,
-  arrowHead,
   boxCentre,
   connectionPath,
+  lineDecoration,
   unionBoxes,
   type ConnectTarget,
   type SlidePoint,
@@ -456,13 +456,19 @@ export class Slide extends Holon {
       return { x: w.x, y: w.y, z: 0 }
     })
 
-    // The head, READ from the deck's own resolved `lineEnds` — the
-    // stylesheet field P-1 now carries (123 in-scope heads, one tail).
-    // The head sits on the `to` end and the tail, where one exists, on
-    // the `from` end; `endPoint` is where the line meets the decoration,
-    // which is what makes the two ends the same act with opposite
+    // End decorations, READ from the deck's own resolved `lineEnds` —
+    // the stylesheet field P-1 carries. The HEAD sits on the `to` end and
+    // the TAIL on the `from` end, so the two are one act with opposite
     // directions rather than two special cases.
-    const head: Vec3Like[] = []
+    //
+    // Nothing here keys on "always a simple arrow on the `to` end", and
+    // that is deliberate: of the deck's 123 heads and one tail, two are
+    // `filled circle` rather than `simple arrow`. A consumer assuming
+    // the common case would be wrong three times, silently, and in a way
+    // no frame this chapter scores would catch — none of the exceptions
+    // falls on slides 7, 8, 9 or 14. So the identifier is dispatched on
+    // (`lineDecoration`) and the tail is drawn where one exists.
+    const decorations: Vec3Like[][] = []
     const toWorld = (p: SlidePoint): Vec3Like => {
       const w = slidePointToWorld(p, scale)
       return { x: w.x, y: w.y, z: 0 }
@@ -473,17 +479,19 @@ export class Slide extends Holon {
       prev: SlidePoint,
     ): void => {
       if (!end) return
-      for (const p of arrowHead(tip, prev, this.headSize.value)) head.push(toWorld(p))
+      const outline = lineDecoration(end.identifier, tip, prev, this.headSize.value)
+      if (outline.length >= 2) decorations.push(outline.map(toWorld))
     }
     if (path.points.length >= 2) {
       const n = path.points.length
       decorate(shape.lineEnds?.head, path.points[n - 1]!, path.points[n - 2]!)
+      decorate(shape.lineEnds?.tail, path.points[0]!, path.points[1]!)
     }
 
     return this.add(
       new Connection({
         points: world,
-        head,
+        decorations,
         dash,
         period,
         tint,

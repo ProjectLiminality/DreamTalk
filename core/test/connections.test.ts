@@ -20,6 +20,7 @@ import {
   controlThrough,
   dashAlong,
   flattenQuad,
+  lineDecoration,
   outlineExit,
   pointAtLength,
   polylineLength,
@@ -303,6 +304,57 @@ describe("arrowheads", () => {
   test("a degenerate direction draws nothing rather than a spike", () => {
     expect(arrowHead({ x: 5, y: 5 }, { x: 5, y: 5 }, 10)).toEqual([])
     expect(arrowHead({ x: 100, y: 0 }, { x: 0, y: 0 }, 0)).toEqual([])
+  })
+
+  test("the decoration dispatches on its IDENTIFIER, not on position", () => {
+    // P-1's warning, and it is worth heeding rather than paraphrasing:
+    // "don't key on always-simple-arrow-on-TO". Of the deck's 123 heads
+    // and one tail, TWO are `filled circle`. A consumer drawing every
+    // decoration as a triangle would be wrong three times, silently —
+    // and none of the exceptions falls on slides 7, 8, 9 or 14, so no
+    // frame this chapter scores would have caught it.
+    const tip = { x: 100, y: 0 }
+    const prev = { x: 0, y: 0 }
+
+    const arrow = lineDecoration("simple arrow", tip, prev, 10)
+    expect(arrow).toHaveLength(4)
+    expect(arrow[1]).toEqual(tip)
+
+    // A circle is centred on the end and has no direction, so it must
+    // NOT be a triangle with the tip pushed forward.
+    const dot = lineDecoration("filled circle", tip, prev, 10)
+    expect(dot.length).toBeGreaterThan(8)
+    for (const p of dot) {
+      expect(Math.hypot(p.x - tip.x, p.y - tip.y)).toBeCloseTo(5, 6)
+    }
+
+    // An identifier nobody has read draws NOTHING. A missing decoration
+    // is a visible gap; one invented in the wrong shape is a fidelity
+    // claim the data does not support.
+    expect(lineDecoration("some future thing", tip, prev, 10)).toEqual([])
+  })
+
+  test("a head and a tail are separate outlines, not one polyline", () => {
+    // One line in the deck carries a tail. Concatenating the two
+    // decorations into a single point list would draw a spurious segment
+    // joining the two ENDS of the line straight across the tableau.
+    const line = new Connection({
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 100, y: 0, z: 0 },
+      ],
+      decorations: [
+        arrowHead({ x: 100, y: 0 }, { x: 0, y: 0 }, 10).map((p) => ({ ...p, z: 0 })),
+        arrowHead({ x: 0, y: 0 }, { x: 100, y: 0 }, 10).map((p) => ({ ...p, z: 0 })),
+      ],
+    })
+    void line.parts
+    expect(line.arrows).toHaveLength(2)
+    // Each stays within its own end of the line rather than spanning it.
+    for (const a of line.arrows) {
+      const xs = a.points.map((p) => p.x)
+      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(20)
+    }
   })
 
   test("all ten of slide 8's lines declare a head and none a tail", () => {

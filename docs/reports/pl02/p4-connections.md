@@ -132,17 +132,33 @@ extreme, where box and silhouette coincide. A fitted constant would have
 looked justified by half the data. The field was requested with these
 measurements, P-1 carried it, and `connectionPath` now reads it.
 
-### Arrowheads exist, on 123 lines
+### Arrowheads exist, on 123 lines — and the convention has exceptions
 
 Not carried at all when the chapter started. They resolve through the
 style variation chain into the **global** `Index/DocumentStylesheet.iwa`,
 not the slide file: `super.style → TSWP.ShapeStyleArchive →
 objects[0].super.shapeProperties.headLineEnd`. 123 in-scope heads and
-one tail; the value is the same `"simple arrow"` throughout — a filled
-triangle `(0,0) (3,6) (6,0)`, `endPoint (3,0)`, on the `to` end. All ten
-of slide 8's lines carry one and none of slides 7, 9 or 14's do, so a
-consumer keying "connections have arrows" would be wrong four times out
-of five here.
+one tail. All ten of slide 8's lines carry one and none of slides 7, 9
+or 14's do, so a consumer keying "connections have arrows" would be
+wrong four times out of five here.
+
+**And the shape convention has exceptions, which P-1 caught and this
+chapter would not have.** Almost every decoration is `"simple arrow"` —
+a filled triangle `(0,0) (3,6) (6,0)`, `endPoint (3,0)`, on the `to`
+end — but **two are `"filled circle"`**, and one line carries a **tail**
+rather than a head. Neither exception falls on slides 7, 8, 9 or 14, so
+no frame scored here would have caught a renderer that drew every
+decoration as a forward-pointing triangle: it would have been wrong
+three times, silently, in slides P-9 and P-10 own.
+
+So `lineDecoration` dispatches on the identifier rather than assuming,
+`composeConnection` draws the tail where one exists, and a
+`Connection` holds its decorations as **separate outlines** — one flat
+list would have drawn a spurious segment straight across the tableau
+joining a head to its tail. An identifier nobody has read draws
+**nothing**: a missing decoration is a visible, reportable gap, while
+one invented in the wrong shape is a fidelity claim the data does not
+support.
 
 What is measured and what is not: the drawn head on slide 8 is
 **9.66 ± 0.10 long by 4.67 ± 0.20 half-width**, an aspect of 2.07
@@ -384,18 +400,21 @@ seven clusters are pixel-identical translated copies (max deviation
 | `core/vocabulary/Slides/Slides.ts` | connection composition, group geometry resolution, group build targets, `stalePaths()` |
 | `core/vocabulary/Slides/Builds.ts` | `DIRECTION_FROM_MIDDLE`, the midpoint sweep, `Connection` routing |
 | `core/demo/pl02/Mesh01.ts` | **new** — deck slides 7/8/9/14, registered `p02d` |
-| `core/test/connections.test.ts` | **new** — 28 tests |
+| `core/test/connections.test.ts` | **new** — 30 tests |
 | `core/test/builds.test.ts` | two tests updated: slide 2's dashed lines are `Connection`s now |
 
 Two of P-3's tests changed, and only in the type they assert — its four
-connection lines are `Connection`s rather than `DottedLine`s now. What
-each test is *about* (the draw direction; that opacity reaches the
-dashes) is unchanged, and both still pass.
+connection lines are `Connection`s rather than `DottedLine`s now. Per the
+lead's ruling the behaviour supersedes P-3's reading and the tests follow
+the behaviour: what each test is *about* (the draw direction; that
+opacity reaches every drawn dash) is unchanged, the assertions are the
+same ones, and the supersession is noted in each test's comment with P-3
+attributed. Both pass.
 
 ## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1100 pass, 0 fail** (1067 baseline + 28 mine + the
+- `bun test` — **1102 pass, 0 fail** (1067 baseline + 30 mine + the
   baseline's own movement as other agents landed work).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's and P-3's to four decimals, so

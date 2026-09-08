@@ -471,11 +471,10 @@ export const boxAsTarget = (t: ConnectTarget): ConnectTarget => ({
 /**
  * An arrowhead's outline, in slide coordinates.
  *
- * The deck's one and only head is `"simple arrow"`: a filled triangle
+ * The deck's dominant decoration is `"simple arrow"`: a filled triangle
  * whose path is (0,0) (3,6) (6,0), joined to the line at (3,0) — so it
  * is 6 wide across the base and 6 long, its tip forward and its base
- * centred on the line's end. All 119 of the deck's arrowed lines carry
- * that identical value, and none carries a tail.
+ * centred on the line's end.
  *
  * `size` is the drawn length. Measured on three of slide 8's lines the
  * head runs **9.66 +/- 0.10** long by **4.67 +/- 0.20** half-width, an
@@ -488,7 +487,7 @@ export const boxAsTarget = (t: ConnectTarget): ConnectTarget => ({
  * This framework draws strokes, so the filled triangle is drawn as its
  * closed outline. On a 2-unit stroke at slide scale the difference is
  * under a pixel of the frame, and a fill would be the wrong claim to
- * make while `isFilled` is a field the model does not carry.
+ * make while `isFilled` is a field the consumer does not act on.
  */
 export const arrowHead = (
   tip: SlidePoint,
@@ -515,6 +514,58 @@ export const arrowHead = (
 }
 
 /**
+ * A round end decoration — Keynote's `"filled circle"`.
+ *
+ * NOT hypothetical, and worth its own function rather than a triangle
+ * with more points: the deck contains two of them. They are the reason a
+ * consumer must not key on "always a simple arrow on the `to` end" —
+ * P-1's own warning, and it is the second half of the same warning that
+ * a TAIL exists (one, in the file), which is why `lineDecoration` below
+ * dispatches on the identifier rather than assuming.
+ *
+ * Drawn centred on the line's end, since a dot has no direction.
+ */
+export const roundHead = (tip: SlidePoint, size: number): SlidePoint[] => {
+  if (size <= 0) return []
+  const r = size / 2
+  const out: SlidePoint[] = []
+  const n = 16
+  for (let i = 0; i <= n; i++) {
+    const a = (2 * Math.PI * i) / n
+    out.push({ x: tip.x + r * Math.cos(a), y: tip.y + r * Math.sin(a) })
+  }
+  return out
+}
+
+/**
+ * One end decoration's outline, dispatched on what the deck calls it.
+ *
+ * The identifier is READ rather than assumed. Across the deck 123 lines
+ * carry a head and one carries a tail, and while almost all are
+ * `"simple arrow"`, **two are `"filled circle"`** — so a consumer that
+ * drew every decoration as a triangle would be wrong twice, silently,
+ * and in a way no scored frame in this chapter would have caught
+ * (neither exception falls on slides 7, 8, 9 or 14).
+ *
+ * An unrecognised identifier draws NOTHING rather than guessing a shape.
+ * A decoration missing from the frame is a visible, reportable gap; one
+ * invented in the wrong shape is a fidelity claim the data does not
+ * support.
+ */
+export const lineDecoration = (
+  identifier: string | undefined,
+  tip: SlidePoint,
+  towards: SlidePoint,
+  size: number,
+): SlidePoint[] => {
+  if (identifier === "filled circle") return roundHead(tip, size)
+  if (identifier === "simple arrow" || identifier === undefined) {
+    return arrowHead(tip, towards, size)
+  }
+  return []
+}
+
+/**
  * A connection line as a holon: the dashes (or the solid stroke) plus
  * its arrowhead, sharing one draw front.
  *
@@ -534,8 +585,14 @@ export const arrowHead = (
 export class Connection extends Holon {
   /** The clipped curve, in WORLD coordinates. */
   points: Vec3Like[] = []
-  /** The arrowhead outline in world coordinates; empty when there is none. */
-  head: Vec3Like[] = []
+  /**
+   * End decorations, ONE OUTLINE EACH, in world coordinates.
+   *
+   * A list of lists rather than one flat list, because a line can carry
+   * both a head and a tail — the deck has one such — and concatenating
+   * them would draw a spurious segment joining the two ends of the line.
+   */
+  decorations: Vec3Like[][] = []
 
   /** Dash length and full period, in world units. Zero dash = solid. */
   dash = length(0)
@@ -547,8 +604,14 @@ export class Connection extends Holon {
 
   /** One Line per dash, in draw order from the `from` end. */
   dashes: Line[] = []
-  /** The arrowhead, when the deck declares one. */
-  arrow?: Line
+  /** One Line per end decoration, in `decorations` order. */
+  arrows: Line[] = []
+
+  /** The first decoration, which on almost every arrowed line is the
+   *  only one — kept for readability at call sites. */
+  get arrow(): Line | undefined {
+    return this.arrows[0]
+  }
 
   protected override compose(): void {
     if (this.points.length >= 2) {
@@ -573,14 +636,17 @@ export class Connection extends Holon {
         )
       }
     }
-    if (this.head.length >= 2) {
-      this.arrow = this.add(
-        new Line({
-          points: this.head.map((p) => ({ x: p.x, y: p.y, z: 0 })),
-          tint: this.tint.value,
-          stroke: this.stroke.value,
-          opacity: this.opacity.value,
-        }),
+    for (const outline of this.decorations) {
+      if (outline.length < 2) continue
+      this.arrows.push(
+        this.add(
+          new Line({
+            points: outline.map((p) => ({ x: p.x, y: p.y, z: 0 })),
+            tint: this.tint.value,
+            stroke: this.stroke.value,
+            opacity: this.opacity.value,
+          }),
+        ),
       )
     }
   }
@@ -588,7 +654,7 @@ export class Connection extends Holon {
   /** Everything that actually draws — what an opacity ramp must reach. */
   drawn(): Line[] {
     void this.parts
-    return this.arrow ? [...this.dashes, this.arrow] : [...this.dashes]
+    return [...this.dashes, ...this.arrows]
   }
 
   /**
