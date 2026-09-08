@@ -96,6 +96,7 @@ export const slide03: SlideData = {
     },
   ],
   groups: [],
+  images: [{"id":"4515878","frame":{"position":{"x":285.52344,"y":299.52344},"size":{"width":480.95312,"height":480.95312},"angle":0}}],
   builds: [
     {"id":"4895353","target":"4895361","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
     {"id":"4890648","target":"4516215","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},

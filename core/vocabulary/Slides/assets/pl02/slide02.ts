@@ -117,6 +117,7 @@ export const slide02: SlideData = {
   texts: [
   ],
   groups: [],
+  images: [{"id":"4513444","frame":{"position":{"x":735.52344,"y":350.28925},"size":{"width":480.95312,"height":480.95312},"angle":0}},{"id":"5473642","frame":{"position":{"x":1281.39,"y":283.45517},"size":{"width":83.73241,"height":83.73241},"angle":0}},{"id":"5473703","frame":{"position":{"x":586.8776,"y":283.45517},"size":{"width":83.73241,"height":83.73241},"angle":0}},{"id":"5473765","frame":{"position":{"x":586.8776,"y":618.88806},"size":{"width":83.73241,"height":83.73241},"angle":0}},{"id":"5473826","frame":{"position":{"x":1281.39,"y":618.88806},"size":{"width":83.73241,"height":83.73241},"angle":0}}],
   builds: [
     {"id":"4880370","target":"4514353","effect":"com.apple.iWork.Keynote.LineDrawForLine","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","acceleration":"kEaseBoth","eventTrigger":1,"direction":51},
     {"id":"4881284","target":"4514420","effect":"com.apple.iWork.Keynote.LineDrawForLine","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","acceleration":"kEaseBoth","eventTrigger":1,"direction":52},

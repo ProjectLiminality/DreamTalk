@@ -668,6 +668,24 @@ describe("builds", () => {
     expect((label!.frame.position.y + end.y) / SLIDE_UNITS_PER_VIDEO_PIXEL).toBeCloseTo(170, 0)
   })
 
+  test("image boxes are carried, because they are load-bearing for scoring", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const { slide03 } = await import("../vocabulary/Slides/assets/pl02/slide03")
+    // The recon called the deck's images "none load-bearing"; P-3
+    // measured slide 2's five at 46.9% of that frame's reference ink.
+    // 12 images fall inside slides 1-58, on slides 2, 3, 17 and 18.
+    expect(slide02.images).toHaveLength(5)
+    expect(slide03.images).toHaveLength(1)
+    // The Vitruvian figure — the largest single drawable on the opening
+    // tableau, and the reason slide 2 has a coverage_ref ceiling.
+    const vitruvian = slide02.images!.find((i) => i.id === "4513444")
+    expect(vitruvian).toBeDefined()
+    expect(vitruvian!.frame.size.width).toBeCloseTo(480.953, 2)
+    expect(vitruvian!.frame.size.height).toBeCloseTo(480.953, 2)
+    // Slides without images carry none rather than an empty array.
+    expect(slide01.images).toBeUndefined()
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

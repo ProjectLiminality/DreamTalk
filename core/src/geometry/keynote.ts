@@ -276,6 +276,35 @@ export interface KeyText {
 export type KeyDrawable = KeyShape | KeyText
 
 /**
+ * An image's BOX — not its pixels.
+ *
+ * This framework draws strokes; a `TSD.ImageArchive` is a raster and
+ * cannot be one, so an image is not a drawable here. Its geometry is
+ * carried anyway, because it is load-bearing for SCORING and the recon
+ * report says otherwise.
+ *
+ * Report §5 lists image support under "explicitly NOT needed — 29 images
+ * in the whole deck, none load-bearing in slides 1-58". P-1 repeated
+ * that on the recon's authority; P-3 measured it and it is wrong. On
+ * slide 2 the five images are **46.9% of the reference frame's ink** —
+ * the Vitruvian figure alone is 481x481 slide units, the largest single
+ * drawable on the video's opening tableau — and they hold that segment's
+ * `coverage_ref` near 0.49 however good the vector reproduction is.
+ *
+ * **12 images fall inside slides 1-58, on four slides: 2 (five), 3
+ * (one), 17 (four) and 18 (two).** Those four have a hard ceiling on
+ * `coverage_ref` that no stroke fidelity can lift, so a chapter touching
+ * them should score twice — the whole frame as the headline, and again
+ * with these boxes masked — and say that the mask is the deck's own
+ * declared geometry rather than a chosen crop. Masking slide 2's five
+ * moves it from 0.4909/0.8725 to 0.9092/0.9244.
+ */
+export interface KeyImage {
+  id: string
+  frame: KeyGeometry
+}
+
+/**
  * A group, recorded as MEMBERSHIP rather than as a container.
  *
  * Keynote's `TSD.GroupArchive` carries a geometry of its own, but its
@@ -468,6 +497,8 @@ export interface KeySlide {
   /** Drawables in z-order, back to front. */
   drawables: KeyDrawable[]
   groups: KeyGroup[]
+  /** Image boxes — geometry only, for scoring. See KeyImage. */
+  images: KeyImage[]
   /** Builds in the deck's own declared order. */
   builds: KeyBuild[]
   /** The click grouping, in click order — see KeyBuildChunk. */
@@ -844,6 +875,9 @@ export interface SlideData {
   shapes: SlideShapeData[]
   texts: KeyText[]
   groups: KeyGroup[]
+  /** Image boxes — geometry only, for scoring. Absent when the slide has
+   *  none, which is 54 of the 58. See KeyImage. */
+  images?: KeyImage[]
   /** Builds in the deck's own declared order. */
   builds: KeyBuild[]
   /** The click grouping, in click order. Optional so modules generated

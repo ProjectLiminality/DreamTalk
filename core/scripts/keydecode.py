@@ -463,7 +463,7 @@ def opacity_of(drawable):
 SHAPE_TYPES = ("TSWP.ShapeInfoArchive", "KN.PlaceholderArchive", "TSD.ConnectionLineArchive")
 
 
-def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order, offset=(0.0, 0.0)):
+def walk(ident, slide, doc_styles, out_drawables, out_groups, out_images, skipped, order, offset=(0.0, 0.0)):
     """Depth-first over ownedDrawables, flattening groups to membership.
 
     GROUP CHILDREN ARE STORED RELATIVE TO THEIR PARENT GROUP, and groups
@@ -508,7 +508,7 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order, of
         for child in (obj.get("children") or obj.get("childInfos") or []):
             cid = child["identifier"]
             before = len(out_drawables)
-            walk(cid, slide, doc_styles, out_drawables, out_groups, skipped, order, inner)
+            walk(cid, slide, doc_styles, out_drawables, out_groups, out_images, skipped, order, inner)
             if len(out_drawables) > before:
                 members.append(cid)
         if members:
@@ -516,7 +516,29 @@ def walk(ident, slide, doc_styles, out_drawables, out_groups, skipped, order, of
         return
 
     if pbtype not in SHAPE_TYPES:
-        if pbtype and pbtype not in ("TSD.ImageArchive",):
+        if pbtype == "TSD.ImageArchive":
+            # An image cannot be drawn as strokes, so it is not a
+            # drawable here — but its BOX is recorded, because it is
+            # load-bearing for scoring. On slide 2 the five images are
+            # 46.9% of the reference frame's ink, so any chapter touching
+            # slides 2, 3, 17 or 18 has a hard ceiling on coverage_ref
+            # and needs the deck's own declared geometry to mask against
+            # rather than a hand-drawn crop.
+            g = geometry_of(obj)
+            if g:
+                out_images.append(
+                    {
+                        "id": ident,
+                        "frame": {
+                            "position": {
+                                "x": g["position"].get("x", 0.0) + offset[0],
+                                "y": g["position"].get("y", 0.0) + offset[1],
+                            },
+                            "size": g["size"],
+                            "angle": g.get("angle", 0.0),
+                        },
+                    }
+                )
             skipped.append(pbtype)
         elif pbtype:
             skipped.append(pbtype)
@@ -774,10 +796,10 @@ def main():
             archive = next(
                 (o for o in slide.values() if o.get("_pbtype") == "KN.SlideArchive"), {}
             )
-        drawables, groups, skipped = [], [], []
+        drawables, groups, images, skipped = [], [], [], []
         z = archive.get("drawablesZOrder") or archive.get("ownedDrawables") or []
         for ref in z:
-            walk(ref["identifier"], slide, doc_styles, drawables, groups, skipped, len(drawables))
+            walk(ref["identifier"], slide, doc_styles, drawables, groups, images, skipped, len(drawables))
         slides.append(
             {
                 "index": i,
@@ -786,6 +808,7 @@ def main():
                 "hash": sha16(path),
                 "drawables": drawables,
                 "groups": groups,
+                "images": images,
                 "builds": builds_of(slide, archive),
                 "buildChunks": build_chunks_of(slide, archive),
                 "transition": transition_of(archive),

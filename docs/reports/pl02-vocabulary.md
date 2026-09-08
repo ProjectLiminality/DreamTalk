@@ -525,3 +525,14 @@ file was written.
   dissolve-character builds — the recon's 222-build DissolveCharacters
   expectation is VOID; the per-glyph alpha-ramp capability is owed to
   no chapter.
+- (2026-09-08, P-1 §1 / P-3, correction 7) **Images exist and are
+  load-bearing** — §5's "skipped, none load-bearing" is refuted by
+  measurement (46.9% of one opening tableau's ink): 12 images inside
+  slides 1-58, on four slides — 2 (five, incl. the 481×481 Vitruvian
+  figure, the largest drawable on the opening tableau), 3 (one), 17
+  (four), 18 (two). Those four slides carry a hard coverage_ref
+  CEILING no stroke fidelity can lift. Image BOXES now ride in the
+  model (SlideData.images) so masked scoring uses the deck's declared
+  geometry, not a chosen crop; whether pixels import as textured quads
+  is P-9's question. Reporting convention: unmasked whole-frame as
+  headline, masked as what the builds did on the ink they own.
