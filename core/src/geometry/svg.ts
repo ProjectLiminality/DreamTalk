@@ -246,7 +246,7 @@ const lineDistance = (p: Vec2, a: Vec2, b: Vec2): number => {
  * also splits roughly evenly in arc length on the smooth curves this
  * corpus is made of, which is what the draw-on pen wants.
  */
-const flattenCubic = (
+export const flattenCubic = (
   p0: Vec2,
   p1: Vec2,
   p2: Vec2,

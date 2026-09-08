@@ -1,0 +1,11 @@
+{
+  "name": "p1-f_04510",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/p1/ours-p1-f_04510.png",
+  "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_04510.jpg",
+  "iou": 0.5789,
+  "chamfer_ours_px": 1.034,
+  "chamfer_ref_px": 1.349,
+  "coverage_ref": 0.848,
+  "coverage_ours": 0.9021,
+  "verdict": "FAIL"
+}

@@ -68409,6 +68409,265 @@ class OriginsPitchDream extends DreamSong {
 if (false)
   ;
 
+// src/geometry/svg.ts
+var DEG = Math.PI / 180;
+var NON_DRAWING = new Set(["defs", "clipPath", "mask", "symbol", "marker", "pattern"]);
+var SHAPES = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "polygon"]);
+
+// src/geometry/keynote.ts
+var SLIDE_WIDTH = 1920;
+var SLIDE_HEIGHT = 1080;
+var SLIDE_UNITS_PER_VIDEO_PIXEL = 3 / 2;
+var slideToWorld = (frameHeight) => frameHeight / SLIDE_HEIGHT;
+var slidePointToWorld = (p2, scale2) => ({
+  x: (p2.x - SLIDE_WIDTH / 2) * scale2,
+  y: -(p2.y - SLIDE_HEIGHT / 2) * scale2
+});
+var DEG2 = Math.PI / 180;
+var HELVETICA_CAP_HEIGHT = 0.714;
+var HELVETICA_DESCENT = 0.212;
+var textBaseline = (text, lineCount = 1) => {
+  const size = text.fontSize;
+  const cap = size * HELVETICA_CAP_HEIGHT;
+  const descent = size * HELVETICA_DESCENT;
+  const lineHeight = size * (text.lineSpacing > 0 ? text.lineSpacing : 1);
+  const top = text.frame.position.y + text.padding.top;
+  const bottom = text.frame.position.y + text.frame.size.height - text.padding.bottom;
+  const blockHeight = (lineCount - 1) * lineHeight + cap + descent;
+  switch (text.verticalAlign) {
+    case "bottom":
+      return bottom - descent - (lineCount - 1) * lineHeight;
+    case "middle":
+      return (top + bottom) / 2 - blockHeight / 2 + cap;
+    default:
+      return top + (lineHeight - cap - descent) / 2 + cap;
+  }
+};
+var textAnchorX = (text) => {
+  const left = text.frame.position.x + text.padding.left;
+  const right = text.frame.position.x + text.frame.size.width - text.padding.right;
+  switch (text.align) {
+    case "center":
+      return (left + right) / 2;
+    case "right":
+      return right;
+    default:
+      return left;
+  }
+};
+
+// vocabulary/Slides/Slides.ts
+var EMPTY2 = {
+  index: 0,
+  id: "",
+  source: "",
+  hash: "",
+  shapes: [],
+  texts: [],
+  groups: [],
+  builds: []
+};
+var hexToColor = (hex) => {
+  const n2 = Number.parseInt(hex.replace("#", ""), 16);
+  return { r: (n2 >> 16 & 255) / 255, g: (n2 >> 8 & 255) / 255, b: (n2 & 255) / 255 };
+};
+var arcLength2 = (points) => {
+  let total = 0;
+  for (let i2 = 1;i2 < points.length; i2++) {
+    const a2 = points[i2 - 1];
+    const b2 = points[i2];
+    total += Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+  }
+  return total;
+};
+
+class Slide extends Holon {
+  height = length2(562.4987439260904);
+  data = EMPTY2;
+  opacity = completion(1);
+  tint = color2(WHITE);
+  overrideTint = false;
+  strokes = [];
+  labels = [];
+  groups = [];
+  compose() {
+    const scale2 = slideToWorld(this.height.value);
+    const byId = new Map;
+    for (const shape of this.data.shapes) {
+      const parts = this.composeShape(shape, scale2);
+      if (parts[0])
+        byId.set(shape.id, parts[0]);
+      this.strokes.push(...parts);
+    }
+    for (const text of this.data.texts) {
+      const label3 = this.composeText(text, scale2);
+      byId.set(text.id, label3);
+      this.labels.push(label3);
+    }
+    for (const group of this.data.groups) {
+      const members = group.members.map((id) => byId.get(id)).filter((m2) => !!m2);
+      if (members.length > 0)
+        this.groups.push(this.add(new Group2({ members })));
+    }
+  }
+  composeShape(shape, scale2) {
+    const tint = this.overrideTint ? this.tint.value : shape.stroke ? hexToColor(shape.stroke) : this.tint.value;
+    const width = (shape.strokeWidth ?? 1) * this.height.value / SLIDE_HEIGHT;
+    const out = [];
+    for (const flat of shape.subpaths) {
+      const points = [];
+      for (let i2 = 0;i2 + 1 < flat.length; i2 += 2) {
+        const p2 = slidePointToWorld({ x: flat[i2], y: flat[i2 + 1] }, scale2);
+        points.push({ x: p2.x, y: p2.y, z: 0 });
+      }
+      if (points.length < 2)
+        continue;
+      if (shape.dash && shape.dash.length >= 2) {
+        out.push(this.add(new DottedLine({
+          points,
+          dash: Math.max(shape.dash[0] * width, width * 0.05),
+          gap: shape.dash[1] * width,
+          tint,
+          stroke: width,
+          opacity: shape.opacity
+        })));
+      } else {
+        out.push(this.add(new Line2({ points, tint, stroke: width, opacity: shape.opacity })));
+      }
+    }
+    return out;
+  }
+  composeText(text, scale2) {
+    const lines = text.content.split(`
+`).length;
+    const world2 = slidePointToWorld({ x: textAnchorX(text), y: textBaseline(text, lines) }, scale2);
+    return this.add(new Text({
+      content: text.content,
+      size: text.fontSize * scale2,
+      align: text.align === "center" ? "center" : "left",
+      tint: this.overrideTint ? this.tint.value : { r: text.color.r, g: text.color.g, b: text.color.b },
+      opacity: text.opacity,
+      x: world2.x,
+      y: world2.y,
+      creation: 1
+    }));
+  }
+  createAnim() {
+    this.parts;
+    const items = [];
+    const lengths = this.strokes.map((s2) => arcLength2(strokePoints(s2)));
+    const total = lengths.reduce((a2, b2) => a2 + b2, 0);
+    const n2 = this.strokes.length;
+    const strokeSpan = this.labels.length > 0 ? 0.8 : 1;
+    let at2 = 0;
+    for (let i2 = 0;i2 < n2; i2++) {
+      const share = total > 0.000000001 ? lengths[i2] / total * strokeSpan : strokeSpan / n2;
+      const from = at2;
+      at2 += share;
+      items.push([this.strokes[i2].creation.sequence(0, 1), from, i2 === n2 - 1 ? strokeSpan : at2]);
+    }
+    for (const label3 of this.labels) {
+      items.push([label3.creation.sequence(0, 1), strokeSpan, 1]);
+    }
+    return items.length > 0 ? together(...items) : { tracks: [] };
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = [];
+    for (const label3 of this.labels)
+      items.push([label3.erasure.sequence(0, 1), 0, 0.2]);
+    const n2 = this.strokes.length;
+    for (let i2 = 0;i2 < n2; i2++) {
+      items.push([this.strokes[i2].creation.to(0), 0.2 + 0.8 * i2 / n2, 0.2 + 0.8 * (i2 + 1) / n2]);
+    }
+    return items.length > 0 ? together(...items) : { tracks: [] };
+  }
+}
+var strokePoints = (stroke) => stroke instanceof Line2 || stroke instanceof DottedLine ? stroke.points : [];
+
+// vocabulary/Slides/assets/pl02/slide01.ts
+var slide01 = {
+  index: 1,
+  id: "4512547",
+  source: "refs/pitch/pl02/key/Index/Slide-4512547.iwa",
+  hash: "bac5d1077c2e65c2",
+  shapes: [
+    {
+      id: "4512591",
+      subpaths: [
+        [825.355, 621.803, 958.147, 308.225]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 6,
+      opacity: 1
+    },
+    {
+      id: "4512583",
+      subpaths: [
+        [1094.52, 621.497, 958.045, 308.531]
+      ],
+      closed: [0],
+      stroke: "#ffffff",
+      strokeWidth: 6,
+      opacity: 1
+    },
+    {
+      id: "4512616",
+      subpaths: [
+        [1122.343, 272.752, 1130.486, 281.317, 1138.104, 290.189, 1145.196, 299.346, 1151.763, 308.768, 1157.805, 318.435, 1163.321, 328.326, 1168.312, 338.422, 1172.777, 348.701, 1176.717, 359.143, 1180.132, 369.728, 1183.021, 380.436, 1185.386, 391.245, 1187.224, 402.136, 1188.538, 413.089, 1189.326, 424.082, 1189.588, 435.095, 1189.326, 446.109, 1188.538, 457.102, 1187.224, 468.054, 1185.386, 478.945, 1183.021, 489.755, 1180.132, 500.462, 1176.717, 511.047, 1172.777, 521.49, 1168.312, 531.769, 1163.321, 541.864, 1157.805, 551.756, 1151.763, 561.423, 1145.196, 570.845, 1138.104, 580.002, 1130.486, 588.873, 1122.343, 597.439, 1113.778, 605.582, 1104.907, 613.199, 1095.75, 620.292, 1086.327, 626.858, 1076.66, 632.9, 1066.769, 638.416, 1056.673, 643.407, 1046.394, 647.872, 1035.952, 651.813, 1025.367, 655.227, 1014.659, 658.117, 1003.85, 660.481, 992.959, 662.32, 982.007, 663.633, 971.013, 664.421, 960, 664.684, 948.986, 664.421, 937.993, 663.633, 927.041, 662.32, 916.15, 660.481, 905.34, 658.117, 894.633, 655.227, 884.048, 651.813, 873.606, 647.872, 863.327, 643.407, 853.231, 638.416, 843.34, 632.9, 833.673, 626.858, 824.25, 620.292, 815.093, 613.199, 806.222, 605.582, 797.656, 597.439, 789.514, 588.873, 781.896, 580.002, 774.804, 570.845, 768.237, 561.423, 762.195, 551.756, 756.679, 541.864, 751.688, 531.769, 747.223, 521.49, 743.283, 511.047, 739.868, 500.462, 736.978, 489.755, 734.614, 478.945, 732.776, 468.054, 731.462, 457.102, 730.674, 446.109, 730.412, 435.095, 730.674, 424.082, 731.462, 413.089, 732.776, 402.136, 734.614, 391.245, 736.978, 380.436, 739.868, 369.728, 743.283, 359.143, 747.223, 348.701, 751.688, 338.422, 756.679, 328.326, 762.195, 318.435, 768.237, 308.768, 774.804, 299.346, 781.896, 290.189, 789.514, 281.317, 797.656, 272.752, 806.222, 264.609, 815.093, 256.991, 824.25, 249.899, 833.673, 243.332, 843.34, 237.291, 853.231, 231.774, 863.327, 226.784, 873.606, 222.318, 884.048, 218.378, 894.633, 214.963, 905.34, 212.074, 916.15, 209.71, 927.041, 207.871, 937.993, 206.558, 948.986, 205.77, 960, 205.507, 971.013, 205.77, 982.007, 206.558, 992.959, 207.871, 1003.85, 209.71, 1014.659, 212.074, 1025.367, 214.963, 1035.952, 218.378, 1046.394, 222.318, 1056.673, 226.784, 1066.769, 231.774, 1076.66, 237.291, 1086.327, 243.332, 1095.75, 249.899, 1104.907, 256.991, 1113.778, 264.609, 1122.343, 272.752]
+      ],
+      closed: [1],
+      stroke: "#00a2ff",
+      strokeWidth: 6,
+      opacity: 1
+    },
+    {
+      id: "4512594",
+      subpaths: [
+        [1065.364, 251.665, 1070.649, 257.224, 1075.593, 262.981, 1080.196, 268.925, 1084.458, 275.04, 1091.959, 287.734, 1098.097, 300.957, 1102.87, 314.604, 1106.28, 328.569, 1108.325, 342.746, 1109.007, 357.029, 1108.325, 371.311, 1106.28, 385.488, 1102.87, 399.453, 1098.097, 413.1, 1091.959, 426.324, 1084.458, 439.018, 1080.196, 445.133, 1075.593, 451.076, 1070.649, 456.834, 1065.364, 462.393, 1059.805, 467.678, 1054.047, 472.622, 1048.104, 477.225, 1041.989, 481.487, 1029.295, 488.988, 1016.072, 495.125, 1002.424, 499.899, 988.459, 503.308, 974.283, 505.354, 960, 506.036, 945.717, 505.354, 931.54, 503.308, 917.576, 499.899, 903.928, 495.125, 890.705, 488.988, 878.011, 481.487, 871.896, 477.225, 865.953, 472.622, 860.195, 467.678, 854.636, 462.393, 849.351, 456.834, 844.407, 451.076, 839.804, 445.133, 835.542, 439.018, 828.041, 426.324, 821.903, 413.1, 817.13, 399.453, 813.72, 385.488, 811.674, 371.311, 810.993, 357.029, 811.674, 342.746, 813.72, 328.569, 817.13, 314.604, 821.903, 300.957, 828.041, 287.734, 835.542, 275.04, 839.804, 268.925, 844.407, 262.981, 849.351, 257.224, 854.636, 251.665, 860.195, 246.38, 865.953, 241.436, 871.896, 236.833, 878.011, 232.571, 890.705, 225.069, 903.928, 218.932, 917.576, 214.159, 931.54, 210.749, 945.717, 208.703, 960, 208.021, 974.283, 208.703, 988.459, 210.749, 1002.424, 214.159, 1016.072, 218.932, 1029.295, 225.069, 1041.989, 232.571, 1048.104, 236.833, 1054.047, 241.436, 1059.805, 246.38, 1065.364, 251.665]
+      ],
+      closed: [1],
+      stroke: "#ff644e",
+      strokeWidth: 6,
+      opacity: 1
+    }
+  ],
+  texts: [
+    {
+      kind: "text",
+      id: "4512614",
+      content: "Project Liminality",
+      frame: { position: { x: 95, y: 529.496 }, size: { width: 1730, height: 366 }, angle: 0 },
+      align: "center",
+      verticalAlign: "bottom",
+      padding: { left: 4, top: 4, right: 4, bottom: 4 },
+      lineSpacing: 0.8,
+      fontSize: 116,
+      fontName: "HelveticaNeue-Bold",
+      bold: true,
+      italic: false,
+      color: { r: 1, g: 1, b: 1, a: 1 },
+      opacity: 1
+    }
+  ],
+  groups: [],
+  builds: [],
+  transition: { effect: "none", duration: 1, delay: 0.5, timingCurve: null, fadeUnmatched: null }
+};
+
+// demo/pl02/TitleSlide.ts
+class TitleSlideDream extends Dream {
+  title = __dt(new Slide({ data: slide01 }), "core/demo/pl02/TitleSlide.ts:2443:2471");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.title.creation.to(1));
+    this.wait(3);
+  }
+}
+if (false)
+  ;
+
 // ../holons/Circle/Circle.ts
 class Circle2 extends Circle {
 }
@@ -68514,7 +68773,8 @@ var scenes = {
   o10: Scene10Dream,
   o11: Scene11Dream,
   o12: Scene12Dream,
-  origins: OriginsPitchDream
+  origins: OriginsPitchDream,
+  slide: TitleSlideDream
 };
 var defaultScene = "founding";
 
@@ -69944,7 +70204,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render48 = (cached, span) => {
+  const render49 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -69987,7 +70247,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render48(current2);
+        render49(current2);
       return;
     }
     (async () => {
@@ -69997,7 +70257,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render48(cached, {
+      const mark = render49(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -70013,7 +70273,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render48(cached);
+    render49(cached);
   };
   return {
     show: show2,

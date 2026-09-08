@@ -50,6 +50,7 @@ import { Scene10Dream } from "./origins/Scene10"
 import { Scene11Dream } from "./origins/Scene11"
 import { Scene12Dream } from "./origins/Scene12"
 import { OriginsPitchDream } from "./origins/OriginsPitch"
+import { TitleSlideDream } from "./pl02/TitleSlide"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -103,6 +104,7 @@ export const scenes: Record<string, DreamClass> = {
   o11: Scene11Dream,
   o12: Scene12Dream,
   origins: OriginsPitchDream,
+  slide: TitleSlideDream,
 }
 
 export const defaultScene = "founding"

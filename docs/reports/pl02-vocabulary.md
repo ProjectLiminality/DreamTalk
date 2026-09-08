@@ -494,3 +494,16 @@ file was written.
 | 03 | The Custodian of the Noosphere | https://www.youtube.com/watch?v=125ihqgmicY |
 | 05 | The Age of Miracles | https://www.youtube.com/watch?v=yrgSwgqclJU |
 | 09 | The Origins of Project Liminality | https://www.youtube.com/watch?v=cmbjQVQ3nbs |
+
+## Amendments (2026-09-08, P-1)
+
+- **Slide indexing +1 from show position 18** — deck slide 4593439
+  (unsuffixed Slide.iwa, no thumbnail) was invisible to the recon scan:
+  every §6 chapter row from 18 onward names the deck slide AFTER the
+  one it means (recon[17:57] == deck[18:58]). The "82.6s longest
+  segment" is TWO slides (17: no text; 18: the mass-hypnosis pair, 46
+  shapes, FadeThruColor + 5 builds — confirmed at f_01780). Corrected
+  build total 1-58: 384.
+- **Palette from the stylesheet, not the encode**: #00A2FF and #FF644E
+  — constants.ts's BLUE and RED to the byte. The deck and the
+  pydeation corpus share ONE palette.

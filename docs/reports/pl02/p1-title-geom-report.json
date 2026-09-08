@@ -1,0 +1,11 @@
+{
+  "name": "p1-title-geom",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/p1/ours-p1-f_04510.png",
+  "ref": "refs/pitch/pl02/frames5/f_04510.jpg",
+  "iou": 0.7538,
+  "chamfer_ours_px": 0.397,
+  "chamfer_ref_px": 0.0,
+  "coverage_ref": 1.0,
+  "coverage_ours": 1.0,
+  "verdict": "PASS"
+}
