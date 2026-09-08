@@ -497,8 +497,8 @@ ed92a01 + the winding trilogy). Scorecard: o00 11/13 · o01 17/29 full,
 map closed). O-10 is DROPPED (David 2026-09-07: the published
 video is the canon; source-only material is experiment — see
 DECISIONS). O-11 landed (Scene06 64/80 dense — awaiting the fitted-constants
-clarification before final ruling). QUEUED EXPERIMENT (o8): Scene10's
-1.2s dip has two separable candidates — give Param.sequence a
-linear-easing option (timeline.ts hardcodes smooth per SEGMENT) and
-re-score: lifts = per-segment easing wobble; persists = the source's
-windowed ease. Shared machinery — S04 gate mandatory.
+clarification before final ruling). EXPERIMENT ANSWERED (c14276e): the dip
+is the SOURCE'S WINDOWED EASE, by elimination — per-segment easing
+deviates 0.38 deg worst-case from linear along the rig path, four
+orders too small for the 0.22 dip. Remaining (narrow, optional):
+fit the source's ease across its rel_end_point=2/3 window.
