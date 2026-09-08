@@ -583,8 +583,12 @@ file was written.
   baseline fix contributes ALL cross-chapter gains (P-3 seg 6
   FAIL→PASS +0.116, P-4 slide 9 +0.024, P-2 slides +0.083/+0.029);
   the fills contribute 0.0003 on ONE frame. The SlideFill capability
-  is correct by construction and NOT YET MEETING A FRAME THAT NEEDS
-  IT — P-9/P-10 (70 + 15 fills) decide whether it earns its keep.
+  has VERIFIED WINDING but UNTESTED OCCLUSION (P-3's push-back,
+  accepted: the motivating frame never exercised hiding — occlusion
+  order, black-stage interaction, and whether hidden ink disappears
+  are all unexercised). P-9/P-10 (70 + 15 fills) must run the cheap
+  check FIRST — one genuinely-overlapping filled shape rendered both
+  ways — before trusting it at scale.
 - (2026-09-08, P-5) **The one systematic gap nobody owns: text strokes
   are FAT** — ink 1.3-2.28x the reference at the same threshold on
   text-dense tableaux. Geometry and type metrics are now right; the
