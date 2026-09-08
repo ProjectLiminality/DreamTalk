@@ -107,28 +107,48 @@ slide 9 uses 53 for all fifteen of its builds. It is emitted raw; naming
 what 51/52/53 mean in general from four measured samples would be a
 guess, so a consumer that needs a rule states its own reading.
 
-**3. `buildChunks` is now carried, and it corrects the recon report.**
-Report §0 says "every one of the 413 build events has `isAutomatic` and
-`automaticDelay` absent, i.e. Keynote's default: advance on click", and
-concludes that the shape of each animation is in the file while the
-moment it fires is not. That reads `isAutomatic` on the build's
-`animationAttributes` — the wrong field. Keynote states firing on the
-`KN.BuildChunkArchive`, and its own `automatic` flag says: across slides
-1–58, **89 of 384 chunks are click-advanced and 295 are automatic.** The
-deck *does* declare its cascades; only the clicks are missing.
+**3. `buildChunks` is now carried — and the firing model is NOT settled.**
+I first reported the chunk's `automatic` flag as the answer, and P-3's
+footage refuted it within the hour. The honest state:
 
-The arithmetic corroborates independently: **89 clicks + 58 slide
-transitions = 147 declared advances, against the 141 animation events the
-recon measured** from `frames5` — within 4%, the residual being events too
-subtle or too closely spaced for a motion scan to separate. That is a
-tighter account of the video's 141 events than "413 builds compress by
-clicking", and it means a reproduction has more declared timing available
-than the report supposed: only the 89 click onsets are genuinely
-footage-only.
+The recon report's §0 mechanism is definitely wrong. It cites
+`isAutomatic` on the build's `animationAttributes` — a field absent
+throughout, so its absence says nothing — and concludes every advance is
+a click. Two other fields carry real, varying information it did not use,
+and **neither one predicts the footage on its own**:
 
-One thing the chunk does *not* add is timing. Its `duration` agrees with
-its build's `animationAttributes.duration` in all 384 cases, so there is
-no second duration to reconcile — the value worth having is `automatic`.
+| reading | deck-wide arithmetic | slide 2 locally |
+|---|---|---|
+| chunk `automatic` (89 false / 295 true) | 89 + 58 transitions = **147** vs 141 measured — within 4% | **fails**: 1 click means all 13 builds fire as one cascade; P-3 measured 7 events |
+| build `eventTrigger` (320 of 384 are 1) | 320 + 58 = **378** vs 141 — overshoots 2.7× | **fits**: all 13 are `1`, consistent with separated firings |
+
+The two disagree on 330 chunks, so they are not two spellings of one
+fact. Resolving it needs the footage, not the archives — counting
+measured onsets *within* segments against each prediction, across enough
+slides to separate them. That belongs to P-3/P-9. **Both fields are
+carried uninterpreted** (`automatic` on the chunk, `eventTrigger` on the
+build) and a test pins that they disagree, so no later reader mistakes
+either for settled.
+
+Two things that *are* settled. Chunk order is the deck's own firing
+order and differs from the builds-list order — on slide 2 the chunks
+interleave each line with the dissolve of the icon it reaches, which the
+builds list does not; neither is sorted. And the chunk adds no timing:
+its `duration` agrees with its build's `animationAttributes.duration` in
+all 384 cases.
+
+**4. `delivery` (P-3's finding): no build in the video cascades per
+character.** All 384 builds across slides 1–58 are `All at Once`,
+including all 121 `apple:dissolve character` ones. P-3 confirmed it in
+the footage rather than only in the file — slide 2's four `dissolve
+character` builds all target *shapes*, and each fades as one piece
+(luminance over the icon's own ink mask rising 0.00→1.00 across
+t=4.0–5.4 with no spatial fill-in). So `dissolve` and `dissolve
+character` compile to the same uniform opacity ramp, and the recon
+report's expected `DissolveCharacters` sibling to `Write` (§5, "222
+builds") **is not owed to any chapter**, not just the opening arc. The
+effect name does not imply a cascade; `delivery` does, and here it never
+says so.
 
 ### The recon's slide list is off by one from slide 18 onward
 
@@ -388,7 +408,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1040 pass, 0 fail** (961 baseline + 50 mine + teammates').
+- `bun test` — **1042 pass, 0 fail** (961 baseline + 52 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
@@ -411,9 +431,10 @@ Carry forward:
    six pixels of red-circle radius. A test guards the substitution.
 2. **The recon's segment table is off by one from slide 18 on**, and its
    segment 17 is two slides. See §1's correction before scoping P-9.
-3. **The deck declares its cascades.** 295 of 384 chunks are automatic;
-   only 89 are clicks. P-9's timing target is therefore 89 onsets to
-   measure, not 413 — see §1's P-3 correction.
+3. **The firing model is open.** Two fields carry it and disagree; each
+   fails a different test (§1's P-3 correction). Resolve it against
+   measured onsets before building timing on either. No `DissolveCharacters`
+   verb is owed — nothing in the video delivers per character.
 4. **Groups translate; they do not scale or rotate.** Verified across all
    678. If a future slide looks scaled, suspect the fit rule or a stale
    group box before adding a scale term.

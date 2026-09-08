@@ -148,10 +148,10 @@ export const slide04: SlideData = {
   ],
   groups: [],
   builds: [
-    {"id":"5538572","target":"5538531","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"id":"5538573","target":"5538529","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"id":"4897553","target":"4895634","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
-    {"id":"4895439","target":"4519203","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"5538572","target":"5538531","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
+    {"id":"5538573","target":"5538529","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
+    {"id":"4897553","target":"4895634","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
+    {"id":"4895439","target":"4519203","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
     {"build":"4895439","duration":1,"delay":0,"automatic":false,"chunkId":1},

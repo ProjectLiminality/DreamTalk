@@ -599,15 +599,45 @@ describe("builds", () => {
     for (const chunk of slide02.buildChunks ?? []) expect(ids.has(chunk.build)).toBe(true)
   })
 
-  test("the click model: a slide's chunks are one click then a cascade", async () => {
+  test("both firing fields are carried, and they disagree", async () => {
     const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
     const chunks = slide02.buildChunks ?? []
     expect(chunks.length).toBe(slide02.builds.length)
-    // The recon read `isAutomatic` on the BUILD and concluded every
-    // advance is a click. The CHUNK's own flag says otherwise: this
-    // slide opens on a click and cascades from there.
-    expect(chunks[0]!.automatic).toBe(false)
-    expect(chunks.filter((c) => c.automatic).length).toBeGreaterThan(0)
+    // The firing model is UNRESOLVED (see KeyBuildChunk's header): the
+    // chunk's `automatic` says this slide fires as one cascade, while
+    // every build's `eventTrigger` says on-click. P-3 measured 7 events
+    // in the segment, which the first reading cannot produce. Both are
+    // carried uninterpreted; this test pins that they disagree, so a
+    // future reader cannot mistake either for settled.
+    expect(chunks.filter((c) => !c.automatic)).toHaveLength(1)
+    for (const build of slide02.builds) expect(build.eventTrigger).toBe(1)
+  })
+
+  test("chunk order is the deck's firing order, not the builds list order", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    const chunkOrder = (slide02.buildChunks ?? []).map((c) => c.build)
+    const buildOrder = slide02.builds.map((b) => b.id)
+    // Same set, different sequence — the chunks interleave lines with
+    // the dissolves of the icons they reach, which the builds list does
+    // not. Both orders are the archive's own; neither is sorted.
+    expect([...chunkOrder].sort()).toEqual([...buildOrder].sort())
+    expect(chunkOrder).not.toEqual(buildOrder)
+  })
+
+  test("no build in the deck delivers per character", async () => {
+    // All 384 builds across slides 1-58 are "All at Once", including
+    // all 121 `dissolve character` ones — so `dissolve character` is a
+    // uniform opacity ramp here and no DissolveCharacters verb is owed.
+    const mods = await Promise.all([
+      import("../vocabulary/Slides/assets/pl02/slide02"),
+      import("../vocabulary/Slides/assets/pl02/slide03"),
+      import("../vocabulary/Slides/assets/pl02/slide04"),
+      import("../vocabulary/Slides/assets/pl02/slide05"),
+    ])
+    const all = [slide01, ...mods.map((m) => Object.values(m)[0] as typeof slide01)]
+    for (const data of all) {
+      for (const build of data.builds) expect(build.delivery).toBe("All at Once")
+    }
   })
 
   test("chunk duration agrees with its build's — the chunk adds firing, not timing", async () => {

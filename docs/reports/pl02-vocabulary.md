@@ -507,13 +507,21 @@ file was written.
 - **Palette from the stylesheet, not the encode**: #00A2FF and #FF644E
   — constants.ts's BLUE and RED to the byte. The deck and the
   pydeation corpus share ONE palette.
-- (2026-09-08, P-1 §1) **The deck DECLARES its cascades** — §0's "every
-  build advances on click" is contradicted by KN.BuildChunkArchive:
-  across slides 1-58, 295 of 384 chunks are AUTOMATIC and only 89
-  click-advanced. 89 clicks + 58 transitions = 147 declared advances
-  vs the 141 measured events (4%; residual = events too subtle for the
-  motion scan). Only the 89 click onsets are genuinely footage-only.
+- (2026-09-08, P-1 §1, RETRACTED SAME DAY) ~~The deck declares its
+  cascades~~ — the `automatic` reading (147 declared vs 141 measured,
+  4%) has the right TOTAL but the wrong local structure (slide 2's
+  seven measured events fit `eventTrigger`, not `automatic`), while
+  `eventTrigger` (378 declared) overshoots 2.7x deck-wide. The two
+  fields disagree on 330 chunks — not two spellings of one fact.
+  BOTH carried uninterpreted, a test pins the disagreement; resolving
+  needs measured onsets WITHIN segments across several slides (P-3 or
+  P-9). Click-onset timing remains footage-measured for now.
   Build order now comes from the slide's own builds list (a defensive
   sort was hiding it); `direction` carried uninterpreted (absent on
   114/158 LineDrawForLine builds — absence is the default; values
   51/52/53 observed); chunk and build durations agree in all 384 cases.
+- (2026-09-08, P-1) **No per-character delivery exists in the video**:
+  all 384 builds in slides 1-58 are `All at Once`, including all 121
+  dissolve-character builds — the recon's 222-build DissolveCharacters
+  expectation is VOID; the per-glyph alpha-ramp capability is owed to
+  no chapter.

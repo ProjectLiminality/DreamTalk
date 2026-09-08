@@ -650,6 +650,11 @@ def builds_of(slide, slide_archive):
             "delay": anim.get("delay", 0.0),
             "delivery": obj.get("delivery", "All at Once"),
             "acceleration": attrs.get("actionAcceleration"),
+            # Keynote's on-click / after-previous flag. 320 of the 384
+            # builds in slides 1-58 are 1. Carried alongside the chunk's
+            # `automatic` because the two disagree and neither alone
+            # predicts the footage — see KeyBuildChunk's header.
+            "eventTrigger": attrs.get("eventTrigger"),
         }
         if anim.get("direction") is not None:
             rec["direction"] = anim["direction"]

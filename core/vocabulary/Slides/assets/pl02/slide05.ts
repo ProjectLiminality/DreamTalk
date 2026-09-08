@@ -122,9 +122,9 @@ export const slide05: SlideData = {
   ],
   groups: [],
   builds: [
-    {"id":"5538696","target":"4519522","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once"},
-    {"id":"5538697","target":"4519531","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once"},
-    {"id":"5538698","target":"4519577","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once"},
+    {"id":"5538696","target":"4519522","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
+    {"id":"5538697","target":"4519531","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
+    {"id":"5538698","target":"4519577","effect":"apple:dissolve character","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
     {"build":"5538696","duration":1,"delay":0,"automatic":false,"chunkId":1},

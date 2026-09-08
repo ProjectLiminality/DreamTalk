@@ -310,7 +310,28 @@ export interface KeyBuild {
   animationType: string
   duration: number
   delay: number
-  /** `All at Once` | `By Object` | per-character deliveries. */
+  /**
+   * `All at Once` | `By Object` | per-character deliveries — and the
+   * field that says whether an `apple:dissolve character` build actually
+   * cascades per glyph.
+   *
+   * In this deck it never does. **All 384 builds across slides 1-58 are
+   * `All at Once`** — including all 121 `dissolve character` ones. There
+   * is not a single per-character delivery in the video.
+   *
+   * P-3 confirmed it in the footage rather than only in the file: slide
+   * 2's four `dissolve character` builds all target SHAPES, not text,
+   * and each fades as one piece — mean luminance over the icon's own
+   * final ink mask rises 0.00/0.01/0.07/0.27/0.61/0.91/0.99/1.00 across
+   * t=4.0..5.4 with no spatial fill-in at any frame.
+   *
+   * So `dissolve` and `dissolve character` compile to the SAME uniform
+   * opacity ramp throughout, and the recon report's expected
+   * `DissolveCharacters` sibling to `Write` (§5, "222 builds") is not
+   * needed by ANY chapter — not just the opening arc. The effect NAME
+   * does not imply a cascade; this field does, and here it never says
+   * so.
+   */
   delivery: string
   /** `kEaseBoth`, … — the acceleration curve Keynote names. */
   acceleration?: string
@@ -330,6 +351,17 @@ export interface KeyBuild {
    * guess from here.
    */
   direction?: number
+  /**
+   * Keynote's on-click / after-previous flag: 1 on 320 of the 384 builds
+   * in slides 1-58, 0 on the other 64.
+   *
+   * Carried UNINTERPRETED and alongside `KeyBuildChunk.automatic`,
+   * because the two disagree on 330 chunks and neither alone predicts
+   * the footage. See KeyBuildChunk's header for the evidence on both
+   * sides; do not treat either as the firing model without testing it
+   * against measured onsets.
+   */
+  eventTrigger?: number
 }
 
 /**
@@ -341,24 +373,40 @@ export interface KeyBuild {
  * the WHEN and never a second duration to reconcile — the value worth
  * having is `automatic`.
  *
- * THIS CORRECTS THE RECON REPORT. Its §0 states "every one of the 413
- * build events has `isAutomatic` and `automaticDelay` absent, i.e.
- * Keynote's default: advance on click", and concludes the shape of each
- * animation is in the file while the moment it fires is not. That reads
- * `isAutomatic` on the build's `animationAttributes` — the wrong field.
- * The chunk's own `automatic` flag tells a different story: across
- * slides 1-58, **89 of 384 chunks are click-advanced and 295 are
- * automatic**. So the deck DOES declare its cascades; only the clicks
- * are missing from it.
+ * THE FIRING MODEL IS NOT SETTLED, AND THIS COMMENT WILL NOT PRETEND IT
+ * IS. Three candidate fields exist and no single one of them predicts
+ * the footage:
  *
- * The arithmetic corroborates: 89 clicks + 58 slide transitions = 147
- * declared advances, against the 141 animation events the recon measured
- * from `frames5` — within 4%, the residual being events too subtle or
- * too closely spaced for a motion scan to separate. That is a much
- * tighter account of the video's 141 events than "413 builds compress by
- * clicking", and it means a reproduction has more declared timing
- * available to it than the report supposed: only the 89 click onsets are
- * genuinely footage-only.
+ *  - `automatic` (here, on the chunk). 89 of 384 false, 295 true across
+ *    slides 1-58. Deck-wide arithmetic is excellent — 89 clicks + 58
+ *    transitions = 147 declared advances against the recon's 141
+ *    measured animation events, within 4%. But it fails LOCALLY: slide 2
+ *    has exactly one false, so this reading fires all 13 of its builds
+ *    as a single cascade, and P-3 measured its four connection lines
+ *    drawing at plainly separated times (7 events in the segment).
+ *
+ *  - `eventTrigger` (on the build's `attributes`). 320 of 384 are 1
+ *    ("on click") across slides 1-58, including ALL 13 on slide 2 —
+ *    which fits P-3's local measurement. But 320 + 58 = 378 declared
+ *    advances against 141 measured overshoots by 2.7x.
+ *
+ *  - The two DISAGREE constantly (330 chunks are `automatic: true` while
+ *    their build says `eventTrigger: 1`), so they are not two spellings
+ *    of one fact.
+ *
+ * What is certain: the recon report's §0 reading is wrong in its
+ * mechanism. It cites `isAutomatic` on the build's `animationAttributes`
+ * — a field that is absent throughout, so its absence says nothing — and
+ * concludes every advance is a click. Both fields above carry real,
+ * varying information that the report did not use.
+ *
+ * What is NOT certain is which governs. Resolving it needs the footage,
+ * not the archives: the honest test is to count measured onsets within
+ * individual segments against each reading's prediction, across enough
+ * slides to separate them. That belongs to the chapter that owns build
+ * timing (P-3 / P-9), which is why BOTH fields are carried here
+ * uninterpreted — `automatic` on the chunk, `eventTrigger` on the build
+ * — and why neither is presented as the answer.
  */
 export interface KeyBuildChunk {
   /** The `KeyBuild.id` this chunk fires. */
