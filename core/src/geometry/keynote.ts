@@ -770,8 +770,10 @@ export const HELVETICA_DESCENT = 0.212
  *           uses the line height for this, which at `lineSpacing` L is
  *           L·size, leaving (L·size − cap − descent) of internal leading
  *           split above the cap;
- *   middle  the block's ink is centred in the padded interior, so the
- *           baseline sits half a cap height below that centre.
+ *   middle  the CAP BOX is centred in the padded interior — NOT the
+ *           cap-plus-descent block — so the baseline sits half a cap
+ *           height below that centre. See below: this is the one that
+ *           was wrong, and the descent is deliberately absent from it.
  *
  * The title card exercises the `bottom` branch and closes to 0.4 px: box
  * bottom 895.496 slide units, padding 4, descent 0.212·116 = 24.6, so
@@ -780,6 +782,48 @@ export const HELVETICA_DESCENT = 0.212
  * Multi-line strings (`MonoLogos\nNode`, three of the deck's 48) get the
  * FIRST line's baseline; the holon steps subsequent lines by the line
  * height, which is what core's `Text` does with an embedded newline.
+ *
+ * WHAT `middle` CENTRES, AND THE MEASUREMENT THAT SETTLED IT
+ *
+ * Keynote centres the CAP BOX, not the cap-plus-descent block. The
+ * distinction is worth exactly `descent / 2` for a single line — an
+ * identity, not an approximation: centring cap+descent puts the baseline
+ * at (top+bottom)/2 − (cap+descent)/2 + cap, centring the cap box puts
+ * it at (top+bottom)/2 + cap/2, and subtracting gives descent/2 at every
+ * size (checked at 30, 37, 50, 70 and 116).
+ *
+ * MEASURED at five texts across three slides and four point sizes, as
+ * the bottom ink row of a DESCENDER-FREE glyph in the 1280×720 frame
+ * (the whole word will not do — "Story"'s bottom row is the `y`, four
+ * pixels below the baseline, and that trap cost one wrong reading here):
+ *
+ *   text (glyph)        size   y        cap+desc   cap box   measured
+ *   DiaLogos  (D)       70   126.408      95.99    100.93      101
+ *   Location A (L)      30   647.701     436.82    438.94      439
+ *   non-contextual (n)  30   694.692     468.15    470.27      470
+ *   Story     (S)       50   540.000     368.37    371.90      372
+ *   Dead Thing (D)      40   866.000     584.03    586.85      587
+ *
+ * The cap box lands within 0.3 px on all five; centring cap+descent sits
+ * 2-5 px high, growing with the point size exactly as descent/2 must.
+ * Found by P-5 on the first three, reproduced independently here on the
+ * last two.
+ *
+ * WHY IT SURVIVED P-2's GATE, which is the more useful half. The title
+ * card is the deck's ONE `bottom`-aligned record: across the shipped
+ * modules the census is **1 bottom, 43 middle**. So the branch P-2
+ * verified to 0.4 px against the footage is not the branch 43 of the 44
+ * records take, and `middle` had never met a reference frame until P-5's
+ * chain slides put nine labels in front of it. A gate validates the
+ * features its own slide happens to use, and no more.
+ *
+ * THE MULTI-LINE `middle` CASE IS DERIVED, NOT YET MEASURED. All five
+ * texts above are single-line. Centring the cap box says a block of n
+ * lines spans (n−1)·lineHeight + cap, which is what the code does; the
+ * footage has not yet been asked. Slide 32's `MonoLogos\nNode` is the
+ * available witness (P-2 scores it at f_02851) and it agreed, but at one
+ * line spacing only. Treat a multi-line middle-aligned discrepancy as
+ * this line, not as the single-line rule.
  */
 export const textBaseline = (text: KeyText, lineCount = 1): number => {
   const size = text.fontSize
@@ -788,13 +832,16 @@ export const textBaseline = (text: KeyText, lineCount = 1): number => {
   const lineHeight = size * (text.lineSpacing > 0 ? text.lineSpacing : 1)
   const top = text.frame.position.y + text.padding.top
   const bottom = text.frame.position.y + text.frame.size.height - text.padding.bottom
-  const blockHeight = (lineCount - 1) * lineHeight + cap + descent
+  // The centred block is the CAP BOX — no descent. See the header's
+  // measurement table: including it puts every middle-aligned label
+  // descent/2 too high, which is 2-5 px at the deck's sizes.
+  const capBlock = (lineCount - 1) * lineHeight + cap
 
   switch (text.verticalAlign) {
     case "bottom":
       return bottom - descent - (lineCount - 1) * lineHeight
     case "middle":
-      return (top + bottom) / 2 - blockHeight / 2 + cap
+      return (top + bottom) / 2 - capBlock / 2 + cap
     default:
       return top + (lineHeight - cap - descent) / 2 + cap
   }

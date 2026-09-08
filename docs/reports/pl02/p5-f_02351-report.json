@@ -2,10 +2,10 @@
   "name": "p5-f_02351",
   "ours": "docs/reports/pl02/ours-p5-f_02351.png",
   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_02351.jpg",
-  "iou": 0.6556,
-  "chamfer_ours_px": 1.312,
-  "chamfer_ref_px": 0.646,
-  "coverage_ref": 0.9334,
-  "coverage_ours": 0.8475,
-  "verdict": "FAIL"
+  "iou": 0.763,
+  "chamfer_ours_px": 0.594,
+  "chamfer_ref_px": 0.33,
+  "coverage_ref": 0.9588,
+  "coverage_ours": 0.952,
+  "verdict": "PASS"
 }

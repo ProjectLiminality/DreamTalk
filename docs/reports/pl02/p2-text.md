@@ -8,9 +8,9 @@ geometry and type together — scores `coverage_ref 0.9986 /
 coverage_ours 0.9757`, `chamfer_ours 0.474 px / chamfer_ref 0.109 px`
 against `refs/pitch/pl02/frames5/f_04510.jpg`, up from P-1's
 0.848 / 0.902 FAIL. Deck slide 5 (five text records against two shapes —
-the deck's most nearly pure type page) scores **1.000 / 0.9028**, and
+the deck's most nearly pure type page) scores **1.000 / 0.9853**, and
 deck slide 32 (three sizes including a two-line record) **0.9973 /
-0.9364**.
+0.9655**.
 
 The face is HelveticaNeue-Bold, and getting it was only half of it: the
 other half is the deck's own `tracking: -0.02`, hiding in the theme
@@ -21,9 +21,9 @@ stylesheet, worth 30 px of word width. §2.
 | `p2-title-f_04510-composite.png` | the title card whole-frame, **PASS 0.9986/0.9757** |
 | `p2-title-f_04510-report.json` | its metrics |
 | `ours-p2-title-f_04510.png` | the render |
-| `p2-slide05-f_00541-composite.png` | deck slide 5, **PASS 1.000/0.9028** |
+| `p2-slide05-f_00541-composite.png` | deck slide 5, **PASS 1.000/0.9853** |
 | `p2-slide05-f_00541-report.json` | its metrics |
-| `p2-slide32b-f_02851-composite.png` | deck slide 32 — the MULTI-LINE proof, **PASS 0.9973/0.9364** |
+| `p2-slide32b-f_02851-composite.png` | deck slide 32 — the MULTI-LINE proof, **PASS 0.9973/0.9655** |
 | `p2-slide32-f_02826-composite.png` | the same slide before its label's build fires — see §4 |
 
 ## 1. The font decision
@@ -137,7 +137,8 @@ All additive. Byte-identity for existing consumers is evidenced in §6.
 | `core/src/parts/text.ts` | `lineHeight?: number`, `tracking = 0` on the `Text` holon |
 | `core/vocabulary/Slides/Slides.ts` | `composeText` now passes `fontName`, `lineSpacing` and `tracking` through |
 | `core/demo/fonts/README.md` | the licensing arrangement and the measured fidelity cost |
-| `core/test/fonts.test.ts` | **new** — 29 tests |
+| `core/test/fonts.test.ts` | **new** — 31 tests |
+| `core/src/geometry/keynote.ts` | `tracking?` on `KeyText`; the `middle` branch of `textBaseline` corrected to centre the CAP BOX (§8) |
 
 The cache probe is deliberately **not** a filesystem check. `fonts.ts`
 runs inside the browser bundle, and a `node:fs` import there breaks the
@@ -198,14 +199,24 @@ tracking, where the card's −0.02 is the whole of its final 4.6%.
 
 | | coverage_ref | coverage_ours | chamfer_ours | chamfer_ref | IoU | verdict |
 |---|---|---|---|---|---|---|
-| f_00541 (v 108.0s) | **1.000** | 0.9028 | 0.926 px | 0.032 px | 0.758 | **PASS** |
+| f_00541 (v 108.0s) | **1.000** | **0.9853** | 0.634 px | 0.002 px | 0.775 | **PASS** |
 
-`coverage_ref 1.000` is every pixel of the reference's ink covered. The
-0.90 the other way is the antialiasing shoulder: measured per word, our
-ink runs 4-6 px wider than the reference's and **symmetrically about the
-same centre**, with baselines agreeing exactly (row 592 for both
-lower labels, 379 for both "Story"s). A metric error would be
-asymmetric; this is the edge.
+`coverage_ref 1.000` is every pixel of the reference's ink covered, and
+`chamfer_ref` is **0.002 px** — the reference's letterforms sit on ours.
+The remaining 1.5% the other way is the antialiasing shoulder: our ink
+runs a few pixels wider than the reference's, symmetrically about the
+same centre, which is the edge and not a metric.
+
+**This paragraph originally claimed 0.9028, and blamed all of it on the
+shoulder. That was wrong, and the way it was wrong is worth keeping.**
+It asserted "baselines agreeing exactly (row 592 for both lower labels,
+379 for both Story's)" — but 592 and 379 are the bottoms of the
+DESCENDERS (`g` in "Being", `y` in "Story"), not the baselines. Measuring
+a descender-free glyph instead puts the baseline at 587 and 372, and ours
+was **3 px high** on every middle-aligned record. The shoulder was real;
+it was simply not the whole story, and a measurement taken on the wrong
+row agreed with the wrong formula. P-5 found the cause independently
+(§8), and the corrected numbers are the table above.
 
 The reference frame is measured, not chosen: segment 5's animation events
 end at 99.6s and the next begins at 116.2s
@@ -227,7 +238,7 @@ group fix landed it scores:
 
 | | coverage_ref | coverage_ours | chamfer_ours | chamfer_ref | IoU | verdict |
 |---|---|---|---|---|---|---|
-| f_02851 (v 570.0s) | **0.9973** | 0.9364 | 0.675 px | 0.049 px | 0.805 | **PASS** |
+| f_02851 (v 570.0s) | **0.9973** | **0.9655** | 0.588 px | 0.046 px | 0.809 | **PASS** |
 
 All three text records land yellow, including the two-line one, at three
 sizes (37 / 36 / 30) with `lineSpacing` 1.0 and no tracking. The residual
@@ -283,16 +294,16 @@ deck's 678 groups are STALE BOXES (children already at natural size;
 rotated legs whose zero-height boxes do not bound their ink), no group
 carries an angle, and translation is the whole of it.
 
-The same slide now scores 0.9973 / 0.9364 (§4). Its scene
+The same slide now scores 0.9973 / 0.9655 (§4). Its scene
 (`core/demo/pl02/StoryPlaceSlide.ts`, registered as `slide32`) stays as a
 live regression target for the grouped path.
 
 ## 6. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1034 pass, 0 fail** (1005 baseline + 29 new; the
-  baseline is above P-1's 999 because other chapters landed tests in the
-  meantime).
+- `bun test` — **1123 pass, 0 fail** (31 of them this chapter's; the
+  baseline keeps rising as other chapters land tests, which is why the
+  count is quoted with a date rather than a delta from P-1's 999).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's numbers to four decimals.
 - **Byte-identity for existing text consumers.** The demo bundle was
@@ -303,6 +314,10 @@ live regression target for the grouped path.
   and o08 t=20 is the multi-line centring path.
 - **The fallback renders.** With `refs/fonts/` moved aside the title
   card still boots and draws, at 0.8168 / 0.8809.
+
+All of the above were re-run after §8's baseline correction, and after a
+full `--decode` regeneration from the .key archives (which reproduced
+every generated module byte for byte).
 
 ## 7. What P-3 inherits
 
@@ -329,3 +344,61 @@ live regression target for the grouped path.
   chapter turned on it: the right face alone raised `coverage_ref` 9
   points and LOWERED `coverage_ours` 3 (§4), and the unbuilt label above
   showed 0.997 against 0.774.
+
+## 8. A correction from P-5: the `middle` branch was descent/2 high
+
+**Applied after this chapter's first close, and it improves both of §4's
+middle-aligned frames.** Found by `p5-chains` against their chain slides,
+reproduced independently here before applying.
+
+`textBaseline`'s `middle` branch centred the CAP-PLUS-DESCENT block on
+the box. Keynote centres the **cap box alone**. For one line the two
+differ by exactly `descent / 2` — an identity at every size, not an
+approximation — so every middle-aligned label sat 2-5 px high, growing
+with the point size.
+
+The measurement, five texts across three slides and four point sizes,
+taken as the bottom ink row of a **descender-free glyph** in the
+1280×720 frame:
+
+| text (glyph) | size | box y | cap+descent | cap box | measured |
+|---|---|---|---|---|---|
+| DiaLogos (D) | 70 | 126.408 | 95.99 | **100.93** | 101 |
+| Location A (L) | 30 | 647.701 | 436.82 | **438.94** | 439 |
+| non-contextual (n) | 30 | 694.692 | 468.15 | **470.27** | 470 |
+| Story (S) | 50 | 540.000 | 368.37 | **371.90** | 372 |
+| Dead Thing (D) | 40 | 866.000 | 584.03 | **586.85** | 587 |
+
+The first three are P-5's; the last two are this chapter's own slide 5,
+measured here as an independent check. Cap box within 0.3 px on all
+five.
+
+The effect on §4's frames — the title card is unmoved, because it is the
+deck's one `bottom`-aligned record and that branch did not change:
+
+| frame | coverage_ours before | after | chamfer_ref before | after |
+|---|---|---|---|---|
+| title card f_04510 | 0.9757 | 0.9757 | 0.109 px | 0.109 px |
+| slide 5 f_00541 | 0.9028 | **0.9853** | 0.032 px | **0.002 px** |
+| slide 32 f_02851 | 0.9364 | **0.9655** | 0.049 px | 0.046 px |
+
+Slide 32 carries the deck's `MonoLogos\nNode`, so the multi-line middle
+case improved too — but at one line spacing only, which is why the
+multi-line rule is marked DERIVED-not-yet-measured in the function's
+header rather than claimed.
+
+### Two lessons, and the second is the one that generalizes
+
+**A gate validates only the branches its own slide uses.** The title card
+is the deck's ONE `bottom`-aligned text; the census across the shipped
+modules is **1 bottom, 43 middle**. So P-2's 0.4 px verification was of
+the branch 43 of the 44 records do not take, and `middle` never met a
+reference frame until P-5's slides put nine labels in front of it. This
+is the same shape as P-1's closing lesson, landing for the third time.
+
+**A test that restates the implementation gates nothing.** P-2's own
+`middle` test asserted `(top+bottom)/2 − (cap+descent)/2 + cap` — the
+formula, copied. It passed throughout, and could not have failed. It is
+replaced by two that can: the footage table above, and an identity check
+that the two formulas differ by `descent/2` at every size the deck uses,
+which is what would catch the descent creeping back in.

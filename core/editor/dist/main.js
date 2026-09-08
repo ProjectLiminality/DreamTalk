@@ -68482,12 +68482,12 @@ var textBaseline = (text, lineCount = 1) => {
   const lineHeight = size * (text.lineSpacing > 0 ? text.lineSpacing : 1);
   const top = text.frame.position.y + text.padding.top;
   const bottom = text.frame.position.y + text.frame.size.height - text.padding.bottom;
-  const blockHeight = (lineCount - 1) * lineHeight + cap + descent;
+  const capBlock = (lineCount - 1) * lineHeight + cap;
   switch (text.verticalAlign) {
     case "bottom":
       return bottom - descent - (lineCount - 1) * lineHeight;
     case "middle":
-      return (top + bottom) / 2 - blockHeight / 2 + cap;
+      return (top + bottom) / 2 - capBlock / 2 + cap;
     default:
       return top + (lineHeight - cap - descent) / 2 + cap;
   }
@@ -68892,6 +68892,17 @@ var hexToColor = (hex) => {
   const n2 = Number.parseInt(hex.replace("#", ""), 16);
   return { r: (n2 >> 16 & 255) / 255, g: (n2 >> 8 & 255) / 255, b: (n2 & 255) / 255 };
 };
+
+class SlideFill extends Stroke {
+  loops = [];
+  tint = color2(WHITE);
+  fillOpacity = completion(1);
+  compose() {
+    for (const points of this.loops) {
+      this.add(new Line2({ points, tint: this.tint, stroke: 0, creation: 0 }));
+    }
+  }
+}
 var arcLength2 = (points) => {
   let total = 0;
   for (let i2 = 1;i2 < points.length; i2++) {
@@ -69094,6 +69105,34 @@ class Slide extends Holon {
     const tint = this.overrideTint ? this.tint.value : shape.stroke ? hexToColor(shape.stroke) : this.tint.value;
     const width = (shape.strokeWidth ?? 1) * this.height.value / SLIDE_HEIGHT;
     const out = [];
+    if (shape.fill) {
+      const loops = [];
+      for (let i2 = 0;i2 < shape.subpaths.length; i2++) {
+        if (!shape.closed[i2])
+          continue;
+        const flat = shape.subpaths[i2];
+        const points = [];
+        for (let j2 = 0;j2 + 1 < flat.length; j2 += 2) {
+          const p2 = slidePointToWorld({ x: flat[j2], y: flat[j2 + 1] }, scale2);
+          points.push({ x: p2.x, y: p2.y, z: 0 });
+        }
+        if (points.length < 3)
+          continue;
+        const first = points[0];
+        const last = points[points.length - 1];
+        if (Math.hypot(last.x - first.x, last.y - first.y) > 0.000001) {
+          points.push({ x: first.x, y: first.y, z: 0 });
+        }
+        loops.push(points);
+      }
+      if (loops.length > 0) {
+        out.push(this.add(new SlideFill({
+          loops,
+          tint: hexToColor(shape.fill),
+          opacity: shape.opacity
+        })));
+      }
+    }
     for (const flat of shape.subpaths) {
       const points = [];
       for (let i2 = 0;i2 + 1 < flat.length; i2 += 2) {

@@ -279,7 +279,7 @@ describe("box alignment — the conversion Keynote's model needs", () => {
     expect(textBaseline(title) / 1.5).toBeCloseTo(577.9, 1)
   })
 
-  test("centre: the block's ink sits in the padded interior's middle", () => {
+  test("centre: the CAP BOX is centred, not the cap-plus-descent block", () => {
     const r = record({
       frame: { position: { x: 0, y: 100 }, size: { width: 200, height: 200 }, angle: 0 },
       verticalAlign: "middle",
@@ -288,8 +288,54 @@ describe("box alignment — the conversion Keynote's model needs", () => {
     const top = 100 + 4
     const bottom = 100 + 200 - 4
     const cap = 50 * 0.714
-    const descent = 50 * 0.212
-    expect(textBaseline(r)).toBeCloseTo((top + bottom) / 2 - (cap + descent) / 2 + cap, 6)
+    expect(textBaseline(r)).toBeCloseTo((top + bottom) / 2 + cap / 2, 6)
+  })
+
+  test("…and the descent is NOT in it — the two differ by exactly descent/2", () => {
+    // The identity that makes this a derivation rather than a nudge, and
+    // the guard against the descent creeping back in. Checked at every
+    // size the deck uses.
+    for (const size of [24, 30, 32, 34, 37, 40, 50, 70, 116]) {
+      const r = record({
+        frame: { position: { x: 0, y: 100 }, size: { width: 200, height: 200 }, angle: 0 },
+        verticalAlign: "middle",
+        fontSize: size,
+      })
+      const top = 100 + 4
+      const bottom = 100 + 200 - 4
+      const cap = size * 0.714
+      const descent = size * 0.212
+      const withDescent = (top + bottom) / 2 - (cap + descent) / 2 + cap
+      expect(textBaseline(r) - withDescent).toBeCloseTo(descent / 2, 9)
+    }
+  })
+
+  test("the middle branch against the FOOTAGE, at four point sizes", () => {
+    // The measurement that settled it (geometry/keynote.ts's header):
+    // the bottom ink row of a descender-free glyph in the 1280x720
+    // frame. These are reference numbers, not the code's own output —
+    // three from P-5's chain slides, two measured here on deck slide 5.
+    //
+    // Every record involved is an autofit 0x0 box, so top == bottom ==
+    // position.y and the padding cancels; that is why `y` is the whole
+    // of the geometry each row needs.
+    const measured: [string, number, number, number][] = [
+      ["DiaLogos (D)", 70, 126.408, 101],
+      ["Location A (L)", 30, 647.701, 439],
+      ["non-contextual (n)", 30, 694.692, 470],
+      ["Story (S)", 50, 540.0, 372],
+      ["Dead Thing (D)", 40, 866.0, 587],
+    ]
+    for (const [label, fontSize, y, row] of measured) {
+      const r = record({
+        frame: { position: { x: 0, y }, size: { width: 0, height: 0 }, angle: 0 },
+        verticalAlign: "middle",
+        fontSize,
+      })
+      // Slide units -> video pixels at the deck's own 3:2 ratio.
+      const predicted = textBaseline(r) / 1.5
+      expect(Math.abs(predicted - row), label).toBeLessThan(0.5)
+    }
   })
 
   test("top: the ascent hangs from the padded top, leading split above", () => {

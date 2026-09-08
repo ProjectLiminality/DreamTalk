@@ -1,11 +1,11 @@
 {
-  "name": "p2-slide32b-f_02851",
-  "ours": "docs/reports/pl02/ours-p2-slide32b-f_02851.png",
+  "name": "s32-f_02851",
+  "ours": "/private/tmp/claude-501/-Users-davidrug-RealDealVault-ProjectLiminality-DreamTalk/6c2f0ce6-31c0-4bce-aacb-bbcca3c5db79/scratchpad/after-vfix/ours-s32-f_02851.png",
   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_02851.jpg",
-  "iou": 0.8052,
-  "chamfer_ours_px": 0.675,
-  "chamfer_ref_px": 0.049,
+  "iou": 0.8087,
+  "chamfer_ours_px": 0.588,
+  "chamfer_ref_px": 0.046,
   "coverage_ref": 0.9973,
-  "coverage_ours": 0.9364,
+  "coverage_ours": 0.9655,
   "verdict": "PASS"
 }
