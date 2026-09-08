@@ -1,0 +1,22 @@
+{
+ "scene": "p02k",
+ "at": 1,
+ "frames": 1,
+ "passed": 0,
+ "reports": [
+  {
+   "idx": 4460,
+   "videoSec": 891.8,
+   "heldAt": 891.8,
+   "name": "p9deck59-f_04460",
+   "ours": "../docs/reports/pl02/ours-p9deck59-f_04460.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_04460.jpg",
+   "iou": 0.5243,
+   "chamfer_ours_px": 0.521,
+   "chamfer_ref_px": 4.355,
+   "coverage_ref": 0.6752,
+   "coverage_ours": 0.9603,
+   "verdict": "FAIL"
+  }
+ ]
+}

@@ -267,7 +267,7 @@ export const slide31: SlideData = {
     {"id":"5360760","target":"5348550","effect":"apple:dissolve","animationType":"Out","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5360760","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5360760","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":1.5,"delay":0.5,"fadeUnmatched":true},
 }

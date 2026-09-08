@@ -311,7 +311,7 @@ export const slide30: SlideData = {
     {"id":"5357519","target":"5352279","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5357519","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5357519","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"com.apple.iWork.Keynote.BLTFadeThruColor","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

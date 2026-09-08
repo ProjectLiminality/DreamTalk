@@ -161,8 +161,8 @@ export const slide36: SlideData = {
     {"id":"5367483","target":"5367491","effect":"apple:action-motion-path","animationType":"Action","duration":1,"delay":0,"delivery":"All at Once","acceleration":"kEaseBoth","eventTrigger":1,"motionPath":[{"type":"moveTo","points":[{"x":0,"y":0}]},{"type":"curveTo","points":[{"x":0,"y":0},{"x":-43.896656,"y":-69.45765},{"x":-43.896656,"y":-69.45765}]}]},
   ],
   buildChunks: [
-    {"build":"5367480","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5367483","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"5367480","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5367483","duration":1,"delay":0,"automatic":true,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

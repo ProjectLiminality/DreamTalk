@@ -782,11 +782,11 @@ export const slide18: SlideData = {
     {"id":"4620409","target":"4620376","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"4619289","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"4620409","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5268720","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5305210","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5268786","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"4619289","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"4620409","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5268720","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5305210","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5268786","duration":1,"delay":0,"automatic":true,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"com.apple.iWork.Keynote.BLTFadeThruColor","duration":1.5,"delay":0.5},
 }

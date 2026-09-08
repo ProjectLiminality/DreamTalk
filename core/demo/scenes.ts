@@ -61,6 +61,7 @@ import { MagicMove02Dream } from "./pl02/MagicMove02"
 import { Web01Dream } from "./pl02/Web01"
 import { Fractal01Dream } from "./pl02/Fractal01"
 import { SetPiecesDream } from "./pl02/SetPieces"
+import { Density01Dream } from "./pl02/Density01"
 import { FillOnDream, FillOffDream } from "./pl02/FillProbe"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
@@ -127,6 +128,7 @@ export const scenes: Record<string, DreamClass> = {
   p02i: Web01Dream,
   p02j: Fractal01Dream,
   p02k: SetPiecesDream,
+  p02l: Density01Dream,
   p02jFillOn: FillOnDream,
   p02jFillOff: FillOffDream,
   // p02h: MagicMove03Dream, // p6 died before writing it

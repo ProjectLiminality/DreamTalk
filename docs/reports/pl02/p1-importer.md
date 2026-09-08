@@ -556,6 +556,44 @@ consumer. It is also why `coverage_ours` dips to 0.81 while
 The image BOXES are still carried on `SlideData.images`, so anything that
 masks against declared geometry today keeps working.
 
+### RESOLVED (P-10): `referent` — the firing model's missing half
+
+**17. The firing model is settled, and it took three fields.** §1 has
+carried it as open since P-3 refuted my `automatic`-only reading. P-10
+found the missing half in a boolean the decoder was dropping:
+`KN.BuildChunkArchive.referent`, sitting beside `automatic` on every
+chunk. Read together they give three states:
+
+| `automatic` | `referent` | fires |
+|---|---|---|
+| false | true | on a click |
+| true | true | one declared duration after its predecessor (a step) |
+| **true** | **false** | **WITH its referent — simultaneously, no step** |
+
+The third state is exactly what was missing. It collapses a long chunk
+list into few visible events *without* collapsing it into one — which is
+precisely the gap between the two readings that each failed:
+`automatic` alone gave 150 advances against 141 measured but fired slide
+2 as a single cascade where P-3 measured seven; `eventTrigger` fit slide
+2 but overshot 2.9x deck-wide.
+
+**Deck 11 discriminates it**, carrying both automatic cases on one slide:
+its 35 `dissolve` chunks are `referent: true` and step at ratio 1.0000
+(sd 0.050s), while **69 of its 70 `LineDrawForLine` chunks are
+`referent: false`** and span 0.40s in total, against the 157.5s a
+step-every-time rule predicts — fully settled by t=212.6s, so not
+truncation. I verified the split independently; it is clean by effect.
+
+P-10 reports the reading retrodicts every measurement on record and
+dissolves both standing exceptions (deck 43 chunk 8 and deck 53 are
+`referent: false`). Deck 59's 0.85–0.87x ratio remains open.
+
+In scope (deck 1–59, 418 chunks): **191 simultaneous, 136 stepped, 91
+clicks**, with 24 of the 59 slides carrying at least one simultaneous
+chunk — real per-slide data, not a constant. All three fields are
+carried; `eventTrigger` stays because it is real data disagreeing with
+`automatic` on 263 chunks, not because this reading needs it.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -816,12 +854,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1167 pass, 1 fail** (961 baseline + 68 mine + teammates').
-  The failure is `builds.test.ts`'s "slide 2's five image builds are
-  named", which asserts those five build targets are UNRESOLVABLE. They
-  now resolve, because `tracedPath` makes images drawables — so the test
-  is correctly detecting that its own premise no longer holds. P-3's
-  file; flagged rather than edited.
+- `bun test` — **1188 pass, 0 fail** (961 baseline + 69 mine + teammates').
   The two `builds.test.ts` failures flagged earlier (P-4's `Connection`
   holon vs P-3's `DottedLine` expectations) have since been resolved.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.

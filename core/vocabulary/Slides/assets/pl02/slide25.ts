@@ -322,10 +322,10 @@ export const slide25: SlideData = {
     {"id":"4706910","target":"4706554","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"4707179","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"4709394","duration":1,"delay":0,"automatic":true,"chunkId":1},
-    {"build":"4707194","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"4706910","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"4707179","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"4709394","duration":1,"delay":0,"automatic":true,"referent":false,"chunkId":1},
+    {"build":"4707194","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"4706910","duration":1,"delay":0,"automatic":true,"referent":false,"chunkId":1},
   ],
   transition: {"effect":"com.apple.iWork.Keynote.BLTFadeThruColor","duration":1.5,"delay":0.5},
 }

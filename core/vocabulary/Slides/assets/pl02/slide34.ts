@@ -192,8 +192,8 @@ export const slide34: SlideData = {
     {"id":"5380944","target":"5380943","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5374956","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5380944","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5374956","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5380944","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

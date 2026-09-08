@@ -844,6 +844,9 @@ def build_chunks_of(slide, slide_archive):
                 "duration": obj.get("duration", 0.0),
                 "delay": obj.get("delay", 0.0),
                 "automatic": bool(obj.get("automatic", False)),
+                # WITH `automatic`, this is the firing model. See
+                # KeyBuildChunk.referent.
+                "referent": bool(obj.get("referent", False)),
                 "chunkId": (obj.get("buildChunkIdentifier") or {}).get("buildChunkId", 0),
             }
         )

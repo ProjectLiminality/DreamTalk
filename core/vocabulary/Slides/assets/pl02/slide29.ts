@@ -304,9 +304,9 @@ export const slide29: SlideData = {
     {"id":"5358099","target":"5358035","effect":"apple:dissolve character","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5358100","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5358098","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5358099","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5358100","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5358098","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5358099","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"com.apple.iWork.Keynote.BLTFadeThruColor","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

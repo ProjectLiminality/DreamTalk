@@ -917,6 +917,30 @@ describe("builds", () => {
     expect(maxX).toBeCloseTo(box.position.x + box.size.width, 1)
   })
 
+  test("the firing model needs `referent` as well as `automatic`", async () => {
+    // P-10's find, and the resolution of what this file long recorded as
+    // unsettled. Deck 11 discriminates the two automatic cases on one
+    // slide: its dissolves step (referent true), its LineDrawForLine
+    // chunks fire simultaneously (referent false) — 69 of 70, spanning
+    // 0.40s against the 157.5s a step-every-time rule predicts.
+    const { slide11 } = await import("../vocabulary/Slides/assets/pl02/slide11")
+    const chunks = slide11.buildChunks!
+    const byId = new Map(slide11.builds.map((b) => [b.id, b]))
+    const draws = chunks.filter(
+      (c) => byId.get(c.build)?.effect === "com.apple.iWork.Keynote.LineDrawForLine",
+    )
+    const dissolves = chunks.filter((c) => byId.get(c.build)?.effect === "apple:dissolve")
+    expect(draws).toHaveLength(70)
+    expect(draws.filter((c) => !c.referent)).toHaveLength(69)
+    expect(dissolves).toHaveLength(35)
+    expect(dissolves.every((c) => c.referent)).toBe(true)
+    // A click chunk is always its own referent; only automatic chunks
+    // can be simultaneous.
+    for (const chunk of chunks) {
+      if (!chunk.automatic) expect(chunk.referent).toBe(true)
+    }
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

@@ -296,10 +296,10 @@ export const slide46: SlideData = {
     {"id":"5404715","target":"5404466","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5404715","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5593461","duration":1,"delay":0,"automatic":true,"chunkId":1},
-    {"build":"5424584","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5424583","duration":1,"delay":0,"automatic":true,"chunkId":1},
+    {"build":"5404715","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5593461","duration":1,"delay":0,"automatic":true,"referent":false,"chunkId":1},
+    {"build":"5424584","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5424583","duration":1,"delay":0,"automatic":true,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"apple:magic-move-implied-motion-path","duration":2,"delay":0.5,"fadeUnmatched":true},
 }

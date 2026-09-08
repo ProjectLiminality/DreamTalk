@@ -483,10 +483,10 @@ export const slide56: SlideData = {
     {"id":"5552239","target":"5551222","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"5602009","duration":3,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5602023","duration":3,"delay":0,"automatic":true,"chunkId":1},
-    {"build":"5552239","duration":1,"delay":0,"automatic":false,"chunkId":1},
-    {"build":"5551188","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"5602009","duration":3,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5602023","duration":3,"delay":0,"automatic":true,"referent":false,"chunkId":1},
+    {"build":"5552239","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
+    {"build":"5551188","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"none","duration":1,"delay":0.5,"fadeUnmatched":true},
 }

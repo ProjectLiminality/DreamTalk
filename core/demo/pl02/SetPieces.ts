@@ -266,17 +266,52 @@
  * yes. It is slide-local: sweeping all 59 segments' thumbnails against
  * their footage finds deck 59 as the only clean case.
  *
- * THE SCORING CONSEQUENCE, and it follows P-8's deck-54 precedent
- * exactly: applying the 141.56 would be fitting geometry to the footage,
- * so the scene does NOT apply it and deck 59 is scored with the offset
- * stated as a ceiling. The offset appears in this file only as
- * `DECK59_EDIT_OFFSET`, unused by the scene, so that the number is
- * recorded where a later chapter can find it and a test can pin it —
- * and so that nobody re-derives it and quietly bakes it in.
+ * THE SCORING CONSEQUENCE. The translation IS applied, on the page holon
+ * and nowhere else, under the lead's ruling of 2026-09-08 and after the
+ * verification it made a condition (all of it recorded on
+ * `DECK59_EDIT_OFFSET`). The reasoning is the canon policy's: the
+ * published video is the canon and the deck is derivation authority for
+ * what the video USED, so where the file demonstrably post-dates the
+ * recording its edited value is not the video's source value.
+ *
+ * What it buys, and it is the check that the constant is right rather
+ * than merely convenient: `chamfer_ours` falls from 10.587 px to
+ * **0.521 px** and `coverage_ours` rises from 0.1613 to **0.9603**. Our
+ * strokes land on the reference's centre lines. Two coloured landmarks
+ * that the render hides (below) reappear with fills off at cy 489.0 and
+ * 488.5 against the reference's 489.5 — an independent sub-pixel
+ * confirmation of the offset from geometry the fit never used.
+ *
+ * The declared-geometry score is reported alongside as the documented
+ * file-drift alternative: 0.1171 / 0.1613, chamfer 10.587 / 11.470.
+ *
+ * The remaining `coverage_ref` of 0.675 is fully accounted for and none
+ * of it is timing or placement:
+ *
+ *     "Liminal Flow"                      1,556 px   deleted from the file
+ *     "Collective Intelligence"           1,216 px   deleted from the file
+ *     "Syntropy"                            474 px   deleted from the file
+ *     the Syntropy curves                 2,298 px   deleted from the file
+ *     the coloured rings                  2,211 px   hidden by our own fills
+ *
+ * THE LAST ROW IS NOT THIS CHAPTER'S AND NOT THIS RULING'S. The red ring,
+ * the red base ellipse and the blue rectangle are drawn, tinted and
+ * positioned correctly — every parameter checks out and with
+ * `fills: false` they appear within a pixel of the reference. They are
+ * hidden by opaque `SlideFill`s that the deck declares BELOW them:
+ * `composeShape` emits every stroke and every fill at z = 0, so the
+ * deck's z-order survives only as emission order, and deck 59's
+ * full-canvas black horizon rectangle (z-index 1 of 42, a genuine solid
+ * black in the stylesheet, not a dropped gradient) wins over strokes
+ * declared thirty places above it. Verified pre-existing: the same three
+ * shapes are absent from the pre-ruling render too, so the translation
+ * neither caused nor masks it. It is P-5/P-8's fill machinery and it is
+ * reported, not patched.
  */
 
 import { Dream, render } from "../../src/index"
 import { together, type Anim } from "../../src/anim"
+import { slideToWorld } from "../../src/geometry/keynote"
 import { Slide } from "../../vocabulary/Slides/Slides"
 import {
   slide16,
@@ -315,14 +350,79 @@ interface Onset {
 export const ACTION_SCALE_D17 = 3.0932
 
 /**
- * The vertical edit that separates deck 59's file from deck 59's
- * footage, in SLIDE units. Recorded, NOT applied — see the header.
+ * The vertical edit that separates deck 59's FILE from deck 59's
+ * FOOTAGE, in SLIDE units — APPLIED, in this scene only.
  *
- * 141.56 slide units = 94.37 video px, measured as a pure translation on
- * four landmarks spanning the canvas at sd 0.19 px. Keynote's own
- * thumbnail agrees with the deck rather than the video, so the file was
- * edited after the recording and the reproduction scores against what
- * the file says.
+ * 141.56 slide units = 94.37 video px. This is the one number in the
+ * chapter that comes from the footage rather than the deck, and the
+ * reasoning that admits it is worth stating in full because it does not
+ * fit either of the campaign's existing precedents.
+ *
+ * WHAT IT IS NOT. It is not a quantity the file never carried (deck
+ * 17's `action-scale` factor, deck 56's before it) — deck 59's geometry
+ * is fully declared. It is not a phantom from mis-sampling (P-8's deck
+ * 54, where one badly-chosen frame invented a layout gap that was not
+ * there). It is a quantity the file PROVABLY OVERWROTE after the
+ * recording.
+ *
+ * THE PROOF THAT THE FILE MOVED, NOT THE VIDEO. Keynote's own stored
+ * thumbnail for deck 59 sides with the DECK against the video — horizon
+ * at 0.4000 of frame height against the declared 0.4010 and the footage's
+ * 0.2694 — so the application re-rendered its preview from an edited
+ * slide. Rolling the video frame down 96 px lifts its correlation with
+ * that thumbnail from 0.104 to 0.880. Two further edits point the same
+ * way: the three strings the footage shows ("Liminal Flow", "Collective
+ * Intelligence", "Syntropy") exist in NO archive anywhere in the
+ * 84-slide file, yet the footage builds them at 875.8, 878.2 and 883.0.
+ * Labels deleted, tableau dragged down, some time after 2023-02-15.
+ *
+ * THE VERIFICATION THAT IT IS A RIGID CONSTANT, not something the slide
+ * does. Every one of these was required before the constant was applied:
+ *
+ *   - NO BUILD CAN TRANSLATE ANYTHING. All 34 records are `In`;
+ *     18 LineDrawForLine, 15 dissolve, 1 dissolve character; ZERO carry
+ *     a `motionPath`; there is no `action-motion-path`, no
+ *     `action-scale`, no `fade and move`. The union of every field on
+ *     every record is {acceleration, animationType, delay, delivery,
+ *     duration, effect, eventTrigger, id, target} — nothing in that set
+ *     can express a displacement.
+ *   - THE INCOMING TRANSITION STAGES NOTHING. Deck 59's own transition
+ *     is `none`, a hard cut: no matched objects, no interpolation.
+ *     (Deck 58's Magic Move is the transition INTO 58, not into 59.)
+ *   - THE FIRST SCORED FRAME IS NOT MID-ANYTHING. Deck 58 leaves
+ *     859.8-861.4 and the frame settles at 861.6 — 11 changed pixels
+ *     against its predecessor. The base tableau is five UNBUILT
+ *     drawables (the horizon and the mountain curves) that no build
+ *     targets.
+ *   - THE OFFSET IS CONSTANT ACROSS THE SEGMENT, three ways. The
+ *     unbuilt horizon sits at row 194 at t = 861.6, 863.8, 869.8,
+ *     875.8, 881.8, 887.8, 891.8 and 893.4 — first settled frame to
+ *     last. Landmarks built at DIFFERENT times agree (the red base
+ *     ellipse and blue rectangle read 94.26 throughout; the red ring,
+ *     built last, joins at the same offset) — which a build-produced
+ *     motion could not do. And the best whole-frame integer shift
+ *     aligning each of ten settled frames to the final frame is
+ *     dx = 0, dy = 0 at every sample: the tableau never moves.
+ *   - IT IS ONE NUMBER, not a per-shape accident. Rasterising each
+ *     declared polyline through the importer's own design-box fit and
+ *     sliding it in y, every drawable large enough to match
+ *     unambiguously (>40 video px on both axes) gives dy = 94 with
+ *     sd 0.00 and a 0.93-1.00 hit rate.
+ *
+ * WHY APPLYING IT IS THE READING AND NOT A FIT. The canon policy is
+ * explicit that the published video is the canon; the deck is derivation
+ * authority for what the video USED. Where the file demonstrably
+ * post-dates the recording, its edited value is not the video's source
+ * value — the recording-era layout survives only in the footage, and
+ * 94.37 px is its measurement, which is measurement and not fitting
+ * under the O-11 refined rule. P-8's output-into-input objection does
+ * not reach it: nothing here writes an animation's result back into a
+ * hold; this recovers a pre-edit constant.
+ *
+ * WHERE IT LIVES. In the SCENE, never in the asset or the importer.
+ * P-1's model keeps saying what the file says — that is the deck-54
+ * pattern and it is right — so `slide59.ts` is untouched and a reader
+ * comparing it against the deck still finds agreement.
  */
 export const DECK59_EDIT_OFFSET = 141.56
 
@@ -582,6 +682,17 @@ export class SetPiecesDream extends Dream {
 
   unfold() {
     this.observer.look("front")
+
+    // Deck 59's page is lifted by the recording-era offset — the ONE
+    // number in this chapter that comes from the footage. It is applied
+    // here, on the page holon, and nowhere else: the asset still says
+    // exactly what the file says. See `DECK59_EDIT_OFFSET` for the
+    // evidence chain and for why this is a reading rather than a fit.
+    //
+    // The sign: the deck's y grows DOWNWARD and the frame change negates
+    // it (keynote.ts §2), so lifting the tableau on screen is +y here.
+    const deck59 = this.pages[3]!
+    deck59.y.value = DECK59_EDIT_OFFSET * slideToWorld(deck59.height.value)
 
     for (const page of this.pages) {
       this.setAt(0, page.creation.to(1), page.visible(false), page.preBuild())

@@ -470,42 +470,44 @@ export interface KeyBuild {
  * chunk). Chunks are listed in firing order. The chunk's `duration`
  * agrees with its build's in all 418 cases here, so a chunk contributes
  * the WHEN and never a second duration to reconcile — the value worth
- * having is `automatic`.
+ * having is the pair `automatic` + `referent`.
  *
- * THE FIRING MODEL IS NOT SETTLED, AND THIS COMMENT WILL NOT PRETEND IT
- * IS. Three candidate fields exist and no single one of them predicts
- * the footage:
+ * THE FIRING MODEL, RESOLVED — and it took three fields, not one.
  *
- *  - `automatic` (here, on the chunk). 91 of 418 false, 327 true in
- *    scope. Deck-wide arithmetic is excellent — 91 clicks + 59
- *    transitions = 150 declared advances against the recon's 141
- *    measured animation events, within 7%. But it fails LOCALLY: slide 2
- *    has exactly one false, so this reading fires all 13 of its builds
- *    as a single cascade, and P-3 measured its four connection lines
- *    drawing at plainly separated times (7 events in the segment).
+ * This comment previously recorded the model as unsettled, because
+ * neither candidate field predicted the footage on its own:
  *
- *  - `eventTrigger` (on the build's `attributes`). 354 of 418 are 1
- *    ("on click") in scope, including ALL 13 on slide 2 —
- *    which fits P-3's local measurement. But 354 + 59 = 413 declared
- *    advances against 141 measured overshoots by 2.9x.
+ *  - `automatic` (on the chunk). 91 false / 327 true in scope. The
+ *    deck-wide arithmetic is good — 91 clicks + 59 transitions = 150
+ *    declared advances against the recon's 141 measured events — but it
+ *    fails LOCALLY: slide 2 has one false, so this reading fires all 13
+ *    of its builds as a single cascade, and P-3 measured seven separated
+ *    events.
  *
- *  - The two DISAGREE constantly (263 chunks are `automatic: true` while
- *    their build says `eventTrigger: 1`), so they are not two spellings
- *    of one fact.
+ *  - `eventTrigger` (on the build). 354 of 418 are 1 ("on click"),
+ *    including all 13 on slide 2, which fits P-3's local measurement —
+ *    but 354 + 59 = 413 advances against 141 overshoots by 2.9x.
  *
- * What is certain: the recon report's §0 reading is wrong in its
- * mechanism. It cites `isAutomatic` on the build's `animationAttributes`
- * — a field that is absent throughout, so its absence says nothing — and
- * concludes every advance is a click. Both fields above carry real,
- * varying information that the report did not use.
+ * P-10 found the missing half: **`referent`**, sitting beside
+ * `automatic` on every chunk. Read together they give three states —
+ * click, step, and SIMULTANEOUS (see `referent` below) — and the third
+ * is what collapses a long chunk list into few visible events without
+ * collapsing it into one. That is precisely the gap between the two
+ * readings above.
  *
- * What is NOT certain is which governs. Resolving it needs the footage,
- * not the archives: the honest test is to count measured onsets within
- * individual segments against each reading's prediction, across enough
- * slides to separate them. That belongs to the chapter that owns build
- * timing (P-3 / P-9), which is why BOTH fields are carried here
- * uninterpreted — `automatic` on the chunk, `eventTrigger` on the build
- * — and why neither is presented as the answer.
+ * Established on deck 11, which carries both automatic cases on one
+ * slide: its 35 `dissolve` chunks are `referent: true` and step at ratio
+ * 1.0000 (sd 0.050s), while 69 of its 70 `LineDrawForLine` chunks are
+ * `referent: false` and span 0.40s in total, against the 157.5s a
+ * step-every-time rule predicts — and they are fully settled by
+ * t=212.6s, so it is not truncation. P-10 reports it retrodicts every
+ * measurement on record and dissolves both standing exceptions (deck 43
+ * chunk 8 and deck 53 are `referent: false`). Deck 59's 0.85-0.87x
+ * ratio remains open.
+ *
+ * All three fields are carried. `eventTrigger` is kept because it is
+ * real data that disagrees with `automatic` on 263 chunks, not because
+ * this reading needs it.
  */
 export interface KeyBuildChunk {
   /** The `KeyBuild.id` this chunk fires. */
@@ -517,6 +519,39 @@ export interface KeyBuildChunk {
    * when it waits for a click. 327 true / 91 false in scope.
    */
   automatic: boolean
+  /**
+   * The OTHER half of the firing model, and the field that resolves what
+   * this header long recorded as unsettled.
+   *
+   * Read WITH `automatic`:
+   *
+   *   automatic: false              — waits for a click;
+   *   automatic + referent: true    — fires one declared duration after
+   *                                   its predecessor (a step);
+   *   automatic + referent: false   — fires WITH its referent, i.e.
+   *                                   simultaneously, with no step.
+   *
+   * P-10 established it on deck 11, which carries both cases on one
+   * slide and so discriminates them: its 35 `dissolve` chunks are
+   * `referent: true` and step at ratio 1.0000 (sd 0.050s), while its 70
+   * `LineDrawForLine` chunks are one true plus **69 `referent: false`**
+   * spanning 0.40s in total — where a step-every-time rule predicts
+   * 157.5s. They are fully settled by t=212.6s, so it is not truncation.
+   *
+   * This is why `automatic` alone never worked. Counting `automatic:
+   * false` gave 91 clicks + 59 transitions = 150 against 141 measured
+   * events — close, but it predicted slide 2 firing as ONE cascade when
+   * P-3 measured seven. The simultaneous case is what collapses a long
+   * chunk list into few visible events without collapsing it into one.
+   *
+   * Present on all 554 chunks in the file and genuinely varying. In
+   * scope (deck 1-59, 418 chunks): **191 simultaneous** (automatic,
+   * referent false), **136 stepped** (automatic, referent true) and
+   * **91 clicks** (automatic false, always referent true). 24 of the 59
+   * slides carry at least one simultaneous chunk, so this is real
+   * per-slide data rather than a constant.
+   */
+  referent: boolean
   chunkId: number
 }
 

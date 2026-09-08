@@ -1,6 +1,6 @@
 {
-  "name": "p9seg-f_04460",
-  "ours": "../docs/reports/pl02/ours-p9seg-f_04460.png",
+  "name": "p9deck59-f_04460",
+  "ours": "../docs/reports/pl02/ours-p9deck59-f_04460.png",
   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_04460.jpg",
   "iou": 0.5243,
   "chamfer_ours_px": 0.521,

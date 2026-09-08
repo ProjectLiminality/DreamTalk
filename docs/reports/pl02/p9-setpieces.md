@@ -268,28 +268,104 @@ slide-local: sweeping all 59 segments' thumbnails against their footage
 finds deck 59 as the only clean case (decks 41 and 43 show weak rolls
 that are mid-build-thumbnail artifacts, and P-8 scored 43 fine).
 
-**The scoring consequence follows P-8's deck-54 precedent**: applying the
-141.56 would be fitting geometry to the footage, so the scene does not
-apply it and deck 59 is scored with the offset stated as a ceiling. The
-number lives in `SetPieces.ts` as `DECK59_EDIT_OFFSET`, unused by the
-scene and pinned by test, so that it is recorded where a later chapter
-can find it and nobody re-derives it and quietly bakes it in.
+### The ruling, and the verification it required
 
-What the offset costs, measured: shifting our render up by exactly 94 px
-lifts overlap with the reference from 812 to 12,574 pixels and
-`coverage_ours` to **0.9037**. The residual `coverage_ref` of 0.656 is
-the deleted content — and it is entirely the deleted content:
+I first proposed scoring this with the offset stated as a ceiling, on
+P-8's deck-54 precedent. **The lead ruled otherwise, conditionally**, and
+the condition was the right one: close the deck-54-shaped hole by proving
+the offset is a rigid constant across the segment and that nothing the
+slide declares could produce it. All of the following was required before
+the constant was applied.
 
-| region | reference ink | unmatched |
+**No build can translate anything.** All 34 records are `In`; 18
+`LineDrawForLine`, 15 `dissolve`, 1 `dissolve character`; **zero** carry a
+`motionPath`; there is no `action-motion-path`, no `action-scale`, no
+`fade and move`. The union of every field on every record is
+`{acceleration, animationType, delay, delivery, duration, effect,
+eventTrigger, id, target}` — nothing in that set can express a
+displacement.
+
+**The incoming transition stages nothing.** Deck 59's own transition is
+`none`, a hard cut: no matched objects, no interpolation. (Deck 58's
+Magic Move is the transition *into* 58, not into 59.)
+
+**The first scored frame is not mid-anything.** Deck 58 leaves
+859.8–861.4 and the frame settles at 861.6 — 11 changed pixels against
+its predecessor. The base tableau is five **unbuilt** drawables (the
+horizon and the mountain curves) that no build targets.
+
+**The offset is constant across the segment, three independent ways.**
+The unbuilt horizon sits at row 194 at t = 861.6, 863.8, 869.8, 875.8,
+881.8, 887.8, 891.8 and 893.4 — first settled frame to last, delta 94.69
+throughout. Landmarks built at *different* times agree (the red base
+ellipse and blue rectangle read 94.26 at every sample; the red ring,
+built last, joins at the same offset) — which a build-produced motion
+could not do. And the best whole-frame integer shift aligning each of ten
+settled frames to the final frame is **dx = 0, dy = 0 at every sample**:
+the tableau never moves.
+
+**It is one number, not a per-shape accident.** Rasterising each declared
+polyline through the importer's own design-box fit and sliding it in y,
+every drawable large enough to match unambiguously (>40 video px on both
+axes) gives **dy = 94, sd 0.00**, hit rate 0.93–1.00.
+
+The condition held, so the translation is applied — on the page holon in
+the scene, never in the asset or the importer. `slide59.ts` still says
+exactly what the file says, and a test pins that its declared red-ring
+top is 263.487 slide units, unshifted.
+
+### What the translation buys
+
+| | declared geometry | translated |
 |---|---|---|
-| "Liminal Flow" | 1,556 | **1,556 (100%)** |
-| "Collective Intelligence" | 1,216 | **1,216 (100%)** |
-| "Syntropy" (word) | 474 | **474 (100%)** |
-| the Syntropy curves | 4,202 | 2,287 |
-| elsewhere | — | 2,534 |
+| f_04460 `coverage_ref` | 0.1171 | **0.6752** |
+| f_04460 `coverage_ours` | 0.1613 | **0.9603** |
+| f_04460 `chamfer_ours` | 10.587 px | **0.521 px** |
+| f_04315 (mid-cascade) | 0.0256 / 0.0274 | **0.8212 / 0.9226** |
+| f_04330 (mid-cascade) | 0.0695 / 0.0716 | **0.8520 / 0.9351** |
+| f_04345 (mid-cascade) | 0.1314 / 0.1379 | **0.8619 / 0.9545** |
+
+A chamfer of 0.521 px means our strokes sit on the reference's centre
+lines. The mid-cascade frames matter most: the offset had been masking
+the long cascade's timing entirely, and with it removed the 33-chunk
+firing model scores 0.82–0.86 unmasked against a moving target.
+
+An independent confirmation of the constant, from geometry the fit never
+used: the two coloured landmarks the render hides (below) reappear with
+`fills: false` at cy 489.0 and 488.5, against the reference's 489.5.
+
+### The residual, fully accounted for
+
+| region | reference ink | unmatched | why |
+|---|---|---|---|
+| "Liminal Flow" | 1,556 | **1,556** | deleted from the file |
+| "Collective Intelligence" | 1,216 | **1,216** | deleted from the file |
+| "Syntropy" (word) | 474 | **474** | deleted from the file |
+| the Syntropy curves | 4,202 | 2,298 | deleted from the file |
+| the coloured rings | 3,343 | 2,211 | **hidden by our own fills — see below** |
 
 100% of the reference's ink in each label's region is unmatched, which is
 exactly the signature of content the file does not contain.
+
+### A pre-existing fill-occlusion bug, found here and not this chapter's
+
+The red ring, the red base ellipse and the blue rectangle are **drawn,
+tinted and positioned correctly** — every parameter checks out, and with
+`fills: false` all three appear within a pixel of the reference. They are
+hidden by opaque `SlideFill`s that the deck declares *below* them.
+
+`composeShape` emits every stroke and every fill at `z = 0`, so the
+deck's z-order survives only as emission order and the renderer resolves
+coplanar geometry by draw order. Deck 59's full-canvas black horizon
+rectangle — z-index **1 of 42**, and a genuine solid black in the
+stylesheet rather than the dropped gradient its `skipped` note might
+suggest — therefore wins over strokes declared thirty places above it.
+
+**Verified pre-existing and independent of the ruling**: the same three
+shapes are absent from the pre-ruling render too, so the translation
+neither caused it nor masks it. It is P-5/P-8's fill machinery, reported
+rather than patched, and it costs deck 59 about 2,211 px of
+`coverage_ref` — roughly 0.10.
 
 ## 7. The scores
 
@@ -299,9 +375,9 @@ whole-frame:
 | frame | deck | video s | coverage_ref | coverage_ours | chamfer ours/ref | verdict |
 |---|---|---|---|---|---|---|
 | f_01392 | 16 | 278.2 | **1.0000** | **0.9959** | 0.281 / 0.036 | **PASS** |
-| f_01459 | 17 | 291.6 | 0.8822 | 0.9960 | 0.077 / 1.214 | FAIL — see below |
+| f_01459 | 17 | 291.6 | 0.8822 | **0.9960** | **0.077** / 1.214 | FAIL — stroke-width ceiling, below |
 | f_01795 | 18 | 358.8 | **0.9755** | **0.9445** | 0.879 / 0.419 | **PASS** |
-| f_04460 | 59 | 891.8 | 0.1171 | 0.1613 | 10.587 / 11.470 | FAIL — §6 |
+| f_04460 | 59 | 891.8 | 0.6752 | **0.9603** | **0.521** / 4.355 | FAIL — deleted content + fills, §6 |
 
 Mid-build frames, where the chapter's subject lives:
 
@@ -314,12 +390,18 @@ Mid-build frames, where the chapter's subject lives:
 | f_01446 | 17 | 289.0 | 0.8548 | 0.6634 | FAIL |
 | f_01664 | 18 | 332.6 | **0.9916** | **0.9863** | **PASS** |
 | f_01684 | 18 | 336.6 | **0.9733** | **0.9457** | **PASS** |
-| f_04315/4330/4345 | 59 | 862.8–868.8 | 0.026–0.131 | 0.027–0.138 | FAIL — §6 |
+| f_04315 | 59 | 862.8 | 0.8212 | **0.9226** | FAIL — §6 |
+| f_04330 | 59 | 865.8 | 0.8520 | **0.9351** | FAIL — §6 |
+| f_04345 | 59 | 868.8 | 0.8619 | **0.9545** | FAIL — §6 |
 
 **Deck 16 scores `coverage_ref = 1.000` on all three of its frames**,
 settled and mid-cascade — the twelve-at-once firing reproduces exactly.
 **Deck 18 passes settled and at both mid-build frames**, which is the
 corrected 70-second boundary and its five onsets confirming each other.
+**Deck 59's three mid-cascade frames score 0.82–0.86 / 0.92–0.95** with
+chamfer 0.57–0.87 px, which is the 33-chunk firing model measured against
+a moving target — a reading the declared-geometry offset had been hiding
+completely (it put those same frames at 0.026–0.131).
 
 ### Deck 17's ceiling: the renderer holds stroke width constant under scale
 
@@ -399,9 +481,22 @@ landed in `keydecode.py` and are pinned by tests in `setpieces.test.ts`.
    `tracedPath`, and decks 2, 3, 17 and 18 no longer need masked scoring
    for their images.
 5. **Deck 59's file disagrees with deck 59's footage** by a rigid
-   141.56 slide units and three deleted labels. Do not apply the offset;
-   it is recorded as `DECK59_EDIT_OFFSET`.
+   141.56 slide units, plus four deleted drawables. The offset IS
+   applied, in the scene only, as `DECK59_EDIT_OFFSET` — under the
+   lead's ruling and after the five-part verification in §6. The asset
+   is untouched and a test pins that. **This is the campaign's first
+   admitted footage-sourced geometry constant**, and the precedent it
+   sets is narrow: it needs a file that *provably* post-dates the
+   recording (here, Keynote's own thumbnail siding with the deck against
+   the video), not merely a disagreement.
 6. **Stroke width does not scale**, and a `Connection`'s dash lattice is
    baked. Any chapter scoring an `action-scale` over dotted work inherits
    deck 17's ceiling until `GlidingConnection` is wired to that build
    class.
+7. **Fills can hide strokes the deck declares above them.**
+   `composeShape` emits every stroke and fill at `z = 0`, so the deck's
+   z-order survives only as emission order. Deck 59's z-index-1
+   full-canvas black rectangle hides three coloured drawables declared
+   thirty places above it. Pre-existing, reported, not patched — and
+   worth a look from whoever owns `SlideFill`, since a slide with a
+   large early background fill is not a rare shape.

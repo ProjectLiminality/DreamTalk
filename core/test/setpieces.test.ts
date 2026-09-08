@@ -14,8 +14,9 @@ import {
   slide18,
   slide59,
 } from "../vocabulary/Slides/assets/pl02/index"
-import { ACTION_SCALE_D17, DECK59_EDIT_OFFSET } from "../demo/pl02/SetPieces"
+import { ACTION_SCALE_D17, DECK59_EDIT_OFFSET, SetPiecesDream } from "../demo/pl02/SetPieces"
 import { Slide } from "../vocabulary/Slides/Slides"
+import { slideToWorld } from "../src/geometry/keynote"
 
 describe("P-9 — the deck's last slide exists", () => {
   // The decoder used to cut at slide_ids[:58] on the reasoning that
@@ -199,10 +200,31 @@ describe("P-9 — the images arrive as traced strokes, not as a ceiling", () => 
 })
 
 describe("P-9 — deck 59 disagrees with its own footage, and it is the deck that moved", () => {
-  // Recorded, NOT applied. See the SetPieces header: applying it would
-  // be fitting geometry to the footage, which the campaign forbids.
-  test("the edit offset is carried but the scene does not use it", () => {
+  // APPLIED, in the scene only, under the lead's ruling — see the
+  // constant's own comment for the evidence chain. The asset must stay
+  // untouched: P-1's model keeps saying what the file says.
+  test("the edit offset is applied to the page, not baked into the asset", () => {
     expect(DECK59_EDIT_OFFSET).toBeCloseTo(141.56, 2)
+    const dream = new SetPiecesDream()
+    dream.unfold()
+    const page = dream.pages[3]!
+    // The page holon carries it…
+    expect(page.y.value).toBeCloseTo(DECK59_EDIT_OFFSET * slideToWorld(page.height.value), 6)
+    // …and the other three pages do not.
+    for (const other of [0, 1, 2]) expect(dream.pages[other]!.y.value).toBe(0)
+  })
+
+  // The guard that matters most: if a future edit moves the offset into
+  // the generated module, this fails. The asset is the file's word.
+  test("slide59's declared geometry is unshifted", () => {
+    let top = Infinity
+    for (const s of slide59.shapes) {
+      for (const sub of s.subpaths) {
+        for (let i = 1; i < sub.length; i += 2) top = Math.min(top, sub[i]!)
+      }
+    }
+    // The red ring's top, exactly as the archive states it.
+    expect(top).toBeCloseTo(263.487, 2)
   })
 
   // The three strings the footage shows are in NO slide of the deck.

@@ -286,7 +286,7 @@ export const slide22: SlideData = {
     {"id":"4685729","target":"4685634","effect":"apple:dissolve","animationType":"In","duration":1,"delay":0,"delivery":"All at Once","eventTrigger":1},
   ],
   buildChunks: [
-    {"build":"4685729","duration":1,"delay":0,"automatic":false,"chunkId":1},
+    {"build":"4685729","duration":1,"delay":0,"automatic":false,"referent":true,"chunkId":1},
   ],
   transition: {"effect":"com.apple.iWork.Keynote.BLTFadeThruColor","duration":1.5,"delay":0.5},
 }
