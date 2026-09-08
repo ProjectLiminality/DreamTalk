@@ -68762,6 +68762,129 @@ class Connection2 extends Holon {
     ]));
   }
 }
+var lerpBox = (a2, b2, u2) => ({
+  x: a2.x + (b2.x - a2.x) * u2,
+  y: a2.y + (b2.y - a2.y) * u2,
+  w: a2.w + (b2.w - a2.w) * u2,
+  h: a2.h + (b2.h - a2.h) * u2
+});
+var targetAt = (t2, u2) => {
+  const box = lerpBox(t2.from, t2.to, u2);
+  const sx = t2.from.w > 0.000000001 ? box.w / t2.from.w : 1;
+  const sy = t2.from.h > 0.000000001 ? box.h / t2.from.h : 1;
+  const outline = t2.outline.map((sub7) => sub7.map((p2) => ({
+    x: box.x + (p2.x - t2.from.x) * sx,
+    y: box.y + (p2.y - t2.from.y) * sy
+  })));
+  return { id: t2.id, box, outline };
+};
+var midAt = (a2, b2, bow) => {
+  const vx = b2.x - a2.x;
+  const vy = b2.y - a2.y;
+  return {
+    x: a2.x + vx * bow.along + -vy * bow.across,
+    y: a2.y + vy * bow.along + vx * bow.across
+  };
+};
+var glidingPathAt = (spec, u2) => {
+  const from = targetAt(spec.from, u2);
+  const to = targetAt(spec.to, u2);
+  const mid = spec.bow ? midAt(boxCentre(from.box), boxCentre(to.box), spec.bow) : undefined;
+  return connectionPath(from, to, mid, spec.outset).points;
+};
+var glidingDashesAt = (spec, u2) => {
+  const points = glidingPathAt(spec, u2);
+  if (points.length < 2)
+    return [];
+  return spec.dash > 0 && spec.period > 0 ? dashAlong(points, spec.dash, spec.period) : [points];
+};
+var maxDashes = (spec, steps = 8) => {
+  if (!(spec.dash > 0) || !(spec.period > 0)) {
+    for (let i2 = 0;i2 <= steps; i2++) {
+      if (glidingPathAt(spec, i2 / steps).length >= 2)
+        return 1;
+    }
+    return 0;
+  }
+  let longest = 0;
+  for (let i2 = 0;i2 <= steps; i2++) {
+    const len3 = polylineLength2(glidingPathAt(spec, i2 / steps));
+    if (len3 > longest)
+      longest = len3;
+  }
+  if (longest <= 0)
+    return 0;
+  return Math.ceil(longest / spec.period) + 1;
+};
+var derivePoints3 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class GlidingConnection extends Holon {
+  completion = completion(0);
+  tint = color2(WHITE);
+  stroke = length2(1);
+  opacity = completion(1);
+  dashes = [];
+  worldScale = 1;
+  ease = (u2) => u2;
+  spec;
+  constructor(spec, overrides = {}) {
+    super(overrides);
+    this.spec = spec;
+  }
+  runsNow() {
+    const u2 = this.completion.value;
+    if (this.memoAt !== u2) {
+      this.memoAt = u2;
+      this.memo = glidingDashesAt(this.spec, this.ease(u2));
+    }
+    return this.memo;
+  }
+  memoAt = Number.NaN;
+  memo = [];
+  compose() {
+    const n2 = maxDashes(this.spec);
+    for (let i2 = 0;i2 < n2; i2++) {
+      const line = this.add(new Line2({
+        tint: this.tint,
+        stroke: this.stroke,
+        opacity: this.opacity
+      }));
+      derivePoints3(line, () => [this.completion.value], () => {
+        const run = this.runsNow()[i2];
+        if (!run)
+          return [];
+        return run.map((p2) => {
+          const w4 = this.toWorld(p2);
+          return { x: w4.x, y: w4.y, z: 0 };
+        });
+      });
+      this.dashes.push(line);
+    }
+  }
+  toWorld(p2) {
+    return { x: (p2.x - 960) * this.worldScale, y: -(p2.y - 540) * this.worldScale };
+  }
+  drawn() {
+    this.parts;
+    return this.dashes;
+  }
+}
 
 // vocabulary/Slides/Builds.ts
 var LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine";
@@ -76109,13 +76232,14 @@ var shapeClass = (shape) => {
 var textClass = (text) => `t|${text.content}|${text.fontSize.toFixed(2)}|${text.fontName}`;
 var matchablesOf = (page) => {
   const out = [];
+  let order = 0;
   for (const shape of page.data.shapes) {
     if (shape.connects)
       continue;
     const box = shapeBox(shape);
     if (!box)
       continue;
-    out.push({ id: shape.id, key: shapeClass(shape), box, isText: false });
+    out.push({ id: shape.id, key: shapeClass(shape), box, isText: false, order: order++ });
   }
   for (const text of page.data.texts) {
     const f2 = text.frame;
@@ -76123,7 +76247,8 @@ var matchablesOf = (page) => {
       id: text.id,
       key: textClass(text),
       box: { x: f2.position.x, y: f2.position.y, w: f2.size.width, h: f2.size.height },
-      isText: true
+      isText: true,
+      order: order++
     });
   }
   return out;
@@ -76189,6 +76314,17 @@ var assign3 = (cost) => {
   }
   return out;
 };
+var coincident = (items, tolerance = 0.5) => {
+  for (let i2 = 0;i2 < items.length; i2++) {
+    const ci = boxCentre2(items[i2].box);
+    for (let j2 = i2 + 1;j2 < items.length; j2++) {
+      const cj = boxCentre2(items[j2].box);
+      if (Math.abs(ci.x - cj.x) <= tolerance && Math.abs(ci.y - cj.y) <= tolerance)
+        return true;
+    }
+  }
+  return false;
+};
 var matchSlides = (aItems, bItems, maxTravel) => {
   const byKey = new Map;
   for (const a2 of aItems) {
@@ -76206,6 +76342,23 @@ var matchSlides = (aItems, bItems, maxTravel) => {
   for (const { a: a2, b: b2 } of byKey.values()) {
     if (a2.length === 0 || b2.length === 0)
       continue;
+    if (coincident(a2)) {
+      const n2 = Math.min(a2.length, b2.length);
+      const aOrder = [...a2].sort((p2, q) => p2.order - q.order);
+      const bOrder = [...b2].sort((p2, q) => p2.order - q.order);
+      for (let i2 = 0;i2 < n2; i2++) {
+        const x2 = aOrder[i2];
+        const y2 = bOrder[i2];
+        const cx = boxCentre2(x2.box);
+        const cy = boxCentre2(y2.box);
+        const d2 = Math.hypot(cy.x - cx.x, cy.y - cx.y);
+        if (maxTravel !== undefined && d2 > maxTravel)
+          continue;
+        taken.set(x2, y2);
+        travels.set(x2, d2);
+      }
+      continue;
+    }
     const cost = a2.map((x2) => {
       const cx = boxCentre2(x2.box);
       return b2.map((y2) => {
@@ -76293,7 +76446,7 @@ var magicMoveAnim = (from, to, match) => {
   }
   return items.length > 0 ? together(...items) : { tracks: [] };
 };
-var magicMoveSwap = (from, to, match) => {
+var magicMoveSwap = (from, to, match, mesh) => {
   const items = [];
   for (const pair of match.pairs) {
     for (const part of partsOf(from, pair.a.id))
@@ -76303,8 +76456,12 @@ var magicMoveSwap = (from, to, match) => {
   }
   for (const line of from.connections)
     items.push(...fadeTo(line, 0));
-  for (const line of to.connections)
-    items.push(...fadeTo(line, 1));
+  if (mesh) {
+    items.push(glidingMeshSwap(to, mesh));
+  } else {
+    for (const line of to.connections)
+      items.push(...fadeTo(line, 1));
+  }
   return items.length > 0 ? together(...items) : { tracks: [] };
 };
 var magicMoveSetup = (from, to) => {
@@ -76320,23 +76477,150 @@ var pageInk = (page) => {
   return [...page.strokes, ...page.connections, ...page.labels];
 };
 var magicMove2 = (from, to, maxTravel) => matchSlides(matchablesOf(from), matchablesOf(to), maxTravel);
+var glidingMesh = (from, to, match) => {
+  from.parts;
+  to.parts;
+  const scale2 = slideToWorld(from.height.value);
+  const boxes = new Map;
+  for (const pair of match.pairs)
+    boxes.set(pair.a.id, { from: pair.a.box, to: pair.b.box });
+  const outlines = new Map;
+  for (const shape of from.data.shapes) {
+    if (shape.connects)
+      continue;
+    const subs = [];
+    for (const flat of shape.subpaths) {
+      const poly = [];
+      for (let i2 = 0;i2 + 1 < flat.length; i2 += 2)
+        poly.push({ x: flat[i2], y: flat[i2 + 1] });
+      if (poly.length >= 2)
+        subs.push(poly);
+    }
+    if (subs.length > 0)
+      outlines.set(shape.id, subs);
+  }
+  const members = new Map(from.data.groups.map((g2) => [g2.id, g2.members]));
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const [id, ids] of [...members]) {
+      if (boxes.has(id))
+        continue;
+      const parts = ids.map((m2) => boxes.get(m2));
+      if (parts.some((p2) => !p2))
+        continue;
+      const a2 = unionBoxes(parts.map((p2) => p2.from));
+      const b2 = unionBoxes(parts.map((p2) => p2.to));
+      if (!a2 || !b2)
+        continue;
+      boxes.set(id, { from: a2, to: b2 });
+      outlines.set(id, ids.flatMap((m2) => outlines.get(m2) ?? []));
+      progress = true;
+    }
+  }
+  const lines = [];
+  for (const shape of from.data.shapes) {
+    if (!shape.connects)
+      continue;
+    const f2 = shape.connects.from ? boxes.get(shape.connects.from) : undefined;
+    const t2 = shape.connects.to ? boxes.get(shape.connects.to) : undefined;
+    if (!f2 || !t2)
+      continue;
+    const flat = shape.subpaths[0];
+    let bow;
+    if (flat && flat.length >= 6) {
+      const p0 = { x: flat[0], y: flat[1] };
+      const p1 = { x: flat[flat.length - 4], y: flat[flat.length - 3] };
+      const p2 = { x: flat[flat.length - 2], y: flat[flat.length - 1] };
+      const cx = p2.x - p0.x;
+      const cy = p2.y - p0.y;
+      const chord = Math.hypot(cx, cy);
+      if (chord > 0.000000001) {
+        const ux = cx / chord;
+        const uy = cy / chord;
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        bow = {
+          along: (dx * ux + dy * uy) / chord,
+          across: (dx * -uy + dy * ux) / chord
+        };
+      }
+    }
+    const width = shape.strokeWidth ?? 1;
+    let dash = 0;
+    let period = 0;
+    if (shape.dash && shape.dash.length >= 2) {
+      const round3 = shape.cap === "RoundCap";
+      dash = Math.max(shape.dash[0] * width, width * 0.05);
+      period = (shape.dash[0] + shape.dash[1] + (round3 ? 1 : 0)) * width;
+    }
+    const tint = from.overrideTint ? from.tint.value : shape.stroke ? hexToColor(shape.stroke) : from.tint.value;
+    const line = new GlidingConnection({
+      from: { id: shape.connects.from, ...f2, outline: outlines.get(shape.connects.from) ?? [] },
+      to: { id: shape.connects.to, ...t2, outline: outlines.get(shape.connects.to) ?? [] },
+      bow,
+      outset: shape.outset,
+      dash,
+      period
+    }, {
+      tint,
+      stroke: width * from.height.value / SLIDE_HEIGHT,
+      opacity: shape.opacity ?? 1
+    });
+    line.worldScale = scale2;
+    line.ease = smooth;
+    lines.push(line);
+  }
+  return { lines };
+};
+var glidingMeshSetup = (from, to, mesh) => {
+  const items = [];
+  for (const line of from.connections)
+    items.push(...fadeTo(line, 0));
+  for (const line of to.connections)
+    items.push(...fadeTo(line, 0));
+  for (const line of mesh.lines) {
+    for (const d2 of line.drawn())
+      items.push(d2.opacity.to(1));
+    items.push(line.completion.to(0));
+  }
+  return items.length > 0 ? together(...items) : { tracks: [] };
+};
+var glidingMeshAnim = (mesh) => {
+  const items = mesh.lines.map((line) => line.completion.to(1));
+  return items.length > 0 ? together(...items) : { tracks: [] };
+};
+var glidingMeshSwap = (to, mesh) => {
+  const items = [];
+  for (const line of mesh.lines) {
+    for (const d2 of line.drawn())
+      items.push(d2.opacity.to(0));
+  }
+  for (const line of to.connections)
+    items.push(...fadeTo(line, 1));
+  return items.length > 0 ? together(...items) : { tracks: [] };
+};
 
 // demo/pl02/MagicMove01.ts
 var ONSET = 1;
 var DURATION = slide13.transition?.duration ?? 1.5;
 
 class MagicMove01Dream extends Dream {
-  from = __dt(new Slide({ data: slide12 }), "core/demo/pl02/MagicMove01.ts:4129:4157");
-  to = __dt(new Slide({ data: slide13 }), "core/demo/pl02/MagicMove01.ts:4165:4193");
+  from = __dt(new Slide({ data: slide12 }), "core/demo/pl02/MagicMove01.ts:4977:5005");
+  to = __dt(new Slide({ data: slide13 }), "core/demo/pl02/MagicMove01.ts:5013:5041");
+  mesh = glidingMesh(this.from, this.to, magicMove2(this.from, this.to));
   unfold() {
     this.observer.look("front");
     const match = magicMove2(this.from, this.to);
+    for (const line of this.mesh.lines)
+      this.stage(line);
     this.set(this.from.creation.to(1));
     this.set(this.to.creation.to(1));
     this.set(magicMoveSetup(this.from, this.to));
+    this.set(glidingMeshSetup(this.from, this.to, this.mesh));
     this.wait(ONSET);
-    __dt(this.play(magicMoveAnim(this.from, this.to, match), DURATION), "core/demo/pl02/MagicMove01.ts:4440:4501");
-    this.set(magicMoveSwap(this.from, this.to, match));
+    __dt(this.play(together(magicMoveAnim(this.from, this.to, match), glidingMeshAnim(this.mesh)), DURATION), "core/demo/pl02/MagicMove01.ts:6158:6276");
+    this.set(magicMoveSwap(this.from, this.to, match, this.mesh));
     this.wait(1.5);
   }
 }

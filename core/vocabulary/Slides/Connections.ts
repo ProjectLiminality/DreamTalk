@@ -126,7 +126,7 @@
 import { color, completion, length } from "../../src/params"
 import { together, type Anim, type Windowed } from "../../src/anim"
 import { Line, Group, type Vec3Like } from "../../src/parts/primitives"
-import { Holon } from "../../src/holon"
+import { Holon, type Overrides } from "../../src/holon"
 import { WHITE, type Color } from "../../src/constants"
 
 /** A point on the slide canvas: 1920x1080, y DOWN, origin top-left. */
@@ -691,6 +691,367 @@ export class Connection extends Holon {
         1 - i / n,
       ]),
     )
+  }
+}
+
+/**
+ * A CONNECTION WHOSE ENDPOINTS ARE MOVING — the relation, held as a
+ * relation for the whole of a Magic Move.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * WHY A SECOND CLASS RATHER THAN A PARAM ON `Connection`
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * `Connection` above bakes: `compose()` reads `points` once and lays a
+ * fixed lattice of `Line` children along it. That is right for a settled
+ * page, where the geometry is a constant, and it is the reason the
+ * static slides close to sub-pixel.
+ *
+ * It is wrong the moment the endpoints move, and the footage is what
+ * says so. Through deck 12→13's Magic Move the reference's dotted mesh
+ * is visibly RE-DRAWN between the travelling heads — the lines stay
+ * anchored in the icons' shoulder notches the whole way across — while a
+ * baked mesh can only be dragged along as rigid ink. The module header
+ * above already states the static half of this truth (Keynote recomputes
+ * a line whenever either object moves, which is why 25% of the stored
+ * paths are stale); this class is the same truth extended through time.
+ * **A connection is a RELATION, not a drawable, and it stays one while
+ * its endpoints move.**
+ *
+ * So the geometry is PULLED per frame rather than pushed: each dash's
+ * `points` is an accessor over a memo keyed on the endpoint boxes and
+ * the completion, exactly as `MorphShape` derives its outline and
+ * `curves.ts` its section curve. The six-line idiom is written out here
+ * rather than imported, for the reason Morph.ts gives for the same
+ * choice: widening a core module's surface to share six lines would
+ * couple two files that otherwise share nothing.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * THE DASH COUNT IS FIXED AT COMPOSE, AND THE LATTICE IS NOT
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * This is the one real constraint, and it shapes the whole class.
+ *
+ * The host binds one ribbon per `Line` ONCE, walking `holon.parts` at
+ * mount (three-host.ts `attach`). A holon cannot gain or lose children
+ * per frame. But a shrinking mesh needs FEWER dashes: measured on this
+ * very pair, deck 12→13's connections carry 22, 18, 44, 46 dashes on
+ * slide 12 and 15, 12, 29, 31 on slide 13 — the lattice loses a third
+ * of its dots as the tableau contracts, because the period is fixed in
+ * slide units and the line gets shorter.
+ *
+ * So the count is allocated for the LONGEST the path gets across the
+ * window (`maxDashes` below walks the completion range at construction),
+ * and a dash whose slot has fallen off the shortened curve derives an
+ * EMPTY polyline. The host handles that explicitly — sync() passes an
+ * emptied derived polyline straight through so the ribbon empties too
+ * — so a surplus dash paints nothing rather than smearing a stale
+ * segment. Nothing is drawn that the lattice does not currently reach.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * PURITY: THE GEOMETRY AT t IS A FUNCTION OF (BOXES, t)
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * `completion` is the only time-varying input, and every dash's polyline
+ * is a pure function of it and the two pairs' four boxes. Nothing
+ * accumulates frame to frame: the memo is a cache keyed on the inputs,
+ * not a state. Scrubbing backwards, or sampling t out of order, gives
+ * the identical frame — which the scrub test pins, and which is what
+ * `Timeline`'s f(t) contract requires of anything derived.
+ *
+ * The endpoint box at completion u is the pair's own box lerped under
+ * the SAME ease the glide runs on (`smooth`, passed in), so the line's
+ * ends track the icons rather than drifting against them. Passing the
+ * ease in rather than importing it keeps this module free of
+ * `src/transitions.ts` and lets a test drive it linearly.
+ */
+
+/** A box interpolated between two states — the endpoint at completion u. */
+export const lerpBox = (a: SlideBox, b: SlideBox, u: number): SlideBox => ({
+  x: a.x + (b.x - a.x) * u,
+  y: a.y + (b.y - a.y) * u,
+  w: a.w + (b.w - a.w) * u,
+  h: a.h + (b.h - a.h) * u,
+})
+
+/**
+ * An endpoint that MOVES: the target as it is on each page, plus the
+ * outline that travels with it.
+ *
+ * The outline is carried on the A side only and transformed by the
+ * similarity taking A's box onto the interpolated one — rather than
+ * interpolated point-by-point against B's outline. That is deliberate
+ * and it is the same claim `Transitions.ts` makes about the glide
+ * itself: a matched pair is ONE object being resized, not two shapes
+ * morphing, and its 107 measured matches are isotropic within 0.4%. So
+ * the silhouette the line clips against is A's, scaled — which is
+ * exactly the shape on screen mid-glide, because that IS what the glide
+ * draws.
+ */
+export interface GlidingTarget {
+  id: string
+  /** The endpoint's box on the outgoing page. */
+  from: SlideBox
+  /** The endpoint's box on the incoming page. */
+  to: SlideBox
+  /** The outgoing page's silhouette, in canvas coordinates. */
+  outline: readonly (readonly SlidePoint[])[]
+}
+
+/** The `ConnectTarget` a `GlidingTarget` presents at completion u. */
+export const targetAt = (t: GlidingTarget, u: number): ConnectTarget => {
+  const box = lerpBox(t.from, t.to, u)
+  // The similarity taking the A box onto the interpolated one, applied
+  // to A's own silhouette. Degenerate A boxes (a zero-width rule) fall
+  // back to a pure translation, which is the only sane reading.
+  const sx = t.from.w > 1e-9 ? box.w / t.from.w : 1
+  const sy = t.from.h > 1e-9 ? box.h / t.from.h : 1
+  const outline = t.outline.map((sub) =>
+    sub.map((p) => ({
+      x: box.x + (p.x - t.from.x) * sx,
+      y: box.y + (p.y - t.from.y) * sy,
+    })),
+  )
+  return { id: t.id, box, outline }
+}
+
+/** What a `GlidingConnection` needs to re-derive itself at any u. */
+export interface GlidingSpec {
+  from: GlidingTarget
+  to: GlidingTarget
+  /** The stored bow, as a fraction of the chord — see `midAt`. */
+  bow?: { along: number; across: number }
+  outset?: { from?: number; to?: number }
+  /** Dash length and period, in SLIDE units (converted on the way out). */
+  dash: number
+  period: number
+}
+
+/**
+ * The bow's middle point at completion u, transferred onto the current
+ * chord.
+ *
+ * The same construction `Slides.ts` performs once at compose time, said
+ * again per frame because the chord it is transferred onto is now
+ * moving. Storing the bow as a FRACTION of the chord rather than a
+ * position is what makes that possible at all — and it is the reading
+ * `Slides.ts` already derived for the static case, where the stored
+ * frame is stale and an absolute middle point lands off the line.
+ */
+export const midAt = (
+  a: SlidePoint,
+  b: SlidePoint,
+  bow: { along: number; across: number },
+): SlidePoint => {
+  const vx = b.x - a.x
+  const vy = b.y - a.y
+  return {
+    x: a.x + vx * bow.along + -vy * bow.across,
+    y: a.y + vy * bow.along + vx * bow.across,
+  }
+}
+
+/** The connection's clipped path at completion u, in SLIDE units. */
+export const glidingPathAt = (spec: GlidingSpec, u: number): SlidePoint[] => {
+  const from = targetAt(spec.from, u)
+  const to = targetAt(spec.to, u)
+  const mid = spec.bow
+    ? midAt(boxCentre(from.box), boxCentre(to.box), spec.bow)
+    : undefined
+  return connectionPath(from, to, mid, spec.outset).points
+}
+
+/** The dash runs at completion u, in SLIDE units. */
+export const glidingDashesAt = (spec: GlidingSpec, u: number): SlidePoint[][] => {
+  const points = glidingPathAt(spec, u)
+  if (points.length < 2) return []
+  return spec.dash > 0 && spec.period > 0
+    ? dashAlong(points, spec.dash, spec.period)
+    : [points]
+}
+
+/**
+ * The most dashes this connection ever needs across the window.
+ *
+ * Sampled rather than reasoned about, because the path length is not
+ * monotonic in u in general — two endpoints can approach and then
+ * separate — so no closed form is available and the honest answer is to
+ * look.
+ *
+ * WHAT IS SAMPLED IS THE LENGTH, NOT THE LATTICE, and that is a
+ * performance decision with a measured price behind it. Laying the full
+ * dash lattice at every sample means clipping the curve against two
+ * 166-point silhouettes and trimming a polyline per dot, thirty-three
+ * times over, for every line in the mesh: in the browser that put deck
+ * 12→13's scene construction at **31.4 s**, past the harness's own 30 s
+ * navigation limit — the scene did not hang, it was genuinely that slow.
+ * The dash COUNT is `ceil(length / period)` and needs only the length,
+ * which is one `connectionPath` walk with no trimming, so sampling the
+ * cheap quantity and converting gives the identical bound for a fraction
+ * of the work.
+ *
+ * The count is rounded UP and then given one further slot of headroom.
+ * That is not padding for its own sake: the lattice starts at the `from`
+ * clip and runs (module header), so a length that grows by a hair past a
+ * period boundary gains a dot, and a bound that was exactly tight would
+ * clip it. An extra slot costs one empty polyline, which the host draws
+ * as nothing; one too few would visibly truncate the mesh.
+ *
+ * EIGHT SAMPLES, and the headroom is why that is enough. Both endpoints
+ * travel affinely in u, so the chord length is smooth and slowly varying
+ * — it has no oscillation for a fine grid to catch that a coarse one
+ * misses. Checked against a 200-step walk over all thirty of deck
+ * 12→13's lines, eight samples miss the true peak count on NONE of them
+ * and the allocated slack is exactly 1 on every line: the bound is tight
+ * and correct, not merely safe. The cost mattered — this runs per line
+ * at scene construction, and each sample is a full clip against two
+ * silhouettes.
+ */
+export const maxDashes = (spec: GlidingSpec, steps = 8): number => {
+  if (!(spec.dash > 0) || !(spec.period > 0)) {
+    // A solid line is one run whenever it has any geometry at all.
+    for (let i = 0; i <= steps; i++) {
+      if (glidingPathAt(spec, i / steps).length >= 2) return 1
+    }
+    return 0
+  }
+  let longest = 0
+  for (let i = 0; i <= steps; i++) {
+    const len = polylineLength(glidingPathAt(spec, i / steps))
+    if (len > longest) longest = len
+  }
+  if (longest <= 0) return 0
+  return Math.ceil(longest / spec.period) + 1
+}
+
+/**
+ * Install a pull-based `points` accessor on a Line: `compute` runs only
+ * when `sourceKey` changes, and the memo is what every reader sees.
+ *
+ * The idiom `curves.ts` and `Morph.ts` both carry, written out a third
+ * time for the reason Morph.ts states about the second: it is six lines,
+ * and exporting it would couple modules that otherwise share nothing.
+ */
+const derivePoints = (
+  line: Line,
+  sourceKey: () => readonly number[],
+  compute: () => Vec3Like[],
+): void => {
+  let key: readonly number[] | undefined
+  let memo: Vec3Like[] = []
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get(): Vec3Like[] {
+      const next = sourceKey()
+      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
+        key = next
+        memo = compute()
+      }
+      return memo
+    },
+    set(_v: Vec3Like[]) {},
+  })
+}
+
+/**
+ * A connection line re-derived per frame between two gliding endpoints.
+ *
+ * Drives one param, `completion`: 0 is the outgoing page's geometry and
+ * 1 the incoming page's, and every dash's polyline is a pure function of
+ * it. See the long header above for the dash-count constraint, the
+ * purity contract, and why this is a class rather than a flag.
+ */
+export class GlidingConnection extends Holon {
+  /** 0 = the `from` page's geometry, 1 = the `to` page's. */
+  completion = completion(0)
+
+  tint = color(WHITE)
+  stroke = length(1)
+  override opacity = completion(1)
+
+  /** One Line per dash slot, allocated for the longest the path gets. */
+  dashes: Line[] = []
+
+  /** Slide→world scale, so the derivation can emit world coordinates. */
+  worldScale = 1
+
+  /** The ease the glide runs on — identity by default, for tests. */
+  ease: (u: number) => number = (u) => u
+
+  // Held off the field scan: this is plain data the derivation reads,
+  // not a Param and not a part.
+  private spec!: GlidingSpec
+
+  constructor(spec: GlidingSpec, overrides: Overrides = {}) {
+    super(overrides)
+    this.spec = spec
+  }
+
+  /**
+   * The dash runs at the CURRENT completion, in slide units — memoized
+   * per completion value.
+   *
+   * THE MEMO IS PER LINE, NOT PER DASH, and that is a performance fact
+   * with teeth. The whole lattice comes out of ONE `connectionPath` walk
+   * (clip the curve against two 166-point silhouettes, then lay dashes
+   * along it), so a per-dash derivation would repeat that walk once per
+   * dot — twenty-two times over for a line carrying twenty-two dots, and
+   * the host reads every dash's `points` every frame through `shapeKey`.
+   * Measured, that was 82 ms per frame for this one mesh; sharing the
+   * walk brings it to a few. The memo is still a pure cache keyed on the
+   * completion, so nothing about the scrub contract changes.
+   */
+  runsNow(): SlidePoint[][] {
+    const u = this.completion.value
+    if (this.memoAt !== u) {
+      this.memoAt = u
+      this.memo = glidingDashesAt(this.spec, this.ease(u))
+    }
+    return this.memo
+  }
+
+  private memoAt = Number.NaN
+  private memo: SlidePoint[][] = []
+
+  protected override compose(): void {
+    const n = maxDashes(this.spec)
+    for (let i = 0; i < n; i++) {
+      const line = this.add(
+        new Line({
+          tint: this.tint,
+          stroke: this.stroke,
+          opacity: this.opacity,
+        }),
+      )
+      derivePoints(
+        line,
+        // The completion is the only time-varying input; the boxes are
+        // construction constants. Keying on it alone is what makes the
+        // memo a cache rather than a state.
+        () => [this.completion.value],
+        () => {
+          const run = this.runsNow()[i]
+          if (!run) return []
+          return run.map((p) => {
+            const w = this.toWorld(p)
+            return { x: w.x, y: w.y, z: 0 }
+          })
+        },
+      )
+      this.dashes.push(line)
+    }
+  }
+
+  /** Slide point → world, the same flip `slidePointToWorld` performs. */
+  private toWorld(p: SlidePoint): { x: number; y: number } {
+    return { x: (p.x - 960) * this.worldScale, y: -(p.y - 540) * this.worldScale }
+  }
+
+  /** Everything that actually draws — what an opacity ramp must reach. */
+  drawn(): Line[] {
+    void this.parts
+    return this.dashes
   }
 }
 

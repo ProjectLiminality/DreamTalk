@@ -196,9 +196,19 @@ import { smooth, BUILD_FRACTION, buildIn, buildOut } from "../../src/transitions
 import { DottedLine, Stroke } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import type { Holon } from "../../src/holon"
-import { slideToWorld, type KeyText, type SlideShapeData } from "../../src/geometry/keynote"
-import { Connection } from "./Connections"
-import type { Slide } from "./Slides"
+import {
+  slideToWorld,
+  SLIDE_HEIGHT,
+  type KeyText,
+  type SlideShapeData,
+} from "../../src/geometry/keynote"
+import {
+  Connection,
+  GlidingConnection,
+  unionBoxes,
+  type SlidePoint,
+} from "./Connections"
+import { hexToColor, type Slide } from "./Slides"
 
 /** Keynote's matched-object transition — 44 of the deck's 58. */
 export const MAGIC_MOVE = "apple:magic-move-implied-motion-path"
@@ -230,6 +240,16 @@ export interface Matchable {
   box: SlideBox
   /** True for a text record, which glides as a block. */
   isText: boolean
+  /**
+   * The drawable's index in the page's own declaration (z) order.
+   *
+   * Carried ONLY to break exact positional ties — see the tie term in
+   * `matchSlides`, and deck slide 12's six coincident head pairs, which
+   * are the case that made it necessary. It is not an identity: the deck
+   * declares no cross-slide ids (module header), and z-order alone would
+   * pair heads by where they sit in the archive.
+   */
+  order: number
 }
 
 /** A box's centre. */
@@ -370,6 +390,9 @@ export const textClass = (text: KeyText): string =>
 /** Every matchable drawable on a page, in the deck's own z-order. */
 export const matchablesOf = (page: Slide): Matchable[] => {
   const out: Matchable[] = []
+  // The index is the page's own declaration order over ALL drawables,
+  // shapes then texts, which is the order the deck states them in.
+  let order = 0
   for (const shape of page.data.shapes) {
     // A connection line is REBUILT from its endpoints rather than read
     // (Slides.ts, Connections.ts), so it has no authored box of its own
@@ -379,7 +402,7 @@ export const matchablesOf = (page: Slide): Matchable[] => {
     if (shape.connects) continue
     const box = shapeBox(shape)
     if (!box) continue
-    out.push({ id: shape.id, key: shapeClass(shape), box, isText: false })
+    out.push({ id: shape.id, key: shapeClass(shape), box, isText: false, order: order++ })
   }
   for (const text of page.data.texts) {
     const f = text.frame
@@ -388,6 +411,7 @@ export const matchablesOf = (page: Slide): Matchable[] => {
       key: textClass(text),
       box: { x: f.position.x, y: f.position.y, w: f.size.width, h: f.size.height },
       isText: true,
+      order: order++,
     })
   }
   return out
@@ -491,6 +515,31 @@ export const assign = (cost: number[][]): number[] => {
 }
 
 /**
+ * Does this class's members SHARE positions — i.e. is its geometry
+ * degenerate for the purpose of telling them apart?
+ *
+ * True when any two members' centres coincide to within `tolerance`
+ * slide units. One coincident pair is enough: it means the assignment
+ * faces at least one exact tie whose resolution is arbitrary, and on a
+ * superposed tableau that one tie decides which whole copy goes where.
+ *
+ * The tolerance is a hair rather than zero because the deck's own
+ * duplicates arrive through a copy — they agree to the decimal, and a
+ * strict equality on floats would be a promise about arithmetic rather
+ * than about the deck.
+ */
+export const coincident = (items: readonly Matchable[], tolerance = 0.5): boolean => {
+  for (let i = 0; i < items.length; i++) {
+    const ci = boxCentre(items[i]!.box)
+    for (let j = i + 1; j < items.length; j++) {
+      const cj = boxCentre(items[j]!.box)
+      if (Math.abs(ci.x - cj.x) <= tolerance && Math.abs(ci.y - cj.y) <= tolerance) return true
+    }
+  }
+  return false
+}
+
+/**
  * Match two slides' drawables for a Magic Move.
  *
  * Pass 1 partitions by CLASS; pass 2 pairs within each class by minimum
@@ -528,6 +577,66 @@ export const matchSlides = (
   const travels = new Map<Matchable, number>()
   for (const { a, b } of byKey.values()) {
     if (a.length === 0 || b.length === 0) continue
+    if (coincident(a)) {
+      // ═══════════════════════════════════════════════════════════════
+      // THE SUPERPOSED CASE — where minimum travel has nothing to say.
+      // ═══════════════════════════════════════════════════════════════
+      //
+      // Pass 2 rests on an assumption it does not state: that the class's
+      // members START IN DIFFERENT PLACES, so their distances to B's
+      // members distinguish them. Deck slide 12 violates it outright. Its
+      // twelve `Head with Shoulders_826` icons sit in **six EXACTLY
+      // COINCIDENT PAIRS** — identical centres to the decimal, two whole
+      // six-node meshes superposed — and the transition's content is
+      // precisely that the copies come APART.
+      //
+      // Every cost is then a tie, the assignment picks arbitrarily, and
+      // measured against the footage it picks wrong: it splits each
+      // coincident pair across the two outgoing lobes. Tracking the top
+      // head band's ink through the reference and comparing predicted
+      // centroids (video px) settles it without ambiguity —
+      //
+      //     frame   reference      declaration order   minimum travel
+      //     f_1087  554, 721       535, 739            474, 637, 637, 800
+      //     f_1088  533, 742       512, 761            485, 788
+      //     f_1089  512, 760       497, 776            492, 780
+      //
+      // — the minimum-travel reading leaves heads sitting at the centre
+      // (637) through the middle of the glide, a four-head signature the
+      // reference never shows, while declaration order tracks it to
+      // within ~20px throughout.
+      //
+      // WHAT THE DECK STATES INSTEAD. Slide 12's heads are two contiguous
+      // z-blocks (z 1-6 and z 22-27) and slide 13's are likewise (z 0-5
+      // is the left lobe, z 21-26 the right). Pairing the k-th A member
+      // with the k-th B member sends each block to its own lobe intact.
+      // It costs MORE total travel — 2787 slide units against the
+      // optimum's 1918 — which is exactly why no minimum-travel rule can
+      // reach it, and why this is a separate branch rather than a tweak
+      // to the cost.
+      //
+      // This does NOT reinstate z-order as identity, which the module
+      // header refutes for the general case and rightly. It is the
+      // FALLBACK for a class whose geometry has been made degenerate by
+      // construction: when position cannot distinguish, the only thing
+      // the deck still states is the order it states things in — the
+      // same rung `matchRoots` lands on, reached here for the same
+      // reason (nothing better remains), and only here.
+      const n = Math.min(a.length, b.length)
+      const aOrder = [...a].sort((p, q) => p.order - q.order)
+      const bOrder = [...b].sort((p, q) => p.order - q.order)
+      for (let i = 0; i < n; i++) {
+        const x = aOrder[i]!
+        const y = bOrder[i]!
+        const cx = boxCentre(x.box)
+        const cy = boxCentre(y.box)
+        const d = Math.hypot(cy.x - cx.x, cy.y - cx.y)
+        if (maxTravel !== undefined && d > maxTravel) continue
+        taken.set(x, y)
+        travels.set(x, d)
+      }
+      continue
+    }
     const cost = a.map((x) => {
       const cx = boxCentre(x.box)
       return b.map((y) => {
@@ -719,19 +828,33 @@ export const magicMoveAnim = (from: Slide, to: Slide, match: SlideMatch): Anim =
  * two overlapping ghosts at half strength. Cross-fading a matched pair
  * would double every stroke's ink for the whole window.
  */
-export const magicMoveSwap = (from: Slide, to: Slide, match: SlideMatch): Anim => {
+export const magicMoveSwap = (
+  from: Slide,
+  to: Slide,
+  match: SlideMatch,
+  mesh?: GlidingMesh,
+): Anim => {
   const items: Anim[] = []
   for (const pair of match.pairs) {
     for (const part of partsOf(from, pair.a.id)) items.push(...fadeTo(part, 0))
     for (const part of partsOf(to, pair.b.id)) items.push(...fadeTo(part, 1))
   }
   // A's unmatched parts have already faded; B's have already arrived.
-  // The connection lines are the exception worth naming: they are
-  // excluded from matching (they are rebuilt from endpoints, not read),
-  // so the outgoing page's mesh belongs to the outgoing page and the
-  // incoming page's to the incoming one.
+  // The connection lines are the exception worth naming. They are
+  // excluded from MATCHING because they are rebuilt from endpoints
+  // rather than read — but that is not the same as being excluded from
+  // the transition: where a `mesh` is given, its stand-ins have carried
+  // the relation across the window and hand off to B's baked mesh here
+  // (`glidingMeshSwap`). Without one, the outgoing page's mesh simply
+  // belongs to the outgoing page and the incoming page's to the
+  // incoming one, which is right for a transition whose endpoints do
+  // not move.
   for (const line of from.connections) items.push(...fadeTo(line, 0))
-  for (const line of to.connections) items.push(...fadeTo(line, 1))
+  if (mesh) {
+    items.push(glidingMeshSwap(to, mesh))
+  } else {
+    for (const line of to.connections) items.push(...fadeTo(line, 1))
+  }
   return items.length > 0 ? together(...items) : { tracks: [] }
 }
 
@@ -760,19 +883,229 @@ export const pageInk = (page: Slide): Holon[] => {
  * A whole page's Magic Move onto the next, matched and staged in one
  * call — the ordinary use.
  *
- * The connection lines deliberately do NOT glide. They are recomputed
- * from their endpoints rather than read (Slides.ts's one exception, and
- * 25% of the deck's stored paths are stale), so a connection has no
- * authored geometry to interpolate: what it joins has moved, and the
- * line belongs to whichever page owns those endpoints. Through the
- * window the outgoing page's mesh is on screen and glides only insofar
- * as it is ink on the outgoing page; the incoming page's arrives with
- * the swap. That is visible in the reference and accepted rather than
- * hidden — see `p6-magicmove.md`, which measures what it costs on the
- * mesh transitions and what it costs on the rest (nothing).
+ * The connection lines do not appear in the match, and that is a
+ * statement about what they ARE rather than an omission: a connection is
+ * a RELATION, so it has no authored geometry of its own to interpolate
+ * (Slides.ts's one exception, and 25% of the deck's stored paths are
+ * stale). What it joins moves, and the line follows — per frame, from
+ * the interpolated endpoints. `glidingMesh` below builds exactly that
+ * and `magicMoveMesh` stages it; see `GlidingConnection` in
+ * Connections.ts for the derivation and what the footage says about it.
  */
 export const magicMove = (from: Slide, to: Slide, maxTravel?: number): SlideMatch =>
   matchSlides(matchablesOf(from), matchablesOf(to), maxTravel)
+
+// ---------------------------------------------------------------------------
+// The gliding mesh
+// ---------------------------------------------------------------------------
+
+/**
+ * THE MESH THROUGH THE GLIDE — the chapter's own correction to itself.
+ *
+ * What the first cut did, and why the footage refused it: the outgoing
+ * page's connections were left as ordinary page ink, so they GLIDED as
+ * rigid baked drawables — one mesh dragged bodily toward the other. On
+ * deck 12→13, where twelve heads travel apart into two smaller lobes,
+ * that scores **0.24 cov_ref mid-glide against 1.00 at the onset and
+ * 0.98 settled**: the endpoints were already exact and the whole of the
+ * failure was in the interior. The reference at `f_01087` shows why in
+ * one look — its dotted lines are re-drawn between the heads at their
+ * intermediate positions, still anchored in the shoulder notches, which
+ * is the one thing baked ink cannot do.
+ *
+ * So for the window the baked meshes are replaced. Both pages' own
+ * `Connection`s go dark and a `GlidingConnection` stands in for each of
+ * A's lines whose two endpoints are both matched — re-deriving its path
+ * per frame from the interpolated endpoint boxes, on the same ease the
+ * glide runs on. At the swap the gliding mesh goes dark and B's own
+ * baked mesh is lit, which is the identical geometry by construction (at
+ * completion 1 the derivation reproduces B's boxes exactly), so the
+ * handover is invisible for the same reason the pairs' own swap is.
+ *
+ * WHAT IS NOT COVERED, STATED RATHER THAN HIDDEN. A connection with an
+ * UNMATCHED endpoint cannot be derived — there is no B box to
+ * interpolate toward — so it stays page ink and fades with its page. On
+ * this deck's Magic Moves that is the rare case (all 30 of deck 12→13's
+ * lines have both endpoints matched) and the honest one: a line whose
+ * anchor is disappearing has nowhere to glide to.
+ *
+ * ARROWHEADS are not carried through the window. A gliding connection
+ * draws its shaft only; a line that ends in a head shows it on the
+ * settled pages either side, and for the window's duration the head is
+ * absent rather than drawn in a place the derivation has not measured.
+ * None of the deck's dotted meshes carries one (they are undirected
+ * graphs), so this costs nothing on the transitions this is built for
+ * and is named here as what a chapter meeting an arrowed Magic Move
+ * would need to measure.
+ */
+export interface GlidingMesh {
+  /** One per derivable connection on the outgoing page. */
+  lines: GlidingConnection[]
+}
+
+/**
+ * Build the gliding stand-ins for a Magic Move's connection lines.
+ *
+ * The endpoint boxes come from the MATCH, not from the pages: a pair's
+ * `a.box` and `b.box` are the very boxes `glideOf` drives the icons
+ * between, so the line's ends and the icons they anchor in are moving
+ * under one arithmetic rather than two that agree by luck.
+ *
+ * An endpoint can also be a GROUP, which is never itself matched — the
+ * matcher works on drawables. A group's box is derived from its members'
+ * matched boxes on both sides, which is the same union `slideGeometry`
+ * takes, and it resolves only when every member is matched.
+ */
+export const glidingMesh = (from: Slide, to: Slide, match: SlideMatch): GlidingMesh => {
+  void from.parts
+  void to.parts
+  const scale = slideToWorld(from.height.value)
+
+  // Every matched drawable's two boxes, by A's id.
+  const boxes = new Map<string, { from: SlideBox; to: SlideBox }>()
+  for (const pair of match.pairs) boxes.set(pair.a.id, { from: pair.a.box, to: pair.b.box })
+
+  // A's outlines, for the clip — the silhouette that travels.
+  const outlines = new Map<string, SlidePoint[][]>()
+  for (const shape of from.data.shapes) {
+    if (shape.connects) continue
+    const subs: SlidePoint[][] = []
+    for (const flat of shape.subpaths) {
+      const poly: SlidePoint[] = []
+      for (let i = 0; i + 1 < flat.length; i += 2) poly.push({ x: flat[i]!, y: flat[i + 1]! })
+      if (poly.length >= 2) subs.push(poly)
+    }
+    if (subs.length > 0) outlines.set(shape.id, subs)
+  }
+
+  // Groups resolve to the union of their members', iterated to a fixed
+  // point because groups nest — the same walk `slideGeometry` performs,
+  // over matched boxes instead of stated ones.
+  const members = new Map(from.data.groups.map((g) => [g.id, g.members]))
+  let progress = true
+  while (progress) {
+    progress = false
+    for (const [id, ids] of [...members]) {
+      if (boxes.has(id)) continue
+      const parts = ids.map((m) => boxes.get(m))
+      if (parts.some((p) => !p)) continue
+      const a = unionBoxes(parts.map((p) => p!.from))
+      const b = unionBoxes(parts.map((p) => p!.to))
+      if (!a || !b) continue
+      boxes.set(id, { from: a, to: b })
+      outlines.set(id, ids.flatMap((m) => outlines.get(m) ?? []))
+      progress = true
+    }
+  }
+
+  const lines: GlidingConnection[] = []
+  for (const shape of from.data.shapes) {
+    if (!shape.connects) continue
+    const f = shape.connects.from ? boxes.get(shape.connects.from) : undefined
+    const t = shape.connects.to ? boxes.get(shape.connects.to) : undefined
+    if (!f || !t) continue
+
+    // The bow, read as a FRACTION of the stored chord — the reading
+    // `Slides.ts` derived for the static case, and the only one that
+    // survives a moving chord. See `midAt`.
+    const flat = shape.subpaths[0]
+    let bow: { along: number; across: number } | undefined
+    if (flat && flat.length >= 6) {
+      const p0 = { x: flat[0]!, y: flat[1]! }
+      const p1 = { x: flat[flat.length - 4]!, y: flat[flat.length - 3]! }
+      const p2 = { x: flat[flat.length - 2]!, y: flat[flat.length - 1]! }
+      const cx = p2.x - p0.x
+      const cy = p2.y - p0.y
+      const chord = Math.hypot(cx, cy)
+      if (chord > 1e-9) {
+        const ux = cx / chord
+        const uy = cy / chord
+        const dx = p1.x - p0.x
+        const dy = p1.y - p0.y
+        bow = {
+          along: (dx * ux + dy * uy) / chord,
+          across: (dx * -uy + dy * ux) / chord,
+        }
+      }
+    }
+
+    // Width, dash and period in SLIDE units — the derivation works on
+    // the canvas and converts on the way out, so the lattice's period is
+    // the deck's own number rather than a scaled one.
+    const width = shape.strokeWidth ?? 1
+    let dash = 0
+    let period = 0
+    if (shape.dash && shape.dash.length >= 2) {
+      const round = shape.cap === "RoundCap"
+      dash = Math.max(shape.dash[0]! * width, width * 0.05)
+      period = (shape.dash[0]! + shape.dash[1]! + (round ? 1 : 0)) * width
+    }
+
+    const tint = from.overrideTint
+      ? from.tint.value
+      : shape.stroke
+        ? hexToColor(shape.stroke)
+        : from.tint.value
+
+    const line = new GlidingConnection(
+      {
+        from: { id: shape.connects.from!, ...f, outline: outlines.get(shape.connects.from!) ?? [] },
+        to: { id: shape.connects.to!, ...t, outline: outlines.get(shape.connects.to!) ?? [] },
+        bow,
+        outset: shape.outset,
+        dash,
+        period,
+      },
+      {
+        tint,
+        stroke: (width * from.height.value) / SLIDE_HEIGHT,
+        opacity: shape.opacity ?? 1,
+      },
+    )
+    line.worldScale = scale
+    line.ease = smooth
+    lines.push(line)
+  }
+  return { lines }
+}
+
+/**
+ * Stage a gliding mesh for the window: both pages' baked connections
+ * dark, the stand-ins lit at completion 0.
+ *
+ * The caller stages the `GlidingConnection`s themselves (a Dream's
+ * holons are its declared fields — the same division `Morph`'s verb
+ * keeps), and this is what darkens what they stand in for.
+ */
+export const glidingMeshSetup = (from: Slide, to: Slide, mesh: GlidingMesh): Anim => {
+  const items: Anim[] = []
+  for (const line of from.connections) items.push(...fadeTo(line, 0))
+  for (const line of to.connections) items.push(...fadeTo(line, 0))
+  for (const line of mesh.lines) {
+    for (const d of line.drawn()) items.push(d.opacity.to(1))
+    items.push(line.completion.to(0))
+  }
+  return items.length > 0 ? together(...items) : { tracks: [] }
+}
+
+/** The mesh's own glide: completion 0 → 1 across the window. */
+export const glidingMeshAnim = (mesh: GlidingMesh): Anim => {
+  const items: Anim[] = mesh.lines.map((line) => line.completion.to(1))
+  return items.length > 0 ? together(...items) : { tracks: [] }
+}
+
+/**
+ * The swap's mesh half: the stand-ins go dark and B's own baked mesh is
+ * lit. Identical geometry by construction, so the handover is invisible.
+ */
+export const glidingMeshSwap = (to: Slide, mesh: GlidingMesh): Anim => {
+  const items: Anim[] = []
+  for (const line of mesh.lines) {
+    for (const d of line.drawn()) items.push(d.opacity.to(0))
+  }
+  for (const line of to.connections) items.push(...fadeTo(line, 1))
+  return items.length > 0 ? together(...items) : { tracks: [] }
+}
 
 /**
  * FADE THROUGH COLOR — the deck's other real transition, 10 of 58.

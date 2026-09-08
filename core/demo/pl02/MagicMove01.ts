@@ -69,8 +69,12 @@
  */
 
 import { Dream, render } from "../../src/index"
+import { together } from "../../src/anim"
 import { Slide } from "../../vocabulary/Slides/Slides"
 import {
+  glidingMesh,
+  glidingMeshAnim,
+  glidingMeshSetup,
   magicMove,
   magicMoveAnim,
   magicMoveSetup,
@@ -84,21 +88,55 @@ const ONSET = 1.0
 /** The deck's own declared duration for this transition. READ, not fitted. */
 const DURATION = slide13.transition?.duration ?? 1.5
 
+/**
+ * WHAT THIS SLIDE ACTUALLY IS, and it is not what the eye reports.
+ *
+ * f_01081 shows SIX heads in one ring, so the obvious reading is that
+ * six heads become twelve. The deck says otherwise: slide 12 carries
+ * **twelve** heads and thirty connection lines, exactly as slide 13
+ * does. It draws two coincident six-node meshes stacked on the same
+ * spot — the deck's own doubling, the same construction P-5 found on
+ * slide 23 — and the Magic Move separates the copies into two lobes.
+ *
+ * That is why the matcher reports 12 matched, 1 out, 3 in rather than
+ * the 6-and-6 the picture suggests, and it is why every one of the
+ * thirty connections has both endpoints matched: nothing is created
+ * here, a superposition is pulled apart.
+ */
+
 export class MagicMove01Dream extends Dream {
   from = new Slide({ data: slide12 })
   to = new Slide({ data: slide13 })
+  /**
+   * The gliding mesh — one stand-in per connection, re-derived per frame
+   * between the travelling heads. Declared as a field because a Dream's
+   * holons are its declared fields; `glidingMesh` builds them from the
+   * match and the scene stages them.
+   */
+  mesh = glidingMesh(this.from, this.to, magicMove(this.from, this.to))
 
   unfold() {
     this.observer.look("front")
     const match = magicMove(this.from, this.to)
+    // Stated rather than inferred: the mesh's stand-ins are animated, so
+    // the root scan would find them anyway — staging says they are the
+    // scene's own geometry regardless of what any clip happens to touch.
+    for (const line of this.mesh.lines) this.stage(line)
 
     this.set(this.from.creation.to(1))
     this.set(this.to.creation.to(1))
     this.set(magicMoveSetup(this.from, this.to))
+    this.set(glidingMeshSetup(this.from, this.to, this.mesh))
 
     this.wait(ONSET)
-    this.play(magicMoveAnim(this.from, this.to, match), DURATION)
-    this.set(magicMoveSwap(this.from, this.to, match))
+    // The icons' glide and the mesh's re-derivation are ONE event over
+    // ONE window — `play` advances the cursor, so they must be handed to
+    // it together rather than in sequence.
+    this.play(
+      together(magicMoveAnim(this.from, this.to, match), glidingMeshAnim(this.mesh)),
+      DURATION,
+    )
+    this.set(magicMoveSwap(this.from, this.to, match, this.mesh))
     this.wait(1.5)
   }
 }
