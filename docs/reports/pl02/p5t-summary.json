@@ -1,0 +1,36 @@
+{
+ "scene": "p02e",
+ "at": 1,
+ "frames": 2,
+ "passed": 0,
+ "reports": [
+  {
+   "idx": 2246,
+   "videoSec": 449,
+   "heldAt": 449,
+   "name": "p5t-f_02246",
+   "ours": "docs/reports/pl02/ours-p5t-f_02246.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_02246.jpg",
+   "iou": 0.6733,
+   "chamfer_ours_px": 1.349,
+   "chamfer_ref_px": 0.337,
+   "coverage_ref": 0.9803,
+   "coverage_ours": 0.8435,
+   "verdict": "FAIL"
+  },
+  {
+   "idx": 2351,
+   "videoSec": 470,
+   "heldAt": 470,
+   "name": "p5t-f_02351",
+   "ours": "docs/reports/pl02/ours-p5t-f_02351.png",
+   "ref": "/Users/davidrug/RealDealVault/ProjectLiminality/DreamTalk/refs/pitch/pl02/frames5/f_02351.jpg",
+   "iou": 0.704,
+   "chamfer_ours_px": 0.976,
+   "chamfer_ref_px": 0.478,
+   "coverage_ref": 0.9501,
+   "coverage_ours": 0.8839,
+   "verdict": "FAIL"
+  }
+ ]
+}

@@ -112,6 +112,63 @@ export const hexToColor = (hex: string): Color => {
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 }
 }
 
+/**
+ * A drawable's OPAQUE INTERIOR — the deck's flat fill, as an occluder.
+ *
+ * WHY THIS EXISTS AT ALL (P-5). 413 of the deck's drawables carry a flat
+ * black fill, and on a black stage a black fill paints nothing of its
+ * own: its entire visible effect is to HIDE what is behind it. The deck
+ * leans on that. Deck slide 24's head icons are black-filled and the
+ * campfire ellipse's stroke runs behind them, cut by them — measured on
+ * `f_02351`, the reference's head interior is unbroken black where the
+ * ellipse would cross. Deck slide 23 goes further: it stacks two copies
+ * of one composition and the upper copy's black-filled heads hide the
+ * lower copy's inner circle and rectangle entirely. Nothing marks the
+ * lower copy as hidden — it is a live drawable at opacity 1.0 — so a
+ * renderer that ignores fills draws two extra shapes with no way to know
+ * which.
+ *
+ * WHY A HOLON RATHER THAN `Stroke.fillOpacity` ON THE OUTLINE.
+ *
+ * Two reasons, and the second is the load-bearing one.
+ *
+ * The colours differ. A white-stroked, black-filled head is the deck's
+ * common case, and the host's wash takes the holon's own `tint`
+ * (three-host.ts styles it with `liftTint(holon.tint.value, …)`). One
+ * holon cannot be white and black at once, so the interior needs a
+ * holon of its own — rather than a second tint param on `Stroke`, which
+ * would be a framework change made for one deck.
+ *
+ * And the interior is EVEN-ODD ACROSS ALL SUBPATHS, not one flood per
+ * loop. `Notebook_109` on deck slide 24 is one white-filled drawable of
+ * two closed subpaths — an outer laptop silhouette and an inner screen
+ * rectangle — and the reference draws a white frame around a BLACK
+ * screen. Filling each loop separately paints a solid white slab; the
+ * hole is not a property of either loop, which is the rule
+ * geometry/evenodd.ts exists to state. A PARENT holon carrying one
+ * closed `Line` per subpath is the shape `drawingSubpaths` recognises,
+ * so the host triangulates the set even-odd through `setPolygons` and
+ * marks the children washed-by-ancestor. Same construction a `Sketch`
+ * has, reached for the same reason.
+ *
+ * The children are strokeless: `creation` stays 0 so no ribbon is laid,
+ * and the whole of the holon's ink is the wash `fillOpacity` carries.
+ * That is the independent-surface contract `fillOpacity` was built for
+ * — a shape can be filled without being drawn.
+ */
+export class SlideFill extends Stroke {
+  /** One closed loop per subpath, in the drawable's own order. */
+  loops: Vec3Like[][] = []
+  override tint = color(WHITE)
+  override fillOpacity = completion(1)
+
+  protected override compose(): void {
+    for (const points of this.loops) {
+      this.add(new Line({ points, tint: this.tint, stroke: 0, creation: 0 }))
+    }
+  }
+}
+
 /** Total length of a polyline — the weight a subpath carries in a draw. */
 const arcLength = (points: readonly Vec3Like[]): number => {
   let total = 0
@@ -534,6 +591,95 @@ export class Slide extends Holon {
     // size.
     const width = ((shape.strokeWidth ?? 1) * this.height.value) / SLIDE_HEIGHT
     const out: Stroke[] = []
+
+    // THE OPAQUE FILL, WHICH IS AN OCCLUDER AND NOT A COLOUR (P-5).
+    //
+    // 413 of the deck's drawables carry a flat BLACK fill, and on a
+    // black stage a black fill paints nothing of its own — its entire
+    // visible effect is to HIDE what is behind it. The deck relies on
+    // that: deck slide 24's head icons are black-filled, and the
+    // campfire ellipse's stroke runs behind them and is cut by them.
+    // Measured on `f_02351`, the reference's head interior is unbroken
+    // black where the ellipse would cross it; ours drew the ellipse
+    // straight through, which is the whole of that segment's
+    // `coverage_ours` shortfall (0.8832) with `coverage_ref` already at
+    // 0.9501 — ink we have and the reference does not.
+    //
+    // Deck slide 23 shows the same mechanism doing something stronger:
+    // it stacks TWO copies of one composition, 5313xxx beneath 5315xxx,
+    // and the upper copy's black-filled heads hide the lower copy's
+    // inner circle and rectangle entirely. Nothing marks the lower copy
+    // as hidden — it is a live drawable at opacity 1.0 — so a renderer
+    // that ignores fills draws a picture with two extra shapes in it and
+    // no way to know which.
+    //
+    // The wash goes down BEFORE the stroke, and shapes compose in the
+    // deck's own `drawablesZOrder`, so attach order is composite order
+    // (render/fill.ts: fills stack over strokes and over earlier fills
+    // in declaration order) and Keynote's stacking is reproduced by
+    // construction rather than by a sort here.
+    //
+    // It is a SEPARATE Line from the outline because the two carry
+    // different colours — a white-stroked, black-filled head is the
+    // common case — and `Stroke.fillOpacity`'s wash takes the holon's
+    // own `tint`. One holon cannot be white and black at once, so the
+    // wash is its own strokeless holon rather than a second tint param
+    // on Stroke, which would be a framework change made for one deck.
+    //
+    // Only CLOSED subpaths fill: an open path has no interior, and the
+    // host's wash path requires the loop to close on itself before it
+    // will triangulate one (three-host.ts's `washGeometry`).
+    // THE INTERIOR IS EVEN-ODD ACROSS ALL SUBPATHS, NOT ONE FLOOD PER
+    // LOOP. Deck slide 24's `Notebook_109` is the case that proves it:
+    // the icon is ONE white-filled drawable of two closed subpaths, an
+    // outer laptop silhouette and an inner screen rectangle, and the
+    // reference draws it as a white frame around a BLACK screen
+    // (f_02351). Filling each loop on its own paints a solid white slab
+    // — the hole is not a property of either loop, which is the rule
+    // geometry/evenodd.ts exists to state.
+    //
+    // So the wash is a PARENT holon with one closed `Line` child per
+    // subpath, which is the shape `drawingSubpaths` recognises: the host
+    // then triangulates the whole set even-odd through `setPolygons` and
+    // marks the children as washed-by-ancestor so no child floods its
+    // own loop as well (three-host.ts). It is the same construction a
+    // Sketch has, reached for the same reason.
+    if (shape.fill) {
+      const loops: Vec3Like[][] = []
+      for (let i = 0; i < shape.subpaths.length; i++) {
+        if (!shape.closed[i]) continue
+        const flat = shape.subpaths[i]!
+        const points: Vec3Like[] = []
+        for (let j = 0; j + 1 < flat.length; j += 2) {
+          const p = slidePointToWorld({ x: flat[j]!, y: flat[j + 1]! }, scale)
+          points.push({ x: p.x, y: p.y, z: 0 })
+        }
+        if (points.length < 3) continue
+        // The host reads a Line's interior only when its last point sits
+        // back on its first; the importer's `closed` flag marks a loop
+        // but does not require the opening point to be repeated.
+        const first = points[0]!
+        const last = points[points.length - 1]!
+        if (Math.hypot(last.x - first.x, last.y - first.y) > 1e-6) {
+          points.push({ x: first.x, y: first.y, z: 0 })
+        }
+        loops.push(points)
+      }
+      // `drawingSubpaths` needs at least two children to read a drawing;
+      // a single-loop fill is the ordinary convex wash and is carried by
+      // the loop itself.
+      if (loops.length > 0) {
+        out.push(
+          this.add(
+            new SlideFill({
+              loops,
+              tint: hexToColor(shape.fill),
+              opacity: shape.opacity,
+            }),
+          ),
+        )
+      }
+    }
 
     for (const flat of shape.subpaths) {
       const points: Vec3Like[] = []

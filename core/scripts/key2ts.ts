@@ -103,7 +103,9 @@ const SIZE_BUDGET_KB = 2048
  * whole point of the codegen is that the same input gives the same
  * output on every machine.)
  */
-const CHAPTER_SLIDES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18, 19, 32]
+const CHAPTER_SLIDES = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 18, 19, 22, 23, 24, 25, 29, 30, 32,
+]
 
 const fmt = (n: number): string => {
   const s = n.toFixed(PRECISION)

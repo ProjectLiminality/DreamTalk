@@ -55,6 +55,7 @@ import { StoryPlaceSlideDream } from "./pl02/StoryPlaceSlide"
 import { DeadLivingSlideDream } from "./pl02/DeadLivingSlide"
 import { Arc01Dream } from "./pl02/Arc01"
 import { Mesh01Dream } from "./pl02/Mesh01"
+import { Chain01Dream } from "./pl02/Chain01"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -113,6 +114,7 @@ export const scenes: Record<string, DreamClass> = {
   slide05: DeadLivingSlideDream,
   p02a: Arc01Dream,
   p02d: Mesh01Dream,
+  p02e: Chain01Dream,
 }
 
 export const defaultScene = "founding"

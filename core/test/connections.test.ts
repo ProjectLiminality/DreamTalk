@@ -477,7 +477,22 @@ describe("the meshes compose, at scale", () => {
     expect(logo.effect).toBe("apple:dissolve")
     const group = slide09.groups.find((g) => g.id === "5149755")!
     expect(group.members).toHaveLength(5)
-    expect(page.buildTargets(logo)).toHaveLength(5)
+    // SEVEN parts for FIVE members, since P-5: two of the Logo's five
+    // shapes carry a black fill (5149772 and 5149786, both closed), and
+    // a filled shape composes a `SlideFill` alongside its outline
+    // because the two carry different colours. The count is not the
+    // test's subject — that a group build resolves to what actually
+    // draws, rather than reporting no target at all, is — so the
+    // assertion is on the parts the members contribute, and it is
+    // stated as such rather than as a bare number that would move again
+    // the next time a member gains a surface.
+    const parts = page.buildTargets(logo)
+    expect(parts.length).toBeGreaterThanOrEqual(group.members.length)
+    const filled = group.members.filter(
+      (id) => slide09.shapes.find((s) => s.id === id)?.fill,
+    )
+    expect(filled).toHaveLength(2)
+    expect(parts).toHaveLength(group.members.length + filled.length)
   })
 })
 

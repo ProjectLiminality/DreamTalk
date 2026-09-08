@@ -267,6 +267,21 @@ genuinely absent ones (a dropped image), which is the exact confusion
 `missingBuildTargets` exists to prevent. Found by a test asserting zero
 missing targets, not by looking at the frame.
 
+*Since P-5:* that group now resolves to **seven** parts, not five. Two
+of the Logo's five shapes carry a black fill, and P-5's opaque-fill work
+composes a `SlideFill` alongside each filled shape's outline (they need
+separate holons because a white-stroked, black-filled icon cannot be one
+colour). P-5 rewrote the assertion to state the relationship —
+`members.length + filled.length` — rather than the bare 5, which is the
+better test and is why the number moving did not cost anything. Verified
+here that the new parts are reached by all three opacity paths
+(`visible`, `preBuild`, the build's own ramp) and that `cutIn` still
+leaves a pending build's targets dark: an unreached fill would be P-3's
+seventy-second ghost wearing a new coat. My four segment scores are
+unchanged to four decimals, because a fill only bites where a stroke
+passes behind one and these slides' filled circles have nothing behind
+them.
+
 **3. The midpoint sweep gave its outermost dashes a zero-width window.**
 Dividing by the distance to the last dash rather than by the number of
 steps put that dash at `[1, 1]`, so **the two ends of every mesh line
@@ -414,7 +429,7 @@ attributed. Both pass.
 ## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1102 pass, 0 fail** (1067 baseline + 30 mine + the
+- `bun test` — **1121 pass, 0 fail** (1067 baseline + 30 mine + the
   baseline's own movement as other agents landed work).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's and P-3's to four decimals, so
