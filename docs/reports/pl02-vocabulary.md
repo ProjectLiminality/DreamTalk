@@ -613,3 +613,18 @@ file was written.
   them as gates. Side effect: dissolves P-7's per-pair ripple problem
   (a linear sequence has no ease to fight); its ripple tests
   rewritten to assert the stronger property.
+- (2026-09-08, P-8, superseding the deck-54 exchange) **Deck 54 has no
+  geometry gap** — the seven tablets ARE declared stacked at the tower,
+  the footage shows them stacked during the hold (f_03993), and the
+  outgoing MAGIC MOVE carries them to deck 55's spread (mid-flight at
+  f_03996). The importer, deck, and P-1's held-layout reasoning were
+  all correct; the phantom was one mis-timed sample (P-7's
+  scan-finds-where-not-what lesson, walked into and recorded). Deck 54
+  offers NO firing-model exception (the count stays at two). BOUNDARY
+  CORRECTION, the largest yet: deck 54 holds ~793.4-797.6, the Magic
+  Move runs ~797.6-799.8, deck 55 holds 799.8-827.8 (recon said
+  816.0) — the Viterbi's near-identical-pair failure mode, confirmed
+  independently by the mini-towers inking from 812.35 and the
+  four-vanish/fade-out match. The lead's footage-measured-positions
+  ruling was RETRACTED as moot (conditionally sound doctrine, false
+  antecedent).
