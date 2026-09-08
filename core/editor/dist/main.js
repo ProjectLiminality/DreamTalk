@@ -68995,6 +68995,7 @@ var DISSOLVE_CHARACTER = "apple:dissolve character";
 var MOTION_PATH = "apple:action-motion-path";
 var BC_APPEAR = "apple:bc-appear";
 var APPEAR = "apple:appear";
+var ACTION_SCALE = "apple:action-scale";
 var SUPPORTED = new Set([
   LINE_DRAW,
   DISSOLVE,
@@ -69005,6 +69006,16 @@ var SUPPORTED = new Set([
 ]);
 var isInstant = (record) => record.effect === BC_APPEAR || record.effect === APPEAR;
 var INSTANT_WINDOW = 0.001;
+var KEYNOTE_EASE_S = 0.42;
+var keynoteEase = (u2) => c4dEaseWith(u2, KEYNOTE_EASE_S, KEYNOTE_EASE_S);
+var EASE_SAMPLES = 32;
+var keynoteWaypoints = (from, to) => {
+  const out = [];
+  for (let k2 = 0;k2 <= EASE_SAMPLES; k2++) {
+    out.push(from + (to - from) * keynoteEase(k2 / EASE_SAMPLES));
+  }
+  return out;
+};
 var motionAnim = (record, target, scale2) => {
   if (!motionIsStraight(record)) {
     const curved = curvedMotionAnim(record, target, scale2);
@@ -69045,18 +69056,18 @@ var curvedMotionAnim = (record, target, scale2) => {
     const u2 = seg <= 0.000000001 ? 0 : (want - cum[i2 - 1]) / seg;
     return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 };
   };
-  const easing = "smooth";
   const xs = [];
   const ys = [];
   for (let k2 = 0;k2 <= MOTION_SAMPLES; k2++) {
-    const p2 = atFraction(ease(easing, k2 / MOTION_SAMPLES));
+    const p2 = atFraction(keynoteEase(k2 / MOTION_SAMPLES));
     xs.push(p2.x * scale2);
     ys.push(-p2.y * scale2);
   }
   const x0 = target.x.value;
   const y0 = target.y.value;
-  return together(target.x.sequence(...xs.map((v2) => x0 + v2)), target.y.sequence(...ys.map((v2) => y0 + v2)));
+  return eased("linear", target.x.sequence(...xs.map((v2) => x0 + v2)), target.y.sequence(...ys.map((v2) => y0 + v2)));
 };
+var scaleAnim = (target, factor) => eased("linear", target.scale.sequence(...keynoteWaypoints(target.scale.value, target.scale.value * factor)));
 var motionEndpoint = (record) => {
   const last = record.motionPath?.[record.motionPath.length - 1];
   const pts = last?.points;
@@ -69090,7 +69101,7 @@ var buildAnim = (record, target) => {
   if (isInstant(record)) {
     return together([rampOpacity(target, [out ? 0 : 1]), 0, INSTANT_WINDOW]);
   }
-  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1]);
+  return out ? rampOpacity(target, [0], true) : rampOpacity(target, [0, 1], true);
 };
 var lineDrawAnim = (target, reversed, out = false, fromMiddle = false) => {
   if (target instanceof Connection2) {
@@ -69139,7 +69150,7 @@ var lineDrawAnim = (target, reversed, out = false, fromMiddle = false) => {
     target.drawReversed.value = reversed;
     return out ? target.creation.to(0) : target.creation.sequence(0, 1);
   }
-  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1]);
+  return out ? rampOpacity(target, [0], true) : rampOpacity(target, [0, 1], true);
 };
 var preBuildAnim = (record, target) => {
   if (record.animationType === "Out")
@@ -69168,8 +69179,14 @@ var strokeEnds = (stroke) => {
   const b2 = pts[pts.length - 1];
   return { start: { x: a2.x, y: a2.y }, end: { x: b2.x, y: b2.y } };
 };
-var rampOpacity = (target, values) => {
+var rampOpacity = (target, values, keynote = false) => {
   const drawn = target instanceof Connection2 ? (void target.parts, target.drawn()) : target instanceof DottedLine ? (void target.parts, target.dashes) : [target];
+  if (keynote) {
+    const from = values.length === 1 ? 1 : values[0];
+    const to = values[values.length - 1];
+    const wp = keynoteWaypoints(from, to);
+    return eased("linear", ...drawn.map((h2) => h2.opacity.sequence(...wp)));
+  }
   return together(...drawn.map((h2) => values.length === 1 ? h2.opacity.to(values[0]) : h2.opacity.sequence(...values)));
 };
 
@@ -69537,6 +69554,7 @@ class Slide extends Holon {
     }
     return items.length > 0 ? together(...items) : { tracks: [] };
   }
+  scaleFactors = {};
   build(record) {
     this.parts;
     const targets = this.buildTargets(record);
@@ -69550,6 +69568,10 @@ class Slide extends Holon {
         items.push(lineDrawAnim(target, reversed, record.animationType === "Out", drawsFromMiddle(record)));
       } else if (record.effect === MOTION_PATH) {
         items.push(motionAnim(record, target, slideToWorld(this.height.value)));
+      } else if (record.effect === ACTION_SCALE) {
+        const factor = this.scaleFactors[record.id];
+        if (factor !== undefined)
+          items.push(scaleAnim(target, factor));
       } else {
         items.push(buildAnim(record, target));
       }
@@ -70239,6 +70261,7 @@ var slide02 = {
   ],
   texts: [],
   groups: [],
+  skipped: ["TSD.ImageArchive"],
   images: [{ id: "4513444", frame: { position: { x: 735.52344, y: 350.28925 }, size: { width: 480.95312, height: 480.95312 }, angle: 0 } }, { id: "5473642", frame: { position: { x: 1281.39, y: 283.45517 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473703", frame: { position: { x: 586.8776, y: 283.45517 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473765", frame: { position: { x: 586.8776, y: 618.88806 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }, { id: "5473826", frame: { position: { x: 1281.39, y: 618.88806 }, size: { width: 83.73241, height: 83.73241 }, angle: 0 } }],
   builds: [
     { id: "4880370", target: "4514353", effect: "com.apple.iWork.Keynote.LineDrawForLine", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, direction: 51 },
@@ -70360,6 +70383,7 @@ var slide03 = {
     }
   ],
   groups: [],
+  skipped: ["TSD.ImageArchive"],
   images: [{ id: "4515878", frame: { position: { x: 285.52344, y: 299.52344 }, size: { width: 480.95312, height: 480.95312 }, angle: 0 } }],
   builds: [
     { id: "4895353", target: "4895361", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -74188,6 +74212,7 @@ var slide15 = {
     }
   ],
   groups: [{ id: "4764204", members: ["4764292", "4764220", "4764244", "4764267"] }, { id: "5291170", members: ["5291156", "5291147", "5291149", "5291155", "5291169", "5291136", "5291141", "5291148", "5291146"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5068320", target: "4764295", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
     { id: "5161707", target: "5161499", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -74482,6 +74507,7 @@ var slide22 = {
     }
   ],
   groups: [{ id: "4681178", members: ["4681184", "4681196", "4681203", "4681188"] }, { id: "4685593", members: ["4685612", "4685616"] }, { id: "4685594", members: ["4685610", "4685604"] }, { id: "5312067", members: ["5312095", "5312082", "5312090", "5312094", "5312074", "5312086", "5312104", "5312099", "5312092"] }, { id: "4685634", members: ["4685593", "4685594", "4685606", "4693446", "4840748", "5312067"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "4685729", target: "4685634", effect: "apple:dissolve", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
@@ -74790,6 +74816,7 @@ var slide24 = {
     }
   ],
   groups: [{ id: "5314378", members: ["5314469", "5314489"] }, { id: "5314379", members: ["5314453"] }, { id: "5314380", members: ["5314492"] }, { id: "5315046", members: ["5315077"] }, { id: "5315047", members: ["5315082"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [],
   transition: { effect: "com.apple.iWork.Keynote.BLTFadeThruColor", duration: 1.5, delay: 0.5 }
 };
@@ -75096,6 +75123,7 @@ var slide25 = {
     }
   ],
   groups: [{ id: "4697319", members: ["4697357"] }, { id: "4697318", members: ["4697378"] }, { id: "4697317", members: ["4697392"] }, { id: "4697315", members: ["4697395"] }, { id: "4697316", members: ["4697328"] }, { id: "4697314", members: ["4697385", "4697391", "4697341", "4697379", "4697329", "4697371", "4697393", "4697368", "4697383", "4697343", "4697319", "4697318", "4697317", "4697315", "4697316"] }, { id: "4706554", members: ["4706589", "4706559", "4706569", "4706588"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "4707179", target: "4706936", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
     { id: "4709394", target: "4709161", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -75705,6 +75733,7 @@ var slide30 = {
     }
   ],
   groups: [{ id: "5351926", members: ["5351975", "5351939", "5351986", "5352055"] }, { id: "5351925", members: ["5352029", "5352018", "5351957", "5351962", "5351943", "5352023", "5352007", "5352071", "5351960"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5357519", target: "5352279", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
   ],
@@ -75857,6 +75886,7 @@ var slide36 = {
     }
   ],
   groups: [{ id: "5376673", members: ["5376703", "5376676", "5376692", "5376677", "5376689"] }, { id: "5364898", members: ["5364885", "5364894"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5367480", target: "5367491", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
     { id: "5367483", target: "5367491", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] }
@@ -76011,6 +76041,7 @@ var slide37 = {
     }
   ],
   groups: [{ id: "5368695", members: ["5368795", "5368774", "5368796", "5368703", "5368747"] }, { id: "5368696", members: ["5368798", "5368724"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [],
   transition: { effect: "apple:magic-move-implied-motion-path", duration: 2, delay: 0.5, fadeUnmatched: true }
 };
@@ -76151,6 +76182,7 @@ var slide45 = {
     }
   ],
   groups: [{ id: "5397022", members: ["5397051", "5397026", "5397052", "5397049"] }, { id: "5397055", members: ["5397022", "5397025"] }, { id: "5396953", members: ["5396968"] }, { id: "5396971", members: ["5396953", "5396969"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5395192", target: "5395195", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] },
     { id: "4810244", target: "4810251", effect: "apple:dissolve character", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -76446,6 +76478,7 @@ var slide46 = {
     }
   ],
   groups: [{ id: "5399167", members: ["5399201", "5399173", "5399171", "5399186"] }, { id: "5399166", members: ["5399167", "5399194"] }, { id: "5401503", members: ["5401524"] }, { id: "5401502", members: ["5401503", "5401518"] }, { id: "5404348", members: ["5404434", "5404369", "5404446"] }, { id: "5404350", members: ["5404424"] }, { id: "5404349", members: ["5404350", "5404375"] }, { id: "5404352", members: ["5404450"] }, { id: "5404351", members: ["5404352", "5404386"] }, { id: "5404354", members: ["5404462"] }, { id: "5404353", members: ["5404354", "5404401"] }, { id: "5404356", members: ["5404372"] }, { id: "5404355", members: ["5404356", "5404413"] }, { id: "5404358", members: ["5404383"] }, { id: "5404357", members: ["5404358", "5404363"] }, { id: "5404360", members: ["5404387"] }, { id: "5404359", members: ["5404360", "5404447"] }, { id: "5404466", members: ["5404348", "5404349", "5404351", "5404353", "5404355", "5404357", "5404359"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5424584", target: "5424594", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
     { id: "5424583", target: "5424594", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] },
@@ -76751,6 +76784,7 @@ var slide47 = {
     }
   ],
   groups: [{ id: "5405859", members: ["5405973", "5405922", "5405910", "5406010"] }, { id: "5405858", members: ["5405859", "5406003"] }, { id: "5405861", members: ["5406011"] }, { id: "5405860", members: ["5405861", "5406031"] }, { id: "5406354", members: ["5406376", "5406439", "5406390"] }, { id: "5407793", members: ["5407796", "5414725"] }, { id: "5407955", members: ["5407975", "5414014"] }, { id: "5408114", members: ["5408134", "5409620"] }, { id: "5408233", members: ["5408251", "5411825"] }, { id: "5408358", members: ["5408365", "5413289"] }, { id: "5408477", members: ["5408510", "5412560"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5424629", target: "5424640", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] },
     { id: "5424630", target: "5424640", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 }
@@ -77061,6 +77095,7 @@ var slide48 = {
     }
   ],
   groups: [{ id: "5422538", members: ["5422649", "5422631", "5422614"] }, { id: "5422540", members: ["5422619"] }, { id: "5422539", members: ["5422540", "5422658"] }, { id: "5422542", members: ["5422625"] }, { id: "5422541", members: ["5422542", "5422605"] }, { id: "5422544", members: ["5422559"] }, { id: "5422543", members: ["5422544", "5422669"] }, { id: "5422546", members: ["5422642"] }, { id: "5422545", members: ["5422546", "5422632"] }, { id: "5422548", members: ["5422557"] }, { id: "5422547", members: ["5422548", "5422656"] }, { id: "5422550", members: ["5422577"] }, { id: "5422549", members: ["5422550", "5422592"] }, { id: "5422537", members: ["5422538", "5422539", "5422541", "5422543", "5422545", "5422547", "5422549"] }, { id: "5422552", members: ["5422643"] }, { id: "5422551", members: ["5422552", "5422623"] }, { id: "5422672", members: ["5422537", "5422551"] }, { id: "5417423", members: ["5417573"] }, { id: "5417422", members: ["5417423", "5417593"] }, { id: "5418029", members: ["5418043", "5418034"] }, { id: "5423085", members: ["5423106"] }, { id: "5423084", members: ["5423085", "5423088"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5423053", target: "5417422", effect: "apple:appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
     { id: "5426359", target: "5426362", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -77408,6 +77443,7 @@ var slide49 = {
     }
   ],
   groups: [{ id: "5420257", members: ["5420253", "5420242"] }, { id: "5418344", members: ["5418427", "5418423", "5418485", "5418443"] }, { id: "5418343", members: ["5418344", "5418494"] }, { id: "5418346", members: ["5418515"] }, { id: "5418345", members: ["5418346", "5418392"] }, { id: "5418349", members: ["5418388", "5419038"] }, { id: "5418351", members: ["5418498", "5418916"] }, { id: "5420304", members: ["5420316"] }, { id: "5420322", members: ["5420314", "5420304"] }, { id: "5432453", members: ["5432467"] }, { id: "5432471", members: ["5432453", "5432466"] }, { id: "5424456", members: ["5424476", "5424471"] }, { id: "5424480", members: ["5424470", "5424456"] }, { id: "5438406", members: ["5438407"] }, { id: "5438425", members: ["5438406", "5438423"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5426447", target: "5426449", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] },
     { id: "5426446", target: "5426449", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },
@@ -78538,6 +78574,7 @@ var slide52 = {
     }
   ],
   groups: [{ id: "5440369", members: ["5440530", "5440532"] }, { id: "5480543", members: ["5480554"] }, { id: "5480542", members: ["5480543", "5480562"] }, { id: "5440357", members: ["5440542"] }, { id: "5440356", members: ["5440357", "5440573"] }, { id: "5440358", members: ["5440424", "5440487"] }, { id: "5440360", members: ["5440392", "5440525", "5440562", "5440376"] }, { id: "5440359", members: ["5440360", "5440434"] }, { id: "5440361", members: ["5440480", "5440476"] }, { id: "5440362", members: ["5440477", "5440448"] }, { id: "5440364", members: ["5440472"] }, { id: "5440363", members: ["5440540", "5440364"] }, { id: "5440366", members: ["5440467"] }, { id: "5440365", members: ["5440366", "5440408"] }, { id: "5440368", members: ["5440600", "5440397"] }, { id: "5440367", members: ["5440427", "5440368"] }, { id: "5440355", members: ["5440399", "5440420"] }],
+  skipped: ["kTSDRightSingleArrow:synthesis-unverified"],
   builds: [
     { id: "5442223", target: "5442231", effect: "apple:action-motion-path", animationType: "Action", duration: 1, delay: 0, delivery: "All at Once", acceleration: "kEaseBoth", eventTrigger: 1, motionPath: [{ type: "moveTo", points: [{ x: 0, y: 0 }] }, { type: "curveTo", points: [{ x: 0, y: 0 }, { x: -43.896656, y: -69.45765 }, { x: -43.896656, y: -69.45765 }] }] },
     { id: "5442224", target: "5442231", effect: "apple:bc-appear", animationType: "In", duration: 1, delay: 0, delivery: "All at Once", eventTrigger: 1 },

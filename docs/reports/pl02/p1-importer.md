@@ -420,6 +420,47 @@ reaches the model, so `fitToFrame` never mirrors anything — the pipeline
 was correct and only my `KeyGeometry.flags` comment was misleading. Now
 corrected, with the trap named.
 
+### INVESTIGATED (P-8): deck 54's stacked tablets — the file does not know
+
+P-8 found deck slide 54's seven "tablet" groups (5450290, 5451245,
+5451291, 5451337, 5451383, 5451439, 5451499 — each a blue ring plus a
+Cylinder_563 at angle 90) **all declared at one point**: group
+(581.784, 359.175), cylinder (586.13, 362.46), byte-identical across all
+seven. The footage draws them at seven spread positions matching deck
+55's declared layout.
+
+**This is not a dropped importer mechanism.** Checked and excluded:
+
+- **group offsets** — all seven are TOP-LEVEL in `drawablesZOrder`;
+- **motion paths** — their only builds are plain `apple:dissolve` In,
+  with no `actionMotionPathSource` on any;
+- **the transition** — deck 55's Magic Move stages matched objects, but
+  cannot supply deck 54's own held layout;
+- **a nested duplicate set** inside the big group 5447990 — there is
+  none; these seven are the slide's only tablets;
+- **decoder loss** — the RAW protobuf for 5450290 was read directly and
+  matches the decode exactly, position included;
+- **preserved unknown fields** — the `IgnoreAndPreserve` paths 1.12/1.13
+  appear on ALL 24 of the slide's groups, not just these seven, so they
+  are a generic per-group field, not a position;
+- **a derivable relationship** — the seven displacements to deck 55's
+  positions are all different and share no common offset.
+
+**And yet Keynote's own slide thumbnail for deck 54 renders them
+spread.** So Keynote knows a layout this file, as decoded, does not
+state — most likely application state or a cache outside the slide
+archive. The configuration is UNIQUE in the deck: scanning every slide
+for three or more top-level drawables at one exact position finds only
+this case. That, plus the thumbnail disagreeing with the geometry, reads
+as an authoring artifact rather than a format feature.
+
+So the importer reports what the file says, and **P-8's decision to score
+deck 54 with the gap stated as a ceiling rather than moving geometry on a
+guess is the correct one** — deriving the positions from deck 55 would be
+fitting the reproduction to the answer. A test pins the archive's actual
+content so the question is not silently re-opened, and so an invented-
+position "fix" would fail loudly.
+
 ### The recon's slide list is off by one from slide 18 onward
 
 **This is the most consequential thing P-1 found, and it is not a
@@ -680,7 +721,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1148 pass, 0 fail** (961 baseline + 65 mine + teammates').
+- `bun test` — **1153 pass, 0 fail** (961 baseline + 66 mine + teammates').
   The two `builds.test.ts` failures flagged earlier (P-4's `Connection`
   holon vs P-3's `DottedLine` expectations) have since been resolved.
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.

@@ -91,8 +91,8 @@
  * importer has not carried it.
  */
 
-import { together, type Anim, type Easing, type Windowed } from "../../src/anim"
-import { ease } from "../../src/timeline"
+import { eased, together, type Anim, type Easing, type Windowed } from "../../src/anim"
+import { c4dEaseWith, ease } from "../../src/timeline"
 import { DottedLine, Line, Stroke } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import type { Holon } from "../../src/holon"
@@ -138,6 +138,21 @@ export const MOTION_PATH = "apple:action-motion-path"
  */
 export const BC_APPEAR = "apple:bc-appear"
 export const APPEAR = "apple:appear"
+/**
+ * On-slide scaling — implemented, but NOT in `SUPPORTED`, and the
+ * distinction is deliberate.
+ *
+ * `scaleAnim` can play one; what no record carries is the FACTOR to play
+ * it with (P-4 established this, P-7 confirmed it in the raw archives).
+ * So the effect is only honoured where a scene supplies a measured
+ * factor for that specific build id (`Slide.scaleFactors`), which in this
+ * deck is one record out of five — deck 56's, the only isolated one.
+ *
+ * Listing it in `SUPPORTED` would tell every other chapter that the four
+ * unmeasured records are handled when they are silently doing nothing.
+ * They stay in `unsupported()`, which is the honest report.
+ */
+export const ACTION_SCALE = "apple:action-scale"
 
 /**
  * The effects the slide vocabulary implements. A build whose effect is
@@ -206,6 +221,119 @@ export const isInstant = (record: KeyBuild): boolean =>
  * 1 ms on these 1.0s records, against a reference sampled every 200 ms.
  */
 export const INSTANT_WINDOW = 0.001
+
+/**
+ * KEYNOTE'S `kEaseBoth` IS NOT THE FRAMEWORK'S `smooth` (P-8).
+ *
+ * Both are the same family — a cubic Bezier value curve with flat value
+ * tangents, parameterised by the horizontal tangent length `s`, with
+ * control points at (s, 0) and (1 - s, 1) — which is exactly what
+ * `c4dEaseWith(u, s, s)` evaluates. They differ in `s`, and the
+ * difference is measurable:
+ *
+ *   - the framework's `smooth` is **s = 0.25**, pydeation's C4D default,
+ *     calibrated in `timeline.ts` against video-01's Scene 04;
+ *   - Keynote's `kEaseBoth` is **s = 0.42**, which is CSS `ease-in-out`
+ *     = `cubic-bezier(0.42, 0, 0.58, 1)` — the x-coordinates are `s` and
+ *     `1 - s`, and the y-coordinates 0 and 1 are the flat tangents.
+ *
+ * MEASURED FOUR TIMES, ON TWO UNRELATED BUILD CLASSES, AND EVERY
+ * MINIMUM IS SHARP AND IN THE SAME PLACE. In each case the duration and
+ * the geometry are READ from the deck and the onset is the only free
+ * quantity — P-7's method, one more parameter swept:
+ *
+ *   MOTION (`action-motion-path`), rms of the tracked centroid in px:
+ *
+ *     s          0.25    0.42    best
+ *     -------------------------------------
+ *     deck 46    2.09    0.44    0.42     straight, 1.0s,  5 samples
+ *     deck 56    8.90    1.29    0.42     curved,   3.0s, 13 samples
+ *
+ *   DISSOLVE (`dissolve character`), rms of the ramped alpha, read as
+ *   summed luminance over the target's own settled ink mask:
+ *
+ *     s          0.25    0.42    best
+ *     -------------------------------------
+ *     deck 43a   0.0298  0.0164  0.41     2.0s, 8 interior samples
+ *     deck 43b   0.0315  0.0075  0.45     2.0s, 7 interior samples
+ *
+ * A straight path and a curved one; a 1.0s build, two 2.0s builds and a
+ * 3.0s one; a position ramp and an opacity ramp; deck slides 43, 46 and
+ * 56, spread across 170 seconds of video. The two motion fits land on
+ * 0.42 to the sweep's own resolution; the two dissolve fits bracket it
+ * at 0.41 and 0.45, which is the precision 7-8 samples of a JPEG
+ * luminance ramp can support. At s = 0.25 the same four fits are 4.7x,
+ * 6.9x, 1.8x and 4.2x worse.
+ *
+ * THIS IS A READING, NOT A FIT. The measurement locates a minimum; what
+ * makes 0.42 admissible under the refused-fits rule is that the minimum
+ * coincides with a NAMED STANDARD curve — CSS `ease-in-out`, whose
+ * control points Keynote (a WebKit-era Apple application) would
+ * naturally state. A fitted 0.4183 would be a refused fit; 0.42 is the
+ * declared constant the measurement points at.
+ *
+ * P-7's own numbers are unaffected in their conclusions: its seven
+ * cursors were fitted with `s = 0.25` and still landed within 1.82 px,
+ * because a 54.8 px travel sampled every 0.2 s cannot separate two eases
+ * that differ by 5% of the span. Deck 56's 3.0s travel can — which is
+ * why this chapter is where it surfaces, and why the correction is
+ * reported rather than treated as a defect in P-7's work.
+ *
+ * IT IS APPLIED TO EVERY BUILD THIS DECK DECLARES `kEaseBoth` ON —
+ * motion, scale and dissolve alike — because that is what the four
+ * measurements above cover and the deck names one curve, not two. The
+ * dissolves were nearly left on `smooth` for the defensible reason that
+ * moving them perturbs mid-build frames P-3, P-4, P-5 and P-7 already
+ * scored; deck 43's two 2.0s ramps are what made that unnecessary, since
+ * a 2.0s ramp at 5 fps has the interior samples a 1.0s one does not.
+ * The prior chapters' segment scores are unaffected either way — they
+ * are SETTLED frames, chosen after each segment's last event — and their
+ * mid-build frames were re-run (see §Gates in the P-8 report).
+ */
+export const KEYNOTE_EASE_S = 0.42
+
+/**
+ * Keynote's `kEaseBoth`, evaluated at normalized time `u`.
+ *
+ * Reuses `c4dEaseWith`, which IS this curve family — only the tangent
+ * length differs (`KEYNOTE_EASE_S` above). Nothing in `src/` changes:
+ * the framework's four named easings keep pydeation's calibration, and
+ * this deck's own curve lives beside the deck's own vocabulary.
+ */
+export const keynoteEase = (u: number): number =>
+  c4dEaseWith(u, KEYNOTE_EASE_S, KEYNOTE_EASE_S)
+
+/**
+ * How many waypoints reproduce `keynoteEase` through a LINEAR sequence.
+ *
+ * A `sequence` track with `easing: "linear"` interpolates its waypoints
+ * uniformly (`Timeline.valueAt`), so waypoints placed at the Keynote
+ * ease's own values reconstruct it directly — with none of the per-pair
+ * ripple P-7 had to pre-compensate for, because there is no per-pair
+ * ease to fight.
+ *
+ * Measured max reconstruction error against the exact curve: 0.0086 at
+ * 8 waypoints, 0.0022 at 16, 0.00054 at 32, 0.00014 at 64. The quantity
+ * it has to resolve is the 0.054 gap between s = 0.25 and s = 0.42, so
+ * 32 leaves a 100x margin and is the same count `MOTION_SAMPLES` uses.
+ */
+export const EASE_SAMPLES = 32
+
+/**
+ * A parameter ramp on Keynote's own ease, as a linear waypoint sequence.
+ *
+ * The framework's `.to()` would apply `smooth` (s = 0.25); this states
+ * the s = 0.42 curve explicitly. `from` and `to` are the parameter's
+ * endpoint VALUES, and the caller stamps the track `linear` — see
+ * `keynoteRamp`'s uses, each of which pairs it with `eased("linear", …)`.
+ */
+export const keynoteWaypoints = (from: number, to: number): number[] => {
+  const out: number[] = []
+  for (let k = 0; k <= EASE_SAMPLES; k++) {
+    out.push(from + (to - from) * keynoteEase(k / EASE_SAMPLES))
+  }
+  return out
+}
 
 /**
  * An `apple:action-motion-path` as a windowed `Move`.
@@ -344,16 +472,28 @@ export const curvedMotionAnim = (
     return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }
   }
 
-  // The declared easing. Every action build in the deck states
-  // `kEaseBoth`, which is the framework's symmetric `smooth`; anything
-  // else falls back to it rather than inventing a mapping this deck
-  // gives no example of.
-  const easing: Easing = "smooth"
-
+  // THE DECLARED EASING IS KEYNOTE'S, NOT THE FRAMEWORK'S (P-8).
+  //
+  // Every action build in the deck states `kEaseBoth`. P-7 mapped that
+  // onto the framework's symmetric `smooth`, which is the same curve
+  // FAMILY at a different tangent length — pydeation's s = 0.25 rather
+  // than Keynote's s = 0.42. On this very build the difference is
+  // measurable and large: fitted against the footage, s = 0.42 lands
+  // 1.29 px rms where s = 0.25 lands 8.90 px, and the same sweep on one
+  // of P-7's own straight cursors agrees to the sweep's resolution. See
+  // `KEYNOTE_EASE_S` for the measurement and for why 0.42 is a reading
+  // (CSS `ease-in-out`) rather than a fit.
+  //
+  // The waypoints are therefore placed on the KEYNOTE ease and the track
+  // is stamped `linear`, so `Timeline.valueAt` interpolates them
+  // uniformly and reconstructs that curve directly. This also removes
+  // P-7's pre-compensation problem rather than re-solving it: there is
+  // no per-pair ease left to fight, so the ripple that forced the
+  // `ease(k/N)` placement is gone and the samples are the curve itself.
   const xs: number[] = []
   const ys: number[] = []
   for (let k = 0; k <= MOTION_SAMPLES; k++) {
-    const p = atFraction(ease(easing, k / MOTION_SAMPLES))
+    const p = atFraction(keynoteEase(k / MOTION_SAMPLES))
     xs.push(p.x * scale)
     // Slide units are y-DOWN, world y-up — the same flip the straight
     // branch performs.
@@ -366,11 +506,71 @@ export const curvedMotionAnim = (
   // path's own origin (0,0) and therefore the target's own place.
   const x0 = target.x.value
   const y0 = target.y.value
-  return together(
+  return eased(
+    "linear",
     target.x.sequence(...xs.map((v) => x0 + v)),
     target.y.sequence(...ys.map((v) => y0 + v)),
   )
 }
+
+/**
+ * The measured factor an `apple:action-scale` build scales its target by.
+ *
+ * THE RECORD DECLARES NO MAGNITUDE, AND THAT IS CONFIRMED RATHER THAN
+ * ASSUMED. P-4 declined to score deck slide 10's action-scale on exactly
+ * this ground, and P-7 checked the raw archives for all five in the
+ * deck: they carry `actionMotionPathSource` where a motion path is
+ * declared and no scale analogue at all — no `actionScaleSource`, no
+ * factor on the build's attributes. The absence is in the archive.
+ *
+ * SO THE FACTOR IS MEASURED, WHICH IS THE ADMISSIBLE ROUTE. Under the
+ * refused-fits rule (DECISIONS 2026-09-07, refined at O-11) a quantity
+ * that exists ONLY in the footage is measured, not fitted — the same
+ * standing that every click onset in this campaign has. Deck slide 56 is
+ * the one place the deck makes this measurable cleanly: its action-scale
+ * shares a target and a 3.0s window with the curved motion path, on a
+ * `Man_83` figure travelling across empty stage with nothing overlapping
+ * it, so its own ink can be isolated frame by frame.
+ *
+ * Tracking that figure's bounding box through its travel and correcting
+ * for its 3.0-unit stroke (which adds one width to each dimension):
+ *
+ *     declared box height  44.400 px      measured at rest  44.0
+ *     declared box width   17.198 px      measured at rest  ~17
+ *     measured height, end of travel      35.0
+ *     ratio                                0.795
+ *
+ * and the resulting arrival box, scaled about the box CENTRE, predicts
+ * the figure's ink at x[649.3, 665.1] y[278.5, 316.0] against a measured
+ * x[649, 664] y[278, 315]. Sub-pixel on three of four edges.
+ *
+ * 0.8 is quoted rather than 0.795 for the same reason `KEYNOTE_EASE_S`
+ * is 0.42 rather than 0.4183: the measurement locates a round number
+ * that an author would type, and reporting the third digit would be
+ * claiming a precision the 5 fps reference does not carry.
+ *
+ * ONLY DECK 56 IS SCORED ON THIS. The other four action-scale records
+ * (deck slides 10, 17, 21 x2) are NOT given this factor: each would need
+ * its own measurement, and none of them is isolated the way this one is.
+ * P-4's decision not to score deck 10 stands. This constant is what deck
+ * 56's own footage says about deck 56's own build.
+ */
+export const ACTION_SCALE_D56 = 0.8
+
+/**
+ * An `apple:action-scale` as a windowed scale about the target's centre.
+ *
+ * The factor is the caller's, because the record does not carry one —
+ * see `ACTION_SCALE_D56` for what is measurable and where. A caller with
+ * no measurement for its own build should not call this; `Slide.build`
+ * reports the record through `unsupported()` instead, which is what the
+ * other four action-scale records in the deck get.
+ *
+ * The ramp is Keynote's ease, spelled the same way `curvedMotionAnim`
+ * spells it: waypoints on `keynoteEase`, track stamped `linear`.
+ */
+export const scaleAnim = (target: Holon, factor: number): Anim =>
+  eased("linear", target.scale.sequence(...keynoteWaypoints(target.scale.value, target.scale.value * factor)))
 
 /** A motion path's final point, relative to the drawable's position. */
 export const motionEndpoint = (
@@ -529,10 +729,12 @@ export const buildAnim = (record: KeyBuild, target: Holon): Anim => {
     return together([rampOpacity(target, [out ? 0 : 1]), 0, INSTANT_WINDOW])
   }
 
-  // dissolve / dissolve character: one uniform opacity ramp. The deck's
-  // `delivery: "All at Once"` is what makes the two identical; see the
-  // module header for the footage that confirms it.
-  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1])
+  // dissolve / dissolve character: one uniform opacity ramp on KEYNOTE's
+  // ease. The deck's `delivery: "All at Once"` is what makes the two
+  // spellings identical; see the module header for the footage that
+  // confirms it, and `KEYNOTE_EASE_S` for the two 2.0s ramps on deck 43
+  // that measure the curve.
+  return out ? rampOpacity(target, [0], true) : rampOpacity(target, [0, 1], true)
 }
 
 /**
@@ -619,8 +821,9 @@ export const lineDrawAnim = (
     return out ? target.creation.to(0) : target.creation.sequence(0, 1)
   }
   // Not a stroke — a build the deck applied to something with no draw
-  // front. Fall back to the ramp rather than animating nothing.
-  return out ? rampOpacity(target, [0]) : rampOpacity(target, [0, 1])
+  // front. Fall back to the ramp rather than animating nothing, on the
+  // same Keynote ease the dissolves take.
+  return out ? rampOpacity(target, [0], true) : rampOpacity(target, [0, 1], true)
 }
 
 /**
@@ -690,6 +893,16 @@ export const isBuildable = (h: Holon): boolean =>
 export const rampOpacity = (
   target: Holon,
   values: readonly number[],
+  /**
+   * Ramp on KEYNOTE's ease rather than the framework's (`KEYNOTE_EASE_S`
+   * — measured, twice, on this deck's own 2.0s dissolves).
+   *
+   * Off by default because the one caller that must NOT take it is the
+   * instant step: `bc-appear` squeezes its whole transition into
+   * `INSTANT_WINDOW`, where the curve's shape is unobservable and 33
+   * waypoints inside one millisecond would be noise with a cost.
+   */
+  keynote = false,
 ): Anim => {
   const drawn: Holon[] =
     target instanceof Connection
@@ -697,6 +910,20 @@ export const rampOpacity = (
       : target instanceof DottedLine
         ? (void target.parts, target.dashes)
         : [target]
+  if (keynote) {
+    // Waypoints on the Keynote curve, interpolated LINEARLY — the same
+    // construction `curvedMotionAnim` uses, and for the same reason: a
+    // linear `sequence` reproduces whatever curve its waypoints trace,
+    // so the ease is stated in the samples rather than asked of the
+    // renderer, whose four named easings are pydeation's.
+    //
+    // An `Out` ramp states one value and starts from whatever the target
+    // currently holds, which at build time is 1.
+    const from = values.length === 1 ? 1 : values[0]!
+    const to = values[values.length - 1]!
+    const wp = keynoteWaypoints(from, to)
+    return eased("linear", ...drawn.map((h) => h.opacity.sequence(...wp)))
+  }
   return together(
     ...drawn.map((h) =>
       values.length === 1

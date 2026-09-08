@@ -826,6 +826,42 @@ describe("builds", () => {
     }
   })
 
+  test("deck 54's seven tablets really are declared at one point", async () => {
+    // P-8's finding. The archive states all seven stacked; the footage
+    // and Keynote's OWN thumbnail draw them spread. Investigated for a
+    // dropped mechanism and there is none — see the note above KeySlide.
+    // This test pins the archive's actual content so a future reader
+    // does not re-open the question, and so a "fix" that invented
+    // positions would fail loudly.
+    const { slide54 } = await import("../vocabulary/Slides/assets/pl02/slide54")
+    const ids = [
+      "5450290",
+      "5451245",
+      "5451291",
+      "5451337",
+      "5451383",
+      "5451439",
+      "5451499",
+    ]
+    const tablets = slide54.groups.filter((g) => ids.includes(g.id))
+    expect(tablets).toHaveLength(7)
+    // Every tablet's ring subpath starts at the same canvas point.
+    const starts = ids.map((id) => {
+      const group = slide54.groups.find((g) => g.id === id)!
+      const ring = slide54.shapes.find((s) => group.members.includes(s.id))!
+      return [ring.subpaths[0]![0]!, ring.subpaths[0]![1]!] as const
+    })
+    for (const [x, y] of starts) {
+      expect(x).toBeCloseTo(starts[0]![0], 3)
+      expect(y).toBeCloseTo(starts[0]![1], 3)
+    }
+    // And none of them carries a motion path that would move it.
+    const targets = new Set(ids)
+    for (const build of slide54.builds) {
+      if (targets.has(build.target)) expect(build.motionPath).toBeUndefined()
+    }
+  })
+
   test("no build in the deck delivers per character", async () => {
     // All 384 builds across slides 1-58 are "All at Once", including
     // all 121 `dissolve character` ones — so `dissolve character` is a

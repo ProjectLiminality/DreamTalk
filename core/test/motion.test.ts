@@ -29,18 +29,24 @@
 
 import { describe, expect, test } from "bun:test"
 import {
+  ACTION_SCALE,
+  ACTION_SCALE_D56,
   APPEAR,
   BC_APPEAR,
+  EASE_SAMPLES,
+  KEYNOTE_EASE_S,
   MOTION_PATH,
   MOTION_SAMPLES,
   SUPPORTED,
   curvedMotionAnim,
   isInstant,
+  keynoteEase,
   motionEndpoint,
   motionIsStraight,
+  scaleAnim,
 } from "../vocabulary/Slides/Builds"
 import { Circle } from "../src/parts/primitives"
-import { ease } from "../src/timeline"
+import { c4dEaseWith, ease } from "../src/timeline"
 import type { KeyBuild, KeyPathElement } from "../src/geometry/keynote"
 
 /**
@@ -165,21 +171,33 @@ describe("the curved motion path", () => {
   })
 
   /**
-   * THE RIPPLE TEST — the one that guards the non-obvious part.
+   * THE RIPPLE TEST, REWRITTEN FOR THE MECHANISM THAT REPLACED IT (P-8).
    *
-   * `Timeline.valueAt` eases each waypoint PAIR over its own sub-span,
-   * so the composed motion is only the declared single ease if the
-   * waypoints were placed to cancel that. This reconstructs exactly what
-   * the renderer does and compares against arc-length-uniform travel
-   * under one ease.
+   * P-7 stamped these waypoints with the framework's `smooth` easing, so
+   * `Timeline.valueAt` eased every consecutive PAIR over its own
+   * sub-span and the composite rippled once per sample; the waypoints
+   * were placed at `ease(k/N)` to cancel that, and this test asserted
+   * the cancellation held.
+   *
+   * P-8 measured the deck's `kEaseBoth` and found it is NOT `smooth` —
+   * it is the same Bezier family at s = 0.42 rather than 0.25, four
+   * independent fits (`Builds.KEYNOTE_EASE_S`). The framework's `Easing`
+   * union has no name for that curve and `src/` is not this vocabulary's
+   * to change, so the track is now stamped `linear` and the waypoints
+   * trace the Keynote curve directly.
+   *
+   * That dissolves the ripple rather than cancelling it: a linear
+   * `sequence` interpolates its waypoints uniformly, so there is no
+   * per-pair ease left to fight. The property worth guarding is now the
+   * simpler one — the composite IS the Keynote ease — and it is a
+   * stronger statement than the old bound, so the test survives its own
+   * mechanism changing.
    */
-  test("the composed motion is ONE ease, not one per sample", () => {
+  test("the composed motion is ONE ease — Keynote's, not the framework's", () => {
     const { xs, ys } = waypoints()
     const n = xs.length - 1
     expect(n).toBe(MOTION_SAMPLES)
 
-    // Arc length along the produced waypoints, so "how far" is measured
-    // the same way the placement measured it.
     const cum = [0]
     for (let i = 1; i <= n; i++) {
       cum.push(cum[i - 1]! + Math.hypot(xs[i]! - xs[i - 1]!, ys[i]! - ys[i - 1]!))
@@ -189,40 +207,99 @@ describe("the curved motion path", () => {
     let worst = 0
     for (let k = 0; k <= 200; k++) {
       const u = k / 200
-      // The renderer's own lookup.
+      // The renderer's own lookup, for a track stamped `linear`.
       const scaled = u * n
       const i = Math.min(Math.floor(scaled), n - 1)
-      const local = ease("smooth", scaled - i)
+      const local = scaled - i
       const travelled = (cum[i]! + (cum[i + 1]! - cum[i]!) * local) / total
-      worst = Math.max(worst, Math.abs(travelled - ease("smooth", u)))
+      worst = Math.max(worst, Math.abs(travelled - keynoteEase(u)))
     }
-    // Measured convergence: 0.036 at 4 samples, 0.013 at 8, 0.0060 at
-    // 16, 0.0030 at 32. A naive uniform resample — waypoints at equal
-    // arc length rather than at eased positions — peaks near 0.036
-    // however many samples are used, because the ripple is per pair.
-    expect(worst).toBeLessThan(0.01)
+    // Measured reconstruction error for a linear waypoint sequence:
+    // 0.0086 at 8 samples, 0.0022 at 16, 0.00054 at 32 — an order of
+    // magnitude tighter than the 0.0030 the pre-compensated version
+    // reached at the same count, because it is an interpolation rather
+    // than a cancellation.
+    expect(worst).toBeLessThan(0.002)
   })
 
-  test("a NAIVE uniform resample would fail that test — the ripple is real", () => {
-    // Same reconstruction, waypoints placed at EQUAL arc length. This is
-    // the implementation the ripple test exists to reject; if it ever
-    // passes, the renderer's per-pair easing has changed and the
-    // pre-compensation in `curvedMotionAnim` is no longer needed.
-    const n = MOTION_SAMPLES
+  test("the waypoints trace KEYNOTE's ease, and `smooth` is distinguishable", () => {
+    // The guard that keeps the measurement honest: if someone maps
+    // `kEaseBoth` back onto the framework's `smooth`, the waypoints move
+    // by 0.054 of the path at the point of maximum divergence — on deck
+    // 56's 372-unit arc that is 20 slide units, or 13 video pixels, and
+    // it is the difference the footage measures (8.90 px rms against
+    // 1.29). This asserts the two curves have NOT been conflated.
     let worst = 0
     for (let k = 0; k <= 200; k++) {
       const u = k / 200
-      const scaled = u * n
-      const i = Math.min(Math.floor(scaled), n - 1)
-      const local = ease("smooth", scaled - i)
-      const travelled = (i + local) / n
-      worst = Math.max(worst, Math.abs(travelled - ease("smooth", u)))
+      worst = Math.max(worst, Math.abs(keynoteEase(u) - ease("smooth", u)))
     }
-    // 0.074 of the path — on deck 56's 372-unit arc that is 27 slide
-    // units, or 18 video pixels of lag and lurch, at the point of
-    // maximum deviation. Seven times the bar the placed waypoints meet,
-    // and unlike theirs it does not shrink with the sample count.
     expect(worst).toBeGreaterThan(0.05)
+  })
+
+  test("Keynote's ease is CSS ease-in-out, and it is symmetric", () => {
+    // s = 0.42 is `cubic-bezier(0.42, 0, 0.58, 1)`: the x-coordinates are
+    // s and 1 - s, the y-coordinates are the flat tangents. What makes
+    // 0.42 a READING rather than a fit is that it names a standard
+    // curve; these assert the properties that standard has.
+    expect(KEYNOTE_EASE_S).toBe(0.42)
+    expect(keynoteEase(0)).toBeCloseTo(0, 9)
+    expect(keynoteEase(1)).toBeCloseTo(1, 9)
+    expect(keynoteEase(0.5)).toBeCloseTo(0.5, 9)
+    for (const u of [0.1, 0.25, 0.37, 0.5]) {
+      expect(keynoteEase(u) + keynoteEase(1 - u)).toBeCloseTo(1, 6)
+    }
+    // It starts and ends slower than `smooth` and crosses in the middle —
+    // the shape a longer tangent gives.
+    expect(keynoteEase(0.2)).toBeLessThan(ease("smooth", 0.2))
+    expect(keynoteEase(0.8)).toBeGreaterThan(ease("smooth", 0.8))
+  })
+
+  test("a linear waypoint sequence reproduces any curve it samples", () => {
+    // Why the mechanism is sound in general, not just at s = 0.42: the
+    // reconstruction error is a property of the sample count, so the
+    // same construction carries whatever curve a later measurement
+    // finds. Checked across the family.
+    for (const s of [0.15, 0.25, 0.42, 0.5]) {
+      const wp: number[] = []
+      for (let k = 0; k <= MOTION_SAMPLES; k++) {
+        wp.push(c4dEaseWith(k / MOTION_SAMPLES, s, s))
+      }
+      let worst = 0
+      for (let k = 0; k <= 200; k++) {
+        const u = k / 200
+        const scaled = u * MOTION_SAMPLES
+        const i = Math.min(Math.floor(scaled), MOTION_SAMPLES - 1)
+        const lin = wp[i]! + (wp[i + 1]! - wp[i]!) * (scaled - i)
+        worst = Math.max(worst, Math.abs(lin - c4dEaseWith(u, s, s)))
+      }
+      expect(worst).toBeLessThan(0.002)
+    }
+  })
+
+  test("an action-scale ramps on the same curve, about the target's own scale", () => {
+    const target = new Circle({ radius: 1 })
+    const anim = scaleAnim(target, ACTION_SCALE_D56)
+    const track = anim.tracks.find((t) => t.param === target.scale)!
+    // Linear, so the waypoints ARE the curve — the same contract the
+    // motion path takes.
+    expect(track.easing).toBe("linear")
+    expect(track.mode).toBe("sequence")
+    const wp = track.values as number[]
+    expect(wp.length).toBe(EASE_SAMPLES + 1)
+    expect(wp[0]!).toBeCloseTo(1, 9)
+    expect(wp[wp.length - 1]!).toBeCloseTo(ACTION_SCALE_D56, 9)
+    // Monotone shrink — a scale that overshoots would read as a bounce.
+    for (let i = 1; i < wp.length; i++) expect(wp[i]!).toBeLessThanOrEqual(wp[i - 1]! + 1e-12)
+  })
+
+  test("action-scale stays OUT of SUPPORTED — four of the five are unmeasured", () => {
+    // The record declares no factor (P-4, confirmed by P-7 in the raw
+    // archives), so only a build whose factor a scene has MEASURED can
+    // be played. Listing the effect as supported would tell a later
+    // chapter that the other four are handled while they silently do
+    // nothing; they must keep showing up in `unsupported()`.
+    expect(SUPPORTED.has(ACTION_SCALE)).toBe(false)
   })
 
   test("waypoints are spaced by ARC LENGTH, not by curve parameter", () => {

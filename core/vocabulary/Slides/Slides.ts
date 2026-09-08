@@ -70,6 +70,7 @@ import {
   type KeyLineEnd,
 } from "../../src/geometry/keynote"
 import {
+  ACTION_SCALE,
   LINE_DRAW,
   MOTION_PATH,
   SUPPORTED,
@@ -79,6 +80,7 @@ import {
   lineDrawAnim,
   motionAnim,
   preBuildAnim,
+  scaleAnim,
   strokeEnds,
   unsupportedBuilds,
 } from "./Builds"
@@ -911,6 +913,24 @@ export class Slide extends Holon {
    * and must not be mixed. See DECISIONS' refused-fits rule as O-11
    * refined it.
    */
+  /**
+   * The factor an `apple:action-scale` build scales its target by, keyed
+   * by the build's own id — supplied by the SCENE, because the record
+   * does not carry one.
+   *
+   * P-4 established that a scale build declares an effect, a duration
+   * and an easing and no magnitude, and P-7 confirmed the absence in the
+   * raw archives. So the factor is either measured from the footage for
+   * that specific build, or the build is not scored: a scene states what
+   * IT has measured, one entry per build, and an unlisted record falls
+   * through to `unsupported()` exactly as before.
+   *
+   * Only ONE of the deck's five action-scale records is listed anywhere
+   * — deck 56's, whose target crosses empty stage and can be isolated
+   * (`Builds.ACTION_SCALE_D56`). The other four stay unscored.
+   */
+  scaleFactors: Record<string, number> = {}
+
   build(record: KeyBuild): Anim {
     void this.parts
     const targets = this.buildTargets(record)
@@ -946,6 +966,12 @@ export class Slide extends Holon {
         // only one whose value is a DISTANCE. Routed here rather than in
         // Builds.ts because the scale is the holon's.
         items.push(motionAnim(record, target, slideToWorld(this.height.value)))
+      } else if (record.effect === ACTION_SCALE) {
+        // Scored only where the SCENE has measured the factor — the
+        // record declares none (see `scaleFactors`). Without one the
+        // build contributes nothing and stays in `unsupported()`.
+        const factor = this.scaleFactors[record.id]
+        if (factor !== undefined) items.push(scaleAnim(target, factor))
       } else {
         items.push(buildAnim(record, target))
       }

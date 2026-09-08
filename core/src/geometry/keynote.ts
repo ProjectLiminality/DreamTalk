@@ -531,6 +531,51 @@ export interface KeyTransition {
   fadeUnmatched?: boolean
 }
 
+/**
+ * A NOTE ON DECK SLIDE 54, AND THE LIMIT OF WHAT THE ARCHIVE KNOWS.
+ *
+ * P-8 found that deck 54's seven "tablet" groups (5450290, 5451245,
+ * 5451291, 5451337, 5451383, 5451439, 5451499 — each a blue ring plus a
+ * Cylinder_563 at angle 90) are ALL declared at one point: group
+ * (581.784, 359.175), cylinder (586.13, 362.46), byte-identical across
+ * all seven. The footage draws them at seven spread positions matching
+ * deck 55's declared tablet layout.
+ *
+ * The importer was investigated for a dropped mechanism and there is
+ * none. Checked and excluded:
+ *
+ *   - group-offset chains — all seven are TOP-LEVEL in drawablesZOrder;
+ *   - `motionPath` — their only builds are plain `apple:dissolve` In,
+ *     with no `actionMotionPathSource` on any of them;
+ *   - the transition — deck 55's Magic Move stages matched objects, but
+ *     it cannot supply deck 54's own held layout;
+ *   - a nested duplicate set inside the big group 5447990 — there is
+ *     none, these seven are the slide's only tablets;
+ *   - decoder loss — the RAW protobuf was read for 5450290 and matches
+ *     the decode exactly, position included;
+ *   - preserved unknown fields — the `IgnoreAndPreserve` paths 1.12/1.13
+ *     appear on ALL 24 of the slide's groups, not just these seven, so
+ *     they are a generic per-group field (shadow/reflection), not a
+ *     position;
+ *   - a derivable relationship — the seven displacements to deck 55's
+ *     positions are all different, sharing no common offset.
+ *
+ * AND YET Keynote's own slide thumbnail for deck 54 renders the seven
+ * tablets SPREAD. So Keynote knows a layout that this file, as decoded,
+ * does not state — most likely held in application state or a cache
+ * outside the slide archive.
+ *
+ * This configuration is UNIQUE in the deck: scanning every slide for
+ * three or more top-level drawables sharing one exact position finds
+ * exactly this one case. That, plus the thumbnail disagreeing with the
+ * geometry, reads as an authoring artifact rather than a format feature.
+ *
+ * The importer therefore reports what the file says, and P-8's decision
+ * to score deck 54 with the gap stated as a ceiling — rather than moving
+ * geometry on a guess — is the correct one. Deriving the positions from
+ * deck 55 would be fitting the reproduction to the answer.
+ */
+
 /** One slide, fully imported. */
 export interface KeySlide {
   /** 1-based position in the SHOW's order (the recon's segment table). */
