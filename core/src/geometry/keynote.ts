@@ -954,19 +954,42 @@ export interface SlideShapeData {
    * (465, 727) -> (743, 653), a short lower-left diagonal the footage
    * does not contain anywhere.
    *
-   * HOW COMMON: surveyed across all 547 connection lines by testing
-   * whether each stored endpoint lands on the box of the object it
-   * connects to (within 20 slide units) —
+   * HOW COMMON: 25%, and the working assumption should be that a
+   * stored path is UNRELIABLE. Surveyed across all 547 connection lines
+   * by testing whether the stored chord's axis aims at BOTH connected
+   * objects' centres (within 3 slide units) —
    *
-   *   472  FRESH — endpoints touch their boxes
-   *    15  STALE — endpoints far from them
-   *    60  unresolvable (no `connectedFrom`/`connectedTo` at all)
+   *   352  (64%)  FRESH — aims at both centres
+   *   135  (25%)  STALE — misses at least one
+   *    60  (11%)  unresolvable (no `connectedFrom`/`connectedTo`)
    *
-   * So stale paths are a HANDFUL, not the norm: derive-everything is not
-   * warranted, and special-casing the 15 is. Note the interaction that
-   * makes slide 3's line doubly awkward — it connects to an IMAGE, whose
-   * pixels this importer does not carry, so deriving that particular
-   * line needs `KeySlide.images` too (which is why those boxes are kept).
+   * An earlier version of this comment said "15 stale, a handful" on the
+   * strength of a weaker test — distance from each endpoint to its
+   * object's BOX — which scores a line fresh when EITHER end touches,
+   * and so passed the very common half-right case. P-3 found it: slide
+   * 2's four dotted lines all aim exactly at the Vitruvian image's
+   * centre (perpendicular deviation 0.0) while three of them miss their
+   * OTHER endpoint by 47.6, 66.6 and 16.7 units. The correct test is the
+   * one above, and it is nine times less forgiving.
+   *
+   * The footage settles it beyond the archives. Sampling the reference
+   * frame along each candidate axis and counting how many samples land
+   * on ink (f_00081, 2px tolerance): the sun line's stored path hits
+   * **0%** and its centre-to-centre line **41%**; the eagle line's
+   * stored path **7%** against **57%**. For dotted lines ~50% is what a
+   * perfect match looks like, since half the samples fall in the gaps.
+   * P-3's independent fit of the eagle line's 584 ink pixels gives slope
+   * 0.5862 against the centre-to-centre 0.5866 and the stored 0.6816,
+   * and extrapolates to the image centre within **0.3 px**.
+   *
+   * THE RULE, as far as it is established: the line runs between the two
+   * connected drawables' CENTRES, clipped to their boundaries — the
+   * visible dots begin outside each icon, which is presumably what
+   * `outsetFrom`/`outsetTo` are for (both 0.0 throughout this deck).
+   * Attachment is NOT a fixed point on the box: the stored endpoints of
+   * slide 2's four lines sit at box fractions 1.425, 0.049, 3.604 and
+   * 0.042, which no single attachment rule produces — further evidence
+   * that they are leftovers rather than a convention to be decoded.
    *
    * The endpoints are carried and the derivation is NOT performed here:
    * where a line should run when its stored path disagrees is a

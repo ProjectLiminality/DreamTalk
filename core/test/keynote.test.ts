@@ -692,8 +692,9 @@ describe("builds", () => {
     // Its stored path fits to a short lower-left diagonal the footage
     // does not contain; the endpoints' box centres are both at slide
     // y 540 — video row 360, where the reference draws a long
-    // horizontal. 15 of the deck's 547 connection lines are stale like
-    // this, so the endpoints are the recourse.
+    // horizontal. 135 of the deck's 547 connection lines (25%) are stale
+    // like this, so a stored path is UNRELIABLE and the endpoints are
+    // the authority — see SlideShapeData.connects.
     const line = slide03.shapes.find((s) => s.id === "4515938")
     expect(line).toBeDefined()
     expect(line!.connects).toEqual({ from: "4515966", to: "4515878" })
@@ -703,6 +704,23 @@ describe("builds", () => {
     expect(slide03.images!.some((i) => i.id === "4515878")).toBe(true)
     // And the endpoint it comes FROM is an ordinary shape on the slide.
     expect(slide03.shapes.some((s) => s.id === "4515966")).toBe(true)
+  })
+
+  test("slide 2's four connection lines all reference the image they aim at", async () => {
+    const { slide02 } = await import("../vocabulary/Slides/assets/pl02/slide02")
+    // P-3 measured these: all four aim exactly at the Vitruvian image's
+    // centre (perpendicular deviation 0.0) while three miss their other
+    // endpoint. Sampling the footage along each axis, the stored paths
+    // hit 0% and 7% of the reference ink where centre-to-centre lines
+    // hit 41% and 57%. Every one of them needs 4513444 to resolve, which
+    // is why the images' boxes are carried.
+    const lines = slide02.shapes.filter((s) => s.connects)
+    expect(lines).toHaveLength(4)
+    for (const line of lines) {
+      const { from, to } = line.connects!
+      expect(from === "4513444" || to === "4513444").toBe(true)
+    }
+    expect(slide02.images!.some((i) => i.id === "4513444")).toBe(true)
   })
 
   test("no build in the deck delivers per character", async () => {

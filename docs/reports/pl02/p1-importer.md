@@ -258,31 +258,50 @@ slide y 540 — video row 360, exactly where the reference draws a long
 horizontal dotted line. Its stored path fits to (465, 727) → (743, 653),
 a short lower-left diagonal the footage does not contain anywhere.
 
-**The survey, across all 547 connection lines**, testing whether each
-stored endpoint lands within 20 slide units of the box of the object it
-connects to:
+**The survey, across all 547 connection lines** — testing whether the
+stored chord's axis aims at BOTH connected objects' centres (within 3
+slide units):
 
-| | count |
-|---|---|
-| **FRESH** — endpoints touch their boxes | **472** |
-| **STALE** — endpoints far from them | **15** |
-| unresolvable — no `connectedFrom`/`connectedTo` at all | 60 |
+| | count | |
+|---|---|---|
+| **FRESH** — aims at both centres | **352** | 64% |
+| **STALE** — misses at least one | **135** | 25% |
+| unresolvable — no `connectedFrom`/`connectedTo` | 60 | 11% |
 
-So the answer to P-3's question is **"a handful"**: special-casing the 15
-is warranted, deriving all 547 is not. That matters most for **P-4**,
-which owns the connection meshes (10–30 lines per slide, 70 on slide 11)
-and would otherwise have found this the expensive way.
+**I first reported "15 stale, a handful", and that was wrong by 9x.** My
+test measured distance from each endpoint to its object's BOX, which
+scores a line fresh when EITHER end touches — and so passed the very
+common half-right case. P-3 found it: slide 2's four dotted lines all aim
+*exactly* at the Vitruvian image's centre (perpendicular deviation 0.0)
+while three miss their OTHER endpoint by 47.6, 66.6 and 16.7 units. The
+axis test above is the right instrument.
 
-A methodological note, because I got it wrong first. My initial survey
-compared stored endpoints against connected-object **centres** and found
-339 lines "near (12–60 units)" — which looked alarming and was
-meaningless, since connection lines attach to object EDGES, not centres.
-My second attempt tested the chord's **angle** and passed P-3's line,
-because both the stale and the true line slope gently; the length ratio
-0.30 was the tell my ±0.4–1.2 band let through. Only the third test —
-distance from each endpoint to its object's BOX — separates the cases
-cleanly and catches the known-bad one. Two wrong instruments before a
-right one, on a question whose answer changes a chapter's plan.
+The footage settles it beyond the archives. Sampling the reference frame
+along each candidate axis and counting samples landing on ink (f_00081,
+2 px tolerance):
+
+| line | stored path | centre-to-centre |
+|---|---|---|
+| sun (4514184) | **0%** | 41% |
+| eagle (4514420) | **7%** | 57% |
+
+For dotted lines ~50% is what a perfect match looks like, half the
+samples falling in the gaps. P-3's independent fit of the eagle line's
+584 ink pixels gives slope 0.5862 against the centre-to-centre 0.5866 and
+the stored 0.6816, extrapolating to the image centre within **0.3 px**.
+
+**So P-3's inversion is right: treat a stored connection-line path as
+unreliable and recompute from the endpoints.** The rule, as far as it is
+established: the line runs between the two connected drawables' CENTRES,
+clipped to their boundaries — the visible dots begin outside each icon,
+presumably what `outsetFrom`/`outsetTo` are for (both 0.0 throughout).
+Attachment is not a fixed point on the box: slide 2's stored endpoints
+sit at box fractions 1.425, 0.049, 3.604 and 0.042, which no single
+attachment rule produces.
+
+This lands squarely on **P-4** (connection meshes, 10-30 lines per slide,
+70 on slide 11) — and it is now a design input rather than a discovery
+waiting to happen there.
 
 The endpoints are carried; the derivation is deliberately NOT performed
 here. Where a line should run when its stored path disagrees — which
@@ -552,7 +571,7 @@ same de Casteljau rather than duplicating it.
 ## 7. Gates
 
 - `bunx tsc --noEmit` — clean.
-- `bun test` — **1046 pass, 0 fail** (961 baseline + 56 mine + teammates').
+- `bun test` — **1065 pass, 0 fail** (961 baseline + 57 mine + teammates').
 - S04 gauntlet — **6/6 PASS**, mean coverage ref 0.9946 / ours 0.9954.
 - Title card — **1/1 PASS** whole-frame after the group fix and P-2's type.
 
@@ -579,9 +598,9 @@ Carry forward:
    fails a different test (§1's P-3 correction). Resolve it against
    measured onsets before building timing on either. No `DissolveCharacters`
    verb is owed — nothing in the video delivers per character.
-4. **Do not trust a connection line's stored path blindly.** 15 of 547
-   are stale; the endpoints are carried so P-4 can detect and derive
-   them. See §1's fourth P-3 correction.
+4. **Treat a connection line's stored path as unreliable.** 135 of 547
+   (25%) are stale; recompute from the carried endpoints. See §1's
+   fourth P-3 correction.
 5. **Groups translate; they do not scale or rotate.** Verified across all
    678. If a future slide looks scaled, suspect the fit rule or a stale
    group box before adding a scale term.
