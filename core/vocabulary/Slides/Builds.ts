@@ -102,7 +102,7 @@ import {
   type KeyBuild,
   type KeyPathElement,
 } from "../../src/geometry/keynote"
-import { Connection } from "./Connections"
+import { Connection, keynoteEaseInverse } from "./Connections"
 
 /** Keynote's stroke-draw-on. Core's `Create`, at Keynote's pacing. */
 export const LINE_DRAW = "com.apple.iWork.Keynote.LineDrawForLine"
@@ -770,6 +770,32 @@ export const buildAnim = (record: KeyBuild, target: Holon): Anim => {
  * `direction` selects. On a plain `Line` the draw front is `creation` and
  * `drawReversed` already names the end it starts from.
  */
+/**
+ * The tracks that carry a Connection's end decorations through a draw.
+ *
+ * A head does not queue behind the last dash; it RIDES THE FRONT, lit
+ * from the first frame and translating along the shaft as the draw
+ * advances (`Connection.headFront`, and P-10's measurement in its
+ * doc-comment). So it contributes two things: the front parameter, swept
+ * 0→1 across the whole window, and a `creation` of 1 stamped at the
+ * start so the outline is drawn rather than waiting to be swept in.
+ *
+ * `Out` runs it backwards — the head retreats along the shaft as the
+ * line un-draws, which is what an Out build is: the In build's effect,
+ * played to remove.
+ */
+const headTracks = (target: Connection, out: boolean): Windowed[] => {
+  void target.parts
+  if (target.arrows.length === 0) return []
+  const tracks: Windowed[] = [
+    [out ? target.headFront.sequence(1, 0) : target.headFront.sequence(0, 1), 0, 1],
+  ]
+  for (const a of target.arrows) {
+    tracks.push([a.creation.to(out ? 0 : 1), 0, 0])
+  }
+  return tracks
+}
+
 export const lineDrawAnim = (
   target: Holon,
   reversed: boolean,
@@ -783,9 +809,34 @@ export const lineDrawAnim = (
   // these, slide 11 seventy.
   if (target instanceof Connection) {
     void target.parts
-    const items = target.drawn()
+    // The DASHES carry the sweep; the head is not one of them. It rides
+    // the front instead of waiting at the tip — `Connection.headGlide`,
+    // driven below — because the footage draws it AT the advancing front
+    // from the first frame (P-10: zero ink beyond the front across four
+    // consecutive frames on the 25 longest corridors; a head parked at
+    // its final position would light that far column immediately).
+    const items = target.dashes
     const n = items.length
     if (n === 0) return { tracks: [] }
+
+    // THE FRONT IS EASED, NOT LINEAR, and this is where that lands.
+    //
+    // A spatial draw is windowed by POSITION and eased in TIME, so the
+    // dash occupying arc fraction [k/n, (k+1)/n] must open when the
+    // EASED front arrives there — at `keynoteEaseInverse(k/n)`, not at
+    // `k/n`. Uniform windows make the front linear, which is what this
+    // did before: measured on deck slide 11's seventy lines, the eased
+    // front tracks the footage at rms 0.0120 against the linear front's
+    // 0.0617, a 5.1x separation (P-10). It is also the retrodiagnosis of
+    // this chapter's own two failing mid-draw frames, whose deficit is
+    // entirely in `coverage_ours` with `coverage_ref` at 1.0000 — pure
+    // overdraw, which is exactly what a linear front does against an
+    // eased one through the whole first half. I had recorded those as
+    // 5 fps sampling noise; sampling noise scatters both ways across
+    // frames and this does not.
+    const front = (f: number): number =>
+      out ? 1 - keynoteEaseInverse(1 - f) : keynoteEaseInverse(f)
+
     if (fromMiddle) {
       // Each dash's window is set by its DISTANCE from the middle, so
       // the two fronts advance together and the whole line finishes at
@@ -802,27 +853,27 @@ export const lineDrawAnim = (
       // silently never drew.
       const mid = (n - 1) / 2
       const steps = Math.max(mid + 0.5, 1e-9)
-      return together(
-        ...items.map((d, i): Windowed => {
-          const from = Math.abs(i - mid) - 0.5
-          return [
-            out ? d.creation.to(0) : d.creation.sequence(0, 1),
-            Math.max(0, from / steps),
-            Math.min(1, (from + 1) / steps),
-          ]
-        }),
-      )
-    }
-    return together(
-      ...items.map((d, i): Windowed => {
-        const k = reversed ? n - 1 - i : i
+      const midTracks: Windowed[] = items.map((d, i): Windowed => {
+        const from = Math.abs(i - mid) - 0.5
         return [
           out ? d.creation.to(0) : d.creation.sequence(0, 1),
-          k / n,
-          (k + 1) / n,
+          front(Math.max(0, from / steps)),
+          front(Math.min(1, (from + 1) / steps)),
         ]
-      }),
-    )
+      })
+      midTracks.push(...headTracks(target, out))
+      return together(...midTracks)
+    }
+    const tracks: Windowed[] = items.map((d, i): Windowed => {
+      const k = reversed ? n - 1 - i : i
+      return [
+        out ? d.creation.to(0) : d.creation.sequence(0, 1),
+        front(k / n),
+        front((k + 1) / n),
+      ]
+    })
+    tracks.push(...headTracks(target, out))
+    return together(...tracks)
   }
   if (target instanceof DottedLine) {
     void target.parts
@@ -871,7 +922,15 @@ export const preBuildAnim = (record: KeyBuild, target: Holon): Anim => {
   if (record.effect === LINE_DRAW) {
     if (target instanceof Connection) {
       void target.parts
-      return together(...target.drawn().map((d) => d.creation.to(0)))
+      // The head is held back by its POSITION, not by its creation:
+      // `headFront` to 0 parks it at the shaft's origin, where the draw
+      // begins, so it is in place to ride the front out. Its outline is
+      // still pushed to nothing alongside the dashes — an unbuilt line
+      // must show nothing at all, head included.
+      return together(
+        ...target.drawn().map((d) => d.creation.to(0)),
+        target.headFront.to(0),
+      )
     }
     if (target instanceof DottedLine) {
       void target.parts

@@ -20,6 +20,8 @@ import {
   controlThrough,
   dashAlong,
   flattenQuad,
+  keynoteEaseAt,
+  keynoteEaseInverse,
   lineDecoration,
   outlineExit,
   pointAtLength,
@@ -578,6 +580,139 @@ describe("direction 53 draws from the middle outward", () => {
       expect(stopOf.get(d)!).toBeGreaterThan(startOf.get(d)! + 1e-9)
     }
     expect(Math.max(...dashes.map((d) => stopOf.get(d)!))).toBeCloseTo(1, 6)
+  })
+})
+
+describe("the draw front is EASED, not linear (P-10)", () => {
+  test("keynoteEaseInverse inverts the curve", () => {
+    for (const f of [0.05, 0.2, 0.5, 0.75, 0.95]) {
+      expect(keynoteEaseAt(keynoteEaseInverse(f))).toBeCloseTo(f, 6)
+    }
+    expect(keynoteEaseInverse(0)).toBe(0)
+    expect(keynoteEaseInverse(1)).toBe(1)
+  })
+
+  test("the inverse is slower at the ends and faster in the middle", () => {
+    // The whole content of "eased": equal SPATIAL steps take unequal
+    // TIME. A linear front would make every gap identical, which is
+    // what this module did before P-10 measured the difference (eased
+    // rms 0.0120 against linear 0.0617 on deck 11's seventy lines).
+    const at = [0, 0.25, 0.5, 0.75, 1].map(keynoteEaseInverse)
+    const gaps = at.slice(1).map((v, i) => v - at[i]!)
+    // First and last quarters take longer than the middle two.
+    expect(gaps[0]!).toBeGreaterThan(gaps[1]!)
+    expect(gaps[3]!).toBeGreaterThan(gaps[2]!)
+    // …and symmetrically so, since kEaseBoth is symmetric.
+    expect(gaps[0]!).toBeCloseTo(gaps[3]!, 6)
+    expect(gaps[1]!).toBeCloseTo(gaps[2]!, 6)
+  })
+
+  test("a mesh line's dash windows are non-uniform, and still cover [0,1]", () => {
+    const page = new Slide({ data: slide08 })
+    void page.parts
+    const record = slide08.builds.find((b) =>
+      b.effect.endsWith("LineDrawForLine"),
+    )!
+    const line = page.buildTargets(record)[0] as Connection
+    void line.parts
+    const anim = page.build(record)
+
+    const startOf = new Map<unknown, number>()
+    for (const t of anim.tracks) {
+      const prev = startOf.get(t.param.owner)
+      if (prev === undefined || t.relStart < prev) startOf.set(t.param.owner, t.relStart)
+    }
+    const starts = line.dashes.map((d) => startOf.get(d)!)
+    expect(starts.length).toBeGreaterThan(4)
+
+    // Monotone — the front only advances…
+    for (let i = 1; i < starts.length; i++) {
+      expect(starts[i]!).toBeGreaterThan(starts[i - 1]!)
+    }
+    // …and NON-UNIFORMLY, which is the whole finding. A linear front
+    // gives every gap the same size; the ease's slow start and fast
+    // middle spread them by several times.
+    const gaps = starts.slice(1).map((v, i) => v - starts[i]!)
+    expect(Math.max(...gaps) / Math.min(...gaps)).toBeGreaterThan(2)
+    // The sweep still starts at 0 and the last dash still finishes.
+    expect(starts[0]!).toBeCloseTo(0, 6)
+    expect(Math.max(...anim.tracks.map((t) => t.relStop))).toBeCloseTo(1, 6)
+  })
+})
+
+describe("the arrowhead RIDES the front (P-10)", () => {
+  test("it is lit from the start and its position is driven, not its creation", () => {
+    // My own comment used to assert the opposite — "the arrowhead
+    // arriving at the end of the shaft because that is where the shaft
+    // reaches it" — which was an assumption documented as a finding.
+    // The footage draws the head AT the advancing front from the first
+    // frame: zero ink beyond the front across four consecutive frames on
+    // the 25 longest corridors, where a head parked at its final
+    // position would light that far column immediately.
+    const page = new Slide({ data: slide08 })
+    void page.parts
+    const record = slide08.builds.find((b) =>
+      b.effect.endsWith("LineDrawForLine"),
+    )!
+    const line = page.buildTargets(record)[0] as Connection
+    void line.parts
+    expect(line.arrows).toHaveLength(1)
+
+    const anim = page.build(record)
+    const head = line.arrows[0]!
+    // The head's own creation is stamped at the very start — it is drawn
+    // from frame one rather than swept in at the end.
+    const headTracks = anim.tracks.filter((t) => t.param.owner === head)
+    expect(headTracks.length).toBeGreaterThan(0)
+    for (const t of headTracks) expect(t.relStart).toBeCloseTo(0, 6)
+    // …and the FRONT parameter sweeps the whole window, which is what
+    // moves it.
+    const frontTracks = anim.tracks.filter((t) => t.param === line.headFront)
+    expect(frontTracks).toHaveLength(1)
+    expect(frontTracks[0]!.relStart).toBeCloseTo(0, 6)
+    expect(frontTracks[0]!.relStop).toBeCloseTo(1, 6)
+  })
+
+  test("the head's geometry actually MOVES with headFront", () => {
+    const page = new Slide({ data: slide08 })
+    void page.parts
+    const line = page.connections.find((c) => {
+      void c.parts
+      return c.arrows.length > 0
+    })!
+    void line.parts
+    const head = line.arrows[0]!
+
+    line.headFront.value = 1
+    const atEnd = head.points.map((p) => ({ x: p.x, y: p.y }))
+    line.headFront.value = 0
+    const atStart = head.points.map((p) => ({ x: p.x, y: p.y }))
+
+    // It is somewhere else at the start of the draw…
+    const moved = Math.hypot(atEnd[0]!.x - atStart[0]!.x, atEnd[0]!.y - atStart[0]!.y)
+    expect(moved).toBeGreaterThan(0)
+    // …and it is a RIGID translation: the shape does not deform.
+    for (let i = 1; i < atEnd.length; i++) {
+      expect(atEnd[i]!.x - atStart[i]!.x).toBeCloseTo(atEnd[0]!.x - atStart[0]!.x, 6)
+      expect(atEnd[i]!.y - atStart[i]!.y).toBeCloseTo(atEnd[0]!.y - atStart[0]!.y, 6)
+    }
+    // A held tableau — the 89% case — must show the head finished.
+    line.headFront.value = 1
+    expect(head.points[0]!.x).toBeCloseTo(atEnd[0]!.x, 9)
+  })
+
+  test("preBuild parks the head at the shaft's origin, not the tip", () => {
+    const page = new Slide({ data: slide08 })
+    void page.parts
+    const record = slide08.builds.find((b) =>
+      b.effect.endsWith("LineDrawForLine"),
+    )!
+    const line = page.buildTargets(record)[0] as Connection
+    void line.parts
+    const tracks = page.preBuild([record]).tracks
+    const frontReset = tracks.filter((t) => t.param === line.headFront)
+    expect(frontReset).toHaveLength(1)
+    expect(frontReset[0]!.values[frontReset[0]!.values.length - 1]).toBe(0)
   })
 })
 

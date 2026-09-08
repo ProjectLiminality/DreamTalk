@@ -24,7 +24,9 @@ mesh has settled but before its Logo arrives (f_00900, 179.8s) scores
 **1.0000 / 1.0000, chamfer 0.065/0.062** — a perfect frame.
 
 The chapter's one-line summary: **the recompute rule holds, and every
-one of the four bugs it took to get there was invisible in the render.**
+one of the bugs it took to get there was invisible in the render** —
+five of them now, the last two found by P-10 after this chapter closed
+(§7).
 
 ## 1. The rule, as derived
 
@@ -381,9 +383,42 @@ only thing that can see a timing error:
 | f_00869 | 173.6 | slide 9, mesh nearly done | 0.9882 | 0.9966 | **PASS** |
 | f_00900 | 179.8 | slide 9, settled (pre-Logo) | **1.0000** | **1.0000** | **PASS** |
 
-The two FAILs both have `coverage_ref` at 1.0000 — everything the
-reference has, we have — and fail only the other way, which is the
-signature of a front running slightly ahead rather than a wrong draw.
+**CORRECTED (P-10).** I first read the two FAILs as 5 fps sampling
+noise — "our front running about one dash ahead, inside the frame
+interval". That was wrong, and the giveaway was in the numbers I had
+already written down: both have `coverage_ref` at exactly 1.0000 with
+the whole deficit in `coverage_ours`, i.e. one-directional OVERDRAW.
+Sampling noise scatters both ways across frames; this did not.
+
+P-10 measured the real cause on deck slide 11's seventy lines: **the
+draw front is EASED and mine was LINEAR** (eased rms 0.0120 against
+linear 0.0617, a 5.1x separation), and a linear front runs ahead of an
+eased one through the whole first half — exactly the signature above.
+Windowing the dashes through the ease's INVERSE fixes it:
+
+| frame | linear front | eased front |
+|---|---|---|
+| f_00862 | 0.8614 FAIL | **0.9101 PASS** |
+| f_00866 | 0.8466 FAIL | 0.8862 FAIL |
+
+Both moved in the predicted direction and one crossed the bar. Worth
+stating plainly: **I could not reproduce P-10's measurement myself.**
+Slide 9's fifteen lines all cross each other, so a chord walk picks up
+other lines' ink, and my probe resolves 0.1 of a line at best — eased
+and linear differ by less than that over a 2.0s window, giving rms
+0.159 for both, i.e. no separation at all. The confirmation here is
+indirect: the acceptance frames moved as predicted. Deck 11's seventy
+long corridors are simply a better instrument than anything slide 9
+offers, which is the reason the finding came from that chapter.
+
+P-10 also measured that **the arrowhead travels with the front** rather
+than waiting at the tip — zero ink beyond the front across four
+consecutive frames on the 25 longest corridors, where a parked head
+would light the far column immediately. My own code comment had stated
+the opposite ("the arrowhead arriving at the end of the shaft because
+that is where the shaft reaches it"), which is an assumption wearing
+the clothes of a derivation, and is the fourth invisible-in-the-render
+bug this chapter produced. `Connection.headFront` now carries it.
 
 ## 8. What is NOT this chapter's
 
@@ -478,12 +513,13 @@ attributed. Both pass.
 ## 11. Gates
 
 - `bunx tsc --noEmit` — **clean**.
-- `bun test` — **1123 pass, 0 fail** (1067 baseline + 30 mine + the
+- `bun test` — **1214 pass, 0 fail** (1067 baseline + 30 mine + the
   baseline's own movement as other agents landed work).
 - **S04 gauntlet — 6/6 PASS**, mean coverage ref **0.9946** / ours
   **0.9954** — identical to P-1's, P-2's and P-3's to four decimals, so
   nothing here perturbed the video-01 reproduction.
 - **P-4 segments — 4/4 whole-frame PASS**, unmasked, no images to mask.
-- Mid-draw — 4/6, both failures `coverage_ref` 1.0000 (§7).
+- Mid-draw — 4/5 after P-10's eased-front and travelling-head fixes,
+  up from 4/7; the one remaining failure has `coverage_ref` 1.0000 (§7).
 - P-3's opening arc — **3/5**, up from its reported 2/5; five of its
   five segments improved (§9).

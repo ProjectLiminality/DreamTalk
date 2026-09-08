@@ -128,6 +128,64 @@ import { together, type Anim, type Windowed } from "../../src/anim"
 import { Line, Group, type Vec3Like } from "../../src/parts/primitives"
 import { Holon, type Overrides } from "../../src/holon"
 import { WHITE, type Color } from "../../src/constants"
+import { c4dEaseWith } from "../../src/timeline"
+
+/**
+ * Keynote's `kEaseBoth`, and its INVERSE.
+ *
+ * `Builds.ts` states the curve itself (`KEYNOTE_EASE_S = 0.42`, P-8's
+ * calibration, now confirmed eight independent ways). It lives here as
+ * well because a SPATIAL draw needs the inverse, and Builds already
+ * imports this module — putting the inverse there would close a cycle.
+ *
+ * WHY AN INVERSE AT ALL. A draw-on is windowed by POSITION and eased in
+ * TIME. The forward curve answers "how far has the front travelled by
+ * time u"; laying a dash lattice needs "at what time does the front
+ * reach this dash". So a dash occupying arc fraction [f0, f1] takes the
+ * window [inverse(f0), inverse(f1)], and the front sweeping through
+ * those windows IS the eased curve by construction rather than by
+ * approximation. Uniform windows make the front linear, which is what
+ * this module did before P-10 measured the difference: on deck slide
+ * 11's seventy lines the eased front tracks the footage at rms 0.0120
+ * against the linear front's 0.0617.
+ *
+ * The curve is strictly increasing on [0, 1] — a cubic Bézier ease with
+ * both handles inside the unit interval — so the bisection converges on
+ * the unique root. Fifty halvings resolve far finer than the 1/n dash
+ * granularity that consumes the result.
+ */
+export const KEYNOTE_EASE_S = 0.42
+
+export const keynoteEaseAt = (u: number): number =>
+  c4dEaseWith(u, KEYNOTE_EASE_S, KEYNOTE_EASE_S)
+
+export const keynoteEaseInverse = (f: number): number => {
+  if (f <= 0) return 0
+  if (f >= 1) return 1
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2
+    if (keynoteEaseAt(mid) < f) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+/** The mean of a point set — where a decoration's outline sits. */
+const centroid = (pts: readonly Vec3Like[]): Vec3Like => {
+  let x = 0
+  let y = 0
+  for (const p of pts) {
+    x += p.x
+    y += p.y
+  }
+  const n = Math.max(pts.length, 1)
+  return { x: x / n, y: y / n, z: 0 }
+}
+
+/** Plane distance between two points. */
+const dist = (a: Vec3Like, b: Vec3Like): number => Math.hypot(a.x - b.x, a.y - b.y)
 
 /** A point on the slide canvas: 1920x1080, y DOWN, origin top-left. */
 export interface SlidePoint {
@@ -607,6 +665,29 @@ export class Connection extends Holon {
   /** One Line per end decoration, in `decorations` order. */
   arrows: Line[] = []
 
+  /**
+   * How far the draw-on front has advanced, 0…1 — what the arrowhead
+   * rides.
+   *
+   * THE HEAD TRAVELS WITH THE FRONT. It does not wait at the tip, which
+   * is what this holon assumed until P-10 measured it: the footage draws
+   * the head AT the advancing front from the first frame, with zero ink
+   * beyond the front across four consecutive frames on the 25 longest
+   * corridors. A head parked at its final position would light that far
+   * column immediately, and none of them does.
+   *
+   * My own comment here used to state the assumption outright — "the
+   * arrowhead arriving at the end of the shaft because that is where the
+   * shaft reaches it" — which is a comment documenting a guess as though
+   * it were a finding. It is recorded rather than quietly deleted.
+   *
+   * At 1 the head sits at its final position, so a Slide that never
+   * animates a connection (the held-tableau case, 89% of this video's
+   * frames) is unaffected: the default is the finished state, exactly as
+   * every other part of a Slide composes finished.
+   */
+  headFront = completion(1)
+
   /** The first decoration, which on almost every arrowed line is the
    *  only one — kept for readability at call sites. */
   get arrow(): Line | undefined {
@@ -636,18 +717,55 @@ export class Connection extends Holon {
         )
       }
     }
+    // The decorations RIDE THE FRONT. Each is stored at its final
+    // position and rigidly translated to wherever `headFront` has the
+    // draw reached — see `headFront` for the measurement. The offset is
+    // computed per frame through `derivePoints`, the same memoized
+    // property `GlidingConnection` uses below and for the same reason:
+    // the host reads `points` every frame, so the arithmetic has to be
+    // a cache keyed on the only time-varying input rather than state.
+    const shaft = this.points
     for (const outline of this.decorations) {
       if (outline.length < 2) continue
-      this.arrows.push(
-        this.add(
-          new Line({
-            points: outline.map((p) => ({ x: p.x, y: p.y, z: 0 })),
-            tint: this.tint.value,
-            stroke: this.stroke.value,
-            opacity: this.opacity.value,
-          }),
-        ),
+      const finished = outline.map((p) => ({ x: p.x, y: p.y, z: 0 }))
+      const line = this.add(
+        new Line({
+          points: finished,
+          tint: this.tint.value,
+          stroke: this.stroke.value,
+          opacity: this.opacity.value,
+        }),
       )
+      if (shaft.length >= 2) {
+        // Which END this decoration belongs to, decided ONCE at compose
+        // time by proximity: a head sits at the shaft's last point and a
+        // tail at its first. Deciding it here rather than per frame
+        // keeps the derivation a pure translation, and keeps a head from
+        // flipping ends when the front is near the middle.
+        const tip = centroid(finished)
+        const atEnd =
+          dist(tip, shaft[shaft.length - 1]!) <= dist(tip, shaft[0]!)
+        derivePoints(
+          line,
+          () => [this.headFront.value],
+          () => {
+            const u = this.headFront.value
+            // A head advances from the shaft's start toward its end; a
+            // tail is already AT the start the draw begins from, so it
+            // does not travel at all.
+            if (!atEnd || u >= 1) return finished
+            const here = pointAtLength(
+              shaft.map((p) => ({ x: p.x, y: p.y })),
+              polylineLength(shaft.map((p) => ({ x: p.x, y: p.y }))) * u,
+            )
+            const end = shaft[shaft.length - 1]!
+            const dx = here.x - end.x
+            const dy = here.y - end.y
+            return finished.map((p) => ({ x: p.x + dx, y: p.y + dy, z: 0 }))
+          },
+        )
+      }
+      this.arrows.push(line)
     }
   }
 
@@ -658,25 +776,38 @@ export class Connection extends Holon {
   }
 
   /**
-   * The draw-on, dash by dash from the `from` end, the head last.
+   * The draw-on, dash by dash from the `from` end, WITH the head riding
+   * the front.
    *
    * This is `LineDrawForLine` on a connection: the same spatial sweep
    * `DottedLine.createAnim` performs, over this holon's own continuous
-   * lattice, with the arrowhead arriving at the end of the shaft because
-   * that is where the shaft reaches it.
+   * lattice. The head is not the last dash — it travels, which is what
+   * `headFront` carries and what P-10 measured. An earlier version of
+   * this comment claimed the head "arrives at the end of the shaft
+   * because that is where the shaft reaches it", which was an assumption
+   * wearing the clothes of a derivation.
    */
   override createAnim(): Anim {
     void this.parts
-    const items = this.drawn()
+    const items = this.dashes
     const n = items.length
     if (n === 0) return { tracks: [] }
-    return together(
-      ...items.map((d, i): Windowed => [
-        d.creation.sequence(0, 1),
-        i / n,
-        (i + 1) / n,
-      ]),
-    )
+    // The dashes open as the EASED front reaches each — position windows
+    // through the ease's inverse, so the front itself is the curve
+    // rather than an approximation of it. See Builds.ts's
+    // `keynoteEaseInverse` for the measurement that forced this.
+    const tracks: Windowed[] = items.map((d, i): Windowed => [
+      d.creation.sequence(0, 1),
+      keynoteEaseInverse(i / n),
+      keynoteEaseInverse((i + 1) / n),
+    ])
+    // …and the head rides that same front, lit from the start and
+    // travelling, rather than waiting at the tip.
+    if (this.arrows.length > 0) {
+      tracks.push([this.headFront.sequence(0, 1), 0, 1])
+      for (const a of this.arrows) tracks.push([a.creation.to(1), 0, 0])
+    }
+    return together(...tracks)
   }
 
   override unCreateAnim(): Anim {
