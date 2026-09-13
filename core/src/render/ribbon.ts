@@ -327,6 +327,22 @@ export class RibbonStroke {
   readonly geometry: THREE.InstancedBufferGeometry
   totalLength = 0
   /**
+   * A LOCAL-space bounding sphere over `this.points`, recomputed only in
+   * setPoints() (i.e. only when the shape actually changes — the same
+   * gate the host's shapeKey check already tracks). It is the cheap
+   * conservative volume the host's frustum cull tests: transform the
+   * center by the mesh's world matrix, scale the radius by the group's
+   * max world scale, PAD for the stroke's screen-pixel half-width, and a
+   * stroke whose padded sphere is fully outside the view can be hidden
+   * without dropping a scored pixel. Radius 0 (empty polyline) means the
+   * cull leaves it alone. The sphere covers the raw polyline only; the
+   * PIXEL width (which the SDF paints beyond the line) is added by the
+   * host as world-space padding, since px→world is depth-dependent and
+   * lives with the camera, not here.
+   */
+  readonly boundsCenter = new THREE.Vector3()
+  boundsRadius = 0
+  /**
    * Target sample count for a polyline — how finely it is resampled
    * before anything measures it, or DRAWS it, in SCREEN space.
    *
@@ -444,9 +460,13 @@ export class RibbonStroke {
       // of leaving the last computed curve hanging in the air.
       this.geometry.instanceCount = 0
       this.totalLength = 0
+      // Radius 0 tells the host's cull to leave this stroke to the
+      // existing visibility rule (an empty stroke draws nothing anyway).
+      this.boundsRadius = 0
       return
     }
     this.totalLength = packed.totalLength
+    this.computeBounds()
 
     // Grow only — a shrink just draws fewer instances. Round up to a
     // power of two so a curve that breathes in size reallocates a handful
@@ -470,6 +490,33 @@ export class RibbonStroke {
    */
   worldPoints(): readonly THREE.Vector3[] {
     return this.points
+  }
+
+  /**
+   * Recompute the local bounding sphere over `this.points`. AABB center
+   * then the farthest point — a valid (slightly loose, never tight)
+   * cover, which is exactly what a CONSERVATIVE cull wants: it may keep a
+   * ribbon that could have been culled, but never culls one it should
+   * keep. Called only from setPoints (shape-change only).
+   */
+  private computeBounds(): void {
+    let minX = Infinity, minY = Infinity, minZ = Infinity
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+    for (const p of this.points) {
+      if (p.x < minX) minX = p.x
+      if (p.y < minY) minY = p.y
+      if (p.z < minZ) minZ = p.z
+      if (p.x > maxX) maxX = p.x
+      if (p.y > maxY) maxY = p.y
+      if (p.z > maxZ) maxZ = p.z
+    }
+    this.boundsCenter.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2)
+    let r2 = 0
+    for (const p of this.points) {
+      const d2 = this.boundsCenter.distanceToSquared(p)
+      if (d2 > r2) r2 = d2
+    }
+    this.boundsRadius = Math.sqrt(r2)
   }
 
   /** Sync visibility/draw fraction/erase fraction/style from the owning holon. */

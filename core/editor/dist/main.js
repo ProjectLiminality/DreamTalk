@@ -50746,6 +50746,8 @@ class RibbonStroke {
   material;
   geometry;
   totalLength = 0;
+  boundsCenter = new Vector3;
+  boundsRadius = 0;
   static SUBDIVISION = 128;
   points = [];
   capacity = 0;
@@ -50787,9 +50789,11 @@ class RibbonStroke {
     if (packed.count < 1) {
       this.geometry.instanceCount = 0;
       this.totalLength = 0;
+      this.boundsRadius = 0;
       return;
     }
     this.totalLength = packed.totalLength;
+    this.computeBounds();
     if (packed.count > this.capacity)
       this.allocate(1 << Math.ceil(Math.log2(packed.count)));
     const start = this.geometry.getAttribute("instanceStart");
@@ -50802,6 +50806,32 @@ class RibbonStroke {
   }
   worldPoints() {
     return this.points;
+  }
+  computeBounds() {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p of this.points) {
+      if (p.x < minX)
+        minX = p.x;
+      if (p.y < minY)
+        minY = p.y;
+      if (p.z < minZ)
+        minZ = p.z;
+      if (p.x > maxX)
+        maxX = p.x;
+      if (p.y > maxY)
+        maxY = p.y;
+      if (p.z > maxZ)
+        maxZ = p.z;
+    }
+    this.boundsCenter.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+    let r2 = 0;
+    for (const p of this.points) {
+      const d2 = this.boundsCenter.distanceToSquared(p);
+      if (d2 > r2)
+        r2 = d2;
+    }
+    this.boundsRadius = Math.sqrt(r2);
   }
   style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
     const ud = this.mesh.userData;
@@ -64215,7 +64245,7 @@ class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
         group.add(ribbon.mesh);
-        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) };
+        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon), group };
         this.strokes.push(strokeBinding);
       }
       if (holon instanceof Line2) {
@@ -64244,11 +64274,13 @@ class ThreeHost {
   }
   beforeSync;
   async renderFrame(t2) {
+    this.frameT = t2;
     this.dream.applyAt(t2);
     this.beforeSync?.();
     this.sync();
     await this.renderer.render(this.scene, this.camera);
   }
+  frameT = Number.NaN;
   sync() {
     for (const { holon, group } of this.groups) {
       group.position.set(holon.x.value, holon.y.value, holon.z.value);
@@ -64308,6 +64340,61 @@ class ThreeHost {
       for (const { binding, group } of this.texts) {
         binding.sync(1 / this.unitsPerPixelAt(group, new Vector3));
       }
+    }
+    this.cullOffscreen();
+  }
+  cullFrustum = new Frustum;
+  cullVP = new Matrix4;
+  cullCenter = new Vector3;
+  cullScale = new Vector3;
+  cullSphere = new Sphere;
+  culledOffscreen = 0;
+  cullLatchT = Number.NaN;
+  cullLatchVP = new Matrix4;
+  cullLatchIdle = false;
+  cullEnabled = true;
+  cullOffscreen() {
+    if (!this.cullEnabled || this.strokes.length === 0) {
+      this.culledOffscreen = 0;
+      return;
+    }
+    this.camera.updateMatrixWorld(true);
+    this.cullVP.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    if (this.beforeSync === undefined && this.cullLatchIdle && Object.is(this.frameT, this.cullLatchT) && this.cullVP.equals(this.cullLatchVP)) {
+      this.culledOffscreen = 0;
+      return;
+    }
+    this.culledOffscreen = 0;
+    this.scene.updateMatrixWorld(true);
+    this.cullFrustum.setFromProjectionMatrix(this.cullVP);
+    const heightPx = this.renderer.domElement.height || 720;
+    const cam = this.camera;
+    const persp = cam instanceof PerspectiveCamera;
+    const perspFactor = persp ? 2 * Math.tan(MathUtils.degToRad(cam.fov) / 2) / heightPx : 0;
+    const orthoPerPx = cam instanceof OrthographicCamera ? (cam.top - cam.bottom) / heightPx : 0;
+    const camPos = cam.position;
+    for (const { ribbon, group } of this.strokes) {
+      const mesh = ribbon.mesh;
+      if (!mesh.visible || ribbon.boundsRadius <= 0)
+        continue;
+      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(mesh.matrixWorld);
+      this.cullScale.setFromMatrixScale(group.matrixWorld);
+      const maxScale = Math.max(Math.abs(this.cullScale.x), Math.abs(this.cullScale.y), Math.abs(this.cullScale.z));
+      let radius = ribbon.boundsRadius * maxScale;
+      const widthPx = mesh.userData[RIBBON_KEYS.widthPx] || 0;
+      const padPx = widthPx * 0.5 + ThreeHost.CULL_PAD_PX;
+      const worldPerPx = persp ? this.cullCenter.distanceTo(camPos) * perspFactor : orthoPerPx;
+      radius += padPx * worldPerPx;
+      this.cullSphere.set(this.cullCenter, radius);
+      if (!this.cullFrustum.intersectsSphere(this.cullSphere)) {
+        mesh.visible = false;
+        this.culledOffscreen++;
+      }
+    }
+    this.cullLatchIdle = this.beforeSync === undefined && this.culledOffscreen === 0;
+    if (this.cullLatchIdle) {
+      this.cullLatchT = this.frameT;
+      this.cullLatchVP.copy(this.cullVP);
     }
   }
   syncArrow(binding) {
@@ -64472,6 +64559,7 @@ class ThreeHost {
       lineA.style(0, opacity, tint, width, 0);
   }
   static PICK_SLOP = 7;
+  static CULL_PAD_PX = 16;
   pick(ndcX, ndcY) {
     const width = this.renderer.domElement.width || 1280;
     const height = this.renderer.domElement.height || 720;
@@ -65149,6 +65237,7 @@ class FoundingSmokeDream extends Dream {
     __dt(this.play(together(this.square.x.to(0), this.circle.x.to(0)), 1.5), "core/demo/FoundingSmoke.ts:717:802");
     __dt(this.play(together(this.square.scale.to(1.2), this.circle.scale.to(1.2)), 1), "core/demo/FoundingSmoke.ts:807:902");
     this.wait(1);
+    __dt(this.play(together(this.observer.phi.to(-0.6778), this.observer.theta.to(-0.629)), 1), "core/demo/FoundingSmoke.ts:924:1053");
   }
 }
 if (false)

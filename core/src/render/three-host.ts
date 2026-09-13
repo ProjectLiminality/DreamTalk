@@ -43,7 +43,7 @@ import {
 } from "../parts/index"
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
-import { RibbonStroke } from "./ribbon"
+import { RibbonStroke, RIBBON_KEYS } from "./ribbon"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
@@ -63,6 +63,12 @@ interface StrokeBinding {
   ribbon: RibbonStroke
   /** Shape-param signature for the geometry-regen dirty-check. */
   shapeKey: number[]
+  /**
+   * The group the ribbon mesh is a child of — the frame its local points
+   * (and cached bounding sphere) are stated in. Kept so the off-screen
+   * cull can read the world transform without a scene walk.
+   */
+  group: THREE.Group
 }
 
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
@@ -737,7 +743,7 @@ export class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
         group.add(ribbon.mesh)
-        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon) }
+        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon), group }
         this.strokes.push(strokeBinding)
       }
       if (holon instanceof Line) {
@@ -774,11 +780,15 @@ export class ThreeHost {
 
   /** Deterministic: sample the timeline at t, sync the scene, render. */
   async renderFrame(t: number): Promise<void> {
+    this.frameT = t
     this.dream.applyAt(t)
     this.beforeSync?.()
     this.sync()
     await this.renderer.render(this.scene, this.camera)
   }
+
+  /** The t of the frame in flight — the cull's idle latch reads it. */
+  private frameT = Number.NaN
 
   private sync(): void {
     for (const { holon, group } of this.groups) {
@@ -881,6 +891,176 @@ export class ThreeHost {
       for (const { binding, group } of this.texts) {
         binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
+    }
+
+    this.cullOffscreen()
+  }
+
+  /**
+   * Reusable scratch for the cull pass — one frustum and a handful of
+   * vectors, allocated once so the per-frame loop over 3,776 strokes
+   * makes no garbage.
+   */
+  private readonly cullFrustum = new THREE.Frustum()
+  private readonly cullVP = new THREE.Matrix4()
+  private readonly cullCenter = new THREE.Vector3()
+  private readonly cullScale = new THREE.Vector3()
+  private readonly cullSphere = new THREE.Sphere()
+  /** Ribbons the last cull pass hid because they were off-screen (debug). */
+  culledOffscreen = 0
+  /**
+   * The idle latch (perf #2 follow-up): the cull's ~2.4 ms/frame — the
+   * updateMatrixWorld(true) settle plus the sweep over every stroke — is
+   * pure waste on a scene that never has anything off-screen (TheWall fills
+   * the view for its whole duration, culling 0 at every t). The latch skips
+   * the pass entirely once it has proven, on a settled frame, that the frame
+   * is IDENTICAL to one that culled nothing.
+   *
+   * Two scalars fully identify a pure frame: the timeline t and the camera's
+   * view-projection matrix. If both are unchanged AND the last run culled
+   * zero, this frame's geometry is bit-for-bit the previous frame's, so its
+   * cull result is too — skip. Any change to either re-arms the full pass.
+   *
+   * SAFETY: the latch engages ONLY in the pure frame path. The editor's
+   * `beforeSync` can move geometry with t held (dragging a paused object),
+   * which neither scalar would catch — so a live override layer disables the
+   * latch outright (`beforeSync !== undefined`), and the editor pays the full
+   * cull every frame, which is fine (it is interactive, not playing 236
+   * creatures). `cullLatchT` starts NaN so the first frame always runs.
+   */
+  private cullLatchT = Number.NaN
+  private readonly cullLatchVP = new THREE.Matrix4()
+  private cullLatchIdle = false
+  /**
+   * Master switch for the off-screen cull. On by default; the only thing
+   * that turns it off is a harness proving byte-identity — with the cull
+   * off, the frame is exactly the pre-cull path, so cull-on vs cull-off in
+   * the SAME process isolates the cull's pixel effect from GPU run-to-run
+   * noise (TheWall's MAX-blended overdraw is not bit-reproducible across
+   * browser processes). Also a plain escape hatch.
+   */
+  cullEnabled = true
+
+  /**
+   * ADDITIVE off-screen cull (perf #2): hide ribbon meshes that are
+   * PROVABLY, wholly outside the view frustum, on top of — never instead
+   * of — style()'s existing `fraction > erased && opacity > 0` rule.
+   *
+   * The byte-identity contract is the whole point: a ribbon that
+   * contributes a single scored pixel must NOT be culled. Two guards make
+   * that safe:
+   *
+   *  - Only strokes style() already left VISIBLE are considered. A ribbon
+   *    hidden by the draw/erase/opacity rule stays hidden; nothing here
+   *    turns anything back on.
+   *  - The test volume is a padded bounding sphere over the LOCAL polyline
+   *    (RibbonStroke.boundsCenter/boundsRadius, recomputed only when the
+   *    shape changes). The center is carried to world by the mesh's world
+   *    matrix; the radius is scaled by the group's max world scale and
+   *    then PADDED — the SDF ribbon paints out to the stroke's screen-pixel
+   *    half-width plus the AA skirt, and that width lives in pixels, not
+   *    world units, so we over-estimate its world size generously
+   *    (CULL_PAD_PX screen px converted at the sphere's own view depth,
+   *    then floored to a world minimum). A sphere the frustum cannot prove
+   *    is fully outside is left to the existing rule. Only a padded sphere
+   *    entirely outside every frustum plane is hidden.
+   *
+   * Correctness rests on testing against the SAME matrices the render will
+   * use: updateMatrixWorld(true) settles every group's world transform
+   * (render calls it again, so no double-apply), and the camera's
+   * matrixWorldInverse is refreshed from this frame's syncCamera() before
+   * the frustum is built.
+   */
+  private cullOffscreen(): void {
+    if (!this.cullEnabled || this.strokes.length === 0) {
+      this.culledOffscreen = 0
+      return
+    }
+    // Settle the camera and build this frame's view-projection. This is the
+    // cheap half of the pass, and cullVP is what the idle latch compares on,
+    // so it must happen before the latch check.
+    this.camera.updateMatrixWorld(true)
+    this.cullVP.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+
+    // The idle latch: in the pure frame path (no override layer), a frame
+    // whose t and camera VP both match the last run that culled NOTHING is
+    // bit-identical to it, so its cull result is nothing too — skip the
+    // expensive scene settle + sweep. Any change to t or the camera re-arms.
+    // The result of skipping is that every mesh keeps the visibility style()
+    // set this frame, which — the frame being identical — is the same set the
+    // skipped cull would have produced. culledOffscreen stays 0, as it was.
+    if (
+      this.beforeSync === undefined &&
+      this.cullLatchIdle &&
+      Object.is(this.frameT, this.cullLatchT) &&
+      this.cullVP.equals(this.cullLatchVP)
+    ) {
+      this.culledOffscreen = 0
+      return
+    }
+
+    this.culledOffscreen = 0
+    // The frustum must be this frame's: the no-cylinder fast path never
+    // settles the scene graph, so do it here (render calls it again, no
+    // double-apply).
+    this.scene.updateMatrixWorld(true)
+    this.cullFrustum.setFromProjectionMatrix(this.cullVP)
+
+    // World units per screen pixel, for the SDF-skirt padding. Perspective:
+    // depth-dependent, worldPerPx(d) = 2·d·tan(fov/2)/heightPx, computed
+    // per stroke from a cheap distance-to-center (an over-estimate off-axis
+    // — the safe direction). Ortho: a frame constant. The whole safety
+    // margin is this padding, so both readings deliberately err large.
+    const heightPx = this.renderer.domElement.height || 720
+    const cam = this.camera
+    const persp = cam instanceof THREE.PerspectiveCamera
+    const perspFactor = persp ? (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / heightPx : 0
+    const orthoPerPx =
+      cam instanceof THREE.OrthographicCamera ? (cam.top - cam.bottom) / heightPx : 0
+    const camPos = cam.position
+
+    for (const { ribbon, group } of this.strokes) {
+      const mesh = ribbon.mesh
+      // Additive: never reconsider what style() already hid, and leave
+      // empty/uninitialised strokes (radius 0) to the existing rule.
+      if (!mesh.visible || ribbon.boundsRadius <= 0) continue
+
+      // Local sphere → world. Center by the full world matrix; radius by
+      // the group's max world scale (uniform in this corpus, but read the
+      // three axes so a non-uniform scale still bounds).
+      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(mesh.matrixWorld)
+      this.cullScale.setFromMatrixScale(group.matrixWorld)
+      const maxScale = Math.max(
+        Math.abs(this.cullScale.x),
+        Math.abs(this.cullScale.y),
+        Math.abs(this.cullScale.z),
+      )
+      let radius = ribbon.boundsRadius * maxScale
+
+      // Pad for the SDF's screen-pixel skirt. widthPx is a CSS-pixel
+      // DIAMETER; the shader's pad is halfWidth + AA + 1px (ribbon.ts).
+      const widthPx = (mesh.userData[RIBBON_KEYS.widthPx] as number) || 0
+      const padPx = widthPx * 0.5 + ThreeHost.CULL_PAD_PX
+      const worldPerPx = persp ? this.cullCenter.distanceTo(camPos) * perspFactor : orthoPerPx
+      radius += padPx * worldPerPx
+
+      this.cullSphere.set(this.cullCenter, radius)
+      if (!this.cullFrustum.intersectsSphere(this.cullSphere)) {
+        mesh.visible = false
+        this.culledOffscreen++
+      }
+    }
+
+    // Arm the idle latch for the next frame: if this full sweep culled
+    // nothing, remember (t, VP) so an identical next frame can skip. Only in
+    // the pure path — an override layer can move geometry with t held, which
+    // the latch cannot see, so it never engages there. A frame that DID cull
+    // leaves the latch disarmed (idle=false), so the pass keeps running while
+    // anything is off-screen.
+    this.cullLatchIdle = this.beforeSync === undefined && this.culledOffscreen === 0
+    if (this.cullLatchIdle) {
+      this.cullLatchT = this.frameT
+      this.cullLatchVP.copy(this.cullVP)
     }
   }
 
@@ -1375,6 +1555,18 @@ export class ThreeHost {
 
   /** Extra pixels of forgiveness around a stroke's own half-width. */
   private static readonly PICK_SLOP = 7
+
+  /**
+   * Screen-pixel safety margin the off-screen cull adds beyond the
+   * stroke's own half-width (cullOffscreen). It absorbs the SDF's AA
+   * skirt + 1px guard (ribbon.ts pad is halfWidth + AA_PX + 1) with room
+   * to spare, plus the looseness in a min-AABB-radius bounding sphere and
+   * any float slack in the projection reading — err large, since keeping
+   * a ribbon that could have been culled is free but culling one that
+   * shows ink fails the byte-identity gate. 16px is many times the ~2px
+   * the shader can actually paint beyond the line.
+   */
+  private static readonly CULL_PAD_PX = 16
 
   /**
    * The holon under a viewport point, or undefined over empty space.

@@ -27,6 +27,13 @@ export class FoundingSmokeDream extends Dream {
       1,
     )
     this.wait(1)
+    this.play(
+      together(
+        this.observer.phi.to(-0.6778),
+        this.observer.theta.to(-0.629),
+      ),
+      1,
+    )
   }
 }
 
