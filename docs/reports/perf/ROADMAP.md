@@ -20,6 +20,28 @@ The frame path, on the stress scene (TheWall, 236 creatures / 3,776 ribbons):
 
 Boot is healthy (1.1 s warm; bake cached; shader storm fixed).
 
+## Cross-scene baseline (2026-09-14) — the ceiling is GENERAL
+
+Warm median frame-ms, 20-frame sweep, by stroke count:
+
+| scene | strokes | median | p90 | max |
+|---|---|---|---|---|
+| molocheye | 9 | 0.4 | 1.2 | 2.7 |
+| sketch | 37 | 0.5 | 1.6 | 2.3 |
+| o01 | 119 | 3.2 | 7.3 | 8.7 |
+| labyrinth | 138 | 1.2 | 3.0 | 3.9 |
+| s06 (cylinder) | 267 | 2.3 | 4.5 | 5.6 |
+| **video01** | **572** | **32** | **38** | **51** |
+| thewall | 3,776 | ~90 | ~180 | ~366 |
+
+**video01 (DialecticalThinking, 572 strokes) at 32 ms is a SECOND instance of
+the submission ceiling — not TheWall-specific.** Frame-ms tracks stroke count
+super-linearly across every scene; the per-object submission cost is the
+universal predictor. Instancing (A) lifts the ceiling for EVERY multi-stroke
+scene, not just the wall — video01, o01, and any future dense DreamSong all
+benefit. Most scenes (<150 strokes) are already smooth (<3 ms); the lever
+matters exactly where density is high, which is where it will be felt.
+
 ## Ranked plan — deepest impact first
 
 | # | Optimization | Lever | Impact | Risk | Status |
