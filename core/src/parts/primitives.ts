@@ -6,7 +6,7 @@
  * these.
  */
 
-import { Holon } from "../holon"
+import { Holon, type Overrides } from "../holon"
 import { color, length, angle, integer, completion, bool } from "../params"
 import { together, type Anim, type Windowed } from "../anim"
 import { WHITE, RED, PI, TAU } from "../constants"
@@ -473,15 +473,58 @@ export class Group extends Null {
   }
 }
 
+/** Symbol-keyed backing for Line.points — off `Object.keys`, so the holon
+ *  field scan never treats it as a config field, and shadowless so a
+ *  derived `Object.defineProperty(line, "points", …)` cleanly overrides. */
+const LINE_POINTS: unique symbol = Symbol("Line.points")
+
 /**
  * An open polyline — the workhorse behind axes, grids, sight lines and
  * the Eye's lids. `points` is data (local space); optional S&T-style
  * arrowheads render as small filled triangles riding the endpoints
  * (they appear as the draw front arrives, vanish as the erase front
  * consumes their end).
+ *
+ * GEOMETRY VERSIONING (perf). The host's per-frame dirty-check used to
+ * flatten `points` into a fresh `number[]` and compare it element-wise
+ * every frame for every stroke — 3×pointCount allocations per moving
+ * cable, ~64 points × hundreds of cables on TheWall, changing no pixel.
+ * A `Line` instead carries `geomVersion`, a monotonic counter that BUMPS
+ * exactly when its `points` change: the setter bumps it for a STATIC line
+ * (points assigned directly), and a DERIVED line (`derivePoints` /
+ * `MorphShape`) bumps it whenever its memo recomputes. The host stores
+ * the last version per binding and regenerates the ribbon iff it changed,
+ * an O(1) integer compare in place of the O(pointCount) alloc+compare.
+ *
+ * The host still reads `drawStart`/`drawReversed` alongside the version
+ * (they re-phase the polyline in `polyline()`), so the whole regen
+ * trigger stays a superset of the old array comparison: the version
+ * covers the many-point geometry, the two cheap phase scalars cover the
+ * winding — no stale geometry is ever possible, and the only cost the
+ * change can add is a redundant regen (correct pixels), never a missed one.
  */
 export class Line extends Stroke {
-  points: Vec3Like[] = []
+  /**
+   * Bumped every time `points` change (this setter, or a derived
+   * `points` accessor's recompute). The host's geometry dirty-check keys
+   * on it instead of flattening the polyline every frame — see the class
+   * note. Monotonic; only ever increases.
+   */
+  geomVersion = 0
+
+  /**
+   * The polyline, local space — declared here so it is a scanned field
+   * (a valid `new Line({ points })` override) and so its type is visible;
+   * the constructor replaces it with an ENUMERABLE accessor over the
+   * symbol-keyed backing. Assigning `points` bumps `geomVersion` so the
+   * host's O(1) dirty-check knows to regenerate. A derived Line
+   * (`derivePoints`) redefines this same property with its own accessor,
+   * which bumps `geomVersion` on recompute — the same contract.
+   */
+  points: Vec3Like[] = [];
+  /** Symbol-keyed backing for `points` (declared so TS permits the index). */
+  [LINE_POINTS]: Vec3Like[] = []
+
   arrowStart = bool(false)
   arrowEnd = bool(false)
   /**
@@ -498,6 +541,31 @@ export class Line extends Stroke {
    * measurement this is fitted to (f0428: a 10.9 x 14.95px head).
    */
   arrowSize = length(720 / 700)
+
+  constructor(overrides: Overrides = {}) {
+    super(overrides)
+    // Replace the `points` data field (which the field initializer and the
+    // scanned-override path both left as a plain array) with an ENUMERABLE
+    // accessor over the symbol-keyed backing, so every write — the
+    // `{ points }` override, a later `line.points = …`, AnnularSector's edge
+    // assignment — bumps `geomVersion`. Enumerable + configurable so the
+    // holon field scan still sees `points` (a valid override) and a derived
+    // Line (`derivePoints`) can redefine it. The initial value is whatever
+    // the field init / override left in the data slot.
+    const initial = (this as { points: Vec3Like[] }).points
+    Object.defineProperty(this, "points", {
+      configurable: true,
+      enumerable: true,
+      get(this: Line): Vec3Like[] {
+        return (this[LINE_POINTS] as Vec3Like[] | undefined) ?? []
+      },
+      set(this: Line, v: Vec3Like[]) {
+        this[LINE_POINTS] = v
+        this.geomVersion++
+      },
+    })
+    ;(this as { points: Vec3Like[] }).points = initial
+  }
 }
 
 /**

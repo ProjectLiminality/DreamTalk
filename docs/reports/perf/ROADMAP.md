@@ -26,22 +26,33 @@ Boot is healthy (1.1 s warm; bake cached; shader storm fixed).
 |---|---|---|---|---|---|
 | A | **Instance the ribbons** — per-stroke style in an instance buffer, one draw per material instead of per mesh | the `render()` submission floor (the real ceiling) | the only route to 60 fps at these counts | HIGH (rewrites how style reaches the shader; byte-identity path) | pending A/B findings |
 | B | **Geometry version counter** — O(1) dirty-check replacing the per-frame shapeKey array alloc/compare | `sync()` CPU, ~9 ms on TheWall; GC pressure everywhere | universal CPU win, every scene | LOW-MED (dirty-check only; regen unchanged) | **in flight** (geomver) |
-| C | **The moving-cable render hump** (27→222 ms) — root cause: buffer realloc churn vs steady re-upload | `render()` transient stall on animated geometry | uniform frame time; general to animated polylines | MED (touches how geometry reaches GPU) | **diagnosing** (hump) |
+| ~~C~~ | ~~The moving-cable render hump~~ — **DIAGNOSED, DISSOLVED** into A | — | — | — | **DONE** (hump-diagnosis.md): the hump IS the floor's per-object submission cost at higher magnitude — no separate bug; realloc & re-upload both falsified (0 reallocs, suppressing setPoints changes nothing). The only fix is A. |
 | D | **Off-screen frustum cull** + idle latch | `render()` for pan/zoom scenes | scene-dependent (0 on walls; 23/80 on mindvirus) | LOW (proven byte-identical) | **DONE** (30d403b) |
 | E | Flatten per-creature scene-graph nodes (~25 → few per creature) | `sync()` transform loop + boot | ~3-5 ms + boot | LOW | later |
 | F | Surface: unconditional style writes, redundant screenArc calls, updateMatrixWorld on fast path | `sync()` tail | small, safe | LOW | later |
 
-## Ordering rationale
+## Ordering rationale (updated after the hump diagnosis)
 
-- **B and C first** (in flight): B is a pure-CPU universal win with low risk;
-  C's diagnosis tells us whether the render stall is realloc churn (a cheap
-  pre-allocation fix) or steady re-upload (which only instancing/A fixes). C's
-  verdict *shapes* A.
-- **A after B+C land and we re-measure**: it's the biggest prize and the
-  highest risk, directly on the byte-identity render path the gauntlets pin.
-  Do the cheap universal wins first, re-profile, then commit to the chapter.
-- **D done**: the primitive exists, self-disabling where it can't help.
-- **E, F**: surface polish once the deep levers are in.
+The hump diagnosis (docs/reports/perf/hump-diagnosis.md) settled the plan:
+**the hump and the render floor are ONE cost** — per-object WebGPU submission
+over ~3,776 ribbon meshes, each rebinding its own userData uniform buffer
+(NodeUpdateType.OBJECT). Both falsified alternatives (realloc churn, steady
+re-upload) would have bought zero. So the render-path lever is unambiguous:
+**object count**. That makes **A (instancing) THE work** — it collapses the
+floor AND the hump together, and it is fully general (every ribbon-heavy scene
+scales by mesh count).
+
+- **B (geomversion) in flight**: a pure-CPU universal win, low risk, lands
+  independently of the render path. Integrate when it arrives.
+- **A next, and it is the chapter**: the render-submission ceiling. The lead
+  designs the architecture (per-instance style buffer, one draw per stroke-type)
+  before an implementer touches the gauntlet-scored path; byte-identity across
+  the full scene set is the gate. This is where the 60fps lives.
+- **D done**: the cull primitive exists, self-disabling where it can't help.
+  Note: the diagnosis suggests a *screen-size* cull (sub-pixel/occluded tethers)
+  as a partial pre-A mitigation, but it's a symptom patch — A is the cause fix,
+  so we go for A rather than layering mitigations.
+- **E, F**: surface polish once A lands and we re-measure.
 
 Every step re-measures against the profile and gates on byte-identity across a
 broad scene set — never one scene. "Universal" means the scene set is the gate.

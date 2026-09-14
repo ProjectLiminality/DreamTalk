@@ -54,6 +54,10 @@ const derivePoints = (
       if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
         key = next
         memo = compute()
+        // Signal the recompute so the host regenerates the ribbon exactly
+        // when the polyline changed — the O(1) counterpart to the old
+        // per-frame flatten+compare (primitives.ts: Line.geomVersion).
+        line.geomVersion++
       }
       return memo
     },

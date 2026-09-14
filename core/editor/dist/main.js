@@ -46587,12 +46587,31 @@ class Group2 extends Null {
       this.add(member);
   }
 }
+var LINE_POINTS = Symbol("Line.points");
 
 class Line2 extends Stroke {
+  geomVersion = 0;
   points = [];
+  [LINE_POINTS] = [];
   arrowStart = bool2(false);
   arrowEnd = bool2(false);
   arrowSize = length2(720 / 700);
+  constructor(overrides = {}) {
+    super(overrides);
+    const initial = this.points;
+    Object.defineProperty(this, "points", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return this[LINE_POINTS] ?? [];
+      },
+      set(v) {
+        this[LINE_POINTS] = v;
+        this.geomVersion++;
+      }
+    });
+    this.points = initial;
+  }
 }
 
 class Rectangle extends Stroke {
@@ -47156,6 +47175,7 @@ var derivePoints = (line, sourceKey, compute2) => {
       if (!key || key.length !== next.length || next.some((v, i) => v !== key[i])) {
         key = next;
         memo = compute2();
+        line.geomVersion++;
       }
       return memo;
     },
@@ -47856,11 +47876,17 @@ class Cable extends Stroke {
   compose() {
     const derivedLine = (line, pick) => {
       const cable = this;
+      let lastMemo;
       Object.defineProperty(line, "points", {
         configurable: true,
         enumerable: true,
         get() {
-          return pick(cable.geometry());
+          const g = cable.geometry();
+          if (g !== lastMemo) {
+            lastMemo = g;
+            line.geomVersion++;
+          }
+          return pick(g);
         },
         set(_v) {}
       });
@@ -64036,7 +64062,27 @@ var drawingSubpaths = (holon) => {
   }
   return loops;
 };
-var drawingKey = (loops) => loops.flatMap((loop) => [loop.length, ...loop.flatMap((p2) => [p2.x, p2.y, p2.z])]);
+var drawingSig = (holon) => {
+  const parts = holon.parts;
+  let sum = 0;
+  let count = 0;
+  for (const part of parts) {
+    if (part instanceof Line2) {
+      part.points;
+      sum += part.geomVersion;
+      count++;
+    }
+  }
+  return { version: sum, drawStart: count, reversed: 0, key: EMPTY_KEY };
+};
+var drawingSigChanged = (holon, prev) => {
+  const sig = drawingSig(holon);
+  if (sig.version === prev.version && sig.drawStart === prev.drawStart)
+    return false;
+  prev.version = sig.version;
+  prev.drawStart = sig.drawStart;
+  return true;
+};
 var polyline = (holon) => {
   const pts = basePolyline(holon);
   if (!pts)
@@ -64128,6 +64174,39 @@ var shapeKey = (holon) => {
   return [];
 };
 var arrowKey = (holon) => [...shapeKey(holon), holon.arrowSize.value];
+var freshSig = (holon) => {
+  if (holon instanceof Line2) {
+    holon.points;
+    return {
+      version: holon.geomVersion,
+      drawStart: holon.drawStart.value,
+      reversed: holon.drawReversed.value ? 1 : 0,
+      key: EMPTY_KEY
+    };
+  }
+  return { version: 0, drawStart: 0, reversed: 0, key: shapeKey(holon) };
+};
+var EMPTY_KEY = [];
+var sigChanged = (holon, prev) => {
+  if (holon instanceof Line2) {
+    holon.points;
+    const version = holon.geomVersion;
+    const drawStart = holon.drawStart.value;
+    const reversed = holon.drawReversed.value ? 1 : 0;
+    if (version === prev.version && drawStart === prev.drawStart && reversed === prev.reversed) {
+      return false;
+    }
+    prev.version = version;
+    prev.drawStart = drawStart;
+    prev.reversed = reversed;
+    return true;
+  }
+  const key = shapeKey(holon);
+  if (keysEqual(key, prev.key))
+    return false;
+  prev.key = key;
+  return true;
+};
 var clamp014 = (v2) => Math.min(1, Math.max(0, v2));
 var liftTint = (tint, amount) => amount <= 0 ? tint : {
   r: tint.r + (1 - tint.r) * amount,
@@ -64215,12 +64294,12 @@ class ThreeHost {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
@@ -64228,7 +64307,7 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygons(loops);
         group.add(fill.mesh);
-        this.drawingWashes.push({ holon, fill, shapeKey: drawingKey(loops) });
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon) });
         for (const part of holon.parts)
           this.washedByAncestor.add(part);
       }
@@ -64237,7 +64316,7 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
-        this.washes.push({ holon, fill, shapeKey: shapeKey(holon) });
+        this.washes.push({ holon, fill, sig: freshSig(holon) });
       }
       const pts = polyline(holon);
       if (pts || holon instanceof Line2) {
@@ -64245,7 +64324,7 @@ class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
         group.add(ribbon.mesh);
-        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon), group };
+        strokeBinding = { holon, ribbon, sig: freshSig(holon), group };
         this.strokes.push(strokeBinding);
       }
       if (holon instanceof Line2) {
@@ -64290,9 +64369,7 @@ class ThreeHost {
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding;
-      const key = shapeKey(holon);
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key;
+      if (sigChanged(holon, binding.sig)) {
         const pts = polyline(holon);
         if (pts || holon instanceof Line2)
           ribbon.setPoints(pts ?? []);
@@ -64302,18 +64379,14 @@ class ThreeHost {
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding;
-      const key = shapeKey(holon);
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key;
+      if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
       fill.style(holon.creation.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding;
-      const key = shapeKey(holon);
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key;
+      if (sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon);
         if (washed)
           fill.setPolygon(washed.points, washed.triangles);
@@ -64322,11 +64395,8 @@ class ThreeHost {
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding;
-      const loops = drawingSubpaths(holon) ?? [];
-      const key = drawingKey(loops);
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key;
-        fill.setPolygons(loops);
+      if (drawingSigChanged(holon, binding.sig)) {
+        fill.setPolygons(drawingSubpaths(holon) ?? []);
       }
       fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
     }
@@ -65026,6 +65096,7 @@ var derivePoints2 = (line, sourceKey, compute3) => {
       if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
         key = next;
         memo = compute3();
+        line.geomVersion++;
       }
       return memo;
     },

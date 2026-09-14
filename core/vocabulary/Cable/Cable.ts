@@ -413,11 +413,26 @@ export class Cable extends Stroke {
   protected override compose(): void {
     const derivedLine = (line: Line, pick: (g: CableGeometry) => Vec3Like[]): void => {
       const cable = this
+      // The cable's `geometry()` memo returns a STABLE object identity while
+      // unchanged and a fresh one when `geometryKey()` moves (see geometry()).
+      // Bump the Line's geomVersion exactly on that identity change, so the
+      // host's O(1) dirty-check regenerates this ribbon iff the cable geometry
+      // recomputed — the same contract curves.ts / Morph.ts carry for their
+      // derived Lines (primitives.ts: Line.geomVersion). `geometryKey` is the
+      // complete dependency set for the current corpus (the only reader not in
+      // it, `view`, is a build-time constant and never animated); an animated
+      // `view` would have to enter the key here, exactly as the memo needs.
+      let lastMemo: CableGeometry | undefined
       Object.defineProperty(line, "points", {
         configurable: true,
         enumerable: true,
         get(): Vec3Like[] {
-          return pick(cable.geometry())
+          const g = cable.geometry()
+          if (g !== lastMemo) {
+            lastMemo = g
+            line.geomVersion++
+          }
+          return pick(g)
         },
         set(_v: Vec3Like[]) {},
       })

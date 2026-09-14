@@ -58,11 +58,39 @@ const STROKE_SEGMENTS = 128
  */
 const CYLINDER_ROTATION_SEGMENTS = 64
 
+/**
+ * The geometry-regen dirty signature a stroke binding carries.
+ *
+ * For a Line — the many-point case (cables, morphs, sketches, section
+ * curves) that dominated `sync()` — the signature is an O(1) triple: the
+ * Line's `geomVersion` (bumped iff its polyline changed, static or
+ * derived — primitives.ts) plus the two phase scalars the host re-applies
+ * in `polyline()`. That replaces the old per-frame flatten of 3×pointCount
+ * numbers with three integer/float reads and no allocation.
+ *
+ * For a parametric shape (Circle/Square/Polygon/Arc/AnnularSector/
+ * Rectangle/Ellipse) the signature stays the small `number[]` of its
+ * handful of shape params: those key on Param VALUES, not a `points`
+ * array, so flattening them is already cheap, and a Param may be BOUND
+ * (`follow`) — a version bumped only in `set value` would miss a derived
+ * param's change and stale the geometry. The array read is unconditional
+ * and correct; only the Line case — where the array was large and the
+ * `points` accessor already tracks its own recompute — needs the version.
+ */
+interface ShapeSig {
+  /** Line fast path: geometry version + drawStart + (drawReversed?1:0). */
+  version: number
+  drawStart: number
+  reversed: number
+  /** Parametric fallback: the flattened shape-param array. */
+  key: number[]
+}
+
 interface StrokeBinding {
   holon: Stroke
   ribbon: RibbonStroke
-  /** Shape-param signature for the geometry-regen dirty-check. */
-  shapeKey: number[]
+  /** Shape signature for the geometry-regen dirty-check (see ShapeSig). */
+  sig: ShapeSig
   /**
    * The group the ribbon mesh is a child of — the frame its local points
    * (and cached bounding sphere) are stated in. Kept so the off-screen
@@ -75,7 +103,7 @@ interface StrokeBinding {
 interface FillBinding {
   holon: Ellipse | Rectangle
   fill: FillShape
-  shapeKey: number[]
+  sig: ShapeSig
 }
 
 /**
@@ -88,7 +116,7 @@ interface FillBinding {
 interface WashBinding {
   holon: Stroke
   fill: FillShape
-  shapeKey: number[]
+  sig: ShapeSig
 }
 
 /**
@@ -372,9 +400,39 @@ const drawingSubpaths = (holon: Stroke): Vec3Like[][] | undefined => {
   return loops
 }
 
-/** The drawing's subpaths as one flat key — its geometry, in sync order. */
-const drawingKey = (loops: readonly (readonly Vec3Like[])[]): number[] =>
-  loops.flatMap((loop) => [loop.length, ...loop.flatMap((p) => [p.x, p.y, p.z])])
+/**
+ * A drawing wash's geometry-regen signature, from its subpath CHILDREN
+ * rather than its own (absent) polyline. A drawing's subpaths are all
+ * Lines (`drawingSubpaths` requires it), each carrying a `geomVersion`
+ * that bumps iff its points change — so the sum of those versions plus
+ * the child count is an O(childCount) integer signature that changes iff
+ * any subpath's geometry changed or a subpath appeared/vanished, in place
+ * of flattening every subpath's every point each frame. A child that
+ * OPENS (stops being a closed loop) changed its points, so its version
+ * bumped and the sum caught it before it left the set.
+ */
+const drawingSig = (holon: Stroke): ShapeSig => {
+  const parts = holon.parts
+  let sum = 0
+  let count = 0
+  for (const part of parts) {
+    if (part instanceof Line) {
+      void part.points // force a derived recompute before reading the version
+      sum += part.geomVersion
+      count++
+    }
+  }
+  return { version: sum, drawStart: count, reversed: 0, key: EMPTY_KEY }
+}
+
+/** Has a drawing wash's subpath geometry changed? Updates `prev` in place. */
+const drawingSigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
+  const sig = drawingSig(holon)
+  if (sig.version === prev.version && sig.drawStart === prev.drawStart) return false
+  prev.version = sig.version
+  prev.drawStart = sig.drawStart
+  return true
+}
 
 /**
  * The stroke's outline as the pen actually walks it: the primitive's own
@@ -542,6 +600,62 @@ const shapeKey = (holon: Stroke): number[] => {
 /** Arrow geometry depends on the endpoints and the stroke width. */
 const arrowKey = (holon: Line): number[] => [...shapeKey(holon), holon.arrowSize.value]
 
+/**
+ * A stroke's geometry-regen signature (see ShapeSig). Cheap and
+ * allocation-free on the Line fast path — the case that dominated
+ * `sync()`. For a Line the version stands in for the whole polyline, so
+ * this reads `holon.points` FIRST: a derived Line's `points` getter is
+ * what recomputes its memo and bumps `geomVersion`, so the version is
+ * only current AFTER the getter has run for this frame (primitives.ts,
+ * curves.ts). The read is cheap — a derived Line compares its small
+ * sourceKey (anchor positions / a few params), never the many-point
+ * output — and a static Line's read is a plain backing fetch.
+ */
+const freshSig = (holon: Stroke): ShapeSig => {
+  if (holon instanceof Line) {
+    void holon.points // force a derived recompute, so geomVersion is current
+    return {
+      version: holon.geomVersion,
+      drawStart: holon.drawStart.value,
+      reversed: holon.drawReversed.value ? 1 : 0,
+      key: EMPTY_KEY,
+    }
+  }
+  // Parametric shapes: no version (a bound Param would miss it) — the
+  // small value array is already cheap and always correct.
+  return { version: 0, drawStart: 0, reversed: 0, key: shapeKey(holon) }
+}
+
+/** Shared empty array for the Line fast path — its `key` is never read. */
+const EMPTY_KEY: number[] = []
+
+/**
+ * Has the stroke's geometry changed since `prev`? Updates `prev` in place
+ * and returns whether a regen is due. The Line path is an O(1) triple
+ * compare (version + two phase scalars); the parametric path compares the
+ * small value array. A superset of the old array comparison in every
+ * case, so no stale geometry is possible.
+ */
+const sigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
+  if (holon instanceof Line) {
+    void holon.points // recompute-if-needed before reading the version
+    const version = holon.geomVersion
+    const drawStart = holon.drawStart.value
+    const reversed = holon.drawReversed.value ? 1 : 0
+    if (version === prev.version && drawStart === prev.drawStart && reversed === prev.reversed) {
+      return false
+    }
+    prev.version = version
+    prev.drawStart = drawStart
+    prev.reversed = reversed
+    return true
+  }
+  const key = shapeKey(holon)
+  if (keysEqual(key, prev.key)) return false
+  prev.key = key
+  return true
+}
+
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
 /** A tint lifted toward white by `amount` — the hover glow's brightness. */
@@ -683,14 +797,14 @@ export class ThreeHost {
       const fill = new FillShape(this.nextFillOrder++)
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon) })
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++)
       fill.setPolygon(
         rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
       )
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, shapeKey: shapeKey(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon) })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -716,7 +830,7 @@ export class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++)
         fill.setPolygons(loops)
         group.add(fill.mesh)
-        this.drawingWashes.push({ holon, fill, shapeKey: drawingKey(loops) })
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon) })
         for (const part of holon.parts) this.washedByAncestor.add(part)
       }
       const washed =
@@ -727,7 +841,7 @@ export class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++)
         fill.setPolygon(washed.points, washed.triangles)
         group.add(fill.mesh)
-        this.washes.push({ holon, fill, shapeKey: shapeKey(holon) })
+        this.washes.push({ holon, fill, sig: freshSig(holon) })
       }
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
@@ -743,7 +857,7 @@ export class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
         group.add(ribbon.mesh)
-        strokeBinding = { holon, ribbon, shapeKey: shapeKey(holon), group }
+        strokeBinding = { holon, ribbon, sig: freshSig(holon), group }
         this.strokes.push(strokeBinding)
       }
       if (holon instanceof Line) {
@@ -806,9 +920,11 @@ export class ThreeHost {
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding
-      const key = shapeKey(holon)
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key
+      // The geometry dirty-check: an O(1) version+phase compare for a Line
+      // (the many-point case that dominated this loop), the small
+      // shape-param array for a parametric shape. A superset of the old
+      // per-frame flatten+compare, so no stale geometry — see ShapeSig.
+      if (sigChanged(holon, binding.sig)) {
         // `undefined` from a Line means its derived polyline has emptied
         // out this frame — pass it through so the ribbon empties too.
         const pts = polyline(holon)
@@ -825,9 +941,7 @@ export class ThreeHost {
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding
-      const key = shapeKey(holon)
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key
+      if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(
           holon instanceof Ellipse
             ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value)
@@ -842,9 +956,7 @@ export class ThreeHost {
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding
-      const key = shapeKey(holon)
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key
+      if (sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon)
         if (washed) fill.setPolygon(washed.points, washed.triangles)
       }
@@ -861,14 +973,14 @@ export class ThreeHost {
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding
       // The geometry watched is the SUBPATHS', since the drawing holon
-      // has no polyline of its own. A drawing whose subpaths have gone
-      // (or opened) simply stops painting — `setPolygons` empties the
-      // mesh rather than leaving the last good one behind.
-      const loops = drawingSubpaths(holon) ?? []
-      const key = drawingKey(loops)
-      if (!keysEqual(key, binding.shapeKey)) {
-        binding.shapeKey = key
-        fill.setPolygons(loops)
+      // has no polyline of its own — tracked by the sum of the subpath
+      // Lines' geomVersions plus their count (drawingSig), an O(childCount)
+      // integer signature in place of flattening every subpath every frame.
+      // A drawing whose subpaths have gone (or opened) simply stops
+      // painting — `setPolygons` empties the mesh rather than leaving the
+      // last good one behind.
+      if (drawingSigChanged(holon, binding.sig)) {
+        fill.setPolygons(drawingSubpaths(holon) ?? [])
       }
       fill.style(
         holon.fillOpacity.value * holon.opacity.value,
