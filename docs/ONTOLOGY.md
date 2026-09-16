@@ -176,3 +176,91 @@ are the same pattern at different addresses.
 4. Cross-scene Magic Move v1 (match by identity/class; morphing later).
 5. Dream/Holon unification rides Ch 12; all new code treats scenes as
    holons-with-chronologies from now on.
+
+---
+
+## Transmission 2026-09-16 (David) — abilities as pluggable holons, generalized; and the node graph
+
+Thought-in-progress, captured for recurrent crystallization — not
+conclusive. Sparked by revisiting the very first video (Dialectical
+Thinking), now that its reproduction is essentially complete (the
+manual C4D tweaks the original Python couldn't drive are the last
+minor details to fold in — and the moment to go BEYOND the original,
+not just match it).
+
+### The parametric-elegance north star (the whole point)
+Swap the inputs, and the entire piece responds — "exactly how good UI
+components work, where you change one variable and the whole app's UI
+responds. DreamTalk inherits that property from UI, taking it into
+hypermedia for communicating ideas." Two input changes David wants,
+that SHOULD cascade if the architecture is right:
+- **Colors swapped**: the circle is now RED, the square BLUE (was the
+  other way). One-line palette tweak.
+- **Rectangle → Square**: monotonic for the visual-metaphor language —
+  circle-vs-square is a cleaner comparison than circle-vs-rectangle.
+- **THE TEST OF ELEGANCE**: if the cylinder is built as the SDF
+  INTERSECTION of a square and a circle (discussed once, NOT yet built
+  — confirmed absent), then rectangle→square propagates through the
+  whole video automatically: change the input, the cylinder follows,
+  the logic holds. This is the elegance to build toward. (Status: the
+  cylinder is currently its own five-stroke vocabulary entry; the
+  square∩circle SDF derivation is an OPEN ontology-aligned refactor.)
+
+### Two effects to generalize from manual one-offs into ABILITIES
+Both follow the settled pattern (DECISIONS 2026-09-07, "abilities are
+pluggable DreamNodes"): a self-contained holon that is NOT a thing but
+APPLIES an effect to a thing; imported into a DreamSong, it grafts a
+verb onto every eligible object. Morph was the first; these are the
+next two.
+
+**1. GeometrySketch (the "annotate the geometry" effect).** Draws from
+Keynote's sketch-effect thinking: apply to ANY line/shape and it runs
+its own internal logic. It finds the shape's sharp angles and annotates
+them geometrically — an arc drawn across each angle to show it, and the
+right-angle convention (the little square-corner mark / dot) where the
+angle is 90°. Throw it at any platonic shape (triangle, pentagon,
+square) and it does what you'd expect; throw it at a custom shape and
+it still works to reasonable degree. Syntax goal: `square.sketchGeometry()`
+(or similar) once the ability module is imported. This is the SQUARE
+side of the "both creatures describe the mathematics of what they see"
+scene — the square gets right-angles/straight-line clarification while
+the circle gets the sin/cos x-y-axis graph. (David has more clarity on
+the square side; the circle side is future.)
+
+**2. RayCaster (the "eyes perceive" effect).** Its own object. Casts
+rays from a point; where a ray hits a collider shape, the ray STOPS and
+a little "x" marks the hit (the collision). General form + edge cases:
+- simplest: an origin point, rays isotropic in all directions;
+- constrain to a PLANE (e.g. xy) → rays radial-outward in that plane;
+- parameters: first-ray angle, last-ray angle, step count → steer/fan
+  the spread. The Dialectical-Thinking scene (three rays from an eye
+  hitting the shape) is then just an EDGE CASE of this general caster.
+- takes an EMITTER object as input: simplest reading = cast from
+  wherever that object is; later = cast from the emitter's surface
+  NORMALS; later = 3D. Read whatever is needed off the emitter.
+- COLLIDERS fed as input via set-algebra selection (the EDD /
+  everything-minus-these vocabulary): most elegant is naming exactly
+  the pair — e.g. left-eye-looking-at-circle is the emitter, the circle
+  is the collider.
+- on collision: colour (David trailed off — "add colours"), then a
+  SHOCKWAVE — a circle that grows outward from the hit point and fades,
+  ease-OUT not ease-in (full energy at impact, dissipating/slowing as
+  it fades). And drive AUDIO off the collision (a little "ping") — the
+  same "effect drives the audio track" pattern already used elsewhere.
+- IMPLEMENTATION is free — pure geometry, OR a particle emitter with
+  collision + traced paths. It does not matter, BECAUSE each holon is
+  self-contained: no global system needed; whatever imports it gets
+  everything it needs. (David explicitly: solve it however; the
+  self-containment is what makes the choice local and reversible.)
+
+### The open composition question — toward a node graph
+Does the RayCaster come bundled WITH the Eye (so anyone who gets the
+Eye can "look at things" = receives the caster)? Likely yes. But this
+surfaces the deeper question David flags and defers: the object
+HIERARCHY. Right now it's a tree (parent/child) — and "is the Eye a
+child of the RayCaster, or the RayCaster a child of the Eye?" is
+exactly the awkwardness C4D hit with its effectors/generators
+(deformers-must-be-children, generators-must-be-parents). David wants
+to move toward something **more like a NODE GRAPH, visualized in a
+much more minimalist way** — not a rigid tree. Left as the next thread
+to explore.
