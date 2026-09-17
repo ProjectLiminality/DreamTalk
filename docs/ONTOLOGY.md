@@ -264,3 +264,29 @@ exactly the awkwardness C4D hit with its effectors/generators
 to move toward something **more like a NODE GRAPH, visualized in a
 much more minimalist way** — not a rigid tree. Left as the next thread
 to explore.
+
+### Addendum 2026-09-17 (morning) — the node graph is object-level, and abilities are AGENTS
+The graph is already there (Morph references shapes it doesn't own). The
+refinement: every holon has INPUTS and OUTPUTS, but the VISUALIZATION is
+stripped down to OBJECT relationships only — not the convoluted wire-up-
+everything node graph. "Circle and square feed into Morph" — that
+relationship, shown; the internal param wiring (e.g. map circle.color →
+morph.completion by some logic) exists but stays folded away. A
+distinction worth holding: the DEPENDENCY graph (not to be dictated by
+suboptimal tools) vs the VISUALIZATION of how things play together.
+
+The deeper reframe: dependencies are HORIZONTAL, not "text has the
+ability to morph." Rather — text is an agent in the arena, shape is an
+agent in the arena, and the MORPHER is a third agent: a SHAPESHIFTER
+that interpolates between the two, taking on their shape, with its own
+degrees of freedom and internal params. All three are children of the
+SCENE (siblings), not parent/child of each other. Same for RayCaster:
+it's the eye's latent ability, instantiated when needed — the scene
+instantiates the Eye, then calls something like `eye.rayCast(...)`,
+which imports the caster from the submodule and makes it available. The
+guarantee: you never receive the Eye and find its cool ability trails a
+broken dependency — it's all self-contained (down to particles if used).
+Popping-out is OPTIONAL: the RayCaster needn't be extracted from the Eye
+until you want it as a general capability for another project — then you
+disentangle and modularize. Self-containment first; modularize on
+actual reuse (the gardening rule). [node-graph-as-scene-of-agents]
