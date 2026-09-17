@@ -47,8 +47,20 @@ import { mountOutline, identityOf, rootIdentityOf } from "./outline"
 import { mountNavigator } from "./navigator"
 import { mountCast } from "./cast"
 import { Marquee } from "./marquee"
-import { MoveGesture, cameraFrameOf, movable } from "./manipulate"
+import { AxisGesture, MoveGesture, cameraFrameOf, movable, worldAxisOf } from "./manipulate"
+import {
+  AXIS_PARAM,
+  drawGizmo,
+  handleGeometry,
+  hitHandle,
+  mountGizmoSwitch,
+  type AxisIndex,
+  type GizmoMode,
+  type GizmoSwitch,
+  type HandleGeometry,
+} from "./gizmo"
 import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
+import { mountComments, type CommentPanel } from "./comments"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
@@ -139,6 +151,12 @@ declare global {
       redo?: () => void
       /** How deep each stack is right now. */
       history?: () => { undo: number; redo: number }
+      // --- The transform gizmo (EDITOR-VOICE-COMMENTS step 2), headless -----
+      /** The current gizmo mode, and the switch, for headless driving. */
+      gizmoMode?: () => GizmoMode
+      setGizmoMode?: (mode: GizmoMode) => void
+      /** The handles' screen geometry in canvas pixels, or undefined if none. */
+      gizmoHandles?: () => HandleGeometry | undefined
     }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
@@ -602,6 +620,94 @@ const boot = async (resume?: Transport) => {
   const backdropPanel = $<HTMLDivElement>("backdroppanel")
   const nameEl = $<HTMLHeadingElement>("scenename")
   const metaEl = $<HTMLDivElement>("scenemeta")
+  const panel = $<HTMLDivElement>("panel")
+
+  // --- Selection-anchored comments (EDITOR-VOICE-COMMENTS step 1) -----------
+  //
+  // The comment block lives in the inspector but OUTSIDE #params (which
+  // renderInspector clears every selection), so it keeps its half-typed
+  // note across a re-render. It shows only with a holon selected; the
+  // stable path is computed here (pathOf), and the screen bounds come from
+  // the same host.boundsOf the marquee draws — so a comment carries exactly
+  // the region a later step will render.
+  let comments: CommentPanel | undefined
+  if (!playerMode)
+    comments = mountComments(
+      panel,
+      {
+        scene: sceneKey,
+        path: () => {
+          const holon = selection.current
+          return holon ? (pathOf(dream.roots, holon) ?? null) : null
+        },
+        label: () => {
+          const holon = selection.current
+          return holon ? classNameOf(holon) : sceneName
+        },
+        currentT: () => current,
+        bounds: () => {
+          const holon = selection.current
+          const box = holon ? host.boundsOf(holon) : undefined
+          if (!box) return undefined
+          return { minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y }
+        },
+      },
+      ac.signal,
+    )
+
+  // --- The transform gizmo (EDITOR-VOICE-COMMENTS step 2) -------------------
+  //
+  // The mode switch lives in the inspector beside the comment block; its
+  // handles are drawn on the marquee overlay and dragged through the SAME
+  // live-override + setOverride path the viewport move uses. Voice is the
+  // default mode (agentic-first) — the transform tools are how you nudge
+  // without voice. Handles show only with a holon selected and a transform
+  // mode chosen.
+  let gizmo: GizmoSwitch | undefined
+  if (!playerMode)
+    gizmo = mountGizmoSwitch(
+      panel,
+      () => {
+        // A mode change repaints the overlay (handles appear/vanish) and, on
+        // leaving a transform mode mid-drag, cancels it honestly.
+        if (gizmo?.mode() === "voice") cancelAxis()
+        paintMarquee()
+      },
+      ac.signal,
+    )
+
+  /**
+   * The gizmo's on-screen handle geometry for the current selection, or
+   * undefined when there is nothing to draw (no selection, voice mode, or
+   * the origin projects off-frame). Projects the world origin and the three
+   * world axes to canvas pixels exactly as host.boundsOf projects ink.
+   */
+  const gizmoGeometry = (): HandleGeometry | undefined => {
+    const holon = selection.current
+    if (!holon || !gizmo || gizmo.mode() === "voice") return undefined
+    const origin = host.worldOriginOf(holon)
+    const parentWorld = host.parentWorldMatrixOf(holon)
+    if (!origin || !parentWorld) return undefined
+    const width = host.renderer.domElement.width || 1280
+    const height = host.renderer.domElement.height || 720
+    const toScreen = (wx: number, wy: number, wz: number): { x: number; y: number } => {
+      const p = origin.clone().set(wx, wy, wz).project(host.camera)
+      return { x: ((p.x + 1) / 2) * width, y: ((1 - p.y) / 2) * height }
+    }
+    const o = toScreen(origin.x, origin.y, origin.z)
+    // Each world axis tip = origin + a unit step along the parent's column,
+    // scaled up so the projected direction is stable; handleGeometry then
+    // normalizes to a fixed on-screen length.
+    const el = parentWorld.elements
+    const axisScreen = ([0, 1, 2] as const).map((i) => {
+      const a = worldAxisOf(el, i)
+      const len = Math.hypot(a.x, a.y, a.z) || 1
+      const step = 60 / len // ~60 world units along the axis before projection
+      const tip = toScreen(origin.x + a.x * step, origin.y + a.y * step, origin.z + a.z * step)
+      return { x: tip.x - o.x, y: tip.y - o.y }
+    })
+    return handleGeometry(o, axisScreen)
+  }
 
   /** Rebuild the whole inspector from the current selection. */
   const renderInspector = (holon: Holon | null) => {
@@ -611,6 +717,10 @@ const boot = async (resume?: Transport) => {
     // unfold()), so it belongs to the no-selection state — and it is
     // load-bearing for the gauntlet, so it must always be reachable.
     backdropPanel.style.display = holon ? "none" : ""
+    // Comments hang off a SELECTION, so the block appears only with one —
+    // and re-reads the notes for whatever is now selected.
+    panel.classList.toggle("has-selection", !!holon)
+    comments?.refresh()
 
     if (!holon) {
       nameEl.textContent = sceneName
@@ -751,6 +861,15 @@ const boot = async (resume?: Transport) => {
     const ndc = ndcAt(clientX, clientY)
     return ndc ? host.pick(ndc.x, ndc.y) : undefined
   }
+  /** Client coords → the canvas's render-pixel space — the gizmo's coordinates. */
+  const canvasPixelAt = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return undefined
+    return {
+      x: ((clientX - rect.left) / rect.width) * canvas.width,
+      y: ((clientY - rect.top) / rect.height) * canvas.height,
+    }
+  }
 
   // --- Moving the selection (EDITOR-V5, "Direct manipulation") --------------
   //
@@ -788,6 +907,130 @@ const boot = async (resume?: Transport) => {
     last?: { x: number; y: number }
   }
   let move: Move | null = null
+
+  // --- The gizmo's axis drag (EDITOR-VOICE-COMMENTS step 2) -----------------
+  //
+  // A press on an axis handle writes ONE param along that axis, riding the
+  // live layer exactly as the view-plane move does: drag → override; release
+  // → setOverride op; Escape → revert. The math is manipulate.ts's
+  // AxisGesture (view-independent, tested as bare functions); this owns only
+  // the wiring, mirroring the Move block above.
+
+  /** Radians per world unit swept — a full handle-arm drag turns ~half a turn. */
+  const ROTATE_PER_WORLD = Math.PI / 120
+  /** Scale units per world unit swept — a handle-arm drag scales by ~0.5. */
+  const SCALE_PER_WORLD = 1 / 120
+
+  interface Axis {
+    holon: Holon
+    pointerId: number
+    index: AxisIndex
+    /** The param this axis writes, by the current mode. */
+    param: Param<ParamValue>
+    name: string
+    gesture: AxisGesture
+    /** The last value written live — what pointerup commits. */
+    last?: number
+  }
+  let axis: Axis | null = null
+
+  /** Begin an axis drag when a press lands on a handle. Returns whether it did. */
+  const beginAxis = (e: PointerEvent, index: AxisIndex): boolean => {
+    const holon = selection.current
+    const mode = gizmo?.mode()
+    if (!holon || !mode || mode === "voice") return false
+    const name = AXIS_PARAM[mode][index]
+    const param = holon.params.get(name) as Param<ParamValue> | undefined
+    if (!param || param.isBound) {
+      refuseMove()
+      return false
+    }
+    const startNdc = ndcAt(e.clientX, e.clientY)
+    const origin = host.worldOriginOf(holon)
+    const parentWorld = host.parentWorldMatrixOf(holon)
+    if (!startNdc || !origin || !parentWorld) return false
+    // Move sweeps the parent's own axis column (carrying its scale so the
+    // param lands in local units); rotate/scale reuse the same visible axis
+    // with a per-world-unit factor.
+    const worldAxis = worldAxisOf(parentWorld.elements, index)
+    const perUnit =
+      mode === "move" ? 1 : mode === "rotate" ? ROTATE_PER_WORLD : SCALE_PER_WORLD
+    const gesture = AxisGesture.create(
+      cameraFrameOf(host.camera),
+      startNdc,
+      { x: origin.x, y: origin.y, z: origin.z },
+      worldAxis,
+      param.value as number,
+      perUnit,
+    )
+    if (!gesture) return false
+    // Pause first (decision 3): overrides clear on playhead motion, so a
+    // live drag is only honest while the playhead is still.
+    pause()
+    axis = { holon, pointerId: e.pointerId, index, param, name, gesture }
+    try {
+      canvas.setPointerCapture?.(e.pointerId)
+    } catch {}
+    canvas.classList.add("moving")
+    return true
+  }
+
+  /** One axis-drag move: overlay the swept value and repaint. */
+  const moveAxis = (e: PointerEvent): boolean => {
+    if (!axis || e.pointerId !== axis.pointerId) return false
+    e.preventDefault()
+    const ndc = ndcAt(e.clientX, e.clientY)
+    const value = ndc && axis.gesture.value(cameraFrameOf(host.camera), ndc)
+    if (value === undefined || value === false) return true
+    overrides.set(axis.param, value)
+    for (const row of rows) {
+      if (row.param === axis.param)
+        row.el?.classList.add(anchorOf(axis.holon) ? "diverged" : "live")
+    }
+    axis.last = value
+    void host.renderFrame(current).then(() => {
+      syncPanel()
+      paintMarquee()
+    })
+    return true
+  }
+
+  /** Axis released: commit the swept value as one setOverride op. */
+  const endAxis = (e: PointerEvent): boolean => {
+    if (!axis || e.pointerId !== axis.pointerId) return false
+    const a = axis
+    axis = null
+    try {
+      canvas.releasePointerCapture?.(e.pointerId)
+    } catch {}
+    canvas.classList.remove("moving")
+    if (a.last === undefined) return true
+    const anchor = anchorOf(a.holon)
+    if (!anchor) return true
+    const round = (v: number) => Math.round(v * 1000) / 1000
+    void commitOverride(a.holon, anchor, a.name, round(a.last))
+    return true
+  }
+
+  /** End an axis drag without writing — Escape, pointercancel, mode change. */
+  const cancelAxis = (): boolean => {
+    if (!axis) return false
+    const a = axis
+    axis = null
+    try {
+      canvas.releasePointerCapture?.(a.pointerId)
+    } catch {}
+    canvas.classList.remove("moving")
+    overrides.release([a.param])
+    for (const row of rows) {
+      if (row.param === a.param) row.el?.classList.remove("diverged", "live")
+    }
+    void host.renderFrame(current).then(() => {
+      syncPanel()
+      paintMarquee()
+    })
+    return true
+  }
 
   /** Is `holon` the selection itself or ink inside it? */
   const withinSelection = (holon: Holon, selected: Holon): boolean => {
@@ -923,6 +1166,15 @@ const boot = async (resume?: Transport) => {
         canvas.classList.add("flying")
         return
       }
+      // A press on a gizmo handle takes precedence over everything: the
+      // handle sits over the selection's own ink, and grabbing it is an
+      // axis drag, not a move or a re-pick.
+      const geo = gizmoGeometry()
+      if (geo) {
+        const cp = canvasPixelAt(e.clientX, e.clientY)
+        const grabbed = cp ? hitHandle(geo, cp.x, cp.y) : null
+        if (grabbed !== null && beginAxis(e, grabbed)) return
+      }
       const hit = pickAt(e.clientX, e.clientY)
       const selected = selection.current
       if (hit && selected && withinSelection(hit, selected)) {
@@ -970,6 +1222,14 @@ const boot = async (resume?: Transport) => {
       host.renderer.domElement.width,
       host.renderer.domElement.height,
     )
+    // The gizmo rides the same overlay, drawn ON TOP of the marquee's ticks
+    // (marquee.draw cleared the canvas first). Only in a transform mode, only
+    // with the affordance on — so a render never carries a handle.
+    if (marquee.enabled) {
+      const geo = gizmoGeometry()
+      const ctx = marquee.canvas.getContext("2d")
+      if (geo && ctx) drawGizmo(ctx, geo, axis?.index ?? null)
+    }
   }
 
   selection.subscribe((holon) => {
@@ -1116,6 +1376,10 @@ const boot = async (resume?: Transport) => {
   canvas.addEventListener(
     "pointermove",
     (e) => {
+      if (axis) {
+        moveAxis(e)
+        return
+      }
       if (move) {
         e.preventDefault()
         if (!move.gesture) {
@@ -1221,6 +1485,7 @@ const boot = async (resume?: Transport) => {
         }
         return
       }
+      if (endAxis(e)) return
       if (!endMove(e)) endFlight(e)
     },
     listen,
@@ -1228,6 +1493,7 @@ const boot = async (resume?: Transport) => {
   canvas.addEventListener(
     "pointercancel",
     (e) => {
+      if (cancelAxis()) return
       if (!cancelMove()) endFlight(e)
     },
     listen,
@@ -1374,7 +1640,9 @@ const boot = async (resume?: Transport) => {
         else doUndo()
       }
       if (e.code === "Escape") {
-        if (cancelMove()) {
+        if (cancelAxis()) {
+          // An axis drag in flight dies here — the override reverted, nothing written.
+        } else if (cancelMove()) {
           // A move in flight dies here — overrides reverted, nothing written.
         } else if (drag && !drag.reverted) {
           // Drop the live override — nothing was ever written.
@@ -1750,6 +2018,13 @@ const boot = async (resume?: Transport) => {
     undo: () => doUndo(),
     redo: () => doRedo(),
     history: () => undoStack.depth,
+    // --- The transform gizmo, driven headlessly ----------------------------
+    gizmoMode: () => gizmo?.mode() ?? "voice",
+    setGizmoMode: (mode: GizmoMode) => {
+      gizmo?.set(mode)
+      paintMarquee()
+    },
+    gizmoHandles: () => gizmoGeometry(),
   })
 }
 

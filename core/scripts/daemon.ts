@@ -16,6 +16,7 @@
 import { watch } from "node:fs"
 import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
+import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
@@ -161,6 +162,41 @@ const faceResponse = async (name: string): Promise<Response> => {
   const file = Bun.file(`${repoRoot}core/vocabulary/${name}/${name}.png`)
   if (!(await file.exists())) return new Response("no face", { status: 404 })
   return new Response(file, { headers: { "Content-Type": "image/png" } })
+}
+
+// --- Selection-anchored comments (EDITOR-VOICE-COMMENTS step 1) -------------
+//
+// POST /api/comment  → append one comment to core/.comments/<scene>.jsonl
+// GET  /api/comments?scene=<key>  → every comment for a scene, oldest-first
+//
+// The store (scripts/comments.ts) is pure over the repo root; this is only
+// the HTTP skin: validate the body, append, echo the written record back so
+// the panel can show it immediately without a re-fetch. Comments are context
+// the operating agent reads with a plain `cat` — deliberately not an op down
+// the WS queue, since they change no source and need no rebase.
+
+const postCommentResponse = async (req: Request): Promise<Response> => {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return Response.json({ error: "malformed JSON body" }, { status: 400 })
+  }
+  const parsed = parseCommentInput(body)
+  if (!parsed.ok) return Response.json({ error: parsed.reason }, { status: 400 })
+  try {
+    const comment = await appendComment(repoRoot, parsed.input)
+    log(`comment → ${parsed.input.scene} (${parsed.input.pathLabel})`)
+    return Response.json({ ok: true, comment })
+  } catch (err) {
+    log("comment write failed:", err)
+    return Response.json({ error: "write failed" }, { status: 500 })
+  }
+}
+
+const getCommentsResponse = async (scene: string | null): Promise<Response> => {
+  if (!scene || !isValidScene(scene)) return Response.json({ error: "bad scene" }, { status: 400 })
+  return Response.json({ comments: await readComments(repoRoot, scene) })
 }
 
 // --- Build + reload --------------------------------------------------------
@@ -516,6 +552,8 @@ const server = Bun.serve({
     }
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
+    if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
+    if (url.pathname === "/api/comments") return getCommentsResponse(url.searchParams.get("scene"))
     if (url.pathname.startsWith("/api/bake-cache/")) {
       return bakeCacheResponse(req, url.pathname.slice("/api/bake-cache/".length))
     }

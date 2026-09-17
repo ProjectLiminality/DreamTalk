@@ -1,2 +1,5 @@
 node_modules/
 demo/dist/
+# Selection-anchored comments — transient intake context for the operating
+# agent (docs/EDITOR-VOICE-COMMENTS.md), not source.
+.comments/

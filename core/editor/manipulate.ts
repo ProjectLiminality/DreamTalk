@@ -257,3 +257,105 @@ export class MoveGesture {
     return { x: this.baseX + dx, y: this.baseY + dy }
   }
 }
+
+/**
+ * The world-space direction of a local axis (x/y/z) under a parent's world
+ * matrix, carrying the parent's scale in its LENGTH. Column j of the
+ * col-major upper 3x3 is exactly the image of local basis vector j — so
+ * this is a plain column read, no matrix multiply needed.
+ */
+export const worldAxisOf = (parentWorld: ArrayLike<number>, axis: 0 | 1 | 2): Vec3 => {
+  const c = axis * 4
+  return v3(parentWorld[c]!, parentWorld[c + 1]!, parentWorld[c + 2]!)
+}
+
+/**
+ * A single-axis drag — the transform gizmo's handle (EDITOR-VOICE-COMMENTS
+ * step 2). Where MoveGesture moves on the view plane in two params, this
+ * constrains motion to ONE world axis and returns the signed distance the
+ * pointer has swept ALONG it, in that axis's own parameter units.
+ *
+ * The plane the drag lives on is the one that CONTAINS the axis and faces
+ * the camera as squarely as possible: its normal is the component of the
+ * view direction perpendicular to the axis (forward − (forward·â)â). That
+ * keeps a nearly edge-on axis from becoming un-draggable — the classic
+ * gizmo choice. Pointer travel on that plane is projected back onto the
+ * axis, so only motion along the handle counts.
+ *
+ * Units: the world axis carries the parent's scale in its length, so a
+ * world sweep of `d` along the normalized axis is `d / |worldAxis|`
+ * parameter units — "move 100 world-right" becomes whatever local number
+ * the parent's frame needs. Angles (h/p/b) and scale reuse the same
+ * machinery: the caller passes the world axis to sweep along and a
+ * `perUnit` that converts a world distance into the param's units.
+ */
+export class AxisGesture {
+  readonly base: number
+  readonly #planePoint: Vec3
+  readonly #normal: Vec3
+  readonly #axisDir: Vec3
+  readonly #from: Vec3
+  readonly #perUnit: number
+
+  private constructor(
+    planePoint: Vec3,
+    normal: Vec3,
+    axisDir: Vec3,
+    from: Vec3,
+    perUnit: number,
+    base: number,
+  ) {
+    this.#planePoint = planePoint
+    this.#normal = normal
+    this.#axisDir = axisDir
+    this.#from = from
+    this.#perUnit = perUnit
+    this.base = base
+  }
+
+  /**
+   * Arm an axis drag, or refuse (undefined) when the geometry cannot
+   * answer: a degenerate axis, a grab ray that misses the drag plane, or
+   * an axis pointing straight at the camera (no in-plane sweep possible).
+   *
+   * `worldAxis` is the axis to move along in WORLD space, its length the
+   * scale that maps world distance to parameter units. `perUnit` scales
+   * that further for non-translate handles (radians per world unit for a
+   * rotate ring, etc.); translate passes 1.
+   */
+  static create(
+    frame: CameraFrame,
+    grab: Ndc,
+    origin: Vec3,
+    worldAxis: Vec3,
+    base: number,
+    perUnit = 1,
+  ): AxisGesture | undefined {
+    const axisLen = Math.hypot(worldAxis.x, worldAxis.y, worldAxis.z)
+    if (axisLen < 1e-9) return undefined
+    const axisDir = scale(worldAxis, 1 / axisLen)
+    // Plane normal: the view direction with its along-axis part removed, so
+    // the plane contains the axis. If the axis faces the camera dead-on the
+    // remainder is ~0 and there is no honest in-plane drag.
+    const along = dot(frame.forward, axisDir)
+    const normal = normalize(sub(frame.forward, scale(axisDir, along)))
+    if (Math.hypot(normal.x, normal.y, normal.z) < 1e-6) return undefined
+    const from = intersectPlane(pointerRay(frame, grab), origin, normal)
+    if (!from) return undefined
+    // perUnit combines the world→param scale (1/axisLen) with the caller's
+    // per-world-unit factor: translate → 1/axisLen; rotate/scale → their own.
+    return new AxisGesture(origin, normal, axisDir, from, perUnit / axisLen, base)
+  }
+
+  /**
+   * The param value the handle should hold with the pointer at `ndc`:
+   * base plus the pointer's swept distance ALONG the axis, in param units.
+   * Undefined while the pointer is off the plane.
+   */
+  value(frame: CameraFrame, ndc: Ndc): number | undefined {
+    const hit = intersectPlane(pointerRay(frame, ndc), this.#planePoint, this.#normal)
+    if (!hit) return undefined
+    const sweep = dot(sub(hit, this.#from), this.#axisDir) // world distance along axis
+    return this.base + sweep * this.#perUnit
+  }
+}

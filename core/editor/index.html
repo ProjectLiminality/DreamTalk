@@ -240,6 +240,54 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .swatch { width: 100%; height: 12px; border-radius: 3px; border: 1px solid var(--line); }
     .empty { color: var(--dim); font-size: 11px; font-style: italic; }
+
+    /* --- Comments on a selection (EDITOR-VOICE-COMMENTS step 1) ------------
+       Claude Code's artifact comment mode, for a DreamTalk selection. Only
+       present with something selected; minimalist — thin lines, the canonical
+       palette, the mic (voice-first) the prominent affordance. */
+    .commentsec { display: none; }
+    #panel.has-selection .commentsec { display: block; }
+    .commentlist { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+    .comment { border-left: 2px solid var(--blue); background: var(--panel-2);
+      border-radius: 0 4px 4px 0; padding: 5px 8px; }
+    .comment.resolved { border-left-color: var(--dimmer); opacity: 0.55; }
+    .comment .cmeta { color: var(--dim); font-size: 9.5px; letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+    .comment .cbody { color: var(--text); font-size: 11.5px; line-height: 1.45;
+      white-space: pre-wrap; overflow-wrap: anywhere; }
+    /* mic · text · attach, on one baseline. The mic is the primary affordance. */
+    .composer { display: grid; grid-template-columns: 30px 1fr auto; gap: 6px;
+      align-items: end; }
+    .micbtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; justify-content: center; padding: 0; flex: 0 0 auto; }
+    .micbtn:hover { border-color: var(--red); color: var(--red); }
+    .commentinput { resize: none; overflow: hidden; min-height: 30px;
+      background: var(--panel-2); color: var(--bright); border: 1px solid var(--line);
+      border-radius: 6px; padding: 7px 8px; font: 12px/1.4 -apple-system, "SF Pro", Inter, sans-serif;
+      width: 100%; }
+    .commentinput::placeholder { color: var(--dim); }
+    .commentinput:focus { outline: none; border-color: var(--blue); }
+    .attachbtn { height: 30px; border-radius: 6px; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 11px;
+      padding: 0 11px; flex: 0 0 auto; }
+    .attachbtn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+    .attachbtn:disabled { opacity: 0.4; cursor: default; }
+
+    /* --- Transform gizmo mode switch (EDITOR-VOICE-COMMENTS step 2) --------
+       voice · move · rotate · scale. Voice is the default and the prominent
+       one (agentic-first); the transform modes are quiet beside it. Only
+       present with a selection. */
+    .gizmosec { display: none; }
+    #panel.has-selection .gizmosec { display: block; }
+    .gizmobar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .gizbtn { border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      border-radius: 6px; padding: 6px 9px; font-size: 11px; cursor: pointer; }
+    .gizbtn:hover { border-color: var(--dimmer); }
+    .gizbtn.active { border-color: var(--blue); color: var(--blue); background: #0d2233; }
+    /* Voice is the love — a touch wider, and red-tinted when it is the mode. */
+    .gizvoice { flex: 0 0 auto; }
+    .gizvoice.active { border-color: var(--red); color: var(--red); background: #2a0f0c; }
     .section { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
     .section h2 { font-size: 10px; font-weight: 600; color: var(--dim);
       letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 8px; }
