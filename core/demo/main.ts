@@ -3,9 +3,14 @@
  * headless screenshot harness (window.__dt).
  */
 
+import * as THREE from "three/webgpu"
 import { ThreeHost } from "../src/render/three-host"
 import { scenes, defaultScene } from "./scenes"
 import { httpBakeCache } from "../src/bakecache"
+
+// Expose THREE for the instancing byte-identity harness (it reconstructs
+// the oracle's modelView·local the way the shader does). Harness-only.
+;(window as unknown as Record<string, unknown>).__THREE__ = THREE
 
 declare global {
   interface Window {
@@ -58,7 +63,12 @@ const main = async () => {
   const DreamCtor = scenes[sceneName] ?? scenes[defaultScene]!
   const dream = new DreamCtor()
   await warmBakes(dream)
-  const host = await ThreeHost.mount(dream, canvas)
+  // Optimization A: `?instanced=1` mounts the batched-ribbon path (off by
+  // default — the per-mesh path is the byte-identity oracle). The
+  // byte-identity harness drives the same scene at the same t with the
+  // flag off (oracle) and on (batch) and compares.
+  const instanced = new URLSearchParams(location.search).get("instanced") === "1"
+  const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons: instanced })
   const duration = dream.duration
 
   let playing = true

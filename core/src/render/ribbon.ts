@@ -493,6 +493,59 @@ export class RibbonStroke {
   }
 
   /**
+   * Pack this stroke's segments for the INSTANCED batch path
+   * (ribbon-batch.ts): positions transformed to VIEW space by `mv`, but
+   * arc-length distances kept in LOCAL units — exactly the two things the
+   * batch material needs, and exactly what the per-mesh path feeds its own
+   * shader (which does `modelView · local` for position but reads the
+   * local-arc `drawn`/`erased` uniforms against local distances).
+   *
+   * `mv` MUST be `camera.matrixWorldInverse · mesh.matrixWorld` composed
+   * as three composes it (Matrix4.multiplyMatrices — three's own
+   * ModelNode line), so `mv · local` here is the same one multiply the
+   * per-mesh shader does on the GPU. The scratch vector avoids per-call
+   * allocation on the hot path.
+   *
+   * Returns the number of segments written (points − 1), or 0 for an empty
+   * stroke. `outPositions`/`outDistances` must hold at least `count`
+   * segments (6 and 2 floats each).
+   */
+  packViewSegments(
+    mv: THREE.Matrix4,
+    outPositions: Float32Array,
+    outDistances: Float32Array,
+    scratch: THREE.Vector3,
+  ): number {
+    const pts = this.points
+    const count = Math.max(0, pts.length - 1)
+    if (count < 1) return 0
+    // First view point.
+    scratch.copy(pts[0]!).applyMatrix4(mv)
+    let ax = scratch.x, ay = scratch.y, az = scratch.z
+    let acc = 0
+    for (let i = 0; i < count; i++) {
+      scratch.copy(pts[i + 1]!).applyMatrix4(mv)
+      const bx = scratch.x, by = scratch.y, bz = scratch.z
+      outPositions[i * 6] = ax
+      outPositions[i * 6 + 1] = ay
+      outPositions[i * 6 + 2] = az
+      outPositions[i * 6 + 3] = bx
+      outPositions[i * 6 + 4] = by
+      outPositions[i * 6 + 5] = bz
+      // Distances are LOCAL arc length — the same units drawn/erased are
+      // stated in — so they are measured on the LOCAL points, NOT the
+      // view-space ones. This mirrors setPoints()'s packSegments(local).
+      const la = pts[i]!
+      const lb = pts[i + 1]!
+      outDistances[i * 2] = acc
+      acc += Math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z)
+      outDistances[i * 2 + 1] = acc
+      ax = bx; ay = by; az = bz
+    }
+    return count
+  }
+
+  /**
    * Recompute the local bounding sphere over `this.points`. AABB center
    * then the farthest point — a valid (slightly loose, never tight)
    * cover, which is exactly what a CONSERVATIVE cull wants: it may keep a

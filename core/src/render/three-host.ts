@@ -44,6 +44,7 @@ import {
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
 import { RibbonStroke, RIBBON_KEYS } from "./ribbon"
+import { RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
@@ -97,6 +98,16 @@ interface StrokeBinding {
    * cull can read the world transform without a scene walk.
    */
   group: THREE.Group
+  /**
+   * The stroke's reservation inside the ribbon batch — set only when
+   * `useInstancedRibbons` is on (optimization A). When present, the
+   * stroke's per-mesh RibbonStroke still exists (it owns points, geometry,
+   * bounds, and every measurement) but its mesh is NOT in the scene; its
+   * segments and style are written into this batch slot each frame
+   * instead, and the one batch mesh draws them all. Undefined ⇒ the
+   * per-mesh path (the oracle) renders this stroke's own mesh.
+   */
+  slot?: BatchSlot
 }
 
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
@@ -718,8 +729,9 @@ export class ThreeHost {
   private readonly highlighted = new Set<Holon>()
   private highlightAmount = 0
 
-  private constructor(dream: Dream, canvas: HTMLCanvasElement) {
+  private constructor(dream: Dream, canvas: HTMLCanvasElement, useInstancedRibbons: boolean) {
     this.dream = dream
+    this.useInstancedRibbons = useInstancedRibbons
     this.renderer = new THREE.WebGPURenderer({ canvas, antialias: true })
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(0x000000)
@@ -728,12 +740,32 @@ export class ThreeHost {
     this.camera = this.perspCamera
   }
 
-  static async mount(dream: Dream, canvas: HTMLCanvasElement): Promise<ThreeHost> {
-    const host = new ThreeHost(dream, canvas)
+  static async mount(
+    dream: Dream,
+    canvas: HTMLCanvasElement,
+    opts: { useInstancedRibbons?: boolean } = {},
+  ): Promise<ThreeHost> {
+    const host = new ThreeHost(dream, canvas, opts.useInstancedRibbons ?? false)
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
     dream.build()
     for (const root of dream.roots) host.attach(root, host.scene)
+    // With instancing on, the single batch mesh joins the scene once every
+    // stroke has claimed its slot — at the ribbon renderOrder band so it
+    // composites correctly against fills (below). Ribbons MAX-blend, so
+    // stroke-vs-stroke order inside the batch is a no-op; only ribbon-vs-
+    // fill order matters, and the batch sits at one fixed order.
+    if (host.ribbonBatch) {
+      // The batch draws at ONE renderOrder for all ribbons. In this corpus
+      // a stroke is attached AFTER the fill it composites against (the
+      // MolochEye pupil over its black iris disk; a sketch line over its
+      // own wash), so ribbons draw OVER fills — and the batch must sit
+      // ABOVE every fill to reproduce that, at the highest order claimed at
+      // attach. (Stroke-vs-stroke order is a MAX-blend no-op; ribbon-vs-fill
+      // is the only order that matters, proven by the o03/s01/thewall gate.)
+      host.ribbonBatch.mesh.renderOrder = host.nextFillOrder
+      host.scene.add(host.ribbonBatch.mesh)
+    }
     // Glyph layout is asynchronous (three-text loads HarfBuzz and the
     // font on first use), so a host carrying Text is not frame-ready the
     // moment it mounts. Awaiting every binding here is what makes a
@@ -856,8 +888,27 @@ export class ThreeHost {
         // Stroke-vs-stroke order is a no-op under MAX blending.
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
-        group.add(ribbon.mesh)
         strokeBinding = { holon, ribbon, sig: freshSig(holon), group }
+        if (this.useInstancedRibbons) {
+          // Instancing on: one batch mesh draws every ribbon. The stroke's
+          // own mesh STILL joins the group — so its world matrix updates
+          // exactly as it would in the oracle path, which is what
+          // screenArc/measureScreenArc read (byte-identical `drawn`/pen
+          // metering) — but it is placed on a non-rendered layer so the
+          // renderer never draws it (only the batch does). `mesh.visible`
+          // stays as style() sets it, so packRibbonBatch reads true
+          // visibility; layer BATCH_LAYER keeps it out of the frame.
+          group.add(ribbon.mesh)
+          ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER)
+          if (!this.ribbonBatch) this.ribbonBatch = new RibbonBatch()
+          // Reserve with headroom over the current segment count so a
+          // breathing stroke rarely relocates. A stroke with no segments
+          // yet (an empty derived Line) still gets a small slot.
+          const initial = ribbon.geometry.instanceCount
+          strokeBinding.slot = this.ribbonBatch.reserve(Math.max(2, initial))
+        } else {
+          group.add(ribbon.mesh)
+        }
         this.strokes.push(strokeBinding)
       }
       if (holon instanceof Line) {
@@ -993,7 +1044,15 @@ export class ThreeHost {
     // camera for this frame — so it comes last. Arrowheads are among it:
     // an S&T end cap is a constant number of PIXELS, so its world size is
     // a reading of the projection at the pen.
-    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0) {
+    // The batch needs settled world matrices every frame (to bake each
+    // stroke's view-space segments) — so it forces the settle even on a
+    // scene with no cylinders/arrows/texts.
+    if (
+      this.cylinders.length > 0 ||
+      this.arrows.length > 0 ||
+      this.texts.length > 0 ||
+      this.ribbonBatch !== undefined
+    ) {
       this.scene.updateMatrixWorld(true)
       for (const binding of this.cylinders) this.syncCylinder(binding)
       for (const binding of this.arrows) this.syncArrow(binding)
@@ -1006,6 +1065,60 @@ export class ThreeHost {
     }
 
     this.cullOffscreen()
+
+    // Pack every batched stroke into the single instanced draw — LAST, so
+    // it sees the cull's visibility decisions and this frame's settled
+    // world matrices + camera. A no-op when instancing is off.
+    this.packRibbonBatch()
+  }
+
+  /**
+   * Bake every batched stroke's segments (view-space) and style into the
+   * shared batch, hiding those style()/cull left invisible. Runs only when
+   * `useInstancedRibbons` is on. Uses `group.matrixWorld` as the stroke's
+   * world matrix — the ribbon mesh has identity local transform, so this
+   * equals the mesh.matrixWorld the per-mesh path's shader would use — and
+   * composes the modelView EXACTLY as three does (matrixWorldInverse ·
+   * world, Matrix4.multiplyMatrices), so the CPU `mv · local` here is the
+   * same one multiply the per-mesh shader does on the GPU.
+   */
+  private packRibbonBatch(): void {
+    const batch = this.ribbonBatch
+    if (!batch) return
+    const viewInverse = this.camera.matrixWorldInverse
+    for (const binding of this.strokes) {
+      const { ribbon, group, slot } = binding
+      if (!slot) continue
+      const count = ribbon.geometry.instanceCount
+      // A stroke style()/cull hid, or an empty derived polyline, draws
+      // nothing — hide its slot (fade 0) and skip the bake.
+      if (!ribbon.mesh.visible || count < 1) {
+        batch.hideSlot(slot)
+        continue
+      }
+      // Grow the scratch buffers if this stroke is the largest yet.
+      if (this.batchPos.length < count * 6) {
+        this.batchPos = new Float32Array(count * 6)
+        this.batchDist = new Float32Array(count * 2)
+      }
+      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld)
+      const n = ribbon.packViewSegments(this.batchMv, this.batchPos, this.batchDist, this.batchPoint)
+      const ud = ribbon.mesh.userData
+      const tint = ud[RIBBON_KEYS.tint] as THREE.Color
+      binding.slot = batch.writeSlot(
+        slot,
+        this.batchPos,
+        this.batchDist,
+        n,
+        ud[RIBBON_KEYS.widthPx] as number,
+        ud[RIBBON_KEYS.drawn] as number,
+        ud[RIBBON_KEYS.erased] as number,
+        tint.r,
+        tint.g,
+        tint.b,
+        ud[RIBBON_KEYS.fade] as number,
+      )
+    }
   }
 
   /**
@@ -1052,6 +1165,30 @@ export class ThreeHost {
    * browser processes). Also a plain escape hatch.
    */
   cullEnabled = true
+
+  /**
+   * OPTIMIZATION A — ribbon instancing (ribbon-batch.ts). Off by default:
+   * the per-mesh RibbonStroke path is the byte-identity ORACLE and stays
+   * the default until instancing is proven byte-identical on the full
+   * scene set. When on, ribbons are baked into ONE batched draw
+   * (`ribbonBatch`) instead of 3,776 individual meshes, collapsing the
+   * per-object WebGPU submission cost that IS the render ceiling
+   * (hump-diagnosis.md). Read once at mount, since it decides what attach
+   * builds; flipping it after mount does nothing until the next mount.
+   */
+  readonly useInstancedRibbons: boolean
+  /** The one batched-ribbon mesh — present only when instancing is on. */
+  private ribbonBatch?: RibbonBatch
+  /**
+   * Scratch for the batch pack loop: one modelView matrix, one point, and
+   * two Float32Arrays sized to a stroke's max segment capacity. Allocated
+   * once, reused every stroke every frame, so the batch path makes no
+   * per-frame garbage.
+   */
+  private readonly batchMv = new THREE.Matrix4()
+  private readonly batchPoint = new THREE.Vector3()
+  private batchPos = new Float32Array(0)
+  private batchDist = new Float32Array(0)
 
   /**
    * ADDITIVE off-screen cull (perf #2): hide ribbon meshes that are
@@ -1137,10 +1274,14 @@ export class ThreeHost {
       // empty/uninitialised strokes (radius 0) to the existing rule.
       if (!mesh.visible || ribbon.boundsRadius <= 0) continue
 
-      // Local sphere → world. Center by the full world matrix; radius by
-      // the group's max world scale (uniform in this corpus, but read the
-      // three axes so a non-uniform scale still bounds).
-      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(mesh.matrixWorld)
+      // Local sphere → world. Center by the group's world matrix — the
+      // ribbon mesh has identity local transform, so this equals its
+      // mesh.matrixWorld, and in the instanced path the mesh is not
+      // parented (so its own matrixWorld is never settled); the group's is
+      // the authoritative frame in both paths. Radius by the group's max
+      // world scale (uniform in this corpus, but read the three axes so a
+      // non-uniform scale still bounds).
+      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(group.matrixWorld)
       this.cullScale.setFromMatrixScale(group.matrixWorld)
       const maxScale = Math.max(
         Math.abs(this.cullScale.x),
@@ -1679,6 +1820,15 @@ export class ThreeHost {
    * the shader can actually paint beyond the line.
    */
   private static readonly CULL_PAD_PX = 16
+
+  /**
+   * The layer the per-mesh ribbon meshes sit on when instancing is ON —
+   * one the camera does not render (cameras test layer 0 only). It keeps
+   * each stroke's mesh in the scene graph (so its world matrix updates for
+   * screenArc, byte-identically to the oracle) while the renderer draws
+   * only the single batch mesh (which stays on layer 0). Any layer but 0.
+   */
+  private static readonly BATCH_LAYER = 1
 
   /**
    * The holon under a viewport point, or undefined over empty space.

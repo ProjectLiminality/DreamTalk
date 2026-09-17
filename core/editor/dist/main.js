@@ -50833,6 +50833,34 @@ class RibbonStroke {
   worldPoints() {
     return this.points;
   }
+  packViewSegments(mv, outPositions, outDistances, scratch) {
+    const pts = this.points;
+    const count = Math.max(0, pts.length - 1);
+    if (count < 1)
+      return 0;
+    scratch.copy(pts[0]).applyMatrix4(mv);
+    let { x: ax, y: ay, z: az } = scratch;
+    let acc = 0;
+    for (let i = 0;i < count; i++) {
+      scratch.copy(pts[i + 1]).applyMatrix4(mv);
+      const { x: bx, y: by, z: bz } = scratch;
+      outPositions[i * 6] = ax;
+      outPositions[i * 6 + 1] = ay;
+      outPositions[i * 6 + 2] = az;
+      outPositions[i * 6 + 3] = bx;
+      outPositions[i * 6 + 4] = by;
+      outPositions[i * 6 + 5] = bz;
+      const la = pts[i];
+      const lb = pts[i + 1];
+      outDistances[i * 2] = acc;
+      acc += Math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z);
+      outDistances[i * 2 + 1] = acc;
+      ax = bx;
+      ay = by;
+      az = bz;
+    }
+    return count;
+  }
   computeBounds() {
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -50867,6 +50895,266 @@ class RibbonStroke {
     ud[RIBBON_KEYS.fade] = opacity;
     ud[RIBBON_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
     ud[RIBBON_KEYS.widthPx] = widthPx;
+  }
+}
+
+// src/render/ribbon-batch.ts
+var TSL3 = exports_three_tsl;
+var {
+  Fn: Fn4,
+  If: If4,
+  attribute: attribute4,
+  cameraProjectionMatrix: cameraProjectionMatrix4,
+  clamp: clamp6,
+  float: float4,
+  length: length7,
+  max: max4,
+  min: min4,
+  mix: mix4,
+  screenCoordinate: screenCoordinate4,
+  screenDPR: screenDPR4,
+  screenSize: screenSize4,
+  smoothstep: smoothstep6,
+  varyingProperty: varyingProperty4,
+  vec2: vec24,
+  vec3: vec34,
+  vec4: vec44
+} = TSL3;
+var AA_PX2 = 1;
+var vStartPx2 = varyingProperty4("vec2", "dtBatchStartPx");
+var vEndPx2 = varyingProperty4("vec2", "dtBatchEndPx");
+var vDist2 = varyingProperty4("vec2", "dtBatchDist");
+var vWidthPx = varyingProperty4("float", "dtBatchWidthPx");
+var vDrawn = varyingProperty4("float", "dtBatchDrawn");
+var vErased = varyingProperty4("float", "dtBatchErased");
+var vTint = varyingProperty4("vec3", "dtBatchTint");
+var vFade = varyingProperty4("float", "dtBatchFade");
+
+class RibbonBatchMaterial extends NodeMaterial {
+  constructor() {
+    super();
+    this.transparent = true;
+    this.depthWrite = false;
+    this.side = DoubleSide;
+    this.blending = CustomBlending;
+    this.blendEquation = MaxEquation;
+    this.blendSrc = OneFactor;
+    this.blendDst = OneFactor;
+    this.blendEquationAlpha = MaxEquation;
+    this.blendSrcAlpha = OneFactor;
+    this.blendDstAlpha = OneFactor;
+    const widthPx = float4(attribute4("instanceWidthPx"));
+    const drawn = float4(attribute4("instanceDrawn"));
+    const erased = float4(attribute4("instanceErased"));
+    const tint = vec34(attribute4("instanceTint"));
+    const fade = float4(attribute4("instanceFade"));
+    const halfWidth = (w) => w.mul(screenDPR4).mul(0.5);
+    const pad = (w) => halfWidth(w).add(AA_PX2).add(1);
+    this.vertexNode = Fn4(() => {
+      const corner = attribute4("position").xy;
+      const start = vec44(vec34(attribute4("instanceStart")), 1).toVar();
+      const end = vec44(vec34(attribute4("instanceEnd")), 1).toVar();
+      const distStart = float4(attribute4("instanceDistanceStart")).toVar();
+      const distEnd = float4(attribute4("instanceDistanceEnd")).toVar();
+      const nearAlpha = (from, to) => {
+        const a = cameraProjectionMatrix4.element(2).element(2);
+        const b = cameraProjectionMatrix4.element(3).element(2);
+        const nearEstimate = a.greaterThan(0).select(b.negate().div(a.add(1)), b.mul(-0.5).div(a));
+        return nearEstimate.sub(from.z).div(to.z.sub(from.z));
+      };
+      const perspective = cameraProjectionMatrix4.element(2).element(3).equal(-1);
+      If4(perspective, () => {
+        If4(start.z.lessThan(0).and(end.z.greaterThan(0)), () => {
+          const alpha = nearAlpha(start, end);
+          end.assign(vec44(mix4(start.xyz, end.xyz, alpha), end.w));
+          distEnd.assign(mix4(distStart, distEnd, alpha));
+        }).ElseIf(end.z.lessThan(0).and(start.z.greaterThanEqual(0)), () => {
+          const alpha = nearAlpha(end, start);
+          start.assign(vec44(mix4(end.xyz, start.xyz, alpha), start.w));
+          distStart.assign(mix4(distEnd, distStart, alpha));
+        });
+      });
+      const clipStart = cameraProjectionMatrix4.mul(start);
+      const clipEnd = cameraProjectionMatrix4.mul(end);
+      const ndcStart = clipStart.xyz.div(clipStart.w);
+      const ndcEnd = clipEnd.xyz.div(clipEnd.w);
+      const half = screenSize4.mul(0.5);
+      const startPx = vec24(ndcStart.x.add(1).mul(half.x), float4(1).sub(ndcStart.y).mul(half.y)).toVar();
+      const endPx = vec24(ndcEnd.x.add(1).mul(half.x), float4(1).sub(ndcEnd.y).mul(half.y)).toVar();
+      vStartPx2.assign(startPx);
+      vEndPx2.assign(endPx);
+      vDist2.assign(vec24(distStart, distEnd));
+      vWidthPx.assign(widthPx);
+      vDrawn.assign(drawn);
+      vErased.assign(erased);
+      vTint.assign(tint);
+      vFade.assign(fade);
+      const delta = endPx.sub(startPx);
+      const lenPx = length7(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max4(lenPx, 0.000001)), vec24(1, 0));
+      const perp = vec24(dir.y.negate(), dir.x);
+      const p = pad(widthPx);
+      const along = mix4(p.negate(), lenPx.add(p), corner.y);
+      const targetPx = startPx.add(dir.mul(along)).add(perp.mul(corner.x.mul(p)));
+      const clip = corner.y.greaterThan(0.5).select(clipEnd, clipStart).toVar();
+      const targetNdc = vec24(targetPx.x.div(half.x).sub(1), float4(1).sub(targetPx.y.div(half.y)));
+      clip.x.assign(targetNdc.x.mul(clip.w));
+      clip.y.assign(targetNdc.y.mul(clip.w));
+      return clip;
+    })();
+    this.fragmentNode = Fn4(() => {
+      const startPx = vec24(vStartPx2);
+      const endPx = vec24(vEndPx2);
+      const delta = endPx.sub(startPx);
+      const lenPx = length7(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max4(lenPx, 0.000001)), vec24(1, 0));
+      const rel = screenCoordinate4.xy.sub(startPx);
+      const u = rel.dot(dir);
+      const v = rel.x.mul(dir.y).sub(rel.y.mul(dir.x));
+      const distStart = vDist2.x;
+      const distEnd = vDist2.y;
+      const pxPerUnit = lenPx.div(max4(distEnd.sub(distStart), 0.0000001));
+      const uFront = vDrawn.sub(distStart).mul(pxPerUnit).toVar();
+      uFront.lessThan(0).discard();
+      const uTail = vErased.sub(distStart).mul(pxPerUnit).toVar();
+      uTail.greaterThan(lenPx).discard();
+      const uBegin = max4(uTail, 0);
+      const uEnd = max4(min4(lenPx, uFront), uBegin);
+      const d = length7(vec24(u.sub(clamp6(u, uBegin, uEnd)), v));
+      const hw = vWidthPx.mul(screenDPR4).mul(0.5);
+      const coverage = smoothstep6(hw.sub(AA_PX2), hw.add(AA_PX2), d).oneMinus();
+      const a = coverage.mul(vFade);
+      return vec44(vTint.mul(a), a);
+    })();
+  }
+}
+var shared2;
+var sharedRibbonBatchMaterial = () => shared2 ??= new RibbonBatchMaterial;
+var POS_STRIDE = 6;
+var DIST_STRIDE = 2;
+
+class RibbonBatch {
+  mesh;
+  material;
+  geometry;
+  capacity = 0;
+  cursor = 0;
+  posBuf;
+  distBuf;
+  widthAttr;
+  drawnAttr;
+  erasedAttr;
+  fadeAttr;
+  tintAttr;
+  constructor(initialCapacity = 256) {
+    this.material = sharedRibbonBatchMaterial();
+    this.geometry = new InstancedBufferGeometry;
+    this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
+    this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
+    this.allocate(Math.max(1, initialCapacity));
+    this.geometry.instanceCount = 0;
+    this.mesh = new Mesh(this.geometry, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+  allocate(segments) {
+    const old = this.capacity;
+    const cap = Math.max(1, segments);
+    const pos = new Float32Array(cap * POS_STRIDE);
+    const dist2 = new Float32Array(cap * DIST_STRIDE);
+    const width = new Float32Array(cap);
+    const drawn = new Float32Array(cap);
+    const erased = new Float32Array(cap);
+    const fade = new Float32Array(cap);
+    const tint = new Float32Array(cap * 3);
+    if (old > 0) {
+      pos.set(this.posBuf.array);
+      dist2.set(this.distBuf.array);
+      width.set(this.widthAttr.array);
+      drawn.set(this.drawnAttr.array);
+      erased.set(this.erasedAttr.array);
+      fade.set(this.fadeAttr.array);
+      tint.set(this.tintAttr.array);
+    }
+    this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
+    this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
+    this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(this.posBuf, 3, 3));
+    this.distBuf = new InstancedInterleavedBuffer(dist2, DIST_STRIDE, 1);
+    this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
+    this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
+    this.widthAttr = new InstancedBufferAttribute(width, 1);
+    this.drawnAttr = new InstancedBufferAttribute(drawn, 1);
+    this.erasedAttr = new InstancedBufferAttribute(erased, 1);
+    this.fadeAttr = new InstancedBufferAttribute(fade, 1);
+    this.tintAttr = new InstancedBufferAttribute(tint, 3);
+    this.geometry.setAttribute("instanceWidthPx", this.widthAttr);
+    this.geometry.setAttribute("instanceDrawn", this.drawnAttr);
+    this.geometry.setAttribute("instanceErased", this.erasedAttr);
+    this.geometry.setAttribute("instanceFade", this.fadeAttr);
+    this.geometry.setAttribute("instanceTint", this.tintAttr);
+    this.capacity = cap;
+  }
+  reserve(maxSegments) {
+    const cap = Math.max(1, maxSegments);
+    const offset = this.cursor;
+    this.cursor += cap;
+    if (this.cursor > this.capacity) {
+      this.allocate(1 << Math.ceil(Math.log2(this.cursor)));
+    }
+    for (let i = offset;i < offset + cap; i++)
+      this.fadeAttr.array[i] = 0;
+    this.fadeAttr.needsUpdate = true;
+    if (offset + cap > this.geometry.instanceCount)
+      this.geometry.instanceCount = offset + cap;
+    this.mesh.visible = this.geometry.instanceCount > 0;
+    return { offset, maxSegments: cap, count: 0 };
+  }
+  relocate(slot, needSegments) {
+    for (let i = 0;i < slot.maxSegments; i++)
+      this.fadeAttr.array[slot.offset + i] = 0;
+    this.fadeAttr.needsUpdate = true;
+    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))));
+  }
+  writeSlot(slot, positions, distances, count, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
+    if (count > slot.maxSegments)
+      slot = this.relocate(slot, count);
+    const n = Math.min(count, slot.maxSegments);
+    const posArr = this.posBuf.array;
+    const distArr = this.distBuf.array;
+    posArr.set(positions.subarray(0, n * POS_STRIDE), slot.offset * POS_STRIDE);
+    distArr.set(distances.subarray(0, n * DIST_STRIDE), slot.offset * DIST_STRIDE);
+    for (let i = 0;i < n; i++) {
+      const s = slot.offset + i;
+      this.widthAttr.array[s] = widthPx;
+      this.drawnAttr.array[s] = drawn;
+      this.erasedAttr.array[s] = erased;
+      this.tintAttr.array[s * 3] = tintR;
+      this.tintAttr.array[s * 3 + 1] = tintG;
+      this.tintAttr.array[s * 3 + 2] = tintB;
+      this.fadeAttr.array[s] = fade;
+    }
+    for (let i = n;i < slot.maxSegments; i++)
+      this.fadeAttr.array[slot.offset + i] = 0;
+    slot.count = n;
+    this.markDirty();
+    return slot;
+  }
+  hideSlot(slot) {
+    if (slot.count === 0)
+      return;
+    for (let i = 0;i < slot.maxSegments; i++)
+      this.fadeAttr.array[slot.offset + i] = 0;
+    slot.count = 0;
+    this.fadeAttr.needsUpdate = true;
+  }
+  markDirty() {
+    this.posBuf.needsUpdate = true;
+    this.distBuf.needsUpdate = true;
+    this.widthAttr.needsUpdate = true;
+    this.drawnAttr.needsUpdate = true;
+    this.erasedAttr.needsUpdate = true;
+    this.fadeAttr.needsUpdate = true;
+    this.tintAttr.needsUpdate = true;
   }
 }
 
@@ -50947,17 +51235,17 @@ var FILL_KEYS = {
   tint: "dtFillTint",
   fade: "dtFillFade"
 };
-var shared2;
+var shared3;
 var sharedFillMaterial = () => {
-  if (!shared2) {
-    shared2 = new MeshBasicNodeMaterial;
-    shared2.transparent = true;
-    shared2.depthWrite = false;
-    shared2.side = DoubleSide;
-    shared2.colorNode = userData4(FILL_KEYS.tint, "color");
-    shared2.opacityNode = userData4(FILL_KEYS.fade, "float");
+  if (!shared3) {
+    shared3 = new MeshBasicNodeMaterial;
+    shared3.transparent = true;
+    shared3.depthWrite = false;
+    shared3.side = DoubleSide;
+    shared3.colorNode = userData4(FILL_KEYS.tint, "color");
+    shared3.opacityNode = userData4(FILL_KEYS.fade, "float");
   }
-  return shared2;
+  return shared3;
 };
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
@@ -57217,8 +57505,8 @@ function parseTableDirectory(view) {
     const tag = view.getUint32(recordOffset);
     const checksum = view.getUint32(recordOffset + 4);
     const offset = view.getUint32(recordOffset + 8);
-    const length7 = view.getUint32(recordOffset + 12);
-    tables.set(tag, { tag, checksum, offset, length: length7 });
+    const length8 = view.getUint32(recordOffset + 12);
+    tables.set(tag, { tag, checksum, offset, length: length8 });
   }
   return tables;
 }
@@ -57377,7 +57665,7 @@ class FontMetadataExtractor {
         const encodingID = view.getUint16(recordOffset + 2);
         const languageID = view.getUint16(recordOffset + 4);
         const recordNameID = view.getUint16(recordOffset + 6);
-        const length7 = view.getUint16(recordOffset + 8);
+        const length8 = view.getUint16(recordOffset + 8);
         const offset = view.getUint16(recordOffset + 10);
         if (recordNameID !== nameID)
           continue;
@@ -57385,7 +57673,7 @@ class FontMetadataExtractor {
           continue;
         }
         const stringStart = nameOffset + stringOffset + offset;
-        const bytes = new Uint8Array(view.buffer, stringStart, length7);
+        const bytes = new Uint8Array(view.buffer, stringStart, length8);
         if (platformID === 0 || platformID === 3 && encodingID === 1) {
           let str = "";
           for (let j = 0;j < bytes.length; j += 2) {
@@ -57430,13 +57718,13 @@ class FontMetadataExtractor {
       const encodingID = view.getUint16(recordOffset + 2);
       const languageID = view.getUint16(recordOffset + 4);
       const nameID = view.getUint16(recordOffset + 6);
-      const length7 = view.getUint16(recordOffset + 8);
+      const length8 = view.getUint16(recordOffset + 8);
       const offset = view.getUint16(recordOffset + 10);
       if (platformID === 0 || platformID === 3 && languageID === 1033) {
         if (!index.has(nameID)) {
           index.set(nameID, {
             offset: nameOffset + stringOffset + offset,
-            length: length7,
+            length: length8,
             platformID,
             encodingID
           });
@@ -58928,12 +59216,12 @@ function hbjs(Module) {
       upem,
       reference_table: function(table) {
         var blob2 = exports.hb_face_reference_table(ptr, hb_tag(table));
-        var length7 = exports.hb_blob_get_length(blob2);
-        if (!length7) {
+        var length8 = exports.hb_blob_get_length(blob2);
+        if (!length8) {
           return;
         }
         var blobptr = exports.hb_blob_get_data(blob2, null);
-        var table_string = Module.HEAPU8.subarray(blobptr, blobptr + length7);
+        var table_string = Module.HEAPU8.subarray(blobptr, blobptr + length8);
         return table_string;
       },
       getAxisInfos: function() {
@@ -59129,14 +59417,14 @@ function hbjs(Module) {
         exports.hb_buffer_set_cluster_level(ptr, level);
       },
       json: function() {
-        var length7 = exports.hb_buffer_get_length(ptr);
+        var length8 = exports.hb_buffer_get_length(ptr);
         var result = [];
         var infosPtr = exports.hb_buffer_get_glyph_infos(ptr, 0);
         var infosPtr32 = infosPtr / 4;
         var positionsPtr32 = exports.hb_buffer_get_glyph_positions(ptr, 0) / 4;
-        var infos = Module.HEAPU32.subarray(infosPtr32, infosPtr32 + 5 * length7);
-        var positions = Module.HEAP32.subarray(positionsPtr32, positionsPtr32 + 5 * length7);
-        for (var i = 0;i < length7; ++i) {
+        var infos = Module.HEAPU32.subarray(infosPtr32, infosPtr32 + 5 * length8);
+        var positions = Module.HEAP32.subarray(positionsPtr32, positionsPtr32 + 5 * length8);
+        for (var i = 0;i < length8; ++i) {
           result.push({
             g: infos[i * 5 + 0],
             cl: infos[i * 5 + 2],
@@ -63460,24 +63748,24 @@ var fontChain = (postScriptName) => {
 };
 
 // src/render/text.ts
-var TSL3 = exports_three_tsl;
+var TSL4 = exports_three_tsl;
 var {
-  Fn: Fn4,
-  attribute: attribute4,
-  cameraProjectionMatrix: cameraProjectionMatrix4,
-  clamp: clamp6,
-  float: float4,
-  max: max4,
-  min: min4,
-  mix: mix4,
+  Fn: Fn5,
+  attribute: attribute5,
+  cameraProjectionMatrix: cameraProjectionMatrix5,
+  clamp: clamp7,
+  float: float5,
+  max: max5,
+  min: min5,
+  mix: mix5,
   modelViewMatrix: modelViewMatrix4,
   positionGeometry: positionGeometry4,
-  smoothstep: smoothstep6,
-  varyingProperty: varyingProperty4,
-  vec2: vec24,
-  vec3: vec34,
-  vec4: vec44
-} = TSL3;
+  smoothstep: smoothstep7,
+  varyingProperty: varyingProperty5,
+  vec2: vec25,
+  vec3: vec35,
+  vec4: vec45
+} = TSL4;
 var DEFAULT_FONT_URL = "/core/demo/fonts/Arimo-Regular.ttf";
 var MONO_FONT_URL = "/core/demo/fonts/Cousine-Regular.ttf";
 var FONT_ALIASES = {
@@ -63503,8 +63791,8 @@ var ensureHarfBuzz = () => {
   Text3.setHarfBuzzPath(harfBuzzUrl);
   harfBuzzConfigured = true;
 };
-var vWindow = varyingProperty4("vec2", "dtGlyphWindow");
-var vGlyphU = varyingProperty4("float", "dtGlyphU");
+var vWindow = varyingProperty5("vec2", "dtGlyphWindow");
+var vGlyphU = varyingProperty5("float", "dtGlyphU");
 
 class TextGlyphMaterial extends NodeMaterial {
   progress = uniform2(1);
@@ -63523,21 +63811,21 @@ class TextGlyphMaterial extends NodeMaterial {
     this.blendEquationAlpha = MaxEquation;
     this.blendSrcAlpha = OneFactor;
     this.blendDstAlpha = OneFactor;
-    this.vertexNode = Fn4(() => {
-      vWindow.assign(vec24(attribute4("glyphWindow")));
-      vGlyphU.assign(float4(attribute4("glyphU")));
-      return cameraProjectionMatrix4.mul(modelViewMatrix4.mul(vec44(positionGeometry4, 1)));
+    this.vertexNode = Fn5(() => {
+      vWindow.assign(vec25(attribute5("glyphWindow")));
+      vGlyphU.assign(float5(attribute5("glyphU")));
+      return cameraProjectionMatrix5.mul(modelViewMatrix4.mul(vec45(positionGeometry4, 1)));
     })();
-    this.fragmentNode = Fn4(() => {
-      const win = vec24(vWindow);
-      const span = max4(win.y.sub(win.x), 0.000001);
-      const pWrite = clamp6(this.progress.sub(win.x).div(span), 0, 1);
-      const pErase = clamp6(this.erasure.sub(win.x).div(span), 0, 1);
-      const p2 = min4(pWrite, pErase.oneMinus()).toVar();
-      const drawP = clamp6(p2.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]), 0, 1);
-      const fillP = clamp6(p2.sub(FILL_WINDOW[0]).div(FILL_WINDOW[1] - FILL_WINDOW[0]), 0, 1);
-      const a2 = fillP.mul(smoothstep6(0, 0.001, drawP)).mul(this.fade);
-      return vec44(vec34(this.tint).mul(a2), a2);
+    this.fragmentNode = Fn5(() => {
+      const win = vec25(vWindow);
+      const span = max5(win.y.sub(win.x), 0.000001);
+      const pWrite = clamp7(this.progress.sub(win.x).div(span), 0, 1);
+      const pErase = clamp7(this.erasure.sub(win.x).div(span), 0, 1);
+      const p2 = min5(pWrite, pErase.oneMinus()).toVar();
+      const drawP = clamp7(p2.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]), 0, 1);
+      const fillP = clamp7(p2.sub(FILL_WINDOW[0]).div(FILL_WINDOW[1] - FILL_WINDOW[0]), 0, 1);
+      const a2 = fillP.mul(smoothstep7(0, 0.001, drawP)).mul(this.fade);
+      return vec45(vec35(this.tint).mul(a2), a2);
     })();
   }
 }
@@ -64136,9 +64424,9 @@ var arrowPolygon = (points, atStart, unitPx, progress = 1, unitsPerPixel = 1, vi
   if (side.lengthSq() < 0.000000000001)
     side.crossVectors(dir, new Vector3(0, 1, 0));
   side.normalize();
-  const length7 = unitPx * ARROW_LENGTH_FACTOR * unitsPerPixel;
+  const length8 = unitPx * ARROW_LENGTH_FACTOR * unitsPerPixel;
   const halfWidth = unitPx * ARROW_HALF_WIDTH_FACTOR * unitsPerPixelAcross;
-  const apex = tip.clone().addScaledVector(dir, length7);
+  const apex = tip.clone().addScaledVector(dir, length8);
   const a2 = tip.clone().addScaledVector(side, halfWidth);
   const b2 = tip.clone().addScaledVector(side, -halfWidth);
   return [
@@ -64234,8 +64522,9 @@ class ThreeHost {
   nextFillOrder = 1;
   highlighted = new Set;
   highlightAmount = 0;
-  constructor(dream, canvas) {
+  constructor(dream, canvas, useInstancedRibbons) {
     this.dream = dream;
+    this.useInstancedRibbons = useInstancedRibbons;
     this.renderer = new WebGPURenderer({ canvas, antialias: true });
     this.scene = new Scene;
     this.scene.background = new Color(0);
@@ -64243,13 +64532,17 @@ class ThreeHost {
     this.orthoCamera = new OrthographicCamera(-1, 1, 1, -1, -1e5, 1e5);
     this.camera = this.perspCamera;
   }
-  static async mount(dream, canvas) {
-    const host = new ThreeHost(dream, canvas);
+  static async mount(dream, canvas, opts = {}) {
+    const host = new ThreeHost(dream, canvas, opts.useInstancedRibbons ?? false);
     await host.renderer.init();
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false);
     dream.build();
     for (const root of dream.roots)
       host.attach(root, host.scene);
+    if (host.ribbonBatch) {
+      host.ribbonBatch.mesh.renderOrder = host.nextFillOrder;
+      host.scene.add(host.ribbonBatch.mesh);
+    }
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
@@ -64323,8 +64616,17 @@ class ThreeHost {
         const ribbon = new RibbonStroke(holon.stroke.value);
         ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
-        group.add(ribbon.mesh);
         strokeBinding = { holon, ribbon, sig: freshSig(holon), group };
+        if (this.useInstancedRibbons) {
+          group.add(ribbon.mesh);
+          ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER);
+          if (!this.ribbonBatch)
+            this.ribbonBatch = new RibbonBatch;
+          const initial = ribbon.geometry.instanceCount;
+          strokeBinding.slot = this.ribbonBatch.reserve(Math.max(2, initial));
+        } else {
+          group.add(ribbon.mesh);
+        }
         this.strokes.push(strokeBinding);
       }
       if (holon instanceof Line2) {
@@ -64401,7 +64703,7 @@ class ThreeHost {
       fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
-    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0) {
+    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatch !== undefined) {
       this.scene.updateMatrixWorld(true);
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
@@ -64412,6 +64714,32 @@ class ThreeHost {
       }
     }
     this.cullOffscreen();
+    this.packRibbonBatch();
+  }
+  packRibbonBatch() {
+    const batch3 = this.ribbonBatch;
+    if (!batch3)
+      return;
+    const viewInverse = this.camera.matrixWorldInverse;
+    for (const binding of this.strokes) {
+      const { ribbon, group, slot } = binding;
+      if (!slot)
+        continue;
+      const count = ribbon.geometry.instanceCount;
+      if (!ribbon.mesh.visible || count < 1) {
+        batch3.hideSlot(slot);
+        continue;
+      }
+      if (this.batchPos.length < count * 6) {
+        this.batchPos = new Float32Array(count * 6);
+        this.batchDist = new Float32Array(count * 2);
+      }
+      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld);
+      const n2 = ribbon.packViewSegments(this.batchMv, this.batchPos, this.batchDist, this.batchPoint);
+      const ud = ribbon.mesh.userData;
+      const tint = ud[RIBBON_KEYS.tint];
+      binding.slot = batch3.writeSlot(slot, this.batchPos, this.batchDist, n2, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
+    }
   }
   cullFrustum = new Frustum;
   cullVP = new Matrix4;
@@ -64423,6 +64751,12 @@ class ThreeHost {
   cullLatchVP = new Matrix4;
   cullLatchIdle = false;
   cullEnabled = true;
+  useInstancedRibbons;
+  ribbonBatch;
+  batchMv = new Matrix4;
+  batchPoint = new Vector3;
+  batchPos = new Float32Array(0);
+  batchDist = new Float32Array(0);
   cullOffscreen() {
     if (!this.cullEnabled || this.strokes.length === 0) {
       this.culledOffscreen = 0;
@@ -64447,7 +64781,7 @@ class ThreeHost {
       const mesh = ribbon.mesh;
       if (!mesh.visible || ribbon.boundsRadius <= 0)
         continue;
-      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(mesh.matrixWorld);
+      this.cullCenter.copy(ribbon.boundsCenter).applyMatrix4(group.matrixWorld);
       this.cullScale.setFromMatrixScale(group.matrixWorld);
       const maxScale = Math.max(Math.abs(this.cullScale.x), Math.abs(this.cullScale.y), Math.abs(this.cullScale.z));
       let radius = ribbon.boundsRadius * maxScale;
@@ -64630,6 +64964,7 @@ class ThreeHost {
   }
   static PICK_SLOP = 7;
   static CULL_PAD_PX = 16;
+  static BATCH_LAYER = 1;
   pick(ndcX, ndcY) {
     const width = this.renderer.domElement.width || 1280;
     const height = this.renderer.domElement.height || 720;
@@ -65259,9 +65594,9 @@ var strokesOf = (holon) => {
     const points = h2.points;
     if (!points || points.length < 2)
       continue;
-    const length7 = polylineLength(points);
-    if (length7 > 0.000000001)
-      found.push({ stroke: h2, length: length7 });
+    const length8 = polylineLength(points);
+    if (length8 > 0.000000001)
+      found.push({ stroke: h2, length: length8 });
   }
   return found;
 };
@@ -65279,10 +65614,10 @@ var planSteady = (holon, order = "long_short") => {
   const windows2 = [];
   let at2 = 0;
   for (let i2 = 0;i2 < ordered.length; i2++) {
-    const { stroke, length: length7 } = ordered[i2];
+    const { stroke, length: length8 } = ordered[i2];
     const from = at2;
-    at2 += length7 / totalLength;
-    windows2.push({ stroke, from, to: i2 === ordered.length - 1 ? 1 : at2, length: length7 });
+    at2 += length8 / totalLength;
+    windows2.push({ stroke, from, to: i2 === ordered.length - 1 ? 1 : at2, length: length8 });
   }
   return { windows: windows2, totalLength };
 };
@@ -67489,11 +67824,11 @@ var GROUPS = [
 ];
 var shortestFirst = (data) => {
   const withLength = data.subpaths.map((sp, i2) => {
-    let length7 = 0;
+    let length8 = 0;
     for (let k2 = 2;k2 + 1 < sp.length; k2 += 2) {
-      length7 += Math.hypot(sp[k2] - sp[k2 - 2], sp[k2 + 1] - sp[k2 - 1]);
+      length8 += Math.hypot(sp[k2] - sp[k2 - 2], sp[k2 + 1] - sp[k2 - 1]);
     }
-    return { sp, closed: data.closed[i2] ?? 0, length: length7, i: i2 };
+    return { sp, closed: data.closed[i2] ?? 0, length: length8, i: i2 };
   });
   withLength.sort((a2, b2) => a2.length - b2.length || a2.i - b2.i);
   return {
@@ -98759,6 +99094,163 @@ class MoveGesture {
     return { x: this.baseX + dx, y: this.baseY + dy };
   }
 }
+var worldAxisOf = (parentWorld, axis) => {
+  const c2 = axis * 4;
+  return v3(parentWorld[c2], parentWorld[c2 + 1], parentWorld[c2 + 2]);
+};
+
+class AxisGesture {
+  base;
+  #planePoint;
+  #normal;
+  #axisDir;
+  #from;
+  #perUnit;
+  constructor(planePoint, normal2, axisDir, from, perUnit, base) {
+    this.#planePoint = planePoint;
+    this.#normal = normal2;
+    this.#axisDir = axisDir;
+    this.#from = from;
+    this.#perUnit = perUnit;
+    this.base = base;
+  }
+  static create(frame, grab, origin, worldAxis, base, perUnit = 1) {
+    const axisLen = Math.hypot(worldAxis.x, worldAxis.y, worldAxis.z);
+    if (axisLen < 0.000000001)
+      return;
+    const axisDir = scale2(worldAxis, 1 / axisLen);
+    const along = dot4(frame.forward, axisDir);
+    const normal2 = normalize7(sub7(frame.forward, scale2(axisDir, along)));
+    if (Math.hypot(normal2.x, normal2.y, normal2.z) < 0.000001)
+      return;
+    const from = intersectPlane(pointerRay(frame, grab), origin, normal2);
+    if (!from)
+      return;
+    return new AxisGesture(origin, normal2, axisDir, from, perUnit / axisLen, base);
+  }
+  value(frame, ndc) {
+    const hit = intersectPlane(pointerRay(frame, ndc), this.#planePoint, this.#normal);
+    if (!hit)
+      return;
+    const sweep = dot4(sub7(hit, this.#from), this.#axisDir);
+    return this.base + sweep * this.#perUnit;
+  }
+}
+
+// editor/gizmo.ts
+var AXIS_PARAM = {
+  move: ["x", "y", "z"],
+  rotate: ["h", "p", "b"],
+  scale: ["scale", "scale", "scale"]
+};
+var AXIS_COLOR = ["#ff644e", "#00a2ff", "#8a8a94"];
+var HANDLE_HIT = 11;
+var MIN_ARM = 26;
+var ARM = 62;
+var distanceToSegment = (p2, a2, b2) => {
+  const dx = b2.x - a2.x;
+  const dy = b2.y - a2.y;
+  const len22 = dx * dx + dy * dy;
+  if (len22 < 0.000000001)
+    return Math.hypot(p2.x - a2.x, p2.y - a2.y);
+  let t2 = ((p2.x - a2.x) * dx + (p2.y - a2.y) * dy) / len22;
+  t2 = Math.max(0, Math.min(1, t2));
+  return Math.hypot(p2.x - (a2.x + t2 * dx), p2.y - (a2.y + t2 * dy));
+};
+var handleGeometry = (origin, screenAxes) => {
+  const tip = (d2) => {
+    const len3 = Math.hypot(d2.x, d2.y);
+    if (len3 < 0.000001)
+      return { x: origin.x + MIN_ARM, y: origin.y };
+    const armLen = Math.max(MIN_ARM, Math.min(ARM, len3));
+    return { x: origin.x + d2.x / len3 * armLen, y: origin.y + d2.y / len3 * armLen };
+  };
+  return {
+    origin,
+    tips: [tip(screenAxes[0]), tip(screenAxes[1]), tip(screenAxes[2])]
+  };
+};
+var hitHandle = (geo, px, py) => {
+  let best = null;
+  let bestDist = HANDLE_HIT;
+  for (let i2 = 0;i2 < 3; i2++) {
+    const d2 = distanceToSegment({ x: px, y: py }, geo.origin, geo.tips[i2]);
+    if (d2 < bestDist) {
+      bestDist = d2;
+      best = i2;
+    }
+  }
+  return best;
+};
+var drawGizmo = (ctx, geo, active) => {
+  ctx.save();
+  ctx.lineCap = "round";
+  for (let i2 = 0;i2 < 3; i2++) {
+    const tip = geo.tips[i2];
+    const on = active === i2;
+    ctx.strokeStyle = AXIS_COLOR[i2];
+    ctx.fillStyle = AXIS_COLOR[i2];
+    ctx.globalAlpha = active === null || on ? 1 : 0.4;
+    ctx.lineWidth = on ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(geo.origin.x, geo.origin.y);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.stroke();
+    const s2 = on ? 5 : 4;
+    ctx.fillRect(tip.x - s2 / 2, tip.y - s2 / 2, s2, s2);
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "#e8e8ee";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(geo.origin.x, geo.origin.y, 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+};
+var mountGizmoSwitch = (host, onChange, signal) => {
+  let current2 = "voice";
+  const section = document.createElement("div");
+  section.className = "section gizmosec";
+  const heading = document.createElement("h2");
+  heading.textContent = "Transform";
+  section.appendChild(heading);
+  const bar = document.createElement("div");
+  bar.className = "gizmobar";
+  const buttons = new Map;
+  const make = (mode, label3, cls) => {
+    const b2 = document.createElement("button");
+    b2.type = "button";
+    b2.className = `gizbtn ${cls}`;
+    b2.textContent = label3;
+    b2.addEventListener("click", () => set(mode), { signal });
+    bar.appendChild(b2);
+    buttons.set(mode, b2);
+    return b2;
+  };
+  make("voice", "\uD83C\uDF99 Voice", "gizvoice");
+  make("move", "Move", "");
+  make("rotate", "Rotate", "");
+  make("scale", "Scale", "");
+  section.appendChild(bar);
+  host.appendChild(section);
+  const paint = () => {
+    for (const [mode, b2] of buttons)
+      b2.classList.toggle("active", mode === current2);
+  };
+  const set = (mode) => {
+    if (mode === current2)
+      return;
+    current2 = mode;
+    paint();
+    onChange(current2);
+  };
+  paint();
+  return {
+    el: section,
+    mode: () => current2,
+    set: (mode) => set(mode)
+  };
+};
 
 // editor/numeric.ts
 var STEP_PER_PIXEL = {
@@ -99045,9 +99537,9 @@ var buildParamRow = (name, param, hooks) => {
     });
     if (slider) {
       slider.type = "range";
-      const [min5, max5, step4] = sliderRange(param);
-      slider.min = String(min5);
-      slider.max = String(max5);
+      const [min6, max6, step4] = sliderRange(param);
+      slider.min = String(min6);
+      slider.max = String(max6);
       slider.step = String(step4);
       slider.value = String(param.value);
       slider.addEventListener("input", () => {
@@ -99067,6 +99559,201 @@ var buildParamRow = (name, param, hooks) => {
   val.textContent = formatValue(param.value);
   el.appendChild(val);
   return { el, param, val };
+};
+
+// editor/comments.ts
+var samePath = (a2, b2) => {
+  if (a2 === null || b2 === null)
+    return a2 === b2;
+  return a2.root === b2.root && a2.className === b2.className && a2.indices.length === b2.indices.length && a2.indices.every((v2, i2) => v2 === b2.indices[i2]);
+};
+var ago = (iso) => {
+  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 45)
+    return "just now";
+  if (secs < 3600)
+    return `${Math.round(secs / 60)}m`;
+  if (secs < 86400)
+    return `${Math.round(secs / 3600)}h`;
+  return `${Math.round(secs / 86400)}d`;
+};
+var mountComments = (host, ctx, signal) => {
+  let all3 = [];
+  let selectionKey = null;
+  const section = document.createElement("div");
+  section.className = "section commentsec";
+  const heading = document.createElement("h2");
+  heading.textContent = "Comments";
+  section.appendChild(heading);
+  const list = document.createElement("div");
+  list.className = "commentlist";
+  section.appendChild(list);
+  const composer = document.createElement("div");
+  composer.className = "composer";
+  const mic = document.createElement("button");
+  mic.type = "button";
+  mic.className = "micbtn";
+  const speechSupported = typeof window.SpeechRecognition !== "undefined" || typeof window.webkitSpeechRecognition !== "undefined";
+  mic.title = speechSupported ? "voice comment — click to dictate (click again to stop)" : "voice not available here — type instead";
+  mic.textContent = "\uD83C\uDF99";
+  composer.appendChild(mic);
+  const input = document.createElement("textarea");
+  input.className = "commentinput";
+  input.rows = 1;
+  input.placeholder = "Comment on this selection…";
+  composer.appendChild(input);
+  const attach = document.createElement("button");
+  attach.type = "button";
+  attach.className = "attachbtn";
+  attach.textContent = "Attach";
+  attach.disabled = true;
+  composer.appendChild(attach);
+  section.appendChild(composer);
+  host.appendChild(section);
+  const renderList = () => {
+    list.textContent = "";
+    const mine = all3.filter((c2) => samePath(c2.path, selectionKey));
+    if (mine.length === 0) {
+      const empty2 = document.createElement("div");
+      empty2.className = "empty";
+      empty2.textContent = "No comments yet — the first note on this selection.";
+      list.appendChild(empty2);
+      return;
+    }
+    for (const c2 of mine) {
+      const row = document.createElement("div");
+      row.className = "comment";
+      if (c2.resolved)
+        row.classList.add("resolved");
+      const meta = document.createElement("div");
+      meta.className = "cmeta";
+      meta.textContent = `${ago(c2.ts)} · ${c2.t.toFixed(2)}s`;
+      const body = document.createElement("div");
+      body.className = "cbody";
+      body.textContent = c2.text;
+      row.appendChild(meta);
+      row.appendChild(body);
+      list.appendChild(row);
+    }
+  };
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/comments?scene=${encodeURIComponent(ctx.scene)}`, { signal });
+      if (!res.ok)
+        return;
+      all3 = (await res.json()).comments ?? [];
+      renderList();
+    } catch {}
+  };
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text)
+      return;
+    const payload = {
+      path: selectionKey,
+      pathLabel: ctx.label(),
+      text,
+      t: ctx.currentT(),
+      scene: ctx.scene,
+      bounds: ctx.bounds() ?? null
+    };
+    input.value = "";
+    attach.disabled = true;
+    try {
+      const res = await fetch("/api/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal
+      });
+      if (res.ok) {
+        const { comment } = await res.json();
+        all3.push(comment);
+        renderList();
+      }
+    } catch {
+      if (!input.value)
+        input.value = text;
+      attach.disabled = input.value.trim().length === 0;
+    }
+  };
+  input.addEventListener("input", () => {
+    attach.disabled = input.value.trim().length === 0;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 96)}px`;
+  }, { signal });
+  input.addEventListener("keydown", (e2) => {
+    if (e2.key === "Enter" && !e2.shiftKey) {
+      e2.preventDefault();
+      send();
+    }
+  }, { signal });
+  attach.addEventListener("click", () => void send(), { signal });
+  const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  let recog = null;
+  let dictationBase = "";
+  const stopDictation = () => {
+    recog?.stop();
+    recog = null;
+    mic.classList.remove("recording");
+  };
+  mic.addEventListener("click", () => {
+    if (!RecognitionCtor) {
+      input.focus();
+      return;
+    }
+    if (recog) {
+      stopDictation();
+      return;
+    }
+    const r2 = new RecognitionCtor;
+    r2.lang = navigator.language || "en-US";
+    r2.continuous = true;
+    r2.interimResults = true;
+    dictationBase = input.value ? input.value.replace(/\s*$/, "") + " " : "";
+    r2.onresult = (e2) => {
+      let finalTxt = "";
+      let interim = "";
+      for (let i2 = e2.resultIndex;i2 < e2.results.length; i2++) {
+        const res = e2.results[i2];
+        if (res.isFinal)
+          finalTxt += res[0].transcript;
+        else
+          interim += res[0].transcript;
+      }
+      if (finalTxt)
+        dictationBase = (dictationBase + finalTxt).replace(/\s{2,}/g, " ");
+      input.value = (dictationBase + interim).replace(/\s{2,}/g, " ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    r2.onend = () => {
+      if (recog === r2) {
+        recog = null;
+        mic.classList.remove("recording");
+      }
+    };
+    r2.onerror = () => stopDictation();
+    recog = r2;
+    mic.classList.add("recording");
+    input.focus();
+    try {
+      r2.start();
+    } catch {
+      stopDictation();
+    }
+  }, { signal });
+  const refresh = () => {
+    selectionKey = ctx.path();
+    renderList();
+    load();
+  };
+  return {
+    refresh,
+    dispose: () => {
+      stopDictation();
+      section.remove();
+    }
+  };
 };
 
 // editor/codeview.ts
@@ -99323,7 +100010,7 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
   container.textContent = "";
   ruler.textContent = "";
   const rows = [];
-  const earliest = clips.reduce((min5, c2) => Math.min(min5, c2.start), 0);
+  const earliest = clips.reduce((min6, c2) => Math.min(min6, c2.start), 0);
   const origin = earliest;
   const span = (duration > 0 ? duration : 1) - origin;
   const frac = (t2) => (t2 - origin) / span;
@@ -99628,7 +100315,7 @@ var mountCheckpoint = (opts) => {
   chip.textContent = "capture pose ⌘K";
   chip.title = "write this pose into the scene as a transition clip (cmd+K)";
   track.appendChild(chip);
-  const earliest = dream.clips.reduce((min5, c2) => Math.min(min5, c2.start), 0);
+  const earliest = dream.clips.reduce((min6, c2) => Math.min(min6, c2.start), 0);
   const span = (duration > 0 ? duration : 1) - earliest;
   const frac = (t2) => (t2 - earliest) / span;
   let sent = false;
@@ -99982,7 +100669,7 @@ var lerpPose = (from, to, u2) => {
 };
 var ORBIT_PER_WIDTH = 2 * Math.PI;
 var DOLLY_PER_NOTCH = 0.0015;
-var dollyRadius = (radius, deltaY, min5 = 1) => Math.max(min5, radius * Math.exp(deltaY * DOLLY_PER_NOTCH));
+var dollyRadius = (radius, deltaY, min6 = 1) => Math.max(min6, radius * Math.exp(deltaY * DOLLY_PER_NOTCH));
 
 // editor/main.ts
 var $2 = (id) => document.getElementById(id);
@@ -100275,10 +100962,66 @@ var boot = async (resume) => {
   const backdropPanel = $2("backdroppanel");
   const nameEl = $2("scenename");
   const metaEl = $2("scenemeta");
+  const panel = $2("panel");
+  let comments;
+  if (!playerMode)
+    comments = mountComments(panel, {
+      scene: sceneKey,
+      path: () => {
+        const holon = selection.current;
+        return holon ? pathOf(dream.roots, holon) ?? null : null;
+      },
+      label: () => {
+        const holon = selection.current;
+        return holon ? classNameOf(holon) : sceneName;
+      },
+      currentT: () => current2,
+      bounds: () => {
+        const holon = selection.current;
+        const box = holon ? host.boundsOf(holon) : undefined;
+        if (!box)
+          return;
+        return { minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y };
+      }
+    }, ac.signal);
+  let gizmo;
+  if (!playerMode)
+    gizmo = mountGizmoSwitch(panel, () => {
+      if (gizmo?.mode() === "voice")
+        cancelAxis();
+      paintMarquee();
+    }, ac.signal);
+  const gizmoGeometry = () => {
+    const holon = selection.current;
+    if (!holon || !gizmo || gizmo.mode() === "voice")
+      return;
+    const origin = host.worldOriginOf(holon);
+    const parentWorld = host.parentWorldMatrixOf(holon);
+    if (!origin || !parentWorld)
+      return;
+    const width = host.renderer.domElement.width || 1280;
+    const height = host.renderer.domElement.height || 720;
+    const toScreen = (wx, wy, wz) => {
+      const p2 = origin.clone().set(wx, wy, wz).project(host.camera);
+      return { x: (p2.x + 1) / 2 * width, y: (1 - p2.y) / 2 * height };
+    };
+    const o2 = toScreen(origin.x, origin.y, origin.z);
+    const el = parentWorld.elements;
+    const axisScreen = [0, 1, 2].map((i2) => {
+      const a2 = worldAxisOf(el, i2);
+      const len3 = Math.hypot(a2.x, a2.y, a2.z) || 1;
+      const step4 = 60 / len3;
+      const tip = toScreen(origin.x + a2.x * step4, origin.y + a2.y * step4, origin.z + a2.z * step4);
+      return { x: tip.x - o2.x, y: tip.y - o2.y };
+    });
+    return handleGeometry(o2, axisScreen);
+  };
   const renderInspector = (holon) => {
     rows = [];
     paramsRoot.textContent = "";
     backdropPanel.style.display = holon ? "none" : "";
+    panel.classList.toggle("has-selection", !!holon);
+    comments?.refresh();
     if (!holon) {
       nameEl.textContent = sceneName;
       nameEl.classList.remove("selected");
@@ -100384,10 +101127,109 @@ var boot = async (resume) => {
     const ndc = ndcAt(clientX, clientY);
     return ndc ? host.pick(ndc.x, ndc.y) : undefined;
   };
+  const canvasPixelAt = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0)
+      return;
+    return {
+      x: (clientX - rect.left) / rect.width * canvas.width,
+      y: (clientY - rect.top) / rect.height * canvas.height
+    };
+  };
   const MOVE_THRESHOLD = 3;
   const HOVER_STEP = 4;
   let probe = null;
   let move = null;
+  const ROTATE_PER_WORLD = Math.PI / 120;
+  const SCALE_PER_WORLD = 1 / 120;
+  let axis = null;
+  const beginAxis = (e2, index) => {
+    const holon = selection.current;
+    const mode = gizmo?.mode();
+    if (!holon || !mode || mode === "voice")
+      return false;
+    const name = AXIS_PARAM[mode][index];
+    const param = holon.params.get(name);
+    if (!param || param.isBound) {
+      refuseMove();
+      return false;
+    }
+    const startNdc = ndcAt(e2.clientX, e2.clientY);
+    const origin = host.worldOriginOf(holon);
+    const parentWorld = host.parentWorldMatrixOf(holon);
+    if (!startNdc || !origin || !parentWorld)
+      return false;
+    const worldAxis = worldAxisOf(parentWorld.elements, index);
+    const perUnit = mode === "move" ? 1 : mode === "rotate" ? ROTATE_PER_WORLD : SCALE_PER_WORLD;
+    const gesture = AxisGesture.create(cameraFrameOf(host.camera), startNdc, { x: origin.x, y: origin.y, z: origin.z }, worldAxis, param.value, perUnit);
+    if (!gesture)
+      return false;
+    pause();
+    axis = { holon, pointerId: e2.pointerId, index, param, name, gesture };
+    try {
+      canvas.setPointerCapture?.(e2.pointerId);
+    } catch {}
+    canvas.classList.add("moving");
+    return true;
+  };
+  const moveAxis = (e2) => {
+    if (!axis || e2.pointerId !== axis.pointerId)
+      return false;
+    e2.preventDefault();
+    const ndc = ndcAt(e2.clientX, e2.clientY);
+    const value = ndc && axis.gesture.value(cameraFrameOf(host.camera), ndc);
+    if (value === undefined || value === false)
+      return true;
+    overrides.set(axis.param, value);
+    for (const row of rows) {
+      if (row.param === axis.param)
+        row.el?.classList.add(anchorOf(axis.holon) ? "diverged" : "live");
+    }
+    axis.last = value;
+    host.renderFrame(current2).then(() => {
+      syncPanel();
+      paintMarquee();
+    });
+    return true;
+  };
+  const endAxis = (e2) => {
+    if (!axis || e2.pointerId !== axis.pointerId)
+      return false;
+    const a2 = axis;
+    axis = null;
+    try {
+      canvas.releasePointerCapture?.(e2.pointerId);
+    } catch {}
+    canvas.classList.remove("moving");
+    if (a2.last === undefined)
+      return true;
+    const anchor2 = anchorOf(a2.holon);
+    if (!anchor2)
+      return true;
+    const round3 = (v2) => Math.round(v2 * 1000) / 1000;
+    commitOverride(a2.holon, anchor2, a2.name, round3(a2.last));
+    return true;
+  };
+  const cancelAxis = () => {
+    if (!axis)
+      return false;
+    const a2 = axis;
+    axis = null;
+    try {
+      canvas.releasePointerCapture?.(a2.pointerId);
+    } catch {}
+    canvas.classList.remove("moving");
+    overrides.release([a2.param]);
+    for (const row of rows) {
+      if (row.param === a2.param)
+        row.el?.classList.remove("diverged", "live");
+    }
+    host.renderFrame(current2).then(() => {
+      syncPanel();
+      paintMarquee();
+    });
+    return true;
+  };
   const withinSelection = (holon, selected) => {
     for (let node = holon;node; node = node.parent) {
       if (node === selected)
@@ -100496,6 +101338,13 @@ var boot = async (resume) => {
       canvas.classList.add("flying");
       return;
     }
+    const geo = gizmoGeometry();
+    if (geo) {
+      const cp = canvasPixelAt(e2.clientX, e2.clientY);
+      const grabbed = cp ? hitHandle(geo, cp.x, cp.y) : null;
+      if (grabbed !== null && beginAxis(e2, grabbed))
+        return;
+    }
     const hit = pickAt(e2.clientX, e2.clientY);
     const selected = selection.current;
     if (hit && selected && withinSelection(hit, selected)) {
@@ -100531,6 +101380,12 @@ var boot = async (resume) => {
   const paintMarquee = () => {
     const holon = selection.current;
     marquee.draw(holon ? host.boundsOf(holon) : undefined, host.renderer.domElement.width, host.renderer.domElement.height);
+    if (marquee.enabled) {
+      const geo = gizmoGeometry();
+      const ctx = marquee.canvas.getContext("2d");
+      if (geo && ctx)
+        drawGizmo(ctx, geo, axis?.index ?? null);
+    }
   };
   selection.subscribe((holon) => {
     renderInspector(holon);
@@ -100624,6 +101479,10 @@ var boot = async (resume) => {
   };
   let flight = null;
   canvas.addEventListener("pointermove", (e2) => {
+    if (axis) {
+      moveAxis(e2);
+      return;
+    }
     if (move) {
       e2.preventDefault();
       if (!move.gesture) {
@@ -100704,10 +101563,14 @@ var boot = async (resume) => {
       }
       return;
     }
+    if (endAxis(e2))
+      return;
     if (!endMove(e2))
       endFlight(e2);
   }, listen);
   canvas.addEventListener("pointercancel", (e2) => {
+    if (cancelAxis())
+      return;
     if (!cancelMove())
       endFlight(e2);
   }, listen);
@@ -100805,7 +101668,7 @@ var boot = async (resume) => {
         doUndo();
     }
     if (e2.code === "Escape") {
-      if (cancelMove()) {} else if (drag && !drag.reverted) {
+      if (cancelAxis()) {} else if (cancelMove()) {} else if (drag && !drag.reverted) {
         const d2 = drag;
         d2.reverted = true;
         overrides.delete(d2.param);
@@ -101091,7 +101954,13 @@ var boot = async (resume) => {
     discardPose: () => void discardPose(),
     undo: () => doUndo(),
     redo: () => doRedo(),
-    history: () => undoStack.depth
+    history: () => undoStack.depth,
+    gizmoMode: () => gizmo?.mode() ?? "voice",
+    setGizmoMode: (mode) => {
+      gizmo?.set(mode);
+      paintMarquee();
+    },
+    gizmoHandles: () => gizmoGeometry()
   });
 };
 ensureWs();
