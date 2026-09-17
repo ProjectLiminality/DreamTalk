@@ -48,3 +48,31 @@ David: prioritize the EVENING message (this doc). Step 1 + step 2 are the
 "working implementation" to have ready. Validate step 1 (add + confirm a comment
 on a selection) before layering transcription. Look at how Claude Code artifacts
 do comment mode and stay close to it; make the UI minimalist and obvious.
+
+## Step 1+2 VALIDATION (2026-09-17) — full interactive UX, real DOM
+
+Validated by driving the actual DOM headless (clicks, typing, pointer,
+button clicks), asserting BEHAVIOR not HTTP codes. Harnesses tracked at
+core/scripts/uxtest/.
+
+**comments-gizmo.ux.ts — 16/16 PASS:**
+- sections hidden with no selection; appear on selection (has-selection)
+- composer = mic + textarea + Attach; gizmo = Voice/Move/Rotate/Scale
+- type → Attach enables → comment lists → composer clears
+- persists with FULL anchor: SelectionPath (root+indices+className),
+  pathLabel, timeline t, screen bounds (the render hook), id, ts
+- gizmo DEFAULTS to voice (agentic-first); move/rotate/scale each set
+  the mode + expose 3 axis handles; active mode visually marked
+- deselect hides both sections
+
+**real-gestures.ux.ts — 4/4 PASS:**
+- a REAL mouse click on the canvas selects + shows the panel
+- the mic button focuses the text input (voice-first placeholder)
+- clicking empty space deselects cleanly (no crash)
+- a REAL click on the "Move" button activates move mode
+
+No console errors. One test-harness quirk found + fixed (puppeteer
+keyboard.type strips spaces headless — use dispatched input event); no
+product bugs. The stored record (core/.comments/<scene>.jsonl) carries
+everything the operating agent needs to work a comment: what, where
+(path), when (t), and the exact pixel region (bounds) to render.
