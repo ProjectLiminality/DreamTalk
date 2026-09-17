@@ -63,12 +63,14 @@ const main = async () => {
   const DreamCtor = scenes[sceneName] ?? scenes[defaultScene]!
   const dream = new DreamCtor()
   await warmBakes(dream)
-  // Optimization A: `?instanced=1` mounts the batched-ribbon path (off by
-  // default — the per-mesh path is the byte-identity oracle). The
-  // byte-identity harness drives the same scene at the same t with the
-  // flag off (oracle) and on (batch) and compares.
-  const instanced = new URLSearchParams(location.search).get("instanced") === "1"
-  const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons: instanced })
+  // Optimization A: ribbon instancing, AUTO by default — the host counts the
+  // scene's strokes and batches only above INSTANCE_THRESHOLD, where it wins
+  // (walls); light scenes keep the per-mesh oracle. `?instanced=1|0` forces
+  // it on/off (the byte-identity harness drives oracle vs batch at the same
+  // t and compares).
+  const q = new URLSearchParams(location.search).get("instanced")
+  const useInstancedRibbons = q === "1" ? true : q === "0" ? false : "auto"
+  const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons })
   const duration = dream.duration
 
   let playing = true

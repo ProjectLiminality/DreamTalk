@@ -269,3 +269,15 @@ describe("RibbonBatch — packing, offsets, relocation, hiding", () => {
     expect(fade[slot.offset]!).toBe(1)
   })
 })
+
+// --- The auto-threshold (opt A integration) --------------------------------
+import { ThreeHost } from "../src/render/three-host"
+
+describe("instancing auto-threshold", () => {
+  test("threshold sits in the gap between light scenes and walls", () => {
+    // Measured: video01 ~572 strokes is a net loss; thewall 3,776 a 49.8x win.
+    // The threshold must exclude the former and include the latter.
+    expect(ThreeHost.INSTANCE_THRESHOLD).toBeGreaterThan(572)
+    expect(ThreeHost.INSTANCE_THRESHOLD).toBeLessThan(3776)
+  })
+})

@@ -222,3 +222,21 @@ deps. **No commits** (the lead integrates). Servers: a demo `serve.ts` was run
 on :4180 for the harnesses; the daemon on :4174 was left as found. tsc clean,
 1275/0 tests. `demo/dist/main.js` is a rebuilt bundle artifact (the harnesses
 rebuild it via `ensureFreshDemoBundle`); left for the lead.
+
+## Integration (2026-09-17, lead) — AUTO threshold, default on where it wins
+
+Independently verified before integrating (not on report alone): the byte-
+identity gate (instancing-gate.ts) re-run by the lead on s06 (near-cap
+cylinder), o03 (fills interleaved), thewall (425k-500k segments) — instance
+data EQUAL segment-for-segment, coverage 1.0000/1.0000 each; perf on this
+machine thewall hump 279ms→5.6ms (49.8x).
+
+Then made UNIVERSAL: `useInstancedRibbons: "auto"` (now the default for demo +
+editor) counts the built dream's strokes and batches only at ≥
+INSTANCE_THRESHOLD (1000) — safely between video01's 572 (net loss) and
+TheWall's 3,776 (49.8x win). Verified auto picks correctly: thewall→batch,
+video01/molocheye/mindvirus→oracle. `?instanced=1|0` still forces it for the
+harness. So every scene gets its optimal path with no manual flag — the wall
+runs ~100-179fps, light scenes keep the sub-ms oracle, and byte-identity holds
+throughout (1297 tests green). One test artifact reverted at integration:
+a gizmo-drag left x:59.999 on S01's cylinder — caught and removed.

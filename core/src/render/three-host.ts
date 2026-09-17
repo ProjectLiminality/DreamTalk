@@ -584,6 +584,18 @@ const arrowPolygon = (
   ]
 }
 
+/**
+ * How many Stroke holons the built dream draws — the signal the "auto"
+ * instancing threshold reads (a Stroke is exactly what becomes a ribbon
+ * mesh in attach). A cheap pure walk over the already-built tree; every
+ * scene pays it once at mount.
+ */
+const countStrokes = (dream: Dream): number => {
+  let n = 0
+  for (const root of dream.roots) for (const h of root.walk()) if (h instanceof Stroke) n++
+  return n
+}
+
 /** The params whose change requires re-sampling the polyline. */
 const shapeKey = (holon: Stroke): number[] => {
   const phase = [holon.drawStart.value, holon.drawReversed.value ? 1 : 0]
@@ -740,15 +752,33 @@ export class ThreeHost {
     this.camera = this.perspCamera
   }
 
+  /**
+   * Ribbon count at or above which instancing WINS (opt A). Below it the
+   * per-mesh oracle is faster — the batch's pack + upload isn't earned back
+   * (video01's ~572 strokes measured a net loss; TheWall's 3,776 a 49.8×
+   * win). 1,000 sits safely in the gap: well above every light scene, well
+   * below the walls. `useInstancedRibbons: "auto"` (the default for the demo
+   * + editor) picks per-scene from the built dream's stroke count, so every
+   * scene gets its optimal path with no manual flag.
+   */
+  static readonly INSTANCE_THRESHOLD = 1000
+
   static async mount(
     dream: Dream,
     canvas: HTMLCanvasElement,
-    opts: { useInstancedRibbons?: boolean } = {},
+    opts: { useInstancedRibbons?: boolean | "auto" } = {},
   ): Promise<ThreeHost> {
-    const host = new ThreeHost(dream, canvas, opts.useInstancedRibbons ?? false)
+    await Promise.resolve() // keep the signature async-stable
+    dream.build()
+    // "auto": count the built dream's strokes and instance only where it wins.
+    // An explicit boolean (the byte-identity harness) overrides the threshold.
+    const flag =
+      opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
+        ? countStrokes(dream) >= ThreeHost.INSTANCE_THRESHOLD
+        : opts.useInstancedRibbons
+    const host = new ThreeHost(dream, canvas, flag)
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
-    dream.build()
     for (const root of dream.roots) host.attach(root, host.scene)
     // With instancing on, the single batch mesh joins the scene once every
     // stroke has claimed its slot — at the ribbon renderOrder band so it
