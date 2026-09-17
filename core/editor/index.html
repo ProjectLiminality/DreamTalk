@@ -262,6 +262,11 @@
       background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 13px;
       display: flex; align-items: center; justify-content: center; padding: 0; flex: 0 0 auto; }
     .micbtn:hover { border-color: var(--red); color: var(--red); }
+    .micbtn.recording { border-color: var(--red); color: var(--red);
+      background: color-mix(in srgb, var(--red) 18%, var(--panel-2));
+      animation: micpulse 1.1s ease-in-out infinite; }
+    @keyframes micpulse { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 55%, transparent); }
+      50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 0%, transparent); } }
     .commentinput { resize: none; overflow: hidden; min-height: 30px;
       background: var(--panel-2); color: var(--bright); border: 1px solid var(--line);
       border-radius: 6px; padding: 7px 8px; font: 12px/1.4 -apple-system, "SF Pro", Inter, sans-serif;

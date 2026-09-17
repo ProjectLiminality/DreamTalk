@@ -98,3 +98,31 @@ Claude gets the text AND a rendered image of precisely that ink.
 
 Remaining: step 4 (voice transcription, local) and step 5 (universal voice
 mode — deferred per David).
+
+## Step 4 BUILT (2026-09-17) — voice dictation into the comment field
+
+The mic button now toggles a `SpeechRecognition` session that dictates into the
+composer: interim results stream live, finals append, and voice COMPOSES with
+typing (dictation appends to whatever is already there). The button pulses red
+while listening (`.micbtn.recording`), a second click stops, and the session is
+torn down on panel dispose (never holds the mic past a scene switch). Voice-
+first, never voice-only: no speech engine → the mic just focuses the field, and
+typing always works.
+
+VALIDATED (4/4, real DOM): mic title reflects support; a click never crashes
+(records, or gracefully focuses when start() is denied — as in headless, no
+mic); a second click leaves no lingering state; typing+attach unbroken after
+mic use.
+
+HONEST CAVEATS:
+- Actual transcription needs a real mic + permission — not exercisable
+  headless, so the live speech-to-text quality is unverified here (the state
+  machine, fallback, and teardown ARE verified). Confirm in real Chrome.
+- LOCALITY: `SpeechRecognition` in Chrome may route audio through Google's
+  servers — NOT guaranteed on-device. David wanted "ideally local." This is the
+  pragmatic zero-download first step; a truly-local path (a bundled Whisper /
+  on-device model, or the PL stack's Workers-AI Whisper for a server-but-owned
+  route) is the refinement when locality must be guaranteed. Flagged for David's
+  call before relying on it for sensitive content.
+
+Step 5 (universal voice mode) remains deferred per David.

@@ -112,7 +112,17 @@ export const mountComments = (
   const mic = document.createElement("button")
   mic.type = "button"
   mic.className = "micbtn"
-  mic.title = "voice comment (coming soon) — type for now"
+  // Step 4: dictate into the field via the browser's own speech engine
+  // (SpeechRecognition — no model download, on-device where the platform
+  // provides it). Falls back to a focused field if the browser lacks it.
+  const speechSupported =
+    typeof (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition !==
+      "undefined" ||
+    typeof (window as unknown as { webkitSpeechRecognition?: unknown })
+      .webkitSpeechRecognition !== "undefined"
+  mic.title = speechSupported
+    ? "voice comment — click to dictate (click again to stop)"
+    : "voice not available here — type instead"
   mic.textContent = "🎙"
   composer.appendChild(mic)
 
@@ -227,12 +237,86 @@ export const mountComments = (
     { signal },
   )
   attach.addEventListener("click", () => void send(), { signal })
+  // --- Step 4: voice dictation into the field ------------------------------
+  //
+  // The mic toggles a SpeechRecognition session that appends its transcript
+  // to whatever is already typed (so voice and typing compose). Interim
+  // results stream live into the field; the final result replaces the interim
+  // span. Recording state is on the button (a class the CSS pulses) so it is
+  // obvious the editor is listening. Everything degrades to `input.focus()`
+  // when the browser has no speech engine — voice-first, never voice-only.
+  type Recognition = {
+    lang: string
+    continuous: boolean
+    interimResults: boolean
+    start(): void
+    stop(): void
+    onresult: ((e: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null
+    onend: (() => void) | null
+    onerror: ((e: { error: string }) => void) | null
+  }
+  const RecognitionCtor = (
+    window as unknown as {
+      SpeechRecognition?: new () => Recognition
+      webkitSpeechRecognition?: new () => Recognition
+    }
+  ).SpeechRecognition ??
+    (window as unknown as { webkitSpeechRecognition?: new () => Recognition })
+      .webkitSpeechRecognition
+  let recog: Recognition | null = null
+  /** The text that was in the field when recording began — voice appends to it. */
+  let dictationBase = ""
+
+  const stopDictation = () => {
+    recog?.stop()
+    recog = null
+    mic.classList.remove("recording")
+  }
+
   mic.addEventListener(
     "click",
     () => {
-      // Voice-first placeholder (step 4 makes it record): focus the field so
-      // the affordance is real and the fallback is one keystroke away.
+      if (!RecognitionCtor) {
+        input.focus()
+        return
+      }
+      if (recog) {
+        stopDictation()
+        return
+      }
+      const r = new RecognitionCtor()
+      r.lang = navigator.language || "en-US"
+      r.continuous = true
+      r.interimResults = true
+      dictationBase = input.value ? input.value.replace(/\s*$/, "") + " " : ""
+      r.onresult = (e) => {
+        let finalTxt = ""
+        let interim = ""
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const res = e.results[i]!
+          if (res.isFinal) finalTxt += res[0].transcript
+          else interim += res[0].transcript
+        }
+        if (finalTxt) dictationBase = (dictationBase + finalTxt).replace(/\s{2,}/g, " ")
+        input.value = (dictationBase + interim).replace(/\s{2,}/g, " ")
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      }
+      r.onend = () => {
+        // A continuous session can still end (silence timeout); reflect it.
+        if (recog === r) {
+          recog = null
+          mic.classList.remove("recording")
+        }
+      }
+      r.onerror = () => stopDictation()
+      recog = r
+      mic.classList.add("recording")
       input.focus()
+      try {
+        r.start()
+      } catch {
+        stopDictation()
+      }
     },
     { signal },
   )
@@ -247,6 +331,12 @@ export const mountComments = (
 
   return {
     refresh,
-    dispose: () => section.remove(),
+    dispose: () => {
+      // Never leave a recognizer listening past the panel's life (a scene
+      // switch / remount) — it would hold the mic and keep dictating into a
+      // detached field.
+      stopDictation()
+      section.remove()
+    },
   }
 }
