@@ -76,3 +76,25 @@ keyboard.type strips spaces headless — use dispatched input event); no
 product bugs. The stored record (core/.comments/<scene>.jsonl) carries
 everything the operating agent needs to work a comment: what, where
 (path), when (t), and the exact pixel region (bounds) to render.
+
+## Step 3 BUILT (2026-09-17) — the auto-render-into-context
+
+`core/scripts/comment-view.ts`: the operating-agent tool that closes the
+comment→context loop. A comment already stores scene + t + selection bounds,
+so the rendered crop is a pure function of them. The tool renders the
+CHROMELESS DEMO (ink only — the editor's marquee/gizmo live on an overlay, so
+demo and editor paint identical pixels for the same t) at the comment's t and
+crops to its bounds.
+
+  bun scripts/comment-view.ts <scene>          # newest comment
+  bun scripts/comment-view.ts <scene> <id>     # a specific one
+  bun scripts/comment-view.ts <scene> --all    # each comment → its own png
+
+It prints the agent's read-line — `[label @ t] "text" → file.png` — and writes
+the crop to docs/reports/comments/. VALIDATED: a real editor-attached comment
+on the s01 Cylinder rendered a crop showing exactly that cylinder's ink,
+tightly framed. So the full loop is: point at an object → type/speak a note →
+Claude gets the text AND a rendered image of precisely that ink.
+
+Remaining: step 4 (voice transcription, local) and step 5 (universal voice
+mode — deferred per David).
