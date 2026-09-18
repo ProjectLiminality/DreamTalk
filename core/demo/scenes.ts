@@ -64,6 +64,7 @@ import { SetPiecesDream } from "./pl02/SetPieces"
 import { Density01Dream } from "./pl02/Density01"
 import { FillOnDream, FillOffDream } from "./pl02/FillProbe"
 import { ProjectLiminalityDream } from "./pl02/ProjectLiminality"
+import { AgentArenaDream } from "./agentarena/AgentArena"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -133,6 +134,8 @@ export const scenes: Record<string, DreamClass> = {
   p02jFillOn: FillOnDream,
   p02jFillOff: FillOffDream,
   pl02: ProjectLiminalityDream,
+  // The first DreamSong woven from a whiteboard rather than a legacy video.
+  agentarena: AgentArenaDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
