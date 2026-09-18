@@ -97958,12 +97958,354 @@ class ProjectLiminalityDream extends Dream {
 if (false)
   ;
 
+// demo/agentarena/AgentFigure.ts
+var HEAD = 0.22;
+var SPINE = 0.42;
+var REACH = 0.2;
+
+class AgentFigure extends Stroke {
+  static sovereign = true;
+  height = length2(120);
+  head;
+  spine;
+  armLeft;
+  armRight;
+  legLeft;
+  legRight;
+  compose() {
+    const h2 = this.height.value;
+    const headR = h2 * HEAD / 2;
+    const crown = h2 / 2;
+    const headCy = crown - headR;
+    const neck = headCy - headR;
+    const hip = neck - h2 * SPINE;
+    const shoulder = neck - h2 * SPINE * 0.3;
+    const foot = -h2 / 2;
+    const reach = h2 * REACH;
+    const stroke = this.stroke;
+    this.head = this.add(new Circle({ radius: headR, y: headCy, tint: RED, stroke }));
+    this.spine = this.add(new Line2({
+      points: [{ x: 0, y: neck, z: 0 }, { x: 0, y: hip, z: 0 }],
+      tint: RED,
+      stroke
+    }));
+    this.armLeft = this.add(new Line2({
+      points: [{ x: 0, y: shoulder, z: 0 }, { x: -reach, y: shoulder - reach * 0.55, z: 0 }],
+      tint: RED,
+      stroke
+    }));
+    this.armRight = this.add(new Line2({
+      points: [{ x: 0, y: shoulder, z: 0 }, { x: reach, y: shoulder - reach * 0.55, z: 0 }],
+      tint: RED,
+      stroke
+    }));
+    this.legLeft = this.add(new Line2({
+      points: [{ x: 0, y: hip, z: 0 }, { x: -reach * 0.8, y: foot, z: 0 }],
+      tint: RED,
+      stroke
+    }));
+    this.legRight = this.add(new Line2({
+      points: [{ x: 0, y: hip, z: 0 }, { x: reach * 0.8, y: foot, z: 0 }],
+      tint: RED,
+      stroke
+    }));
+  }
+}
+
+// demo/agentarena/Arena.ts
+class Arena extends Stroke {
+  static sovereign = true;
+  radius = length2(200);
+  boundary;
+  compose() {
+    this.boundary = this.add(new Circle({ radius: this.radius, tint: BLUE, stroke: this.stroke }));
+  }
+}
+
+// demo/agentarena/Ensoulment.ts
+var JITTER = [1, 0.72, 0.93, 0.64, 1.05, 0.8, 0.88, 0.7];
+
+class Ensoulment extends Stroke {
+  static sovereign = true;
+  radius = length2(150);
+  rays = integer(14);
+  knot;
+  spokes = [];
+  compose() {
+    const r2 = this.radius.value;
+    const n2 = Math.max(1, Math.round(this.rays.value));
+    const stroke = this.stroke;
+    this.knot = this.add(new Ellipse({ radiusX: r2 * 0.1, radiusY: r2 * 0.1, filled: true, tint: RED }));
+    for (let i2 = 0;i2 < n2; i2++) {
+      const a2 = i2 / n2 * Math.PI * 2;
+      const reach = r2 * JITTER[i2 % JITTER.length];
+      const inner = r2 * 0.12;
+      this.spokes.push(this.add(new Line2({
+        points: [
+          { x: Math.cos(a2) * inner, y: Math.sin(a2) * inner, z: 0 },
+          { x: Math.cos(a2) * reach, y: Math.sin(a2) * reach, z: 0 }
+        ],
+        tint: RED,
+        stroke
+      })));
+    }
+  }
+}
+
+// demo/agentarena/Pairing.ts
+var LABEL = 30;
+
+class Pairing extends Null {
+  kind = "text";
+  container;
+  inhabitant;
+  containerLabel;
+  inhabitantLabel;
+  compose() {
+    const { container, inhabitant, names } = build(this.kind);
+    this.containerLabel = new Text({
+      content: names[0],
+      size: LABEL,
+      tint: BLUE,
+      x: -330,
+      y: 70
+    });
+    this.inhabitantLabel = new Text({
+      content: names[1],
+      size: LABEL,
+      tint: RED,
+      x: 250,
+      y: 70
+    });
+    this.container = this.add(container);
+    this.inhabitant = this.add(inhabitant);
+    this.add(this.containerLabel);
+    this.add(this.inhabitantLabel);
+  }
+}
+var build = (kind) => {
+  if (kind === "text") {
+    const glyphs = [];
+    for (let i2 = 0;i2 < 7; i2++) {
+      const x2 = -150 + i2 * 44;
+      if (i2 === 3)
+        continue;
+      glyphs.push(new Line2({
+        points: [{ x: x2, y: -18, z: 0 }, { x: x2, y: 18, z: 0 }],
+        tint: BLUE,
+        stroke: 5
+      }));
+    }
+    const frame = new Rectangle({ width: 400, height: 90, tint: BLUE });
+    const caret = new Line2({
+      points: [{ x: -18, y: -26, z: 0 }, { x: -18, y: 26, z: 0 }],
+      tint: RED,
+      stroke: 7
+    });
+    return {
+      container: new Group2({ members: [frame, ...glyphs] }),
+      inhabitant: new Group2({ members: [caret] }),
+      names: ["text", "cursor"]
+    };
+  }
+  if (kind === "gui") {
+    const win = new Rectangle({ width: 380, height: 210, tint: BLUE });
+    const icons = [];
+    for (let r2 = 0;r2 < 2; r2++) {
+      for (let c2 = 0;c2 < 2; c2++) {
+        icons.push(new Square({
+          size: 64,
+          x: -90 + c2 * 150,
+          y: 48 - r2 * 96,
+          tint: BLUE
+        }));
+      }
+    }
+    const pointer = new Line2({
+      points: [
+        { x: 120, y: 60, z: 0 },
+        { x: 120, y: -46, z: 0 },
+        { x: 150, y: -18, z: 0 }
+      ],
+      tint: RED,
+      stroke: 6
+    });
+    return {
+      container: new Group2({ members: [win, ...icons] }),
+      inhabitant: new Group2({ members: [pointer] }),
+      names: ["GUI", "mouse"]
+    };
+  }
+  const world2 = new Rectangle({ width: 400, height: 150, tint: BLUE });
+  const ground = new Line2({
+    points: [{ x: -170, y: -45, z: 0 }, { x: 170, y: -45, z: 0 }],
+    tint: BLUE
+  });
+  const crossing = new Line2({
+    points: [{ x: -60, y: 0, z: 0 }, { x: 60, y: 0, z: 0 }],
+    tint: RED,
+    arrowEnd: true
+  });
+  const avatar = new Ellipse({ radiusX: 26, radiusY: 26, x: 120, filled: true, tint: RED });
+  return {
+    container: new Group2({ members: [world2, ground] }),
+    inhabitant: new Group2({ members: [crossing, avatar] }),
+    names: ["game", "avatar"]
+  };
+};
+
+// demo/agentarena/AgentArena.ts
+var LABEL2 = 34;
+var EQUATION = 40;
+
+class AgentArenaDream extends Dream {
+  arena = new Arena({ radius: 210 });
+  agent = new AgentFigure({ height: 210 });
+  arenaLabel = new Text({ content: "arena", size: LABEL2, tint: BLUE, y: 255 });
+  agentLabel = new Text({ content: "agent", size: LABEL2, tint: RED, y: -110 });
+  primitive = new Group2({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] });
+  choice = new Line2({
+    points: [
+      { x: 0, y: -40, z: 0 },
+      { x: 330, y: -40, z: 0 }
+    ],
+    tint: RED,
+    arrowEnd: true
+  });
+  choiceLabel = new Text({ content: "CHOICE", size: LABEL2, tint: RED, x: 165, y: 10 });
+  agency = new Group2({ members: [this.choice, this.choiceLabel] });
+  textPair = new Pairing({ kind: "text", x: -230, y: 230 });
+  guiPair = new Pairing({ kind: "gui", x: -230, y: 0 });
+  gamePair = new Pairing({ kind: "game", x: -230, y: -230 });
+  pairs = new Group2({ members: [this.textPair, this.guiPair, this.gamePair] });
+  patternArrow = new Line2({
+    points: [
+      { x: 250, y: 320, z: 0 },
+      { x: 250, y: -320, z: 0 }
+    ],
+    tint: WHITE,
+    arrowEnd: true
+  });
+  patternLabel = new Text({
+    content: "one continuous pattern",
+    size: LABEL2,
+    tint: WHITE,
+    x: 500,
+    y: 0
+  });
+  pattern = new Group2({ members: [this.patternArrow, this.patternLabel] });
+  soul = new Ensoulment({ rays: 14, radius: 150 });
+  eq1 = new Text({ content: "selection = attention = animation", size: EQUATION, tint: WHITE, y: -290 });
+  eq2 = new Text({ content: "selection = soul extension", size: EQUATION, tint: RED, y: -290 });
+  physicalArena = new Arena({ radius: 330, x: -260 });
+  human = new AgentFigure({ height: 150, x: -510, y: -40 });
+  humanSoul = new Ensoulment({ rays: 12, radius: 78, x: -510, y: -30 });
+  screen = new Rectangle({ width: 300, height: 195, x: -200, y: 45, tint: WHITE });
+  keyboard = new Line2({
+    points: [
+      { x: -345, y: -55, z: 0 },
+      { x: -55, y: -55, z: 0 }
+    ],
+    tint: WHITE
+  });
+  innerArena = new Arena({ radius: 62, x: -200, y: 50 });
+  innerAgent = new AgentFigure({ height: 40, x: -200, y: 38 });
+  sight1 = new Line2({
+    points: [
+      { x: -470, y: 30, z: 0 },
+      { x: -265, y: 60, z: 0 }
+    ],
+    tint: RED
+  });
+  sight2 = new Line2({
+    points: [
+      { x: -470, y: 30, z: 0 },
+      { x: -265, y: 10, z: 0 }
+    ],
+    tint: RED
+  });
+  inputLabel = new Text({ content: "input", size: LABEL2, tint: WHITE, x: 10, y: -55 });
+  recursion = new Group2({
+    members: [
+      this.physicalArena,
+      this.human,
+      this.screen,
+      this.keyboard,
+      this.innerArena,
+      this.innerAgent,
+      this.sight1,
+      this.sight2,
+      this.humanSoul,
+      this.inputLabel
+    ]
+  });
+  ifaceIn = new Text({ content: `camera
+mic
+keyboard`, size: LABEL2, tint: BLUE, x: 250, y: 120, align: "left" });
+  ifaceOut = new Text({ content: `screen
+speaker
+motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" });
+  ifaceTitle = new Text({ content: "interface", size: LABEL2, tint: WHITE, x: 400, y: 250 });
+  iface = new Group2({ members: [this.ifaceTitle, this.ifaceIn, this.ifaceOut] });
+  macos = new Text({ content: "macOS already = infinite game engine", size: EQUATION, tint: WHITE, y: 90 });
+  dreamos = new Text({ content: "DreamOS", size: 130, tint: RED, y: -60 });
+  explicit = new Text({ content: "makes it explicit", size: EQUATION, tint: WHITE, y: -190 });
+  stageRoot = new Null;
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.stageRoot);
+    this.play(Create(this.arena), 1.6);
+    this.play(together(Create(this.agent), [Write(this.arenaLabel), 0.3, 1]), 1.6);
+    this.play(Write(this.agentLabel), 0.8);
+    this.wait(1);
+    this.play(Create(this.agency), 1.4);
+    this.wait(1.2);
+    this.play(together(FadeOut(this.primitive), FadeOut(this.agency)), 0.8);
+    this.play(this.observer.zoom.to(1 / 2), 0.8);
+    this.play(Create(this.textPair), 1.8);
+    this.wait(0.6);
+    this.play(Create(this.guiPair), 1.8);
+    this.wait(0.6);
+    this.play(Create(this.gamePair), 1.8);
+    this.wait(0.8);
+    this.play(together(Create(this.patternArrow), [Write(this.patternLabel), 0.4, 1]), 2);
+    this.wait(1.5);
+    this.play(together(FadeOut(this.pairs), FadeOut(this.pattern)), 0.9);
+    this.play(this.observer.zoom.to(6 / 7), 0.8);
+    this.play(Create(this.soul), 2);
+    this.play(Write(this.eq1), 1.6);
+    this.wait(1.4);
+    this.play(FadeOut(this.eq1), 0.5);
+    this.play(Write(this.eq2), 1.4);
+    this.wait(1.6);
+    this.play(together(FadeOut(this.soul), FadeOut(this.eq2)), 0.9);
+    this.play(this.observer.zoom.to(4 / 7), 1.2);
+    this.play(Create(this.physicalArena), 1.6);
+    this.play(together(Create(this.human), [Create(this.screen), 0.4, 1], [Create(this.keyboard), 0.5, 1]), 2);
+    this.play(together(Create(this.innerArena), [Create(this.innerAgent), 0.35, 1]), 1.8);
+    this.play(together(Create(this.sight1), Create(this.sight2), [FadeIn(this.inputLabel), 0.5, 1]), 1.4);
+    this.play(Create(this.humanSoul), 1.4);
+    this.wait(1);
+    this.play(together(Write(this.ifaceTitle), [FadeIn(this.ifaceIn), 0.3, 1], [FadeIn(this.ifaceOut), 0.5, 1]), 2);
+    this.wait(2);
+    this.play(together(FadeOut(this.recursion), FadeOut(this.iface)), 1);
+    this.play(this.observer.zoom.to(1), 0.8);
+    this.play(Write(this.macos), 1.8);
+    this.wait(1.2);
+    this.play(together(FadeOut(this.macos), [Create(this.dreamos), 0.2, 1]), 2.2);
+    this.play(Write(this.explicit), 1.2);
+    this.wait(2);
+    this.play(together(UnCreate(this.dreamos), FadeOut(this.explicit)), 1.2);
+  }
+}
+
 // ../holons/Circle/Circle.ts
-class Circle2 extends Circle {
+class Circle3 extends Circle {
 }
 
 class CircleDream extends Dream {
-  circle = new Circle2({ radius: 250, tint: BLUE, stroke: 4 });
+  circle = new Circle3({ radius: 250, tint: BLUE, stroke: 4 });
   unfold() {
     this.set(...this.observer.dolly(750));
     this.play(Create(this.circle), 2.5);
@@ -97974,11 +98316,11 @@ if (false)
   ;
 
 // ../holons/Square/Square.ts
-class Square2 extends Square {
+class Square3 extends Square {
 }
 
 class SquareDream extends Dream {
-  square = new Square2({ size: 440, tint: RED, stroke: 4 });
+  square = new Square3({ size: 440, tint: RED, stroke: 4 });
   unfold() {
     this.set(...this.observer.dolly(750));
     this.play(Create(this.square), 2.5);
@@ -97995,8 +98337,8 @@ class Cylinder3 extends Cylinder {
 }
 
 class CylinderDream extends Dream {
-  circle = new Circle2({ radius: 100, tint: BLUE, x: -220 });
-  square = new Square2({ size: 200, tint: RED, x: 220 });
+  circle = new Circle3({ radius: 100, tint: BLUE, x: -220 });
+  square = new Square3({ size: 200, tint: RED, x: 220 });
   cylinder = new Cylinder3({ radius: 100, height: 200 });
   unfold() {
     this.set(...this.observer.dolly(750));
@@ -98078,7 +98420,8 @@ var scenes = {
   p02l: Density01Dream,
   p02jFillOn: FillOnDream,
   p02jFillOff: FillOffDream,
-  pl02: ProjectLiminalityDream
+  pl02: ProjectLiminalityDream,
+  agentarena: AgentArenaDream
 };
 var defaultScene = "founding";
 
@@ -98672,7 +99015,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     childrenEl.style.display = open ? "" : "none";
     twisty.textContent = open ? "▼" : "▶";
   };
-  const build = (holon, depth3, parentEl) => {
+  const build2 = (holon, depth3, parentEl) => {
     const row = document.createElement("div");
     row.className = "node";
     row.style.paddingLeft = `${8 + depth3 * 12}px`;
@@ -98722,7 +99065,7 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     parentEl.appendChild(childrenEl);
     for (const child of entries) {
       if (child.kind === "holon")
-        build(child.holon, depth3 + 1, childrenEl);
+        build2(child.holon, depth3 + 1, childrenEl);
       else
         buildGroup(child.holons, depth3 + 1, childrenEl);
     }
@@ -98756,10 +99099,10 @@ var mountOutline = (container, dream, roots, selection, signal) => {
     };
     row.addEventListener("click", toggle, { signal });
     for (const member of members)
-      build(member, depth3 + 1, childrenEl);
+      build2(member, depth3 + 1, childrenEl);
   };
   for (const root of roots)
-    build(root, 0, container);
+    build2(root, 0, container);
   const unsubscribe = selection.subscribe((current2) => {
     for (const { holon, el } of rows) {
       el.classList.toggle("selected", holon === current2);
