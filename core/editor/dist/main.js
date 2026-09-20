@@ -98300,6 +98300,132 @@ motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" });
   }
 }
 
+// demo/creatormode/Calculator.ts
+var CELL = 120;
+var GAP2 = 34;
+
+class Calculator extends Null {
+  static sovereign = true;
+  frame = new Rectangle({ width: 520, height: 400, rounding: 0.12, tint: WHITE });
+  slotA = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: -(CELL + GAP2), y: 90, tint: WHITE });
+  valueA = new Text({ content: "3", size: 64, tint: WHITE, x: -(CELL + GAP2), y: 90 });
+  slotB = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: CELL + GAP2, y: 90, tint: WHITE });
+  valueB = new Text({ content: "5", size: 64, tint: WHITE, x: CELL + GAP2, y: 90 });
+  opButton = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, y: 90, tint: WHITE });
+  opPlus = new Text({ content: "+", size: 64, tint: WHITE, y: 90 });
+  opTimes = new Text({ content: "×", size: 64, tint: WHITE, y: 90, opacity: 0 });
+  outSlot = new Rectangle({ width: CELL * 3 + GAP2 * 2, height: CELL, rounding: 0.18, y: -90, tint: WHITE });
+  out8 = new Text({ content: "8", size: 72, tint: WHITE, y: -90, opacity: 0 });
+  out15 = new Text({ content: "15", size: 72, tint: WHITE, y: -90, opacity: 0 });
+  all = new Group2({
+    members: [
+      this.frame,
+      this.slotA,
+      this.valueA,
+      this.slotB,
+      this.valueB,
+      this.opButton,
+      this.opPlus,
+      this.opTimes,
+      this.outSlot,
+      this.out8,
+      this.out15
+    ]
+  });
+}
+
+// demo/creatormode/GoldenDot.ts
+var GOLD = rgb(255, 199, 84);
+
+class GoldenDot extends Stroke {
+  static sovereign = true;
+  radius = length2(14);
+  glow = completion(1);
+  core;
+  halo;
+  aura;
+  compose() {
+    const r2 = this.radius.value;
+    this.aura = this.add(new Circle({
+      radius: r2 * 3.1,
+      tint: GOLD,
+      stroke: 2,
+      fillOpacity: this.glow.times(0.1),
+      opacity: this.glow.times(0.45)
+    }));
+    this.halo = this.add(new Circle({
+      radius: r2 * 1.9,
+      tint: GOLD,
+      stroke: 2.5,
+      fillOpacity: this.glow.times(0.22),
+      opacity: this.glow.times(0.8)
+    }));
+    this.core = this.add(new Circle({ radius: r2, tint: GOLD, stroke: 3, fillOpacity: 1 }));
+  }
+}
+
+// demo/creatormode/CreatorMode.ts
+var LABEL3 = 34;
+var OP = { x: 0, y: 90 };
+
+class CreatorModeDream extends Dream {
+  app = new Calculator;
+  cursor = new Line2({
+    points: [
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: -52, z: 0 },
+      { x: 14, y: -39, z: 0 },
+      { x: 0, y: 0, z: 0 }
+    ],
+    tint: RED,
+    stroke: 6,
+    x: 250,
+    y: -30
+  });
+  dot = new GoldenDot({ radius: 14, x: 250, y: -30, scale: 0, glow: 0 });
+  glowA = new Rectangle({ width: 140, height: 140, rounding: 0.18, x: -154, y: 90, tint: GOLD, stroke: 4, opacity: 0 });
+  glowOut = new Rectangle({ width: 412, height: 140, rounding: 0.18, y: -90, tint: GOLD, stroke: 4, opacity: 0 });
+  glowOp = new Rectangle({ width: 140, height: 140, rounding: 0.18, y: 90, tint: GOLD, stroke: 4, opacity: 0 });
+  gameMode = new Text({ content: "game mode — play within the rules", size: LABEL3, tint: WHITE, y: -290 });
+  creatorMode = new Text({ content: "creator mode — play with the rules", size: LABEL3, tint: GOLD, y: -290 });
+  root = new Null;
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(3 / 4));
+    this.stage(this.root);
+    this.play(Create(this.app.frame), 1.2);
+    this.play(together(Create(this.app.slotA), [Write(this.app.valueA), 0.35, 1], [Create(this.app.slotB), 0.15, 1], [Write(this.app.valueB), 0.5, 1], [Create(this.app.opButton), 0.3, 1], [Write(this.app.opPlus), 0.6, 1], [Create(this.app.outSlot), 0.45, 1]), 2.4);
+    this.play(together(Create(this.cursor), [Write(this.gameMode), 0.3, 1]), 1.4);
+    this.wait(0.6);
+    this.play(together(this.cursor.x.to(OP.x - 6), this.cursor.y.to(OP.y + 20)), 1.2);
+    this.wait(0.3);
+    this.play(this.cursor.scale.to(0.88), 0.14);
+    this.play(this.cursor.scale.to(1), 0.14);
+    this.play(FadeIn(this.app.out8), 0.5);
+    this.wait(1.4);
+    this.play(FadeOut(this.gameMode), 0.5);
+    this.play(together(this.cursor.scale.to(0), this.cursor.opacity.to(0), [this.dot.scale.to(1), 0.25, 1], [this.dot.glow.to(1), 0.3, 1], [Write(this.creatorMode), 0.45, 1]), 1.6);
+    this.wait(0.8);
+    this.play(together(this.dot.x.to(-154), this.dot.y.to(20), [this.glowA.opacity.to(1), 0.45, 1]), 1.1);
+    this.wait(0.5);
+    this.play(together(this.glowA.opacity.to(0), this.dot.x.to(0), this.dot.y.to(-158), [this.glowOut.opacity.to(1), 0.45, 1]), 1.2);
+    this.wait(0.5);
+    this.play(together(this.glowOut.opacity.to(0), this.dot.x.to(OP.x), this.dot.y.to(OP.y - 70), [this.glowOp.opacity.to(1), 0.45, 1]), 1.2);
+    this.play(this.dot.glow.to(0.5), 0.22);
+    this.play(together(this.dot.glow.to(1), this.glowOp.stroke.to(9)), 0.3);
+    this.wait(1.2);
+    this.play(together(FadeOut(this.app.opPlus), [FadeIn(this.app.opTimes), 0.4, 1]), 1.4);
+    this.wait(0.5);
+    this.play(together(FadeOut(this.app.out8), [FadeIn(this.app.out15), 0.45, 1]), 1.2);
+    this.wait(1.6);
+    this.play(FadeOut(this.creatorMode), 0.5);
+    this.play(together(this.dot.x.to(250), this.dot.y.to(-30), [this.dot.glow.to(0), 0.5, 1], [this.dot.scale.to(0), 0.6, 1], [this.cursor.x.to(250), 0, 0.55], [this.cursor.y.to(-30), 0, 0.55], [this.cursor.opacity.to(1), 0.6, 1], [this.cursor.scale.to(1), 0.6, 1], this.glowOp.opacity.to(0)), 1.8);
+    this.play(Write(this.gameMode), 1);
+    this.wait(2);
+    this.play(together(FadeOut(this.app.all), FadeOut(this.cursor), FadeOut(this.gameMode)), 1.2);
+  }
+}
+
 // ../holons/Circle/Circle.ts
 class Circle3 extends Circle {
 }
@@ -98421,7 +98547,8 @@ var scenes = {
   p02jFillOn: FillOnDream,
   p02jFillOff: FillOffDream,
   pl02: ProjectLiminalityDream,
-  agentarena: AgentArenaDream
+  agentarena: AgentArenaDream,
+  creatormode: CreatorModeDream
 };
 var defaultScene = "founding";
 
