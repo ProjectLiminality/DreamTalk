@@ -8,6 +8,8 @@
  *   - GET /api/source → a DreamWeaving's text + sha256 (the op base hash)
  *   - GET/PUT /api/bake-cache/<hash> → baked tracks, so the browser gets
  *     the disk cache it cannot reach itself (accelerator, never required)
+ *   - GET/PUT /api/voice/<key>.mp3 → synthesized narration (scripts/say.ts),
+ *     same deal: the browser borrows the disk, and a miss is silence
  *   - GET /api/face/<Name> → a holon's DreamTalk face png, for tooltips
  *   - WS  {type:"op"} → semantic ops applied via ts-morph (scripts/ops.ts),
  *     written atomically, echo-suppressed at the watcher, one queue
@@ -16,6 +18,7 @@
 import { watch } from "node:fs"
 import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
+import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
@@ -141,6 +144,56 @@ const bakeCacheResponse = async (req: Request, hash: string): Promise<Response> 
       return new Response("stored", { status: 204 })
     } catch (err) {
       log("bake-cache put failed:", err)
+      return new Response("store failed", { status: 500 })
+    }
+  }
+
+  return new Response("method not allowed", { status: 405 })
+}
+
+// --- Narration audio (src/voice.ts's http side) ----------------------------
+
+/**
+ * `/api/voice/<key>.mp3` — GET synthesized narration, PUT to store it.
+ *
+ * The bake-cache route's twin, for the same reason and with the same
+ * contract: the browser has no filesystem, the key IS the name, and the key
+ * shape is enforced so nothing can address a path outside the voice cache.
+ *
+ * The one difference that matters is what a MISS means. A missing bake costs
+ * time (the client recomputes it); a missing voice costs nothing at all — the
+ * scene plays silently. Narration is a layer over a DreamSong, never a
+ * dependency of one, so this route 404ing is a completely ordinary state and
+ * not a degraded one.
+ */
+const MAX_VOICE_BYTES = 8 * 1024 * 1024
+
+const voiceResponse = async (req: Request, name: string): Promise<Response> => {
+  const key = name.endsWith(`.${VOICE_EXT}`) ? name.slice(0, -(VOICE_EXT.length + 1)) : name
+  if (!isValidVoiceKey(key)) return new Response("bad key", { status: 400 })
+  const path = `${voiceCacheDir(repoRoot)}/${key}.${VOICE_EXT}`
+
+  if (req.method === "GET") {
+    const file = Bun.file(path)
+    if (!(await file.exists())) return new Response("miss", { status: 404 })
+    return new Response(file, {
+      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+    })
+  }
+
+  if (req.method === "PUT") {
+    const bytes = new Uint8Array(await req.arrayBuffer())
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_VOICE_BYTES) {
+      return new Response("bad size", { status: 413 })
+    }
+    try {
+      await mkdir(voiceCacheDir(repoRoot), { recursive: true })
+      const tmp = `${path}.${process.pid}.tmp`
+      await Bun.write(tmp, bytes)
+      await rename(tmp, path)
+      return new Response("stored", { status: 204 })
+    } catch (err) {
+      log("voice put failed:", err)
       return new Response("store failed", { status: 500 })
     }
   }
@@ -554,6 +607,9 @@ const server = Bun.serve({
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
     if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
     if (url.pathname === "/api/comments") return getCommentsResponse(url.searchParams.get("scene"))
+    if (url.pathname.startsWith("/api/voice/")) {
+      return voiceResponse(req, url.pathname.slice("/api/voice/".length))
+    }
     if (url.pathname.startsWith("/api/bake-cache/")) {
       return bakeCacheResponse(req, url.pathname.slice("/api/bake-cache/".length))
     }

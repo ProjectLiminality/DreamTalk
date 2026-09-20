@@ -8,6 +8,7 @@ import { Timeline, type Clip } from "./timeline"
 import { angle, bool, length, scalar } from "./params"
 import { PI } from "./constants"
 import type { Anim } from "./anim"
+import { Narration } from "./narration"
 
 export interface BackdropSpec {
   path: string
@@ -200,6 +201,7 @@ export abstract class Dream {
   #backdrop?: BackdropSpec
   #roots: Holon[] = []
   #built?: Timeline
+  #narration = new Narration()
 
   /** The temporal unfolding — override this. */
   abstract unfold(): void
@@ -224,6 +226,36 @@ export abstract class Dream {
   /** Let time pass. */
   wait(dt = 1): void {
     this.#cursor += dt
+  }
+
+  /**
+   * Speak a line at the cursor — narration as part of the score
+   * (src/narration.ts states the design and why it is not an audio track).
+   *
+   * By default the cursor does NOT advance: a sentence is spoken OVER the
+   * animation it describes, which is what narration is. Write it just
+   * before the beat it belongs to and the two are bound together forever —
+   * move the beat and its words move with it.
+   *
+   *     this.say("An agent is in an arena.")
+   *     this.play(Create(this.arena), 1.6)
+   *
+   * `hold: true` instead reserves the line's estimated speaking time on the
+   * timeline, for the moments where the picture should wait for the words.
+   *
+   * Timing is estimated from the TEXT, never measured from audio, so a
+   * dream's timeline is identical whether or not a voice has been
+   * synthesized — see the module header.
+   */
+  say(text: string, opts: { hold?: boolean } = {}): void {
+    const duration = this.#narration.add(text, this.#cursor)
+    if (opts.hold) this.#cursor += duration
+  }
+
+  /** The spoken score. Empty for every dream that never calls `say()`. */
+  get narration(): Narration {
+    this.build()
+    return this.#narration
   }
 
   /** Register the reference layer (TASTE: The Editor). One per dream. */

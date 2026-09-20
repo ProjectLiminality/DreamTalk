@@ -134,6 +134,7 @@ export class CreatorModeDream extends Dream {
     // ---- BEAT 1 · GAME MODE ------------------------------------------
     // The arena builds, then the avatar enters it. Container before
     // inhabitant — the same order the agent-arena board established.
+    this.say("Here is a calculator. An arena, with rules.", { hold: true })
     this.play(Create(this.app.frame), 1.2)
     this.play(
       together(
@@ -147,11 +148,13 @@ export class CreatorModeDream extends Dream {
       ),
       2.4,
     )
+    this.say("And here is you, in it. The cursor is your avatar.", { hold: true })
     this.play(together(Create(this.cursor), [Write(this.gameMode), 0.3, 1]), 1.4)
     this.wait(0.6)
 
     // The scripted click. The cursor travels to `+`, presses (a small dip
     // is all a press is), and the rule fires: 8 appears.
+    this.say("You click the plus, and the rule fires. Three and five make eight.", { hold: true })
     this.play(together(this.cursor.x.to(OP.x - 6), this.cursor.y.to(OP.y + 20)), 1.2)
     this.wait(0.3)
     this.play(this.cursor.scale.to(0.88), 0.14)
@@ -163,7 +166,9 @@ export class CreatorModeDream extends Dream {
     // The arrow does not step aside for the dot; it BECOMES it. The arrow
     // shrinks to nothing at the same instant the dot blooms from the same
     // point, so one presence persists through the change of mode.
+    this.say("Now press the key.", { hold: true })
     this.play(FadeOut(this.gameMode), 0.5)
+    this.say("Your agency leaves the arrow, and becomes a light.", { hold: true })
     this.play(
       together(
         this.cursor.scale.to(0),
@@ -179,6 +184,7 @@ export class CreatorModeDream extends Dream {
     // ---- BEAT 3 · ATTENTION GLOWS ------------------------------------
     // The dot visits three elements. Each lights while attended and dims
     // when left — the light belongs to the looking, not to the thing.
+    this.say("Whatever it attends to, glows. Attention is what makes a thing editable.", { hold: true })
     this.play(
       together(
         this.dot.x.to(-154),
@@ -202,6 +208,7 @@ export class CreatorModeDream extends Dream {
     // ---- BEAT 4 · SELECT, DON'T FIRE ---------------------------------
     // The same gesture as beat 1, over the same button — and nothing
     // computes. That silence is the beat.
+    this.say("Click the plus again. Nothing computes.", { hold: true })
     this.play(
       together(
         this.glowOut.opacity.to(0),
@@ -213,6 +220,7 @@ export class CreatorModeDream extends Dream {
     )
     // The click: the dot pulses, the halo brightens and HOLDS. A fired
     // button flashes and releases; a selected one stays lit.
+    this.say("The same gesture. A different world. The button is selected, not fired.", { hold: true })
     this.play(this.dot.glow.to(0.5), 0.22)
     this.play(together(this.dot.glow.to(1), this.glowOp.stroke.to(9)), 0.3)
     this.wait(1.2)
@@ -220,6 +228,7 @@ export class CreatorModeDream extends Dream {
     // ---- BEAT 5 · CHANGE THE RULE ------------------------------------
     // The old rule leaves, the new one arrives, and the result recomputes
     // itself — because what changed was the behaviour, not the picture.
+    this.say("So change the rule. Let plus become times.", { hold: true })
     this.play(
       together(
         FadeOut(this.app.opPlus),
@@ -228,12 +237,14 @@ export class CreatorModeDream extends Dream {
       1.4,
     )
     this.wait(0.5)
+    this.say("And the answer recomputes itself. Fifteen. The behaviour changed, not the picture.", { hold: true })
     this.play(together(FadeOut(this.app.out8), [FadeIn(this.app.out15), 0.45, 1]), 1.2)
     this.wait(1.6)
 
     // ---- BEAT 6 · RETURN ---------------------------------------------
     // The glow concentrates back into the avatar, exactly as the
     // transmission describes, and the arena is playable again — changed.
+    this.say("Then the light comes home, and you are playing again.", { hold: true })
     this.play(FadeOut(this.creatorMode), 0.5)
     this.play(
       together(
@@ -250,6 +261,7 @@ export class CreatorModeDream extends Dream {
       1.8,
     )
     this.play(Write(this.gameMode), 1)
+    this.say("Same calculator. Different rules. That is creator mode.", { hold: true })
     this.wait(2)
     this.play(together(FadeOut(this.app.all), FadeOut(this.cursor), FadeOut(this.gameMode)), 1.2)
   }

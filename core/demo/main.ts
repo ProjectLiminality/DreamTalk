@@ -7,6 +7,8 @@ import * as THREE from "three/webgpu"
 import { ThreeHost } from "../src/render/three-host"
 import { scenes, defaultScene } from "./scenes"
 import { httpBakeCache } from "../src/bakecache"
+import { httpVoiceCache } from "../src/voice"
+import { Narrator } from "../src/render/narrator"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -73,6 +75,11 @@ const main = async () => {
   const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons })
   const duration = dream.duration
 
+  // Narration, if the scene has any and the daemon has the audio. A scene
+  // with no say() calls, or with nothing synthesized yet, simply plays
+  // silently — see src/render/narrator.ts.
+  const narrator = new Narrator(dream.narration, httpVoiceCache())
+
   let playing = true
   let t0 = performance.now()
 
@@ -80,6 +87,7 @@ const main = async () => {
     if (playing) {
       const t = ((now - t0) / 1000) % duration
       await host.renderFrame(t)
+      narrator.update(t, true)
       readout.textContent = `t = ${t.toFixed(2)}s / ${duration.toFixed(2)}s`
     }
     requestAnimationFrame(frame)
@@ -100,6 +108,9 @@ const main = async () => {
       // the harness assumes when it screenshots.
       await host.renderFrame(t)
       await host.renderFrame(t)
+      // A held frame is silent: the gauntlet and every screenshot must sound
+      // like nothing, because they are nothing.
+      narrator.update(t, false)
       readout.textContent = `t = ${t.toFixed(2)}s (held)`
     },
     play: () => {
@@ -108,6 +119,7 @@ const main = async () => {
     },
     pause: () => {
       playing = false
+      narrator.update(Number.NaN, false)
     },
   }
 }
