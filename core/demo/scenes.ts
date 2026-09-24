@@ -68,8 +68,10 @@ import { AgentArenaDream } from "./agentarena/AgentArena"
 import { CreatorModeDream } from "./creatormode/CreatorMode"
 import { FourierDemoDream } from "./web3/FourierDemo"
 import { QuoteDemoDream } from "./web3/QuoteDemo"
+import { ClarityFieldDream } from "./web3/ClarityField"
 import { FlowerTextDemoDream } from "./web3/FlowerTextDemo"
 import { VitruvianManDream } from "./web3/VitruvianMan"
+import { GlobeDemoDream } from "./web3/GlobeDemo"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -146,10 +148,13 @@ export const scenes: Record<string, DreamClass> = {
   // Web3 campaign — the reusable Fourier tracer, proving itself.
   fourier: FourierDemoDream,
   quote: QuoteDemoDream,
+  clarity: ClarityFieldDream,
   flowertext: FlowerTextDemoDream,
   // The Fourier tracer carrying the figure it was built for: Da Vinci's man,
   // traced from the video's pixels, inside his circle and square.
   vitruvian: VitruvianManDream,
+  // The world the whole yin-yang argument turns on — filled and outline modes.
+  globe: GlobeDemoDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
