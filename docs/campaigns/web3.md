@@ -35,7 +35,7 @@ recur as deliberate callbacks rather than as decoration.
 
 17 shots. The set-pieces, in order:
 - **31–43s** "Web3" self-organising from scattered circles (C4D)
-- **66–76s** the Vitalik quote (Manim) — **and it is spoken**, 7.93s of audio
+- **66–76s** the Vitalik quote (Manim) — spoken, but see the voice note below
 - **92–106s** the Vitruvian Man traced by Fourier epicycles (Manim, 3B1B style)
 - **128–146s** the Web3-spreading-light hero
 
@@ -72,6 +72,28 @@ reusable thing is the tracer; the figure is what it happens to be tracing.
   warned explicitly against solving it with attractors ("fighting entropy").
   It is written down here because it is the kind of thing that would otherwise
   be re-attempted the hard way.
+
+## Who reads the Vitalik quote — a correction
+
+Recon reported that the quote "is spoken", citing `Video/Audio/VitalikQuote.mp3`
+(7.93s, matching the 7.5s write), and the Quote holon was wired to it.
+Measuring the FINAL MIX complicates that:
+
+RMS across 64–78s shows continuous speech from 64s to 71s, a pause, and a
+short return at 74–75s — one voice, running longer than 7.93s. The VO folder
+also holds `07_if_the_thing.m4a` (12.18s), which is **David reading the quote
+himself**. The evidence therefore points to David's reading being what is in
+the video, with `VitalikQuote.mp3` an asset that did not make the final cut.
+
+Under the canon policy (only what is visible/audible in the final render
+counts), the reproduction should use **David's reading**, not the Vitalik
+recording.
+
+What was built is unaffected and still correct: `Quote.voice` +
+`scripts/import-voice.ts` are the mechanism for "a real recording, by whoever
+said it", and the mechanism was proved end to end with the Vitalik file. Only
+the choice of WHICH recording the reproduction uses changes — and that is
+David's call, so it is recorded here rather than silently switched.
 
 ## The 3Blue1Brown question — flagged, not decided
 
