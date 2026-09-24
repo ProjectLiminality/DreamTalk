@@ -46263,11 +46263,26 @@ var spokenSeconds = (text) => {
   const commas = (text.match(/[,;:—–]/g) ?? []).length;
   return base + stops * 0.35 + commas * 0.15 + PADDING_SECONDS;
 };
+var utteranceKey = (text, voice) => {
+  const input = `${voice}\x00${text.trim()}`;
+  let h = 2166136261;
+  for (let i = 0;i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  let g = 2166136261;
+  for (let i = input.length - 1;i >= 0; i--) {
+    g ^= input.charCodeAt(i);
+    g = Math.imul(g, 16777619) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0") + g.toString(16).padStart(8, "0");
+};
+
 class Narration {
   lines = [];
-  add(text, start) {
+  add(text, start, voice) {
     const duration = spokenSeconds(text);
-    this.lines.push({ text: text.trim(), start, duration });
+    this.lines.push({ text: text.trim(), start, duration, voice });
     return duration;
   }
   get isEmpty() {
@@ -46379,7 +46394,7 @@ class Dream {
     this.#cursor += dt;
   }
   say(text, opts = {}) {
-    const duration = this.#narration.add(text, this.#cursor);
+    const duration = this.#narration.add(text, this.#cursor, opts.voice);
     if (opts.hold)
       this.#cursor += duration;
   }
@@ -98507,6 +98522,345 @@ class CreatorModeDream extends Dream {
   }
 }
 
+// src/geometry/fourier.ts
+var resampleClosed = (points, count) => {
+  if (points.length === 0 || count <= 0)
+    return [];
+  if (points.length === 1)
+    return Array.from({ length: count }, () => points[0]);
+  const n2 = points.length;
+  const cum = [0];
+  for (let i2 = 0;i2 < n2; i2++) {
+    const a2 = points[i2];
+    const b2 = points[(i2 + 1) % n2];
+    cum.push(cum[i2] + Math.hypot(b2.x - a2.x, b2.y - a2.y));
+  }
+  const total = cum[n2];
+  if (total === 0)
+    return Array.from({ length: count }, () => points[0]);
+  const out = [];
+  let seg = 0;
+  for (let k2 = 0;k2 < count; k2++) {
+    const target = k2 / count * total;
+    while (seg < n2 - 1 && cum[seg + 1] < target)
+      seg++;
+    const segLen = cum[seg + 1] - cum[seg];
+    const u2 = segLen > 0 ? (target - cum[seg]) / segLen : 0;
+    const a2 = points[seg];
+    const b2 = points[(seg + 1) % n2];
+    out.push({ x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 });
+  }
+  return out;
+};
+var coefficients = (path, terms, samples = 1024) => {
+  const wanted = Math.max(1, Math.floor(terms));
+  const maxFreq = Math.ceil((wanted - 1) / 2);
+  const n2 = Math.max(samples, maxFreq * 4, 64);
+  const f2 = resampleClosed(path, n2);
+  if (f2.length === 0)
+    return [];
+  const out = [];
+  const push = (freq) => {
+    let re = 0;
+    let im = 0;
+    for (let k2 = 0;k2 < n2; k2++) {
+      const t2 = k2 / n2;
+      const ang = -2 * Math.PI * freq * t2;
+      const cos3 = Math.cos(ang);
+      const sin3 = Math.sin(ang);
+      const p2 = f2[k2];
+      re += p2.x * cos3 - p2.y * sin3;
+      im += p2.x * sin3 + p2.y * cos3;
+    }
+    re /= n2;
+    im /= n2;
+    out.push({
+      freq,
+      radius: Math.hypot(re, im),
+      phase: Math.atan2(im, re),
+      c: { re, im }
+    });
+  };
+  push(0);
+  for (let k2 = 1;out.length < wanted; k2++) {
+    push(k2);
+    if (out.length < wanted)
+      push(-k2);
+  }
+  return out.slice(0, wanted);
+};
+var chainAt = (epicycles, t2) => {
+  const out = [{ x: 0, y: 0 }];
+  let x2 = 0;
+  let y2 = 0;
+  for (const e2 of epicycles) {
+    const ang = 2 * Math.PI * e2.freq * t2 + e2.phase;
+    x2 += e2.radius * Math.cos(ang);
+    y2 += e2.radius * Math.sin(ang);
+    out.push({ x: x2, y: y2 });
+  }
+  return out;
+};
+var traceAt = (epicycles, t2) => {
+  const chain2 = chainAt(epicycles, t2);
+  return chain2[chain2.length - 1];
+};
+var approximationError = (path, epicycles, steps = 512) => {
+  const truth = resampleClosed(path, steps);
+  if (truth.length === 0)
+    return 0;
+  let sum = 0;
+  for (let i2 = 0;i2 < steps; i2++) {
+    const a2 = truth[i2];
+    const b2 = traceAt(epicycles, i2 / steps);
+    sum += Math.hypot(a2.x - b2.x, a2.y - b2.y);
+  }
+  return sum / steps;
+};
+var termsForError = (path, tolerance, cap = 512) => {
+  let hi = 8;
+  while (hi < cap && approximationError(path, coefficients(path, hi)) > tolerance)
+    hi *= 2;
+  hi = Math.min(hi, cap);
+  let lo = 1;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (approximationError(path, coefficients(path, mid)) > tolerance)
+      lo = mid + 1;
+    else
+      hi = mid;
+  }
+  return lo;
+};
+
+// vocabulary/Fourier/Fourier.ts
+class FourierTrace extends Null {
+  static sovereign = true;
+  path = [];
+  terms = integer(80);
+  tolerance = length2(0);
+  turn = completion(0);
+  minRadius = length2(1.2);
+  machineTint = color2({ r: 0.45, g: 0.45, b: 0.5 });
+  inkTint = color2(WHITE);
+  showMachine = bool2(true);
+  inkSamples = integer(1400);
+  stroke = length2(3);
+  epicycles = [];
+  rings;
+  ink;
+  compose() {
+    const path = this.path;
+    if (path.length < 2) {
+      this.rings = this.add(new Group2({ members: [] }));
+      this.ink = this.add(new Line2({ points: [], tint: this.inkTint, stroke: this.stroke }));
+      return;
+    }
+    const wanted = this.tolerance.value > 0 ? termsForError(path, this.tolerance.value) : Math.max(1, Math.round(this.terms.value));
+    this.epicycles = coefficients(path, wanted);
+    const members = [];
+    const min6 = this.minRadius.value;
+    this.epicycles.forEach((e2, i2) => {
+      if (e2.radius < min6 || e2.freq === 0)
+        return;
+      const centreOf = (t2) => chainAt(this.epicycles, t2)[i2];
+      const tipOf = (t2) => chainAt(this.epicycles, t2)[i2 + 1];
+      const ring = new Circle({
+        radius: e2.radius,
+        tint: this.machineTint,
+        stroke: this.stroke.times(0.5),
+        opacity: this.showMachine.value ? 0.55 : 0,
+        x: this.turn.map((t2) => centreOf(t2).x),
+        y: this.turn.map((t2) => centreOf(t2).y)
+      });
+      const arm = new Line2({
+        tint: this.machineTint,
+        stroke: this.stroke.times(0.5),
+        opacity: this.showMachine.value ? 0.75 : 0
+      });
+      derivePolyline(arm, () => [this.turn.value], () => {
+        const t2 = this.turn.value;
+        const c2 = centreOf(t2);
+        const p2 = tipOf(t2);
+        return [
+          { x: c2.x, y: c2.y, z: 0 },
+          { x: p2.x, y: p2.y, z: 0 }
+        ];
+      });
+      members.push(ring, arm);
+    });
+    this.rings = this.add(new Group2({ members }));
+    this.ink = this.add(new Line2({ tint: this.inkTint, stroke: this.stroke }));
+    const samples = Math.max(16, Math.round(this.inkSamples.value));
+    derivePolyline(this.ink, () => [this.turn.value], () => {
+      const t2 = this.turn.value;
+      if (t2 <= 0)
+        return [];
+      const upto = Math.max(2, Math.ceil(t2 * samples));
+      const pts = [];
+      for (let i2 = 0;i2 < upto; i2++) {
+        const u2 = Math.min(t2, i2 / samples);
+        const chain2 = chainAt(this.epicycles, u2);
+        const pen = chain2[chain2.length - 1];
+        pts.push({ x: pen.x, y: pen.y, z: 0 });
+      }
+      return pts;
+    });
+  }
+  penAt(t2) {
+    const chain2 = chainAt(this.epicycles, t2);
+    return chain2[chain2.length - 1] ?? { x: 0, y: 0 };
+  }
+  get termCount() {
+    return this.epicycles.length;
+  }
+}
+var derivePolyline = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// demo/web3/FourierDemo.ts
+var square = (s2) => {
+  const pts = [];
+  const corners = [
+    { x: -s2, y: -s2 },
+    { x: s2, y: -s2 },
+    { x: s2, y: s2 },
+    { x: -s2, y: s2 }
+  ];
+  for (let i2 = 0;i2 < 4; i2++) {
+    const a2 = corners[i2];
+    const b2 = corners[(i2 + 1) % 4];
+    for (let k2 = 0;k2 < 40; k2++) {
+      const u2 = k2 / 40;
+      pts.push({ x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 });
+    }
+  }
+  return pts;
+};
+
+class FourierDemoDream extends Dream {
+  tracer = __dt(new FourierTrace({
+    path: square(160),
+    terms: 40,
+    stroke: 4,
+    inkTint: BLUE
+  }), "core/demo/web3/FourierDemo.ts:1242:1337");
+  root = __dt(new Null, "core/demo/web3/FourierDemo.ts:1356:1366");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.stage(this.tracer);
+    __dt(this.play(this.tracer.turn.to(1, { easing: "linear" }), 8), "core/demo/web3/FourierDemo.ts:1510:1568");
+    this.wait(1.5);
+  }
+}
+
+// vocabulary/Quote/Quote.ts
+var LAG = 0.9;
+
+class Quote extends Null {
+  static sovereign = true;
+  lines = [];
+  attribution = "";
+  voice = undefined;
+  spoken() {
+    return this.lines.join(" ");
+  }
+  writing = completion(0);
+  crediting = completion(0);
+  size = length2(46);
+  lineHeight = length2(1.45);
+  tint = color2(WHITE);
+  attributionTint = color2({ r: 0.62, g: 0.62, b: 0.66 });
+  blockWidth = length2(0);
+  lineTexts = [];
+  credit;
+  block;
+  compose() {
+    const size = this.size.value;
+    const step4 = size * this.lineHeight.value;
+    const n2 = this.lines.length;
+    const top = (n2 - 1) / 2 * step4;
+    const longest = this.lines.reduce((m2, l2) => Math.max(m2, l2.length), 0);
+    const width = this.blockWidth.value > 0 ? this.blockWidth.value : longest * size * 0.58;
+    const left = -width / 2;
+    this.lineTexts = this.lines.map((content, i2) => {
+      const span = 1 / (1 + (n2 - 1) * LAG);
+      const start = i2 * LAG * span;
+      return new Text({
+        content,
+        size: this.size,
+        tint: this.tint,
+        align: "left",
+        x: left,
+        y: top - i2 * step4,
+        creation: this.writing.map((w4) => Math.max(0, Math.min(1, (w4 - start) / span)))
+      });
+    });
+    const members = [...this.lineTexts];
+    if (this.attribution) {
+      this.credit = new Text({
+        content: this.attribution.startsWith("–") ? this.attribution : `– ${this.attribution}`,
+        size: this.size.times(0.85),
+        tint: this.attributionTint,
+        align: "left",
+        y: top - n2 * step4 - size * 0.35,
+        x: left + size * 1.2,
+        creation: this.crediting
+      });
+      members.push(this.credit);
+    }
+    this.block = this.add(new Group2({ members }));
+  }
+  writeSeconds(perLine) {
+    const n2 = this.lines.length;
+    return n2 === 0 ? 0 : perLine * (1 + (n2 - 1) * LAG);
+  }
+}
+
+// demo/web3/QuoteDemo.ts
+class QuoteDemoDream extends Dream {
+  quote = __dt(new Quote({
+    lines: [
+      '"If the thing technically runs on 50,000 computers',
+      "but only 42 people know how it works,",
+      `your decentralization-index is not 50,000 — it's 42."`
+    ],
+    attribution: "Vitalik Buterin",
+    voice: "VitalikButerin",
+    size: 30
+  }), "core/demo/web3/QuoteDemo.ts:751:1461");
+  root = __dt(new Null, "core/demo/web3/QuoteDemo.ts:1480:1490");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.stage(this.quote);
+    this.say(this.quote.spoken(), { voice: this.quote.voice });
+    __dt(this.play(this.quote.writing.to(1, { easing: "linear" }), 7.5), "core/demo/web3/QuoteDemo.ts:2030:2092");
+    this.wait(2);
+    __dt(this.play(this.quote.crediting.to(1), 1), "core/demo/web3/QuoteDemo.ts:2114:2154");
+    this.wait(2);
+  }
+}
+
 // ../holons/Circle/Circle.ts
 class Circle3 extends Circle {
 }
@@ -98629,7 +98983,9 @@ var scenes = {
   p02jFillOff: FillOffDream,
   pl02: ProjectLiminalityDream,
   agentarena: AgentArenaDream,
-  creatormode: CreatorModeDream
+  creatormode: CreatorModeDream,
+  fourier: FourierDemoDream,
+  quote: QuoteDemoDream
 };
 var defaultScene = "founding";
 
@@ -100305,6 +100661,147 @@ var mountComments = (host, ctx, signal) => {
   };
 };
 
+// src/voice.ts
+var DEFAULT_VOICE = "narrator";
+var voiceKey = (u2, fallback = DEFAULT_VOICE) => utteranceKey(u2.text, u2.voice ?? fallback);
+var VOICE_EXT = "mp3";
+var VALID_KEY = /^[0-9a-f]{16}$/;
+var isValidVoiceKey = (key) => VALID_KEY.test(key);
+var httpVoiceCache = (base = "/api/voice") => ({
+  async get(key) {
+    if (!isValidVoiceKey(key))
+      return;
+    try {
+      const res = await fetch(`${base}/${key}.${VOICE_EXT}`);
+      if (!res.ok)
+        return;
+      return await res.arrayBuffer();
+    } catch {
+      return;
+    }
+  },
+  async put(key, bytes) {
+    if (!isValidVoiceKey(key))
+      return;
+    try {
+      await fetch(`${base}/${key}.${VOICE_EXT}`, { method: "PUT", body: bytes });
+    } catch {}
+  }
+});
+
+// src/render/narrator.ts
+var CONTINUOUS_SECONDS = 0.5;
+var STILL_SECONDS = 0.0001;
+
+class Narrator {
+  cache;
+  voice;
+  ctx;
+  voiced;
+  playing;
+  lastT = Number.NaN;
+  constructor(narration, cache4, voice) {
+    this.cache = cache4;
+    this.voice = voice;
+    this.voiced = narration.lines.map((line) => ({ line }));
+  }
+  get isEmpty() {
+    return this.voiced.length === 0;
+  }
+  update(t2, transportPlaying) {
+    const prev = this.lastT;
+    this.lastT = t2;
+    const delta = t2 - prev;
+    if (!transportPlaying || !Number.isFinite(prev) || delta < 0 || Math.abs(delta) < STILL_SECONDS) {
+      this.stop();
+      if (!transportPlaying)
+        return;
+      if (delta < 0 || !Number.isFinite(prev)) {
+        this.startAt(t2);
+      }
+      return;
+    }
+    const index = this.voiced.findIndex((v2) => t2 >= v2.line.start && t2 < v2.line.start + v2.line.duration);
+    if (this.playing && this.playing.index === index && delta <= CONTINUOUS_SECONDS)
+      return;
+    this.stop();
+    if (index >= 0)
+      this.startAt(t2, index);
+  }
+  startAt(t2, known2) {
+    const index = known2 ?? this.voiced.findIndex((v4) => t2 >= v4.line.start && t2 < v4.line.start + v4.line.duration);
+    if (index < 0)
+      return;
+    const v2 = this.voiced[index];
+    const offset = t2 - v2.line.start;
+    if (v2.buffer === undefined) {
+      this.load(index);
+      return;
+    }
+    if (v2.buffer === null)
+      return;
+    const ctx = this.audio();
+    if (!ctx)
+      return;
+    const source = ctx.createBufferSource();
+    source.buffer = v2.buffer;
+    source.connect(ctx.destination);
+    try {
+      source.start(0, Math.max(0, offset));
+    } catch {
+      return;
+    }
+    this.playing = { source, index };
+  }
+  stop() {
+    if (!this.playing)
+      return;
+    try {
+      this.playing.source.stop();
+    } catch {}
+    this.playing = undefined;
+  }
+  async load(index) {
+    const v2 = this.voiced[index];
+    if (v2.loading)
+      return v2.loading;
+    v2.loading = (async () => {
+      const ctx = this.audio();
+      if (!ctx) {
+        v2.buffer = null;
+        return;
+      }
+      try {
+        const bytes = await this.cache.get(voiceKey(v2.line, this.voice));
+        v2.buffer = bytes ? await ctx.decodeAudioData(bytes) : null;
+      } catch {
+        v2.buffer = null;
+      }
+    })();
+    return v2.loading;
+  }
+  audio() {
+    if (this.ctx)
+      return this.ctx;
+    try {
+      const Ctor = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+      if (!Ctor)
+        return;
+      this.ctx = new Ctor;
+      return this.ctx;
+    } catch {
+      return;
+    }
+  }
+  dispose() {
+    this.stop();
+    try {
+      this.ctx?.close();
+    } catch {}
+    this.ctx = undefined;
+  }
+}
+
 // editor/codeview.ts
 var KEYWORDS = new Set([
   "import",
@@ -101373,6 +101870,7 @@ var boot = async (resume) => {
     frame.className = bdMode.value === "off" ? "" : `mode-${bdMode.value}`;
   };
   bdMode.addEventListener("change", applyBackdropMode, listen);
+  const narrator = new Narrator(dream.narration, httpVoiceCache());
   const syncBackdrop = (t2, playing2) => {
     if (!backdropIsVideo)
       return;
@@ -101637,6 +102135,7 @@ var boot = async (resume) => {
     castBar?.dispose();
     checkpoint?.dispose();
     ptransport?.dispose();
+    narrator.dispose();
     host.dispose();
   };
   const switchScene = (key) => {
@@ -102161,6 +102660,7 @@ var boot = async (resume) => {
     current2 = t2;
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
+    narrator.update(t2, playing);
     timeline?.setPlayhead(t2);
     ptransport?.sync(t2, playing);
     checkpoint?.sync();
@@ -102179,6 +102679,7 @@ var boot = async (resume) => {
     playing = false;
     playpause.textContent = "▶";
     syncBackdrop(current2, false);
+    narrator.update(current2, false);
     checkpoint?.sync();
   };
   playpause.addEventListener("click", () => playing ? pause() : play(), listen);

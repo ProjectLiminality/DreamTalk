@@ -61,6 +61,8 @@ import {
 } from "./gizmo"
 import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
 import { mountComments, type CommentPanel } from "./comments"
+import { httpVoiceCache } from "../src/voice"
+import { Narrator } from "../src/render/narrator"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
@@ -405,6 +407,12 @@ const boot = async (resume?: Transport) => {
     frame.className = bdMode.value === "off" ? "" : `mode-${bdMode.value}`
   }
   bdMode.addEventListener("change", applyBackdropMode, listen)
+
+  // Narration follows the playhead exactly as the backdrop video does — the
+  // same problem (an external clock that must obey the timeline) and so the
+  // same shape. A scene with no say() lines, or with nothing synthesized,
+  // simply plays silently: see src/render/narrator.ts.
+  const narrator = new Narrator(dream.narration, httpVoiceCache())
 
   const syncBackdrop = (t: number, playing: boolean) => {
     if (!backdropIsVideo) return
@@ -810,6 +818,10 @@ const boot = async (resume?: Transport) => {
     castBar?.dispose()
     checkpoint?.dispose()
     ptransport?.dispose()
+    // Release the AudioContext with everything else: a scene switch that
+    // left the old narrator holding it would stack a context per switch,
+    // and browsers cap how many a page may open.
+    narrator.dispose()
     host.dispose()
   }
 
@@ -1554,6 +1566,7 @@ const boot = async (resume?: Transport) => {
     current = t
     await host.renderFrame(t)
     syncBackdrop(t, playing)
+    narrator.update(t, playing)
     timeline?.setPlayhead(t)
     ptransport?.sync(t, playing)
     checkpoint?.sync()
@@ -1579,6 +1592,9 @@ const boot = async (resume?: Transport) => {
     playing = false
     playpause.textContent = "▶"
     syncBackdrop(current, false)
+    // Pausing to comment must be silent — that is the whole point of the
+    // pause (docs/EDITOR-VOICE-COMMENTS.md).
+    narrator.update(current, false)
     checkpoint?.sync()
   }
 
