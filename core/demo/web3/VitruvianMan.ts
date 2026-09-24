@@ -46,6 +46,23 @@ import { RED, BLUE } from "../../src/constants"
 import { FourierTrace } from "../../vocabulary/Fourier/Fourier"
 import { VITRUVIAN_PATH } from "./vitruvian-path"
 
+/**
+ * The traced path starts at the FEET (index 0), so the pen — and with it the
+ * whole epicycle chain — finishes there, collapsing into a knot at the base.
+ * The original finishes at the HEAD, which is both where the eye expects a
+ * drawing of a person to end and where the original's own machinery tucked
+ * away.
+ *
+ * A Fourier series is periodic, so WHERE a closed path starts is free: rolling
+ * the start point changes only the phase of every coefficient, never the curve.
+ * Index 355 is the crown (the topmost point of the trace).
+ */
+const START_AT_HEAD = 355
+const rollToHead = <T,>(pts: readonly T[], at: number): T[] => [
+  ...pts.slice(at),
+  ...pts.slice(0, at),
+]
+
 /** Da Vinci's circle + square, measured from the frame (see header). */
 const CIRCLE_R = 314
 const CIRCLE_Y = 53 // the navel circle sits above the figure centre
@@ -76,7 +93,7 @@ export class VitruvianManDream extends Dream {
 
   // The epicycle tracer carrying the figure.
   private tracer = new FourierTrace({
-    path: VITRUVIAN_PATH,
+    path: rollToHead(VITRUVIAN_PATH, START_AT_HEAD),
     terms: TERMS,
     stroke: 3,
   })
