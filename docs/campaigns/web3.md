@@ -48,7 +48,7 @@ its *parameterisation* the interesting thing?
 |---|---|---|
 | **FourierTrace** | built | David named it. Input is a path + "how many terms"/"how close" — a general draw-verb for any line symbol, not a Vitruvian-specific effect. |
 | **Quote** | built | David named it, on recurrence grounds. Words + attribution + *the recording of them being said* is one unit. |
-| **FlowerText** | building | Recurs 4× in this video alone. The mechanism generalises to any text. |
+| **FlowerText** | built | Recurs 4× in this video alone. The mechanism generalises to any text. |
 | Globe (outline/solid/light-spread) | proposed | Recurs, but the three modes may be three different things wearing one name. Decide on second use. |
 | PlatonicSolid (5-in-1) | proposed | Appears once here. Wait for a second use. |
 | NodeGraph (centralised↔decentralised) | proposed | Strong idea; the parameterisation is the argument itself. |
@@ -116,6 +116,23 @@ look like I'm stealing anything". Two concrete things surfaced here:
 **Position taken:** build the mathematics and the holon (done); do NOT import
 the soundtrack into the reproduction without David saying so. Raised rather
 than decided.
+
+## State (2026-09-24)
+
+**Four set-pieces exist and render**, each verified by eye against the
+reference frames: `fourier` (the tracer proving itself on a square),
+`quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
+`vitruvian` (the figure drawn by epicycles inside circle and square).
+
+Three reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`. All
+three share the same shape — ONE param drives the whole effect, so each is a
+pure function of one number and scrubs backwards exactly.
+
+**A divergence to know about:** the Vitruvian reproduction is the FOUR-limbed
+silhouette, not Da Vinci's eight-limbed figure. The original's self-crossing
+single stroke is not unambiguously recoverable from pixels, so the outer
+envelope was taken instead (and the damaged right side mirrored from the
+left). Visible in any side-by-side; a property of the medium, not an oversight.
 
 ## Not yet done
 
