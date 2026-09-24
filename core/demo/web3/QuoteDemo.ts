@@ -23,6 +23,12 @@ export class QuoteDemoDream extends Dream {
       "your decentralization-index is not 50,000 — it's 42.\"",
     ],
     attribution: "Vitalik Buterin",
+    // The real recording, imported into the voice cache by
+    // scripts/import-voice.ts from the original project's
+    // Video/Audio/VitalikQuote.mp3 (7.93s). A quotation is exactly the case
+    // where a synthesized voice would be wrong: the point is that this
+    // specific person said this.
+    voice: "VitalikButerin",
     // Sized to fit 1280x720 with margins: the longest line is 52 chars,
     // so anything above ~34 runs off the frame.
     size: 30,
@@ -35,6 +41,11 @@ export class QuoteDemoDream extends Dream {
     this.set(this.observer.zoom.to(1))
     this.stage(this.root)
     this.stage(this.quote)
+    // The words are SPOKEN while they are written — the whole reason the
+    // Quote holon exists. The line goes on the same timeline as everything
+    // else (src/narration.ts), carrying its own voice so the cache serves
+    // Vitalik rather than the narrator.
+    this.say(this.quote.spoken(), { voice: this.quote.voice })
     // The original: 7.5s for the block, wait 2, 1s for the credit.
     this.play(this.quote.writing.to(1, { easing: "linear" }), 7.5)
     this.wait(2)

@@ -243,12 +243,16 @@ export abstract class Dream {
    * `hold: true` instead reserves the line's estimated speaking time on the
    * timeline, for the moments where the picture should wait for the words.
    *
+   * `voice` names a speaker other than the default narrator — a quotation
+   * read by whoever said it. The voice is part of the cache key, so the real
+   * recording is found instead of a synthesized one.
+   *
    * Timing is estimated from the TEXT, never measured from audio, so a
    * dream's timeline is identical whether or not a voice has been
    * synthesized — see the module header.
    */
-  say(text: string, opts: { hold?: boolean } = {}): void {
-    const duration = this.#narration.add(text, this.#cursor)
+  say(text: string, opts: { hold?: boolean; voice?: string } = {}): void {
+    const duration = this.#narration.add(text, this.#cursor, opts.voice)
     if (opts.hold) this.#cursor += duration
   }
 

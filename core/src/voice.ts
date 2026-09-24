@@ -47,9 +47,15 @@ export interface VoiceCache {
  */
 export const DEFAULT_VOICE = "narrator"
 
-/** The cache key for an utterance — the one place this is derived. */
-export const voiceKey = (u: Utterance, voice = DEFAULT_VOICE): string =>
-  utteranceKey(u.text, voice)
+/**
+ * The cache key for an utterance — the one place this is derived.
+ *
+ * A line's OWN voice wins over the caller's default, so a quotation read by
+ * the person who said it keeps its recording no matter what narrator the
+ * scene is otherwise using.
+ */
+export const voiceKey = (u: Utterance, fallback = DEFAULT_VOICE): string =>
+  utteranceKey(u.text, u.voice ?? fallback)
 
 /** Audio files are mp3: small, universally decodable, good enough for speech. */
 export const VOICE_EXT = "mp3"

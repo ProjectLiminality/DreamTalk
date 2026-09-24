@@ -72,10 +72,31 @@ export class Quote extends Null {
   attribution = ""
 
   /**
-   * A recording of the line being spoken, if one exists — a path the voice
-   * cache can serve. Opt-in: see the module header on why.
+   * WHOSE voice speaks this quote, if a recording of it exists.
+   *
+   * Names a voice in the cache, not a file path — the cache is
+   * content-addressed on (text, voice), so the scene asks for "this text in
+   * Vitalik's voice" and gets the real recording, exactly as it would have
+   * got a synthesized narrator. `scripts/import-voice.ts` puts a real
+   * recording under that key.
+   *
+   * Opt-in, and undefined by default: a quote in a DreamSong is usually read
+   * BY the narrator, and two voices at once is worse than one.
    */
-  audio: string | undefined = undefined
+  voice: string | undefined = undefined
+
+  /**
+   * The quote as ONE line of narration — what a scene passes to `say()` so
+   * the spoken audio sits on the same timeline as the writing.
+   *
+   *     this.say(quote.spoken(), { voice: quote.voice })
+   *
+   * The lines are joined with spaces rather than newlines because the breaks
+   * are visual rhetoric, not pauses in the speech.
+   */
+  spoken(): string {
+    return this.lines.join(" ")
+  }
 
   /** The cascade: 0 → 1 writes the whole block, lines overlapping. */
   writing = completion(0)
