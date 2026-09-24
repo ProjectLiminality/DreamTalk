@@ -66,6 +66,7 @@ import { FillOnDream, FillOffDream } from "./pl02/FillProbe"
 import { ProjectLiminalityDream } from "./pl02/ProjectLiminality"
 import { AgentArenaDream } from "./agentarena/AgentArena"
 import { CreatorModeDream } from "./creatormode/CreatorMode"
+import { FourierDemoDream } from "./web3/FourierDemo"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -139,6 +140,8 @@ export const scenes: Record<string, DreamClass> = {
   agentarena: AgentArenaDream,
   // The game-mode/creator-mode flip — the load-bearing DreamOS interaction.
   creatormode: CreatorModeDream,
+  // Web3 campaign — the reusable Fourier tracer, proving itself.
+  fourier: FourierDemoDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
