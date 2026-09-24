@@ -1,0 +1,80 @@
+# Liminal Consulting · Decentralizing Web3 Insights — the campaign
+
+Reverse-engineering David's 171s video into DreamTalk. Kicked off 2026-09-24.
+
+**Source (read-only):** `~/RealDealVault/LiminalConsultingWeb3/`
+— `Video/LiminalConsultingWeb3Final.mov` is THE CANON (171.0s, 2560×1440, 30fps).
+Training wheels beside it: 5 `.c4d` scenes, `Video/LiminalConsultingWeb3Video.key`,
+`~/RealDealVault/VitalikQuote/` (the Manim quote + its spoken mp3),
+`~/RealDealVault/VitruvianMan/` (rendered media only — no vector source).
+
+**Canon policy holds:** replicate only what is VISIBLE in the final render.
+Anything that exists solely in a source file was an experiment.
+
+## Where things live
+
+```
+core/src/geometry/fourier.ts      the epicycle maths (pure, closed-form tested)
+core/src/geometry/flower.ts       flower-of-life packing + deterministic noise
+core/vocabulary/Fourier/          FourierTrace — the drawing
+core/vocabulary/Quote/            Quote — words + attribution + spoken audio
+core/vocabulary/FlowerText/       FlowerText — text that self-organises
+core/demo/web3/                   the scenes of THIS video
+docs/reports/web3-recon.md        the 17-shot breakdown + set-piece measurements
+refs/web3/frames*/                extracted frames (gitignored)
+```
+
+Scene keys are registered in `core/demo/scenes.ts`: `fourier`, `quote`,
+`flowertext`, `vitruvian`.
+
+## The structure of the piece (recon §shot table)
+
+A **yin-yang argument**. Web2-centralised against Web3-decentralised, bridged
+by the Vitalik quote, resolved by the Vitruvian Man and the PL logo. Motifs
+recur as deliberate callbacks rather than as decoration.
+
+17 shots. The set-pieces, in order:
+- **31–43s** "Web3" self-organising from scattered circles (C4D)
+- **66–76s** the Vitalik quote (Manim) — **and it is spoken**, 7.93s of audio
+- **92–106s** the Vitruvian Man traced by Fourier epicycles (Manim, 3B1B style)
+- **128–146s** the Web3-spreading-light hero
+
+## Reusable components — what earned it, and why
+
+David named two; recon proposed more. The test applied: does it recur, and is
+its *parameterisation* the interesting thing?
+
+| holon | status | why |
+|---|---|---|
+| **FourierTrace** | built | David named it. Input is a path + "how many terms"/"how close" — a general draw-verb for any line symbol, not a Vitruvian-specific effect. |
+| **Quote** | built | David named it, on recurrence grounds. Words + attribution + *the recording of them being said* is one unit. |
+| **FlowerText** | building | Recurs 4× in this video alone. The mechanism generalises to any text. |
+| Globe (outline/solid/light-spread) | proposed | Recurs, but the three modes may be three different things wearing one name. Decide on second use. |
+| PlatonicSolid (5-in-1) | proposed | Appears once here. Wait for a second use. |
+| NodeGraph (centralised↔decentralised) | proposed | Strong idea; the parameterisation is the argument itself. |
+| David's portrait card, PL logo, Web2 triangle | one-offs | Specific to this piece. |
+
+**The Vitruvian Man is NOT a holon** — it is `FourierTrace` + a red circle +
+a blue square, composed in a scene. That is David's own verticality read: the
+reusable thing is the tracer; the figure is what it happens to be tracing.
+
+## Honest limits, recorded so nobody re-discovers them
+
+- **All five `.c4d` files are compressed.** `strings` yields only Maxon
+  type-ids — no object, cloner or effector names. Every C4D attribution in the
+  shot table is a filename-plus-visual guess, marked as such in the recon.
+  Confirming the effector stacks needs C4D open.
+- **The Vitruvian silhouette is a TRACE of pixels**, not recovered vector
+  geometry (no SVG exists anywhere in the projects). Its path file says so in
+  its header. Treat it as evidence, not as authority.
+- **The self-organising mechanism is David's account, frame-confirmed** —
+  packing masked to text, displaced by noise, noise animated to zero. He
+  warned explicitly against solving it with attractors ("fighting entropy").
+  It is written down here because it is the kind of thing that would otherwise
+  be re-attempted the hard way.
+
+## Not yet done
+
+The 17 shots are not assembled; only set-pieces exist. Narration is available
+(a full 14-segment VO exists in `Video/Audio/`) and the `say()` scoring
+primitive now exists to carry it — but the shots must exist first.
