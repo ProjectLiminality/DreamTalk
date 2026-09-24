@@ -49,7 +49,7 @@
  * THE RECURSION IS THE POINT (beat 7). The board's centre-bottom figure
  * is an arena containing a human containing a screen containing an
  * arena containing an agent. This scene builds it by REUSING the very
- * Arena and AgentFigure holons beat 1 introduced, scaled down and put
+ * Arena and Figure holons beat 1 introduced, scaled down and put
  * on the laptop's screen — so the recursion is literal in the code, not
  * merely depicted. That is the holonic reading the transmission notes
  * call for: a glyph that repeats is ONE holon, created once and reused.
@@ -61,7 +61,7 @@ import { Text, Write } from "../../src/parts/text"
 import { Create, FadeIn, FadeOut, UnCreate } from "../../src/verbs"
 import { together } from "../../src/anim"
 import { BLUE, RED, WHITE } from "../../src/constants"
-import { AgentFigure } from "./AgentFigure"
+import { Figure } from "../../vocabulary/Figure/Figure"
 import { Arena } from "./Arena"
 import { Ensoulment } from "./Ensoulment"
 import { Pairing } from "./Pairing"
@@ -77,7 +77,7 @@ export class AgentArenaDream extends Dream {
   // holons are the scene's vocabulary: beat 7 puts the SAME pair on a
   // laptop screen, which is what makes the recursion real.
   arena = new Arena({ radius: 210 })
-  agent = new AgentFigure({ height: 210 })
+  agent = new Figure({ height: 210 })
   arenaLabel = new Text({ content: "arena", size: LABEL, tint: BLUE, y: 255 })
   agentLabel = new Text({ content: "agent", size: LABEL, tint: RED, y: -110 })
   primitive = new Group({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] })
@@ -137,7 +137,7 @@ export class AgentArenaDream extends Dream {
   // The physical arena, holding the human, holding the laptop, holding —
   // on its screen — the arena-and-agent from beat 1, one tenth the size.
   physicalArena = new Arena({ radius: 330, x: -260 })
-  human = new AgentFigure({ height: 150, x: -510, y: -40 })
+  human = new Figure({ height: 150, x: -510, y: -40 })
   humanSoul = new Ensoulment({ rays: 12, radius: 78, x: -510, y: -30 })
   // The laptop: a screen plate tilted open above a keyboard plate.
   screen = new Rectangle({ width: 300, height: 195, x: -200, y: 45, tint: WHITE })
@@ -150,7 +150,7 @@ export class AgentArenaDream extends Dream {
   })
   // The arena INSIDE the screen — the same holon as beat 1, made small.
   innerArena = new Arena({ radius: 62, x: -200, y: 50 })
-  innerAgent = new AgentFigure({ height: 40, x: -200, y: 38 })
+  innerAgent = new Figure({ height: 40, x: -200, y: 38 })
   // The sight lines from the human's eye to what is on the screen.
   sight1 = new Line({
     points: [

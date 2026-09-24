@@ -70,6 +70,7 @@ import { FourierDemoDream } from "./web3/FourierDemo"
 import { QuoteDemoDream } from "./web3/QuoteDemo"
 import { ClarityFieldDream } from "./web3/ClarityField"
 import { ClosingDream } from "./web3/Closing"
+import { InfinitePatienceDream } from "./patience/InfinitePatience"
 import { FlowerTextDemoDream } from "./web3/FlowerTextDemo"
 import { VitruvianManDream } from "./web3/VitruvianMan"
 import { GlobeDemoDream } from "./web3/GlobeDemo"
@@ -152,6 +153,8 @@ export const scenes: Record<string, DreamClass> = {
   quote: QuoteDemoDream,
   clarity: ClarityFieldDream,
   closing: ClosingDream,
+  // A Course in Miracles, as geometry.
+  patience: InfinitePatienceDream,
   flowertext: FlowerTextDemoDream,
   // The Fourier tracer carrying the figure it was built for: Da Vinci's man,
   // traced from the video's pixels, inside his circle and square.
