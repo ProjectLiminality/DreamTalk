@@ -49,7 +49,7 @@ its *parameterisation* the interesting thing?
 | **FourierTrace** | built | David named it. Input is a path + "how many terms"/"how close" — a general draw-verb for any line symbol, not a Vitruvian-specific effect. |
 | **Quote** | built | David named it, on recurrence grounds. Words + attribution + *the recording of them being said* is one unit. |
 | **FlowerText** | built | Recurs 4× in this video alone. The mechanism generalises to any text. |
-| Globe (outline/solid/light-spread) | proposed | Recurs, but the three modes may be three different things wearing one name. Decide on second use. |
+| **Globe** | built | Recurs 4×. The modes question was ANSWERED: they share one spine (a projected, spun sphere), and differ only by `continents: fill\|outline` and colour. The halo, rays and hotspot were deliberately left demo-side — folding them in is what would have made it three things wearing one name. |
 | PlatonicSolid (5-in-1) | proposed | Appears once here. Wait for a second use. |
 | NodeGraph (centralised↔decentralised) | proposed | Strong idea; the parameterisation is the argument itself. |
 | David's portrait card, PL logo, Web2 triangle | one-offs | Specific to this piece. |
@@ -57,6 +57,17 @@ its *parameterisation* the interesting thing?
 **The Vitruvian Man is NOT a holon** — it is `FourierTrace` + a red circle +
 a blue square, composed in a scene. That is David's own verticality read: the
 reusable thing is the tracer; the figure is what it happens to be tracing.
+
+## Host properties learned the hard way
+
+- **Opacity is PER-PRIMITIVE and is not inherited by a Group's children.**
+  Setting opacity on a Group is inert; position DOES cascade. Found when a
+  globe demo's fade-sequencing silently did nothing and all three modes
+  stacked on top of each other.
+- **Measured colours are not always drawable colours.** A field colour sampled
+  from a frame is the AVERAGE of thin bright ink over black; drawn literally
+  as ink it reads near-black. See `ClarityField`'s red, lifted from #7a2a24 to
+  #c4463a with the reasoning stated in the file.
 
 ## Honest limits, recorded so nobody re-discovers them
 
@@ -119,13 +130,15 @@ than decided.
 
 ## State (2026-09-24)
 
-**Four set-pieces exist and render**, each verified by eye against the
+**Six set-pieces exist and render**, each verified by eye against the
 reference frames: `fourier` (the tracer proving itself on a square),
 `quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
-`vitruvian` (the figure drawn by epicycles inside circle and square).
+`vitruvian` (the figure drawn by epicycles inside circle and square),
+`clarity` (shots 7–8, the complexity field and the clarity in it), `globe`
+(shots 1/3/13/15, all three modes).
 
-Three reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`. All
-three share the same shape — ONE param drives the whole effect, so each is a
+Four reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`, `Globe`.
+All four share the same shape — ONE param drives the whole effect, so each is a
 pure function of one number and scrubs backwards exactly.
 
 **What the Vitruvian trace actually is** (correcting an earlier claim of mine
