@@ -73,6 +73,28 @@ reusable thing is the tracer; the figure is what it happens to be tracing.
   It is written down here because it is the kind of thing that would otherwise
   be re-attempted the hard way.
 
+## The 3Blue1Brown question — flagged, not decided
+
+David raised this himself in the pixel-universality transmission: 3B1B is a
+superb reference, he open-sources his material, and the care needed is "to not
+look like I'm stealing anything". Two concrete things surfaced here:
+
+1. **The epicycle Fourier figure is Grant Sanderson's signature visual.** What
+   we have built is an independent implementation from the mathematics (the
+   coefficients are a textbook integral), not a port of his code — and the
+   `FourierTrace` holon is general, not a copy of his scene. That is a
+   defensible position, and an attribution in the DreamSong's own credits
+   would make it a generous one.
+2. **The original video's score is literally his.** `Video/Audio/` holds
+   Vincent Rubinetti's *The Music of 3Blue1Brown* (Resonance, Hypothesis).
+   Rubinetti releases that music for use with attribution, so this is likely
+   fine — but it is DAVID's call, not ours, and a reproduction that silently
+   carries someone else's soundtrack should not happen by default.
+
+**Position taken:** build the mathematics and the holon (done); do NOT import
+the soundtrack into the reproduction without David saying so. Raised rather
+than decided.
+
 ## Not yet done
 
 The 17 shots are not assembled; only set-pieces exist. Narration is available
