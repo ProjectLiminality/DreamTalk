@@ -128,11 +128,19 @@ Three reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`. All
 three share the same shape — ONE param drives the whole effect, so each is a
 pure function of one number and scrubs backwards exactly.
 
-**A divergence to know about:** the Vitruvian reproduction is the FOUR-limbed
-silhouette, not Da Vinci's eight-limbed figure. The original's self-crossing
-single stroke is not unambiguously recoverable from pixels, so the outer
-envelope was taken instead (and the damaged right side mirrored from the
-left). Visible in any side-by-side; a property of the medium, not an oversight.
+**What the Vitruvian trace actually is** (correcting an earlier claim of mine
+in commit eaa250e): the figure DOES carry both arm positions and both leg
+positions — the eight-limbed Da Vinci pose — visible in the completed render.
+I had called it four-limbed after reading a mid-trace frame, which was simply
+wrong, and the path's own extremes confirm the full pose.
+
+The real divergence is subtler: the original's SELF-CROSSING single stroke is
+not unambiguously recoverable from pixels, so what was traced is the outer
+ENVELOPE of the silhouette — one simple closed loop, which is what a Fourier
+series wants. Inner crossings where limbs overlap are therefore absent. The
+right side was also mirrored from the crisp left (the frame's right limbs are
+broken) and the head synthesised, since the pen finishes there under its own
+machinery. All documented in the path file's header.
 
 ## Not yet done
 
