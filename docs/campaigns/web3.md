@@ -151,7 +151,7 @@ than decided.
 
 ## State (2026-09-24)
 
-**Ten set-pieces exist and render**, each verified by eye against the
+**Eleven set-pieces exist and render**, each verified by eye against the
 reference frames: `fourier` (the tracer proving itself on a square),
 `quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
 `vitruvian` (the figure drawn by epicycles inside circle and square),
@@ -159,7 +159,7 @@ reference frames: `fourier` (the tracer proving itself on a square),
 (shots 1/3/13/15, all three modes), `web2` (shots 4–5, the lattice
 disintegrating), `nodenet` (shots 10–11, the graph and the four crystals),
 `closing` (shot 17, the logo), `lightspread` (shot 13, insight travelling
-the world).
+the world), `portrait` (shot 16, the frame around a photograph we did not take).
 
 Four reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`, `Globe`.
 All four share the same shape — ONE param drives the whole effect, so each is a
@@ -178,6 +178,15 @@ series wants. Inner crossings where limbs overlap are therefore absent. The
 right side was also mirrored from the crisp left (the frame's right limbs are
 broken) and the head synthesised, since the pen finishes there under its own
 machinery. All documented in the path file's header.
+
+## What shot 16 is waiting for
+
+The portrait card is built as a FRAME with an explicit placeholder: the ring,
+proportion and timing are reproduced and measured, but `media/David.png` is
+not in this repo. Committing a photograph of a person into a framework
+repository is David's call. The placeholder announces itself in an assembly
+rather than leaving a silent gap — when the cut is reviewed, this shot says
+what it is waiting for.
 
 ## Not yet done
 
