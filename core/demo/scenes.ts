@@ -70,6 +70,7 @@ import { FourierDemoDream } from "./web3/FourierDemo"
 import { QuoteDemoDream } from "./web3/QuoteDemo"
 import { ClarityFieldDream } from "./web3/ClarityField"
 import { ClosingDream } from "./web3/Closing"
+import { PortraitCardDream } from "./web3/PortraitCard"
 import { InfinitePatienceDream } from "./patience/InfinitePatience"
 import { FlowerTextDemoDream } from "./web3/FlowerTextDemo"
 import { VitruvianManDream } from "./web3/VitruvianMan"
@@ -77,6 +78,7 @@ import { GlobeDemoDream } from "./web3/GlobeDemo"
 import { Web2DisintegratingDream } from "./web3/Web2Disintegrating"
 import { NodeNetworkDream } from "./web3/NodeNetwork"
 import { LightSpreadDream } from "./web3/LightSpread"
+import { YinYangDream } from "./web3/YinYang"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -154,6 +156,7 @@ export const scenes: Record<string, DreamClass> = {
   fourier: FourierDemoDream,
   quote: QuoteDemoDream,
   clarity: ClarityFieldDream,
+  portrait: PortraitCardDream,
   closing: ClosingDream,
   // A Course in Miracles, as geometry.
   patience: InfinitePatienceDream,
@@ -170,6 +173,10 @@ export const scenes: Record<string, DreamClass> = {
   // Shot 13: an insight lights one region, the land floods solid, and a
   // raised-arc network sprouts and wraps the globe — insight travels the world.
   lightspread: LightSpreadDream,
+  // Shots 2–3: the video's THESIS — two globes born inside one circle, an
+  // S-curve divides them into a yin-yang, and the two nodes (blue/centralised,
+  // red/decentralised) counter-rotate and swap sizes. Web2 vs Web3, as one image.
+  yinyang: YinYangDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
