@@ -76,6 +76,7 @@ import { VitruvianManDream } from "./web3/VitruvianMan"
 import { GlobeDemoDream } from "./web3/GlobeDemo"
 import { Web2DisintegratingDream } from "./web3/Web2Disintegrating"
 import { NodeNetworkDream } from "./web3/NodeNetwork"
+import { LightSpreadDream } from "./web3/LightSpread"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -166,6 +167,9 @@ export const scenes: Record<string, DreamClass> = {
   // bottom-up into falling circles — the mirror of flowertext's gathering.
   web2: Web2DisintegratingDream,
   nodenet: NodeNetworkDream,
+  // Shot 13: an insight lights one region, the land floods solid, and a
+  // raised-arc network sprouts and wraps the globe — insight travels the world.
+  lightspread: LightSpreadDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 

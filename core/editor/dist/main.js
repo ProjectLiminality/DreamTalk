@@ -100872,6 +100872,186 @@ class NodeNetworkDream extends Dream {
   }
 }
 
+// demo/web3/LightSpread.ts
+var GLOBE_R = 200;
+var TILT = 0.12;
+var SPIN_START = -1.15;
+var SPIN_END = 0.15;
+var HOTSPOT_LON = 36;
+var HOTSPOT_LAT = 33;
+var ARC_COUNT = 40;
+var SEED2 = 18444579;
+var ARC_SEGMENTS2 = 40;
+var ARC_LIFT = 1.015;
+var RIPPLE_RINGS = 4;
+var RIPPLE_REACH = 0.62;
+var clamp015 = (v2) => Math.max(0, Math.min(1, v2));
+var unitVec = (lonDeg, latDeg) => {
+  const lon = lonDeg * Math.PI / 180;
+  const lat = latDeg * Math.PI / 180;
+  const cosLat = Math.cos(lat);
+  return [cosLat * Math.sin(lon), Math.sin(lat), cosLat * Math.cos(lon)];
+};
+var toLatLon = (v2) => {
+  const [x2, y2, z2] = v2;
+  const lat = Math.asin(Math.max(-1, Math.min(1, y2))) * 180 / Math.PI;
+  const lon = Math.atan2(x2, z2) * 180 / Math.PI;
+  return { lon, lat };
+};
+var raisedArc = (aLon, aLat, bLon, bLat, spin) => {
+  const a2 = unitVec(aLon, aLat);
+  const b2 = unitVec(bLon, bLat);
+  let dot4 = a2[0] * b2[0] + a2[1] * b2[1] + a2[2] * b2[2];
+  dot4 = Math.max(-1, Math.min(1, dot4));
+  const omega = Math.acos(dot4);
+  const sinOmega = Math.sin(omega);
+  const pts = [];
+  for (let i2 = 0;i2 <= ARC_SEGMENTS2; i2++) {
+    const t2 = i2 / ARC_SEGMENTS2;
+    let vx, vy, vz;
+    if (sinOmega < 0.000001) {
+      vx = a2[0] + (b2[0] - a2[0]) * t2;
+      vy = a2[1] + (b2[1] - a2[1]) * t2;
+      vz = a2[2] + (b2[2] - a2[2]) * t2;
+    } else {
+      const s0 = Math.sin((1 - t2) * omega) / sinOmega;
+      const s1 = Math.sin(t2 * omega) / sinOmega;
+      vx = a2[0] * s0 + b2[0] * s1;
+      vy = a2[1] * s0 + b2[1] * s1;
+      vz = a2[2] * s0 + b2[2] * s1;
+    }
+    const bulge = 1 + (ARC_LIFT - 1) * Math.sin(t2 * Math.PI);
+    const { lon, lat } = toLatLon([vx, vy, vz]);
+    const p2 = projectLatLon(lon, lat, GLOBE_R * bulge, spin, TILT);
+    if (p2.z < 0) {
+      if (pts.length > 1)
+        break;
+      pts.length = 0;
+      continue;
+    }
+    pts.push({ x: p2.x, y: p2.y, z: 0 });
+  }
+  return pts;
+};
+var arcEndpoints = (i2) => {
+  const aLon = HOTSPOT_LON + (hashUnit(i2, 0, SEED2) - 0.5) * 70;
+  const aLat = HOTSPOT_LAT + (hashUnit(i2, 1, SEED2) - 0.5) * 60;
+  const bLon = -180 + hashUnit(i2, 2, SEED2) * 360;
+  const bLat = Math.acos(2 * hashUnit(i2, 3, SEED2) - 1) * 180 / Math.PI - 90;
+  return { aLon, aLat, bLon, bLat };
+};
+
+class LightSpreadDream extends Dream {
+  spin = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11074:11099");
+  ignite = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11174:11199");
+  spread = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11266:11291");
+  fill = __dt(new Globe({
+    radius: GLOBE_R,
+    continents: "fill",
+    land: WHITE,
+    tilt: TILT,
+    spin: SPIN_START,
+    landOpacity: 0
+  }), "core/demo/web3/LightSpread.ts:11460:11596");
+  outline = __dt(new Globe({
+    radius: GLOBE_R,
+    continents: "outline",
+    land: WHITE,
+    coastStroke: 2.5,
+    limbStroke: 1,
+    limbTint: rgb(68, 68, 68),
+    tilt: TILT,
+    spin: SPIN_START
+  }), "core/demo/web3/LightSpread.ts:11808:12005");
+  hotspot;
+  arcs;
+  root = __dt(new Null, "core/demo/web3/LightSpread.ts:12058:12068");
+  constructor() {
+    super();
+    const hotAt = () => {
+      const p2 = projectLatLon(HOTSPOT_LON, HOTSPOT_LAT, GLOBE_R, this.spinValue, TILT);
+      return { x: p2.x, y: p2.y, front: p2.z >= 0 ? 1 : 0 };
+    };
+    const core = __dt(new Circle({ radius: GLOBE_R * 0.16, tint: WHITE, stroke: 0, fillOpacity: 1 }), "core/demo/web3/LightSpread.ts:12706:12784");
+    bindTo(core, this, () => {
+      const h2 = hotAt();
+      return { x: h2.x, y: h2.y };
+    });
+    core.opacity.follow(this.ignite.creation.map((g2) => this.bloom(g2)));
+    const rings = [];
+    for (let r2 = 0;r2 < RIPPLE_RINGS; r2++) {
+      const frac = (r2 + 1) / RIPPLE_RINGS;
+      const ring = __dt(new Circle({ radius: GLOBE_R * RIPPLE_REACH * frac, tint: WHITE, stroke: 1.6 }), "core/demo/web3/LightSpread.ts:13089:13168");
+      bindTo(ring, this, () => {
+        const h2 = hotAt();
+        return { x: h2.x, y: h2.y };
+      });
+      ring.opacity.follow(this.ignite.creation.map((g2) => this.bloom(g2) * clamp015((g2 - frac * 0.35) / 0.3) * 0.7));
+      rings.push(ring);
+    }
+    this.hotspot = __dt(new Group2({ members: [...rings, core] }), "core/demo/web3/LightSpread.ts:13527:13567");
+    const n2 = ARC_COUNT;
+    const lines = [];
+    for (let i2 = 0;i2 < n2; i2++) {
+      const ep = arcEndpoints(i2);
+      const line = __dt(new Line2({ tint: WHITE, stroke: 1.3 }), "core/demo/web3/LightSpread.ts:14105:14143");
+      deriveArc(line, this, () => raisedArc(ep.aLon, ep.aLat, ep.bLon, ep.bLat, this.spinValue));
+      line.creation.follow(this.spread.creation.map((c2) => clamp015((c2 - i2 / n2) / (2 / n2))));
+      line.opacity.follow(this.spread.creation.map((c2) => clamp015(c2 * 3)));
+      lines.push(line);
+    }
+    this.arcs = __dt(new Group2({ members: lines }), "core/demo/web3/LightSpread.ts:14519:14548");
+  }
+  get spinValue() {
+    return this.spin.creation.map((c2) => SPIN_START + (SPIN_END - SPIN_START) * c2).value;
+  }
+  bloom(g2) {
+    const up = clamp015(g2 / 0.4);
+    const down = 1 - clamp015((g2 - 0.55) / 0.45);
+    return up * down;
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.outline.spin.follow(this.fill.spin.map((s2) => s2));
+    this.stage(this.root);
+    this.stage(this.fill);
+    this.stage(this.outline);
+    this.stage(this.hotspot);
+    this.stage(this.arcs);
+    this.say("The world turns.");
+    __dt(this.play(together(this.spin.creation.to(0.45, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.45, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:15494:15697");
+    this.say("A single insight lights up — and floods the world.");
+    __dt(this.play(together(this.ignite.creation.to(1), this.fill.landOpacity.to(1), this.spin.creation.to(0.7, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.7, { easing: "linear" })), 3), "core/demo/web3/LightSpread.ts:15851:16125");
+    this.say("And it travels the world, connection by connection.", { hold: true });
+    __dt(this.play(together(this.spread.creation.to(1, { easing: "linear" }), this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:16289:16512");
+    this.wait(1);
+  }
+}
+var bindTo = (circle, dream, compute3) => {
+  const spinSrc = dream.spin.creation;
+  circle.x.follow(spinSrc.map(() => compute3().x));
+  circle.y.follow(spinSrc.map(() => compute3().y));
+};
+var deriveArc = (line, dream, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = dream.spinValue;
+      if (key === undefined || next !== key) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
 // ../holons/Circle/Circle.ts
 class Circle3 extends Circle {
 }
@@ -101004,7 +101184,8 @@ var scenes = {
   vitruvian: VitruvianManDream,
   globe: GlobeDemoDream,
   web2: Web2DisintegratingDream,
-  nodenet: NodeNetworkDream
+  nodenet: NodeNetworkDream,
+  lightspread: LightSpreadDream
 };
 var defaultScene = "founding";
 
