@@ -50,7 +50,7 @@ its *parameterisation* the interesting thing?
 | **Quote** | built | David named it, on recurrence grounds. Words + attribution + *the recording of them being said* is one unit. |
 | **FlowerText** | built | Recurs 4× in this video alone. The mechanism generalises to any text. |
 | **Globe** | built | Recurs 4×. The modes question was ANSWERED: they share one spine (a projected, spun sphere), and differ only by `continents: fill\|outline` and colour. The halo, rays and hotspot were deliberately left demo-side — folding them in is what would have made it three things wearing one name. |
-| PlatonicSolid (5-in-1) | proposed | Appears once here. Wait for a second use. |
+| **Platonic** | built | The "wait for a second use" test was met at once: FOUR of the five appear together in shot 11. Pure maths split out as src/geometry/platonic.ts, 32 tests pinning all five solids' vertex/edge counts. |
 | NodeGraph (centralised↔decentralised) | proposed | Strong idea; the parameterisation is the argument itself. |
 | David's portrait card, PL logo, Web2 triangle | one-offs | Specific to this piece. |
 
@@ -59,6 +59,19 @@ a blue square, composed in a scene. That is David's own verticality read: the
 reusable thing is the tracer; the figure is what it happens to be tracing.
 
 ## Host properties learned the hard way
+
+- **A `Null` used as an animation DRIVER must be explicitly zeroed.**
+  `creation` defaults to **1**, so `new Null()` starts at its END state and the
+  scene opens fully formed (or, worse, already faded out — a black frame with
+  a complete holarchy behind it). This bit THREE scenes before it was written
+  down: the patience song, Web2Disintegrating, NodeNetwork.
+- **`rgb()` normalises; a `Color` is already normalised.** Blending two Colors
+  and passing the result back through `rgb()` divides by 255 a second time,
+  giving ~0.002 — near-black ink. This was Web2Disintegrating's real defect,
+  and it masqueraded convincingly as a colour-too-dark or stroke-too-thin
+  problem. Blend components directly.
+- **`holon.x = 5` REPLACES the Param object with a number** and destroys any
+  binding. Use `.value` for a constant, `.follow()` for a derived reading.
 
 - **Opacity is PER-PRIMITIVE and is not inherited by a Group's children.**
   Setting opacity on a Group is inert; position DOES cascade. Found when a
@@ -130,12 +143,14 @@ than decided.
 
 ## State (2026-09-24)
 
-**Six set-pieces exist and render**, each verified by eye against the
+**Nine set-pieces exist and render**, each verified by eye against the
 reference frames: `fourier` (the tracer proving itself on a square),
 `quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
 `vitruvian` (the figure drawn by epicycles inside circle and square),
 `clarity` (shots 7–8, the complexity field and the clarity in it), `globe`
-(shots 1/3/13/15, all three modes).
+(shots 1/3/13/15, all three modes), `web2` (shots 4–5, the lattice
+disintegrating), `nodenet` (shots 10–11, the graph and the four crystals),
+`closing` (shot 17, the logo).
 
 Four reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`, `Globe`.
 All four share the same shape — ONE param drives the whole effect, so each is a
