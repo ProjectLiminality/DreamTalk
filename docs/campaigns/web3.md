@@ -72,6 +72,14 @@ reusable thing is the tracer; the figure is what it happens to be tracing.
   problem. Blend components directly.
 - **`holon.x = 5` REPLACES the Param object with a number** and destroys any
   binding. Use `.value` for a constant, `.follow()` for a derived reading.
+- **`projectLatLon` returns a camera-facing `z`; discard it and the far
+  hemisphere projects onto the near side.** Anything drawn on the sphere must
+  cull `z < 0`, as Globe's own outline mode does. A break in a polyline is the
+  honest rendering of a line passing behind the globe.
+- **Measure the frame WITHOUT the HUD.** The demo's timecode readout sits at
+  the bottom-left and lands in any full-frame bounding box, which made three
+  successive arc measurements read 1.75× when the truth was 1.02. A confident
+  wrong number is worse than no number.
 
 - **Opacity is PER-PRIMITIVE and is not inherited by a Group's children.**
   Setting opacity on a Group is inert; position DOES cascade. Found when a
@@ -143,14 +151,15 @@ than decided.
 
 ## State (2026-09-24)
 
-**Nine set-pieces exist and render**, each verified by eye against the
+**Ten set-pieces exist and render**, each verified by eye against the
 reference frames: `fourier` (the tracer proving itself on a square),
 `quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
 `vitruvian` (the figure drawn by epicycles inside circle and square),
 `clarity` (shots 7–8, the complexity field and the clarity in it), `globe`
 (shots 1/3/13/15, all three modes), `web2` (shots 4–5, the lattice
 disintegrating), `nodenet` (shots 10–11, the graph and the four crystals),
-`closing` (shot 17, the logo).
+`closing` (shot 17, the logo), `lightspread` (shot 13, insight travelling
+the world).
 
 Four reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`, `Globe`.
 All four share the same shape — ONE param drives the whole effect, so each is a
