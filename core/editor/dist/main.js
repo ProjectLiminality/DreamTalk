@@ -99070,6 +99070,53 @@ class ClosingDream extends Dream {
   }
 }
 
+// demo/web3/PortraitCard.ts
+var RING_RADIUS2 = 232;
+var RING_COLOUR = rgb(208, 117, 98);
+var PLACEHOLDER_GREY = rgb(85, 85, 92);
+
+class PortraitCardDream extends Dream {
+  ring = __dt(new Circle({
+    radius: RING_RADIUS2,
+    tint: RING_COLOUR,
+    stroke: 3.2
+  }), "core/demo/web3/PortraitCard.ts:2655:2737");
+  plate = __dt(new Circle({
+    radius: RING_RADIUS2 - 14,
+    tint: PLACEHOLDER_GREY,
+    stroke: 1,
+    opacity: 0
+  }), "core/demo/web3/PortraitCard.ts:3156:3262");
+  label = __dt(new Text({
+    content: "portrait",
+    size: 34,
+    tint: PLACEHOLDER_GREY,
+    opacity: 0
+  }), "core/demo/web3/PortraitCard.ts:3274:3372");
+  note = __dt(new Text({
+    content: "media/David.png — awaiting David's word",
+    size: 22,
+    tint: PLACEHOLDER_GREY,
+    y: -46,
+    opacity: 0
+  }), "core/demo/web3/PortraitCard.ts:3382:3523");
+  root = __dt(new Null, "core/demo/web3/PortraitCard.ts:3542:3552");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.stage(this.plate);
+    this.stage(this.ring);
+    this.stage(this.label);
+    this.stage(this.note);
+    this.say("And behind the argument, a person.", { hold: true });
+    __dt(this.play(together(Create(this.ring), [FadeIn(this.plate), 0.2, 1]), 2), "core/demo/web3/PortraitCard.ts:3842:3913");
+    __dt(this.play(together(FadeIn(this.label), [FadeIn(this.note), 0.3, 1]), 1.2), "core/demo/web3/PortraitCard.ts:3918:3991");
+    this.wait(3);
+    __dt(this.play(together(FadeOut(this.ring), FadeOut(this.plate), FadeOut(this.label), FadeOut(this.note)), 1.4), "core/demo/web3/PortraitCard.ts:4013:4138");
+  }
+}
+
 // vocabulary/Plot/Plot.ts
 class Plot extends Null {
   static sovereign = true;
@@ -101052,6 +101099,258 @@ var deriveArc = (line, dream, compute3) => {
   });
 };
 
+// demo/web3/YinYang.ts
+var OUTER_R = 265;
+var LOBE_R = OUTER_R / 2;
+var GLOBE_BIG = 82;
+var GLOBE_SMALL = 15;
+var EQUAL = 0.7;
+var HALO_RATIO = 1.75;
+var BOLT_COUNT = 8;
+var RAY_COUNT = 14;
+var FIELD_COUNT = 8;
+var BLUE_LATTICE = rgb(47, 127, 214);
+var RED_FIELD = rgb(192, 56, 47);
+var clamp016 = (v2) => Math.max(0, Math.min(1, v2));
+var sCurve = (segments = 48) => {
+  const pts = [];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    const a2 = Math.PI / 2 - i2 / segments * Math.PI;
+    pts.push({ x: Math.cos(a2) * LOBE_R, y: LOBE_R + Math.sin(a2) * LOBE_R, z: 0 });
+  }
+  for (let i2 = 1;i2 <= segments; i2++) {
+    const a2 = Math.PI / 2 + i2 / segments * Math.PI;
+    pts.push({ x: Math.cos(a2) * LOBE_R, y: -LOBE_R + Math.sin(a2) * LOBE_R, z: 0 });
+  }
+  return pts;
+};
+var flowerRing = (count, radius) => {
+  const out = [];
+  for (let i2 = 0;i2 < count; i2++) {
+    const a2 = i2 / count * TAU;
+    out.push({ x: Math.cos(a2) * radius, y: Math.sin(a2) * radius });
+  }
+  return out;
+};
+var bolt = (a2, r0, r1) => {
+  const ca = Math.cos(a2);
+  const sa = Math.sin(a2);
+  const px = -sa;
+  const py = ca;
+  const span = r1 - r0;
+  const k2 = span * 0.28;
+  const at2 = (t2, side) => ({
+    x: ca * (r0 + span * t2) + px * side * k2,
+    y: sa * (r0 + span * t2) + py * side * k2,
+    z: 0
+  });
+  return [at2(0, 0), at2(0.35, 1), at2(0.5, -0.4), at2(0.65, 1), at2(1, 0)];
+};
+var fieldLine = (a0, r0, r1, dTheta, segments = 16) => {
+  const pts = [];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    const t2 = i2 / segments;
+    const a2 = a0 + dTheta * t2;
+    const r2 = r0 + (r1 - r0) * t2;
+    pts.push({ x: Math.cos(a2) * r2, y: Math.sin(a2) * r2, z: 0 });
+  }
+  return pts;
+};
+var ray = (a2, r0, r1) => [
+  { x: Math.cos(a2) * r0, y: Math.sin(a2) * r0, z: 0 },
+  { x: Math.cos(a2) * r1, y: Math.sin(a2) * r1, z: 0 }
+];
+
+class YinYangDream extends Dream {
+  birth = __dt(new Null({ creation: 0 }), "core/demo/web3/YinYang.ts:12058:12083");
+  divide = __dt(new Null({ creation: 0 }), "core/demo/web3/YinYang.ts:12168:12193");
+  orbit = __dt(new Null({ creation: 0 }), "core/demo/web3/YinYang.ts:12280:12305");
+  blueGlobe = __dt(new Globe({ radius: GLOBE_BIG, continents: "fill", land: WHITE, tilt: 0.12, spin: 0 }), "core/demo/web3/YinYang.ts:12643:12729");
+  redGlobe = __dt(new Globe({ radius: GLOBE_BIG, continents: "fill", land: WHITE, tilt: 0.12, spin: 0.5 }), "core/demo/web3/YinYang.ts:12743:12831");
+  outer = __dt(new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2, creation: 0 }), "core/demo/web3/YinYang.ts:12923:12991");
+  divider;
+  blueNode;
+  redNode;
+  constructor() {
+    super();
+    this.divider = __dt(new Line2({ tint: WHITE, stroke: 1.6 }), "core/demo/web3/YinYang.ts:13389:13427");
+    deriveRot(this.divider, this, () => {
+      const th = this.turn;
+      const c2 = Math.cos(th);
+      const s2 = Math.sin(th);
+      return sCurve().map((p2) => ({ x: p2.x * c2 - p2.y * s2, y: p2.x * s2 + p2.y * c2, z: 0 }));
+    });
+    this.divider.creation.follow(this.divide.creation.map((c2) => clamp016(c2)));
+    this.blueNode = this.buildBlueNode();
+    this.redNode = this.buildRedNode();
+  }
+  get turn() {
+    return this.orbit.creation.map((c2) => c2 * (TAU * 0.35)).value;
+  }
+  blueCentre() {
+    const a2 = Math.PI + this.turn;
+    return { x: Math.cos(a2) * LOBE_R, y: Math.sin(a2) * LOBE_R };
+  }
+  redCentre() {
+    const a2 = 0 + this.turn;
+    return { x: Math.cos(a2) * LOBE_R, y: Math.sin(a2) * LOBE_R };
+  }
+  blueScale01() {
+    const b2 = clamp016(this.birth.creation.value);
+    const o2 = clamp016(this.orbit.creation.value);
+    const equal3 = EQUAL * b2;
+    return equal3 * (1 - o2) + 0 * o2;
+  }
+  redScale01() {
+    const b2 = clamp016(this.birth.creation.value);
+    const o2 = clamp016(this.orbit.creation.value);
+    const equal3 = EQUAL * b2;
+    return equal3 * (1 - o2) + 1 * o2;
+  }
+  globeR(frac) {
+    return GLOBE_SMALL + (GLOBE_BIG - GLOBE_SMALL) * frac;
+  }
+  buildBlueNode() {
+    const orbitSrc = this.orbit.creation;
+    const scale2 = () => this.blueScale01();
+    const gr = () => this.globeR(scale2());
+    this.blueGlobe.radius.follow(orbitSrc.map(() => gr()));
+    this.blueGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp016(b2)));
+    const members = [];
+    const latticeUnit = flowerRing(6, 1);
+    for (let i2 = 0;i2 < latticeUnit.length; i2++) {
+      const u2 = latticeUnit[i2];
+      const c2 = __dt(new Circle({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:17362:17419");
+      c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
+      c2.x.follow(orbitSrc.map(() => u2.x * gr() * HALO_RATIO * 0.5));
+      c2.y.follow(orbitSrc.map(() => u2.y * gr() * HALO_RATIO * 0.5));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.85));
+      members.push(c2);
+    }
+    {
+      const c2 = __dt(new Circle({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:17779:17836");
+      c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.85));
+      members.push(c2);
+    }
+    {
+      const ring = __dt(new Circle({ tint: BLUE, stroke: 2.4, opacity: 0 }), "core/demo/web3/YinYang.ts:18063:18114");
+      ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2)));
+      members.push(ring);
+    }
+    for (let i2 = 0;i2 < BOLT_COUNT; i2++) {
+      const a2 = i2 / BOLT_COUNT * TAU + Math.PI / BOLT_COUNT;
+      const line = __dt(new Line2({ tint: WHITE, stroke: 1.6, opacity: 0 }), "core/demo/web3/YinYang.ts:18479:18529");
+      deriveRot(line, this, () => bolt(a2, gr() * 1.15, gr() * HALO_RATIO * 0.78));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.3) / 0.7)));
+      members.push(line);
+    }
+    for (let i2 = 0;i2 < FIELD_COUNT; i2++) {
+      const a0 = i2 / FIELD_COUNT * TAU;
+      const line = __dt(new Line2({ tint: RED_FIELD, stroke: 1.4, opacity: 0 }), "core/demo/web3/YinYang.ts:18897:18951");
+      deriveRot(line, this, () => fieldLine(a0, gr() * HALO_RATIO * 0.9, gr() * HALO_RATIO * 1.6, TAU * 0.16));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.2) / 0.8) * 0.8));
+      members.push(line);
+    }
+    const group = __dt(new Group2({ members: [this.blueGlobe, ...members] }), "core/demo/web3/YinYang.ts:19220:19272");
+    group.x.follow(orbitSrc.map(() => this.blueCentre().x));
+    group.y.follow(orbitSrc.map(() => this.blueCentre().y));
+    return group;
+  }
+  buildRedNode() {
+    const orbitSrc = this.orbit.creation;
+    const scale2 = () => this.redScale01();
+    const gr = () => this.globeR(scale2());
+    this.redGlobe.radius.follow(orbitSrc.map(() => gr()));
+    this.redGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp016(b2)));
+    const glowRings = [];
+    for (let i2 = 0;i2 < 4; i2++) {
+      const spread = 1.04 + i2 * 0.1;
+      const ring = __dt(new Circle({ tint: WHITE, stroke: 3 - i2 * 0.5, opacity: 0 }), "core/demo/web3/YinYang.ts:20592:20652");
+      ring.radius.follow(orbitSrc.map(() => gr() * spread));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * (0.4 - i2 * 0.08)));
+      glowRings.push(ring);
+    }
+    const members = [];
+    const latticeUnit = flowerRing(6, 1);
+    for (const u2 of latticeUnit) {
+      const c2 = __dt(new Circle({ tint: RED_FIELD, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:21007:21061");
+      c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
+      c2.x.follow(orbitSrc.map(() => u2.x * gr() * HALO_RATIO * 0.5));
+      c2.y.follow(orbitSrc.map(() => u2.y * gr() * HALO_RATIO * 0.5));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.7));
+      members.push(c2);
+    }
+    {
+      const c2 = __dt(new Circle({ tint: RED_FIELD, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:21389:21443");
+      c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.7));
+      members.push(c2);
+    }
+    {
+      const ring = __dt(new Circle({ tint: RED, stroke: 3, opacity: 0 }), "core/demo/web3/YinYang.ts:21665:21713");
+      ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2)));
+      members.push(ring);
+    }
+    for (let i2 = 0;i2 < RAY_COUNT; i2++) {
+      const a2 = i2 / RAY_COUNT * TAU;
+      const line = __dt(new Line2({ tint: WHITE, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:22010:22058");
+      deriveRot(line, this, () => ray(a2, gr() * 1.1, gr() * HALO_RATIO * 1.45));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.2) / 0.8) * 0.85));
+      members.push(line);
+    }
+    const group = __dt(new Group2({ members: [...glowRings, this.redGlobe, ...members] }), "core/demo/web3/YinYang.ts:22353:22418");
+    group.x.follow(orbitSrc.map(() => this.redCentre().x));
+    group.y.follow(orbitSrc.map(() => this.redCentre().y));
+    return group;
+  }
+  get turnValue() {
+    return this.turn;
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.outer);
+    this.stage(this.divider);
+    this.stage(this.blueNode);
+    this.stage(this.redNode);
+    this.say("Two worlds, one circle.");
+    __dt(this.play(together(this.birth.creation.to(1), this.outer.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.08, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.08, { easing: "linear" })), 3), "core/demo/web3/YinYang.ts:23122:23401");
+    this.say("The line between them — centralised, and decentralised.");
+    __dt(this.play(together(this.divide.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.16, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.16, { easing: "linear" })), 4), "core/demo/web3/YinYang.ts:23620:23865");
+    this.wait(0.5);
+    this.say("And they turn, each becoming the other.", { hold: true });
+    __dt(this.play(together(this.orbit.creation.to(1, { easing: "smooth" }), this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.32, { easing: "linear" })), 6), "core/demo/web3/YinYang.ts:24105:24349");
+    this.wait(1);
+  }
+}
+var deriveRot = (line, dream, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const d2 = dream;
+      const next = [
+        d2.turnValue,
+        d2.birth.creation.value,
+        d2.divide.creation.value,
+        d2.orbit.creation.value
+      ];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
 // ../holons/Circle/Circle.ts
 class Circle3 extends Circle {
 }
@@ -101178,6 +101477,7 @@ var scenes = {
   fourier: FourierDemoDream,
   quote: QuoteDemoDream,
   clarity: ClarityFieldDream,
+  portrait: PortraitCardDream,
   closing: ClosingDream,
   patience: InfinitePatienceDream,
   flowertext: FlowerTextDemoDream,
@@ -101185,7 +101485,8 @@ var scenes = {
   globe: GlobeDemoDream,
   web2: Web2DisintegratingDream,
   nodenet: NodeNetworkDream,
-  lightspread: LightSpreadDream
+  lightspread: LightSpreadDream,
+  yinyang: YinYangDream
 };
 var defaultScene = "founding";
 
@@ -102130,14 +102431,14 @@ var pointerRay = (frame, ndc) => {
   const dir = normalize7(add7(frame.forward, add7(scale2(frame.right, ndc.x * tanHalf * frame.aspect), scale2(frame.up, ndc.y * tanHalf))));
   return { origin: frame.position, dir };
 };
-var intersectPlane = (ray, point, normal2) => {
-  const denom = dot4(ray.dir, normal2);
+var intersectPlane = (ray2, point, normal2) => {
+  const denom = dot4(ray2.dir, normal2);
   if (Math.abs(denom) < 0.000000001)
     return;
-  const s2 = dot4(sub7(point, ray.origin), normal2) / denom;
+  const s2 = dot4(sub7(point, ray2.origin), normal2) / denom;
   if (s2 < 0)
     return;
-  return add7(ray.origin, scale2(ray.dir, s2));
+  return add7(ray2.origin, scale2(ray2.dir, s2));
 };
 var invertUpper3x3 = (elements) => {
   const a2 = elements[0], b2 = elements[4], c2 = elements[8];
