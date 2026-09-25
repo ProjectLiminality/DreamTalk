@@ -75,6 +75,7 @@ import { FlowerTextDemoDream } from "./web3/FlowerTextDemo"
 import { VitruvianManDream } from "./web3/VitruvianMan"
 import { GlobeDemoDream } from "./web3/GlobeDemo"
 import { Web2DisintegratingDream } from "./web3/Web2Disintegrating"
+import { NodeNetworkDream } from "./web3/NodeNetwork"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -164,6 +165,7 @@ export const scenes: Record<string, DreamClass> = {
   // The Web2 half of the yin-yang: a rigid lattice that disintegrates
   // bottom-up into falling circles — the mirror of flowertext's gathering.
   web2: Web2DisintegratingDream,
+  nodenet: NodeNetworkDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 

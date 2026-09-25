@@ -98042,12 +98042,13 @@ class ProjectLiminalityDream extends Dream {
 if (false)
   ;
 
-// demo/agentarena/AgentFigure.ts
+// vocabulary/Figure/Figure.ts
 var HEAD = 0.22;
 var SPINE = 0.42;
 var REACH = 0.2;
 
-class AgentFigure extends Stroke {
+class Figure extends Stroke {
+  tint = color2(RED);
   static sovereign = true;
   height = length2(120);
   head;
@@ -98067,32 +98068,32 @@ class AgentFigure extends Stroke {
     const foot = -h2 / 2;
     const reach = h2 * REACH;
     const stroke = this.stroke;
-    this.head = this.add(__dt(new Circle({ radius: headR, y: headCy, tint: RED, stroke }), "core/demo/agentarena/AgentFigure.ts:2074:2133"));
-    this.spine = this.add(__dt(new Line2({
+    this.head = this.add(new Circle({ radius: headR, y: headCy, tint: this.tint, stroke }));
+    this.spine = this.add(new Line2({
       points: [{ x: 0, y: neck, z: 0 }, { x: 0, y: hip, z: 0 }],
-      tint: RED,
+      tint: this.tint,
       stroke
-    }), "core/demo/agentarena/AgentFigure.ts:2174:2295"));
-    this.armLeft = this.add(__dt(new Line2({
+    }));
+    this.armLeft = this.add(new Line2({
       points: [{ x: 0, y: shoulder, z: 0 }, { x: -reach, y: shoulder - reach * 0.55, z: 0 }],
-      tint: RED,
+      tint: this.tint,
       stroke
-    }), "core/demo/agentarena/AgentFigure.ts:2454:2604"));
-    this.armRight = this.add(__dt(new Line2({
+    }));
+    this.armRight = this.add(new Line2({
       points: [{ x: 0, y: shoulder, z: 0 }, { x: reach, y: shoulder - reach * 0.55, z: 0 }],
-      tint: RED,
+      tint: this.tint,
       stroke
-    }), "core/demo/agentarena/AgentFigure.ts:2648:2797"));
-    this.legLeft = this.add(__dt(new Line2({
+    }));
+    this.legLeft = this.add(new Line2({
       points: [{ x: 0, y: hip, z: 0 }, { x: -reach * 0.8, y: foot, z: 0 }],
-      tint: RED,
+      tint: this.tint,
       stroke
-    }), "core/demo/agentarena/AgentFigure.ts:2840:2972"));
-    this.legRight = this.add(__dt(new Line2({
+    }));
+    this.legRight = this.add(new Line2({
       points: [{ x: 0, y: hip, z: 0 }, { x: reach * 0.8, y: foot, z: 0 }],
-      tint: RED,
+      tint: this.tint,
       stroke
-    }), "core/demo/agentarena/AgentFigure.ts:3016:3147"));
+    }));
   }
 }
 
@@ -98243,11 +98244,11 @@ var LABEL2 = 34;
 var EQUATION = 40;
 
 class AgentArenaDream extends Dream {
-  arena = __dt(new Arena({ radius: 210 }), "core/demo/agentarena/AgentArena.ts:3836:3862");
-  agent = __dt(new AgentFigure({ height: 210 }), "core/demo/agentarena/AgentArena.ts:3873:3905");
-  arenaLabel = __dt(new Text({ content: "arena", size: LABEL2, tint: BLUE, y: 255 }), "core/demo/agentarena/AgentArena.ts:3921:3984");
-  agentLabel = __dt(new Text({ content: "agent", size: LABEL2, tint: RED, y: -110 }), "core/demo/agentarena/AgentArena.ts:4000:4063");
-  primitive = __dt(new Group2({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] }), "core/demo/agentarena/AgentArena.ts:4078:4160");
+  arena = __dt(new Arena({ radius: 210 }), "core/demo/agentarena/AgentArena.ts:3843:3869");
+  agent = __dt(new Figure({ height: 210 }), "core/demo/agentarena/AgentArena.ts:3880:3907");
+  arenaLabel = __dt(new Text({ content: "arena", size: LABEL2, tint: BLUE, y: 255 }), "core/demo/agentarena/AgentArena.ts:3923:3986");
+  agentLabel = __dt(new Text({ content: "agent", size: LABEL2, tint: RED, y: -110 }), "core/demo/agentarena/AgentArena.ts:4002:4065");
+  primitive = __dt(new Group2({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] }), "core/demo/agentarena/AgentArena.ts:4080:4162");
   choice = __dt(new Line2({
     points: [
       { x: 0, y: -40, z: 0 },
@@ -98255,13 +98256,13 @@ class AgentArenaDream extends Dream {
     ],
     tint: RED,
     arrowEnd: true
-  }), "core/demo/agentarena/AgentArena.ts:4468:4601");
-  choiceLabel = __dt(new Text({ content: "CHOICE", size: LABEL2, tint: RED, x: 165, y: 10 }), "core/demo/agentarena/AgentArena.ts:4618:4688");
-  agency = __dt(new Group2({ members: [this.choice, this.choiceLabel] }), "core/demo/agentarena/AgentArena.ts:4700:4755");
-  textPair = __dt(new Pairing({ kind: "text", x: -230, y: 230 }), "core/demo/agentarena/AgentArena.ts:5036:5082");
-  guiPair = __dt(new Pairing({ kind: "gui", x: -230, y: 0 }), "core/demo/agentarena/AgentArena.ts:5095:5138");
-  gamePair = __dt(new Pairing({ kind: "game", x: -230, y: -230 }), "core/demo/agentarena/AgentArena.ts:5152:5199");
-  pairs = __dt(new Group2({ members: [this.textPair, this.guiPair, this.gamePair] }), "core/demo/agentarena/AgentArena.ts:5210:5278");
+  }), "core/demo/agentarena/AgentArena.ts:4470:4603");
+  choiceLabel = __dt(new Text({ content: "CHOICE", size: LABEL2, tint: RED, x: 165, y: 10 }), "core/demo/agentarena/AgentArena.ts:4620:4690");
+  agency = __dt(new Group2({ members: [this.choice, this.choiceLabel] }), "core/demo/agentarena/AgentArena.ts:4702:4757");
+  textPair = __dt(new Pairing({ kind: "text", x: -230, y: 230 }), "core/demo/agentarena/AgentArena.ts:5038:5084");
+  guiPair = __dt(new Pairing({ kind: "gui", x: -230, y: 0 }), "core/demo/agentarena/AgentArena.ts:5097:5140");
+  gamePair = __dt(new Pairing({ kind: "game", x: -230, y: -230 }), "core/demo/agentarena/AgentArena.ts:5154:5201");
+  pairs = __dt(new Group2({ members: [this.textPair, this.guiPair, this.gamePair] }), "core/demo/agentarena/AgentArena.ts:5212:5280");
   patternArrow = __dt(new Line2({
     points: [
       { x: 250, y: 320, z: 0 },
@@ -98269,46 +98270,46 @@ class AgentArenaDream extends Dream {
     ],
     tint: WHITE,
     arrowEnd: true
-  }), "core/demo/agentarena/AgentArena.ts:5429:5567");
+  }), "core/demo/agentarena/AgentArena.ts:5431:5569");
   patternLabel = __dt(new Text({
     content: "one continuous pattern",
     size: LABEL2,
     tint: WHITE,
     x: 500,
     y: 0
-  }), "core/demo/agentarena/AgentArena.ts:5585:5695");
-  pattern = __dt(new Group2({ members: [this.patternArrow, this.patternLabel] }), "core/demo/agentarena/AgentArena.ts:5708:5770");
-  soul = __dt(new Ensoulment({ rays: 14, radius: 150 }), "core/demo/agentarena/AgentArena.ts:6057:6098");
-  eq1 = __dt(new Text({ content: "selection = attention = animation", size: EQUATION, tint: WHITE, y: -290 }), "core/demo/agentarena/AgentArena.ts:6107:6203");
-  eq2 = __dt(new Text({ content: "selection = soul extension", size: EQUATION, tint: RED, y: -290 }), "core/demo/agentarena/AgentArena.ts:6212:6299");
-  physicalArena = __dt(new Arena({ radius: 330, x: -260 }), "core/demo/agentarena/AgentArena.ts:6542:6577");
-  human = __dt(new AgentFigure({ height: 150, x: -510, y: -40 }), "core/demo/agentarena/AgentArena.ts:6588:6637");
-  humanSoul = __dt(new Ensoulment({ rays: 12, radius: 78, x: -510, y: -30 }), "core/demo/agentarena/AgentArena.ts:6652:6709");
-  screen = __dt(new Rectangle({ width: 300, height: 195, x: -200, y: 45, tint: WHITE }), "core/demo/agentarena/AgentArena.ts:6789:6860");
+  }), "core/demo/agentarena/AgentArena.ts:5587:5697");
+  pattern = __dt(new Group2({ members: [this.patternArrow, this.patternLabel] }), "core/demo/agentarena/AgentArena.ts:5710:5772");
+  soul = __dt(new Ensoulment({ rays: 14, radius: 150 }), "core/demo/agentarena/AgentArena.ts:6059:6100");
+  eq1 = __dt(new Text({ content: "selection = attention = animation", size: EQUATION, tint: WHITE, y: -290 }), "core/demo/agentarena/AgentArena.ts:6109:6205");
+  eq2 = __dt(new Text({ content: "selection = soul extension", size: EQUATION, tint: RED, y: -290 }), "core/demo/agentarena/AgentArena.ts:6214:6301");
+  physicalArena = __dt(new Arena({ radius: 330, x: -260 }), "core/demo/agentarena/AgentArena.ts:6544:6579");
+  human = __dt(new Figure({ height: 150, x: -510, y: -40 }), "core/demo/agentarena/AgentArena.ts:6590:6634");
+  humanSoul = __dt(new Ensoulment({ rays: 12, radius: 78, x: -510, y: -30 }), "core/demo/agentarena/AgentArena.ts:6649:6706");
+  screen = __dt(new Rectangle({ width: 300, height: 195, x: -200, y: 45, tint: WHITE }), "core/demo/agentarena/AgentArena.ts:6786:6857");
   keyboard = __dt(new Line2({
     points: [
       { x: -345, y: -55, z: 0 },
       { x: -55, y: -55, z: 0 }
     ],
     tint: WHITE
-  }), "core/demo/agentarena/AgentArena.ts:6874:6992");
-  innerArena = __dt(new Arena({ radius: 62, x: -200, y: 50 }), "core/demo/agentarena/AgentArena.ts:7081:7122");
-  innerAgent = __dt(new AgentFigure({ height: 40, x: -200, y: 38 }), "core/demo/agentarena/AgentArena.ts:7138:7185");
+  }), "core/demo/agentarena/AgentArena.ts:6871:6989");
+  innerArena = __dt(new Arena({ radius: 62, x: -200, y: 50 }), "core/demo/agentarena/AgentArena.ts:7078:7119");
+  innerAgent = __dt(new Figure({ height: 40, x: -200, y: 38 }), "core/demo/agentarena/AgentArena.ts:7135:7177");
   sight1 = __dt(new Line2({
     points: [
       { x: -470, y: 30, z: 0 },
       { x: -265, y: 60, z: 0 }
     ],
     tint: RED
-  }), "core/demo/agentarena/AgentArena.ts:7265:7380");
+  }), "core/demo/agentarena/AgentArena.ts:7257:7372");
   sight2 = __dt(new Line2({
     points: [
       { x: -470, y: 30, z: 0 },
       { x: -265, y: 10, z: 0 }
     ],
     tint: RED
-  }), "core/demo/agentarena/AgentArena.ts:7392:7507");
-  inputLabel = __dt(new Text({ content: "input", size: LABEL2, tint: WHITE, x: 10, y: -55 }), "core/demo/agentarena/AgentArena.ts:7523:7594");
+  }), "core/demo/agentarena/AgentArena.ts:7384:7499");
+  inputLabel = __dt(new Text({ content: "input", size: LABEL2, tint: WHITE, x: 10, y: -55 }), "core/demo/agentarena/AgentArena.ts:7515:7586");
   recursion = __dt(new Group2({
     members: [
       this.physicalArena,
@@ -98322,65 +98323,65 @@ class AgentArenaDream extends Dream {
       this.humanSoul,
       this.inputLabel
     ]
-  }), "core/demo/agentarena/AgentArena.ts:7609:7860");
+  }), "core/demo/agentarena/AgentArena.ts:7601:7852");
   ifaceIn = __dt(new Text({ content: `camera
 mic
-keyboard`, size: LABEL2, tint: BLUE, x: 250, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:7999:8101");
+keyboard`, size: LABEL2, tint: BLUE, x: 250, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:7991:8093");
   ifaceOut = __dt(new Text({ content: `screen
 speaker
-motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:8115:8217");
-  ifaceTitle = __dt(new Text({ content: "interface", size: LABEL2, tint: WHITE, x: 400, y: 250 }), "core/demo/agentarena/AgentArena.ts:8233:8309");
-  iface = __dt(new Group2({ members: [this.ifaceTitle, this.ifaceIn, this.ifaceOut] }), "core/demo/agentarena/AgentArena.ts:8320:8390");
-  macos = __dt(new Text({ content: "macOS already = infinite game engine", size: EQUATION, tint: WHITE, y: 90 }), "core/demo/agentarena/AgentArena.ts:8477:8574");
-  dreamos = __dt(new Text({ content: "DreamOS", size: 130, tint: RED, y: -60 }), "core/demo/agentarena/AgentArena.ts:8587:8649");
-  explicit = __dt(new Text({ content: "makes it explicit", size: EQUATION, tint: WHITE, y: -190 }), "core/demo/agentarena/AgentArena.ts:8663:8743");
-  stageRoot = __dt(new Null, "core/demo/agentarena/AgentArena.ts:8767:8777");
+motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:8107:8209");
+  ifaceTitle = __dt(new Text({ content: "interface", size: LABEL2, tint: WHITE, x: 400, y: 250 }), "core/demo/agentarena/AgentArena.ts:8225:8301");
+  iface = __dt(new Group2({ members: [this.ifaceTitle, this.ifaceIn, this.ifaceOut] }), "core/demo/agentarena/AgentArena.ts:8312:8382");
+  macos = __dt(new Text({ content: "macOS already = infinite game engine", size: EQUATION, tint: WHITE, y: 90 }), "core/demo/agentarena/AgentArena.ts:8469:8566");
+  dreamos = __dt(new Text({ content: "DreamOS", size: 130, tint: RED, y: -60 }), "core/demo/agentarena/AgentArena.ts:8579:8641");
+  explicit = __dt(new Text({ content: "makes it explicit", size: EQUATION, tint: WHITE, y: -190 }), "core/demo/agentarena/AgentArena.ts:8655:8735");
+  stageRoot = __dt(new Null, "core/demo/agentarena/AgentArena.ts:8759:8769");
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(1));
     this.stage(this.stageRoot);
-    __dt(this.play(Create(this.arena), 1.6), "core/demo/agentarena/AgentArena.ts:9221:9255");
-    __dt(this.play(together(Create(this.agent), [Write(this.arenaLabel), 0.3, 1]), 1.6), "core/demo/agentarena/AgentArena.ts:9260:9338");
-    __dt(this.play(Write(this.agentLabel), 0.8), "core/demo/agentarena/AgentArena.ts:9343:9381");
+    __dt(this.play(Create(this.arena), 1.6), "core/demo/agentarena/AgentArena.ts:9213:9247");
+    __dt(this.play(together(Create(this.agent), [Write(this.arenaLabel), 0.3, 1]), 1.6), "core/demo/agentarena/AgentArena.ts:9252:9330");
+    __dt(this.play(Write(this.agentLabel), 0.8), "core/demo/agentarena/AgentArena.ts:9335:9373");
     this.wait(1);
-    __dt(this.play(Create(this.agency), 1.4), "core/demo/agentarena/AgentArena.ts:9464:9499");
+    __dt(this.play(Create(this.agency), 1.4), "core/demo/agentarena/AgentArena.ts:9456:9491");
     this.wait(1.2);
-    __dt(this.play(together(FadeOut(this.primitive), FadeOut(this.agency)), 0.8), "core/demo/agentarena/AgentArena.ts:9523:9594");
-    __dt(this.play(this.observer.zoom.to(1 / 2), 0.8), "core/demo/agentarena/AgentArena.ts:9881:9925");
-    __dt(this.play(Create(this.textPair), 1.8), "core/demo/agentarena/AgentArena.ts:9930:9967");
+    __dt(this.play(together(FadeOut(this.primitive), FadeOut(this.agency)), 0.8), "core/demo/agentarena/AgentArena.ts:9515:9586");
+    __dt(this.play(this.observer.zoom.to(1 / 2), 0.8), "core/demo/agentarena/AgentArena.ts:9873:9917");
+    __dt(this.play(Create(this.textPair), 1.8), "core/demo/agentarena/AgentArena.ts:9922:9959");
     this.wait(0.6);
-    __dt(this.play(Create(this.guiPair), 1.8), "core/demo/agentarena/AgentArena.ts:9991:10027");
+    __dt(this.play(Create(this.guiPair), 1.8), "core/demo/agentarena/AgentArena.ts:9983:10019");
     this.wait(0.6);
-    __dt(this.play(Create(this.gamePair), 1.8), "core/demo/agentarena/AgentArena.ts:10051:10088");
+    __dt(this.play(Create(this.gamePair), 1.8), "core/demo/agentarena/AgentArena.ts:10043:10080");
     this.wait(0.8);
-    __dt(this.play(together(Create(this.patternArrow), [Write(this.patternLabel), 0.4, 1]), 2), "core/demo/agentarena/AgentArena.ts:10112:10197");
+    __dt(this.play(together(Create(this.patternArrow), [Write(this.patternLabel), 0.4, 1]), 2), "core/demo/agentarena/AgentArena.ts:10104:10189");
     this.wait(1.5);
-    __dt(this.play(together(FadeOut(this.pairs), FadeOut(this.pattern)), 0.9), "core/demo/agentarena/AgentArena.ts:10221:10289");
-    __dt(this.play(this.observer.zoom.to(6 / 7), 0.8), "core/demo/agentarena/AgentArena.ts:10566:10610");
-    __dt(this.play(Create(this.soul), 2), "core/demo/agentarena/AgentArena.ts:10615:10646");
-    __dt(this.play(Write(this.eq1), 1.6), "core/demo/agentarena/AgentArena.ts:10651:10682");
+    __dt(this.play(together(FadeOut(this.pairs), FadeOut(this.pattern)), 0.9), "core/demo/agentarena/AgentArena.ts:10213:10281");
+    __dt(this.play(this.observer.zoom.to(6 / 7), 0.8), "core/demo/agentarena/AgentArena.ts:10558:10602");
+    __dt(this.play(Create(this.soul), 2), "core/demo/agentarena/AgentArena.ts:10607:10638");
+    __dt(this.play(Write(this.eq1), 1.6), "core/demo/agentarena/AgentArena.ts:10643:10674");
     this.wait(1.4);
-    __dt(this.play(FadeOut(this.eq1), 0.5), "core/demo/agentarena/AgentArena.ts:10706:10739");
-    __dt(this.play(Write(this.eq2), 1.4), "core/demo/agentarena/AgentArena.ts:10744:10775");
+    __dt(this.play(FadeOut(this.eq1), 0.5), "core/demo/agentarena/AgentArena.ts:10698:10731");
+    __dt(this.play(Write(this.eq2), 1.4), "core/demo/agentarena/AgentArena.ts:10736:10767");
     this.wait(1.6);
-    __dt(this.play(together(FadeOut(this.soul), FadeOut(this.eq2)), 0.9), "core/demo/agentarena/AgentArena.ts:10799:10862");
-    __dt(this.play(this.observer.zoom.to(4 / 7), 1.2), "core/demo/agentarena/AgentArena.ts:11129:11173");
-    __dt(this.play(Create(this.physicalArena), 1.6), "core/demo/agentarena/AgentArena.ts:11178:11220");
-    __dt(this.play(together(Create(this.human), [Create(this.screen), 0.4, 1], [Create(this.keyboard), 0.5, 1]), 2), "core/demo/agentarena/AgentArena.ts:11225:11331");
-    __dt(this.play(together(Create(this.innerArena), [Create(this.innerAgent), 0.35, 1]), 1.8), "core/demo/agentarena/AgentArena.ts:11407:11492");
-    __dt(this.play(together(Create(this.sight1), Create(this.sight2), [FadeIn(this.inputLabel), 0.5, 1]), 1.4), "core/demo/agentarena/AgentArena.ts:11548:11649");
-    __dt(this.play(Create(this.humanSoul), 1.4), "core/demo/agentarena/AgentArena.ts:11654:11692");
+    __dt(this.play(together(FadeOut(this.soul), FadeOut(this.eq2)), 0.9), "core/demo/agentarena/AgentArena.ts:10791:10854");
+    __dt(this.play(this.observer.zoom.to(4 / 7), 1.2), "core/demo/agentarena/AgentArena.ts:11121:11165");
+    __dt(this.play(Create(this.physicalArena), 1.6), "core/demo/agentarena/AgentArena.ts:11170:11212");
+    __dt(this.play(together(Create(this.human), [Create(this.screen), 0.4, 1], [Create(this.keyboard), 0.5, 1]), 2), "core/demo/agentarena/AgentArena.ts:11217:11323");
+    __dt(this.play(together(Create(this.innerArena), [Create(this.innerAgent), 0.35, 1]), 1.8), "core/demo/agentarena/AgentArena.ts:11399:11484");
+    __dt(this.play(together(Create(this.sight1), Create(this.sight2), [FadeIn(this.inputLabel), 0.5, 1]), 1.4), "core/demo/agentarena/AgentArena.ts:11540:11641");
+    __dt(this.play(Create(this.humanSoul), 1.4), "core/demo/agentarena/AgentArena.ts:11646:11684");
     this.wait(1);
-    __dt(this.play(together(Write(this.ifaceTitle), [FadeIn(this.ifaceIn), 0.3, 1], [FadeIn(this.ifaceOut), 0.5, 1]), 2), "core/demo/agentarena/AgentArena.ts:11745:11856");
+    __dt(this.play(together(Write(this.ifaceTitle), [FadeIn(this.ifaceIn), 0.3, 1], [FadeIn(this.ifaceOut), 0.5, 1]), 2), "core/demo/agentarena/AgentArena.ts:11737:11848");
     this.wait(2);
-    __dt(this.play(together(FadeOut(this.recursion), FadeOut(this.iface)), 1), "core/demo/agentarena/AgentArena.ts:11878:11946");
-    __dt(this.play(this.observer.zoom.to(1), 0.8), "core/demo/agentarena/AgentArena.ts:11979:12019");
-    __dt(this.play(Write(this.macos), 1.8), "core/demo/agentarena/AgentArena.ts:12024:12057");
+    __dt(this.play(together(FadeOut(this.recursion), FadeOut(this.iface)), 1), "core/demo/agentarena/AgentArena.ts:11870:11938");
+    __dt(this.play(this.observer.zoom.to(1), 0.8), "core/demo/agentarena/AgentArena.ts:11971:12011");
+    __dt(this.play(Write(this.macos), 1.8), "core/demo/agentarena/AgentArena.ts:12016:12049");
     this.wait(1.2);
-    __dt(this.play(together(FadeOut(this.macos), [Create(this.dreamos), 0.2, 1]), 2.2), "core/demo/agentarena/AgentArena.ts:12081:12158");
-    __dt(this.play(Write(this.explicit), 1.2), "core/demo/agentarena/AgentArena.ts:12163:12199");
+    __dt(this.play(together(FadeOut(this.macos), [Create(this.dreamos), 0.2, 1]), 2.2), "core/demo/agentarena/AgentArena.ts:12073:12150");
+    __dt(this.play(Write(this.explicit), 1.2), "core/demo/agentarena/AgentArena.ts:12155:12191");
     this.wait(2);
-    __dt(this.play(together(UnCreate(this.dreamos), FadeOut(this.explicit)), 1.2), "core/demo/agentarena/AgentArena.ts:12221:12293");
+    __dt(this.play(together(UnCreate(this.dreamos), FadeOut(this.explicit)), 1.2), "core/demo/agentarena/AgentArena.ts:12213:12285");
   }
 }
 
@@ -99021,6 +99022,309 @@ class ClarityFieldDream extends Dream {
     this.say("And inside the complexity, clarity.", { hold: true });
     __dt(this.play(this.clarity.creation.to(1), 3.5), "core/demo/web3/ClarityField.ts:6719:6762");
     this.wait(3);
+  }
+}
+
+// demo/web3/Closing.ts
+var BLUE_R = 154.5;
+var RED_R = 101;
+var RED_RISE = 51.5;
+var A_HALF_WIDTH = 89.5;
+var A_APEX_Y = 289.5 - 205;
+var A_FOOT_Y = 289.5 - 412;
+var LOGO_BLUE = rgb(30, 139, 232);
+var LOGO_RED = rgb(224, 80, 60);
+var LOGO_WHITE = rgb(255, 255, 255);
+var LOGO_Y = 70.5;
+
+class ClosingDream extends Dream {
+  blue = __dt(new Circle({ radius: BLUE_R, y: LOGO_Y, tint: LOGO_BLUE, stroke: 3.4 }), "core/demo/web3/Closing.ts:3848:3919");
+  red = __dt(new Circle({ radius: RED_R, y: LOGO_Y + RED_RISE, tint: LOGO_RED, stroke: 3.4 }), "core/demo/web3/Closing.ts:3928:4008");
+  mark = __dt(new Line2({
+    points: [
+      { x: -A_HALF_WIDTH, y: LOGO_Y + A_FOOT_Y, z: 0 },
+      { x: 0, y: LOGO_Y + A_APEX_Y, z: 0 },
+      { x: A_HALF_WIDTH, y: LOGO_Y + A_FOOT_Y, z: 0 }
+    ],
+    tint: LOGO_WHITE,
+    stroke: 3.4
+  }), "core/demo/web3/Closing.ts:4094:4324");
+  title = __dt(new Text({
+    content: "Project Liminality",
+    size: 62,
+    tint: LOGO_WHITE,
+    y: LOGO_Y - 272
+  }), "core/demo/web3/Closing.ts:4336:4589");
+  root = __dt(new Null, "core/demo/web3/Closing.ts:4608:4618");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.say("Project Liminality.");
+    __dt(this.play(together(Create(this.blue), Create(this.red)), 2.2), "core/demo/web3/Closing.ts:4964:5025");
+    __dt(this.play(Create(this.mark), 1.3), "core/demo/web3/Closing.ts:5068:5101");
+    this.wait(0.4);
+    __dt(this.play(Write(this.title), 1.6), "core/demo/web3/Closing.ts:5125:5158");
+    this.wait(2.5);
+    __dt(this.play(together(FadeOut(this.blue), FadeOut(this.red), FadeOut(this.mark), FadeOut(this.title)), 1.2), "core/demo/web3/Closing.ts:5182:5305");
+  }
+}
+
+// vocabulary/Plot/Plot.ts
+class Plot extends Null {
+  static sovereign = true;
+  fn = (x2) => x2;
+  domain = [-1, 1];
+  range = [0, 10];
+  width = length2(760);
+  height = length2(460);
+  reveal = completion(0);
+  samples = integer(900);
+  stroke = length2(3);
+  curveTint = color2(WHITE);
+  axisTint = color2({ r: 0.45, g: 0.45, b: 0.5 });
+  showAxes = true;
+  curve;
+  axes;
+  at(x2, y2) {
+    const [x0, x1] = this.domain;
+    const [y0, y1] = this.range;
+    const w4 = this.width.value;
+    const h2 = this.height.value;
+    const u2 = (x2 - x0) / (x1 - x0);
+    const v2 = (Math.min(Math.max(y2, y0), y1) - y0) / (y1 - y0);
+    return { x: -w4 / 2 + u2 * w4, y: -h2 / 2 + v2 * h2 };
+  }
+  valueAt(x2) {
+    return this.fn(x2);
+  }
+  compose() {
+    const [x0, x1] = this.domain;
+    const n2 = Math.max(2, Math.round(this.samples.value));
+    this.curve = this.add(new Line2({ tint: this.curveTint, stroke: this.stroke }));
+    derivePolyline2(this.curve, () => [this.reveal.value], () => {
+      const r2 = this.reveal.value;
+      if (r2 <= 0)
+        return [];
+      const upto = Math.max(2, Math.ceil(r2 * n2));
+      const pts = [];
+      for (let i2 = 0;i2 < upto; i2++) {
+        const x2 = x0 + i2 / n2 * (x1 - x0);
+        const p2 = this.at(x2, this.fn(x2));
+        pts.push({ x: p2.x, y: p2.y, z: 0 });
+      }
+      return pts;
+    });
+    if (!this.showAxes) {
+      this.axes = this.add(new Group2({ members: [] }));
+      return;
+    }
+    const w4 = this.width.value;
+    const h2 = this.height.value;
+    const xAxis = new Line2({
+      points: [
+        { x: -w4 / 2, y: -h2 / 2, z: 0 },
+        { x: w4 / 2, y: -h2 / 2, z: 0 }
+      ],
+      tint: this.axisTint,
+      stroke: this.stroke.times(0.6)
+    });
+    const yAtZero = x0 <= 0 && 0 <= x1 ? this.at(0, this.range[0]).x : -w4 / 2;
+    const yAxis = new Line2({
+      points: [
+        { x: yAtZero, y: -h2 / 2, z: 0 },
+        { x: yAtZero, y: h2 / 2, z: 0 }
+      ],
+      tint: this.axisTint,
+      stroke: this.stroke.times(0.6)
+    });
+    this.axes = this.add(new Group2({ members: [xAxis, yAxis] }));
+  }
+}
+var derivePolyline2 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// vocabulary/RightTriangle/RightTriangle.ts
+var derivePolyline3 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class RightTriangle extends Null {
+  static sovereign = true;
+  foot = { x: 0, y: 0 };
+  base = length2(200);
+  rise = length2(120);
+  stroke = length2(3);
+  legTint = color2({ r: 0.5, g: 0.5, b: 0.55 });
+  hypotenuseTint = color2(WHITE);
+  baseLine;
+  riseLine;
+  hypotenuse;
+  sides;
+  get slope() {
+    const b2 = this.base.value;
+    return b2 === 0 ? Number.POSITIVE_INFINITY : this.rise.value / b2;
+  }
+  compose() {
+    const key = () => [this.base.value, this.rise.value, this.foot.x, this.foot.y];
+    this.baseLine = new Line2({ tint: this.legTint, stroke: this.stroke.times(0.75) });
+    derivePolyline3(this.baseLine, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      return [
+        { x: x2, y: y2, z: 0 },
+        { x: x2 + this.base.value, y: y2, z: 0 }
+      ];
+    });
+    this.riseLine = new Line2({ tint: this.legTint, stroke: this.stroke.times(0.75) });
+    derivePolyline3(this.riseLine, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      const b2 = this.base.value;
+      return [
+        { x: x2 + b2, y: y2, z: 0 },
+        { x: x2 + b2, y: y2 + this.rise.value, z: 0 }
+      ];
+    });
+    this.hypotenuse = new Line2({ tint: this.hypotenuseTint, stroke: this.stroke });
+    derivePolyline3(this.hypotenuse, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      return [
+        { x: x2, y: y2, z: 0 },
+        { x: x2 + this.base.value, y: y2 + this.rise.value, z: 0 }
+      ];
+    });
+    this.sides = this.add(new Group2({ members: [this.baseLine, this.riseLine, this.hypotenuse] }));
+  }
+}
+
+// demo/patience/InfinitePatience.ts
+var X_START = -1;
+var X_END = -0.012;
+var Y_TOP = 14;
+var PLOT_W = 780;
+var PLOT_H = 430;
+var X_FAR = -0.86;
+var joy = (x2) => -1 / x2;
+
+class InfinitePatienceDream extends Dream {
+  plot = __dt(new Plot({
+    opacity: 0,
+    fn: joy,
+    domain: [X_START, X_END],
+    range: [0, Y_TOP],
+    width: PLOT_W,
+    height: PLOT_H,
+    curveTint: WHITE,
+    stroke: 3,
+    samples: 1400
+  }), "core/demo/patience/InfinitePatience.ts:4071:4495");
+  journey = __dt(new Null({ creation: 0 }), "core/demo/patience/InfinitePatience.ts:4791:4816");
+  near = __dt(new RightTriangle({ stroke: 3, hypotenuseTint: WHITE }), "core/demo/patience/InfinitePatience.ts:4875:4930");
+  far = __dt(new RightTriangle({
+    stroke: 2.4,
+    hypotenuseTint: { r: 0.55, g: 0.62, b: 0.75 },
+    legTint: { r: 0.3, g: 0.32, b: 0.38 }
+  }), "core/demo/patience/InfinitePatience.ts:5015:5150");
+  waiting = __dt(new Figure({ height: 84, tint: BLUE, creation: 0 }), "core/demo/patience/InfinitePatience.ts:5219:5270");
+  arriving = __dt(new Figure({ height: 84, tint: BLUE, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5284:5334");
+  xLabel = __dt(new Text({ content: "time", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5347:5433");
+  yLabel = __dt(new Text({ content: "joy", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5445:5530");
+  instant = __dt(new Text({ content: "the holy instant", size: 30, tint: RED, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5543:5617");
+  root = __dt(new Null, "core/demo/patience/InfinitePatience.ts:5636:5646");
+  constructor() {
+    super();
+    const nowX = () => X_START + (X_END - X_START) * this.journey.creation.value;
+    const footNear = this.plot.at(X_START, 0);
+    this.near.foot = { x: footNear.x, y: footNear.y };
+    this.near.base.follow(this.journey.creation.map(() => this.plot.at(nowX(), 0).x - footNear.x));
+    this.near.rise.follow(this.journey.creation.map(() => this.plot.at(nowX(), joy(nowX())).y - footNear.y));
+    const footFar = this.plot.at(X_FAR, 0);
+    this.far.foot = { x: footFar.x, y: footFar.y };
+    this.far.base.follow(this.journey.creation.map(() => Math.max(0, this.plot.at(nowX(), 0).x - footFar.x)));
+    this.far.rise.follow(this.journey.creation.map(() => Math.max(0, this.plot.at(nowX(), joy(nowX())).y - footFar.y)));
+    this.waiting.x.value = footNear.x;
+    this.waiting.y.value = footNear.y + 42;
+    this.arriving.x.follow(this.journey.creation.map(() => this.plot.at(nowX(), 0).x));
+    this.arriving.y.value = footNear.y + 42;
+    this.arriving.tint.follow(this.journey.creation.map((j2) => {
+      const u2 = Math.min(1, Math.max(0, (j2 - 0.25) / 0.75)) ** 1.6;
+      return {
+        r: BLUE.r + (RED.r - BLUE.r) * u2,
+        g: BLUE.g + (RED.g - BLUE.g) * u2,
+        b: BLUE.b + (RED.b - BLUE.b) * u2
+      };
+    }));
+    this.xLabel.x.value = 0;
+    this.xLabel.y.value = -PLOT_H / 2 - 44;
+    this.yLabel.x.value = PLOT_W / 2 + 40;
+    this.yLabel.y.value = PLOT_H / 2 - 16;
+    this.instant.x.value = PLOT_W / 2 - 4;
+    this.instant.y.value = -PLOT_H / 2 - 44;
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.stage(this.plot);
+    this.stage(this.near);
+    this.stage(this.far);
+    this.stage(this.waiting);
+    this.stage(this.arriving);
+    this.stage(this.xLabel);
+    this.stage(this.yLabel);
+    this.stage(this.instant);
+    this.say("Infinite patience produces immediate results.", { hold: true });
+    this.say("Here is time, running toward a single moment.", { hold: true });
+    __dt(this.play(together(FadeIn(this.plot), FadeIn(this.xLabel), FadeIn(this.yLabel)), 1.6), "core/demo/patience/InfinitePatience.ts:8790:8875");
+    this.say("And here is joy — whatever it is in you that grows toward salvation.", {
+      hold: true
+    });
+    this.wait(0.4);
+    this.say("Someone begins the journey.", { hold: true });
+    __dt(this.play(Create(this.waiting), 1.2), "core/demo/patience/InfinitePatience.ts:9150:9186");
+    this.wait(0.5);
+    this.say("The closer the moment comes, the steeper the growth — without limit.", {
+      hold: true
+    });
+    __dt(this.play(together(this.plot.reveal.to(1, { easing: "linear" }), this.journey.creation.to(1, { easing: "linear" }), [FadeIn(this.arriving), 0, 0.08]), 9), "core/demo/patience/InfinitePatience.ts:9401:9606");
+    this.wait(0.8);
+    this.say("The hypotenuse is the average rate of gain across the whole journey.", { hold: true });
+    this.say("At the instant itself it stands vertical — and it stands vertical however far back you begin.", { hold: true });
+    __dt(this.play(FadeIn(this.instant), 1.2), "core/demo/patience/InfinitePatience.ts:9974:10010");
+    this.wait(1.2);
+    this.say("A moment outside of time changes all of time. There was never anything gradual in it.", { hold: true });
+    this.wait(1.5);
+    __dt(this.play(together(FadeOut(this.plot), FadeOut(this.near), FadeOut(this.far), FadeOut(this.waiting), FadeOut(this.arriving), FadeOut(this.xLabel), FadeOut(this.yLabel), FadeOut(this.instant)), 1.6), "core/demo/patience/InfinitePatience.ts:10191:10480");
   }
 }
 
@@ -100151,6 +100455,423 @@ class GlobeDemoDream extends Dream {
   }
 }
 
+// demo/web3/Web2Disintegrating.ts
+var LATTICE_BLUE = rgb(61, 143, 232);
+var FALLEN_GREY = rgb(122, 122, 132);
+var ROWS = 41;
+var BASE_WIDTH = 560;
+var TRI_HEIGHT = BASE_WIDTH * (Math.sqrt(3) / 2);
+var BASE_Y = -TRI_HEIGHT / 2 - 6;
+var APEX_Y = BASE_Y + TRI_HEIGHT;
+var CELL_SIDE = BASE_WIDTH / ROWS;
+var ROW_STEP = CELL_SIDE * (Math.sqrt(3) / 2);
+var CELL_RADIUS = CELL_SIDE / Math.sqrt(3);
+var RING = 24;
+var buildLattice = () => {
+  const cells = [];
+  let index = 0;
+  for (let r2 = 0;r2 < ROWS; r2++) {
+    const yTop = APEX_Y - r2 * ROW_STEP;
+    const yBot = yTop - ROW_STEP;
+    const rowHalf = (r2 + 1) / ROWS * (BASE_WIDTH / 2);
+    const xLeft = -rowHalf;
+    for (let k2 = 0;k2 <= r2; k2++) {
+      const upCx = xLeft + (k2 + 0.5) * CELL_SIDE;
+      const upCy = yBot + (yTop - yBot) / 3;
+      cells.push({ cx: upCx, cy: upCy, row: r2, up: true, index: index++ });
+      if (k2 < r2) {
+        const dnCx = xLeft + (k2 + 1) * CELL_SIDE;
+        const dnCy = yTop - (yTop - yBot) / 3;
+        cells.push({ cx: dnCx, cy: dnCy, row: r2, up: false, index: index++ });
+      }
+    }
+  }
+  return cells;
+};
+var cellRing = (up, m2) => {
+  const r2 = CELL_RADIUS;
+  const corner0 = up ? Math.PI / 2 : -Math.PI / 2;
+  const perCorner = RING / 3;
+  const out = [];
+  for (let i2 = 0;i2 < RING; i2++) {
+    const seg = Math.floor(i2 / perCorner);
+    const f2 = (i2 - seg * perCorner) / perCorner;
+    const aA = corner0 + seg * 2 * Math.PI / 3;
+    const aB = corner0 + (seg + 1) * 2 * Math.PI / 3;
+    const triX = r2 * (Math.cos(aA) + (Math.cos(aB) - Math.cos(aA)) * f2);
+    const triY = r2 * (Math.sin(aA) + (Math.sin(aB) - Math.sin(aA)) * f2);
+    const aC = corner0 + i2 / RING * 2 * Math.PI;
+    const cirX = r2 * Math.cos(aC);
+    const cirY = r2 * Math.sin(aC);
+    out.push({ x: triX + (cirX - triX) * m2, y: triY + (cirY - triY) * m2, z: 0 });
+  }
+  out.push(out[0]);
+  return out;
+};
+var smooth2 = (x2) => {
+  const t2 = Math.max(0, Math.min(1, x2));
+  return t2 * t2 * (3 - 2 * t2);
+};
+var mixColor = (a2, b2, u2) => ({
+  r: a2.r + (b2.r - a2.r) * u2,
+  g: a2.g + (b2.g - a2.g) * u2,
+  b: a2.b + (b2.b - a2.b) * u2
+});
+
+class Web2DisintegratingDream extends Dream {
+  assemble = __dt(new Null({ creation: 0 }), "core/demo/web3/Web2Disintegrating.ts:11692:11717");
+  collapse = __dt(new Null({ creation: 0 }), "core/demo/web3/Web2Disintegrating.ts:11787:11812");
+  lattice;
+  cells = [];
+  root = __dt(new Null, "core/demo/web3/Web2Disintegrating.ts:11878:11888");
+  constructor() {
+    super();
+    this.cells = buildLattice();
+    const lines = this.cells.map((cell) => this.makeCell(cell));
+    this.lattice = __dt(new Group2({ members: lines }), "core/demo/web3/Web2Disintegrating.ts:12035:12064");
+  }
+  makeCell(cell) {
+    const rowFrac = cell.row / (ROWS - 1);
+    const jitter = (hashUnit(cell.index, 2, 7) - 0.5) * 0.06;
+    const releaseStart = (1 - rowFrac) * 0.72 + jitter;
+    const releaseSpan = 0.28;
+    const fallAt = () => smooth2((this.collapse.creation.value - releaseStart) / releaseSpan);
+    const drift = (hashUnit(cell.index, 0, 7) - 0.5) * 2;
+    const spin = (hashUnit(cell.index, 1, 7) - 0.5) * 2;
+    const fallDistance = TRI_HEIGHT * 0.55 + hashUnit(cell.index, 3, 7) * 120;
+    const scatterX = drift * CELL_SIDE * 3.2;
+    const tumble = spin * Math.PI * 2.4;
+    const line = __dt(new Line2({
+      tint: this.collapse.creation.map(() => {
+        const f2 = fallAt();
+        return mixColor(LATTICE_BLUE, FALLEN_GREY, smooth2(f2 * 1.4));
+      }),
+      stroke: 1.6,
+      opacity: this.assemble.creation.map((a2) => {
+        const on = smooth2((a2 - rowFrac * 0.5) / 0.5);
+        const f2 = fallAt();
+        const fade = 1 - smooth2((f2 - 0.65) / 0.35);
+        return Math.max(0, Math.min(1, on)) * fade;
+      }),
+      x: this.collapse.creation.map(() => cell.cx + scatterX * fallAt()),
+      y: this.collapse.creation.map(() => cell.cy - fallDistance * fallAt()),
+      b: this.collapse.creation.map(() => tumble * fallAt())
+    }), "core/demo/web3/Web2Disintegrating.ts:14048:15360");
+    let key = -1;
+    let memo = [];
+    Object.defineProperty(line, "points", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        const f2 = fallAt();
+        const k2 = Math.round(smooth2(f2 / 0.7) * 64);
+        if (k2 !== key) {
+          key = k2;
+          memo = cellRing(cell.up, k2 / 64);
+          this.geomVersion++;
+        }
+        return memo;
+      },
+      set() {}
+    });
+    return line;
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.root);
+    this.stage(this.lattice);
+    this.say("A centralised hierarchy assembles itself.");
+    __dt(this.play(this.assemble.creation.to(1), 3), "core/demo/web3/Web2Disintegrating.ts:16394:16436");
+    this.wait(1);
+    this.say("But it cannot hold — the base gives way, and it falls.", { hold: true });
+    __dt(this.play(this.collapse.creation.to(1, { easing: "easeIn" }), 6), "core/demo/web3/Web2Disintegrating.ts:16692:16756");
+    this.wait(1);
+  }
+}
+
+// src/geometry/platonic.ts
+var PHI = (1 + Math.sqrt(5)) / 2;
+var toUnit = (verts) => {
+  const r2 = Math.hypot(verts[0].x, verts[0].y, verts[0].z);
+  const k2 = r2 > 0 ? 1 / r2 : 1;
+  return verts.map((v2) => ({ x: v2.x * k2, y: v2.y * k2, z: v2.z * k2 }));
+};
+var edgesByLength = (verts) => {
+  const dist22 = (a2, b2) => (a2.x - b2.x) ** 2 + (a2.y - b2.y) ** 2 + (a2.z - b2.z) ** 2;
+  let min6 = Infinity;
+  for (let i2 = 0;i2 < verts.length; i2++) {
+    for (let j2 = i2 + 1;j2 < verts.length; j2++) {
+      const d2 = dist22(verts[i2], verts[j2]);
+      if (d2 < min6)
+        min6 = d2;
+    }
+  }
+  const tol = min6 * 0.000001;
+  const edges = [];
+  for (let i2 = 0;i2 < verts.length; i2++) {
+    for (let j2 = i2 + 1;j2 < verts.length; j2++) {
+      if (Math.abs(dist22(verts[i2], verts[j2]) - min6) <= tol)
+        edges.push([i2, j2]);
+    }
+  }
+  return edges;
+};
+var solidFrom = (raw, faces) => {
+  const vertices = toUnit(raw);
+  return { vertices, edges: edgesByLength(vertices), faces };
+};
+var tetrahedron = () => solidFrom([
+  { x: 1, y: 1, z: 1 },
+  { x: 1, y: -1, z: -1 },
+  { x: -1, y: 1, z: -1 },
+  { x: -1, y: -1, z: 1 }
+], 4);
+var cube = () => {
+  const v2 = [];
+  for (const x2 of [-1, 1])
+    for (const y2 of [-1, 1])
+      for (const z2 of [-1, 1])
+        v2.push({ x: x2, y: y2, z: z2 });
+  return solidFrom(v2, 6);
+};
+var octahedron = () => solidFrom([
+  { x: 1, y: 0, z: 0 },
+  { x: -1, y: 0, z: 0 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0, y: -1, z: 0 },
+  { x: 0, y: 0, z: 1 },
+  { x: 0, y: 0, z: -1 }
+], 8);
+var icosahedron = () => {
+  const v2 = [];
+  for (const a2 of [-1, 1]) {
+    for (const b2 of [-PHI, PHI]) {
+      v2.push({ x: 0, y: a2, z: b2 });
+      v2.push({ x: a2, y: b2, z: 0 });
+      v2.push({ x: b2, y: 0, z: a2 });
+    }
+  }
+  return solidFrom(v2, 20);
+};
+var dodecahedron2 = () => {
+  const v2 = [];
+  for (const x2 of [-1, 1])
+    for (const y2 of [-1, 1])
+      for (const z2 of [-1, 1])
+        v2.push({ x: x2, y: y2, z: z2 });
+  const invPhi = 1 / PHI;
+  for (const a2 of [-invPhi, invPhi]) {
+    for (const b2 of [-PHI, PHI]) {
+      v2.push({ x: 0, y: a2, z: b2 });
+      v2.push({ x: a2, y: b2, z: 0 });
+      v2.push({ x: b2, y: 0, z: a2 });
+    }
+  }
+  return solidFrom(v2, 12);
+};
+var SOLIDS = {
+  tetrahedron: tetrahedron(),
+  cube: cube(),
+  octahedron: octahedron(),
+  dodecahedron: dodecahedron2(),
+  icosahedron: icosahedron()
+};
+var rotate3 = (p2, yaw2, pitch2) => {
+  const cy = Math.cos(yaw2);
+  const sy = Math.sin(yaw2);
+  const x1 = p2.x * cy + p2.z * sy;
+  const z1 = -p2.x * sy + p2.z * cy;
+  const y1 = p2.y;
+  const cx = Math.cos(pitch2);
+  const sx = Math.sin(pitch2);
+  const y2 = y1 * cx - z1 * sx;
+  const z2 = y1 * sx + z1 * cx;
+  return { x: x1, y: y2, z: z2 };
+};
+var project = (solid, radius, yaw2, pitch2) => {
+  const vertices = solid.vertices.map((v2) => {
+    const r2 = rotate3(v2, yaw2, pitch2);
+    return { x: r2.x * radius, y: r2.y * radius, z: r2.z };
+  });
+  const edges = solid.edges.map(([i2, j2]) => ({
+    a: vertices[i2],
+    b: vertices[j2]
+  }));
+  return { vertices, edges };
+};
+
+// vocabulary/Platonic/Platonic.ts
+class Platonic extends Null {
+  static sovereign = true;
+  solid = "icosahedron";
+  radius = length2(120);
+  spin = scalar(0);
+  pitch = angle(0.42);
+  edgeTint = color2(WHITE);
+  edgeStroke = length2(1.4);
+  nodeTint = color2(WHITE);
+  nodeRadius = length2(4);
+  edges;
+  nodes;
+  compose() {
+    const data = SOLIDS[this.solid];
+    const edgeLines = data.edges.map((_2, e2) => {
+      const line = new Line2({ tint: this.edgeTint, stroke: this.edgeStroke });
+      deriveEdge(line, this, e2);
+      return line;
+    });
+    this.edges = this.add(new Group2({ members: edgeLines }));
+    const nodeCircles = data.vertices.map((_2, i2) => new Circle({
+      radius: this.nodeRadius,
+      tint: this.nodeTint,
+      fillOpacity: 1,
+      stroke: 0,
+      x: this.spin.map(() => this.projectedVertex(i2).x),
+      y: this.spin.map(() => this.projectedVertex(i2).y)
+    }));
+    this.nodes = this.add(new Group2({ members: nodeCircles }));
+  }
+  projectedVertex(i2) {
+    const data = SOLIDS[this.solid];
+    const { vertices } = project(data, this.radius.value, this.spin.value, this.pitch.value);
+    return vertices[i2];
+  }
+}
+var deriveEdge = (line, holon, edgeIndex) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const spin = holon.spin.value;
+      const radius = holon.radius.value;
+      const pitch2 = holon.pitch.value;
+      const next = [spin, radius, pitch2];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        const data = SOLIDS[holon.solid];
+        const { edges } = project(data, radius, spin, pitch2);
+        const e2 = edges[edgeIndex];
+        memo = [
+          { x: e2.a.x, y: e2.a.y, z: 0 },
+          { x: e2.b.x, y: e2.b.y, z: 0 }
+        ];
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// demo/web3/NodeNetwork.ts
+var SEED = 793133;
+var NODE_COUNT = 44;
+var CLOUD_RADIUS = 175;
+var CLOUD_CORE = 28;
+var EDGE_RADIUS = 74;
+var MAX_DEGREE = 6;
+var nodeAt = (i2) => {
+  const a2 = hashUnit(i2, 0, SEED) * TAU;
+  const rr = hashUnit(i2, 1, SEED);
+  const r2 = CLOUD_CORE + (CLOUD_RADIUS - CLOUD_CORE) * Math.sqrt(rr);
+  return { x: Math.cos(a2) * r2, y: Math.sin(a2) * r2 };
+};
+var meshEdges = (positions) => {
+  const degree = __dt(new Array(positions.length), "core/demo/web3/NodeNetwork.ts:4417:4444").fill(0);
+  const edges = [];
+  const candidates = [];
+  for (let i2 = 0;i2 < positions.length; i2++) {
+    for (let j2 = i2 + 1;j2 < positions.length; j2++) {
+      const d2 = Math.hypot(positions[i2].x - positions[j2].x, positions[i2].y - positions[j2].y);
+      if (d2 <= EDGE_RADIUS)
+        candidates.push([d2, i2, j2]);
+    }
+  }
+  candidates.sort((p2, q) => p2[0] - q[0]);
+  for (const [, i2, j2] of candidates) {
+    if (degree[i2] >= MAX_DEGREE || degree[j2] >= MAX_DEGREE)
+      continue;
+    edges.push([i2, j2]);
+    degree[i2]++;
+    degree[j2]++;
+  }
+  return edges;
+};
+var QUAD = 250;
+var QUAD_Y = 150;
+
+class NodeNetworkDream extends Dream {
+  gather = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5679:5704");
+  connect = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5775:5800");
+  crystallise = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5885:5910");
+  positions = Array.from({ length: NODE_COUNT }, (_2, i2) => nodeAt(i2));
+  edgeList = meshEdges(this.positions);
+  cloud;
+  mesh;
+  octa = __dt(new Platonic({ solid: "octahedron", radius: 78, x: -QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6155:6237");
+  icosa = __dt(new Platonic({ solid: "icosahedron", radius: 82, x: QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6248:6330");
+  tetra = __dt(new Platonic({ solid: "tetrahedron", radius: 82, x: -QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6341:6425");
+  cube = __dt(new Platonic({ solid: "cube", radius: 74, x: QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6435:6511");
+  constructor() {
+    super();
+    const dots = this.positions.map((p2) => __dt(new Circle({
+      radius: 3.4,
+      x: p2.x,
+      y: p2.y,
+      tint: WHITE,
+      fillOpacity: 1,
+      stroke: 0,
+      opacity: this.cloudOpacity
+    }), "core/demo/web3/NodeNetwork.ts:6839:7029"));
+    this.cloud = __dt(new Group2({ members: dots }), "core/demo/web3/NodeNetwork.ts:7054:7082");
+    const n2 = this.edgeList.length;
+    const lines = this.edgeList.map(([i2, j2], e2) => {
+      const a2 = this.positions[i2];
+      const b2 = this.positions[j2];
+      return __dt(new Line2({
+        points: [
+          { x: a2.x, y: a2.y, z: 0 },
+          { x: b2.x, y: b2.y, z: 0 }
+        ],
+        tint: WHITE,
+        stroke: 1,
+        creation: this.connect.creation.map((c2) => Math.max(0, Math.min(1, (c2 - e2 / n2) / (1.4 / n2)))),
+        opacity: this.meshOpacity
+      }), "core/demo/web3/NodeNetwork.ts:7601:7988");
+    });
+    this.mesh = __dt(new Group2({ members: lines }), "core/demo/web3/NodeNetwork.ts:8012:8041");
+  }
+  get cloudOpacity() {
+    return this.gather.creation.map((g2) => Math.max(0, Math.min(1, g2)) * (1 - this.crystallise.creation.value));
+  }
+  get meshOpacity() {
+    return this.crystallise.creation.map((c2) => 1 - Math.max(0, Math.min(1, c2)));
+  }
+  get crystals() {
+    return [this.octa, this.icosa, this.tetra, this.cube];
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.mesh);
+    this.stage(this.cloud);
+    for (const c2 of this.crystals)
+      this.stage(c2);
+    this.say("The field collapses to a cluster of nodes.");
+    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/NodeNetwork.ts:8886:8926");
+    this.wait(1);
+    this.say("The nodes connect — one dense, decentralised graph.");
+    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 4), "core/demo/web3/NodeNetwork.ts:9097:9160");
+    this.wait(0.5);
+    this.say("And it resolves into the four crystals, each a whole.", { hold: true });
+    __dt(this.play(together(this.crystallise.creation.to(1), ...this.crystals.map((c2) => c2.opacity.to(1)), ...this.crystals.map((c2) => c2.spin.to(TAU * 0.55, { easing: "linear" }))), 5), "core/demo/web3/NodeNetwork.ts:9350:9701");
+    this.wait(1);
+  }
+}
+
 // ../holons/Circle/Circle.ts
 class Circle3 extends Circle {
 }
@@ -100277,9 +100998,13 @@ var scenes = {
   fourier: FourierDemoDream,
   quote: QuoteDemoDream,
   clarity: ClarityFieldDream,
+  closing: ClosingDream,
+  patience: InfinitePatienceDream,
   flowertext: FlowerTextDemoDream,
   vitruvian: VitruvianManDream,
-  globe: GlobeDemoDream
+  globe: GlobeDemoDream,
+  web2: Web2DisintegratingDream,
+  nodenet: NodeNetworkDream
 };
 var defaultScene = "founding";
 
