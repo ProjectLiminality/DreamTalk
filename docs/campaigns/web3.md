@@ -151,7 +151,7 @@ than decided.
 
 ## State (2026-09-24)
 
-**Eleven set-pieces exist and render**, each verified by eye against the
+**Twelve set-pieces exist and render**, each verified by eye against the
 reference frames: `fourier` (the tracer proving itself on a square),
 `quote` (the Vitalik quote, spoken), `flowertext` ("Web3" self-organising),
 `vitruvian` (the figure drawn by epicycles inside circle and square),
@@ -159,7 +159,8 @@ reference frames: `fourier` (the tracer proving itself on a square),
 (shots 1/3/13/15, all three modes), `web2` (shots 4–5, the lattice
 disintegrating), `nodenet` (shots 10–11, the graph and the four crystals),
 `closing` (shot 17, the logo), `lightspread` (shot 13, insight travelling
-the world), `portrait` (shot 16, the frame around a photograph we did not take).
+the world), `portrait` (shot 16, the frame around a photograph we did not take), `yinyang`
+(shots 2–3, the thesis).
 
 Four reusable holons landed: `FourierTrace`, `Quote`, `FlowerText`, `Globe`.
 All four share the same shape — ONE param drives the whole effect, so each is a
@@ -187,6 +188,28 @@ not in this repo. Committing a photograph of a person into a framework
 repository is David's call. The placeholder announces itself in an assembly
 rather than leaving a silent gap — when the cut is reviewed, this shot says
 what it is waiting for.
+
+## An open cosmetic gap: YinYang's globes read as outlines
+
+The reference's yin-yang globes are solid bright white land; ours draw as thin
+continent outlines. Measured: our red node is 0.5% bright pixels where the
+reference is 8.9% — an 18× gap.
+
+What has been RULED OUT, so nobody repeats it:
+- **Not the tint or opacity.** The fill parent is `fillOpacity: 1`, `opacity: 1`,
+  tint pure white, over 21 closed rings — structurally identical to GlobeDemo.
+- **Not the scale.** GlobeDemo's hero globe at radius **52** renders 30.9%
+  bright; YinYang's at 62–80 renders 0.5%. Smaller renders *better* there, so
+  size is not the variable.
+- **Not memo invalidation.** `deriveRing`'s key is `[spin, radius, tilt]`, so a
+  `.follow()`-rebound radius does invalidate the memo, and `clampedRing` reads
+  `radius.value` live.
+
+So the geometry is right and the fill is configured right. The remaining
+suspect is compositing — something in the node group draws over the flooded
+land, or the even-odd fill of a parent whose children are rebound per-frame
+behaves differently from one built at a fixed radius. Worth a focused pass;
+the shot reads correctly without it.
 
 ## Not yet done
 
