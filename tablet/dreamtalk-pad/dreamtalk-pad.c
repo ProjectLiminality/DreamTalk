@@ -281,8 +281,11 @@ static ink_rect trail_segment(trail *t, int k) {
     ink_rect d = ink_rect_empty();
     float len = hypotf(bx - ax, by - ay), s = 0.0f, period = LASSO_ON + LASSO_OFF;
     while (s < len) {
-        float phase = fmodf(t->dash_s + s, period);
-        float e = fminf(len, s + (phase < LASSO_ON ? LASSO_ON - phase : period - phase));
+        /* Every step must advance: once dash_s is large, float rounding can
+         * put the next dash boundary within one ulp of s, and s + tiny == s
+         * would spin forever (it froze the pad on David's first lasso). */
+        float phase = (float)fmod((double)t->dash_s + (double)s, (double)period);
+        float e = fminf(len, s + fmaxf(phase < LASSO_ON ? LASSO_ON - phase : period - phase, 0.05f));
         if (phase < LASSO_ON) {
             float u0 = s / len, u1 = e / len;
             d = ink_rect_union(d, ink_segment(&page, ax + (bx - ax) * u0, ay + (by - ay) * u0, LASSO_W * 0.5f,
@@ -624,7 +627,9 @@ int main(void) {
                 if (next < 0 || due < next) next = due;
             }
         if (qpass_back > 0 && (next < 0 || qpass_back < next)) next = qpass_back;
-        if (quality && qpass_back == 0 && !ink_rect_is_empty(settle) && !pen_down) {
+        /* Same condition as the pass itself below — a due time the pass would
+         * then refuse (pen hovering) made poll() return at once, forever. */
+        if (quality && qpass_back == 0 && !ink_rect_is_empty(settle) && !pen_down && (efd < 0 || !pen_in_range)) {
             double due = last_activity + QUIET_MS;
             if (next < 0 || due < next) next = due;
         }

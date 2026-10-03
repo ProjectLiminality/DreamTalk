@@ -159,14 +159,16 @@ ink_rect ink_polyline(ink_canvas *c, const float *pts, int n, const float *w, fl
         while (s < len) {
             float period = dash_on + dash_off;
             float left = (phase < dash_on ? dash_on : period) - phase;
-            float e = fminf(len, s + left);
+            /* Always advance (float rounding near a dash boundary could make
+             * `left` vanish and spin this loop forever). */
+            float e = fminf(len, s + fmaxf(left, 0.05f));
             if (phase < dash_on && len > 0.0f) {
                 float u0 = s / len, u1 = e / len;
                 d = ink_rect_union(d, ink_segment_grey(c, ax + (bx - ax) * u0, ay + (by - ay) * u0, ra + (rb - ra) * u0,
                                                        ax + (bx - ax) * u1, ay + (by - ay) * u1, ra + (rb - ra) * u1, grey, aa));
             }
             phase += e - s;
-            if (phase >= period) phase -= period;
+            if (phase >= period - 1e-4f) phase = 0.0f;
             s = e;
             if (len <= 0.0f) break;
         }
