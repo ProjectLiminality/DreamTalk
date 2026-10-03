@@ -18,7 +18,10 @@ import {
   IDENTITY,
   type Mat3,
 } from "../sketch/xform"
-import { buildSymbol, canTumble, transformSymbol } from "../sketch/vocabulary"
+import { buildSymbol, canTumble, transformSymbol, tumbleTurn, vocabById } from "../sketch/vocabulary"
+import { Group } from "../src/parts/primitives"
+import type { Holon } from "../src/holon"
+import { coerceParam } from "../scripts/recognize"
 import { History } from "../sketch/state"
 import { forwardFor } from "../vocabulary/MindVirus/MindVirus"
 import type { PlacedSymbol } from "../sketch/protocol"
@@ -103,6 +106,81 @@ describe("tumbling symbols", () => {
     expect(f.x).toBeCloseTo(Math.SQRT1_2, 6)
     expect(f.y).toBeCloseTo(0, 6)
     expect(f.z).toBeCloseTo(Math.SQRT1_2, 6)
+  })
+
+  // The live preview turns each 3D symbol on a pivot about its (x, y) by
+  // the turn its body really takes (main.ts SymbolsDream + tumbleTurn);
+  // the commit must build that same picture — body AND tail. Before, the
+  // committed tail lay flat on the page while the body had turned.
+  test("mindVirus with a drawn tail: the commit is the previewed creature, tail and all", () => {
+    const cable = [[200, 520], [260, 470], [320, 500], [370, 450]]
+    const s = sym("mindVirus", { x: 400, y: 400, size: 100, heading: -0.9, fold: 1, cable })
+    const m = trackball(60, -35, K)
+    const P = tumbleTurn(vocabById("mindVirus")!, s.params, m)
+    const out = transformSymbol(s, { tumble: m })
+
+    // The cable points: the drawn ones turned rigidly about the body centre.
+    const pts = out.params.cable as number[][]
+    expect(pts).toHaveLength(cable.length)
+    pts.forEach((p, i) => {
+      const v = mat3Apply(P, { x: cable[i]![0]! - 400, y: -(cable[i]![1]! - 400), z: 0 })
+      expect(p[0]).toBeCloseTo(400 + v.x, 9)
+      expect(p[1]).toBeCloseTo(400 - v.y, 9)
+      expect(p[2]).toBeCloseTo(v.z, 9)
+    })
+    expect(pts.some((p) => Math.abs(p[2]!) > 10)).toBe(true)
+
+    // The preview: the UNTURNED build on the pivot main.ts makes, turned by P.
+    type MV = Holon & { cable: { _path: (t: number) => { x: number; y: number; z: number } } }
+    const flat = buildSymbol(s) as MV
+    const e = mat3ToEuler(P)
+    const inner = new Group({ members: [flat], x: -400, y: 400 })
+    const pivot = new Group({ members: [inner], x: 400, y: -400, h: e.h, p: e.p, b: e.b })
+    void pivot.parts // the host walks the tree: parent links are made here
+    void inner.parts
+    const deep = buildSymbol(out) as MV
+    // Same body orientation: P · (the flat body's frame) = the committed frame.
+    close(eulerToMat3(deep.h.value, deep.p.value, deep.b.value), mat3Mul(P, eulerToMat3(flat.h.value, flat.p.value, flat.b.value)))
+    // Same tail, in world space, along its whole window (the trail source
+    // the Cable draws from — private, read here on purpose).
+    for (const t of [0, 0.7, 2.2, 4.1, 5.5, 6]) {
+      const a = flat.cable._path(t)
+      const b = deep.cable._path(t)
+      expect(a.x).toBeCloseTo(b.x, 6)
+      expect(a.y).toBeCloseTo(b.y, 6)
+      expect(a.z).toBeCloseTo(b.z, 6)
+    }
+  })
+
+  test("a cube's body takes the trackball turn exactly; a MindVirus's drops only the roll", () => {
+    const m = trackball(60, -35, K)
+    close(tumbleTurn(vocabById("cube")!, { h: 0.6, p: 0.4 }, m), m)
+    const P = tumbleTurn(vocabById("mindVirus")!, { heading: -0.9 }, m)
+    // Same heading as m gives…
+    const f = { x: Math.cos(-0.9), y: -Math.sin(-0.9), z: 0 }
+    const a = mat3Apply(P, f)
+    const b = mat3Apply(m, f)
+    expect(a.x).toBeCloseTo(b.x, 9)
+    expect(a.y).toBeCloseTo(b.y, 9)
+    expect(a.z).toBeCloseTo(b.z, 9)
+    // …but not the same turn: the trackball rolled it, and that is what P leaves out.
+    expect(Math.max(...P.map((v, i) => Math.abs(v - m[i]!)))).toBeGreaterThan(1e-3)
+  })
+
+  test("a tumbled cable keeps its depth under page moves, scaling with the page", () => {
+    const s = sym("mindVirus", { x: 0, y: 0, size: 100, heading: 0, fold: 1, cable: [[-100, 0, 30], { x: -50, y: 0, z: 10 }] })
+    const out = transformSymbol(s, { translate: { x: 10, y: 0 }, scale: 2, rotate: 0.5 })
+    const [a, b] = out.params.cable as [number[], { x: number; y: number; z: number }]
+    expect(a[2]).toBeCloseTo(60, 9)
+    expect(b.z).toBeCloseTo(20, 9)
+    // Untumbled cables stay two-component (a drawn path never grows a z).
+    const drawn = transformSymbol(sym("mindVirus", { x: 0, y: 0, cable: [[1, 2], [3, 4]] }), { rotate: 0.3 })
+    expect((drawn.params.cable as number[][])[0]).toHaveLength(2)
+  })
+
+  test("a voice edit that hands the tumbled cable back keeps its depth", () => {
+    const mv = vocabById("mindVirus")!
+    expect(coerceParam(mv, "cable", [[1.23, 2, 30.46], [3, 4]])).toEqual([[1.2, 2, 30.5], [3, 4]])
   })
 
   test("flat symbols and ink ignore a tumble; the whole gesture is one undo step", () => {

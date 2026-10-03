@@ -41,6 +41,7 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [Sketch](Sketch/) | david portrait, `?scene=sketch` | primitives (geometry/svg; 32 assets) | svg tests (37 subpaths); o1/o2 composites |
 | [Logo](Logo/) | finished mark, `?scene=o09` | primitives | o3 scores 30/30 + 25/26; logo tests (Cramer) |
 | [System](System/) | gears+icon, `?scene=o03` | Sketch (six assets) | o5: 16/16 pixel-exact layout predictions; system tests |
+| [Regenaissance](Regenaissance/) | fully drawn, `?scene=regenaissance` | Globe + SMark (+ great-circle lattice) | regenaissance tests; recognizer on David's own sketch |
 
 ## Abilities
 

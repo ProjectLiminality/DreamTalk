@@ -29,6 +29,7 @@ import type { Holon } from "../src/holon"
 import { Circle, Ellipse, Rectangle, Stroke, rectanglePolyline } from "../src/parts/primitives"
 import { polyline } from "../src/render/three-host"
 import { DisplayDiff, encodeItem, type EncodedItem } from "./display"
+import { distillGlyph } from "./distill"
 import {
   PAGE_H,
   PAGE_W,
@@ -297,7 +298,7 @@ export interface MirrorView {
   /** Each selected symbol's padded box, when several are selected. */
   groupBoxes: readonly { id: string; box: Box }[]
   /** The handles (absent during a gesture, as on the Mac). */
-  chrome?: { corners: Pt[]; knob: Pt; frameTop: Pt; chip?: Pt; handle: number; knobR: number; chipR: number }
+  chrome?: { corners: Pt[]; knob: Pt; frameTop: Pt; chip?: Pt; distill?: Pt; handle: number; knobR: number; chipR: number }
   /** A recognition in flight: the padded box that marches on the Mac. */
   thinking?: Box
   /** The options ring. */
@@ -390,6 +391,20 @@ export const buildDisplay = (v: MirrorView): EncodedItem[] => {
         z: Z.chrome,
         noInk: true,
         prims: [...knockout(circlePts(c.chip, c.chipR, 32), 2), { k: "fill", pts: flat(star(c.chip, c.chipR * 0.62)), grey: 0 }],
+      })
+    }
+    if (c.distill) {
+      // distill.ts: three faint passes and the one line they mean
+      const g = distillGlyph(c.distill, c.chipR)
+      put({
+        id: "chrome:distill",
+        z: Z.chrome,
+        noInk: true,
+        prims: [
+          ...knockout(circlePts(c.distill, c.chipR, 32), 2),
+          ...g.faint.map((pts): DisplayPrim => ({ k: "line", pts: flat(pts), w: 1, grey: 150 })),
+          { k: "line", pts: flat(g.bold), w: 2.5 },
+        ],
       })
     }
   }

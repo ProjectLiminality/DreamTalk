@@ -29,6 +29,8 @@ export type Command =
   | { kind: "erase"; ids: string[] }
   /** Strokes → one symbol: the "make it real" step. */
   | { kind: "replace"; ids: string[]; symbol: PlacedSymbol }
+  /** Strokes → the clean stroke(s) they mean (distill.ts), in the first one's place. */
+  | { kind: "distill"; ids: string[]; strokes: InkStroke[] }
   /** Remove strokes and/or symbols (Delete key). */
   | { kind: "delete"; ids: string[] }
   /** Translate strokes and/or symbols, in page units. */
@@ -66,6 +68,13 @@ export const apply = (s: SketchState, cmd: Command): SketchState => {
         strokes: s.strokes.filter((k) => !gone.has(k.id)),
         symbols: [...s.symbols, symbol],
       }
+    }
+    case "distill": {
+      const gone = new Set(cmd.ids)
+      const at = s.strokes.findIndex((k) => gone.has(k.id))
+      const kept = s.strokes.filter((k) => !gone.has(k.id))
+      const before = at < 0 ? kept.length : s.strokes.slice(0, at).filter((k) => !gone.has(k.id)).length
+      return { strokes: [...kept.slice(0, before), ...cmd.strokes, ...kept.slice(before)], symbols: s.symbols }
     }
     case "move": {
       const moving = new Set(cmd.ids)
@@ -118,6 +127,8 @@ export const touched = (cmd: Command): string[] => {
       return [cmd.symbol.id]
     case "update":
       return [cmd.id]
+    case "distill":
+      return cmd.strokes.map((k) => k.id)
     case "edit":
       return [...new Set(cmd.steps.flatMap(touched))]
     default:

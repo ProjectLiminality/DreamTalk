@@ -14,6 +14,8 @@ const SENSIBLE: Record<string, Record<string, unknown>> = {
   eye: { cx: 300, cy: 300, size: 200, rotation: 0 },
   figure: { cx: 300, cy: 1200, height: 300 },
   text: { content: "DreamTalk", cx: 700, cy: 400, size: 80, rotation: 0 },
+  regenaissance: { cx: 640, cy: 930, r: 550, rotation: 0 },
+  sMark: { cx: 1210, cy: 165, size: 170, rotation: 0, framed: "no" },
 }
 
 const build = (symbol: string, params: Record<string, unknown>): Holon =>

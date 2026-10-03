@@ -136,6 +136,7 @@ describe("buildDisplay: the page as items", () => {
           knob: { x: 150, y: 40 },
           frameTop: { x: 150, y: 80 },
           chip: { x: 150, y: 180 },
+          distill: { x: 206, y: 180 },
           handle: 14,
           knobR: 10,
           chipR: 26,
@@ -143,7 +144,7 @@ describe("buildDisplay: the page as items", () => {
       }),
     )
     const ids = list.map((i) => i.id)
-    expect(ids).toEqual(expect.arrayContaining(["frame", "chrome:knob", "chrome:corner0", "chrome:corner3", "chrome:chip"]))
+    expect(ids).toEqual(expect.arrayContaining(["frame", "chrome:knob", "chrome:corner0", "chrome:corner3", "chrome:chip", "chrome:distill"]))
     const frame = list.find((i) => i.id === "frame")!
     expect(frame.grab).toBe(true)
     expect((frame.prims[0] as { dash?: number[] }).dash).toEqual([6, 12]) // css px × unit
@@ -153,6 +154,11 @@ describe("buildDisplay: the page as items", () => {
     const disk = pairs(chip.prims[0]!)
     expect(chip.prims[0]!.k).toBe("fill")
     for (const q of disk) expect(Math.hypot(q.x - 150, q.y - 180)).toBeCloseTo(26, 0)
+    // the distill chip beside it: a disk and line work, no ink under the tip
+    const distill = list.find((i) => i.id === "chrome:distill")!
+    expect(distill.noInk).toBe(true)
+    for (const q of pairs(distill.prims[0]!)) expect(Math.hypot(q.x - 206, q.y - 180)).toBeCloseTo(26, 0)
+    expect(distill.prims.filter((p) => p.k === "line").length).toBeGreaterThanOrEqual(4)
   })
 
   test("the gesture in progress is `live`; erased ink is grey", () => {

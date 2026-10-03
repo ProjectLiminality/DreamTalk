@@ -7,7 +7,11 @@
  * ink stroke as a Line (strokes ARE scene data, Grease-Pencil style), the
  * camera framing the page straight on — the same page → scene mapping
  * the whiteboard renders with, so the editor shows exactly what was
- * sketched. Blender's split, kept: the whiteboard (/sketch/?board=<name>)
+ * sketched. Straight on is only where the observer STARTS: the page is
+ * the scene's z = 0 plane, ink and flat symbols lie in it, and the 3D
+ * ones (a cube's h/p/b, a MindVirus's heading + tilt and its tumbled
+ * cable's z) stand in real depth about it — orbit the editor's camera and
+ * the board is a plane seen in perspective. Blender's split, kept: the whiteboard (/sketch/?board=<name>)
  * is the 2D layout workspace on the tablet, the editor (/?scene=board:<name>)
  * is where it gets a camera, a timeline and choreography.
  *

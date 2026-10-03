@@ -176,7 +176,9 @@ export const coerceParam = (entry: VocabEntry, key: string, v: unknown): unknown
   if (!spec) return undefined
   if (spec.type === "points") {
     const pts = readPoints(v)
-    return pts.map((p) => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10])
+    // A tumbled path keeps its depth (vocabulary.ts PagePt); a drawn one has none.
+    const r1 = (v: number) => Math.round(v * 10) / 10
+    return pts.map((p) => (p.z === undefined ? [r1(p.x), r1(p.y)] : [r1(p.x), r1(p.y), r1(p.z)]))
   }
   if (spec.type === "string") return typeof v === "string" || typeof v === "number" ? String(v) : undefined
   if (spec.type === "enum") {

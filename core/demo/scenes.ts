@@ -35,6 +35,7 @@ import { AxesDream } from "./vocabulary/Axes"
 import { FoldableCubeDream } from "./vocabulary/FoldableCube"
 import { CableDream } from "./vocabulary/Cable"
 import { SketchDream } from "./vocabulary/Sketch"
+import { RegenaissanceDream } from "./vocabulary/Regenaissance"
 import { Scene00Dream } from "./origins/Scene00"
 import { Scene01Dream } from "./origins/Scene01"
 import { Scene02Dream } from "./origins/Scene02"
@@ -177,6 +178,8 @@ export const scenes: Record<string, DreamClass> = {
   // S-curve divides them into a yin-yang, and the two nodes (blue/centralised,
   // red/decentralised) counter-rotate and swap sizes. Web2 vs Web3, as one image.
   yinyang: YinYangDream,
+  // The noosphere over the biosphere, the eye where they meet, one ring round both.
+  regenaissance: RegenaissanceDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 

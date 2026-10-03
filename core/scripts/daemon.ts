@@ -599,7 +599,6 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
           className: msg.className,
           name: msg.name,
           value: msg.value,
-          remove: msg.remove,
         })
     }
   }

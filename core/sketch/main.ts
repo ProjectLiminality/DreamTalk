@@ -31,6 +31,8 @@
  *   PEN BUTTON + tap   inside the selection → TRANSFORM ("make it real");
  *                      on a stroke/symbol → select it; on nothing → clear
  *   ✦ chip             (below the selection) tap/click → TRANSFORM
+ *   ≋ chip / D         (beside ✦) DISTILL: many rough strokes → the clean
+ *                      stroke(s) they mean (distill.ts), one undo step
  *   corner handles     uniform scale about the opposite corner (Alt: centre)
  *   rotate knob        rotate about the centre (Shift snaps 15°)
  *   Alt + knob / drag  on a selection holding a 3D symbol (cube, MindVirus):
@@ -49,11 +51,12 @@ import { Dream } from "../src/dream"
 import { Create } from "../src/verbs"
 import type { Holon } from "../src/holon"
 import { ThreeHost } from "../src/render/three-host"
-import { VOCABULARY, buildSymbol, canTumble, framePage, tumbleCentre } from "./vocabulary"
+import { VOCABULARY, buildSymbol, canTumble, framePage, tumbleCentre, tumbleTurn, vocabById } from "./vocabulary"
 import { Group } from "../src/parts/primitives"
 import { emptyBoard, isValidBoardName, parseBoard, serializeBoard } from "./board"
 import { installVoice } from "./voice"
 import { Mirror, type MirrorView } from "./mirror"
+import { distillGlyph, distillStrokes } from "./distill"
 import {
   IDENTITY,
   SIM_IDENTITY,
@@ -251,6 +254,8 @@ let live: PenSample[] = []
 let lasso: Pt[] = []
 let pressStart: Pt | undefined
 let pressButton = false
+/** Which chip a chipPress began on. */
+let pressChip: "chip" | "distill" = "chip"
 let erased = new Set<string>()
 /** The live transform of the selection (a pen drag, a handle, or fingers). */
 let liveXf: Xf | undefined
@@ -320,7 +325,7 @@ const accent = "#00a2ff"
 class SymbolsDream extends Dream {
   /** With `pivots`: one Group per 3D symbol, turning about its centre —
    *  the live tumble's preview handle (tumblePreview). */
-  readonly pivots: Holon[] = []
+  readonly pivots: Pivot[] = []
 
   constructor(
     private readonly placed: readonly PlacedSymbol[],
@@ -345,7 +350,8 @@ class SymbolsDream extends Dream {
       if (c) {
         // T(c) · R · T(−c): the pivot turns the symbol about its own centre.
         const pivot = new Group({ members: [new Group({ members: [h], x: -c.x, y: c.y })], x: c.x, y: -c.y })
-        this.pivots.push(pivot)
+        const entry = vocabById(s.symbol)!
+        this.pivots.push({ holon: pivot, turn: (m) => tumbleTurn(entry, s.params, m) })
         h = pivot
       }
       if (s.id === this.fresh) this.play(Create(h), 0.9)
@@ -371,7 +377,14 @@ interface Layer {
   host?: ThreeHost
   sig: string
   /** The lifted layer's 3D symbols, each on its own pivot (SymbolsDream). */
-  pivots?: Holon[]
+  pivots?: Pivot[]
+}
+
+/** A 3D symbol's preview pivot, and the turn its body really takes under a
+ *  tumble (vocabulary.ts tumbleTurn) — the one its commit will show. */
+interface Pivot {
+  holon: Holon
+  turn: (m: Mat3) => Mat3
 }
 const restLayer: Layer = { name: "rest", sig: "" }
 const liftedLayer: Layer = { name: "lifted", sig: "" }
@@ -407,7 +420,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
   const todo = layerLists().filter(([L, list]) => layerSig(list) !== L.sig || (list.length > 0 && !L.host))
   if (todo.length === 0) return
   glBusy = true
-  const built: { L: Layer; sig: string; canvas?: HTMLCanvasElement; host?: ThreeHost; duration: number; pivots?: Holon[] }[] = []
+  const built: { L: Layer; sig: string; canvas?: HTMLCanvasElement; host?: ThreeHost; duration: number; pivots?: Pivot[] }[] = []
   try {
     const { w, h, left } = glGeometry()
     for (const [L, list] of todo) {
@@ -500,8 +513,8 @@ const tumblePreview = (m: Mat3 | undefined) => {
     tumbleFrame = null
     // A layer rebuilt meanwhile already shows its own params.
     if (!host || host !== liftedLayer.host || !liftedLayer.pivots?.length) return
-    const e = mat3ToEuler(turn)
-    for (const p of liftedLayer.pivots) {
+    for (const { holon: p, turn: bodyTurn } of liftedLayer.pivots) {
+      const e = mat3ToEuler(bodyTurn(turn))
       p.h.defaultValue = p.h.value = e.h
       p.p.defaultValue = p.p.value = e.p
       p.b.defaultValue = p.b.value = e.b
@@ -540,6 +553,7 @@ interface Chrome {
   corners: Pt[]
   knob: Pt
   chip?: Pt
+  distill?: Pt
 }
 
 /** Where the handles are — or nothing, while a gesture or the ring owns the page. */
@@ -558,16 +572,18 @@ const chrome = (): Chrome | undefined => {
   const chip = selectedStrokes().length
     ? { x: cx, y: clampY(frame.y + frame.h + px(CHIP_GAP + CHIP_R), CHIP_R) }
     : undefined
-  return { frame, corners, knob, chip }
+  const distill = chip && { x: chip.x + px(2 * CHIP_R + 8), y: chip.y }
+  return { frame, corners, knob, chip, distill }
 }
 
-type ChromeHit = { kind: "chip" } | { kind: "rotate" } | { kind: "corner"; i: number }
+type ChromeHit = { kind: "chip" } | { kind: "distill" } | { kind: "rotate" } | { kind: "corner"; i: number }
 
 const chromeAt = (p: Pt): ChromeHit | undefined => {
   const c = chrome()
   if (!c) return undefined
   const near = (q: Pt, r: number) => Math.hypot(p.x - q.x, p.y - q.y) <= px(r)
   if (c.chip && near(c.chip, CHIP_HIT)) return { kind: "chip" }
+  if (c.distill && near(c.distill, CHIP_HIT)) return { kind: "distill" }
   if (near(c.knob, KNOB_HIT)) return { kind: "rotate" }
   for (let i = 0; i < 4; i++) if (near(c.corners[i]!, HANDLE_HIT)) return { kind: "corner", i }
   return undefined
@@ -674,6 +690,7 @@ const mirrorView = (): MirrorView => {
       knob: c.knob,
       frameTop: { x: c.frame.x + c.frame.w / 2, y: c.frame.y },
       chip: c.chip,
+      distill: c.distill,
       handle: px(HANDLE),
       knobR: px(KNOB_R),
       chipR: px(CHIP_R),
@@ -730,6 +747,31 @@ const paintChrome = (c: Chrome, k: number) => {
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
     ctx.fillText("✦", x, y + 0.5 * dpr)
+  }
+  // the distill chip: many passes → one line
+  if (c.distill) {
+    const x = c.distill.x * k
+    const y = c.distill.y * k
+    ctx.beginPath()
+    ctx.arc(x, y, CHIP_R * dpr, 0, Math.PI * 2)
+    ctx.fillStyle = pageColor()
+    ctx.fill()
+    ctx.strokeStyle = accent
+    ctx.lineWidth = 1.3 * dpr
+    ctx.stroke()
+    const g = distillGlyph({ x, y }, CHIP_R * dpr)
+    const line = (pts: Pt[]) => {
+      ctx.beginPath()
+      pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)))
+      ctx.stroke()
+    }
+    ctx.lineCap = "round"
+    ctx.globalAlpha = 0.4
+    ctx.lineWidth = 0.9 * dpr
+    g.faint.forEach(line)
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1.8 * dpr
+    line(g.bold)
   }
   ctx.restore()
 }
@@ -867,7 +909,7 @@ const undo = () => {
   if (!cmd) return
   // Restore what the step took away (or moved) as the selection, so the
   // next move (a different pick, a re-ask) has its subject in hand.
-  if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase") selection = new Set(cmd.ids)
+  if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase" || cmd.kind === "distill") selection = new Set(cmd.ids)
   else if (cmd.kind === "move" || cmd.kind === "transform") selection = new Set(cmd.ids)
   else if (cmd.kind === "edit") selection = new Set(cmd.selected)
   else selection = new Set()
@@ -881,7 +923,11 @@ const redo = () => {
   const cmd = history.redo()
   if (!cmd) return
   selection =
-    cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : cmd.kind === "edit" ? new Set(touched(cmd)) : new Set()
+    cmd.kind === "move" || cmd.kind === "transform"
+      ? new Set(cmd.ids)
+      : cmd.kind === "edit" || cmd.kind === "distill"
+        ? new Set(touched(cmd))
+        : new Set()
   afterChange(cmd.kind === "replace" ? cmd.symbol.id : undefined)
 }
 
@@ -956,6 +1002,27 @@ const httpRecognize: Recognizer = async (req) => {
 }
 
 let recognize: Recognizer = httpRecognize
+
+/**
+ * DISTILL (distill.ts): the selected rough strokes → the clean stroke(s)
+ * they collectively mean, as ONE undo step. The result stays selected, so ✦
+ * can make it real next.
+ */
+const distill = () => {
+  if (thinking) return
+  const strokes = selectedStrokes()
+  if (strokes.length === 0) {
+    flash("select some ink first (shift-drag a lasso)")
+    return
+  }
+  closeRing()
+  const out = distillStrokes(strokes, () => newId("ink"))
+  if (out.length === 0) return
+  const cmd: Extract<Command, { kind: "distill" }> = { kind: "distill", ids: strokes.map((k) => k.id), strokes: out }
+  history.do(cmd)
+  selection = new Set([...[...selection].filter((id) => !cmd.ids.includes(id)), ...touched(cmd)])
+  afterChange()
+}
 
 const transform = async (): Promise<void> => {
   if (thinking) return
@@ -1223,9 +1290,10 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
       return
     }
     const hit = chromeAt(p)
-    if (hit?.kind === "chip") {
-      // Tip or button: a tap here is "make it real", and never ink.
+    if (hit?.kind === "chip" || hit?.kind === "distill") {
+      // Tip or button: a tap here is "make it real" (or distill), and never ink.
       mode = "chipPress"
+      pressChip = hit.kind
       pressStart = p
       pressButton = ev.button
       live = [ev.sample]
@@ -1326,7 +1394,8 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
     case "chipPress":
       live = []
       drawInk()
-      void transform()
+      if (pressChip === "distill") distill()
+      else void transform()
       break
     case "pressSel":
       // a button-held tap INSIDE the selection: make it real
@@ -1534,7 +1603,7 @@ const hoverCursor = (e: PointerEvent) => {
   const hit = chromeAt(p)
   const fb = frameBox()
   ink.style.cursor =
-    hit?.kind === "chip"
+    hit?.kind === "chip" || hit?.kind === "distill"
       ? "pointer"
       : hit?.kind === "rotate"
         ? "grab"
@@ -1675,6 +1744,9 @@ window.addEventListener("keydown", (e) => {
   } else if (e.key === "Enter") {
     e.preventDefault()
     void transform()
+  } else if (!meta && !e.altKey && e.key.toLowerCase() === "d") {
+    e.preventDefault()
+    distill()
   } else if (e.key === "Escape") {
     if (ring) closeRing()
     else setSelection([])
@@ -1780,6 +1852,7 @@ window.__sketch = {
   },
   select: (ids: string[]) => setSelection(ids),
   transform: () => transform(),
+  distill,
   undo,
   redo,
   canUndo: () => history.canUndo,
@@ -1804,7 +1877,13 @@ window.__sketch = {
     const c = chrome()
     if (!c) return undefined
     const both = (p: Pt) => ({ page: p, client: pageToClient(p) })
-    return { frame: c.frame, corners: c.corners.map(both), knob: both(c.knob), chip: c.chip && both(c.chip) }
+    return {
+      frame: c.frame,
+      corners: c.corners.map(both),
+      knob: both(c.knob),
+      chip: c.chip && both(c.chip),
+      distill: c.distill && both(c.distill),
+    }
   },
   toClient: pageToClient,
   liveXf: () => liveXf,

@@ -11,5 +11,16 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["src", "test"]
+  // The studio's live loop (daemon + what it imports, the tablet bridge) is
+  // checked too. The rest of scripts/ is not yet: the puppeteer drivers
+  // read `window.__dt` untyped, and a few one-offs have stale types.
+  "include": [
+    "src",
+    "test",
+    "scripts/daemon.ts",
+    "scripts/remarkable-bridge.ts",
+    "scripts/instruct.ts",
+    "scripts/look.ts",
+    "scripts/serve.ts"
+  ]
 }

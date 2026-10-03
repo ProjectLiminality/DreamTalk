@@ -487,10 +487,10 @@ var spokenSeconds = (text) => {
 };
 class Narration {
   lines = [];
-  add(text, start, voice) {
-    const duration = spokenSeconds(text);
-    this.lines.push({ text: text.trim(), start, duration, voice });
-    return duration;
+  add(text, start, voice, duration) {
+    const slot = duration ?? spokenSeconds(text);
+    this.lines.push({ text: text.trim(), start, duration: slot, voice });
+    return slot;
   }
   get isEmpty() {
     return this.lines.length === 0;
@@ -600,7 +600,7 @@ class Dream {
     this.#cursor += dt;
   }
   say(text, opts = {}) {
-    const duration = this.#narration.add(text, this.#cursor, opts.voice);
+    const duration = this.#narration.add(text, this.#cursor, opts.voice, opts.duration);
     if (opts.hold)
       this.#cursor += duration;
   }
@@ -64725,6 +64725,8 @@ class ThreeHost {
   washesFillOpacity(holon) {
     if (holon.fillOpacity.value > 0)
       return true;
+    if (holon.fillOpacity.isBound)
+      return true;
     for (const clip of this.dream.clips) {
       for (const track of clip.anim.tracks) {
         if (track.param === holon.fillOpacity)
@@ -65513,6 +65515,511 @@ class Figure extends Stroke {
   }
 }
 
+// src/geometry/globe.ts
+var projectLatLon = (lonDeg, latDeg, radius, spin, tilt) => {
+  const lon = lonDeg * Math.PI / 180 + spin;
+  const lat = latDeg * Math.PI / 180;
+  const cosLat = Math.cos(lat);
+  const x2 = cosLat * Math.sin(lon);
+  const y0 = Math.sin(lat);
+  const z0 = cosLat * Math.cos(lon);
+  const y2 = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
+  const z2 = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
+  return { x: x2 * radius, y: y2 * radius, z: z2 };
+};
+var clampedRing = (ring, radius, spin, tilt) => {
+  const out = [];
+  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
+    const p2 = projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt);
+    if (p2.z >= 0) {
+      out.push({ x: p2.x, y: p2.y });
+    } else {
+      const len3 = Math.hypot(p2.x, p2.y);
+      if (len3 < 0.000000001)
+        out.push({ x: 0, y: p2.y >= 0 ? radius : -radius });
+      else
+        out.push({ x: p2.x / len3 * radius, y: p2.y / len3 * radius });
+    }
+  }
+  return out;
+};
+var frontArcs = (ring, radius, spin, tilt) => {
+  const n2 = ring.length / 2;
+  if (n2 < 2)
+    return [];
+  const pts = [];
+  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
+    pts.push(projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt));
+  }
+  const crossing = (a2, b2) => {
+    const t2 = a2.z / (a2.z - b2.z);
+    const x2 = a2.x + (b2.x - a2.x) * t2;
+    const y2 = a2.y + (b2.y - a2.y) * t2;
+    const len3 = Math.hypot(x2, y2);
+    if (len3 < 0.000000001)
+      return { x: x2, y: y2 };
+    return { x: x2 / len3 * radius, y: y2 / len3 * radius };
+  };
+  const arcs = [];
+  let current = null;
+  for (let k2 = 0;k2 <= n2; k2++) {
+    const a2 = pts[k2 % n2];
+    const b2 = pts[(k2 + 1) % n2];
+    const aFront = a2.z >= 0;
+    const bFront = b2.z >= 0;
+    if (aFront) {
+      if (!current)
+        current = [{ x: a2.x, y: a2.y }];
+      else
+        current.push({ x: a2.x, y: a2.y });
+    }
+    if (aFront && !bFront) {
+      current.push(crossing(a2, b2));
+      arcs.push(current);
+      current = null;
+    } else if (!aFront && bFront) {
+      current = [crossing(a2, b2)];
+    }
+  }
+  if (current && current.length > 1)
+    arcs.push(current);
+  if (arcs.length >= 2) {
+    const first = arcs[0];
+    const last = arcs[arcs.length - 1];
+    const a2 = last[last.length - 1];
+    const b2 = first[0];
+    if (Math.hypot(a2.x - b2.x, a2.y - b2.y) < 0.000001) {
+      arcs[0] = last.slice(0, -1).concat(first);
+      arcs.pop();
+    }
+  }
+  return arcs.filter((a2) => a2.length >= 2);
+};
+
+// vocabulary/Globe/continents.ts
+var continentRings = [[-58.61, -64.15, -62.02, -64.8, -62.12, -66.19, -65.67, -67.95, -61.81, -70.72, -60.83, -73.7, -70.6, -76.63, -77.24, -76.71, -73.66, -77.91, -77.93, -78.38, -78.02, -79.18, -58.22, -83.22, -28.55, -80.34, -29.69, -79.26, -35.64, -79.46, -35.33, -78.12, -17.52, -75.13, -15.7, -74.5, -16.47, -73.87, -15.45, -73.15, -6.87, -70.93, -0.23, -71.64, 7.74, -69.89, 10.82, -70.83, 13.42, -69.97, 27.09, -70.46, 33.87, -68.5, 38.65, -69.78, 54.53, -65.82, 61.43, -67.95, 68.89, -67.93, 69.67, -69.23, 67.81, -70.31, 69.07, -70.68, 67.95, -71.85, 69.87, -72.26, 73.86, -69.87, 87.99, -66.21, 95.78, -67.39, 99.72, -67.25, 102.83, -65.56, 106.18, -66.93, 113.6, -65.88, 119.83, -67.27, 134.76, -66.21, 135.07, -65.31, 137.46, -66.95, 145.49, -66.92, 148.84, -68.39, 171.21, -71.7, 169.29, -73.66, 163.57, -76.24, 164.74, -78.18, 167, -78.75, 161.77, -79.16, 159.79, -80.95, 169.4, -83.83, 180, -84.71, 180, -90, -180, -90, -180, -84.71, -179.06, -84.14, -169.95, -83.88, -158.07, -85.37, -143.11, -85.04, -153.59, -83.69, -152.86, -82.04, -156.84, -81.1, -146.42, -80.34, -155.33, -79.06, -158.05, -78.03, -158.37, -76.89, -151.33, -77.4, -146.1, -76.48, -146.2, -75.38, -144.91, -75.2, -113.94, -73.71, -112.3, -74.71, -100.65, -75.3, -103.68, -72.62, -74.89, -73.87, -67.37, -72.48, -68.54, -69.72, -67.74, -67.33, -63, -64.64, -57.81, -63.27, -58.61, -64.15], [173.02, -40.92, 174.25, -41.35, 173.08, -43.85, 169.33, -46.64, 166.68, -46.22, 173.02, -40.92], [174.61, -36.16, 176.76, -37.88, 178.52, -37.7, 175.24, -41.69, 173.82, -39.51, 174.7, -37.38, 172.64, -34.53, 174.61, -36.16], [50.06, -13.56, 50.38, -15.71, 47.1, -24.94, 44.04, -24.99, 43.25, -22.06, 44.37, -20.07, 44.45, -16.22, 47.71, -14.59, 49.19, -12.04, 50.06, -13.56], [143.56, -13.76, 145.37, -14.98, 146.39, -18.96, 148.85, -20.39, 153.14, -26.07, 152.89, -31.64, 150, -37.43, 146.32, -39.04, 145.03, -37.9, 143.61, -38.81, 140.64, -38.02, 138.12, -35.61, 138.21, -34.38, 136.83, -35.26, 137.81, -32.9, 135.99, -34.89, 134.27, -32.62, 131.33, -31.5, 118.02, -35.06, 115.03, -34.2, 115.69, -31.61, 113.34, -26.12, 114.23, -26.3, 113.39, -24.38, 114.15, -21.76, 114.23, -22.52, 120.86, -19.68, 125.69, -14.23, 129.62, -14.97, 130.62, -12.54, 132.58, -12.11, 132.36, -11.13, 136.49, -11.86, 135.5, -15, 140.22, -17.71, 142.14, -11.04, 143.56, -13.76], [134.14, -1.15, 135.46, -3.37, 138.33, -1.7, 144.58, -3.86, 147.65, -6.08, 147.19, -7.39, 150.69, -10.58, 147.91, -10.13, 144.74, -7.63, 142.63, -9.33, 137.61, -8.41, 138.67, -7.32, 137.93, -5.39, 133.66, -3.54, 132.98, -4.11, 131.99, -2.82, 133.7, -2.21, 130.52, -0.94, 134.14, -1.15], [125.24, 1.42, 123.69, 0.24, 120.18, 0.24, 120.94, -1.41, 123.34, -0.62, 121.51, -1.9, 123.16, -5.34, 121.49, -4.57, 120.97, -2.63, 120.43, -5.53, 119.37, -5.38, 118.77, -2.8, 120.04, 0.57, 125.24, 1.42], [105.82, -5.85, 102.58, -4.22, 95.29, 5.48, 97.48, 5.25, 103.84, 0.1, 103.44, -0.71, 106.11, -3.06, 105.82, -5.85], [117.88, 1.83, 119, 0.9, 117.81, 0.78, 116.15, -4.01, 110.22, -2.93, 109.09, -0.46, 109.66, 2.01, 113, 3.1, 116.73, 6.92, 119.18, 5.41, 117.31, 3.23, 117.88, 1.83], [140.98, 37.14, 140.25, 35.14, 135.79, 33.46, 135.08, 34.6, 130.99, 33.89, 132, 33.15, 131.33, 31.45, 130.2, 31.42, 129.41, 33.3, 132.62, 35.43, 135.68, 35.53, 136.72, 37.3, 139.43, 38.22, 140.31, 41.2, 141.37, 41.38, 141.91, 39.99, 140.98, 37.14], [-3.01, 58.64, -4.07, 57.55, -1.96, 57.68, -3.12, 55.97, 1.68, 52.74, 1.45, 51.29, -5.25, 49.96, -3.41, 51.43, -5.27, 51.99, -4.22, 52.3, -4.58, 53.5, -2.95, 53.99, -5.59, 55.31, -6.15, 56.79, -5.01, 58.63, -3.01, 58.64], [-175.01, 66.58, -169.9, 65.98, -172.53, 65.44, -172.96, 64.25, -178.69, 66.11, -180, 64.98, -180, 68.96, -175.01, 66.58], [-90.55, 69.5, -90.55, 68.48, -89.22, 69.26, -87.35, 67.2, -85.52, 69.88, -82.62, 69.66, -81.28, 69.16, -81.26, 67.6, -85.77, 66.56, -87.32, 64.78, -93.16, 62.02, -94.68, 58.95, -93.22, 58.78, -92.3, 57.09, -82.27, 55.15, -82.12, 53.28, -79.91, 51.21, -78.6, 52.56, -79.83, 54.67, -76.54, 56.53, -78.52, 58.8, -77.34, 59.85, -78.11, 62.32, -73.84, 62.44, -69.59, 61.06, -69.29, 58.96, -67.65, 58.21, -64.58, 60.34, -61.8, 56.34, -57.33, 54.63, -55.68, 52.15, -60.03, 50.24, -66.4, 50.23, -71.1, 46.82, -65.06, 49.23, -64.17, 48.74, -65.12, 48.07, -64.47, 46.24, -61.52, 45.88, -60.52, 47.01, -59.8, 45.92, -65.36, 43.55, -66.16, 44.47, -64.43, 45.29, -67.14, 45.14, -70.69, 43.03, -69.97, 41.64, -73.71, 40.93, -71.95, 40.93, -73.95, 40.75, -74.91, 38.94, -75.53, 39.5, -75.94, 37.22, -76.35, 39.15, -76.96, 38.23, -75.73, 35.55, -81.34, 31.44, -80.38, 25.21, -84.1, 30.09, -89.18, 30.32, -90.15, 29.12, -93.85, 29.71, -96.59, 28.31, -97.87, 22.44, -96.29, 19.32, -94.43, 18.14, -92.04, 18.7, -90.28, 21, -87.05, 21.54, -88.93, 15.89, -83.41, 15.27, -83.81, 11.1, -81.44, 8.79, -79.57, 9.61, -76.84, 8.64, -74.91, 11.08, -71.75, 12.44, -71.7, 9.07, -69.94, 12.16, -68.19, 10.55, -61.88, 10.72, -62.39, 9.95, -57.15, 5.97, -53.96, 5.76, -51.32, 4.2, -49.97, 1.74, -50.39, -0.08, -44.91, -1.55, -44.58, -2.69, -39.98, -2.87, -35.6, -5.15, -34.73, -7.34, -38.67, -13.06, -40.94, -21.94, -47.65, -24.89, -48.89, -28.67, -53.81, -34.4, -56.22, -34.86, -58.43, -33.91, -56.79, -36.9, -59.23, -38.72, -62.34, -38.83, -62.75, -41.03, -65.12, -41.06, -63.46, -42.56, -67.29, -45.55, -67.58, -46.3, -65.64, -47.24, -65.99, -48.13, -69.14, -50.73, -68.15, -52.35, -70.85, -52.9, -71.01, -53.83, -74.95, -52.26, -75.61, -48.67, -74.13, -46.94, -75.64, -46.65, -74.35, -44.1, -73.24, -44.45, -72.72, -42.38, -74.33, -43.22, -73.59, -37.16, -71.44, -32.42, -70.16, -19.76, -71.46, -17.36, -76.01, -14.65, -79.76, -7.19, -81.25, -6.14, -79.77, -2.66, -80.97, -2.25, -80.93, -1.06, -77.13, 3.85, -78.18, 8.32, -79.56, 8.93, -80.89, 7.22, -85.66, 9.93, -87.49, 13.3, -103.5, 18.29, -105.49, 19.95, -106.03, 22.77, -113.87, 31.57, -114.78, 31.8, -114.67, 30.16, -109.41, 23.36, -110.03, 22.82, -112.18, 24.74, -112.3, 26.01, -115.06, 27.72, -114.16, 28.57, -117.3, 33.05, -120.62, 34.61, -124.4, 40.31, -124.69, 48.18, -122.59, 47.1, -122.84, 49, -127.44, 50.83, -127.85, 52.33, -134.08, 58.12, -147.11, 60.88, -151.72, 59.16, -150.62, 61.28, -158.43, 55.99, -164.79, 54.4, -157.72, 57.57, -157.04, 58.92, -161.97, 58.67, -161.87, 59.63, -166.12, 61.5, -164.56, 63.15, -160.77, 63.77, -161.52, 64.4, -160.78, 64.79, -164.96, 64.45, -168.11, 65.67, -161.68, 66.12, -166.76, 68.36, -156.58, 71.36, -136.5, 68.9, -128.14, 70.48, -108.88, 67.38, -107.79, 67.89, -108.81, 68.31, -108.17, 68.65, -106.15, 68.8, -101.45, 67.65, -97.67, 68.58, -96.12, 68.24, -96.13, 67.29, -94.23, 69.07, -96.47, 70.09, -95.21, 71.92, -90.55, 69.5], [-114.17, 73.12, -109.92, 72.96, -108.19, 71.65, -108.4, 73.09, -106.52, 73.08, -101.09, 69.58, -102.73, 69.5, -102.43, 68.75, -116.11, 69.17, -117.34, 69.96, -112.42, 70.37, -117.9, 70.54, -116.11, 71.31, -119.4, 71.56, -114.17, 73.12], [-86.56, 73.16, -85.77, 72.53, -82.32, 73.75, -80.75, 72.06, -77.82, 72.75, -72.24, 71.56, -67.91, 70.12, -66.97, 69.19, -68.81, 68.72, -61.85, 66.86, -63.92, 65, -68.02, 66.26, -64.67, 63.39, -65.01, 62.67, -68.78, 63.75, -66.17, 61.93, -74.83, 64.68, -77.71, 64.23, -78.56, 64.57, -77.9, 65.31, -73.96, 65.45, -72.93, 67.73, -78.96, 70.17, -88.68, 70.41, -90.21, 72.24, -88.41, 73.54, -85.83, 73.8, -86.56, 73.16], [57.54, 70.72, 51.6, 71.47, 55.63, 75.08, 68.85, 76.54, 58.48, 74.31, 55.42, 72.37, 57.54, 70.72], [-94.68, 77.1, -79.83, 74.92, -92.42, 74.84, -93.89, 76.32, -97.12, 76.75, -94.68, 77.1], [106.97, 76.97, 114.13, 75.85, 109.4, 74.18, 123.2, 72.97, 123.26, 73.74, 126.98, 73.57, 131.29, 70.79, 132.25, 71.84, 139.87, 71.49, 139.15, 72.42, 140.47, 72.85, 159, 70.87, 160.94, 69.44, 167.84, 69.58, 169.58, 68.69, 170.82, 69.01, 170.45, 70.1, 178.6, 69.4, 180, 68.96, 180, 64.98, 177.41, 64.61, 179.49, 62.57, 173.68, 61.65, 170.33, 59.88, 163.54, 59.87, 162.02, 58.24, 163.19, 57.62, 162.12, 54.86, 156.79, 51.01, 155.91, 56.77, 163.67, 61.14, 164.47, 62.55, 160.12, 60.54, 159.3, 61.77, 156.72, 61.43, 154.22, 59.76, 155.04, 59.15, 142.2, 59.04, 135.13, 54.73, 139.9, 54.19, 141.38, 52.24, 138.22, 46.31, 134.87, 43.4, 132.28, 43.28, 127.53, 39.76, 129.46, 36.78, 129.09, 35.08, 126.49, 34.39, 126.12, 36.73, 126.86, 36.89, 124.71, 38.11, 125.32, 39.55, 121.05, 38.9, 121.64, 40.95, 118.04, 39.2, 118.91, 37.45, 122.36, 37.45, 119.15, 34.91, 121.91, 31.69, 121.68, 28.23, 115.89, 22.78, 110.79, 21.4, 110.44, 20.34, 108.52, 21.72, 105.88, 19.75, 109.34, 13.43, 109.2, 11.67, 105.16, 8.6, 105.08, 9.92, 100.1, 13.41, 99.22, 9.24, 102.96, 5.52, 104.23, 1.29, 101.39, 2.76, 100.09, 6.46, 98.34, 7.79, 98.76, 11.44, 97.16, 16.93, 94.19, 16.04, 94.32, 18.21, 91.42, 22.77, 86.98, 21.5, 86.5, 20.15, 80.32, 15.9, 79.86, 10.36, 77.54, 7.97, 73.53, 15.99, 72.63, 21.36, 70.47, 20.88, 66.37, 25.43, 57.4, 25.74, 56.49, 27.14, 54.72, 26.48, 51.52, 27.87, 50.12, 30.15, 47.97, 29.98, 50.81, 24.75, 51.59, 25.8, 51.79, 24.02, 54.01, 24.12, 56.36, 26.4, 56.85, 24.24, 59.81, 22.31, 55.27, 17.23, 43.48, 12.64, 42.65, 16.77, 34.63, 28.06, 34.92, 29.5, 33.92, 27.65, 32.42, 29.85, 36.87, 22, 37.48, 18.61, 43.32, 12.39, 42.72, 11.74, 44.61, 10.44, 51.11, 12.02, 51.05, 10.64, 47.74, 4.22, 39.2, -4.68, 40.78, -14.69, 34.79, -19.78, 35.61, -23.71, 32.57, -25.73, 32.2, -28.75, 25.78, -33.94, 19.62, -34.82, 18.38, -34.14, 18.22, -31.66, 15.21, -27.09, 14.26, -22.11, 11.79, -18.07, 13.69, -10.73, 11.92, -5.04, 8.8, -1.11, 9.4, 3.73, 8.5, 4.77, 5.9, 4.26, 4.33, 6.27, -1.96, 4.71, -9, 4.83, -16.61, 12.17, -17.62, 14.73, -16.15, 18.11, -16.97, 21.89, -14.44, 26.25, -9.56, 29.93, -9.3, 32.56, -5.93, 35.76, -2.17, 35.17, 1.47, 36.61, 9.51, 37.35, 11.1, 36.9, 10.34, 33.79, 19.09, 30.27, 21.54, 32.84, 28.91, 30.87, 33.77, 30.97, 36.16, 36.65, 27.64, 36.66, 26.17, 39.46, 33.51, 42.02, 38.35, 40.95, 41.7, 41.96, 36.68, 45.24, 39.12, 47.26, 34.96, 46.27, 36.33, 45.11, 33.88, 44.36, 32.45, 45.33, 33.3, 46.08, 30.75, 46.58, 27.67, 42.58, 28.81, 41.05, 22.63, 40.26, 24.04, 37.66, 23.12, 37.92, 22.49, 36.41, 19.41, 40.25, 19.54, 41.72, 13.14, 45.74, 12.59, 44.09, 18.48, 40.17, 16.87, 40.44, 16.1, 37.99, 15.41, 40.05, 8.89, 44.37, 3.1, 43.08, 3.04, 41.89, 0.81, 41.01, 0.11, 38.74, -2.15, 36.67, -5.38, 35.95, -8.9, 36.87, -9.39, 43.03, -1.38, 44.02, -1.19, 46.01, -4.59, 48.68, -1.62, 48.64, -1.93, 49.78, 1.34, 50.13, 4.71, 53.09, 8.12, 53.53, 8.54, 57.11, 10.58, 57.73, 10.91, 56.46, 9.65, 55.47, 10.94, 54.01, 19.66, 54.43, 21.27, 55.19, 21.58, 57.41, 24.12, 57.03, 24.43, 58.38, 23.34, 59.19, 29.12, 60.03, 22.87, 59.85, 21.32, 60.72, 21.54, 63.19, 25.4, 65.11, 22.18, 65.72, 17.85, 62.75, 17.12, 61.34, 18.79, 60.08, 16.83, 58.72, 15.88, 56.1, 12.94, 55.36, 10.36, 59.47, 8.38, 58.31, 5.67, 58.59, 4.99, 61.97, 14.76, 67.81, 24.55, 71.03, 28.17, 71.19, 31.29, 70.45, 30.01, 70.19, 31.1, 69.56, 40.29, 67.93, 41.13, 66.79, 40.02, 66.27, 33.18, 66.63, 34.81, 65.9, 34.94, 64.41, 37.01, 63.85, 37.18, 65.14, 39.59, 64.52, 42.09, 66.48, 43.95, 66.07, 44.53, 66.76, 43.45, 68.57, 46.25, 68.25, 46.82, 67.69, 45.56, 67.01, 46.35, 66.67, 53.72, 68.86, 59.94, 68.28, 61.08, 68.94, 60.55, 69.85, 68.51, 68.09, 69.18, 68.62, 66.93, 69.45, 66.69, 71.03, 69.2, 72.84, 72.59, 72.78, 71.85, 71.41, 73.67, 68.41, 71.28, 66.32, 72.42, 66.17, 75.05, 67.76, 73.6, 69.63, 74.4, 70.63, 73.1, 71.45, 74.66, 72.83, 76.36, 71.15, 75.9, 71.87, 77.58, 72.27, 81.5, 71.75, 80.51, 73.65, 86.82, 73.94, 86.01, 74.46, 87.17, 75.12, 100.76, 76.43, 104.35, 77.7, 106.97, 76.97], [49.11, 41.28, 50.39, 40.26, 48.86, 38.82, 49.2, 37.58, 53.83, 36.97, 53.88, 38.95, 52.69, 40.03, 54.74, 40.95, 53.72, 42.12, 52.81, 41.14, 52.5, 42.79, 50.31, 44.61, 53.04, 45.26, 53.04, 46.85, 49.1, 46.4, 46.68, 44.61, 49.11, 41.28], [-68.5, 83.11, -61.89, 82.36, -76.91, 79.32, -75.39, 78.53, -80.56, 76.18, -89.49, 76.47, -87.77, 77.18, -88.26, 77.9, -84.98, 77.54, -87.96, 78.37, -85.09, 79.35, -86.93, 80.25, -81.85, 80.46, -87.6, 80.52, -91.59, 81.89, -68.5, 83.11], [-27.1, 83.52, -20.85, 82.73, -31.4, 82.02, -12.21, 81.29, -20.05, 80.18, -17.73, 80.13, -19.7, 78.75, -18.47, 76.99, -21.68, 76.63, -19.83, 76.1, -19.6, 75.25, -20.67, 75.16, -19.37, 74.3, -23.57, 73.31, -22.3, 72.18, -24.79, 72.33, -21.75, 70.66, -25.54, 71.43, -26.36, 70.23, -22.35, 70.13, -39.81, 65.46, -42.82, 62.68, -43.38, 60.1, -48.26, 60.86, -51.63, 63.63, -53.97, 67.19, -50.87, 69.93, -54.68, 69.61, -54.36, 70.82, -51.39, 70.57, -55.83, 71.65, -54.72, 72.59, -58.59, 75.52, -68.5, 76.06, -71.4, 77.01, -66.76, 77.38, -73.3, 78.04, -65.71, 79.39, -68.02, 80.12, -62.65, 81.77, -50.39, 82.44, -44.52, 81.66, -46.76, 82.63, -43.41, 83.23, -27.1, 83.52]];
+
+// vocabulary/Globe/Globe.ts
+var DARK_LAND = rgb(51, 51, 51);
+
+class Globe extends Null {
+  static sovereign = true;
+  radius = length(200);
+  continents = "fill";
+  spin = scalar(0);
+  tilt = angle(0.12);
+  land = color(DARK_LAND);
+  landOpacity = completion(1);
+  coastStroke = length(3);
+  limbStroke = length(0);
+  limbTint = color(rgb(136, 136, 136));
+  oceanTint = color(rgb(17, 17, 17));
+  oceanOpacity = completion(0);
+  graticule = bool(false);
+  graticuleTint = color(rgb(85, 85, 85));
+  meridians = length(12);
+  parallels = length(6);
+  ocean;
+  limb;
+  landHolon;
+  grid;
+  compose() {
+    this.ocean = this.add(new Circle({
+      radius: this.radius,
+      tint: this.oceanTint,
+      stroke: scalar(0),
+      fillOpacity: this.oceanOpacity
+    }));
+    if (this.continents === "fill")
+      this.landHolon = this.add(this.buildFilledLand());
+    else
+      this.landHolon = this.add(this.buildOutlinedLand());
+    this.grid = this.add(new Group({ members: this.graticule.value ? this.buildGraticule() : [] }));
+    this.limb = this.add(new Circle({ radius: this.radius, tint: this.limbTint, stroke: this.limbStroke }));
+  }
+  buildFilledLand() {
+    const parent = new Stroke({
+      tint: this.land,
+      stroke: scalar(0),
+      fillOpacity: this.landOpacity
+    });
+    for (const ring of continentRings) {
+      const line = new Line({ tint: this.land, stroke: scalar(0) });
+      deriveRing(line, this, () => {
+        const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value);
+        return closeLoop2(pts);
+      });
+      parentAdd(parent, line);
+    }
+    return parent;
+  }
+  buildOutlinedLand() {
+    const parent = new Stroke({ tint: this.land, stroke: this.coastStroke, fillOpacity: scalar(0) });
+    const SLOTS = 4;
+    for (const ring of continentRings) {
+      for (let s2 = 0;s2 < SLOTS; s2++) {
+        const line = new Line({ tint: this.land, stroke: this.coastStroke });
+        deriveRing(line, this, () => {
+          const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
+          const arc = arcs[s2];
+          return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
+        });
+        parentAdd(parent, line);
+      }
+    }
+    return parent;
+  }
+  buildGraticule() {
+    const lines = [];
+    const nMer = Math.max(1, Math.round(this.meridians.value));
+    const nPar = Math.max(1, Math.round(this.parallels.value));
+    for (let m2 = 0;m2 < nMer; m2++) {
+      const lon = -180 + 360 * m2 / nMer;
+      const ring = [];
+      for (let lat = -90;lat <= 90; lat += 5)
+        ring.push(lon, lat);
+      lines.push(...this.graticuleArcs(ring));
+    }
+    for (let p2 = 1;p2 < nPar; p2++) {
+      const lat = -90 + 180 * p2 / nPar;
+      const ring = [];
+      for (let lon = -180;lon <= 180; lon += 5)
+        ring.push(lon, lat);
+      lines.push(...this.graticuleArcs(ring));
+    }
+    return lines;
+  }
+  graticuleArcs(ring) {
+    const SLOTS = 2;
+    const out = [];
+    for (let s2 = 0;s2 < SLOTS; s2++) {
+      const line = new Line({ tint: this.graticuleTint, stroke: this.coastStroke.times(0.5) });
+      deriveRing(line, this, () => {
+        const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
+        const arc = arcs[s2];
+        return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
+      });
+      out.push(line);
+    }
+    return out;
+  }
+}
+var closeLoop2 = (pts) => {
+  if (pts.length < 3)
+    return [];
+  const out = pts.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
+  const a2 = out[0];
+  const b2 = out[out.length - 1];
+  if (Math.hypot(a2.x - b2.x, a2.y - b2.y) > 0.000001)
+    out.push({ x: a2.x, y: a2.y, z: 0 });
+  return out;
+};
+var parentAdd = (parent, child) => {
+  parent.add(child);
+};
+var deriveRing = (line, globe, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = [globe.spin.value, globe.radius.value, globe.tilt.value];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// vocabulary/Regenaissance/lattice.ts
+var PHI = (1 + Math.sqrt(5)) / 2;
+var ICOSA = [];
+for (const s1 of [-1, 1]) {
+  for (const s2 of [-1, 1]) {
+    ICOSA.push([0, s1, s2 * PHI], [s1, s2 * PHI, 0], [s2 * PHI, 0, s1]);
+  }
+}
+var norm2 = (v2) => {
+  const l2 = Math.hypot(v2[0], v2[1], v2[2]);
+  return [v2[0] / l2, v2[1] / l2, v2[2] / l2];
+};
+var GREAT_CIRCLE_NORMALS = (() => {
+  const out = [];
+  for (let i2 = 0;i2 < ICOSA.length; i2++) {
+    for (let j2 = i2 + 1;j2 < ICOSA.length; j2++) {
+      const a2 = ICOSA[i2];
+      const b2 = ICOSA[j2];
+      if (Math.abs(Math.hypot(a2[0] - b2[0], a2[1] - b2[1], a2[2] - b2[2]) - 2) > 0.000000001)
+        continue;
+      const m2 = norm2([a2[0] + b2[0], a2[1] + b2[1], a2[2] + b2[2]]);
+      if (!out.some((n2) => Math.abs(n2[0] * m2[0] + n2[1] * m2[1] + n2[2] * m2[2]) > 1 - 0.000000001))
+        out.push(m2);
+    }
+  }
+  return out;
+})();
+var orient = (v2, spin, pitch2) => {
+  const c2 = Math.cos(spin), s2 = Math.sin(spin);
+  const x2 = v2[0] * c2 + v2[2] * s2;
+  const z0 = -v2[0] * s2 + v2[2] * c2;
+  const y2 = v2[1] * Math.cos(pitch2) - z0 * Math.sin(pitch2);
+  const z2 = v2[1] * Math.sin(pitch2) + z0 * Math.cos(pitch2);
+  return [x2, y2, z2];
+};
+var greatCircleHalves = (k2, radius, spin, pitch2, samples = 32) => {
+  const n2 = orient(GREAT_CIRCLE_NORMALS[k2], spin, pitch2);
+  let u2 = [-n2[0] * n2[2], -n2[1] * n2[2], 1 - n2[2] * n2[2]];
+  if (Math.hypot(u2[0], u2[1], u2[2]) < 0.000000001)
+    u2 = [1, 0, 0];
+  u2 = norm2(u2);
+  const v2 = [n2[1] * u2[2] - n2[2] * u2[1], n2[2] * u2[0] - n2[0] * u2[2], n2[0] * u2[1] - n2[1] * u2[0]];
+  const half = (from) => {
+    const out = [];
+    for (let i2 = 0;i2 <= samples; i2++) {
+      const t2 = from + Math.PI * i2 / samples;
+      const c2 = Math.cos(t2), s2 = Math.sin(t2);
+      out.push({ x: (u2[0] * c2 + v2[0] * s2) * radius, y: (u2[1] * c2 + v2[1] * s2) * radius });
+    }
+    return out;
+  };
+  return { front: half(-Math.PI / 2), back: half(Math.PI / 2) };
+};
+var outsideDisc = (pts, cx, cy, r2) => {
+  const out = (p2) => Math.hypot(p2.x - cx, p2.y - cy) >= r2;
+  const edge = (a2, b2) => {
+    let lo = 0, hi = 1;
+    const oa = out(a2);
+    for (let i2 = 0;i2 < 24; i2++) {
+      const m2 = (lo + hi) / 2;
+      const p2 = { x: a2.x + (b2.x - a2.x) * m2, y: a2.y + (b2.y - a2.y) * m2 };
+      if (out(p2) === oa)
+        lo = m2;
+      else
+        hi = m2;
+    }
+    return { x: a2.x + (b2.x - a2.x) * lo, y: a2.y + (b2.y - a2.y) * lo };
+  };
+  const runs = [];
+  let cur;
+  for (let i2 = 0;i2 < pts.length; i2++) {
+    const p2 = pts[i2];
+    if (out(p2)) {
+      if (!cur) {
+        cur = [];
+        if (i2 > 0)
+          cur.push(edge(p2, pts[i2 - 1]));
+        runs.push(cur);
+      }
+      cur.push(p2);
+    } else if (cur) {
+      cur.push(edge(pts[i2 - 1], p2));
+      cur = undefined;
+    }
+  }
+  return runs.filter((r3) => r3.length >= 2);
+};
+
+// vocabulary/Regenaissance/SMark.ts
+var MARK_RED = rgb(237, 110, 87);
+var SMARK = {
+  offset: 0.38,
+  dot: 0.15,
+  square: 0.25,
+  band: 0.08
+};
+var sBandOutline = (R2, samples = 40) => {
+  const k2 = SMARK.offset * R2;
+  const w4 = SMARK.band * R2 / 2;
+  const c2 = Math.SQRT1_2;
+  const D2 = { x: k2 * c2, y: k2 * c2 };
+  const Q2 = { x: -k2 * c2, y: -k2 * c2 };
+  const arc = (o2, rad, a0, a1) => {
+    const out = [];
+    for (let i2 = 0;i2 <= samples; i2++) {
+      const a2 = a0 + (a1 - a0) * i2 / samples;
+      out.push({ x: o2.x + rad * Math.cos(a2), y: o2.y + rad * Math.sin(a2), z: 0 });
+    }
+    return out;
+  };
+  const q = Math.PI / 4;
+  const sideA = [...arc(D2, k2 - w4, q, q + Math.PI), ...arc(Q2, k2 + w4, q, q - Math.PI).slice(1)];
+  const sideB = [...arc(Q2, k2 - w4, q - Math.PI, q), ...arc(D2, k2 + w4, q + Math.PI, q).slice(1)];
+  const loop = [...sideA, ...sideB];
+  loop.push({ ...loop[0] });
+  return loop;
+};
+
+class SMark extends Null {
+  static sovereign = true;
+  radius = length(100);
+  tint = color(MARK_RED);
+  band;
+  dot;
+  square;
+  compose() {
+    const R2 = this.radius.value;
+    const k2 = SMARK.offset * R2 * Math.SQRT1_2;
+    this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }));
+    this.band.add(new Line({ points: sBandOutline(R2), tint: this.tint, stroke: 1 }));
+    this.dot = this.add(new Circle({ x: k2, y: k2, radius: SMARK.dot * R2, tint: this.tint, stroke: 0, fillOpacity: 1 }));
+    const a2 = SMARK.square * R2 / 2;
+    this.square = this.add(new Line({
+      points: [
+        { x: -k2 - a2, y: -k2 - a2, z: 0 },
+        { x: -k2 + a2, y: -k2 - a2, z: 0 },
+        { x: -k2 + a2, y: -k2 + a2, z: 0 },
+        { x: -k2 - a2, y: -k2 + a2, z: 0 },
+        { x: -k2 - a2, y: -k2 - a2, z: 0 }
+      ],
+      tint: this.tint,
+      stroke: 0,
+      fillOpacity: 1
+    }));
+  }
+  createAnim() {
+    this.parts;
+    return together(restage(together(...this.band.parts.map((p2) => p2.creation.sequence(0, 1))), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
+  }
+}
+
+// vocabulary/Regenaissance/Regenaissance.ts
+var REGEN_GOLD = rgb(196, 150, 72);
+var REGEN = {
+  globe: 0.56,
+  mark: 0.46
+};
+var RUN_SLOTS = 2;
+
+class Regenaissance extends Null {
+  static sovereign = true;
+  radius = length(390);
+  latticeSpin = scalar(0.3);
+  latticePitch = angle(0.45);
+  earthSpin = scalar(-0.37);
+  earthTilt = angle(1.05);
+  ringTint = color(REGEN_GOLD);
+  ringStroke = length(3);
+  latticeTint = color(WHITE);
+  latticeStroke = length(1.4);
+  backOpacity = completion(0.4);
+  landTint = color(WHITE);
+  mark = bool(true);
+  markTint = color(MARK_RED);
+  eyeTint = color(WHITE);
+  outer;
+  topCircle;
+  bottomCircle;
+  axis;
+  lattice;
+  earth;
+  vesica;
+  eyeRing;
+  sMark;
+  get r() {
+    return REGEN.globe * this.radius.value;
+  }
+  compose() {
+    const R2 = this.radius.value;
+    const r2 = this.r;
+    const h2 = r2 / 2;
+    this.earth = this.add(new Globe({
+      y: -h2,
+      radius: r2,
+      land: this.landTint,
+      spin: this.earthSpin,
+      tilt: this.earthTilt
+    }));
+    this.vesica = this.add(new Line({ points: vesicaOutline(r2), tint: BLACK, stroke: 0, fillOpacity: 1 }));
+    const runs = [];
+    for (let k2 = 0;k2 < GREAT_CIRCLE_NORMALS.length; k2++) {
+      for (const side of ["front", "back"]) {
+        for (let s2 = 0;s2 < RUN_SLOTS; s2++) {
+          const line = new Line({
+            tint: this.latticeTint,
+            stroke: this.latticeStroke,
+            ...side === "back" ? { opacity: this.backOpacity } : {}
+          });
+          deriveRun(line, this, () => {
+            const halves = greatCircleHalves(k2, r2, this.latticeSpin.value, this.latticePitch.value);
+            const run = outsideDisc(halves[side], 0, -r2, r2)[s2];
+            return run ? run.map((p2) => ({ x: p2.x, y: p2.y + h2, z: 0 })) : [];
+          });
+          runs.push(line);
+        }
+      }
+    }
+    this.lattice = this.add(new Group({ members: runs }));
+    const seg = (y0, y1) => new Line({
+      points: [
+        { x: 0, y: y0, z: 0 },
+        { x: 0, y: y1, z: 0 }
+      ],
+      tint: this.ringTint,
+      stroke: this.ringStroke
+    });
+    this.axis = this.add(new Group({ members: [seg(1.5 * r2, h2), seg(-1.5 * r2, -h2)] }));
+    const ring = (y2, radius) => new Circle({ y: y2, radius, tint: this.ringTint, stroke: this.ringStroke, drawStart: 0.25 });
+    this.topCircle = this.add(ring(h2, r2));
+    this.bottomCircle = this.add(ring(-h2, r2));
+    this.outer = this.add(ring(0, R2));
+    const m2 = REGEN.mark * r2;
+    this.eyeRing = this.add(new Circle({ radius: m2, tint: this.eyeTint, stroke: this.ringStroke }));
+    if (this.mark.value)
+      this.sMark = this.add(new SMark({ radius: m2, tint: this.markTint }));
+  }
+  createAnim() {
+    this.parts;
+    const parts = [
+      restage(this.outer.creation.sequence(0, 1), 0, 0.3),
+      restage(this.topCircle.creation.sequence(0, 1), 0.15, 0.45),
+      restage(this.bottomCircle.creation.sequence(0, 1), 0.15, 0.45),
+      restage(together(...this.axis.parts.map((p2) => p2.creation.sequence(0, 1))), 0.25, 0.45),
+      restage(together(...this.lattice.parts.map((p2) => p2.creation.sequence(0, 1))), 0.35, 0.75),
+      restage(this.earth.landOpacity.sequence(0, 1), 0.4, 0.75),
+      restage(this.eyeRing.creation.sequence(0, 1), 0.65, 0.85)
+    ];
+    if (this.sMark)
+      parts.push(restage(this.sMark.createAnim(), 0.75, 1));
+    return together(...parts);
+  }
+}
+var vesicaOutline = (r2, samples = 48) => {
+  const h2 = r2 / 2;
+  const pts = [];
+  for (let i2 = 0;i2 <= samples; i2++) {
+    const a2 = -Math.PI / 2 - Math.PI / 3 + 2 * Math.PI / 3 * (i2 / samples);
+    pts.push({ x: r2 * Math.cos(a2), y: h2 + r2 * Math.sin(a2), z: 0 });
+  }
+  for (let i2 = 1;i2 <= samples; i2++) {
+    const a2 = Math.PI / 2 - Math.PI / 3 + 2 * Math.PI / 3 * (i2 / samples);
+    pts.push({ x: r2 * Math.cos(a2), y: -h2 + r2 * Math.sin(a2), z: 0 });
+  }
+  return pts;
+};
+var deriveRun = (line, holon, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = [holon.latticeSpin.value, holon.latticePitch.value, holon.radius.value];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
 // sketch/protocol.ts
 var PAGE_W = 1404;
 var PAGE_H = 1872;
@@ -65624,21 +66131,37 @@ var readPoints = (v2) => {
   for (const p2 of v2) {
     const x2 = Array.isArray(p2) ? Number(p2[0]) : Number(p2?.x);
     const y2 = Array.isArray(p2) ? Number(p2[1]) : Number(p2?.y);
+    const z2 = Array.isArray(p2) ? Number(p2[2]) : Number(p2?.z);
     if (Number.isFinite(x2) && Number.isFinite(y2))
-      out.push({ x: x2, y: y2 });
+      out.push(Number.isFinite(z2) && z2 !== 0 ? { x: x2, y: y2, z: z2 } : { x: x2, y: y2 });
   }
   return out;
 };
-var scenePt = (x2, y2) => ({ x: x2, y: -y2, z: 0 });
+var scenePt = (x2, y2, z2 = 0) => ({ x: x2, y: -y2, z: z2 });
+var parentToWorld = (h2, v2) => {
+  let out = v2;
+  for (let node = h2.parent;node; node = node.parent) {
+    const s2 = node.scale.value;
+    if (s2 !== 1)
+      out = { x: out.x * s2, y: out.y * s2, z: out.z * s2 };
+    out = rotHPB(out, node.p.value, node.h.value, node.b.value);
+    out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+  }
+  return out;
+};
 var CABLE_PULSES = 11;
 var PULSE_SECONDS = 0.5;
 var MV_NATIVE = 100;
 var resampleByArcLength = (pts, n2) => {
   if (pts.length < 2)
     return [...pts];
+  const deep = pts.some((p2) => p2.z !== undefined);
+  const zOf = (p2) => p2.z ?? 0;
   const cum = [0];
   for (let i2 = 1;i2 < pts.length; i2++) {
-    cum.push(cum[i2 - 1] + Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y));
+    const a2 = pts[i2 - 1];
+    const b2 = pts[i2];
+    cum.push(cum[i2 - 1] + Math.hypot(b2.x - a2.x, b2.y - a2.y, zOf(b2) - zOf(a2)));
   }
   const total = cum[cum.length - 1];
   if (total < 0.000001)
@@ -65651,10 +66174,12 @@ var resampleByArcLength = (pts, n2) => {
       j2++;
     const seg = cum[j2] - cum[j2 - 1];
     const u2 = seg < 0.000000001 ? 0 : (s2 - cum[j2 - 1]) / seg;
-    out.push({
-      x: pts[j2 - 1].x + (pts[j2].x - pts[j2 - 1].x) * u2,
-      y: pts[j2 - 1].y + (pts[j2].y - pts[j2 - 1].y) * u2
-    });
+    const a2 = pts[j2 - 1];
+    const b2 = pts[j2];
+    const q = { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 };
+    if (deep)
+      q.z = zOf(a2) + (zOf(b2) - zOf(a2)) * u2;
+    out.push(q);
   }
   return out;
 };
@@ -65693,16 +66218,16 @@ var buildMindVirus = (p2) => {
   const pulses = walk.slice(1).map((q, i2) => ({
     start: i2 * PULSE_SECONDS,
     duration: PULSE_SECONDS,
-    to: scenePt(q.x, q.y)
+    to: scenePt(q.x, q.y, q.z)
   }));
   const tCable = CABLE_PULSES * PULSE_SECONDS;
   pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward });
   const T3 = tCable + PULSE_SECONDS;
   const mv = new MindVirus({ scale: s2, clock: T3 });
-  mv.journey = { origin: scenePt(walk[0].x, walk[0].y), pulses };
+  mv.journey = { origin: scenePt(walk[0].x, walk[0].y, walk[0].z), pulses };
   mv.parts;
   mv.fold.follow(derive(() => fold));
-  mv.cable.trail((t2) => mv.pathAt(t2 * tCable / T3), { since: 0, window: T3 });
+  mv.cable.trail((t2) => parentToWorld(mv, mv.pathAt(t2 * tCable / T3)), { since: 0, window: T3 });
   mv.cable.width.value = mv.cable.width.value * s2;
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
@@ -65934,8 +66459,47 @@ var VOCABULARY = [
     },
     build: buildText,
     footprint: textFootprint
+  },
+  {
+    id: "regenaissance",
+    name: "Regenaissance",
+    description: "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the OUTER RING (≈ the middle of the eye), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the OUTER RING (≈ the middle of the eye), page units" },
+      r: {
+        type: "number",
+        role: "length",
+        description: "radius of the OUTER RING, page units — the mean distance of the outermost loops from the centre (use the circle fits of the biggest strokes)"
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright (lattice globe on top, Earth below)` }
+    },
+    build: (p2) => {
+      const regen = new Regenaissance({ radius: Math.max(1, num(p2, "r", 300)) });
+      return new Group({ members: [regen], x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+    }
+  },
+  {
+    id: "sMark",
+    name: "S-mark",
+    description: "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the S (where its two bowls meet), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the S, page units" },
+      size: { type: "number", role: "length", description: "height of the S from its top bowl to its bottom bowl (its bbox height, dot and square included), page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright like the letter S (dot upper-right, square lower-left)` },
+      framed: { type: "enum", options: ["no", "yes"], description: "yes if the S is drawn inside its own circle" }
+    },
+    build: (p2) => {
+      const R2 = Math.max(1, num(p2, "size", 100)) / SMARK_HEIGHT;
+      const members = [new SMark({ radius: R2 })];
+      if (p2.framed === "yes")
+        members.push(new Circle({ radius: R2, tint: WHITE }));
+      return new Group({ members, x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+    }
   }
 ];
+var SMARK_HEIGHT = 2 * (SMARK.offset * Math.SQRT1_2 + SMARK.offset + SMARK.band / 2);
 var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
 var vocabById = (id) => BY_ID.get(id);
 var buildSymbol = (s2) => {
@@ -65987,11 +66551,14 @@ var transformSymbol = (s2, t2) => {
     else if ((role === "points" || role === undefined) && Array.isArray(v2) && v2.length > 0 && v2.every(isPointLike))
       params[k2] = v2.map((e2) => {
         if (Array.isArray(e2)) {
-          const q = xfPoint(xf, { x: e2[0], y: e2[1] });
-          return [q.x, q.y];
+          const q2 = xfPoint(xf, { x: e2[0], y: e2[1] });
+          return typeof e2[2] === "number" ? [q2.x, q2.y, e2[2] * xf.scale] : [q2.x, q2.y];
         }
         const pt = e2;
-        return { ...pt, ...xfPoint(xf, pt) };
+        const q = { ...pt, ...xfPoint(xf, pt) };
+        if (typeof pt.z === "number")
+          q.z = pt.z * xf.scale;
+        return q;
       });
   }
   return { ...s2, params };
@@ -66009,6 +66576,27 @@ var tumbleCentre = (s2) => {
   return Number.isFinite(x2) && Number.isFinite(y2) ? { x: x2, y: y2 } : undefined;
 };
 var keyOfRole = (entry, role) => Object.keys(entry.params).find((k2) => entry.params[k2].role === role);
+var directionFrame = (f2) => eulerToMat3(Math.atan2(f2.x, Math.hypot(f2.y, f2.z)), Math.atan2(-f2.y, f2.z), 0);
+var tumbleTurn = (entry, given, m2) => {
+  const tilt = keyOfRole(entry, "tilt");
+  const yaw2 = keyOfRole(entry, "yaw");
+  const pitch2 = keyOfRole(entry, "pitch");
+  if (!tilt || yaw2 || pitch2)
+    return m2;
+  const read = (k2) => {
+    if (!k2)
+      return 0;
+    const v2 = Number(given[k2]);
+    return Number.isFinite(v2) ? v2 : entry.params[k2].default ?? 0;
+  };
+  const a2 = read(keyOfRole(entry, "angle"));
+  const tl = read(tilt);
+  const f2 = { x: Math.cos(a2) * Math.cos(tl), y: -Math.sin(a2) * Math.cos(tl), z: Math.sin(tl) };
+  const from = directionFrame(f2);
+  const to = directionFrame(mat3Apply(m2, f2));
+  const fromT = [from[0], from[3], from[6], from[1], from[4], from[7], from[2], from[5], from[8]];
+  return mat3Mul(to, fromT);
+};
 var tumbleParams = (entry, given, m2) => {
   if (isMat3Identity(m2, 0.000000000001))
     return given;
@@ -66023,6 +66611,7 @@ var tumbleParams = (entry, given, m2) => {
   const tilt = keyOfRole(entry, "tilt");
   const angle2 = keyOfRole(entry, "angle");
   const out = { ...given };
+  const turn = tumbleTurn(entry, given, m2);
   if (yaw2 || pitch2) {
     const e2 = mat3ToEuler(mat3Mul(m2, eulerToMat3(read(yaw2), read(pitch2), -read(angle2))));
     if (yaw2)
@@ -66038,6 +66627,25 @@ var tumbleParams = (entry, given, m2) => {
     out[tilt] = Math.asin(Math.max(-1, Math.min(1, v2.z)));
     if (angle2 && Math.hypot(v2.x, v2.y) > 0.000000001)
       out[angle2] = Math.atan2(-v2.y, v2.x);
+  }
+  const cx = Number(given[keyOfRole(entry, "x") ?? ""]);
+  const cy = Number(given[keyOfRole(entry, "y") ?? ""]);
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    for (const k2 of Object.keys(entry.params)) {
+      if (entry.params[k2].role !== "points" || !Array.isArray(given[k2]))
+        continue;
+      out[k2] = given[k2].map((e2) => {
+        const [q] = readPoints([e2]);
+        if (!q)
+          return e2;
+        const v2 = mat3Apply(turn, { x: q.x - cx, y: -(q.y - cy), z: q.z ?? 0 });
+        const x2 = cx + v2.x;
+        const y2 = cy - v2.y;
+        if (Array.isArray(e2))
+          return [x2, y2, v2.z];
+        return { ...e2, x: x2, y: y2, z: v2.z };
+      });
+    }
   }
   return out;
 };
@@ -66138,6 +66746,13 @@ var apply = (s2, cmd) => {
         symbols: [...s2.symbols, symbol]
       };
     }
+    case "distill": {
+      const gone = new Set(cmd.ids);
+      const at2 = s2.strokes.findIndex((k2) => gone.has(k2.id));
+      const kept = s2.strokes.filter((k2) => !gone.has(k2.id));
+      const before = at2 < 0 ? kept.length : s2.strokes.slice(0, at2).filter((k2) => !gone.has(k2.id)).length;
+      return { strokes: [...kept.slice(0, before), ...cmd.strokes, ...kept.slice(before)], symbols: s2.symbols };
+    }
     case "move": {
       const moving = new Set(cmd.ids);
       return {
@@ -66179,6 +66794,8 @@ var touched = (cmd) => {
       return [cmd.symbol.id];
     case "update":
       return [cmd.id];
+    case "distill":
+      return cmd.strokes.map((k2) => k2.id);
     case "edit":
       return [...new Set(cmd.steps.flatMap(touched))];
     default:
@@ -67013,6 +67630,1143 @@ class DisplayStore {
   }
 }
 
+// sketch/distill.ts
+var OUT_STEP = 2.5;
+var PEN = 4;
+var SIGMA_MIN = 2.5;
+var strokeLength = (pts) => {
+  let L2 = 0;
+  for (let i2 = 1;i2 < pts.length; i2++)
+    L2 += Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y);
+  return L2;
+};
+var resample = (pts, step4, closed = false) => {
+  if (pts.length === 0)
+    return [];
+  const src = closed ? [...pts, pts[0]] : pts;
+  const out = [{ x: src[0].x, y: src[0].y }];
+  let carry = 0;
+  for (let i2 = 1;i2 < src.length; i2++) {
+    const a2 = src[i2 - 1];
+    const b2 = src[i2];
+    const d2 = Math.hypot(b2.x - a2.x, b2.y - a2.y);
+    if (d2 === 0)
+      continue;
+    let s2 = step4 - carry;
+    while (s2 <= d2) {
+      const t2 = s2 / d2;
+      out.push({ x: a2.x + (b2.x - a2.x) * t2, y: a2.y + (b2.y - a2.y) * t2 });
+      s2 += step4;
+    }
+    carry = d2 - (s2 - step4);
+  }
+  const last = src[src.length - 1];
+  if (closed) {
+    const e2 = out[out.length - 1];
+    if (out.length > 2 && Math.hypot(e2.x - last.x, e2.y - last.y) < step4 * 0.5)
+      out.pop();
+  } else {
+    const e2 = out[out.length - 1];
+    if (Math.hypot(e2.x - last.x, e2.y - last.y) > step4 * 0.25)
+      out.push({ x: last.x, y: last.y });
+  }
+  return out;
+};
+var sampleStrokes = (strokes, h2) => {
+  const xs = [];
+  const ys = [];
+  const ws = [];
+  const ks = [];
+  strokes.forEach((pts, k2) => {
+    if (pts.length === 0)
+      return;
+    const L2 = strokeLength(pts);
+    const r4 = L2 > 0 ? resample(pts, h2) : [pts[0]];
+    const w4 = Math.max(L2, PEN) / r4.length;
+    for (const p2 of r4) {
+      xs.push(p2.x);
+      ys.push(p2.y);
+      ws.push(w4);
+      ks.push(k2);
+    }
+  });
+  return { x: Float64Array.from(xs), y: Float64Array.from(ys), w: Float64Array.from(ws), stroke: Int32Array.from(ks), n: xs.length };
+};
+var subset = (s2, keep) => {
+  const idx = [];
+  for (let i2 = 0;i2 < s2.n; i2++)
+    if (keep(i2))
+      idx.push(i2);
+  return {
+    x: Float64Array.from(idx, (i2) => s2.x[i2]),
+    y: Float64Array.from(idx, (i2) => s2.y[i2]),
+    w: Float64Array.from(idx, (i2) => s2.w[i2]),
+    stroke: Int32Array.from(idx, (i2) => s2.stroke[i2]),
+    n: idx.length
+  };
+};
+var bounds = (s2) => {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let i2 = 0;i2 < s2.n; i2++) {
+    x0 = Math.min(x0, s2.x[i2]);
+    y0 = Math.min(y0, s2.y[i2]);
+    x1 = Math.max(x1, s2.x[i2]);
+    y1 = Math.max(y1, s2.y[i2]);
+  }
+  return { x0, y0, x1, y1, diag: Math.hypot(x1 - x0, y1 - y0) };
+};
+
+class Hash {
+  s;
+  cell;
+  #x0;
+  #y0;
+  #nx;
+  #ny;
+  #start;
+  #items;
+  constructor(s2, cell) {
+    this.s = s2;
+    this.cell = cell;
+    const b2 = bounds(s2);
+    this.#x0 = b2.x0;
+    this.#y0 = b2.y0;
+    this.#nx = Math.max(1, Math.floor((b2.x1 - b2.x0) / cell) + 1);
+    this.#ny = Math.max(1, Math.floor((b2.y1 - b2.y0) / cell) + 1);
+    const of = new Int32Array(s2.n);
+    const count = new Int32Array(this.#nx * this.#ny + 1);
+    for (let i2 = 0;i2 < s2.n; i2++) {
+      const k2 = Math.floor((s2.y[i2] - b2.y0) / cell) * this.#nx + Math.floor((s2.x[i2] - b2.x0) / cell);
+      of[i2] = k2;
+      count[k2 + 1]++;
+    }
+    for (let k2 = 1;k2 < count.length; k2++)
+      count[k2] += count[k2 - 1];
+    this.#start = count.slice();
+    this.#items = new Int32Array(s2.n);
+    for (let i2 = 0;i2 < s2.n; i2++)
+      this.#items[count[of[i2]]++] = i2;
+  }
+  near(x2, y2, r4, f2) {
+    const c2 = this.cell;
+    const gx0 = Math.max(0, Math.floor((x2 - r4 - this.#x0) / c2));
+    const gx1 = Math.min(this.#nx - 1, Math.floor((x2 + r4 - this.#x0) / c2));
+    const gy0 = Math.max(0, Math.floor((y2 - r4 - this.#y0) / c2));
+    const gy1 = Math.min(this.#ny - 1, Math.floor((y2 + r4 - this.#y0) / c2));
+    const r22 = r4 * r4;
+    const sx = this.s.x;
+    const sy = this.s.y;
+    for (let gy = gy0;gy <= gy1; gy++)
+      for (let gx = gx0;gx <= gx1; gx++) {
+        const k2 = gy * this.#nx + gx;
+        for (let q = this.#start[k2];q < this.#start[k2 + 1]; q++) {
+          const i2 = this.#items[q];
+          const dx = sx[i2] - x2;
+          const dy = sy[i2] - y2;
+          const d2 = dx * dx + dy * dy;
+          if (d2 <= r22)
+            f2(i2, d2);
+        }
+      }
+  }
+}
+var scatterAt = (s2, R2) => {
+  const hash3 = new Hash(s2, R2);
+  const stride = Math.max(1, Math.floor(s2.n / 300));
+  const vals = [];
+  for (let q = 0;q < s2.n; q += stride) {
+    let W = 0;
+    let mx = 0;
+    let my = 0;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    let n2 = 0;
+    const qx = s2.x[q];
+    const qy = s2.y[q];
+    hash3.near(qx, qy, R2, (i2) => {
+      const w4 = s2.w[i2];
+      const dx = s2.x[i2] - qx;
+      const dy = s2.y[i2] - qy;
+      W += w4;
+      mx += w4 * dx;
+      my += w4 * dy;
+      sxx += w4 * dx * dx;
+      syy += w4 * dy * dy;
+      sxy += w4 * dx * dy;
+      n2++;
+    });
+    if (n2 < 5)
+      continue;
+    mx /= W;
+    my /= W;
+    sxx = sxx / W - mx * mx;
+    syy = syy / W - my * my;
+    sxy = sxy / W - mx * my;
+    const tr = (sxx + syy) / 2;
+    const det2 = Math.sqrt(Math.max(0, ((sxx - syy) / 2) ** 2 + sxy * sxy));
+    vals.push(Math.sqrt(Math.max(0, tr - det2)));
+  }
+  if (vals.length === 0)
+    return 0;
+  vals.sort((a2, b2) => a2 - b2);
+  return vals[vals.length >> 1];
+};
+var decimate = (s2, stride) => {
+  if (stride <= 1)
+    return s2;
+  const idx = [];
+  const w4 = [];
+  let i2 = 0;
+  while (i2 < s2.n) {
+    let j2 = i2;
+    while (j2 < s2.n && s2.stroke[j2] === s2.stroke[i2])
+      j2++;
+    const keep = [];
+    for (let k2 = i2;k2 < j2; k2 += stride)
+      keep.push(k2);
+    if (keep[keep.length - 1] !== j2 - 1)
+      keep.push(j2 - 1);
+    let total = 0;
+    for (let k2 = i2;k2 < j2; k2++)
+      total += s2.w[k2];
+    for (const k2 of keep) {
+      idx.push(k2);
+      w4.push(total / keep.length);
+    }
+    i2 = j2;
+  }
+  return {
+    x: Float64Array.from(idx, (k2) => s2.x[k2]),
+    y: Float64Array.from(idx, (k2) => s2.y[k2]),
+    w: Float64Array.from(w4),
+    stroke: Int32Array.from(idx, (k2) => s2.stroke[k2]),
+    n: idx.length
+  };
+};
+var estimateSigma = (s2, h2) => {
+  const { diag } = bounds(s2);
+  if (diag < 2 * SIGMA_MIN)
+    return SIGMA_MIN;
+  let R2 = diag / 8;
+  let sc = 0;
+  for (let it2 = 0;it2 < 4; it2++) {
+    sc = scatterAt(decimate(s2, Math.floor(R2 / 12 / h2)), R2);
+    const next = Math.min(diag / 4, Math.max(4 * h2, 2.5 * sc + 3 * h2));
+    if (Math.abs(next - R2) < 0.05 * R2)
+      break;
+    R2 = next;
+  }
+  return Math.min(diag / 4, Math.max(SIGMA_MIN, 1.25 * sc));
+};
+var clusters = (s2, strokes, gap) => {
+  const parent = Array.from({ length: strokes }, (_2, i2) => i2);
+  const find = (i2) => parent[i2] === i2 ? i2 : parent[i2] = find(parent[i2]);
+  const hash3 = new Hash(s2, gap);
+  for (let i2 = 0;i2 < s2.n; i2++) {
+    const a2 = s2.stroke[i2];
+    hash3.near(s2.x[i2], s2.y[i2], gap, (j2) => {
+      const b2 = s2.stroke[j2];
+      if (b2 !== a2) {
+        const ra = find(a2);
+        const rb = find(b2);
+        if (ra !== rb)
+          parent[ra] = rb;
+      }
+    });
+  }
+  const groups = new Map;
+  for (let k2 = 0;k2 < strokes; k2++) {
+    const r4 = find(k2);
+    let g2 = groups.get(r4);
+    if (!g2)
+      groups.set(r4, g2 = []);
+    g2.push(k2);
+  }
+  return [...groups.values()];
+};
+var densityGrid = (s2, sigma) => {
+  const b2 = bounds(s2);
+  const c2 = Math.min(6, Math.max(0.75, sigma / 3));
+  const pad = 3 * sigma + 2 * c2;
+  const x0 = b2.x0 - pad;
+  const y0 = b2.y0 - pad;
+  const W = Math.ceil((b2.x1 - b2.x0 + 2 * pad) / c2) + 1;
+  const H2 = Math.ceil((b2.y1 - b2.y0 + 2 * pad) / c2) + 1;
+  const raw = new Float32Array(W * H2);
+  for (let i2 = 0;i2 < s2.n; i2++) {
+    const gx = (s2.x[i2] - x0) / c2;
+    const gy = (s2.y[i2] - y0) / c2;
+    const ix = Math.floor(gx);
+    const iy = Math.floor(gy);
+    const fx = gx - ix;
+    const fy = gy - iy;
+    const w4 = s2.w[i2];
+    const o2 = iy * W + ix;
+    raw[o2] = raw[o2] + w4 * (1 - fx) * (1 - fy);
+    raw[o2 + 1] = raw[o2 + 1] + w4 * fx * (1 - fy);
+    raw[o2 + W] = raw[o2 + W] + w4 * (1 - fx) * fy;
+    raw[o2 + W + 1] = raw[o2 + W + 1] + w4 * fx * fy;
+  }
+  const sg = sigma / c2;
+  const rad = Math.ceil(3 * sg);
+  const k2 = new Float32Array(2 * rad + 1);
+  let ks = 0;
+  for (let i2 = -rad;i2 <= rad; i2++)
+    ks += k2[i2 + rad] = Math.exp(-i2 * i2 / (2 * sg * sg));
+  for (let i2 = 0;i2 < k2.length; i2++)
+    k2[i2] = k2[i2] / ks;
+  const tmp = new Float32Array(W * H2);
+  for (let y2 = 0;y2 < H2; y2++)
+    for (let x2 = 0;x2 < W; x2++) {
+      const v2 = raw[y2 * W + x2];
+      if (v2 === 0)
+        continue;
+      for (let i2 = -rad;i2 <= rad; i2++) {
+        const xx = x2 + i2;
+        if (xx >= 0 && xx < W)
+          tmp[y2 * W + xx] = tmp[y2 * W + xx] + v2 * k2[i2 + rad];
+      }
+    }
+  const d2 = new Float32Array(W * H2);
+  for (let y2 = 0;y2 < H2; y2++)
+    for (let x2 = 0;x2 < W; x2++) {
+      const v2 = tmp[y2 * W + x2];
+      if (v2 === 0)
+        continue;
+      for (let i2 = -rad;i2 <= rad; i2++) {
+        const yy = y2 + i2;
+        if (yy >= 0 && yy < H2)
+          d2[yy * W + x2] = d2[yy * W + x2] + v2 * k2[i2 + rad];
+      }
+    }
+  return { W, H: H2, x0, y0, c: c2, d: d2 };
+};
+var sampleGrid = (g2, x2, y2) => {
+  const gx = Math.round((x2 - g2.x0) / g2.c);
+  const gy = Math.round((y2 - g2.y0) / g2.c);
+  return gx < 0 || gy < 0 || gx >= g2.W || gy >= g2.H ? 0 : g2.d[gy * g2.W + gx];
+};
+var NX = [0, 1, 1, 1, 0, -1, -1, -1];
+var NY = [-1, -1, 0, 1, 1, 1, 0, -1];
+var zhangSuen = (m2, W, H2) => {
+  let live = [];
+  for (let y2 = 1;y2 < H2 - 1; y2++)
+    for (let x2 = 1;x2 < W - 1; x2++)
+      if (m2[y2 * W + x2])
+        live.push(y2 * W + x2);
+  const off = NX.map((dx, i2) => NY[i2] * W + dx);
+  const p2 = new Uint8Array(8);
+  const del = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let step4 = 0;step4 < 2; step4++) {
+      del.length = 0;
+      for (const o2 of live) {
+        if (!m2[o2])
+          continue;
+        let B3 = 0;
+        for (let i2 = 0;i2 < 8; i2++)
+          B3 += p2[i2] = m2[o2 + off[i2]];
+        if (B3 < 2 || B3 > 6)
+          continue;
+        let A2 = 0;
+        for (let i2 = 0;i2 < 8; i2++)
+          if (!p2[i2] && p2[i2 + 1 & 7])
+            A2++;
+        if (A2 !== 1)
+          continue;
+        if (step4 === 0 ? p2[0] * p2[2] * p2[4] || p2[2] * p2[4] * p2[6] : p2[0] * p2[2] * p2[6] || p2[0] * p2[4] * p2[6])
+          continue;
+        del.push(o2);
+      }
+      for (const o2 of del)
+        m2[o2] = 0;
+      if (del.length)
+        changed = true;
+    }
+    live = live.filter((o2) => m2[o2]);
+  }
+};
+var pruneStairs = (m2, W, H2) => {
+  for (let y2 = 1;y2 < H2 - 1; y2++)
+    for (let x2 = 1;x2 < W - 1; x2++) {
+      const o2 = y2 * W + x2;
+      if (!m2[o2])
+        continue;
+      const on = [];
+      for (let i2 = 0;i2 < 8; i2++)
+        if (m2[o2 + NY[i2] * W + NX[i2]])
+          on.push(i2);
+      if (on.length < 2)
+        continue;
+      const seen = new Set([on[0]]);
+      const stack3 = [on[0]];
+      while (stack3.length) {
+        const a2 = stack3.pop();
+        for (const b2 of on)
+          if (!seen.has(b2) && Math.max(Math.abs(NX[a2] - NX[b2]), Math.abs(NY[a2] - NY[b2])) === 1) {
+            seen.add(b2);
+            stack3.push(b2);
+          }
+      }
+      if (seen.size === on.length)
+        m2[o2] = 0;
+    }
+};
+
+class Graph {
+  nodes = new Map;
+  edges = new Map;
+  #id = 0;
+  addNode(x2, y2) {
+    const id = this.#id++;
+    this.nodes.set(id, { x: x2, y: y2, edges: new Set });
+    return id;
+  }
+  addEdge(a2, b2, pts) {
+    const id = this.#id++;
+    this.edges.set(id, { a: a2, b: b2, pts });
+    this.nodes.get(a2).edges.add(id);
+    this.nodes.get(b2).edges.add(id);
+    return id;
+  }
+  removeEdge(e2) {
+    const E2 = this.edges.get(e2);
+    this.nodes.get(E2.a)?.edges.delete(e2);
+    this.nodes.get(E2.b)?.edges.delete(e2);
+    this.edges.delete(e2);
+  }
+  degree(n2) {
+    let d2 = 0;
+    for (const e2 of this.nodes.get(n2).edges) {
+      const E2 = this.edges.get(e2);
+      d2 += E2.a === n2 && E2.b === n2 ? 2 : 1;
+    }
+    return d2;
+  }
+  from(e2, n2) {
+    const E2 = this.edges.get(e2);
+    return E2.a === n2 ? E2.pts : [...E2.pts].reverse();
+  }
+  mergeThrough() {
+    for (const [n2, N3] of this.nodes) {
+      if (N3.edges.size !== 2)
+        continue;
+      const [e1, e2] = [...N3.edges];
+      const E1 = this.edges.get(e1);
+      const E2 = this.edges.get(e2);
+      if (E1.a === E1.b || E2.a === E2.b)
+        continue;
+      const p1 = this.from(e1, n2).reverse();
+      const p2 = this.from(e2, n2);
+      const a2 = E1.a === n2 ? E1.b : E1.a;
+      const b2 = E2.a === n2 ? E2.b : E2.a;
+      this.removeEdge(e1);
+      this.removeEdge(e2);
+      this.nodes.delete(n2);
+      this.addEdge(a2, b2, [...p1, ...p2.slice(1)]);
+    }
+  }
+}
+var traceSkeleton = (m2, g2) => {
+  const { W, H: H2 } = g2;
+  const P2 = (o2) => ({ x: g2.x0 + o2 % W * g2.c, y: g2.y0 + Math.floor(o2 / W) * g2.c });
+  const nbrs = (o2) => {
+    const r4 = [];
+    for (let i2 = 0;i2 < 8; i2++) {
+      const q = o2 + NY[i2] * W + NX[i2];
+      if (m2[q])
+        r4.push(q);
+    }
+    return r4;
+  };
+  const deg = new Int8Array(W * H2);
+  for (let o2 = 0;o2 < W * H2; o2++)
+    if (m2[o2])
+      deg[o2] = nbrs(o2).length;
+  const graph = new Graph;
+  const nodeOf = new Int32Array(W * H2).fill(-1);
+  for (let o2 = 0;o2 < W * H2; o2++) {
+    if (!m2[o2] || deg[o2] === 2 || nodeOf[o2] >= 0)
+      continue;
+    const members = [];
+    const stack3 = [o2];
+    nodeOf[o2] = -2;
+    while (stack3.length) {
+      const q = stack3.pop();
+      members.push(q);
+      for (const r4 of nbrs(q))
+        if (deg[r4] !== 2 && nodeOf[r4] === -1) {
+          nodeOf[r4] = -2;
+          stack3.push(r4);
+        }
+    }
+    let sx = 0;
+    let sy = 0;
+    for (const q of members) {
+      const p2 = P2(q);
+      sx += p2.x;
+      sy += p2.y;
+    }
+    const id = graph.addNode(sx / members.length, sy / members.length);
+    for (const q of members)
+      nodeOf[q] = id;
+  }
+  const visited = new Uint8Array(W * H2);
+  const walk = (start, prev, from) => {
+    const pts = [{ x: graph.nodes.get(from).x, y: graph.nodes.get(from).y }];
+    let cur = start;
+    let back = prev;
+    for (;; ) {
+      visited[cur] = 1;
+      pts.push(P2(cur));
+      const next = nbrs(cur).filter((q) => q !== back && !(nodeOf[q] === from && pts.length <= 2 && q !== back));
+      const end = next.find((q) => nodeOf[q] >= 0);
+      if (end !== undefined) {
+        const to = nodeOf[end];
+        pts.push({ x: graph.nodes.get(to).x, y: graph.nodes.get(to).y });
+        graph.addEdge(from, to, pts);
+        return;
+      }
+      const go = next.find((q) => !visited[q]);
+      if (go === undefined) {
+        if (pts.length > 2) {
+          const to = graph.addNode(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          graph.addEdge(from, to, pts);
+        }
+        return;
+      }
+      back = cur;
+      cur = go;
+    }
+  };
+  for (let o2 = 0;o2 < W * H2; o2++) {
+    if (nodeOf[o2] < 0)
+      continue;
+    for (const r4 of nbrs(o2))
+      if (deg[r4] === 2 && nodeOf[r4] < 0 && !visited[r4])
+        walk(r4, o2, nodeOf[o2]);
+  }
+  for (let o2 = 0;o2 < W * H2; o2++) {
+    if (!m2[o2] || visited[o2] || nodeOf[o2] >= 0)
+      continue;
+    const pts = [];
+    let cur = o2;
+    let back = -1;
+    for (;; ) {
+      visited[cur] = 1;
+      pts.push(P2(cur));
+      const go = nbrs(cur).find((q) => q !== back && !visited[q]);
+      if (go === undefined)
+        break;
+      back = cur;
+      cur = go;
+    }
+    if (pts.length < 3)
+      continue;
+    const n2 = graph.addNode(pts[0].x, pts[0].y);
+    graph.addEdge(n2, n2, [...pts, pts[0]]);
+  }
+  return graph;
+};
+var pathLen = strokeLength;
+var averagePaths = (p2, q) => {
+  const n2 = Math.max(p2.length, q.length, 4);
+  const a2 = resampleN(p2, n2);
+  const b2 = resampleN(q, n2);
+  return a2.map((u2, i2) => ({ x: (u2.x + b2[i2].x) / 2, y: (u2.y + b2[i2].y) / 2 }));
+};
+var resampleN = (pts, n2) => {
+  const L2 = pathLen(pts);
+  if (L2 === 0)
+    return Array.from({ length: n2 }, () => ({ ...pts[0] }));
+  const r4 = resample(pts, L2 / (n2 - 1));
+  while (r4.length < n2)
+    r4.push({ ...pts[pts.length - 1] });
+  return r4.slice(0, n2);
+};
+var maxGap = (p2, q) => {
+  const n2 = 24;
+  const a2 = resampleN(p2, n2);
+  const b2 = resampleN(q, n2);
+  let m2 = 0;
+  for (let i2 = 0;i2 < n2; i2++)
+    m2 = Math.max(m2, Math.hypot(a2[i2].x - b2[i2].x, a2[i2].y - b2[i2].y));
+  return m2;
+};
+var cleanGraph = (G2, sigma) => {
+  const spur = 2.5 * sigma;
+  for (let round3 = 0;round3 < 12; round3++) {
+    let changed = false;
+    G2.mergeThrough();
+    for (const [e2, E2] of [...G2.edges]) {
+      if (!G2.edges.has(e2))
+        continue;
+      const L2 = pathLen(E2.pts);
+      if (E2.a === E2.b) {
+        if (L2 < 4 * sigma) {
+          G2.removeEdge(e2);
+          changed = true;
+        }
+        continue;
+      }
+      const da = G2.degree(E2.a);
+      const db = G2.degree(E2.b);
+      if (L2 < spur && (da === 1 && db >= 3 || db === 1 && da >= 3)) {
+        G2.removeEdge(e2);
+        changed = true;
+      }
+    }
+    const byPair = new Map;
+    for (const [e2, E2] of G2.edges) {
+      if (E2.a === E2.b)
+        continue;
+      const key = E2.a < E2.b ? `${E2.a}:${E2.b}` : `${E2.b}:${E2.a}`;
+      let l2 = byPair.get(key);
+      if (!l2)
+        byPair.set(key, l2 = []);
+      l2.push(e2);
+    }
+    for (const l2 of byPair.values()) {
+      if (l2.length < 2)
+        continue;
+      const [e1, e2] = l2;
+      const E1 = G2.edges.get(e1);
+      const p2 = E1.pts;
+      const q = G2.from(e2, E1.a);
+      if (maxGap(p2, q) > 4 * sigma)
+        continue;
+      const avg = averagePaths(p2, q);
+      const { a: a2, b: b2 } = E1;
+      G2.removeEdge(e1);
+      G2.removeEdge(e2);
+      G2.addEdge(a2, b2, avg);
+      changed = true;
+    }
+    for (const [n2, N3] of [...G2.nodes])
+      if (N3.edges.size === 0 && G2.edges.size > 0)
+        G2.nodes.delete(n2);
+    if (!changed)
+      break;
+  }
+  G2.mergeThrough();
+};
+var chains = (G2, sigma) => {
+  const endKey = (e2, side) => e2 * 2 + side;
+  const partner = new Map;
+  const dirAt = (e2, side) => {
+    const E2 = G2.edges.get(e2);
+    const pts = side === 0 ? E2.pts : [...E2.pts].reverse();
+    const L2 = pathLen(pts);
+    const want = Math.min(6 * sigma, L2 / 2);
+    let acc = 0;
+    let q = pts[pts.length - 1];
+    for (let i2 = 1;i2 < pts.length; i2++) {
+      acc += Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y);
+      if (acc >= want) {
+        q = pts[i2];
+        break;
+      }
+    }
+    const dx = q.x - pts[0].x;
+    const dy = q.y - pts[0].y;
+    const d2 = Math.hypot(dx, dy) || 1;
+    return { x: dx / d2, y: dy / d2 };
+  };
+  for (const [n2, N3] of G2.nodes) {
+    const ends = [];
+    for (const e2 of N3.edges) {
+      const E2 = G2.edges.get(e2);
+      if (E2.a === n2)
+        ends.push({ key: endKey(e2, 0), dir: dirAt(e2, 0) });
+      if (E2.b === n2)
+        ends.push({ key: endKey(e2, 1), dir: dirAt(e2, 1) });
+    }
+    if (ends.length === 2) {
+      partner.set(ends[0].key, ends[1].key);
+      partner.set(ends[1].key, ends[0].key);
+      continue;
+    }
+    const pairs = [];
+    for (let i2 = 0;i2 < ends.length; i2++)
+      for (let j2 = i2 + 1;j2 < ends.length; j2++)
+        pairs.push({ i: i2, j: j2, dot: ends[i2].dir.x * ends[j2].dir.x + ends[i2].dir.y * ends[j2].dir.y });
+    pairs.sort((p2, q) => p2.dot - q.dot);
+    const used = new Set;
+    for (const { i: i2, j: j2, dot: dot4 } of pairs) {
+      if (dot4 > -Math.cos(50 * Math.PI / 180))
+        break;
+      if (used.has(i2) || used.has(j2))
+        continue;
+      used.add(i2);
+      used.add(j2);
+      partner.set(ends[i2].key, ends[j2].key);
+      partner.set(ends[j2].key, ends[i2].key);
+    }
+  }
+  const out = [];
+  const done = new Set;
+  const endNode = (e2, side) => side === 0 ? G2.edges.get(e2).a : G2.edges.get(e2).b;
+  const pinnedAt = (n2) => G2.degree(n2) >= 3;
+  const follow = (e0, side0) => {
+    const pts = [];
+    const first = pinnedAt(endNode(e0, side0));
+    let e2 = e0;
+    let side = side0;
+    for (;; ) {
+      done.add(e2);
+      const E2 = G2.edges.get(e2);
+      const seg = side === 0 ? E2.pts : [...E2.pts].reverse();
+      pts.push(...pts.length ? seg.slice(1) : seg);
+      const far = endKey(e2, 1 - side);
+      const p2 = partner.get(far);
+      if (p2 === undefined)
+        return { pts, closed: false, pinned: [first, pinnedAt(endNode(e2, 1 - side))] };
+      const ne = p2 >> 1;
+      if (ne === e0 && (p2 & 1) === side0)
+        return { pts, closed: true, pinned: [false, false] };
+      if (done.has(ne))
+        return { pts, closed: false, pinned: [first, true] };
+      e2 = ne;
+      side = p2 & 1;
+    }
+  };
+  for (const [e2] of G2.edges)
+    for (const side of [0, 1]) {
+      if (done.has(e2) || partner.has(endKey(e2, side)))
+        continue;
+      out.push(follow(e2, side));
+    }
+  for (const [e2] of G2.edges)
+    if (!done.has(e2))
+      out.push(follow(e2, 0));
+  for (const c2 of out)
+    if (c2.closed && c2.pts.length > 1) {
+      const f2 = c2.pts[0];
+      const l2 = c2.pts[c2.pts.length - 1];
+      if (Math.hypot(f2.x - l2.x, f2.y - l2.y) < 0.000001)
+        c2.pts.pop();
+    }
+  if (G2.edges.size === 0)
+    for (const [, N3] of G2.nodes)
+      out.push({ pts: [{ x: N3.x, y: N3.y }], closed: false, pinned: [false, false] });
+  return out;
+};
+var joinEnds = (cs, sigma) => {
+  const outward = (c2, end) => {
+    const pts = end === 0 ? c2.pts : [...c2.pts].reverse();
+    const p2 = pts[0];
+    let q = pts[pts.length - 1];
+    let acc = 0;
+    for (let i2 = 1;i2 < pts.length; i2++) {
+      acc += Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y);
+      if (acc >= 2 * sigma) {
+        q = pts[i2];
+        break;
+      }
+    }
+    const dx = p2.x - q.x;
+    const dy = p2.y - q.y;
+    const L2 = Math.hypot(dx, dy) || 1;
+    return { p: p2, d: { x: dx / L2, y: dy / L2 } };
+  };
+  const out = [...cs];
+  for (let pass3 = 0;pass3 < 32; pass3++) {
+    let best;
+    for (let i3 = 0;i3 < out.length; i3++) {
+      const a3 = out[i3];
+      if (a3.closed || a3.pts.length < 2)
+        continue;
+      for (const ei2 of [0, 1]) {
+        if (a3.pinned[ei2])
+          continue;
+        const A2 = outward(a3, ei2);
+        for (let j3 = i3;j3 < out.length; j3++) {
+          const b3 = out[j3];
+          if (b3.closed || b3.pts.length < 2)
+            continue;
+          for (const ej2 of [0, 1]) {
+            if (b3.pinned[ej2] || i3 === j3 && ei2 >= ej2)
+              continue;
+            const B3 = outward(b3, ej2);
+            const gx = B3.p.x - A2.p.x;
+            const gy = B3.p.y - A2.p.y;
+            const gap = Math.hypot(gx, gy);
+            if (gap > 5 * sigma)
+              continue;
+            const g2 = { x: gx / (gap || 1), y: gy / (gap || 1) };
+            const ok = gap < sigma || A2.d.x * g2.x + A2.d.y * g2.y > 0.5 && -(B3.d.x * g2.x + B3.d.y * g2.y) > 0.5;
+            if (!ok || i3 === j3 && pathLen(a3.pts) < 6 * sigma)
+              continue;
+            if (!best || gap < best.cost)
+              best = { i: i3, ei: ei2, j: j3, ej: ej2, cost: gap };
+          }
+        }
+      }
+    }
+    if (!best)
+      break;
+    const { i: i2, ei, j: j2, ej } = best;
+    const a2 = out[i2];
+    if (i2 === j2) {
+      out[i2] = { pts: a2.pts, closed: true, pinned: [false, false] };
+      continue;
+    }
+    const b2 = out[j2];
+    const ap = ei === 1 ? a2.pts : [...a2.pts].reverse();
+    const bp = ej === 0 ? b2.pts : [...b2.pts].reverse();
+    const joined = { pts: [...ap, ...bp], closed: false, pinned: [a2.pinned[1 - ei], b2.pinned[1 - ej]] };
+    out.splice(j2, 1);
+    out[i2] = joined;
+  }
+  return out;
+};
+var tangentAt = (pts, i2, closed) => {
+  const n2 = pts.length;
+  const a2 = closed ? pts[(i2 - 1 + n2) % n2] : pts[Math.max(0, i2 - 1)];
+  const b2 = closed ? pts[(i2 + 1) % n2] : pts[Math.min(n2 - 1, i2 + 1)];
+  const dx = b2.x - a2.x;
+  const dy = b2.y - a2.y;
+  const d2 = Math.hypot(dx, dy) || 1;
+  return { x: dx / d2, y: dy / d2 };
+};
+var refine = (c2, hash3, sigma) => {
+  const s2 = hash3.s;
+  const step4 = Math.max(1, sigma / 2);
+  let pts = c2.closed ? resample(c2.pts, step4, true) : resample(c2.pts, step4);
+  if (!c2.closed && pts.length * step4 > 8 * sigma) {
+    const cut = Math.round(2 * sigma / step4);
+    pts = pts.slice(c2.pinned[0] ? 0 : cut, c2.pinned[1] ? pts.length : pts.length - cut);
+  }
+  if (pts.length < 3)
+    return { ...c2, pts };
+  const r4 = 3 * sigma;
+  const s22 = 2 * sigma * sigma;
+  const fixedEnd = (i2) => !c2.closed && (i2 === 0 && c2.pinned[0] || i2 === pts.length - 1 && c2.pinned[1]);
+  const pull = () => {
+    const next = pts.map((p2, i2) => {
+      if (fixedEnd(i2))
+        return p2;
+      const t2 = tangentAt(pts, i2, c2.closed);
+      let W = 0;
+      let off = 0;
+      hash3.near(p2.x, p2.y, r4, (j2) => {
+        const dx = s2.x[j2] - p2.x;
+        const dy = s2.y[j2] - p2.y;
+        const along = dx * t2.x + dy * t2.y;
+        const across = -dx * t2.y + dy * t2.x;
+        const w4 = s2.w[j2] * Math.exp(-(along * along) / (s22 * 2.25)) * Math.exp(-(across * across) / s22);
+        W += w4;
+        off += w4 * across;
+      });
+      if (W === 0)
+        return p2;
+      off /= W;
+      return { x: p2.x - t2.y * off * 0.8, y: p2.y + t2.x * off * 0.8 };
+    });
+    pts = next;
+  };
+  const smooth = (lambda) => {
+    const n2 = pts.length;
+    pts = pts.map((p2, i2) => {
+      if (!c2.closed && (i2 === 0 || i2 === n2 - 1))
+        return p2;
+      const a2 = pts[(i2 - 1 + n2) % n2];
+      const b2 = pts[(i2 + 1) % n2];
+      return { x: p2.x + lambda * ((a2.x + b2.x) / 2 - p2.x), y: p2.y + lambda * ((a2.y + b2.y) / 2 - p2.y) };
+    });
+  };
+  for (let it2 = 0;it2 < 10; it2++) {
+    pull();
+    smooth(0.35);
+    if (it2 % 3 === 2)
+      pts = c2.closed ? resample(pts, step4, true) : resample(pts, step4);
+  }
+  if (!c2.closed) {
+    for (const end of [0, 1]) {
+      if (c2.pinned[end])
+        continue;
+      const i2 = end === 0 ? 0 : pts.length - 1;
+      const p2 = pts[i2];
+      const back = Math.max(3, Math.round(2 * sigma / step4));
+      const q = pts[end === 0 ? Math.min(pts.length - 1, back) : Math.max(0, pts.length - 1 - back)];
+      const dx = p2.x - q.x;
+      const dy = p2.y - q.y;
+      const d2 = Math.hypot(dx, dy) || 1;
+      const t2 = { x: dx / d2, y: dy / d2 };
+      const ahead = [];
+      hash3.near(p2.x, p2.y, 4 * sigma, (j2) => {
+        const ex = s2.x[j2] - p2.x;
+        const ey = s2.y[j2] - p2.y;
+        const along = ex * t2.x + ey * t2.y;
+        if (along > 0 && Math.abs(-ex * t2.y + ey * t2.x) < sigma)
+          ahead.push(along);
+      });
+      if (ahead.length < 2)
+        continue;
+      ahead.sort((a2, b2) => a2 - b2);
+      const ext = ahead[Math.floor(ahead.length * 0.97)];
+      if (ext < step4 * 0.5)
+        continue;
+      const tip = { x: p2.x + t2.x * ext, y: p2.y + t2.y * ext };
+      if (end === 0)
+        pts = [...resample([tip, p2], step4).slice(0, -1), ...pts];
+      else
+        pts = [...pts, ...resample([p2, tip], step4).slice(1)];
+    }
+    for (let it2 = 0;it2 < 3; it2++) {
+      pull();
+      smooth(0.3);
+    }
+  }
+  return { ...c2, pts: gaussSmooth(resample(pts, step4, c2.closed), 1.5, c2.closed) };
+};
+var gaussSmooth = (pts, std, closed) => {
+  const n2 = pts.length;
+  if (n2 < 4)
+    return pts;
+  const R2 = Math.ceil(2.5 * std);
+  return pts.map((p2, i2) => {
+    const reach = closed ? R2 : Math.min(R2, i2, n2 - 1 - i2);
+    if (reach === 0)
+      return p2;
+    let W = 0;
+    let x2 = 0;
+    let y2 = 0;
+    for (let k2 = -reach;k2 <= reach; k2++) {
+      const q = pts[closed ? ((i2 + k2) % n2 + n2) % n2 : i2 + k2];
+      const w4 = Math.exp(-k2 * k2 / (2 * std * std));
+      W += w4;
+      x2 += w4 * q.x;
+      y2 += w4 * q.y;
+    }
+    return { x: x2 / W, y: y2 / W };
+  });
+};
+var snapJunctions = (cs, sigma) => {
+  for (const c2 of cs) {
+    if (c2.closed || c2.pts.length < 2)
+      continue;
+    for (const end of [0, 1]) {
+      if (!c2.pinned[end])
+        continue;
+      const i0 = end === 0 ? 0 : c2.pts.length - 1;
+      const p2 = c2.pts[i0];
+      let best;
+      let bd = 3 * sigma;
+      for (const o2 of cs) {
+        if (o2 === c2)
+          continue;
+        for (const q of o2.pts) {
+          const d2 = Math.hypot(q.x - p2.x, q.y - p2.y);
+          if (d2 < bd) {
+            bd = d2;
+            best = q;
+          }
+        }
+      }
+      if (!best)
+        continue;
+      const dx = best.x - p2.x;
+      const dy = best.y - p2.y;
+      const k2 = Math.min(6, c2.pts.length - 1);
+      for (let j2 = 0;j2 <= k2; j2++) {
+        const i2 = end === 0 ? j2 : c2.pts.length - 1 - j2;
+        const f2 = 1 - j2 / (k2 + 1);
+        c2.pts[i2] = { x: c2.pts[i2].x + dx * f2, y: c2.pts[i2].y + dy * f2 };
+      }
+    }
+  }
+};
+var rdp = (pts, eps) => {
+  if (pts.length < 3)
+    return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack3 = [[0, pts.length - 1]];
+  while (stack3.length) {
+    const [i2, j2] = stack3.pop();
+    const a2 = pts[i2];
+    const b2 = pts[j2];
+    const vx = b2.x - a2.x;
+    const vy = b2.y - a2.y;
+    const L2 = Math.hypot(vx, vy) || 1;
+    let best = -1;
+    let bd = eps;
+    for (let k2 = i2 + 1;k2 < j2; k2++) {
+      const d2 = Math.abs((pts[k2].x - a2.x) * vy - (pts[k2].y - a2.y) * vx) / L2;
+      if (d2 > bd) {
+        bd = d2;
+        best = k2;
+      }
+    }
+    if (best >= 0) {
+      keep[best] = 1;
+      stack3.push([i2, best], [best, j2]);
+    }
+  }
+  return pts.filter((_2, i2) => keep[i2]);
+};
+var rdpClosed = (pts, eps) => {
+  if (pts.length < 4)
+    return pts;
+  let far = 1;
+  let fd = 0;
+  for (let i2 = 1;i2 < pts.length; i2++) {
+    const d2 = Math.hypot(pts[i2].x - pts[0].x, pts[i2].y - pts[0].y);
+    if (d2 > fd) {
+      fd = d2;
+      far = i2;
+    }
+  }
+  const a2 = rdp(pts.slice(0, far + 1), eps);
+  const b2 = rdp([...pts.slice(far), pts[0]], eps);
+  return [...a2, ...b2.slice(1, -1)];
+};
+var catmullRom2 = (pts, step4, closed) => {
+  const n2 = pts.length;
+  if (n2 < 3)
+    return resample(pts, step4);
+  const P2 = (i2) => closed ? pts[(i2 % n2 + n2) % n2] : pts[Math.min(n2 - 1, Math.max(0, i2))];
+  const dense = [];
+  const segs = closed ? n2 : n2 - 1;
+  for (let i2 = 0;i2 < segs; i2++) {
+    const p0 = P2(i2 - 1);
+    const p1 = P2(i2);
+    const p2 = P2(i2 + 1);
+    const p3 = P2(i2 + 2);
+    const m2 = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / (step4 / 2)));
+    for (let k2 = 0;k2 < m2; k2++) {
+      const t2 = k2 / m2;
+      const t22 = t2 * t2;
+      const t3 = t22 * t2;
+      dense.push({
+        x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t2 + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t22 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t2 + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t22 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+      });
+    }
+  }
+  if (!closed)
+    dense.push(P2(n2 - 1));
+  return closed ? resample(dense, step4, true) : resample(dense, step4);
+};
+var distillCluster = (s2, sigma, trace) => {
+  const b2 = bounds(s2);
+  const t0 = performance.now();
+  const lap = (what) => trace?.(`  ${what} ${(performance.now() - t0).toFixed(1)} ms`);
+  if (b2.diag < 2 * sigma) {
+    let W = 0;
+    let x2 = 0;
+    let y2 = 0;
+    for (let i2 = 0;i2 < s2.n; i2++) {
+      W += s2.w[i2];
+      x2 += s2.w[i2] * s2.x[i2];
+      y2 += s2.w[i2] * s2.y[i2];
+    }
+    return [{ points: [{ x: x2 / W, y: y2 / W }], closed: false }];
+  }
+  const g2 = densityGrid(s2, sigma);
+  const at2 = [];
+  for (let i2 = 0;i2 < s2.n; i2++)
+    at2.push(sampleGrid(g2, s2.x[i2], s2.y[i2]));
+  at2.sort((a2, c2) => a2 - c2);
+  const tau = 0.3 * at2[at2.length >> 1];
+  const m2 = new Uint8Array(g2.W * g2.H);
+  for (let y2 = 1;y2 < g2.H - 1; y2++)
+    for (let x2 = 1;x2 < g2.W - 1; x2++)
+      if (g2.d[y2 * g2.W + x2] > tau)
+        m2[y2 * g2.W + x2] = 1;
+  zhangSuen(m2, g2.W, g2.H);
+  pruneStairs(m2, g2.W, g2.H);
+  lap(`density+skeleton (${g2.W}×${g2.H}, c ${g2.c.toFixed(2)})`);
+  const G2 = traceSkeleton(m2, g2);
+  cleanGraph(G2, sigma);
+  lap(`graph (${G2.nodes.size} nodes, ${G2.edges.size} edges)`);
+  const hash3 = new Hash(s2, 2.5 * sigma);
+  const out = [];
+  const cs = chains(G2, sigma);
+  trace?.(`  chains: ${cs.map((c2) => `${c2.closed ? "○" : "—"}${c2.pts.length}${c2.pinned.map((p2) => p2 ? "▪" : "·").join("")}`).join(" ")}`);
+  const refined = joinEnds(cs, sigma).map((c2) => c2.pts.length === 1 ? c2 : refine(c2, hash3, sigma));
+  snapJunctions(refined, sigma);
+  for (const r4 of refined) {
+    if (r4.pts.length === 1) {
+      out.push({ points: r4.pts, closed: false });
+      continue;
+    }
+    const simple = r4.closed ? rdpClosed(r4.pts, 0.04 * sigma) : rdp(r4.pts, 0.04 * sigma);
+    const pts = catmullRom2(simple, OUT_STEP, r4.closed);
+    out.push({ points: pts, closed: r4.closed });
+  }
+  lap(`curves (${out.length})`);
+  return out;
+};
+var distillPaths = (strokes, opts = {}) => {
+  const live = strokes.filter((k2) => k2.length > 0);
+  if (live.length === 0)
+    return [];
+  const t0 = performance.now();
+  const lap = (what) => opts.trace?.(`${what} ${(performance.now() - t0).toFixed(1)} ms`);
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const k2 of live)
+    for (const p2 of k2) {
+      x0 = Math.min(x0, p2.x);
+      y0 = Math.min(y0, p2.y);
+      x1 = Math.max(x1, p2.x);
+      y1 = Math.max(y1, p2.y);
+    }
+  const h2 = Math.max(0.75, Math.hypot(x1 - x0, y1 - y0) / 600);
+  const s2 = sampleStrokes(live, h2);
+  lap(`${s2.n} samples, h ${h2.toFixed(2)}`);
+  const sigma0 = opts.sigma ?? estimateSigma(s2, h2);
+  lap(`σ ${sigma0.toFixed(2)}`);
+  const gap = Math.max(5, 1.5 * sigma0);
+  const groups = live.length === 1 ? [[0]] : clusters(decimate(s2, Math.floor(gap / 4 / h2)), live.length, gap);
+  lap(`${groups.length} clusters`);
+  const out = [];
+  for (const group of groups) {
+    const mine = new Set(group);
+    const cs = group.length === live.length ? s2 : subset(s2, (i2) => mine.has(s2.stroke[i2]));
+    const sigma = opts.sigma ?? (group.length === live.length ? sigma0 : estimateSigma(cs, h2));
+    opts.trace?.(`cluster of ${group.length} strokes, ${cs.n} samples, σ ${sigma.toFixed(2)}`);
+    out.push(...distillCluster(decimate(cs, Math.floor(sigma / 4 / h2)), sigma, opts.trace));
+  }
+  return out;
+};
+var distillStrokes = (strokes, makeId, opts = {}) => {
+  const pressures = strokes.flatMap((k2) => k2.points.map((p2) => p2.pressure)).filter((p2) => p2 > 0).sort((a2, b2) => a2 - b2);
+  const pressure = pressures.length ? pressures[pressures.length >> 1] : 0.5;
+  let t2 = Date.now();
+  for (const k2 of strokes)
+    for (const p2 of k2.points)
+      if (Number.isFinite(p2.t) && p2.t < t2)
+        t2 = p2.t;
+  return distillPaths(strokes.map((k2) => k2.points), opts).map((path) => {
+    const pts = path.closed ? [...path.points, path.points[0]] : path.points;
+    const points = pts.map((p2) => ({ x: round3(p2.x), y: round3(p2.y), pressure, t: t2 += 8 }));
+    return { id: makeId(), points };
+  });
+};
+var round3 = (v2) => Math.round(v2 * 100) / 100;
+var distillGlyph = (c2, r4) => {
+  const wave = (dy, amp, tilt) => Array.from({ length: 13 }, (_2, i2) => {
+    const u2 = i2 / 12;
+    const x2 = c2.x + (u2 - 0.5) * 1.15 * r4;
+    return { x: x2, y: c2.y + dy + tilt * (u2 - 0.5) * r4 - amp * r4 * Math.sin(u2 * Math.PI * 2) };
+  });
+  return {
+    faint: [wave(-0.3 * r4, 0.16, 0.12), wave(0.3 * r4, 0.2, -0.1), wave(-0.08 * r4, 0.24, -0.18)],
+    bold: wave(0, 0.18, 0)
+  };
+};
+
 // sketch/mirror.ts
 var r1 = (v2) => Math.round(v2 * 10) / 10;
 var flat = (pts) => {
@@ -67278,6 +69032,19 @@ var buildDisplay = (v2) => {
         prims: [...knockout(circlePts(c2.chip, c2.chipR, 32), 2), { k: "fill", pts: flat(star(c2.chip, c2.chipR * 0.62)), grey: 0 }]
       });
     }
+    if (c2.distill) {
+      const g2 = distillGlyph(c2.distill, c2.chipR);
+      put({
+        id: "chrome:distill",
+        z: Z2.chrome,
+        noInk: true,
+        prims: [
+          ...knockout(circlePts(c2.distill, c2.chipR, 32), 2),
+          ...g2.faint.map((pts) => ({ k: "line", pts: flat(pts), w: 1, grey: 150 })),
+          { k: "line", pts: flat(g2.bold), w: 2.5 }
+        ]
+      });
+    }
   }
   if (v2.thinking) {
     put({ id: "thinking", z: Z2.frame, prims: [{ k: "line", pts: flat(quadOf(v2.thinking)), w: 2, dash: [r1(6 * u2), r1(8 * u2)] }] });
@@ -67302,7 +69069,7 @@ var buildDisplay = (v2) => {
       const thumb = flattenSymbol(chip.candidate);
       const b2 = primsBox(thumb);
       if (b2) {
-        const k2 = r4 * 0.72 / Math.max(b2.w / 2, b2.h / 2, 1);
+        const k2 = r4 * 0.8 / Math.max(Math.hypot(b2.w, b2.h) / 2, 1);
         const mid = { x: b2.x + b2.w / 2, y: b2.y + b2.h / 2 };
         prims.push(...thumb.map((p2) => mapPrim(p2, (q) => ({ x: at2.x + (q.x - mid.x) * k2, y: at2.y + (q.y - mid.y) * k2 }), Math.min(1, k2))));
       }
@@ -67474,6 +69241,7 @@ var live = [];
 var lasso = [];
 var pressStart;
 var pressButton = false;
+var pressChip = "chip";
 var erased = new Set;
 var liveXf;
 var handleDrag;
@@ -67539,7 +69307,8 @@ class SymbolsDream extends Dream {
       const c2 = this.withPivots && canTumble(s2) ? tumbleCentre(s2) : undefined;
       if (c2) {
         const pivot = new Group({ members: [new Group({ members: [h2], x: -c2.x, y: c2.y })], x: c2.x, y: -c2.y });
-        this.pivots.push(pivot);
+        const entry = vocabById(s2.symbol);
+        this.pivots.push({ holon: pivot, turn: (m2) => tumbleTurn(entry, s2.params, m2) });
         h2 = pivot;
       }
       if (s2.id === this.fresh)
@@ -67673,8 +69442,8 @@ var tumblePreview = (m2) => {
     tumbleFrame = null;
     if (!host || host !== liftedLayer.host || !liftedLayer.pivots?.length)
       return;
-    const e2 = mat3ToEuler(turn);
-    for (const p2 of liftedLayer.pivots) {
+    for (const { holon: p2, turn: bodyTurn } of liftedLayer.pivots) {
+      const e2 = mat3ToEuler(bodyTurn(turn));
       p2.h.defaultValue = p2.h.value = e2.h;
       p2.p.defaultValue = p2.p.value = e2.p;
       p2.b.defaultValue = p2.b.value = e2.b;
@@ -67717,7 +69486,8 @@ var chrome = () => {
   const cx = frame.x + frame.w / 2;
   const knob = { x: cx, y: clampY(frame.y - px(KNOB_GAP), KNOB_R) };
   const chip = selectedStrokes().length ? { x: cx, y: clampY(frame.y + frame.h + px(CHIP_GAP + CHIP_R), CHIP_R) } : undefined;
-  return { frame, corners, knob, chip };
+  const distill = chip && { x: chip.x + px(2 * CHIP_R + 8), y: chip.y };
+  return { frame, corners, knob, chip, distill };
 };
 var chromeAt = (p2) => {
   const c2 = chrome();
@@ -67726,6 +69496,8 @@ var chromeAt = (p2) => {
   const near = (q, r4) => Math.hypot(p2.x - q.x, p2.y - q.y) <= px(r4);
   if (c2.chip && near(c2.chip, CHIP_HIT))
     return { kind: "chip" };
+  if (c2.distill && near(c2.distill, CHIP_HIT))
+    return { kind: "distill" };
   if (near(c2.knob, KNOB_HIT))
     return { kind: "rotate" };
   for (let i2 = 0;i2 < 4; i2++)
@@ -67822,6 +69594,7 @@ var mirrorView = () => {
       knob: c2.knob,
       frameTop: { x: c2.frame.x + c2.frame.w / 2, y: c2.frame.y },
       chip: c2.chip,
+      distill: c2.distill,
       handle: px(HANDLE),
       knobR: px(KNOB_R),
       chipR: px(CHIP_R)
@@ -67871,6 +69644,30 @@ var paintChrome = (c2, k2) => {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("✦", x2, y2 + 0.5 * dpr);
+  }
+  if (c2.distill) {
+    const x2 = c2.distill.x * k2;
+    const y2 = c2.distill.y * k2;
+    ctx.beginPath();
+    ctx.arc(x2, y2, CHIP_R * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = pageColor();
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.3 * dpr;
+    ctx.stroke();
+    const g2 = distillGlyph({ x: x2, y: y2 }, CHIP_R * dpr);
+    const line = (pts) => {
+      ctx.beginPath();
+      pts.forEach((q, i2) => i2 ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
+      ctx.stroke();
+    };
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 0.9 * dpr;
+    g2.faint.forEach(line);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.8 * dpr;
+    line(g2.bold);
   }
   ctx.restore();
 };
@@ -67994,7 +69791,7 @@ var undo = () => {
   const cmd = history.undo();
   if (!cmd)
     return;
-  if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase")
+  if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase" || cmd.kind === "distill")
     selection = new Set(cmd.ids);
   else if (cmd.kind === "move" || cmd.kind === "transform")
     selection = new Set(cmd.ids);
@@ -68012,7 +69809,7 @@ var redo = () => {
   const cmd = history.redo();
   if (!cmd)
     return;
-  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : cmd.kind === "edit" ? new Set(touched(cmd)) : new Set;
+  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : cmd.kind === "edit" || cmd.kind === "distill" ? new Set(touched(cmd)) : new Set;
   afterChange(cmd.kind === "replace" ? cmd.symbol.id : undefined);
 };
 var sameIds = (a2, b2) => a2.length === b2.length && [...a2].sort().join() === [...b2].sort().join();
@@ -68078,6 +69875,23 @@ var httpRecognize = async (req) => {
   return body;
 };
 var recognize = httpRecognize;
+var distill = () => {
+  if (thinking)
+    return;
+  const strokes = selectedStrokes();
+  if (strokes.length === 0) {
+    flash("select some ink first (shift-drag a lasso)");
+    return;
+  }
+  closeRing();
+  const out = distillStrokes(strokes, () => newId("ink"));
+  if (out.length === 0)
+    return;
+  const cmd = { kind: "distill", ids: strokes.map((k2) => k2.id), strokes: out };
+  history.do(cmd);
+  selection = new Set([...[...selection].filter((id) => !cmd.ids.includes(id)), ...touched(cmd)]);
+  afterChange();
+};
 var transform = async () => {
   if (thinking)
     return;
@@ -68320,8 +70134,9 @@ var handlePen = (ev, source) => {
       return;
     }
     const hit = chromeAt(p2);
-    if (hit?.kind === "chip") {
+    if (hit?.kind === "chip" || hit?.kind === "distill") {
       mode = "chipPress";
+      pressChip = hit.kind;
       pressStart = p2;
       pressButton = ev.button;
       live = [ev.sample];
@@ -68420,7 +70235,10 @@ var handlePen = (ev, source) => {
     case "chipPress":
       live = [];
       drawInk();
-      transform();
+      if (pressChip === "distill")
+        distill();
+      else
+        transform();
       break;
     case "pressSel":
       drawInk();
@@ -68595,7 +70413,7 @@ var hoverCursor = (e2) => {
   const p2 = toPage(e2.clientX, e2.clientY);
   const hit = chromeAt(p2);
   const fb = frameBox();
-  ink.style.cursor = hit?.kind === "chip" ? "pointer" : hit?.kind === "rotate" ? "grab" : hit?.kind === "corner" ? CORNER_CURSORS[hit.i] : e2.shiftKey && fb && inBox(p2, fb) ? "move" : "crosshair";
+  ink.style.cursor = hit?.kind === "chip" || hit?.kind === "distill" ? "pointer" : hit?.kind === "rotate" ? "grab" : hit?.kind === "corner" ? CORNER_CURSORS[hit.i] : e2.shiftKey && fb && inBox(p2, fb) ? "move" : "crosshair";
 };
 var activePointer;
 ink.addEventListener("pointerdown", (e2) => {
@@ -68721,6 +70539,9 @@ window.addEventListener("keydown", (e2) => {
   } else if (e2.key === "Enter") {
     e2.preventDefault();
     transform();
+  } else if (!meta && !e2.altKey && e2.key.toLowerCase() === "d") {
+    e2.preventDefault();
+    distill();
   } else if (e2.key === "Escape") {
     if (ring)
       closeRing();
@@ -68818,6 +70639,7 @@ window.__sketch = {
   },
   select: (ids) => setSelection(ids),
   transform: () => transform(),
+  distill,
   undo,
   redo,
   canUndo: () => history.canUndo,
@@ -68841,7 +70663,13 @@ window.__sketch = {
     if (!c2)
       return;
     const both = (p2) => ({ page: p2, client: pageToClient(p2) });
-    return { frame: c2.frame, corners: c2.corners.map(both), knob: both(c2.knob), chip: c2.chip && both(c2.chip) };
+    return {
+      frame: c2.frame,
+      corners: c2.corners.map(both),
+      knob: both(c2.knob),
+      chip: c2.chip && both(c2.chip),
+      distill: c2.distill && both(c2.distill)
+    };
   },
   toClient: pageToClient,
   liveXf: () => liveXf,

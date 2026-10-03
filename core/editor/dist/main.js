@@ -46280,10 +46280,10 @@ var utteranceKey = (text, voice) => {
 
 class Narration {
   lines = [];
-  add(text, start, voice) {
-    const duration = spokenSeconds(text);
-    this.lines.push({ text: text.trim(), start, duration, voice });
-    return duration;
+  add(text, start, voice, duration) {
+    const slot = duration ?? spokenSeconds(text);
+    this.lines.push({ text: text.trim(), start, duration: slot, voice });
+    return slot;
   }
   get isEmpty() {
     return this.lines.length === 0;
@@ -46394,7 +46394,7 @@ class Dream {
     this.#cursor += dt;
   }
   say(text, opts = {}) {
-    const duration = this.#narration.add(text, this.#cursor, opts.voice);
+    const duration = this.#narration.add(text, this.#cursor, opts.voice, opts.duration);
     if (opts.hold)
       this.#cursor += duration;
   }
@@ -64631,6 +64631,8 @@ class ThreeHost {
   washesFillOpacity(holon) {
     if (holon.fillOpacity.value > 0)
       return true;
+    if (holon.fillOpacity.isBound)
+      return true;
     for (const clip of this.dream.clips) {
       for (const track of clip.anim.tracks) {
         if (track.param === holon.fillOpacity)
@@ -67418,6 +67420,525 @@ class SketchDream extends Dream {
     this.set(...this.observer.dolly(700));
     __dt(this.play(Create(this.david), 4), "core/demo/vocabulary/Sketch.ts:2157:2189");
     this.wait(2);
+  }
+}
+if (false)
+  ;
+
+// src/geometry/globe.ts
+var projectLatLon = (lonDeg, latDeg, radius, spin, tilt) => {
+  const lon = lonDeg * Math.PI / 180 + spin;
+  const lat = latDeg * Math.PI / 180;
+  const cosLat = Math.cos(lat);
+  const x2 = cosLat * Math.sin(lon);
+  const y0 = Math.sin(lat);
+  const z0 = cosLat * Math.cos(lon);
+  const y2 = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
+  const z2 = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
+  return { x: x2 * radius, y: y2 * radius, z: z2 };
+};
+var clampedRing = (ring, radius, spin, tilt) => {
+  const out = [];
+  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
+    const p2 = projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt);
+    if (p2.z >= 0) {
+      out.push({ x: p2.x, y: p2.y });
+    } else {
+      const len3 = Math.hypot(p2.x, p2.y);
+      if (len3 < 0.000000001)
+        out.push({ x: 0, y: p2.y >= 0 ? radius : -radius });
+      else
+        out.push({ x: p2.x / len3 * radius, y: p2.y / len3 * radius });
+    }
+  }
+  return out;
+};
+var frontArcs = (ring, radius, spin, tilt) => {
+  const n2 = ring.length / 2;
+  if (n2 < 2)
+    return [];
+  const pts = [];
+  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
+    pts.push(projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt));
+  }
+  const crossing = (a2, b2) => {
+    const t2 = a2.z / (a2.z - b2.z);
+    const x2 = a2.x + (b2.x - a2.x) * t2;
+    const y2 = a2.y + (b2.y - a2.y) * t2;
+    const len3 = Math.hypot(x2, y2);
+    if (len3 < 0.000000001)
+      return { x: x2, y: y2 };
+    return { x: x2 / len3 * radius, y: y2 / len3 * radius };
+  };
+  const arcs = [];
+  let current = null;
+  for (let k2 = 0;k2 <= n2; k2++) {
+    const a2 = pts[k2 % n2];
+    const b2 = pts[(k2 + 1) % n2];
+    const aFront = a2.z >= 0;
+    const bFront = b2.z >= 0;
+    if (aFront) {
+      if (!current)
+        current = [{ x: a2.x, y: a2.y }];
+      else
+        current.push({ x: a2.x, y: a2.y });
+    }
+    if (aFront && !bFront) {
+      current.push(crossing(a2, b2));
+      arcs.push(current);
+      current = null;
+    } else if (!aFront && bFront) {
+      current = [crossing(a2, b2)];
+    }
+  }
+  if (current && current.length > 1)
+    arcs.push(current);
+  if (arcs.length >= 2) {
+    const first = arcs[0];
+    const last = arcs[arcs.length - 1];
+    const a2 = last[last.length - 1];
+    const b2 = first[0];
+    if (Math.hypot(a2.x - b2.x, a2.y - b2.y) < 0.000001) {
+      arcs[0] = last.slice(0, -1).concat(first);
+      arcs.pop();
+    }
+  }
+  return arcs.filter((a2) => a2.length >= 2);
+};
+
+// vocabulary/Globe/continents.ts
+var continentRings = [[-58.61, -64.15, -62.02, -64.8, -62.12, -66.19, -65.67, -67.95, -61.81, -70.72, -60.83, -73.7, -70.6, -76.63, -77.24, -76.71, -73.66, -77.91, -77.93, -78.38, -78.02, -79.18, -58.22, -83.22, -28.55, -80.34, -29.69, -79.26, -35.64, -79.46, -35.33, -78.12, -17.52, -75.13, -15.7, -74.5, -16.47, -73.87, -15.45, -73.15, -6.87, -70.93, -0.23, -71.64, 7.74, -69.89, 10.82, -70.83, 13.42, -69.97, 27.09, -70.46, 33.87, -68.5, 38.65, -69.78, 54.53, -65.82, 61.43, -67.95, 68.89, -67.93, 69.67, -69.23, 67.81, -70.31, 69.07, -70.68, 67.95, -71.85, 69.87, -72.26, 73.86, -69.87, 87.99, -66.21, 95.78, -67.39, 99.72, -67.25, 102.83, -65.56, 106.18, -66.93, 113.6, -65.88, 119.83, -67.27, 134.76, -66.21, 135.07, -65.31, 137.46, -66.95, 145.49, -66.92, 148.84, -68.39, 171.21, -71.7, 169.29, -73.66, 163.57, -76.24, 164.74, -78.18, 167, -78.75, 161.77, -79.16, 159.79, -80.95, 169.4, -83.83, 180, -84.71, 180, -90, -180, -90, -180, -84.71, -179.06, -84.14, -169.95, -83.88, -158.07, -85.37, -143.11, -85.04, -153.59, -83.69, -152.86, -82.04, -156.84, -81.1, -146.42, -80.34, -155.33, -79.06, -158.05, -78.03, -158.37, -76.89, -151.33, -77.4, -146.1, -76.48, -146.2, -75.38, -144.91, -75.2, -113.94, -73.71, -112.3, -74.71, -100.65, -75.3, -103.68, -72.62, -74.89, -73.87, -67.37, -72.48, -68.54, -69.72, -67.74, -67.33, -63, -64.64, -57.81, -63.27, -58.61, -64.15], [173.02, -40.92, 174.25, -41.35, 173.08, -43.85, 169.33, -46.64, 166.68, -46.22, 173.02, -40.92], [174.61, -36.16, 176.76, -37.88, 178.52, -37.7, 175.24, -41.69, 173.82, -39.51, 174.7, -37.38, 172.64, -34.53, 174.61, -36.16], [50.06, -13.56, 50.38, -15.71, 47.1, -24.94, 44.04, -24.99, 43.25, -22.06, 44.37, -20.07, 44.45, -16.22, 47.71, -14.59, 49.19, -12.04, 50.06, -13.56], [143.56, -13.76, 145.37, -14.98, 146.39, -18.96, 148.85, -20.39, 153.14, -26.07, 152.89, -31.64, 150, -37.43, 146.32, -39.04, 145.03, -37.9, 143.61, -38.81, 140.64, -38.02, 138.12, -35.61, 138.21, -34.38, 136.83, -35.26, 137.81, -32.9, 135.99, -34.89, 134.27, -32.62, 131.33, -31.5, 118.02, -35.06, 115.03, -34.2, 115.69, -31.61, 113.34, -26.12, 114.23, -26.3, 113.39, -24.38, 114.15, -21.76, 114.23, -22.52, 120.86, -19.68, 125.69, -14.23, 129.62, -14.97, 130.62, -12.54, 132.58, -12.11, 132.36, -11.13, 136.49, -11.86, 135.5, -15, 140.22, -17.71, 142.14, -11.04, 143.56, -13.76], [134.14, -1.15, 135.46, -3.37, 138.33, -1.7, 144.58, -3.86, 147.65, -6.08, 147.19, -7.39, 150.69, -10.58, 147.91, -10.13, 144.74, -7.63, 142.63, -9.33, 137.61, -8.41, 138.67, -7.32, 137.93, -5.39, 133.66, -3.54, 132.98, -4.11, 131.99, -2.82, 133.7, -2.21, 130.52, -0.94, 134.14, -1.15], [125.24, 1.42, 123.69, 0.24, 120.18, 0.24, 120.94, -1.41, 123.34, -0.62, 121.51, -1.9, 123.16, -5.34, 121.49, -4.57, 120.97, -2.63, 120.43, -5.53, 119.37, -5.38, 118.77, -2.8, 120.04, 0.57, 125.24, 1.42], [105.82, -5.85, 102.58, -4.22, 95.29, 5.48, 97.48, 5.25, 103.84, 0.1, 103.44, -0.71, 106.11, -3.06, 105.82, -5.85], [117.88, 1.83, 119, 0.9, 117.81, 0.78, 116.15, -4.01, 110.22, -2.93, 109.09, -0.46, 109.66, 2.01, 113, 3.1, 116.73, 6.92, 119.18, 5.41, 117.31, 3.23, 117.88, 1.83], [140.98, 37.14, 140.25, 35.14, 135.79, 33.46, 135.08, 34.6, 130.99, 33.89, 132, 33.15, 131.33, 31.45, 130.2, 31.42, 129.41, 33.3, 132.62, 35.43, 135.68, 35.53, 136.72, 37.3, 139.43, 38.22, 140.31, 41.2, 141.37, 41.38, 141.91, 39.99, 140.98, 37.14], [-3.01, 58.64, -4.07, 57.55, -1.96, 57.68, -3.12, 55.97, 1.68, 52.74, 1.45, 51.29, -5.25, 49.96, -3.41, 51.43, -5.27, 51.99, -4.22, 52.3, -4.58, 53.5, -2.95, 53.99, -5.59, 55.31, -6.15, 56.79, -5.01, 58.63, -3.01, 58.64], [-175.01, 66.58, -169.9, 65.98, -172.53, 65.44, -172.96, 64.25, -178.69, 66.11, -180, 64.98, -180, 68.96, -175.01, 66.58], [-90.55, 69.5, -90.55, 68.48, -89.22, 69.26, -87.35, 67.2, -85.52, 69.88, -82.62, 69.66, -81.28, 69.16, -81.26, 67.6, -85.77, 66.56, -87.32, 64.78, -93.16, 62.02, -94.68, 58.95, -93.22, 58.78, -92.3, 57.09, -82.27, 55.15, -82.12, 53.28, -79.91, 51.21, -78.6, 52.56, -79.83, 54.67, -76.54, 56.53, -78.52, 58.8, -77.34, 59.85, -78.11, 62.32, -73.84, 62.44, -69.59, 61.06, -69.29, 58.96, -67.65, 58.21, -64.58, 60.34, -61.8, 56.34, -57.33, 54.63, -55.68, 52.15, -60.03, 50.24, -66.4, 50.23, -71.1, 46.82, -65.06, 49.23, -64.17, 48.74, -65.12, 48.07, -64.47, 46.24, -61.52, 45.88, -60.52, 47.01, -59.8, 45.92, -65.36, 43.55, -66.16, 44.47, -64.43, 45.29, -67.14, 45.14, -70.69, 43.03, -69.97, 41.64, -73.71, 40.93, -71.95, 40.93, -73.95, 40.75, -74.91, 38.94, -75.53, 39.5, -75.94, 37.22, -76.35, 39.15, -76.96, 38.23, -75.73, 35.55, -81.34, 31.44, -80.38, 25.21, -84.1, 30.09, -89.18, 30.32, -90.15, 29.12, -93.85, 29.71, -96.59, 28.31, -97.87, 22.44, -96.29, 19.32, -94.43, 18.14, -92.04, 18.7, -90.28, 21, -87.05, 21.54, -88.93, 15.89, -83.41, 15.27, -83.81, 11.1, -81.44, 8.79, -79.57, 9.61, -76.84, 8.64, -74.91, 11.08, -71.75, 12.44, -71.7, 9.07, -69.94, 12.16, -68.19, 10.55, -61.88, 10.72, -62.39, 9.95, -57.15, 5.97, -53.96, 5.76, -51.32, 4.2, -49.97, 1.74, -50.39, -0.08, -44.91, -1.55, -44.58, -2.69, -39.98, -2.87, -35.6, -5.15, -34.73, -7.34, -38.67, -13.06, -40.94, -21.94, -47.65, -24.89, -48.89, -28.67, -53.81, -34.4, -56.22, -34.86, -58.43, -33.91, -56.79, -36.9, -59.23, -38.72, -62.34, -38.83, -62.75, -41.03, -65.12, -41.06, -63.46, -42.56, -67.29, -45.55, -67.58, -46.3, -65.64, -47.24, -65.99, -48.13, -69.14, -50.73, -68.15, -52.35, -70.85, -52.9, -71.01, -53.83, -74.95, -52.26, -75.61, -48.67, -74.13, -46.94, -75.64, -46.65, -74.35, -44.1, -73.24, -44.45, -72.72, -42.38, -74.33, -43.22, -73.59, -37.16, -71.44, -32.42, -70.16, -19.76, -71.46, -17.36, -76.01, -14.65, -79.76, -7.19, -81.25, -6.14, -79.77, -2.66, -80.97, -2.25, -80.93, -1.06, -77.13, 3.85, -78.18, 8.32, -79.56, 8.93, -80.89, 7.22, -85.66, 9.93, -87.49, 13.3, -103.5, 18.29, -105.49, 19.95, -106.03, 22.77, -113.87, 31.57, -114.78, 31.8, -114.67, 30.16, -109.41, 23.36, -110.03, 22.82, -112.18, 24.74, -112.3, 26.01, -115.06, 27.72, -114.16, 28.57, -117.3, 33.05, -120.62, 34.61, -124.4, 40.31, -124.69, 48.18, -122.59, 47.1, -122.84, 49, -127.44, 50.83, -127.85, 52.33, -134.08, 58.12, -147.11, 60.88, -151.72, 59.16, -150.62, 61.28, -158.43, 55.99, -164.79, 54.4, -157.72, 57.57, -157.04, 58.92, -161.97, 58.67, -161.87, 59.63, -166.12, 61.5, -164.56, 63.15, -160.77, 63.77, -161.52, 64.4, -160.78, 64.79, -164.96, 64.45, -168.11, 65.67, -161.68, 66.12, -166.76, 68.36, -156.58, 71.36, -136.5, 68.9, -128.14, 70.48, -108.88, 67.38, -107.79, 67.89, -108.81, 68.31, -108.17, 68.65, -106.15, 68.8, -101.45, 67.65, -97.67, 68.58, -96.12, 68.24, -96.13, 67.29, -94.23, 69.07, -96.47, 70.09, -95.21, 71.92, -90.55, 69.5], [-114.17, 73.12, -109.92, 72.96, -108.19, 71.65, -108.4, 73.09, -106.52, 73.08, -101.09, 69.58, -102.73, 69.5, -102.43, 68.75, -116.11, 69.17, -117.34, 69.96, -112.42, 70.37, -117.9, 70.54, -116.11, 71.31, -119.4, 71.56, -114.17, 73.12], [-86.56, 73.16, -85.77, 72.53, -82.32, 73.75, -80.75, 72.06, -77.82, 72.75, -72.24, 71.56, -67.91, 70.12, -66.97, 69.19, -68.81, 68.72, -61.85, 66.86, -63.92, 65, -68.02, 66.26, -64.67, 63.39, -65.01, 62.67, -68.78, 63.75, -66.17, 61.93, -74.83, 64.68, -77.71, 64.23, -78.56, 64.57, -77.9, 65.31, -73.96, 65.45, -72.93, 67.73, -78.96, 70.17, -88.68, 70.41, -90.21, 72.24, -88.41, 73.54, -85.83, 73.8, -86.56, 73.16], [57.54, 70.72, 51.6, 71.47, 55.63, 75.08, 68.85, 76.54, 58.48, 74.31, 55.42, 72.37, 57.54, 70.72], [-94.68, 77.1, -79.83, 74.92, -92.42, 74.84, -93.89, 76.32, -97.12, 76.75, -94.68, 77.1], [106.97, 76.97, 114.13, 75.85, 109.4, 74.18, 123.2, 72.97, 123.26, 73.74, 126.98, 73.57, 131.29, 70.79, 132.25, 71.84, 139.87, 71.49, 139.15, 72.42, 140.47, 72.85, 159, 70.87, 160.94, 69.44, 167.84, 69.58, 169.58, 68.69, 170.82, 69.01, 170.45, 70.1, 178.6, 69.4, 180, 68.96, 180, 64.98, 177.41, 64.61, 179.49, 62.57, 173.68, 61.65, 170.33, 59.88, 163.54, 59.87, 162.02, 58.24, 163.19, 57.62, 162.12, 54.86, 156.79, 51.01, 155.91, 56.77, 163.67, 61.14, 164.47, 62.55, 160.12, 60.54, 159.3, 61.77, 156.72, 61.43, 154.22, 59.76, 155.04, 59.15, 142.2, 59.04, 135.13, 54.73, 139.9, 54.19, 141.38, 52.24, 138.22, 46.31, 134.87, 43.4, 132.28, 43.28, 127.53, 39.76, 129.46, 36.78, 129.09, 35.08, 126.49, 34.39, 126.12, 36.73, 126.86, 36.89, 124.71, 38.11, 125.32, 39.55, 121.05, 38.9, 121.64, 40.95, 118.04, 39.2, 118.91, 37.45, 122.36, 37.45, 119.15, 34.91, 121.91, 31.69, 121.68, 28.23, 115.89, 22.78, 110.79, 21.4, 110.44, 20.34, 108.52, 21.72, 105.88, 19.75, 109.34, 13.43, 109.2, 11.67, 105.16, 8.6, 105.08, 9.92, 100.1, 13.41, 99.22, 9.24, 102.96, 5.52, 104.23, 1.29, 101.39, 2.76, 100.09, 6.46, 98.34, 7.79, 98.76, 11.44, 97.16, 16.93, 94.19, 16.04, 94.32, 18.21, 91.42, 22.77, 86.98, 21.5, 86.5, 20.15, 80.32, 15.9, 79.86, 10.36, 77.54, 7.97, 73.53, 15.99, 72.63, 21.36, 70.47, 20.88, 66.37, 25.43, 57.4, 25.74, 56.49, 27.14, 54.72, 26.48, 51.52, 27.87, 50.12, 30.15, 47.97, 29.98, 50.81, 24.75, 51.59, 25.8, 51.79, 24.02, 54.01, 24.12, 56.36, 26.4, 56.85, 24.24, 59.81, 22.31, 55.27, 17.23, 43.48, 12.64, 42.65, 16.77, 34.63, 28.06, 34.92, 29.5, 33.92, 27.65, 32.42, 29.85, 36.87, 22, 37.48, 18.61, 43.32, 12.39, 42.72, 11.74, 44.61, 10.44, 51.11, 12.02, 51.05, 10.64, 47.74, 4.22, 39.2, -4.68, 40.78, -14.69, 34.79, -19.78, 35.61, -23.71, 32.57, -25.73, 32.2, -28.75, 25.78, -33.94, 19.62, -34.82, 18.38, -34.14, 18.22, -31.66, 15.21, -27.09, 14.26, -22.11, 11.79, -18.07, 13.69, -10.73, 11.92, -5.04, 8.8, -1.11, 9.4, 3.73, 8.5, 4.77, 5.9, 4.26, 4.33, 6.27, -1.96, 4.71, -9, 4.83, -16.61, 12.17, -17.62, 14.73, -16.15, 18.11, -16.97, 21.89, -14.44, 26.25, -9.56, 29.93, -9.3, 32.56, -5.93, 35.76, -2.17, 35.17, 1.47, 36.61, 9.51, 37.35, 11.1, 36.9, 10.34, 33.79, 19.09, 30.27, 21.54, 32.84, 28.91, 30.87, 33.77, 30.97, 36.16, 36.65, 27.64, 36.66, 26.17, 39.46, 33.51, 42.02, 38.35, 40.95, 41.7, 41.96, 36.68, 45.24, 39.12, 47.26, 34.96, 46.27, 36.33, 45.11, 33.88, 44.36, 32.45, 45.33, 33.3, 46.08, 30.75, 46.58, 27.67, 42.58, 28.81, 41.05, 22.63, 40.26, 24.04, 37.66, 23.12, 37.92, 22.49, 36.41, 19.41, 40.25, 19.54, 41.72, 13.14, 45.74, 12.59, 44.09, 18.48, 40.17, 16.87, 40.44, 16.1, 37.99, 15.41, 40.05, 8.89, 44.37, 3.1, 43.08, 3.04, 41.89, 0.81, 41.01, 0.11, 38.74, -2.15, 36.67, -5.38, 35.95, -8.9, 36.87, -9.39, 43.03, -1.38, 44.02, -1.19, 46.01, -4.59, 48.68, -1.62, 48.64, -1.93, 49.78, 1.34, 50.13, 4.71, 53.09, 8.12, 53.53, 8.54, 57.11, 10.58, 57.73, 10.91, 56.46, 9.65, 55.47, 10.94, 54.01, 19.66, 54.43, 21.27, 55.19, 21.58, 57.41, 24.12, 57.03, 24.43, 58.38, 23.34, 59.19, 29.12, 60.03, 22.87, 59.85, 21.32, 60.72, 21.54, 63.19, 25.4, 65.11, 22.18, 65.72, 17.85, 62.75, 17.12, 61.34, 18.79, 60.08, 16.83, 58.72, 15.88, 56.1, 12.94, 55.36, 10.36, 59.47, 8.38, 58.31, 5.67, 58.59, 4.99, 61.97, 14.76, 67.81, 24.55, 71.03, 28.17, 71.19, 31.29, 70.45, 30.01, 70.19, 31.1, 69.56, 40.29, 67.93, 41.13, 66.79, 40.02, 66.27, 33.18, 66.63, 34.81, 65.9, 34.94, 64.41, 37.01, 63.85, 37.18, 65.14, 39.59, 64.52, 42.09, 66.48, 43.95, 66.07, 44.53, 66.76, 43.45, 68.57, 46.25, 68.25, 46.82, 67.69, 45.56, 67.01, 46.35, 66.67, 53.72, 68.86, 59.94, 68.28, 61.08, 68.94, 60.55, 69.85, 68.51, 68.09, 69.18, 68.62, 66.93, 69.45, 66.69, 71.03, 69.2, 72.84, 72.59, 72.78, 71.85, 71.41, 73.67, 68.41, 71.28, 66.32, 72.42, 66.17, 75.05, 67.76, 73.6, 69.63, 74.4, 70.63, 73.1, 71.45, 74.66, 72.83, 76.36, 71.15, 75.9, 71.87, 77.58, 72.27, 81.5, 71.75, 80.51, 73.65, 86.82, 73.94, 86.01, 74.46, 87.17, 75.12, 100.76, 76.43, 104.35, 77.7, 106.97, 76.97], [49.11, 41.28, 50.39, 40.26, 48.86, 38.82, 49.2, 37.58, 53.83, 36.97, 53.88, 38.95, 52.69, 40.03, 54.74, 40.95, 53.72, 42.12, 52.81, 41.14, 52.5, 42.79, 50.31, 44.61, 53.04, 45.26, 53.04, 46.85, 49.1, 46.4, 46.68, 44.61, 49.11, 41.28], [-68.5, 83.11, -61.89, 82.36, -76.91, 79.32, -75.39, 78.53, -80.56, 76.18, -89.49, 76.47, -87.77, 77.18, -88.26, 77.9, -84.98, 77.54, -87.96, 78.37, -85.09, 79.35, -86.93, 80.25, -81.85, 80.46, -87.6, 80.52, -91.59, 81.89, -68.5, 83.11], [-27.1, 83.52, -20.85, 82.73, -31.4, 82.02, -12.21, 81.29, -20.05, 80.18, -17.73, 80.13, -19.7, 78.75, -18.47, 76.99, -21.68, 76.63, -19.83, 76.1, -19.6, 75.25, -20.67, 75.16, -19.37, 74.3, -23.57, 73.31, -22.3, 72.18, -24.79, 72.33, -21.75, 70.66, -25.54, 71.43, -26.36, 70.23, -22.35, 70.13, -39.81, 65.46, -42.82, 62.68, -43.38, 60.1, -48.26, 60.86, -51.63, 63.63, -53.97, 67.19, -50.87, 69.93, -54.68, 69.61, -54.36, 70.82, -51.39, 70.57, -55.83, 71.65, -54.72, 72.59, -58.59, 75.52, -68.5, 76.06, -71.4, 77.01, -66.76, 77.38, -73.3, 78.04, -65.71, 79.39, -68.02, 80.12, -62.65, 81.77, -50.39, 82.44, -44.52, 81.66, -46.76, 82.63, -43.41, 83.23, -27.1, 83.52]];
+
+// vocabulary/Globe/Globe.ts
+var DARK_LAND = rgb(51, 51, 51);
+
+class Globe extends Null {
+  static sovereign = true;
+  radius = length2(200);
+  continents = "fill";
+  spin = scalar(0);
+  tilt = angle(0.12);
+  land = color2(DARK_LAND);
+  landOpacity = completion(1);
+  coastStroke = length2(3);
+  limbStroke = length2(0);
+  limbTint = color2(rgb(136, 136, 136));
+  oceanTint = color2(rgb(17, 17, 17));
+  oceanOpacity = completion(0);
+  graticule = bool2(false);
+  graticuleTint = color2(rgb(85, 85, 85));
+  meridians = length2(12);
+  parallels = length2(6);
+  ocean;
+  limb;
+  landHolon;
+  grid;
+  compose() {
+    this.ocean = this.add(new Circle({
+      radius: this.radius,
+      tint: this.oceanTint,
+      stroke: scalar(0),
+      fillOpacity: this.oceanOpacity
+    }));
+    if (this.continents === "fill")
+      this.landHolon = this.add(this.buildFilledLand());
+    else
+      this.landHolon = this.add(this.buildOutlinedLand());
+    this.grid = this.add(new Group2({ members: this.graticule.value ? this.buildGraticule() : [] }));
+    this.limb = this.add(new Circle({ radius: this.radius, tint: this.limbTint, stroke: this.limbStroke }));
+  }
+  buildFilledLand() {
+    const parent = new Stroke({
+      tint: this.land,
+      stroke: scalar(0),
+      fillOpacity: this.landOpacity
+    });
+    for (const ring of continentRings) {
+      const line = new Line2({ tint: this.land, stroke: scalar(0) });
+      deriveRing(line, this, () => {
+        const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value);
+        return closeLoop2(pts);
+      });
+      parentAdd(parent, line);
+    }
+    return parent;
+  }
+  buildOutlinedLand() {
+    const parent = new Stroke({ tint: this.land, stroke: this.coastStroke, fillOpacity: scalar(0) });
+    const SLOTS = 4;
+    for (const ring of continentRings) {
+      for (let s2 = 0;s2 < SLOTS; s2++) {
+        const line = new Line2({ tint: this.land, stroke: this.coastStroke });
+        deriveRing(line, this, () => {
+          const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
+          const arc = arcs[s2];
+          return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
+        });
+        parentAdd(parent, line);
+      }
+    }
+    return parent;
+  }
+  buildGraticule() {
+    const lines = [];
+    const nMer = Math.max(1, Math.round(this.meridians.value));
+    const nPar = Math.max(1, Math.round(this.parallels.value));
+    for (let m2 = 0;m2 < nMer; m2++) {
+      const lon = -180 + 360 * m2 / nMer;
+      const ring = [];
+      for (let lat = -90;lat <= 90; lat += 5)
+        ring.push(lon, lat);
+      lines.push(...this.graticuleArcs(ring));
+    }
+    for (let p2 = 1;p2 < nPar; p2++) {
+      const lat = -90 + 180 * p2 / nPar;
+      const ring = [];
+      for (let lon = -180;lon <= 180; lon += 5)
+        ring.push(lon, lat);
+      lines.push(...this.graticuleArcs(ring));
+    }
+    return lines;
+  }
+  graticuleArcs(ring) {
+    const SLOTS = 2;
+    const out = [];
+    for (let s2 = 0;s2 < SLOTS; s2++) {
+      const line = new Line2({ tint: this.graticuleTint, stroke: this.coastStroke.times(0.5) });
+      deriveRing(line, this, () => {
+        const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
+        const arc = arcs[s2];
+        return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
+      });
+      out.push(line);
+    }
+    return out;
+  }
+}
+var closeLoop2 = (pts) => {
+  if (pts.length < 3)
+    return [];
+  const out = pts.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
+  const a2 = out[0];
+  const b2 = out[out.length - 1];
+  if (Math.hypot(a2.x - b2.x, a2.y - b2.y) > 0.000001)
+    out.push({ x: a2.x, y: a2.y, z: 0 });
+  return out;
+};
+var parentAdd = (parent, child) => {
+  parent.add(child);
+};
+var deriveRing = (line, globe, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = [globe.spin.value, globe.radius.value, globe.tilt.value];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// vocabulary/Regenaissance/lattice.ts
+var PHI = (1 + Math.sqrt(5)) / 2;
+var ICOSA = [];
+for (const s1 of [-1, 1]) {
+  for (const s2 of [-1, 1]) {
+    ICOSA.push([0, s1, s2 * PHI], [s1, s2 * PHI, 0], [s2 * PHI, 0, s1]);
+  }
+}
+var norm2 = (v2) => {
+  const l2 = Math.hypot(v2[0], v2[1], v2[2]);
+  return [v2[0] / l2, v2[1] / l2, v2[2] / l2];
+};
+var GREAT_CIRCLE_NORMALS = (() => {
+  const out = [];
+  for (let i2 = 0;i2 < ICOSA.length; i2++) {
+    for (let j2 = i2 + 1;j2 < ICOSA.length; j2++) {
+      const a2 = ICOSA[i2];
+      const b2 = ICOSA[j2];
+      if (Math.abs(Math.hypot(a2[0] - b2[0], a2[1] - b2[1], a2[2] - b2[2]) - 2) > 0.000000001)
+        continue;
+      const m2 = norm2([a2[0] + b2[0], a2[1] + b2[1], a2[2] + b2[2]]);
+      if (!out.some((n2) => Math.abs(n2[0] * m2[0] + n2[1] * m2[1] + n2[2] * m2[2]) > 1 - 0.000000001))
+        out.push(m2);
+    }
+  }
+  return out;
+})();
+var orient = (v2, spin, pitch2) => {
+  const c2 = Math.cos(spin), s2 = Math.sin(spin);
+  const x2 = v2[0] * c2 + v2[2] * s2;
+  const z0 = -v2[0] * s2 + v2[2] * c2;
+  const y2 = v2[1] * Math.cos(pitch2) - z0 * Math.sin(pitch2);
+  const z2 = v2[1] * Math.sin(pitch2) + z0 * Math.cos(pitch2);
+  return [x2, y2, z2];
+};
+var greatCircleHalves = (k2, radius, spin, pitch2, samples = 32) => {
+  const n2 = orient(GREAT_CIRCLE_NORMALS[k2], spin, pitch2);
+  let u2 = [-n2[0] * n2[2], -n2[1] * n2[2], 1 - n2[2] * n2[2]];
+  if (Math.hypot(u2[0], u2[1], u2[2]) < 0.000000001)
+    u2 = [1, 0, 0];
+  u2 = norm2(u2);
+  const v2 = [n2[1] * u2[2] - n2[2] * u2[1], n2[2] * u2[0] - n2[0] * u2[2], n2[0] * u2[1] - n2[1] * u2[0]];
+  const half = (from) => {
+    const out = [];
+    for (let i2 = 0;i2 <= samples; i2++) {
+      const t2 = from + Math.PI * i2 / samples;
+      const c2 = Math.cos(t2), s2 = Math.sin(t2);
+      out.push({ x: (u2[0] * c2 + v2[0] * s2) * radius, y: (u2[1] * c2 + v2[1] * s2) * radius });
+    }
+    return out;
+  };
+  return { front: half(-Math.PI / 2), back: half(Math.PI / 2) };
+};
+var outsideDisc = (pts, cx, cy, r2) => {
+  const out = (p2) => Math.hypot(p2.x - cx, p2.y - cy) >= r2;
+  const edge = (a2, b2) => {
+    let lo = 0, hi = 1;
+    const oa = out(a2);
+    for (let i2 = 0;i2 < 24; i2++) {
+      const m2 = (lo + hi) / 2;
+      const p2 = { x: a2.x + (b2.x - a2.x) * m2, y: a2.y + (b2.y - a2.y) * m2 };
+      if (out(p2) === oa)
+        lo = m2;
+      else
+        hi = m2;
+    }
+    return { x: a2.x + (b2.x - a2.x) * lo, y: a2.y + (b2.y - a2.y) * lo };
+  };
+  const runs = [];
+  let cur;
+  for (let i2 = 0;i2 < pts.length; i2++) {
+    const p2 = pts[i2];
+    if (out(p2)) {
+      if (!cur) {
+        cur = [];
+        if (i2 > 0)
+          cur.push(edge(p2, pts[i2 - 1]));
+        runs.push(cur);
+      }
+      cur.push(p2);
+    } else if (cur) {
+      cur.push(edge(pts[i2 - 1], p2));
+      cur = undefined;
+    }
+  }
+  return runs.filter((r3) => r3.length >= 2);
+};
+
+// vocabulary/Regenaissance/SMark.ts
+var MARK_RED = rgb(237, 110, 87);
+var SMARK = {
+  offset: 0.38,
+  dot: 0.15,
+  square: 0.25,
+  band: 0.08
+};
+var sBandOutline = (R3, samples = 40) => {
+  const k2 = SMARK.offset * R3;
+  const w4 = SMARK.band * R3 / 2;
+  const c2 = Math.SQRT1_2;
+  const D2 = { x: k2 * c2, y: k2 * c2 };
+  const Q2 = { x: -k2 * c2, y: -k2 * c2 };
+  const arc = (o2, rad, a0, a1) => {
+    const out = [];
+    for (let i2 = 0;i2 <= samples; i2++) {
+      const a2 = a0 + (a1 - a0) * i2 / samples;
+      out.push({ x: o2.x + rad * Math.cos(a2), y: o2.y + rad * Math.sin(a2), z: 0 });
+    }
+    return out;
+  };
+  const q = Math.PI / 4;
+  const sideA = [...arc(D2, k2 - w4, q, q + Math.PI), ...arc(Q2, k2 + w4, q, q - Math.PI).slice(1)];
+  const sideB = [...arc(Q2, k2 - w4, q - Math.PI, q), ...arc(D2, k2 + w4, q + Math.PI, q).slice(1)];
+  const loop = [...sideA, ...sideB];
+  loop.push({ ...loop[0] });
+  return loop;
+};
+
+class SMark extends Null {
+  static sovereign = true;
+  radius = length2(100);
+  tint = color2(MARK_RED);
+  band;
+  dot;
+  square;
+  compose() {
+    const R3 = this.radius.value;
+    const k2 = SMARK.offset * R3 * Math.SQRT1_2;
+    this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }));
+    this.band.add(new Line2({ points: sBandOutline(R3), tint: this.tint, stroke: 1 }));
+    this.dot = this.add(new Circle({ x: k2, y: k2, radius: SMARK.dot * R3, tint: this.tint, stroke: 0, fillOpacity: 1 }));
+    const a2 = SMARK.square * R3 / 2;
+    this.square = this.add(new Line2({
+      points: [
+        { x: -k2 - a2, y: -k2 - a2, z: 0 },
+        { x: -k2 + a2, y: -k2 - a2, z: 0 },
+        { x: -k2 + a2, y: -k2 + a2, z: 0 },
+        { x: -k2 - a2, y: -k2 + a2, z: 0 },
+        { x: -k2 - a2, y: -k2 - a2, z: 0 }
+      ],
+      tint: this.tint,
+      stroke: 0,
+      fillOpacity: 1
+    }));
+  }
+  createAnim() {
+    this.parts;
+    return together(restage(together(...this.band.parts.map((p2) => p2.creation.sequence(0, 1))), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
+  }
+}
+
+// vocabulary/Regenaissance/Regenaissance.ts
+var REGEN_GOLD = rgb(196, 150, 72);
+var REGEN = {
+  globe: 0.56,
+  mark: 0.46
+};
+var RUN_SLOTS = 2;
+
+class Regenaissance extends Null {
+  static sovereign = true;
+  radius = length2(390);
+  latticeSpin = scalar(0.3);
+  latticePitch = angle(0.45);
+  earthSpin = scalar(-0.37);
+  earthTilt = angle(1.05);
+  ringTint = color2(REGEN_GOLD);
+  ringStroke = length2(3);
+  latticeTint = color2(WHITE);
+  latticeStroke = length2(1.4);
+  backOpacity = completion(0.4);
+  landTint = color2(WHITE);
+  mark = bool2(true);
+  markTint = color2(MARK_RED);
+  eyeTint = color2(WHITE);
+  outer;
+  topCircle;
+  bottomCircle;
+  axis;
+  lattice;
+  earth;
+  vesica;
+  eyeRing;
+  sMark;
+  get r() {
+    return REGEN.globe * this.radius.value;
+  }
+  compose() {
+    const R3 = this.radius.value;
+    const r2 = this.r;
+    const h2 = r2 / 2;
+    this.earth = this.add(new Globe({
+      y: -h2,
+      radius: r2,
+      land: this.landTint,
+      spin: this.earthSpin,
+      tilt: this.earthTilt
+    }));
+    this.vesica = this.add(new Line2({ points: vesicaOutline(r2), tint: BLACK, stroke: 0, fillOpacity: 1 }));
+    const runs = [];
+    for (let k2 = 0;k2 < GREAT_CIRCLE_NORMALS.length; k2++) {
+      for (const side of ["front", "back"]) {
+        for (let s2 = 0;s2 < RUN_SLOTS; s2++) {
+          const line = new Line2({
+            tint: this.latticeTint,
+            stroke: this.latticeStroke,
+            ...side === "back" ? { opacity: this.backOpacity } : {}
+          });
+          deriveRun(line, this, () => {
+            const halves = greatCircleHalves(k2, r2, this.latticeSpin.value, this.latticePitch.value);
+            const run = outsideDisc(halves[side], 0, -r2, r2)[s2];
+            return run ? run.map((p2) => ({ x: p2.x, y: p2.y + h2, z: 0 })) : [];
+          });
+          runs.push(line);
+        }
+      }
+    }
+    this.lattice = this.add(new Group2({ members: runs }));
+    const seg = (y0, y1) => new Line2({
+      points: [
+        { x: 0, y: y0, z: 0 },
+        { x: 0, y: y1, z: 0 }
+      ],
+      tint: this.ringTint,
+      stroke: this.ringStroke
+    });
+    this.axis = this.add(new Group2({ members: [seg(1.5 * r2, h2), seg(-1.5 * r2, -h2)] }));
+    const ring = (y2, radius) => new Circle({ y: y2, radius, tint: this.ringTint, stroke: this.ringStroke, drawStart: 0.25 });
+    this.topCircle = this.add(ring(h2, r2));
+    this.bottomCircle = this.add(ring(-h2, r2));
+    this.outer = this.add(ring(0, R3));
+    const m2 = REGEN.mark * r2;
+    this.eyeRing = this.add(new Circle({ radius: m2, tint: this.eyeTint, stroke: this.ringStroke }));
+    if (this.mark.value)
+      this.sMark = this.add(new SMark({ radius: m2, tint: this.markTint }));
+  }
+  createAnim() {
+    this.parts;
+    const parts = [
+      restage(this.outer.creation.sequence(0, 1), 0, 0.3),
+      restage(this.topCircle.creation.sequence(0, 1), 0.15, 0.45),
+      restage(this.bottomCircle.creation.sequence(0, 1), 0.15, 0.45),
+      restage(together(...this.axis.parts.map((p2) => p2.creation.sequence(0, 1))), 0.25, 0.45),
+      restage(together(...this.lattice.parts.map((p2) => p2.creation.sequence(0, 1))), 0.35, 0.75),
+      restage(this.earth.landOpacity.sequence(0, 1), 0.4, 0.75),
+      restage(this.eyeRing.creation.sequence(0, 1), 0.65, 0.85)
+    ];
+    if (this.sMark)
+      parts.push(restage(this.sMark.createAnim(), 0.75, 1));
+    return together(...parts);
+  }
+}
+var vesicaOutline = (r2, samples = 48) => {
+  const h2 = r2 / 2;
+  const pts = [];
+  for (let i2 = 0;i2 <= samples; i2++) {
+    const a2 = -Math.PI / 2 - Math.PI / 3 + 2 * Math.PI / 3 * (i2 / samples);
+    pts.push({ x: r2 * Math.cos(a2), y: h2 + r2 * Math.sin(a2), z: 0 });
+  }
+  for (let i2 = 1;i2 <= samples; i2++) {
+    const a2 = Math.PI / 2 - Math.PI / 3 + 2 * Math.PI / 3 * (i2 / samples);
+    pts.push({ x: r2 * Math.cos(a2), y: -h2 + r2 * Math.sin(a2), z: 0 });
+  }
+  return pts;
+};
+var deriveRun = (line, holon, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = [holon.latticeSpin.value, holon.latticePitch.value, holon.radius.value];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// demo/vocabulary/Regenaissance.ts
+class RegenaissanceDream extends Dream {
+  regen = __dt(new Regenaissance({ radius: 680 }), "core/demo/vocabulary/Regenaissance.ts:651:685");
+  unfold() {
+    __dt(this.play(Create(this.regen), 4), "core/demo/vocabulary/Regenaissance.ts:704:736");
+    __dt(this.play(together(this.regen.latticeSpin.to(this.regen.latticeSpin.value + 0.8), this.regen.earthSpin.to(this.regen.earthSpin.value - 0.5)), 4), "core/demo/vocabulary/Regenaissance.ts:741:929");
+    this.wait(1);
+    __dt(this.play(UnCreate(this.regen), 2), "core/demo/vocabulary/Regenaissance.ts:951:985");
+    this.wait(0.5);
   }
 }
 if (false)
@@ -98948,11 +99469,17 @@ var scatteredPosition = (final, i2, seed, distance3, s2, minDistance = 0) => {
 
 // demo/web3/ClarityField.ts
 var RED_CORE = rgb(196, 70, 58);
-var RIM_GREY = rgb(110, 110, 114);
+var RIM_GREY = rgb(154, 150, 150);
 var CLARITY_BLUE = rgb(47, 143, 224);
+var HERO_RED = rgb(224, 80, 64);
 var DOT_WHITE = rgb(255, 255, 255);
-var FIELD_RADIUS = 330;
-var CLARITY_RADIUS = 96;
+var CORE_RADIUS = 150;
+var HALO_INNER = 135;
+var HALO_OUTER = 245;
+var HALO_COUNT = 1300;
+var CLARITY_RADIUS = 58;
+var HERO_RING_RADIUS = 198;
+var GATHER_FROM = 2.2;
 var disc = (radius, segments = 96) => Array.from({ length: segments }, (_2, i2) => {
   const a2 = i2 / segments * Math.PI * 2;
   return { x: Math.cos(a2) * radius, y: Math.sin(a2) * radius };
@@ -98962,65 +99489,100 @@ var mix6 = (a2, b2, u2) => ({
   g: a2.g + (b2.g - a2.g) * u2,
   b: a2.b + (b2.b - a2.b) * u2
 });
+var clamp015 = (v2) => Math.max(0, Math.min(1, v2));
+var smooth2 = (u2) => {
+  const v2 = clamp015(u2);
+  return v2 * v2 * (3 - 2 * v2);
+};
 
 class ClarityFieldDream extends Dream {
-  burst = __dt(new Null, "core/demo/web3/ClarityField.ts:3711:3721");
-  clarity = __dt(new Null, "core/demo/web3/ClarityField.ts:3811:3821");
+  burst = __dt(new Null({ creation: 0 }), "core/demo/web3/ClarityField.ts:5179:5204");
+  clarity = __dt(new Null({ creation: 0 }), "core/demo/web3/ClarityField.ts:5265:5290");
+  veil = __dt(new Null({ creation: 0 }), "core/demo/web3/ClarityField.ts:5370:5395");
+  expand = __dt(new Null({ creation: 0 }), "core/demo/web3/ClarityField.ts:5484:5509");
   field;
   inner;
   ring;
-  root = __dt(new Null, "core/demo/web3/ClarityField.ts:3889:3899");
+  root = __dt(new Null, "core/demo/web3/ClarityField.ts:5579:5589");
   constructor() {
     super();
-    const centres = hexPack([disc(FIELD_RADIUS)], { spacing: 17 });
-    const rings = centres.map((c2) => {
-      const d2 = Math.hypot(c2.x, c2.y) / FIELD_RADIUS;
+    const core = hexPack([disc(CORE_RADIUS)], { spacing: 8 }).map((c2) => {
+      const d2 = Math.hypot(c2.x, c2.y) / CORE_RADIUS;
+      return this.ringlet(c2, 8, RED_CORE, 0.2 * (1 - 0.45 * d2 * d2), 1);
+    });
+    const halo = Array.from({ length: HALO_COUNT }, (_2, i2) => {
+      const a2 = hashUnit(i2, 0, 31) * Math.PI * 2;
+      const u2 = hashUnit(i2, 1, 31);
+      const r2 = HALO_INNER + (HALO_OUTER - HALO_INNER) * u2 * u2;
+      const size = 1.6 + 3.6 * hashUnit(i2, 2, 31);
+      const out = (r2 - HALO_INNER) / (HALO_OUTER - HALO_INNER);
+      return this.ringlet({ x: Math.cos(a2) * r2, y: Math.sin(a2) * r2 }, size, mix6(RED_CORE, RIM_GREY, clamp015(0.3 + out * 2.5)), 0.38 * (1 - out) + 0.06, 0.8);
+    });
+    this.field = __dt(new Group2({ members: [...core, ...halo] }), "core/demo/web3/ClarityField.ts:6864:6906");
+    const dots = hexPack([disc(HERO_RING_RADIUS - 4)], { spacing: 10 }).map((c2) => {
+      const d2 = Math.hypot(c2.x, c2.y);
       return __dt(new Circle({
-        radius: 9,
+        radius: 1.7,
         x: c2.x,
         y: c2.y,
-        tint: mix6(RED_CORE, RIM_GREY, Math.min(1, Math.max(0, (d2 - 0.55) / 0.45))),
-        stroke: 1.6,
-        opacity: this.fieldOpacityAt(d2)
-      }), "core/demo/web3/ClarityField.ts:4310:4657");
+        tint: DOT_WHITE,
+        fillOpacity: 1,
+        stroke: 0.8,
+        opacity: this.discReading((on, rNow, e2) => {
+          const inside = clamp015((rNow - 5 - d2) / 6);
+          return on * inside * (1 - 0.45 * e2);
+        })
+      }), "core/demo/web3/ClarityField.ts:7277:7585");
     });
-    this.field = __dt(new Group2({ members: rings }), "core/demo/web3/ClarityField.ts:4682:4711");
-    const dots = hexPack([disc(CLARITY_RADIUS - 8)], { spacing: 13 }).map((c2) => __dt(new Circle({
-      radius: 2.6,
-      x: c2.x,
-      y: c2.y,
-      tint: DOT_WHITE,
-      fillOpacity: 1,
-      stroke: 1,
-      opacity: this.clarityOpacity
-    }), "core/demo/web3/ClarityField.ts:5085:5281"));
-    this.inner = __dt(new Group2({ members: dots }), "core/demo/web3/ClarityField.ts:5306:5334");
+    this.inner = __dt(new Group2({ members: dots }), "core/demo/web3/ClarityField.ts:7610:7638");
     this.ring = __dt(new Circle({
-      radius: CLARITY_RADIUS,
-      tint: CLARITY_BLUE,
+      radius: this.expand.creation.map((e2) => this.discRadius(e2)),
+      tint: this.expand.creation.map((e2) => mix6(CLARITY_BLUE, HERO_RED, smooth2(e2 * 1.3))),
       stroke: 3,
-      opacity: this.clarityOpacity
-    }), "core/demo/web3/ClarityField.ts:5351:5479");
+      opacity: this.discReading((on) => on)
+    }), "core/demo/web3/ClarityField.ts:7655:7894");
   }
-  fieldOpacityAt(d2) {
-    const atRest = 1 - 0.45 * d2 * d2;
-    return this.burst.creation.map((b2) => Math.max(0, Math.min(1, (b2 - d2 * 0.45) / 0.55)) * atRest * (1 - 0.55 * this.clarity.creation.value));
+  discRadius(e2) {
+    return CLARITY_RADIUS + (HERO_RING_RADIUS - CLARITY_RADIUS) * smooth2(e2);
   }
-  get clarityOpacity() {
-    return this.clarity.creation.map((c2) => Math.max(0, Math.min(1, c2)));
+  discReading(f2) {
+    return this.clarity.creation.map((c2) => {
+      const on = clamp015(c2) * (1 - clamp015(this.veil.creation.value));
+      const e2 = clamp015(this.expand.creation.value);
+      return f2(on, this.discRadius(e2), e2);
+    });
   }
-  unfold() {
+  ringlet(c2, radius, tint, rest, stroke) {
+    const spread = (b2) => 1 + (GATHER_FROM - 1) * (1 - smooth2(b2));
+    return __dt(new Circle({
+      radius,
+      x: this.burst.creation.map((b2) => c2.x * spread(b2)),
+      y: this.burst.creation.map((b2) => c2.y * spread(b2)),
+      tint,
+      stroke,
+      opacity: this.burst.creation.map((b2) => {
+        const k2 = clamp015(b2 * 1.6);
+        const dim = 1 - 0.3 * clamp015(this.clarity.creation.value) - 0.45 * clamp015(this.veil.creation.value);
+        const fade = 1 - smooth2(this.expand.creation.value * 1.25);
+        return rest * k2 * dim * fade;
+      })
+    }), "core/demo/web3/ClarityField.ts:8934:9416");
+  }
+  stageField() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(1));
     this.stage(this.root);
     this.stage(this.field);
-    this.stage(this.ring);
     this.stage(this.inner);
+    this.stage(this.ring);
+  }
+  unfold() {
+    this.stageField();
     this.say("The word bursts into complexity.");
-    __dt(this.play(this.burst.creation.to(1), 4), "core/demo/web3/ClarityField.ts:6548:6587");
-    this.wait(1.5);
+    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/ClarityField.ts:9795:9859");
+    this.wait(2.5);
     this.say("And inside the complexity, clarity.", { hold: true });
-    __dt(this.play(this.clarity.creation.to(1), 3.5), "core/demo/web3/ClarityField.ts:6719:6762");
+    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/ClarityField.ts:9991:10034");
     this.wait(3);
   }
 }
@@ -100210,227 +100772,6 @@ class VitruvianManDream extends Dream {
   }
 }
 
-// src/geometry/globe.ts
-var projectLatLon = (lonDeg, latDeg, radius, spin, tilt) => {
-  const lon = lonDeg * Math.PI / 180 + spin;
-  const lat = latDeg * Math.PI / 180;
-  const cosLat = Math.cos(lat);
-  const x2 = cosLat * Math.sin(lon);
-  const y0 = Math.sin(lat);
-  const z0 = cosLat * Math.cos(lon);
-  const y2 = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
-  const z2 = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
-  return { x: x2 * radius, y: y2 * radius, z: z2 };
-};
-var clampedRing = (ring, radius, spin, tilt) => {
-  const out = [];
-  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
-    const p2 = projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt);
-    if (p2.z >= 0) {
-      out.push({ x: p2.x, y: p2.y });
-    } else {
-      const len3 = Math.hypot(p2.x, p2.y);
-      if (len3 < 0.000000001)
-        out.push({ x: 0, y: p2.y >= 0 ? radius : -radius });
-      else
-        out.push({ x: p2.x / len3 * radius, y: p2.y / len3 * radius });
-    }
-  }
-  return out;
-};
-var frontArcs = (ring, radius, spin, tilt) => {
-  const n2 = ring.length / 2;
-  if (n2 < 2)
-    return [];
-  const pts = [];
-  for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
-    pts.push(projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt));
-  }
-  const crossing = (a2, b2) => {
-    const t2 = a2.z / (a2.z - b2.z);
-    const x2 = a2.x + (b2.x - a2.x) * t2;
-    const y2 = a2.y + (b2.y - a2.y) * t2;
-    const len3 = Math.hypot(x2, y2);
-    if (len3 < 0.000000001)
-      return { x: x2, y: y2 };
-    return { x: x2 / len3 * radius, y: y2 / len3 * radius };
-  };
-  const arcs = [];
-  let current = null;
-  for (let k2 = 0;k2 <= n2; k2++) {
-    const a2 = pts[k2 % n2];
-    const b2 = pts[(k2 + 1) % n2];
-    const aFront = a2.z >= 0;
-    const bFront = b2.z >= 0;
-    if (aFront) {
-      if (!current)
-        current = [{ x: a2.x, y: a2.y }];
-      else
-        current.push({ x: a2.x, y: a2.y });
-    }
-    if (aFront && !bFront) {
-      current.push(crossing(a2, b2));
-      arcs.push(current);
-      current = null;
-    } else if (!aFront && bFront) {
-      current = [crossing(a2, b2)];
-    }
-  }
-  if (current && current.length > 1)
-    arcs.push(current);
-  if (arcs.length >= 2) {
-    const first = arcs[0];
-    const last = arcs[arcs.length - 1];
-    const a2 = last[last.length - 1];
-    const b2 = first[0];
-    if (Math.hypot(a2.x - b2.x, a2.y - b2.y) < 0.000001) {
-      arcs[0] = last.slice(0, -1).concat(first);
-      arcs.pop();
-    }
-  }
-  return arcs.filter((a2) => a2.length >= 2);
-};
-
-// vocabulary/Globe/continents.ts
-var continentRings = [[-58.61, -64.15, -62.02, -64.8, -62.12, -66.19, -65.67, -67.95, -61.81, -70.72, -60.83, -73.7, -70.6, -76.63, -77.24, -76.71, -73.66, -77.91, -77.93, -78.38, -78.02, -79.18, -58.22, -83.22, -28.55, -80.34, -29.69, -79.26, -35.64, -79.46, -35.33, -78.12, -17.52, -75.13, -15.7, -74.5, -16.47, -73.87, -15.45, -73.15, -6.87, -70.93, -0.23, -71.64, 7.74, -69.89, 10.82, -70.83, 13.42, -69.97, 27.09, -70.46, 33.87, -68.5, 38.65, -69.78, 54.53, -65.82, 61.43, -67.95, 68.89, -67.93, 69.67, -69.23, 67.81, -70.31, 69.07, -70.68, 67.95, -71.85, 69.87, -72.26, 73.86, -69.87, 87.99, -66.21, 95.78, -67.39, 99.72, -67.25, 102.83, -65.56, 106.18, -66.93, 113.6, -65.88, 119.83, -67.27, 134.76, -66.21, 135.07, -65.31, 137.46, -66.95, 145.49, -66.92, 148.84, -68.39, 171.21, -71.7, 169.29, -73.66, 163.57, -76.24, 164.74, -78.18, 167, -78.75, 161.77, -79.16, 159.79, -80.95, 169.4, -83.83, 180, -84.71, 180, -90, -180, -90, -180, -84.71, -179.06, -84.14, -169.95, -83.88, -158.07, -85.37, -143.11, -85.04, -153.59, -83.69, -152.86, -82.04, -156.84, -81.1, -146.42, -80.34, -155.33, -79.06, -158.05, -78.03, -158.37, -76.89, -151.33, -77.4, -146.1, -76.48, -146.2, -75.38, -144.91, -75.2, -113.94, -73.71, -112.3, -74.71, -100.65, -75.3, -103.68, -72.62, -74.89, -73.87, -67.37, -72.48, -68.54, -69.72, -67.74, -67.33, -63, -64.64, -57.81, -63.27, -58.61, -64.15], [173.02, -40.92, 174.25, -41.35, 173.08, -43.85, 169.33, -46.64, 166.68, -46.22, 173.02, -40.92], [174.61, -36.16, 176.76, -37.88, 178.52, -37.7, 175.24, -41.69, 173.82, -39.51, 174.7, -37.38, 172.64, -34.53, 174.61, -36.16], [50.06, -13.56, 50.38, -15.71, 47.1, -24.94, 44.04, -24.99, 43.25, -22.06, 44.37, -20.07, 44.45, -16.22, 47.71, -14.59, 49.19, -12.04, 50.06, -13.56], [143.56, -13.76, 145.37, -14.98, 146.39, -18.96, 148.85, -20.39, 153.14, -26.07, 152.89, -31.64, 150, -37.43, 146.32, -39.04, 145.03, -37.9, 143.61, -38.81, 140.64, -38.02, 138.12, -35.61, 138.21, -34.38, 136.83, -35.26, 137.81, -32.9, 135.99, -34.89, 134.27, -32.62, 131.33, -31.5, 118.02, -35.06, 115.03, -34.2, 115.69, -31.61, 113.34, -26.12, 114.23, -26.3, 113.39, -24.38, 114.15, -21.76, 114.23, -22.52, 120.86, -19.68, 125.69, -14.23, 129.62, -14.97, 130.62, -12.54, 132.58, -12.11, 132.36, -11.13, 136.49, -11.86, 135.5, -15, 140.22, -17.71, 142.14, -11.04, 143.56, -13.76], [134.14, -1.15, 135.46, -3.37, 138.33, -1.7, 144.58, -3.86, 147.65, -6.08, 147.19, -7.39, 150.69, -10.58, 147.91, -10.13, 144.74, -7.63, 142.63, -9.33, 137.61, -8.41, 138.67, -7.32, 137.93, -5.39, 133.66, -3.54, 132.98, -4.11, 131.99, -2.82, 133.7, -2.21, 130.52, -0.94, 134.14, -1.15], [125.24, 1.42, 123.69, 0.24, 120.18, 0.24, 120.94, -1.41, 123.34, -0.62, 121.51, -1.9, 123.16, -5.34, 121.49, -4.57, 120.97, -2.63, 120.43, -5.53, 119.37, -5.38, 118.77, -2.8, 120.04, 0.57, 125.24, 1.42], [105.82, -5.85, 102.58, -4.22, 95.29, 5.48, 97.48, 5.25, 103.84, 0.1, 103.44, -0.71, 106.11, -3.06, 105.82, -5.85], [117.88, 1.83, 119, 0.9, 117.81, 0.78, 116.15, -4.01, 110.22, -2.93, 109.09, -0.46, 109.66, 2.01, 113, 3.1, 116.73, 6.92, 119.18, 5.41, 117.31, 3.23, 117.88, 1.83], [140.98, 37.14, 140.25, 35.14, 135.79, 33.46, 135.08, 34.6, 130.99, 33.89, 132, 33.15, 131.33, 31.45, 130.2, 31.42, 129.41, 33.3, 132.62, 35.43, 135.68, 35.53, 136.72, 37.3, 139.43, 38.22, 140.31, 41.2, 141.37, 41.38, 141.91, 39.99, 140.98, 37.14], [-3.01, 58.64, -4.07, 57.55, -1.96, 57.68, -3.12, 55.97, 1.68, 52.74, 1.45, 51.29, -5.25, 49.96, -3.41, 51.43, -5.27, 51.99, -4.22, 52.3, -4.58, 53.5, -2.95, 53.99, -5.59, 55.31, -6.15, 56.79, -5.01, 58.63, -3.01, 58.64], [-175.01, 66.58, -169.9, 65.98, -172.53, 65.44, -172.96, 64.25, -178.69, 66.11, -180, 64.98, -180, 68.96, -175.01, 66.58], [-90.55, 69.5, -90.55, 68.48, -89.22, 69.26, -87.35, 67.2, -85.52, 69.88, -82.62, 69.66, -81.28, 69.16, -81.26, 67.6, -85.77, 66.56, -87.32, 64.78, -93.16, 62.02, -94.68, 58.95, -93.22, 58.78, -92.3, 57.09, -82.27, 55.15, -82.12, 53.28, -79.91, 51.21, -78.6, 52.56, -79.83, 54.67, -76.54, 56.53, -78.52, 58.8, -77.34, 59.85, -78.11, 62.32, -73.84, 62.44, -69.59, 61.06, -69.29, 58.96, -67.65, 58.21, -64.58, 60.34, -61.8, 56.34, -57.33, 54.63, -55.68, 52.15, -60.03, 50.24, -66.4, 50.23, -71.1, 46.82, -65.06, 49.23, -64.17, 48.74, -65.12, 48.07, -64.47, 46.24, -61.52, 45.88, -60.52, 47.01, -59.8, 45.92, -65.36, 43.55, -66.16, 44.47, -64.43, 45.29, -67.14, 45.14, -70.69, 43.03, -69.97, 41.64, -73.71, 40.93, -71.95, 40.93, -73.95, 40.75, -74.91, 38.94, -75.53, 39.5, -75.94, 37.22, -76.35, 39.15, -76.96, 38.23, -75.73, 35.55, -81.34, 31.44, -80.38, 25.21, -84.1, 30.09, -89.18, 30.32, -90.15, 29.12, -93.85, 29.71, -96.59, 28.31, -97.87, 22.44, -96.29, 19.32, -94.43, 18.14, -92.04, 18.7, -90.28, 21, -87.05, 21.54, -88.93, 15.89, -83.41, 15.27, -83.81, 11.1, -81.44, 8.79, -79.57, 9.61, -76.84, 8.64, -74.91, 11.08, -71.75, 12.44, -71.7, 9.07, -69.94, 12.16, -68.19, 10.55, -61.88, 10.72, -62.39, 9.95, -57.15, 5.97, -53.96, 5.76, -51.32, 4.2, -49.97, 1.74, -50.39, -0.08, -44.91, -1.55, -44.58, -2.69, -39.98, -2.87, -35.6, -5.15, -34.73, -7.34, -38.67, -13.06, -40.94, -21.94, -47.65, -24.89, -48.89, -28.67, -53.81, -34.4, -56.22, -34.86, -58.43, -33.91, -56.79, -36.9, -59.23, -38.72, -62.34, -38.83, -62.75, -41.03, -65.12, -41.06, -63.46, -42.56, -67.29, -45.55, -67.58, -46.3, -65.64, -47.24, -65.99, -48.13, -69.14, -50.73, -68.15, -52.35, -70.85, -52.9, -71.01, -53.83, -74.95, -52.26, -75.61, -48.67, -74.13, -46.94, -75.64, -46.65, -74.35, -44.1, -73.24, -44.45, -72.72, -42.38, -74.33, -43.22, -73.59, -37.16, -71.44, -32.42, -70.16, -19.76, -71.46, -17.36, -76.01, -14.65, -79.76, -7.19, -81.25, -6.14, -79.77, -2.66, -80.97, -2.25, -80.93, -1.06, -77.13, 3.85, -78.18, 8.32, -79.56, 8.93, -80.89, 7.22, -85.66, 9.93, -87.49, 13.3, -103.5, 18.29, -105.49, 19.95, -106.03, 22.77, -113.87, 31.57, -114.78, 31.8, -114.67, 30.16, -109.41, 23.36, -110.03, 22.82, -112.18, 24.74, -112.3, 26.01, -115.06, 27.72, -114.16, 28.57, -117.3, 33.05, -120.62, 34.61, -124.4, 40.31, -124.69, 48.18, -122.59, 47.1, -122.84, 49, -127.44, 50.83, -127.85, 52.33, -134.08, 58.12, -147.11, 60.88, -151.72, 59.16, -150.62, 61.28, -158.43, 55.99, -164.79, 54.4, -157.72, 57.57, -157.04, 58.92, -161.97, 58.67, -161.87, 59.63, -166.12, 61.5, -164.56, 63.15, -160.77, 63.77, -161.52, 64.4, -160.78, 64.79, -164.96, 64.45, -168.11, 65.67, -161.68, 66.12, -166.76, 68.36, -156.58, 71.36, -136.5, 68.9, -128.14, 70.48, -108.88, 67.38, -107.79, 67.89, -108.81, 68.31, -108.17, 68.65, -106.15, 68.8, -101.45, 67.65, -97.67, 68.58, -96.12, 68.24, -96.13, 67.29, -94.23, 69.07, -96.47, 70.09, -95.21, 71.92, -90.55, 69.5], [-114.17, 73.12, -109.92, 72.96, -108.19, 71.65, -108.4, 73.09, -106.52, 73.08, -101.09, 69.58, -102.73, 69.5, -102.43, 68.75, -116.11, 69.17, -117.34, 69.96, -112.42, 70.37, -117.9, 70.54, -116.11, 71.31, -119.4, 71.56, -114.17, 73.12], [-86.56, 73.16, -85.77, 72.53, -82.32, 73.75, -80.75, 72.06, -77.82, 72.75, -72.24, 71.56, -67.91, 70.12, -66.97, 69.19, -68.81, 68.72, -61.85, 66.86, -63.92, 65, -68.02, 66.26, -64.67, 63.39, -65.01, 62.67, -68.78, 63.75, -66.17, 61.93, -74.83, 64.68, -77.71, 64.23, -78.56, 64.57, -77.9, 65.31, -73.96, 65.45, -72.93, 67.73, -78.96, 70.17, -88.68, 70.41, -90.21, 72.24, -88.41, 73.54, -85.83, 73.8, -86.56, 73.16], [57.54, 70.72, 51.6, 71.47, 55.63, 75.08, 68.85, 76.54, 58.48, 74.31, 55.42, 72.37, 57.54, 70.72], [-94.68, 77.1, -79.83, 74.92, -92.42, 74.84, -93.89, 76.32, -97.12, 76.75, -94.68, 77.1], [106.97, 76.97, 114.13, 75.85, 109.4, 74.18, 123.2, 72.97, 123.26, 73.74, 126.98, 73.57, 131.29, 70.79, 132.25, 71.84, 139.87, 71.49, 139.15, 72.42, 140.47, 72.85, 159, 70.87, 160.94, 69.44, 167.84, 69.58, 169.58, 68.69, 170.82, 69.01, 170.45, 70.1, 178.6, 69.4, 180, 68.96, 180, 64.98, 177.41, 64.61, 179.49, 62.57, 173.68, 61.65, 170.33, 59.88, 163.54, 59.87, 162.02, 58.24, 163.19, 57.62, 162.12, 54.86, 156.79, 51.01, 155.91, 56.77, 163.67, 61.14, 164.47, 62.55, 160.12, 60.54, 159.3, 61.77, 156.72, 61.43, 154.22, 59.76, 155.04, 59.15, 142.2, 59.04, 135.13, 54.73, 139.9, 54.19, 141.38, 52.24, 138.22, 46.31, 134.87, 43.4, 132.28, 43.28, 127.53, 39.76, 129.46, 36.78, 129.09, 35.08, 126.49, 34.39, 126.12, 36.73, 126.86, 36.89, 124.71, 38.11, 125.32, 39.55, 121.05, 38.9, 121.64, 40.95, 118.04, 39.2, 118.91, 37.45, 122.36, 37.45, 119.15, 34.91, 121.91, 31.69, 121.68, 28.23, 115.89, 22.78, 110.79, 21.4, 110.44, 20.34, 108.52, 21.72, 105.88, 19.75, 109.34, 13.43, 109.2, 11.67, 105.16, 8.6, 105.08, 9.92, 100.1, 13.41, 99.22, 9.24, 102.96, 5.52, 104.23, 1.29, 101.39, 2.76, 100.09, 6.46, 98.34, 7.79, 98.76, 11.44, 97.16, 16.93, 94.19, 16.04, 94.32, 18.21, 91.42, 22.77, 86.98, 21.5, 86.5, 20.15, 80.32, 15.9, 79.86, 10.36, 77.54, 7.97, 73.53, 15.99, 72.63, 21.36, 70.47, 20.88, 66.37, 25.43, 57.4, 25.74, 56.49, 27.14, 54.72, 26.48, 51.52, 27.87, 50.12, 30.15, 47.97, 29.98, 50.81, 24.75, 51.59, 25.8, 51.79, 24.02, 54.01, 24.12, 56.36, 26.4, 56.85, 24.24, 59.81, 22.31, 55.27, 17.23, 43.48, 12.64, 42.65, 16.77, 34.63, 28.06, 34.92, 29.5, 33.92, 27.65, 32.42, 29.85, 36.87, 22, 37.48, 18.61, 43.32, 12.39, 42.72, 11.74, 44.61, 10.44, 51.11, 12.02, 51.05, 10.64, 47.74, 4.22, 39.2, -4.68, 40.78, -14.69, 34.79, -19.78, 35.61, -23.71, 32.57, -25.73, 32.2, -28.75, 25.78, -33.94, 19.62, -34.82, 18.38, -34.14, 18.22, -31.66, 15.21, -27.09, 14.26, -22.11, 11.79, -18.07, 13.69, -10.73, 11.92, -5.04, 8.8, -1.11, 9.4, 3.73, 8.5, 4.77, 5.9, 4.26, 4.33, 6.27, -1.96, 4.71, -9, 4.83, -16.61, 12.17, -17.62, 14.73, -16.15, 18.11, -16.97, 21.89, -14.44, 26.25, -9.56, 29.93, -9.3, 32.56, -5.93, 35.76, -2.17, 35.17, 1.47, 36.61, 9.51, 37.35, 11.1, 36.9, 10.34, 33.79, 19.09, 30.27, 21.54, 32.84, 28.91, 30.87, 33.77, 30.97, 36.16, 36.65, 27.64, 36.66, 26.17, 39.46, 33.51, 42.02, 38.35, 40.95, 41.7, 41.96, 36.68, 45.24, 39.12, 47.26, 34.96, 46.27, 36.33, 45.11, 33.88, 44.36, 32.45, 45.33, 33.3, 46.08, 30.75, 46.58, 27.67, 42.58, 28.81, 41.05, 22.63, 40.26, 24.04, 37.66, 23.12, 37.92, 22.49, 36.41, 19.41, 40.25, 19.54, 41.72, 13.14, 45.74, 12.59, 44.09, 18.48, 40.17, 16.87, 40.44, 16.1, 37.99, 15.41, 40.05, 8.89, 44.37, 3.1, 43.08, 3.04, 41.89, 0.81, 41.01, 0.11, 38.74, -2.15, 36.67, -5.38, 35.95, -8.9, 36.87, -9.39, 43.03, -1.38, 44.02, -1.19, 46.01, -4.59, 48.68, -1.62, 48.64, -1.93, 49.78, 1.34, 50.13, 4.71, 53.09, 8.12, 53.53, 8.54, 57.11, 10.58, 57.73, 10.91, 56.46, 9.65, 55.47, 10.94, 54.01, 19.66, 54.43, 21.27, 55.19, 21.58, 57.41, 24.12, 57.03, 24.43, 58.38, 23.34, 59.19, 29.12, 60.03, 22.87, 59.85, 21.32, 60.72, 21.54, 63.19, 25.4, 65.11, 22.18, 65.72, 17.85, 62.75, 17.12, 61.34, 18.79, 60.08, 16.83, 58.72, 15.88, 56.1, 12.94, 55.36, 10.36, 59.47, 8.38, 58.31, 5.67, 58.59, 4.99, 61.97, 14.76, 67.81, 24.55, 71.03, 28.17, 71.19, 31.29, 70.45, 30.01, 70.19, 31.1, 69.56, 40.29, 67.93, 41.13, 66.79, 40.02, 66.27, 33.18, 66.63, 34.81, 65.9, 34.94, 64.41, 37.01, 63.85, 37.18, 65.14, 39.59, 64.52, 42.09, 66.48, 43.95, 66.07, 44.53, 66.76, 43.45, 68.57, 46.25, 68.25, 46.82, 67.69, 45.56, 67.01, 46.35, 66.67, 53.72, 68.86, 59.94, 68.28, 61.08, 68.94, 60.55, 69.85, 68.51, 68.09, 69.18, 68.62, 66.93, 69.45, 66.69, 71.03, 69.2, 72.84, 72.59, 72.78, 71.85, 71.41, 73.67, 68.41, 71.28, 66.32, 72.42, 66.17, 75.05, 67.76, 73.6, 69.63, 74.4, 70.63, 73.1, 71.45, 74.66, 72.83, 76.36, 71.15, 75.9, 71.87, 77.58, 72.27, 81.5, 71.75, 80.51, 73.65, 86.82, 73.94, 86.01, 74.46, 87.17, 75.12, 100.76, 76.43, 104.35, 77.7, 106.97, 76.97], [49.11, 41.28, 50.39, 40.26, 48.86, 38.82, 49.2, 37.58, 53.83, 36.97, 53.88, 38.95, 52.69, 40.03, 54.74, 40.95, 53.72, 42.12, 52.81, 41.14, 52.5, 42.79, 50.31, 44.61, 53.04, 45.26, 53.04, 46.85, 49.1, 46.4, 46.68, 44.61, 49.11, 41.28], [-68.5, 83.11, -61.89, 82.36, -76.91, 79.32, -75.39, 78.53, -80.56, 76.18, -89.49, 76.47, -87.77, 77.18, -88.26, 77.9, -84.98, 77.54, -87.96, 78.37, -85.09, 79.35, -86.93, 80.25, -81.85, 80.46, -87.6, 80.52, -91.59, 81.89, -68.5, 83.11], [-27.1, 83.52, -20.85, 82.73, -31.4, 82.02, -12.21, 81.29, -20.05, 80.18, -17.73, 80.13, -19.7, 78.75, -18.47, 76.99, -21.68, 76.63, -19.83, 76.1, -19.6, 75.25, -20.67, 75.16, -19.37, 74.3, -23.57, 73.31, -22.3, 72.18, -24.79, 72.33, -21.75, 70.66, -25.54, 71.43, -26.36, 70.23, -22.35, 70.13, -39.81, 65.46, -42.82, 62.68, -43.38, 60.1, -48.26, 60.86, -51.63, 63.63, -53.97, 67.19, -50.87, 69.93, -54.68, 69.61, -54.36, 70.82, -51.39, 70.57, -55.83, 71.65, -54.72, 72.59, -58.59, 75.52, -68.5, 76.06, -71.4, 77.01, -66.76, 77.38, -73.3, 78.04, -65.71, 79.39, -68.02, 80.12, -62.65, 81.77, -50.39, 82.44, -44.52, 81.66, -46.76, 82.63, -43.41, 83.23, -27.1, 83.52]];
-
-// vocabulary/Globe/Globe.ts
-var DARK_LAND = rgb(51, 51, 51);
-
-class Globe extends Null {
-  static sovereign = true;
-  radius = length2(200);
-  continents = "fill";
-  spin = scalar(0);
-  tilt = angle(0.12);
-  land = color2(DARK_LAND);
-  landOpacity = completion(1);
-  coastStroke = length2(3);
-  limbStroke = length2(0);
-  limbTint = color2(rgb(136, 136, 136));
-  oceanTint = color2(rgb(17, 17, 17));
-  oceanOpacity = completion(0);
-  graticule = bool2(false);
-  graticuleTint = color2(rgb(85, 85, 85));
-  meridians = length2(12);
-  parallels = length2(6);
-  ocean;
-  limb;
-  landHolon;
-  grid;
-  compose() {
-    this.ocean = this.add(new Circle({
-      radius: this.radius,
-      tint: this.oceanTint,
-      stroke: scalar(0),
-      fillOpacity: this.oceanOpacity
-    }));
-    if (this.continents === "fill")
-      this.landHolon = this.add(this.buildFilledLand());
-    else
-      this.landHolon = this.add(this.buildOutlinedLand());
-    this.grid = this.add(new Group2({ members: this.graticule.value ? this.buildGraticule() : [] }));
-    this.limb = this.add(new Circle({ radius: this.radius, tint: this.limbTint, stroke: this.limbStroke }));
-  }
-  buildFilledLand() {
-    const parent = new Stroke({
-      tint: this.land,
-      stroke: scalar(0),
-      fillOpacity: this.landOpacity
-    });
-    for (const ring of continentRings) {
-      const line = new Line2({ tint: this.land, stroke: scalar(0) });
-      deriveRing(line, this, () => {
-        const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value);
-        return closeLoop2(pts);
-      });
-      parentAdd(parent, line);
-    }
-    return parent;
-  }
-  buildOutlinedLand() {
-    const parent = new Stroke({ tint: this.land, stroke: this.coastStroke, fillOpacity: scalar(0) });
-    const SLOTS = 4;
-    for (const ring of continentRings) {
-      for (let s2 = 0;s2 < SLOTS; s2++) {
-        const line = new Line2({ tint: this.land, stroke: this.coastStroke });
-        deriveRing(line, this, () => {
-          const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
-          const arc = arcs[s2];
-          return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
-        });
-        parentAdd(parent, line);
-      }
-    }
-    return parent;
-  }
-  buildGraticule() {
-    const lines = [];
-    const nMer = Math.max(1, Math.round(this.meridians.value));
-    const nPar = Math.max(1, Math.round(this.parallels.value));
-    for (let m2 = 0;m2 < nMer; m2++) {
-      const lon = -180 + 360 * m2 / nMer;
-      const ring = [];
-      for (let lat = -90;lat <= 90; lat += 5)
-        ring.push(lon, lat);
-      lines.push(...this.graticuleArcs(ring));
-    }
-    for (let p2 = 1;p2 < nPar; p2++) {
-      const lat = -90 + 180 * p2 / nPar;
-      const ring = [];
-      for (let lon = -180;lon <= 180; lon += 5)
-        ring.push(lon, lat);
-      lines.push(...this.graticuleArcs(ring));
-    }
-    return lines;
-  }
-  graticuleArcs(ring) {
-    const SLOTS = 2;
-    const out = [];
-    for (let s2 = 0;s2 < SLOTS; s2++) {
-      const line = new Line2({ tint: this.graticuleTint, stroke: this.coastStroke.times(0.5) });
-      deriveRing(line, this, () => {
-        const arcs = frontArcs(ring, this.radius.value, this.spin.value, this.tilt.value);
-        const arc = arcs[s2];
-        return arc ? arc.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })) : [];
-      });
-      out.push(line);
-    }
-    return out;
-  }
-}
-var closeLoop2 = (pts) => {
-  if (pts.length < 3)
-    return [];
-  const out = pts.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
-  const a2 = out[0];
-  const b2 = out[out.length - 1];
-  if (Math.hypot(a2.x - b2.x, a2.y - b2.y) > 0.000001)
-    out.push({ x: a2.x, y: a2.y, z: 0 });
-  return out;
-};
-var parentAdd = (parent, child) => {
-  parent.add(child);
-};
-var deriveRing = (line, globe, compute3) => {
-  let key;
-  let memo = [];
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = [globe.spin.value, globe.radius.value, globe.tilt.value];
-      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
-        key = next;
-        memo = compute3();
-        line.geomVersion++;
-      }
-      return memo;
-    },
-    set(_v) {}
-  });
-};
-
 // demo/web3/GlobeDemo.ts
 var disc2 = (radius, segments = 64) => {
   const poly = [];
@@ -100555,7 +100896,7 @@ var cellRing = (up, m2) => {
   out.push(out[0]);
   return out;
 };
-var smooth2 = (x2) => {
+var smooth3 = (x2) => {
   const t2 = Math.max(0, Math.min(1, x2));
   return t2 * t2 * (3 - 2 * t2);
 };
@@ -100582,7 +100923,7 @@ class Web2DisintegratingDream extends Dream {
     const jitter = (hashUnit(cell.index, 2, 7) - 0.5) * 0.06;
     const releaseStart = (1 - rowFrac) * 0.72 + jitter;
     const releaseSpan = 0.28;
-    const fallAt = () => smooth2((this.collapse.creation.value - releaseStart) / releaseSpan);
+    const fallAt = () => smooth3((this.collapse.creation.value - releaseStart) / releaseSpan);
     const drift = (hashUnit(cell.index, 0, 7) - 0.5) * 2;
     const spin = (hashUnit(cell.index, 1, 7) - 0.5) * 2;
     const fallDistance = TRI_HEIGHT * 0.55 + hashUnit(cell.index, 3, 7) * 120;
@@ -100591,13 +100932,13 @@ class Web2DisintegratingDream extends Dream {
     const line = __dt(new Line2({
       tint: this.collapse.creation.map(() => {
         const f2 = fallAt();
-        return mixColor(LATTICE_BLUE, FALLEN_GREY, smooth2(f2 * 1.4));
+        return mixColor(LATTICE_BLUE, FALLEN_GREY, smooth3(f2 * 1.4));
       }),
       stroke: 1.6,
       opacity: this.assemble.creation.map((a2) => {
-        const on = smooth2((a2 - rowFrac * 0.5) / 0.5);
+        const on = smooth3((a2 - rowFrac * 0.5) / 0.5);
         const f2 = fallAt();
-        const fade = 1 - smooth2((f2 - 0.65) / 0.35);
+        const fade = 1 - smooth3((f2 - 0.65) / 0.35);
         return Math.max(0, Math.min(1, on)) * fade;
       }),
       x: this.collapse.creation.map(() => cell.cx + scatterX * fallAt()),
@@ -100611,7 +100952,7 @@ class Web2DisintegratingDream extends Dream {
       enumerable: true,
       get() {
         const f2 = fallAt();
-        const k2 = Math.round(smooth2(f2 / 0.7) * 64);
+        const k2 = Math.round(smooth3(f2 / 0.7) * 64);
         if (k2 !== key) {
           key = k2;
           memo = cellRing(cell.up, k2 / 64);
@@ -100638,7 +100979,7 @@ class Web2DisintegratingDream extends Dream {
 }
 
 // src/geometry/platonic.ts
-var PHI = (1 + Math.sqrt(5)) / 2;
+var PHI2 = (1 + Math.sqrt(5)) / 2;
 var toUnit = (verts) => {
   const r2 = Math.hypot(verts[0].x, verts[0].y, verts[0].z);
   const k2 = r2 > 0 ? 1 / r2 : 1;
@@ -100693,7 +101034,7 @@ var octahedron = () => solidFrom([
 var icosahedron = () => {
   const v2 = [];
   for (const a2 of [-1, 1]) {
-    for (const b2 of [-PHI, PHI]) {
+    for (const b2 of [-PHI2, PHI2]) {
       v2.push({ x: 0, y: a2, z: b2 });
       v2.push({ x: a2, y: b2, z: 0 });
       v2.push({ x: b2, y: 0, z: a2 });
@@ -100707,9 +101048,9 @@ var dodecahedron2 = () => {
     for (const y2 of [-1, 1])
       for (const z2 of [-1, 1])
         v2.push({ x: x2, y: y2, z: z2 });
-  const invPhi = 1 / PHI;
+  const invPhi = 1 / PHI2;
   for (const a2 of [-invPhi, invPhi]) {
-    for (const b2 of [-PHI, PHI]) {
+    for (const b2 of [-PHI2, PHI2]) {
       v2.push({ x: 0, y: a2, z: b2 });
       v2.push({ x: a2, y: b2, z: 0 });
       v2.push({ x: b2, y: 0, z: a2 });
@@ -100932,7 +101273,7 @@ var ARC_SEGMENTS2 = 40;
 var ARC_LIFT = 1.015;
 var RIPPLE_RINGS = 4;
 var RIPPLE_REACH = 0.62;
-var clamp015 = (v2) => Math.max(0, Math.min(1, v2));
+var clamp016 = (v2) => Math.max(0, Math.min(1, v2));
 var unitVec = (lonDeg, latDeg) => {
   const lon = lonDeg * Math.PI / 180;
   const lat = latDeg * Math.PI / 180;
@@ -101033,7 +101374,7 @@ class LightSpreadDream extends Dream {
         const h2 = hotAt();
         return { x: h2.x, y: h2.y };
       });
-      ring.opacity.follow(this.ignite.creation.map((g2) => this.bloom(g2) * clamp015((g2 - frac * 0.35) / 0.3) * 0.7));
+      ring.opacity.follow(this.ignite.creation.map((g2) => this.bloom(g2) * clamp016((g2 - frac * 0.35) / 0.3) * 0.7));
       rings.push(ring);
     }
     this.hotspot = __dt(new Group2({ members: [...rings, core] }), "core/demo/web3/LightSpread.ts:13527:13567");
@@ -101043,8 +101384,8 @@ class LightSpreadDream extends Dream {
       const ep = arcEndpoints(i2);
       const line = __dt(new Line2({ tint: WHITE, stroke: 1.3 }), "core/demo/web3/LightSpread.ts:14105:14143");
       deriveArc(line, this, () => raisedArc(ep.aLon, ep.aLat, ep.bLon, ep.bLat, this.spinValue));
-      line.creation.follow(this.spread.creation.map((c2) => clamp015((c2 - i2 / n2) / (2 / n2))));
-      line.opacity.follow(this.spread.creation.map((c2) => clamp015(c2 * 3)));
+      line.creation.follow(this.spread.creation.map((c2) => clamp016((c2 - i2 / n2) / (2 / n2))));
+      line.opacity.follow(this.spread.creation.map((c2) => clamp016(c2 * 3)));
       lines.push(line);
     }
     this.arcs = __dt(new Group2({ members: lines }), "core/demo/web3/LightSpread.ts:14519:14548");
@@ -101053,8 +101394,8 @@ class LightSpreadDream extends Dream {
     return this.spin.creation.map((c2) => SPIN_START + (SPIN_END - SPIN_START) * c2).value;
   }
   bloom(g2) {
-    const up = clamp015(g2 / 0.4);
-    const down = 1 - clamp015((g2 - 0.55) / 0.45);
+    const up = clamp016(g2 / 0.4);
+    const down = 1 - clamp016((g2 - 0.55) / 0.45);
     return up * down;
   }
   unfold() {
@@ -101111,7 +101452,7 @@ var RAY_COUNT = 14;
 var FIELD_COUNT = 8;
 var BLUE_LATTICE = rgb(47, 127, 214);
 var RED_FIELD = rgb(192, 56, 47);
-var clamp016 = (v2) => Math.max(0, Math.min(1, v2));
+var clamp017 = (v2) => Math.max(0, Math.min(1, v2));
 var sCurve = (segments = 48) => {
   const pts = [];
   for (let i2 = 0;i2 <= segments; i2++) {
@@ -101180,7 +101521,7 @@ class YinYangDream extends Dream {
       const s2 = Math.sin(th);
       return sCurve().map((p2) => ({ x: p2.x * c2 - p2.y * s2, y: p2.x * s2 + p2.y * c2, z: 0 }));
     });
-    this.divider.creation.follow(this.divide.creation.map((c2) => clamp016(c2)));
+    this.divider.creation.follow(this.divide.creation.map((c2) => clamp017(c2)));
     this.blueNode = this.buildBlueNode();
     this.redNode = this.buildRedNode();
   }
@@ -101196,14 +101537,14 @@ class YinYangDream extends Dream {
     return { x: Math.cos(a2) * LOBE_R, y: Math.sin(a2) * LOBE_R };
   }
   blueScale01() {
-    const b2 = clamp016(this.birth.creation.value);
-    const o2 = clamp016(this.orbit.creation.value);
+    const b2 = clamp017(this.birth.creation.value);
+    const o2 = clamp017(this.orbit.creation.value);
     const equal3 = EQUAL * b2;
     return equal3 * (1 - o2) + 0 * o2;
   }
   redScale01() {
-    const b2 = clamp016(this.birth.creation.value);
-    const o2 = clamp016(this.orbit.creation.value);
+    const b2 = clamp017(this.birth.creation.value);
+    const o2 = clamp017(this.orbit.creation.value);
     const equal3 = EQUAL * b2;
     return equal3 * (1 - o2) + 1 * o2;
   }
@@ -101215,7 +101556,7 @@ class YinYangDream extends Dream {
     const scale2 = () => this.blueScale01();
     const gr = () => this.globeR(scale2());
     this.blueGlobe.radius.follow(orbitSrc.map(() => gr()));
-    this.blueGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp016(b2)));
+    this.blueGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp017(b2)));
     const members = [];
     const latticeUnit = flowerRing(6, 1);
     for (let i2 = 0;i2 < latticeUnit.length; i2++) {
@@ -101224,33 +101565,33 @@ class YinYangDream extends Dream {
       c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
       c2.x.follow(orbitSrc.map(() => u2.x * gr() * HALO_RATIO * 0.5));
       c2.y.follow(orbitSrc.map(() => u2.y * gr() * HALO_RATIO * 0.5));
-      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.85));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp017(d2) * 0.85));
       members.push(c2);
     }
     {
       const c2 = __dt(new Circle({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:17779:17836");
       c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
-      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.85));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp017(d2) * 0.85));
       members.push(c2);
     }
     {
       const ring = __dt(new Circle({ tint: BLUE, stroke: 2.4, opacity: 0 }), "core/demo/web3/YinYang.ts:18063:18114");
       ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO));
-      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2)));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp017(d2)));
       members.push(ring);
     }
     for (let i2 = 0;i2 < BOLT_COUNT; i2++) {
       const a2 = i2 / BOLT_COUNT * TAU + Math.PI / BOLT_COUNT;
       const line = __dt(new Line2({ tint: WHITE, stroke: 1.6, opacity: 0 }), "core/demo/web3/YinYang.ts:18479:18529");
       deriveRot(line, this, () => bolt(a2, gr() * 1.15, gr() * HALO_RATIO * 0.78));
-      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.3) / 0.7)));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp017((d2 - 0.3) / 0.7)));
       members.push(line);
     }
     for (let i2 = 0;i2 < FIELD_COUNT; i2++) {
       const a0 = i2 / FIELD_COUNT * TAU;
       const line = __dt(new Line2({ tint: RED_FIELD, stroke: 1.4, opacity: 0 }), "core/demo/web3/YinYang.ts:18897:18951");
       deriveRot(line, this, () => fieldLine(a0, gr() * HALO_RATIO * 0.9, gr() * HALO_RATIO * 1.6, TAU * 0.16));
-      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.2) / 0.8) * 0.8));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp017((d2 - 0.2) / 0.8) * 0.8));
       members.push(line);
     }
     const group = __dt(new Group2({ members: [this.blueGlobe, ...members] }), "core/demo/web3/YinYang.ts:19220:19272");
@@ -101263,13 +101604,13 @@ class YinYangDream extends Dream {
     const scale2 = () => this.redScale01();
     const gr = () => this.globeR(scale2());
     this.redGlobe.radius.follow(orbitSrc.map(() => gr()));
-    this.redGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp016(b2)));
+    this.redGlobe.landOpacity.follow(this.birth.creation.map((b2) => clamp017(b2)));
     const glowRings = [];
     for (let i2 = 0;i2 < 4; i2++) {
       const spread = 1.04 + i2 * 0.1;
       const ring = __dt(new Circle({ tint: WHITE, stroke: 3 - i2 * 0.5, opacity: 0 }), "core/demo/web3/YinYang.ts:20592:20652");
       ring.radius.follow(orbitSrc.map(() => gr() * spread));
-      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * (0.4 - i2 * 0.08)));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp017(d2) * (0.4 - i2 * 0.08)));
       glowRings.push(ring);
     }
     const members = [];
@@ -101279,26 +101620,26 @@ class YinYangDream extends Dream {
       c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
       c2.x.follow(orbitSrc.map(() => u2.x * gr() * HALO_RATIO * 0.5));
       c2.y.follow(orbitSrc.map(() => u2.y * gr() * HALO_RATIO * 0.5));
-      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.7));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp017(d2) * 0.7));
       members.push(c2);
     }
     {
       const c2 = __dt(new Circle({ tint: RED_FIELD, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:21389:21443");
       c2.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5));
-      c2.opacity.follow(this.divide.creation.map((d2) => clamp016(d2) * 0.7));
+      c2.opacity.follow(this.divide.creation.map((d2) => clamp017(d2) * 0.7));
       members.push(c2);
     }
     {
       const ring = __dt(new Circle({ tint: RED, stroke: 3, opacity: 0 }), "core/demo/web3/YinYang.ts:21665:21713");
       ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO));
-      ring.opacity.follow(this.divide.creation.map((d2) => clamp016(d2)));
+      ring.opacity.follow(this.divide.creation.map((d2) => clamp017(d2)));
       members.push(ring);
     }
     for (let i2 = 0;i2 < RAY_COUNT; i2++) {
       const a2 = i2 / RAY_COUNT * TAU;
       const line = __dt(new Line2({ tint: WHITE, stroke: 1, opacity: 0 }), "core/demo/web3/YinYang.ts:22010:22058");
       deriveRot(line, this, () => ray(a2, gr() * 1.1, gr() * HALO_RATIO * 1.45));
-      line.opacity.follow(this.divide.creation.map((d2) => clamp016((d2 - 0.2) / 0.8) * 0.85));
+      line.opacity.follow(this.divide.creation.map((d2) => clamp017((d2 - 0.2) / 0.8) * 0.85));
       members.push(line);
     }
     const group = __dt(new Group2({ members: [...glowRings, this.redGlobe, ...members] }), "core/demo/web3/YinYang.ts:22353:22418");
@@ -101486,7 +101827,8 @@ var scenes = {
   web2: Web2DisintegratingDream,
   nodenet: NodeNetworkDream,
   lightspread: LightSpreadDream,
-  yinyang: YinYangDream
+  yinyang: YinYangDream,
+  regenaissance: RegenaissanceDream
 };
 var defaultScene = "founding";
 
@@ -101507,21 +101849,37 @@ var readPoints = (v2) => {
   for (const p2 of v2) {
     const x2 = Array.isArray(p2) ? Number(p2[0]) : Number(p2?.x);
     const y2 = Array.isArray(p2) ? Number(p2[1]) : Number(p2?.y);
+    const z2 = Array.isArray(p2) ? Number(p2[2]) : Number(p2?.z);
     if (Number.isFinite(x2) && Number.isFinite(y2))
-      out.push({ x: x2, y: y2 });
+      out.push(Number.isFinite(z2) && z2 !== 0 ? { x: x2, y: y2, z: z2 } : { x: x2, y: y2 });
   }
   return out;
 };
-var scenePt = (x2, y2) => ({ x: x2, y: -y2, z: 0 });
+var scenePt = (x2, y2, z2 = 0) => ({ x: x2, y: -y2, z: z2 });
+var parentToWorld = (h2, v2) => {
+  let out = v2;
+  for (let node = h2.parent;node; node = node.parent) {
+    const s2 = node.scale.value;
+    if (s2 !== 1)
+      out = { x: out.x * s2, y: out.y * s2, z: out.z * s2 };
+    out = rotHPB(out, node.p.value, node.h.value, node.b.value);
+    out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+  }
+  return out;
+};
 var CABLE_PULSES = 11;
 var PULSE_SECONDS = 0.5;
 var MV_NATIVE = 100;
 var resampleByArcLength = (pts, n2) => {
   if (pts.length < 2)
     return [...pts];
+  const deep2 = pts.some((p2) => p2.z !== undefined);
+  const zOf = (p2) => p2.z ?? 0;
   const cum = [0];
   for (let i2 = 1;i2 < pts.length; i2++) {
-    cum.push(cum[i2 - 1] + Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y));
+    const a2 = pts[i2 - 1];
+    const b2 = pts[i2];
+    cum.push(cum[i2 - 1] + Math.hypot(b2.x - a2.x, b2.y - a2.y, zOf(b2) - zOf(a2)));
   }
   const total = cum[cum.length - 1];
   if (total < 0.000001)
@@ -101534,10 +101892,12 @@ var resampleByArcLength = (pts, n2) => {
       j2++;
     const seg = cum[j2] - cum[j2 - 1];
     const u2 = seg < 0.000000001 ? 0 : (s2 - cum[j2 - 1]) / seg;
-    out.push({
-      x: pts[j2 - 1].x + (pts[j2].x - pts[j2 - 1].x) * u2,
-      y: pts[j2 - 1].y + (pts[j2].y - pts[j2 - 1].y) * u2
-    });
+    const a2 = pts[j2 - 1];
+    const b2 = pts[j2];
+    const q = { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2 };
+    if (deep2)
+      q.z = zOf(a2) + (zOf(b2) - zOf(a2)) * u2;
+    out.push(q);
   }
   return out;
 };
@@ -101576,21 +101936,21 @@ var buildMindVirus = (p2) => {
   const pulses = walk.slice(1).map((q, i2) => ({
     start: i2 * PULSE_SECONDS,
     duration: PULSE_SECONDS,
-    to: scenePt(q.x, q.y)
+    to: scenePt(q.x, q.y, q.z)
   }));
   const tCable = CABLE_PULSES * PULSE_SECONDS;
   pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward });
   const T3 = tCable + PULSE_SECONDS;
   const mv = new MindVirus({ scale: s2, clock: T3 });
-  mv.journey = { origin: scenePt(walk[0].x, walk[0].y), pulses };
+  mv.journey = { origin: scenePt(walk[0].x, walk[0].y, walk[0].z), pulses };
   mv.parts;
   mv.fold.follow(derive(() => fold));
-  mv.cable.trail((t2) => mv.pathAt(t2 * tCable / T3), { since: 0, window: T3 });
+  mv.cable.trail((t2) => parentToWorld(mv, mv.pathAt(t2 * tCable / T3)), { since: 0, window: T3 });
   mv.cable.width.value = mv.cable.width.value * s2;
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
 };
-var TEXT_CAP_EM = 1409 / 2048;
+var TEXT_CAP_EM = 1466 / 2048;
 var TEXT_LINE_STEP_EM = 1.2;
 var TEXT_ADVANCE_EM = 0.55;
 var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
@@ -101817,8 +102177,47 @@ var VOCABULARY = [
     },
     build: buildText,
     footprint: textFootprint
+  },
+  {
+    id: "regenaissance",
+    name: "Regenaissance",
+    description: "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the OUTER RING (≈ the middle of the eye), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the OUTER RING (≈ the middle of the eye), page units" },
+      r: {
+        type: "number",
+        role: "length",
+        description: "radius of the OUTER RING, page units — the mean distance of the outermost loops from the centre (use the circle fits of the biggest strokes)"
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright (lattice globe on top, Earth below)` }
+    },
+    build: (p2) => {
+      const regen = new Regenaissance({ radius: Math.max(1, num(p2, "r", 300)) });
+      return new Group2({ members: [regen], x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+    }
+  },
+  {
+    id: "sMark",
+    name: "S-mark",
+    description: "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the S (where its two bowls meet), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the S, page units" },
+      size: { type: "number", role: "length", description: "height of the S from its top bowl to its bottom bowl (its bbox height, dot and square included), page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright like the letter S (dot upper-right, square lower-left)` },
+      framed: { type: "enum", options: ["no", "yes"], description: "yes if the S is drawn inside its own circle" }
+    },
+    build: (p2) => {
+      const R3 = Math.max(1, num(p2, "size", 100)) / SMARK_HEIGHT;
+      const members = [new SMark({ radius: R3 })];
+      if (p2.framed === "yes")
+        members.push(new Circle({ radius: R3, tint: WHITE }));
+      return new Group2({ members, x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+    }
   }
 ];
+var SMARK_HEIGHT = 2 * (SMARK.offset * Math.SQRT1_2 + SMARK.offset + SMARK.band / 2);
 var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
 var vocabById = (id) => BY_ID.get(id);
 var buildSymbol = (s2) => {
@@ -103840,7 +104239,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render62 = (cached, span) => {
+  const render63 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -103883,7 +104282,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render62(current2);
+        render63(current2);
       return;
     }
     (async () => {
@@ -103893,7 +104292,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render62(cached, {
+      const mark = render63(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -103909,7 +104308,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render62(cached);
+    render63(cached);
   };
   return {
     show: show2,
@@ -104440,6 +104839,227 @@ var mountPlayerTransport = (root, opts) => {
     }
   };
 };
+
+// editor/creator.ts
+var CREATOR_KEY = { code: "Backquote", label: "`" };
+var GOLD_CSS = "rgb(255, 199, 84)";
+var GOLD_RGBA = (a2) => `rgba(255, 199, 84, ${a2})`;
+var isCreatorToggle = (e2) => e2.code === CREATOR_KEY.code && !e2.metaKey && !e2.ctrlKey && !e2.altKey;
+var bufferToClient = (box, rect, buffer3) => {
+  const sx = rect.width / (buffer3.width || 1);
+  const sy = rect.height / (buffer3.height || 1);
+  return {
+    x: rect.left + box.min.x * sx,
+    y: rect.top + box.min.y * sy,
+    w: (box.max.x - box.min.x) * sx,
+    h: (box.max.y - box.min.y) * sy
+  };
+};
+var decodePath = (token) => {
+  const m2 = /^(\d+(?:-\d+)*)~(\w+)$/.exec(token);
+  if (!m2)
+    return;
+  const [root, ...indices] = m2[1].split("-").map(Number);
+  return { root, indices, className: m2[2] };
+};
+var HOVER_STEP = 4;
+var CLICK_SLOP = 4;
+var BLOOM_MS = 380;
+var RIM_PAD = 9;
+var STYLE = `
+.dt-dot { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 60; display: none; }
+.dt-dot.shown { display: block; }
+.dt-dot > div { position: absolute; left: 0; top: 0; transform: scale(0); transition: transform ${BLOOM_MS}ms cubic-bezier(.2,.8,.2,1); }
+.dt-dot.on > div { transform: scale(1); }
+.dt-dot i { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); }
+.dt-dot .core { width: 12px; height: 12px; background: ${GOLD_CSS}; box-shadow: 0 0 10px ${GOLD_RGBA(0.9)}; }
+.dt-dot .halo { width: 24px; height: 24px; border: 1.5px solid ${GOLD_RGBA(0.8)}; background: ${GOLD_RGBA(0.18)}; animation: dt-breathe 3.2s ease-in-out infinite; }
+.dt-dot .aura { width: 40px; height: 40px; border: 1px solid ${GOLD_RGBA(0.4)}; background: ${GOLD_RGBA(0.08)}; animation: dt-breathe 3.2s ease-in-out infinite .4s; }
+@keyframes dt-breathe { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+.dt-rims { position: fixed; inset: 0; pointer-events: none; z-index: 55; }
+canvas.dt-creator { cursor: none !important; }
+`;
+
+class CreatorMode {
+  #on = false;
+  #hovered = null;
+  #selected = null;
+  #host;
+  #opts;
+  #dot;
+  #rims;
+  #probe = null;
+  #press = null;
+  #raf = 0;
+  #hideTimer;
+  constructor(host, opts) {
+    this.#host = host;
+    this.#opts = opts;
+    if (!document.getElementById("dt-creator-style")) {
+      const style = document.createElement("style");
+      style.id = "dt-creator-style";
+      style.textContent = STYLE;
+      document.head.append(style);
+    }
+    this.#dot = document.createElement("div");
+    this.#dot.className = "dt-dot";
+    this.#dot.innerHTML = `<div><i class="aura"></i><i class="halo"></i><i class="core"></i></div>`;
+    this.#rims = document.createElement("canvas");
+    this.#rims.className = "dt-rims";
+    document.body.append(this.#rims, this.#dot);
+    opts.signal.addEventListener("abort", () => {
+      cancelAnimationFrame(this.#raf);
+      this.#dot.remove();
+      this.#rims.remove();
+      host.canvas.classList.remove("dt-creator");
+    });
+    const listen = { signal: opts.signal };
+    const canvas = host.canvas;
+    window.addEventListener("pointermove", (e2) => this.#follow(e2.clientX, e2.clientY), listen);
+    canvas.addEventListener("pointerenter", () => this.#dot.classList.toggle("shown", this.#on), listen);
+    canvas.addEventListener("pointerleave", () => {
+      if (!this.#on)
+        return;
+      this.#dot.classList.remove("shown");
+      this.#probe = null;
+      this.#setHovered(null);
+    }, listen);
+    canvas.addEventListener("pointermove", (e2) => {
+      if (!this.#on)
+        return;
+      if (this.#probe && Math.hypot(e2.clientX - this.#probe.x, e2.clientY - this.#probe.y) < HOVER_STEP)
+        return;
+      this.#probe = { x: e2.clientX, y: e2.clientY };
+      this.#setHovered(host.pick(e2.clientX, e2.clientY) ?? null);
+    }, listen);
+    canvas.addEventListener("pointerdown", (e2) => {
+      if (this.#on && e2.button === 0)
+        this.#press = { x: e2.clientX, y: e2.clientY };
+    }, listen);
+    canvas.addEventListener("pointerup", (e2) => {
+      const press = this.#press;
+      this.#press = null;
+      if (!this.#on || !press || !this.#opts.clickSelects)
+        return;
+      if (Math.hypot(e2.clientX - press.x, e2.clientY - press.y) > CLICK_SLOP)
+        return;
+      const hit = host.pick(e2.clientX, e2.clientY) ?? null;
+      this.select(hit);
+      this.#opts.onSelect?.(hit);
+    }, listen);
+  }
+  get on() {
+    return this.#on;
+  }
+  get hovered() {
+    return this.#hovered;
+  }
+  get selected() {
+    return this.#selected;
+  }
+  toggle(on = !this.#on) {
+    if (on === this.#on)
+      return on;
+    this.#on = on;
+    const canvas = this.#host.canvas;
+    if (this.#hideTimer !== undefined)
+      clearTimeout(this.#hideTimer);
+    if (on) {
+      canvas.classList.add("dt-creator");
+      this.#dot.classList.add("shown");
+      requestAnimationFrame(() => this.#dot.classList.add("on"));
+      this.#probe = null;
+      this.#loop();
+    } else {
+      this.#dot.classList.remove("on");
+      this.#setHovered(null);
+      this.#hideTimer = setTimeout(() => {
+        this.#dot.classList.remove("shown");
+        canvas.classList.remove("dt-creator");
+      }, BLOOM_MS);
+    }
+    this.#paint();
+    this.#opts.onToggle?.(on);
+    return on;
+  }
+  select(holon) {
+    this.#selected = holon;
+    this.#paint();
+  }
+  hoverAt(clientX, clientY) {
+    this.#follow(clientX, clientY);
+    this.#dot.classList.toggle("shown", this.#on);
+    this.#setHovered(this.#on ? this.#host.pick(clientX, clientY) ?? null : null);
+    return this.#hovered;
+  }
+  #follow(x2, y2) {
+    this.#dot.style.transform = `translate(${x2}px, ${y2}px)`;
+  }
+  #setHovered(holon) {
+    if (holon === this.#hovered)
+      return;
+    this.#hovered = holon;
+    this.#paint();
+  }
+  #loop() {
+    cancelAnimationFrame(this.#raf);
+    const tick = () => {
+      if (!this.#on)
+        return;
+      this.#paint();
+      this.#raf = requestAnimationFrame(tick);
+    };
+    this.#raf = requestAnimationFrame(tick);
+  }
+  #paint() {
+    const rims = this.#rims;
+    const dpr = window.devicePixelRatio || 1;
+    const w4 = Math.round(window.innerWidth * dpr);
+    const h2 = Math.round(window.innerHeight * dpr);
+    if (rims.width !== w4 || rims.height !== h2) {
+      rims.width = w4;
+      rims.height = h2;
+    }
+    const ctx = rims.getContext("2d");
+    if (!ctx)
+      return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w4, h2);
+    if (!this.#on)
+      return;
+    ctx.scale(dpr, dpr);
+    const canvas = this.#host.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const rim = (holon, selected) => {
+      const box = this.#host.boundsOf(holon);
+      if (!box)
+        return;
+      const r2 = bufferToClient(box, rect, canvas);
+      const x2 = r2.x - RIM_PAD;
+      const y2 = r2.y - RIM_PAD;
+      const bw = r2.w + RIM_PAD * 2;
+      const bh = r2.h + RIM_PAD * 2;
+      const radius = Math.min(14, bw / 2, bh / 2);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x2, y2, bw, bh, radius);
+      ctx.shadowColor = GOLD_RGBA(selected ? 0.95 : 0.8);
+      ctx.shadowBlur = selected ? 22 : 14;
+      if (selected) {
+        ctx.fillStyle = GOLD_RGBA(0.07);
+        ctx.fill();
+      }
+      ctx.strokeStyle = GOLD_RGBA(selected ? 1 : 0.85);
+      ctx.lineWidth = selected ? 3 : 1.75;
+      ctx.stroke();
+      ctx.restore();
+    };
+    if (this.#hovered && this.#hovered !== this.#selected)
+      rim(this.#hovered, false);
+    if (this.#selected)
+      rim(this.#selected, true);
+  }
+}
 
 // editor/undo.ts
 class UndoStack {
@@ -105124,6 +105744,14 @@ var boot = async (resume) => {
     const ndc = ndcAt(clientX, clientY);
     return ndc ? host.pick(ndc.x, ndc.y) : undefined;
   };
+  const creator = playerMode ? undefined : new CreatorMode({ canvas, pick: pickAt, boundsOf: (h2) => host.boundsOf(h2) }, {
+    clickSelects: false,
+    signal: ac.signal,
+    onToggle: (on) => {
+      if (on)
+        applyGlow(null);
+    }
+  });
   const canvasPixelAt = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0)
@@ -105134,7 +105762,7 @@ var boot = async (resume) => {
     };
   };
   const MOVE_THRESHOLD = 3;
-  const HOVER_STEP = 4;
+  const HOVER_STEP2 = 4;
   let probe = null;
   let move = null;
   const ROTATE_PER_WORLD = Math.PI / 120;
@@ -105385,6 +106013,7 @@ var boot = async (resume) => {
     }
   };
   selection.subscribe((holon) => {
+    creator?.select(holon);
     renderInspector(holon);
     syncPanel();
     paintMarquee();
@@ -105526,13 +106155,13 @@ var boot = async (resume) => {
       });
       return;
     }
-    if (probe && Math.hypot(e2.clientX - probe.x, e2.clientY - probe.y) < HOVER_STEP)
+    if (probe && Math.hypot(e2.clientX - probe.x, e2.clientY - probe.y) < HOVER_STEP2)
       return;
     probe = { x: e2.clientX, y: e2.clientY };
     const hit = pickAt(e2.clientX, e2.clientY);
     const selected = selection.current;
     canvas.classList.toggle("moveable", !!hit && !!selected && movable(selected) && withinSelection(hit, selected));
-    applyGlow(sovereignOf(hit) ?? null);
+    applyGlow(creator?.on ? null : sovereignOf(hit) ?? null);
   }, listen);
   canvas.addEventListener("pointerleave", () => {
     probe = null;
@@ -105639,6 +106268,10 @@ var boot = async (resume) => {
       e2.preventDefault();
       playing ? pause() : play();
     }
+    if (creator && isCreatorToggle(e2) && !typing) {
+      e2.preventDefault();
+      creator.toggle();
+    }
     if ((e2.code === "Comma" || e2.code === "Period") && !typing && !e2.metaKey && !e2.ctrlKey && !e2.altKey) {
       e2.preventDefault();
       pause();
@@ -105677,7 +106310,9 @@ var boot = async (resume) => {
         releaseObserver();
         host.renderFrame(current2).then(() => syncPanel());
         checkpoint?.sync();
-      } else if (discardPose()) {} else {
+      } else if (discardPose()) {} else if (creator?.on) {
+        creator.toggle(false);
+      } else {
         selection.clear();
       }
     }
@@ -105823,13 +106458,18 @@ var boot = async (resume) => {
       bdMode: bdMode.value,
       selection: held ? pathOf(dream.roots, held) : undefined,
       outline: outlineOpen,
-      code: code3?.open
+      code: code3?.open,
+      creator: creator?.on
     };
     teardown();
     const next = `./main.js?v=${Date.now()}`;
     import(next).catch((err) => console.error("[dreamtalk] remount failed:", err));
   };
-  selection.rehydrate(dream.roots, resume?.selection);
+  const deepLink = new URLSearchParams(location.search);
+  const linkedSel = deepLink.get("sel");
+  selection.rehydrate(dream.roots, resume ? resume.selection : linkedSel ? decodePath(linkedSel) : undefined);
+  if (resume ? resume.creator : deepLink.get("creator") === "1")
+    creator?.toggle(true);
   if (resume?.code || new URLSearchParams(location.search).get("code") === "1")
     toggleCode();
   const settled = async (t2) => {

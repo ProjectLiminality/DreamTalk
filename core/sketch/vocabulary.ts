@@ -32,11 +32,14 @@ import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { MindVirus, type PulseSpec } from "../vocabulary/MindVirus/MindVirus"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
+import { Regenaissance } from "../vocabulary/Regenaissance/Regenaissance"
+import { SMARK, SMark } from "../vocabulary/Regenaissance/SMark"
 import { Text } from "../src/parts/text"
 import { WHITE } from "../src/constants"
 import type { Dream } from "../src/dream"
 import { PAGE_H, PAGE_W, type InkStroke, type PlacedSymbol } from "./protocol"
-import { eulerToMat3, isMat3Identity, mat3Apply, mat3Mul, mat3ToEuler, wrapAngle, xfOf, xfPoint, type Xf } from "./xform"
+import { eulerToMat3, isMat3Identity, mat3Apply, mat3Mul, mat3ToEuler, wrapAngle, xfOf, xfPoint, type Mat3, type Xf } from "./xform"
+import { rotHPB } from "../src/parts/curves"
 
 /**
  * What a param MEANS geometrically — which is all a whiteboard transform
@@ -88,20 +91,44 @@ const num = (p: Record<string, unknown>, key: string, fallback: number): number 
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
-/** `[{x,y}…]` or `[[x,y]…]` → page points; anything else → []. */
-export const readPoints = (v: unknown): { x: number; y: number }[] => {
+/** A page point, lifted off the page by `z` (scene z, toward the viewer)
+ *  once a tumble has turned it out of the plane. */
+export interface PagePt {
+  x: number
+  y: number
+  z?: number
+}
+
+/** `[{x,y,z?}…]` or `[[x,y,z?]…]` → page points; anything else → []. A
+ *  drawn path is flat (no z); a tumbled one carries its depth. */
+export const readPoints = (v: unknown): PagePt[] => {
   if (!Array.isArray(v)) return []
-  const out: { x: number; y: number }[] = []
+  const out: PagePt[] = []
   for (const p of v) {
     const x = Array.isArray(p) ? Number(p[0]) : Number((p as { x?: unknown })?.x)
     const y = Array.isArray(p) ? Number(p[1]) : Number((p as { y?: unknown })?.y)
-    if (Number.isFinite(x) && Number.isFinite(y)) out.push({ x, y })
+    const z = Array.isArray(p) ? Number(p[2]) : Number((p as { z?: unknown })?.z)
+    if (Number.isFinite(x) && Number.isFinite(y)) out.push(Number.isFinite(z) && z !== 0 ? { x, y, z } : { x, y })
   }
   return out
 }
 
 /** Page point → scene point. */
-const scenePt = (x: number, y: number): Vec3Like => ({ x, y: -y, z: 0 })
+const scenePt = (x: number, y: number, z = 0): Vec3Like => ({ x, y: -y, z })
+
+/** A point in `h`'s PARENT frame → world, through every ancestor's
+ *  transform (scale → rotate → translate, the host's order — the inverse
+ *  of Cable's toLocal). */
+const parentToWorld = (h: Holon, v: Vec3Like): Vec3Like => {
+  let out = v
+  for (let node = h.parent; node; node = node.parent) {
+    const s = node.scale.value
+    if (s !== 1) out = { x: out.x * s, y: out.y * s, z: out.z * s }
+    out = rotHPB(out, node.p.value, node.h.value, node.b.value)
+    out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value }
+  }
+  return out
+}
 
 // -- MindVirus: the cable is a journey ---------------------------------------
 
@@ -113,29 +140,32 @@ const PULSE_SECONDS = 0.5
 /** MindVirus's native cube edge (FoldableCube default size). */
 const MV_NATIVE = 100
 
-/** Resample a polyline to `n + 1` points at equal arc length. */
-export const resampleByArcLength = (
-  pts: readonly { x: number; y: number }[],
-  n: number,
-): { x: number; y: number }[] => {
+/** Resample a polyline to `n + 1` points at equal arc length (in 3D when
+ *  its points carry depth; the result has z only if the input does). */
+export const resampleByArcLength = (pts: readonly PagePt[], n: number): PagePt[] => {
   if (pts.length < 2) return [...pts]
+  const deep = pts.some((p) => p.z !== undefined)
+  const zOf = (p: PagePt) => p.z ?? 0
   const cum = [0]
   for (let i = 1; i < pts.length; i++) {
-    cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y))
+    const a = pts[i - 1]!
+    const b = pts[i]!
+    cum.push(cum[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, zOf(b) - zOf(a)))
   }
   const total = cum[cum.length - 1]!
   if (total < 1e-6) return [pts[0]!, pts[pts.length - 1]!]
-  const out: { x: number; y: number }[] = []
+  const out: PagePt[] = []
   let j = 1
   for (let k = 0; k <= n; k++) {
     const s = (k / n) * total
     while (j < pts.length - 1 && cum[j]! < s) j++
     const seg = cum[j]! - cum[j - 1]!
     const u = seg < 1e-9 ? 0 : (s - cum[j - 1]!) / seg
-    out.push({
-      x: pts[j - 1]!.x + (pts[j]!.x - pts[j - 1]!.x) * u,
-      y: pts[j - 1]!.y + (pts[j]!.y - pts[j - 1]!.y) * u,
-    })
+    const a = pts[j - 1]!
+    const b = pts[j]!
+    const q: PagePt = { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }
+    if (deep) q.z = zOf(a) + (zOf(b) - zOf(a)) * u
+    out.push(q)
   }
   return out
 }
@@ -187,19 +217,23 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
   const pulses: PulseSpec[] = walk.slice(1).map((q, i) => ({
     start: i * PULSE_SECONDS,
     duration: PULSE_SECONDS,
-    to: scenePt(q.x, q.y),
+    to: scenePt(q.x, q.y, q.z),
   }))
   const tCable = CABLE_PULSES * PULSE_SECONDS
   pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward })
   const T = tCable + PULSE_SECONDS
   const mv = new MindVirus({ scale: s, clock: T })
-  mv.journey = { origin: scenePt(walk[0]!.x, walk[0]!.y), pulses }
+  mv.journey = { origin: scenePt(walk[0]!.x, walk[0]!.y, walk[0]!.z), pulses }
   void mv.parts // compose(): position/heading/fold now follow the clock
   // At rest the journey's bell is closed; the drawing says how open it is.
   mv.fold.follow(derive(() => fold))
   // The window [0, T] read as cable time [0, tCable]: the 12 equal-time
   // control points still land on pulse boundaries — on the drawn line.
-  mv.cable.trail((t) => mv.pathAt((t * tCable) / T), { since: 0, window: T })
+  // The journey is stated in the creature's PARENT frame (its x/y/z follow
+  // it), the cable's trail in WORLD: carried through the ancestors, the
+  // tail turns with whatever turns the creature (the whiteboard's tumble
+  // pivot) instead of staying behind on the page.
+  mv.cable.trail((t) => parentToWorld(mv, mv.pathAt((t * tCable) / T)), { since: 0, window: T })
   mv.cable.width.value = mv.cable.width.value * s
   mv.cable.ringStep.value = mv.cable.ringStep.value * s
   return mv
@@ -480,7 +514,51 @@ export const VOCABULARY: VocabEntry[] = [
     build: buildText,
     footprint: textFootprint,
   },
+  {
+    id: "regenaissance",
+    name: "Regenaissance",
+    description:
+      "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the OUTER RING (≈ the middle of the eye), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the OUTER RING (≈ the middle of the eye), page units" },
+      r: {
+        type: "number",
+        role: "length",
+        description: "radius of the OUTER RING, page units — the mean distance of the outermost loops from the centre (use the circle fits of the biggest strokes)",
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright (lattice globe on top, Earth below)` },
+    },
+    build: (p) => {
+      const regen = new Regenaissance({ radius: Math.max(1, num(p, "r", 300)) })
+      return new Group({ members: [regen], x: num(p, "cx", 0), y: -num(p, "cy", 0), b: -num(p, "rotation", 0) })
+    },
+  },
+  {
+    id: "sMark",
+    name: "S-mark",
+    description:
+      "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the S (where its two bowls meet), page units" },
+      cy: { type: "number", role: "y", description: "centre y of the S, page units" },
+      size: { type: "number", role: "length", description: "height of the S from its top bowl to its bottom bowl (its bbox height, dot and square included), page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright like the letter S (dot upper-right, square lower-left)` },
+      framed: { type: "enum", options: ["no", "yes"], description: "yes if the S is drawn inside its own circle" },
+    },
+    build: (p) => {
+      // The mark's radius R is its frame circle's; the S band's bbox is
+      // 1.378·R tall (SMark.ts: bowl top at 0.38·R/√2 + 0.38·R + 0.04·R).
+      const R = Math.max(1, num(p, "size", 100)) / SMARK_HEIGHT
+      const members: Holon[] = [new SMark({ radius: R })]
+      if (p.framed === "yes") members.push(new Circle({ radius: R, tint: WHITE }))
+      return new Group({ members, x: num(p, "cx", 0), y: -num(p, "cy", 0), b: -num(p, "rotation", 0) })
+    },
+  },
 ]
+
+/** The S band's bbox height in units of the mark's radius (SMark.ts). */
+const SMARK_HEIGHT = 2 * (SMARK.offset * Math.SQRT1_2 + SMARK.offset + SMARK.band / 2)
 
 const BY_ID = new Map(VOCABULARY.map((e) => [e.id, e]))
 
@@ -560,12 +638,16 @@ export const transformSymbol = (s: PlacedSymbol, t: Partial<Xf>): PlacedSymbol =
       params[k] = xf.rotate === 0 ? v : wrapAngle(v + xf.rotate)
     else if ((role === "points" || role === undefined) && Array.isArray(v) && v.length > 0 && v.every(isPointLike))
       params[k] = v.map((e) => {
+        // A tumbled path's depth scales with the page (the pivot is on
+        // the page, z = 0) and no in-plane turn touches it.
         if (Array.isArray(e)) {
           const q = xfPoint(xf, { x: e[0] as number, y: e[1] as number })
-          return [q.x, q.y]
+          return typeof e[2] === "number" ? [q.x, q.y, e[2] * xf.scale] : [q.x, q.y]
         }
-        const pt = e as { x: number; y: number }
-        return { ...pt, ...xfPoint(xf, pt) }
+        const pt = e as { x: number; y: number; z?: unknown }
+        const q = { ...pt, ...xfPoint(xf, pt) }
+        if (typeof pt.z === "number") q.z = pt.z * xf.scale
+        return q
       })
   }
   return { ...s, params }
@@ -588,6 +670,43 @@ export const tumbleCentre = (s: PlacedSymbol): { x: number; y: number } | undefi
 
 const keyOfRole = (entry: VocabEntry, role: ParamRole): string | undefined =>
   Object.keys(entry.params).find((k) => entry.params[k]!.role === role)
+
+/** A direction symbol's built body frame: headingFor's h/p (MindVirus.ts)
+ *  — local +z on `f`, no roll — as a matrix. */
+const directionFrame = (f: { x: number; y: number; z: number }): Mat3 =>
+  eulerToMat3(Math.atan2(f.x, Math.hypot(f.y, f.z)), Math.atan2(-f.y, f.z), 0)
+
+/**
+ * The rotation a symbol's body ACTUALLY undergoes when tumbled by `m` —
+ * what the live preview turns its pivot by, and what its own paths turn
+ * by, so preview and commit are one picture.
+ *
+ * For an Euler symbol (a cube) that is `m` itself: h/p/b carry any
+ * orientation. A DIRECTION symbol (a MindVirus) has no roll about its
+ * heading — it is built heading-first, roll-free — so a trackball turn
+ * that rolls it cannot be committed; its body turns by the roll-free
+ * rotation carrying the old built frame onto the new one instead. Same
+ * new heading, and nothing on screen the params cannot say.
+ */
+export const tumbleTurn = (entry: VocabEntry, given: Record<string, unknown>, m: Mat3): Mat3 => {
+  const tilt = keyOfRole(entry, "tilt")
+  const yaw = keyOfRole(entry, "yaw")
+  const pitch = keyOfRole(entry, "pitch")
+  if (!tilt || yaw || pitch) return m
+  const read = (k: string | undefined): number => {
+    if (!k) return 0
+    const v = Number(given[k])
+    return Number.isFinite(v) ? v : (entry.params[k]!.default ?? 0)
+  }
+  const a = read(keyOfRole(entry, "angle"))
+  const tl = read(tilt)
+  const f = { x: Math.cos(a) * Math.cos(tl), y: -Math.sin(a) * Math.cos(tl), z: Math.sin(tl) }
+  const from = directionFrame(f)
+  const to = directionFrame(mat3Apply(m, f))
+  // to · fromᵀ (a rotation's inverse is its transpose).
+  const fromT = [from[0], from[3], from[6], from[1], from[4], from[7], from[2], from[5], from[8]] as const
+  return mat3Mul(to, fromT)
+}
 
 /**
  * A symbol's orientation params turned by a scene-axes rotation (xform.ts
@@ -613,6 +732,7 @@ export const tumbleParams = (
   const tilt = keyOfRole(entry, "tilt")
   const angle = keyOfRole(entry, "angle")
   const out = { ...given }
+  const turn = tumbleTurn(entry, given, m)
   if (yaw || pitch) {
     // The roll is a PAGE angle (clockwise); the holon's b is its negation.
     const e = mat3ToEuler(mat3Mul(m, eulerToMat3(read(yaw), read(pitch), -read(angle))))
@@ -627,6 +747,25 @@ export const tumbleParams = (
     out[tilt] = Math.asin(Math.max(-1, Math.min(1, v.z)))
     // Pointing straight at the viewer, the azimuth is undefined: keep it.
     if (angle && Math.hypot(v.x, v.y) > 1e-9) out[angle] = Math.atan2(-v.y, v.x)
+  }
+  // A path the symbol owns (a MindVirus's cable) is part of the body: it
+  // turns rigidly with it about the centre, by the turn the body actually
+  // took, and the points that leave the page keep their depth as z.
+  const cx = Number(given[keyOfRole(entry, "x") ?? ""])
+  const cy = Number(given[keyOfRole(entry, "y") ?? ""])
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    for (const k of Object.keys(entry.params)) {
+      if (entry.params[k]!.role !== "points" || !Array.isArray(given[k])) continue
+      out[k] = (given[k] as unknown[]).map((e) => {
+        const [q] = readPoints([e])
+        if (!q) return e
+        const v = mat3Apply(turn, { x: q.x - cx, y: -(q.y - cy), z: q.z ?? 0 })
+        const x = cx + v.x
+        const y = cy - v.y
+        if (Array.isArray(e)) return [x, y, v.z]
+        return { ...(e as object), x, y, z: v.z }
+      })
+    }
   }
   return out
 }
