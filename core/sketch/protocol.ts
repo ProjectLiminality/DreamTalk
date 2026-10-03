@@ -59,6 +59,23 @@ export type PenEvent =
    *   undo — two-finger tap      redo — three-finger tap
    */
   | { kind: "gesture"; name: "undo" | "redo" }
+  /**
+   * A raw frame from the tablet's touchscreen: every finger currently down,
+   * in PAGE units. An empty list means all fingers lifted. The bridge does
+   * NOT interpret these — the page does, because only the page knows whether
+   * there is a selection for a pinch to scale or a twist to rotate.
+   */
+  | { kind: "touch"; touches: { id: number; x: number; y: number }[]; t: number }
+  /**
+   * The bridge's own state, so the page can say plainly what is going on
+   * instead of failing silently:
+   *   searching   — looking for the tablet on the network
+   *   needs-key   — found it, but the one-time key setup hasn't been done
+   *                 (`message` carries the exact command)
+   *   connected   — streaming
+   *   asleep      — the tablet stopped answering (sleep); retrying quietly
+   */
+  | { kind: "status"; state: "searching" | "needs-key" | "connected" | "asleep"; host?: string; message?: string }
 
 /** A raw scribble. */
 export interface InkStroke {
