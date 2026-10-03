@@ -71,6 +71,7 @@ import { mountTimeline, stepTime, type ClipRow, type TimelineHandle } from "./ti
 import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
 import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
+import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { UndoStack, undoAction, type OpDescriptor } from "./undo"
 import {
   Overrides,
@@ -92,6 +93,8 @@ interface Transport {
   outline?: boolean
   /** Whether the code view was open (its content re-fetches either way). */
   code?: boolean
+  /** Whether creator mode (the golden dot) was on. */
+  creator?: boolean
 }
 
 declare global {
@@ -894,6 +897,27 @@ const boot = async (resume?: Transport) => {
     const ndc = ndcAt(clientX, clientY)
     return ndc ? host.pick(ndc.x, ndc.y) : undefined
   }
+  // --- Creator mode (editor/creator.ts) --------------------------------------
+  //
+  // The editor already selects on click, so here creator mode is the FEEL,
+  // not a second selection: the golden dot instead of the arrow, a gold rim
+  // on whatever it hovers (replacing the sovereign glow, which is the game
+  // mode's button affordance), and the selection rimmed while it stands.
+  // The click still goes through the handler below into the one Selection
+  // store. Not in the player presentation — that is the game.
+  const creator = playerMode
+    ? undefined
+    : new CreatorMode(
+        { canvas, pick: pickAt, boundsOf: (h) => host.boundsOf(h) },
+        {
+          clickSelects: false,
+          signal: ac.signal,
+          onToggle: (on) => {
+            if (on) applyGlow(null)
+          },
+        },
+      )
+
   /** Client coords → the canvas's render-pixel space — the gizmo's coordinates. */
   const canvasPixelAt = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
     const rect = canvas.getBoundingClientRect()
@@ -1266,6 +1290,7 @@ const boot = async (resume?: Transport) => {
   }
 
   selection.subscribe((holon) => {
+    creator?.select(holon)
     renderInspector(holon)
     syncPanel()
     paintMarquee()
@@ -1484,7 +1509,7 @@ const boot = async (resume?: Transport) => {
         "moveable",
         !!hit && !!selected && movable(selected) && withinSelection(hit, selected),
       )
-      applyGlow(sovereignOf(hit) ?? null)
+      applyGlow(creator?.on ? null : (sovereignOf(hit) ?? null))
     },
     listen,
   )
@@ -1635,6 +1660,11 @@ const boot = async (resume?: Transport) => {
         e.preventDefault()
         playing ? pause() : play()
       }
+      // Game mode ↔ creator mode, on the one key (editor/creator.ts).
+      if (creator && isCreatorToggle(e) && !typing) {
+        e.preventDefault()
+        creator.toggle()
+      }
       // Frame stepping: `,`/`.` one frame (1/30s), shift+ one second —
       // "fine-tweak" made literal. Pauses first; the playhead is truth.
       if (
@@ -1696,6 +1726,9 @@ const boot = async (resume?: Transport) => {
         } else if (discardPose()) {
           // …or a standing pose evaporates — every override released,
           // the file never touched (checkpoint capture's cancel).
+        } else if (creator?.on) {
+          // …or, in creator mode, the light comes home (selection kept).
+          creator.toggle(false)
         } else {
           // …otherwise Escape means "nothing selected".
           selection.clear()
@@ -1897,6 +1930,7 @@ const boot = async (resume?: Transport) => {
       selection: held ? pathOf(dream.roots, held) : undefined,
       outline: outlineOpen,
       code: code?.open,
+      creator: creator?.on,
     }
     teardown()
     const next = `./main.js?v=${Date.now()}`
@@ -1906,7 +1940,16 @@ const boot = async (resume?: Transport) => {
   // --- Boot ---------------------------------------------------------------
   // Nothing selected is the honest opening state (the inspector shows the
   // scene) — unless a remount is handing a selection back.
-  selection.rehydrate(dream.roots, resume?.selection)
+  // `?sel=` is the player's "open in editor ↗" (demo/creatorpanel.ts): the
+  // holon the golden dot selected there, as a part path; `?creator=1`
+  // arrives still in creator mode.
+  const deepLink = new URLSearchParams(location.search)
+  const linkedSel = deepLink.get("sel")
+  selection.rehydrate(
+    dream.roots,
+    resume ? resume.selection : linkedSel ? decodePath(linkedSel) : undefined,
+  )
+  if (resume ? resume.creator : deepLink.get("creator") === "1") creator?.toggle(true)
   // The code view survives a rebuild as a MODE, not as content: its file
   // is re-fetched (the daemon just rewrote it), so reopening it shows the
   // new source rather than the bytes the anchors were taken against.

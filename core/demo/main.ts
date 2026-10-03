@@ -9,6 +9,8 @@ import { scenes, defaultScene } from "./scenes"
 import { httpBakeCache } from "../src/bakecache"
 import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
+import { CreatorMode, isCreatorToggle } from "../editor/creator"
+import { mountCreatorPanel } from "./creatorpanel"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -82,10 +84,13 @@ const main = async () => {
 
   let playing = true
   let t0 = performance.now()
+  /** The t on screen — where creator mode freezes the world, and resumes it. */
+  let current = 0
 
   const frame = async (now: number) => {
     if (playing) {
       const t = ((now - t0) / 1000) % duration
+      current = t
       await host.renderFrame(t)
       narrator.update(t, true)
       readout.textContent = `t = ${t.toFixed(2)}s / ${duration.toFixed(2)}s`
@@ -94,12 +99,67 @@ const main = async () => {
   }
   requestAnimationFrame(frame)
 
+  // --- Creator mode (editor/creator.ts) ------------------------------------
+  //
+  // One key, from anywhere in the song: the world holds still at this t,
+  // the arrow becomes the golden dot, and a click selects instead of
+  // firing. The key again (or Esc) and the song carries on from where it
+  // stood. Nothing here touches the Dream or the renderer — rims and dot
+  // are an overlay — so the harness's captures are exactly what they were.
+  const pickAt = (clientX: number, clientY: number) => {
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return undefined
+    return host.pick(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -(((clientY - rect.top) / rect.height) * 2 - 1),
+    )
+  }
+  let resumeOnExit = false
+  const ac = new AbortController()
+  const creator: CreatorMode = new CreatorMode(
+    { canvas, pick: pickAt, boundsOf: (h) => host.boundsOf(h) },
+    {
+      clickSelects: true,
+      signal: ac.signal,
+      onSelect: (holon) => panel.render(holon),
+      onToggle: (on) => {
+        panel.show(on)
+        if (on) {
+          resumeOnExit = playing
+          playing = false
+          narrator.update(Number.NaN, false)
+          readout.textContent = `t = ${current.toFixed(2)}s (creator mode)`
+        } else {
+          creator.select(null)
+          panel.render(null)
+          if (resumeOnExit) {
+            t0 = performance.now() - current * 1000
+            playing = true
+          }
+        }
+      },
+    },
+  )
+  const panel = mountCreatorPanel(dream, sceneName, () => current, (holon) => {
+    creator.select(holon)
+    panel.render(holon)
+  })
+  document.addEventListener("keydown", (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    if (isCreatorToggle(e) || (e.code === "Escape" && creator.on)) {
+      e.preventDefault()
+      creator.toggle(e.code === "Escape" ? false : undefined)
+    }
+  })
+  ;(window as unknown as Record<string, unknown>).__dtCreator = creator
+
   ;(window as unknown as Record<string, unknown>).__dtHost = host
   window.__dt = {
     ready: true,
     duration,
     setT: async (t: number) => {
       playing = false
+      current = t
       // Twice, deliberately: sync()'s screen-arc measurement projects with
       // the matrices/camera the PREVIOUS render left behind, so a single
       // render after a large jump in t (a scored frame, a chapter cut)

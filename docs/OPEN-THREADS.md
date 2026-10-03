@@ -23,8 +23,22 @@ when done.
 - "The music contains the instrument": one key (⌘-space / AURYN) flips **game
   mode ↔ creator mode**; a golden glowing dot makes hovered elements glow;
   clicking selects instead of fires; behaviour is edited in place (calculator
-  `+` → `×`, Super Mario). Only the DreamSong exists (`demo/creatormode`), not
-  the mode itself.
+  `+` → `×`, Super Mario). **The mode now exists (2026-10-03,
+  `core/editor/creator.ts`):** the lone backquote (`` ` ``, the key under Esc —
+  ⌘-Space is Spotlight, ⌥-Space is Raycast/Alfred) flips the demo player and
+  the editor viewport into it: golden dot cursor, gold rim on hover, click
+  selects. The player freezes t and shows a read-only panel with "open in
+  editor ↗" (`?sel=…&creator=1`), where a param change is a setOverride op
+  written into the DreamWeaving — i.e. git-tracked.
+- **Why `+` → `×` cannot yet be done honestly in creator mode:** the
+  calculator has no behaviour to change. Its `8` and `15` are two authored
+  `Text`s the score fades in, not the output of a rule; `+`/`×` are two glyphs
+  swapped by opacity. The data model lacks (a) **behaviour as data** — a holon
+  carrying a rule (an operator function, HyperTalk's "the button contains what
+  it does") from which another holon's content derives; (b) **string params**
+  — `Text.content` is construction data, not a `Param`, and the only
+  persisted edit (`setOverride`) writes numbers. Both are needed before
+  selecting `+` and saying "make it times" can recompute 15.
 - **Changes are git-tracked**; Claude-artifact-style comment mode generalised to
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its
