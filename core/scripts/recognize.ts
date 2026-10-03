@@ -29,7 +29,7 @@ import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse } from "
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
 import { readPoints, vocabById, VOCABULARY, type VocabEntry } from "../sketch/vocabulary"
 
-const MODEL = "claude-opus-5-5"
+export const MODEL = "claude-opus-5-5"
 const TIMEOUT_MS = 90_000
 /** Points per stroke handed to the model (evenly subsampled, ends kept). */
 const MAX_STROKE_POINTS = 40
@@ -40,7 +40,7 @@ const cacheDir = `${repoRoot}.cache/sketch`
 
 const SYSTEM = `You are the recognizer of the DreamTalk sketchpad. A person scribbles on a tablet; you look at the scribble and say which symbol from an imported vocabulary they meant, and with what parameters. You answer with ONE JSON object and nothing else.`
 
-const subsample = (stroke: InkStroke, max = MAX_STROKE_POINTS): [number, number][] => {
+export const subsample = (stroke: InkStroke, max = MAX_STROKE_POINTS): [number, number][] => {
   const pts = stroke.points
   if (pts.length === 0) return []
   const n = Math.min(max, pts.length)
@@ -52,7 +52,7 @@ const subsample = (stroke: InkStroke, max = MAX_STROKE_POINTS): [number, number]
   return out
 }
 
-const bbox = (pts: readonly { x: number; y: number }[]): string => {
+export const bbox = (pts: readonly { x: number; y: number }[]): string => {
   if (pts.length === 0) return "empty"
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   for (const p of pts) {
@@ -106,7 +106,7 @@ const strokeLine = (s: InkStroke, i: number): string => {
   return `stroke ${i + 1} (${pts.length} samples; bbox ${bbox(pts)}; start→end gap ${gap}${fitText}): ${JSON.stringify(subsample(s))}`
 }
 
-const vocabBlock = (entries: VocabEntry[]): string =>
+export const vocabBlock = (entries: VocabEntry[]): string =>
   entries
     .map((e) => {
       const params = Object.entries(e.params)
@@ -150,7 +150,7 @@ ${vocabBlock(entries)}
 
 HOW TO READ IT
 1. FIRST Read the image — always. Look at it for what the person MEANT; use the stroke coordinates for exact geometry. Every param is in PAGE units / page angles — compute them from the stroke numbers (fit the centre and size to the actual ink, e.g. a circle's centre is the middle of its loop and r the mean distance to it), not from rough image impressions.
-2. Handwritten words, arrows and labels are COMMENTS, not shape: they clarify intent ("flower of life", "cube", "→ big") and must steer which symbol you choose. Exclude their strokes from the geometry. Transcribe what they say into "notes" (e.g. "label: flower of life"). Text may appear only in the image, not among the strokes.
+2. WORDS. ${entries.some((e) => e.id === "text") ? `If the selection is ONLY handwriting — words and nothing drawn that they could label — it IS the symbol "text": transcribe it exactly as written (same spelling, same case, nothing added or corrected) and measure where and how tall it is from the strokes. ` : ""}Words written BESIDE a drawn shape (a label, caption or arrow next to circles, a box…) are COMMENTS, not shape: they clarify intent ("flower of life", "cube", "→ big") and must steer which symbol you choose for the drawing; exclude their strokes from the geometry, transcribe them into "notes" (e.g. "label: flower of life"), and answer with the shape, never with "text". Text may appear only in the image, not among the strokes.
 3. If one reading is clearly right, return exactly ONE candidate. Only if the drawing is genuinely ambiguous between symbols (or between clearly different parameter readings), return 2–4 candidates, most likely first. Never pad with unlikely ones.
 4. If nothing in the vocabulary fits at all, return an empty candidates list and say why in "notes".
 5. Fill EVERY param of the chosen symbol. "points" params are arrays of [x, y] page points.
@@ -161,7 +161,7 @@ Reply with ONLY this JSON (no prose, no code fence):
 
 // --- The reply ------------------------------------------------------------------
 
-const stripFences = (s: string): string => {
+export const stripFences = (s: string): string => {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(s)
   if (fenced) return fenced[1]!.trim()
   // Prose around a bare object: take the outermost braces.
@@ -171,13 +171,14 @@ const stripFences = (s: string): string => {
 }
 
 /** One param, coerced to its spec; undefined drops it. */
-const coerceParam = (entry: VocabEntry, key: string, v: unknown): unknown => {
+export const coerceParam = (entry: VocabEntry, key: string, v: unknown): unknown => {
   const spec = entry.params[key]
   if (!spec) return undefined
   if (spec.type === "points") {
     const pts = readPoints(v)
     return pts.map((p) => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10])
   }
+  if (spec.type === "string") return typeof v === "string" || typeof v === "number" ? String(v) : undefined
   if (spec.type === "enum") {
     const s = String(v)
     return spec.options && !spec.options.includes(s) ? spec.options[0] : s
@@ -215,6 +216,8 @@ export const parseRecognizeReply = (text: string, allowed?: readonly string[]): 
       const cv = coerceParam(entry, k, v)
       if (cv !== undefined) out[k] = cv
     }
+    // Text with nothing to say is no text.
+    if (entry.id === "text" && !(typeof out.content === "string" && out.content.trim())) continue
     const conf = Number(confidence)
     candidates.push({
       symbol: entry.id,

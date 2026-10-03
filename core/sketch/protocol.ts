@@ -132,3 +132,125 @@ export interface RecognizeResponse {
   notes?: string
   error?: string
 }
+
+// --- Voice instructions (scripts/instruct.ts, sketch/voice.ts) -------------------
+
+/**
+ * One edit Claude makes to the page when told what to do. Ids are real page
+ * ids (the daemon maps the image's short labels back); params are PAGE units
+ * and page angles, exactly as in PlacedSymbol.
+ *
+ *   update          merge `params` into a placed symbol (only what changes);
+ *                   `symbol` turns it into another vocabulary entry
+ *   add             place a new symbol
+ *   remove          take a stroke or a symbol away
+ *   replaceStrokes  ink → one symbol, like the recognizer's replacement
+ *   transform       move / turn / scale strokes and symbols together
+ *                   (xform.ts: page units, page angle, pivot defaults to
+ *                   the centre of what moves)
+ */
+export type EditOp =
+  | { op: "update"; id: string; symbol?: string; params: Record<string, unknown> }
+  | { op: "add"; symbol: string; params: Record<string, unknown> }
+  | { op: "remove"; id: string }
+  | { op: "replaceStrokes"; strokeIds: string[]; symbol: string; params: Record<string, unknown> }
+  | {
+      op: "transform"
+      ids: string[]
+      translate?: { x: number; y: number }
+      rotate?: number
+      scale?: number
+      pivot?: { x: number; y: number }
+    }
+
+/** What the page sends when David has spoken (or typed) an instruction. */
+export interface InstructRequest {
+  /** What was said, as the speech recogniser heard it. */
+  transcript: string
+  /** PNG of the WHOLE page (so page units = image px · PAGE_W / width), base64,
+   *  the selection highlighted and every item tagged with its label. */
+  png: string
+  /** The selected ids; empty means the instruction is about the whole scene. */
+  selection: string[]
+  /** The page itself. */
+  board: { strokes: InkStroke[]; symbols: PlacedSymbol[] }
+  /** Imported vocabulary (symbol ids). */
+  vocabulary: string[]
+  /** The short tag drawn beside each item in the image (id → label). */
+  labels: Record<string, string>
+}
+
+export interface InstructResponse {
+  ops: EditOp[]
+  /** One line for David: what was done, or why nothing was. */
+  reply: string
+  error?: string
+}
+
+// --- The display list: the page on the tablet's own screen (sketch/mirror.ts) ----
+
+/**
+ * ONE UNIVERSE, TWO SCREENS. The whiteboard page stays the app — state,
+ * selection, recognition. The reMarkable's e-ink is its mirror: the page
+ * publishes everything visible as a keyed DISPLAY LIST, and the tablet
+ * (tablet/dreamtalk-pad) draws it. Everything is in PAGE units, which on the
+ * rM2 are its pixels, so nothing is converted anywhere.
+ *
+ *   sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──ssh -W──▶ pad (127.0.0.1:7777)
+ *
+ * It is a picture, not a scene: black on white (e-ink is the light theme),
+ * every symbol already flattened to the 2D polylines the Mac draws, so the
+ * tablet needs no DreamTalk to show DreamTalk.
+ *
+ * A PRIMITIVE is one polyline or one filled polygon:
+ *
+ *   line   `pts` flat [x0, y0, x1, y1, …]; `w` the width (page units),
+ *          one number or one per point (ink pressure); `grey` 0 = black …
+ *          255 = white, default 0; `dash` [on, off] lengths along the line.
+ *          Lines only ever DARKEN what is under them.
+ *   fill   `pts` a closed polygon (even-odd); `grey` is painted, not
+ *          darkened — a black-in-the-dark-theme disk knocks out to white.
+ *
+ * An ITEM is what a diff talks about: an id, a stacking order `z` (lower is
+ * drawn first; ties by arrival), its primitives in drawing order, and hints
+ * for a device that draws its own pen trail:
+ *
+ *   live    the page's echo of the pen gesture IN PROGRESS (the live stroke,
+ *           the lasso). A device drawing the trail itself skips it while its
+ *           pen is down — the page catches up in ≤100 ms, the nib can't wait.
+ *   noInk   a control (selection handles, the ✦ chip, a ring option): a pen
+ *           tip landing in its bounds acts on it instead of inking.
+ *   grab    the selection frame: a BUTTON press inside it moves the
+ *           selection (no lasso).
+ *
+ * OPS. The page sends batches (one WebSocket message = one JSON array of
+ * ops); the tablet's wire is one op per line and every batch ends with
+ * `flush`, so the screen changes once per batch, never half-way:
+ *
+ *   clear        forget every item (a snapshot starts with it)
+ *   put          add the item, or replace the one with its id (the item's
+ *                fields sit beside `op`: {"op":"put","id":…,"z":…,"prims":[…]})
+ *   del          remove an item
+ *   flush        end of a batch — draw now
+ */
+export type DisplayPrim =
+  | { k: "line"; pts: number[]; w: number | number[]; grey?: number; dash?: [number, number] }
+  | { k: "fill"; pts: number[]; grey: number }
+
+export interface DisplayItem {
+  id: string
+  z: number
+  prims: DisplayPrim[]
+  live?: boolean
+  noInk?: boolean
+  grab?: boolean
+}
+
+export type DisplayOp =
+  | { op: "clear" }
+  | ({ op: "put" } & DisplayItem)
+  | { op: "del"; id: string }
+  | { op: "flush" }
+
+/** Where the tablet app listens for the display list (on the tablet's own loopback). */
+export const PAD_DISPLAY_PORT = 7777

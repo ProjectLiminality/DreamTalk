@@ -13,6 +13,7 @@ const SENSIBLE: Record<string, Record<string, unknown>> = {
   mindVirus: { x: 830, y: 570, size: 160, heading: 0, fold: 0.5, cable: [[150, 600], [400, 550], [720, 600]] },
   eye: { cx: 300, cy: 300, size: 200, rotation: 0 },
   figure: { cx: 300, cy: 1200, height: 300 },
+  text: { content: "DreamTalk", cx: 700, cy: 400, size: 80, rotation: 0 },
 }
 
 const build = (symbol: string, params: Record<string, unknown>): Holon =>

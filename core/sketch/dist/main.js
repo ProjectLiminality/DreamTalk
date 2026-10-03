@@ -65523,7 +65523,8 @@ var xfOf = (t2) => ({
   translate: t2.translate ?? { x: 0, y: 0 },
   rotate: t2.rotate ?? 0,
   scale: t2.scale ?? 1,
-  pivot: t2.pivot ?? { x: 0, y: 0 }
+  pivot: t2.pivot ?? { x: 0, y: 0 },
+  ...t2.tumble ? { tumble: t2.tumble } : {}
 });
 var xfPoint = (xf, p2) => {
   if (xf.rotate === 0 && xf.scale === 1)
@@ -65537,7 +65538,7 @@ var xfPoint = (xf, p2) => {
     y: xf.pivot.y + xf.translate.y + s2 * dx + c2 * dy
   };
 };
-var isIdentity = (xf, eps = 0.001) => Math.abs(xf.translate.x) < eps * 100 && Math.abs(xf.translate.y) < eps * 100 && Math.abs(xf.rotate) < eps && Math.abs(xf.scale - 1) < eps;
+var isIdentity = (xf, eps = 0.001) => Math.abs(xf.translate.x) < eps * 100 && Math.abs(xf.translate.y) < eps * 100 && Math.abs(xf.rotate) < eps && Math.abs(xf.scale - 1) < eps && (!xf.tumble || isMat3Identity(xf.tumble, eps));
 var wrapAngle = (a2) => {
   const w4 = a2 - 2 * Math.PI * Math.floor((a2 + Math.PI) / (2 * Math.PI));
   return w4 === -Math.PI ? Math.PI : w4;
@@ -65575,6 +65576,40 @@ var simFromPairs = (a0, b0, a2, b2) => {
   const r2 = Math.atan2(v2.y, v2.x) - Math.atan2(v0.y, v0.x);
   return simOf({ pivot: a0, translate: { x: a2.x - a0.x, y: a2.y - a0.y }, rotate: r2, scale: k2 });
 };
+var MAT3_IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+var mat3Mul = (a2, b2) => {
+  const o2 = [];
+  for (let r2 = 0;r2 < 3; r2++)
+    for (let c2 = 0;c2 < 3; c2++)
+      o2.push(a2[r2 * 3] * b2[c2] + a2[r2 * 3 + 1] * b2[3 + c2] + a2[r2 * 3 + 2] * b2[6 + c2]);
+  return o2;
+};
+var mat3Apply = (m2, v2) => ({
+  x: m2[0] * v2.x + m2[1] * v2.y + m2[2] * v2.z,
+  y: m2[3] * v2.x + m2[4] * v2.y + m2[5] * v2.z,
+  z: m2[6] * v2.x + m2[7] * v2.y + m2[8] * v2.z
+});
+var isMat3Identity = (m2, eps = 0.000001) => m2.every((v2, i2) => Math.abs(v2 - MAT3_IDENTITY[i2]) < eps);
+var rotX = (a2) => {
+  const c2 = Math.cos(a2), s2 = Math.sin(a2);
+  return [1, 0, 0, 0, c2, -s2, 0, s2, c2];
+};
+var rotY = (a2) => {
+  const c2 = Math.cos(a2), s2 = Math.sin(a2);
+  return [c2, 0, s2, 0, 1, 0, -s2, 0, c2];
+};
+var rotZ = (a2) => {
+  const c2 = Math.cos(a2), s2 = Math.sin(a2);
+  return [c2, -s2, 0, s2, c2, 0, 0, 0, 1];
+};
+var eulerToMat3 = (h2, p2, b2) => mat3Mul(rotZ(b2), mat3Mul(rotX(p2), rotY(h2)));
+var mat3ToEuler = (m2) => {
+  const p2 = Math.asin(Math.max(-1, Math.min(1, m2[7])));
+  if (Math.abs(m2[7]) < 0.9999999)
+    return { h: Math.atan2(-m2[6], m2[8]), p: p2, b: Math.atan2(-m2[1], m2[4]) };
+  return { h: 0, p: p2, b: Math.atan2(m2[3], m2[0]) };
+};
+var trackball = (dx, dy, radPerUnit) => mat3Mul(rotX(dy * radPerUnit), rotY(dx * radPerUnit));
 
 // sketch/vocabulary.ts
 var num = (p2, key, fallback) => {
@@ -65640,13 +65675,16 @@ var buildMindVirus = (p2) => {
   }
   if (!Number.isFinite(heading))
     heading = 0;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
+  const tilt = clamp8(num(p2, "tilt", 0), -Math.PI / 2, Math.PI / 2);
+  const fx = Math.cos(heading) * Math.cos(tilt);
+  const fy = Math.sin(heading) * Math.cos(tilt);
+  const fz = Math.sin(tilt);
   const ox = cx + fx * size * 0.5;
   const oy = cy + fy * size * 0.5;
-  const forward = { x: fx, y: -fy, z: 0 };
+  const oz = fz * size * 0.5;
+  const forward = { x: fx, y: -fy, z: fz };
   if (cable.length < 2) {
-    const mv2 = new MindVirus({ x: ox, y: -oy, scale: s2, fold });
+    const mv2 = new MindVirus({ x: ox, y: -oy, z: oz, scale: s2, fold });
     mv2.h.value = Math.atan2(forward.x, Math.hypot(forward.y, forward.z));
     mv2.p.value = Math.atan2(-forward.y, forward.z);
     return mv2;
@@ -65658,7 +65696,7 @@ var buildMindVirus = (p2) => {
     to: scenePt(q.x, q.y)
   }));
   const tCable = CABLE_PULSES * PULSE_SECONDS;
-  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: scenePt(ox, oy), heading: forward });
+  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward });
   const T3 = tCable + PULSE_SECONDS;
   const mv = new MindVirus({ scale: s2, clock: T3 });
   mv.journey = { origin: scenePt(walk[0].x, walk[0].y), pulses };
@@ -65668,6 +65706,40 @@ var buildMindVirus = (p2) => {
   mv.cable.width.value = mv.cable.width.value * s2;
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
+};
+var TEXT_CAP_EM = 1466 / 2048;
+var TEXT_LINE_STEP_EM = 1.2;
+var TEXT_ADVANCE_EM = 0.55;
+var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
+`);
+var buildText = (p2) => {
+  const cap = Math.max(1, num(p2, "size", 60));
+  const em = cap / TEXT_CAP_EM;
+  const lines = textLines(p2);
+  const step4 = em * TEXT_LINE_STEP_EM;
+  const down = cap / 2 - (lines.length - 1) * step4 / 2;
+  const r2 = num(p2, "rotation", 0);
+  const cx = num(p2, "cx", 0);
+  const cy = num(p2, "cy", 0);
+  const ax = cx - Math.sin(r2) * down;
+  const ay = cy + Math.cos(r2) * down;
+  return new Text({
+    content: lines.join(`
+`),
+    size: em,
+    tint: WHITE,
+    ...lines.length > 1 ? { lineHeight: TEXT_LINE_STEP_EM } : {},
+    x: ax,
+    y: -ay,
+    b: -r2
+  });
+};
+var textFootprint = (p2) => {
+  const cap = Math.max(1, num(p2, "size", 60));
+  const em = cap / TEXT_CAP_EM;
+  const lines = textLines(p2);
+  const longest = Math.max(1, ...lines.map((l2) => l2.length));
+  return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM };
 };
 var ANGLE = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
 var VOCABULARY = [
@@ -65729,8 +65801,8 @@ var VOCABULARY = [
       cx: { type: "number", role: "x", description: "centre x, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
-      h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
-      p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
+      h: { type: "number", role: "yaw", default: 0.6, description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
+      p: { type: "number", role: "pitch", default: 0.4, description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
       b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" }
     },
     build: (p2) => {
@@ -65790,6 +65862,12 @@ var VOCABULARY = [
       y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
       size: { type: "number", role: "length", description: "cube edge length, page units" },
       heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      tilt: {
+        type: "number",
+        role: "tilt",
+        default: 0,
+        description: "radians, how far the heading lifts out of the page toward the viewer; 0 for any drawing (a flat page shows no tilt)"
+      },
       fold: {
         type: "number",
         description: "−1..1, how the cube's walls sit: 1 = closed box (walls upright, reads as a plain cube), ~0.5 = walls half open, 0 = walls splayed flat (an open cross/flower), negative = walls folded forward around something (wrapping a victim)"
@@ -65830,6 +65908,32 @@ var VOCABULARY = [
       height: { type: "number", role: "length", description: "crown-to-feet height, page units" }
     },
     build: (p2) => new Figure({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), height: Math.max(1, num(p2, "height", 120)) })
+  },
+  {
+    id: "text",
+    name: "Text",
+    description: "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
+    params: {
+      content: {
+        type: "string",
+        role: "content",
+        description: "the words EXACTLY as handwritten — same spelling (even if misspelt), same upper/lower case, no added or dropped punctuation; a new written line is \\n"
+      },
+      cx: { type: "number", role: "x", description: "centre x of the written words (middle of their left..right extent), page units" },
+      cy: {
+        type: "number",
+        role: "y",
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block"
+      },
+      size: {
+        type: "number",
+        role: "length",
+        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below"
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` }
+    },
+    build: buildText,
+    footprint: textFootprint
   }
 ];
 var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
@@ -65851,20 +65955,22 @@ var ROLE_BY_NAME = {
   width: "length",
   height: "length",
   rotation: "angle",
-  heading: "angle"
+  heading: "angle",
+  content: "content"
 };
 var roleOf = (entry, key) => entry ? entry.params[key]?.role : ROLE_BY_NAME[key];
 var isPointLike = (e2) => Array.isArray(e2) && typeof e2[0] === "number" && typeof e2[1] === "number" || typeof e2 === "object" && e2 !== null && typeof e2.x === "number" && typeof e2.y === "number";
 var transformSymbol = (s2, t2) => {
   const xf = xfOf(t2);
   const entry = vocabById(s2.symbol);
-  const params = { ...s2.params };
-  const keys = Object.keys(s2.params);
+  const base = xf.tumble && entry ? tumbleParams(entry, s2.params, xf.tumble) : s2.params;
+  const params = { ...base };
+  const keys = Object.keys(base);
   const xKey = keys.find((k2) => roleOf(entry, k2) === "x");
   const yKey = keys.find((k2) => roleOf(entry, k2) === "y");
   if (xKey && yKey) {
-    const x2 = Number(s2.params[xKey]);
-    const y2 = Number(s2.params[yKey]);
+    const x2 = Number(base[xKey]);
+    const y2 = Number(base[yKey]);
     if (Number.isFinite(x2) && Number.isFinite(y2)) {
       const q = xfPoint(xf, { x: x2, y: y2 });
       params[xKey] = q.x;
@@ -65872,7 +65978,7 @@ var transformSymbol = (s2, t2) => {
     }
   }
   for (const k2 of keys) {
-    const v2 = s2.params[k2];
+    const v2 = base[k2];
     const role = roleOf(entry, k2);
     if (role === "length" && typeof v2 === "number" && Number.isFinite(v2))
       params[k2] = v2 * xf.scale;
@@ -65889,6 +65995,51 @@ var transformSymbol = (s2, t2) => {
       });
   }
   return { ...s2, params };
+};
+var canTumble = (s2) => {
+  const entry = vocabById(s2.symbol);
+  return !!entry && Object.values(entry.params).some((p2) => p2.role === "yaw" || p2.role === "pitch" || p2.role === "tilt");
+};
+var tumbleCentre = (s2) => {
+  const entry = vocabById(s2.symbol);
+  if (!entry)
+    return;
+  const x2 = Number(s2.params[keyOfRole(entry, "x") ?? ""]);
+  const y2 = Number(s2.params[keyOfRole(entry, "y") ?? ""]);
+  return Number.isFinite(x2) && Number.isFinite(y2) ? { x: x2, y: y2 } : undefined;
+};
+var keyOfRole = (entry, role) => Object.keys(entry.params).find((k2) => entry.params[k2].role === role);
+var tumbleParams = (entry, given, m2) => {
+  if (isMat3Identity(m2, 0.000000000001))
+    return given;
+  const read = (k2) => {
+    if (!k2)
+      return 0;
+    const v2 = Number(given[k2]);
+    return Number.isFinite(v2) ? v2 : entry.params[k2].default ?? 0;
+  };
+  const yaw2 = keyOfRole(entry, "yaw");
+  const pitch2 = keyOfRole(entry, "pitch");
+  const tilt = keyOfRole(entry, "tilt");
+  const angle2 = keyOfRole(entry, "angle");
+  const out = { ...given };
+  if (yaw2 || pitch2) {
+    const e2 = mat3ToEuler(mat3Mul(m2, eulerToMat3(read(yaw2), read(pitch2), -read(angle2))));
+    if (yaw2)
+      out[yaw2] = e2.h;
+    if (pitch2)
+      out[pitch2] = e2.p;
+    if (angle2)
+      out[angle2] = wrapAngle(-e2.b);
+  } else if (tilt) {
+    const a2 = read(angle2);
+    const tl = read(tilt);
+    const v2 = mat3Apply(m2, { x: Math.cos(a2) * Math.cos(tl), y: -Math.sin(a2) * Math.cos(tl), z: Math.sin(tl) });
+    out[tilt] = Math.asin(Math.max(-1, Math.min(1, v2.z)));
+    if (angle2 && Math.hypot(v2.x, v2.y) > 0.000000001)
+      out[angle2] = Math.atan2(-v2.y, v2.x);
+  }
+  return out;
 };
 var framePage = (dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }) => {
   const o2 = dream.observer;
@@ -66001,9 +66152,86 @@ var apply = (s2, cmd) => {
         symbols: s2.symbols.map((y2) => moving.has(y2.id) ? transformSymbol(y2, cmd.xf) : y2)
       };
     }
+    case "addSymbol":
+      return { strokes: s2.strokes, symbols: [...s2.symbols, cmd.symbol] };
+    case "update":
+      return { strokes: s2.strokes, symbols: s2.symbols.map((y2) => y2.id === cmd.id ? updateSymbol(y2, cmd) : y2) };
+    case "edit":
+      return cmd.steps.reduce(apply, s2);
     case "clear":
       return emptyState();
   }
+};
+var updateSymbol = (y2, u2) => {
+  if (!u2.symbol || u2.symbol === y2.symbol)
+    return { ...y2, params: { ...y2.params, ...u2.params } };
+  const entry = vocabById(u2.symbol);
+  const kept = Object.fromEntries(Object.entries(y2.params).filter(([k2]) => !entry || (k2 in entry.params)));
+  return { ...y2, symbol: u2.symbol, params: { ...kept, ...u2.params } };
+};
+var touched = (cmd) => {
+  switch (cmd.kind) {
+    case "move":
+    case "transform":
+      return [...cmd.ids];
+    case "replace":
+    case "addSymbol":
+      return [cmd.symbol.id];
+    case "update":
+      return [cmd.id];
+    case "edit":
+      return [...new Set(cmd.steps.flatMap(touched))];
+    default:
+      return [];
+  }
+};
+var editCommand = (s2, ops, selected, makeId = newId) => {
+  const steps = [];
+  let cur = s2;
+  const has = (st2, id) => st2.strokes.some((k2) => k2.id === id) || st2.symbols.some((y2) => y2.id === id);
+  for (const op of ops) {
+    let step4;
+    switch (op.op) {
+      case "update":
+        if (cur.symbols.some((y2) => y2.id === op.id))
+          step4 = { kind: "update", id: op.id, symbol: op.symbol, params: { ...op.params } };
+        break;
+      case "add":
+        step4 = { kind: "addSymbol", symbol: { id: makeId("sym"), symbol: op.symbol, params: { ...op.params }, fromStrokes: [] } };
+        break;
+      case "remove":
+        if (has(cur, op.id))
+          step4 = { kind: "delete", ids: [op.id] };
+        break;
+      case "replaceStrokes": {
+        const ids = op.strokeIds.filter((id) => cur.strokes.some((k2) => k2.id === id));
+        if (ids.length)
+          step4 = { kind: "replace", ids, symbol: { id: makeId("sym"), symbol: op.symbol, params: { ...op.params }, fromStrokes: ids } };
+        break;
+      }
+      case "transform": {
+        const ids = op.ids.filter((id) => has(cur, id));
+        const box = selectionBox(cur, new Set(ids));
+        if (ids.length && box)
+          step4 = {
+            kind: "transform",
+            ids,
+            xf: {
+              translate: op.translate ?? { x: 0, y: 0 },
+              rotate: op.rotate ?? 0,
+              scale: op.scale ?? 1,
+              pivot: op.pivot ?? boxCenter(box)
+            }
+          };
+        break;
+      }
+    }
+    if (!step4)
+      continue;
+    steps.push(step4);
+    cur = apply(cur, step4);
+  }
+  return steps.length ? { kind: "edit", steps, selected: [...selected] } : undefined;
 };
 var transformStroke = (k2, xf) => ({
   id: k2.id,
@@ -66109,8 +66337,9 @@ var symbolBox = (y2) => {
   const cy = num2(p2.y) ?? num2(p2.cy) ?? 0;
   const r4 = num2(p2.r) ?? num2(p2.radius) ?? undefined;
   const size = num2(p2.size);
-  const w4 = num2(p2.width) ?? (r4 !== undefined ? 2 * r4 : size ?? 160);
-  const h2 = num2(p2.height) ?? (r4 !== undefined ? 2 * r4 : size ?? w4);
+  const fp = vocabById(y2.symbol)?.footprint?.(p2);
+  const w4 = fp?.w ?? num2(p2.width) ?? (r4 !== undefined ? 2 * r4 : size ?? 160);
+  const h2 = fp?.h ?? num2(p2.height) ?? (r4 !== undefined ? 2 * r4 : size ?? w4);
   const pts = [
     { x: cx - w4 / 2, y: cy - h2 / 2 },
     { x: cx + w4 / 2, y: cy + h2 / 2 }
@@ -66183,6 +66412,973 @@ var pruneSelection = (s2, ids) => {
 };
 var newId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
+// sketch/voice.ts
+var ACCENT = "#00a2ff";
+var PEN_HOLD_MS = 350;
+var REPLY_MS = 5000;
+var SNAP_K = 0.5;
+var tagsFor = (s2) => {
+  const out = {};
+  s2.symbols.forEach((y2, i2) => out[y2.id] = `S${i2 + 1}`);
+  s2.strokes.forEach((k2, i2) => out[k2.id] = `K${i2 + 1}`);
+  return out;
+};
+
+class PageDream extends Dream {
+  placed;
+  constructor(placed) {
+    super();
+    this.placed = placed;
+    framePage(this);
+  }
+  unfold() {
+    for (const y2 of this.placed) {
+      try {
+        this.stage(buildSymbol(y2));
+      } catch {}
+    }
+  }
+}
+var renderSymbols = async (list) => {
+  if (list.length === 0)
+    return;
+  const h2 = Math.round(PAGE_H * SNAP_K);
+  const w4 = Math.round(h2 * 16 / 9);
+  const canvas = document.createElement("canvas");
+  canvas.width = w4;
+  canvas.height = h2;
+  canvas.style.cssText = `position:fixed;left:0;top:0;width:${w4}px;height:${h2}px;visibility:hidden;pointer-events:none`;
+  document.body.appendChild(canvas);
+  let host;
+  try {
+    host = await ThreeHost.mount(new PageDream(list), canvas);
+    host.renderer.setPixelRatio(1);
+    host.renderer.setSize(w4, h2, false);
+    await host.renderFrame(0);
+    await host.renderFrame(0);
+    const pw = Math.round(PAGE_W * SNAP_K);
+    const t2 = document.createElement("canvas");
+    t2.width = pw;
+    t2.height = h2;
+    const g2 = t2.getContext("2d", { willReadFrequently: true });
+    g2.drawImage(canvas, (w4 - pw) / 2, 0, pw, h2, 0, 0, pw, h2);
+    const d2 = g2.getImageData(0, 0, pw, h2).data;
+    const lum = new Float32Array(pw * h2);
+    for (let i2 = 0;i2 < lum.length; i2++)
+      lum[i2] = Math.max(d2[4 * i2], d2[4 * i2 + 1], d2[4 * i2 + 2]) / 255;
+    return lum;
+  } catch (err) {
+    console.warn("[voice] snapshot render failed", err);
+    return;
+  } finally {
+    host?.dispose();
+    canvas.remove();
+  }
+};
+var renderPage = async (s2, selection, tags) => {
+  const K3 = SNAP_K;
+  const rest = await renderSymbols(s2.symbols.filter((y2) => !selection.has(y2.id)));
+  const lifted = await renderSymbols(s2.symbols.filter((y2) => selection.has(y2.id)));
+  const c2 = document.createElement("canvas");
+  c2.width = Math.round(PAGE_W * K3);
+  c2.height = Math.round(PAGE_H * K3);
+  const g2 = c2.getContext("2d");
+  const out = g2.createImageData(c2.width, c2.height);
+  const d2 = out.data;
+  const blue = [0, 162, 255];
+  for (let i2 = 0;i2 < c2.width * c2.height; i2++) {
+    const r4 = rest?.[i2] ?? 0;
+    const l2 = lifted?.[i2] ?? 0;
+    for (let ch = 0;ch < 3; ch++)
+      d2[4 * i2 + ch] = (255 * (1 - r4) + 17 * r4) * (1 - l2) + blue[ch] * l2;
+    d2[4 * i2 + 3] = 255;
+  }
+  g2.putImageData(out, 0, 0);
+  g2.lineCap = "round";
+  g2.lineJoin = "round";
+  for (const k2 of s2.strokes) {
+    g2.strokeStyle = g2.fillStyle = selection.has(k2.id) ? ACCENT : "#111";
+    g2.lineWidth = Math.max(1.5, 4 * K3);
+    g2.beginPath();
+    k2.points.forEach((p2, i2) => i2 ? g2.lineTo(p2.x * K3, p2.y * K3) : g2.moveTo(p2.x * K3, p2.y * K3));
+    if (k2.points.length === 1)
+      g2.arc(k2.points[0].x * K3, k2.points[0].y * K3, 2, 0, Math.PI * 2);
+    g2.stroke();
+  }
+  const sb = selectionBox(s2, selection);
+  if (sb) {
+    g2.strokeStyle = ACCENT;
+    g2.lineWidth = 1.5;
+    g2.setLineDash([6, 5]);
+    const pad = 16;
+    g2.strokeRect((sb.x - pad) * K3, (sb.y - pad) * K3, (sb.w + 2 * pad) * K3, (sb.h + 2 * pad) * K3);
+    g2.setLineDash([]);
+  }
+  g2.font = `600 ${Math.round(26 * K3)}px -apple-system, Helvetica, sans-serif`;
+  g2.textBaseline = "bottom";
+  const tagAt = (id, x2, y2) => {
+    const text = tags[id];
+    if (!text)
+      return;
+    const tx = Math.max(2, Math.min(c2.width - 40, x2 * K3));
+    const ty = Math.max(16, y2 * K3 - 3);
+    g2.fillStyle = "rgba(255,255,255,0.8)";
+    g2.fillRect(tx - 2, ty - Math.round(26 * K3) - 1, g2.measureText(text).width + 4, Math.round(26 * K3) + 2);
+    g2.fillStyle = selection.has(id) ? ACCENT : "#6a6a72";
+    g2.fillText(text, tx, ty);
+  };
+  for (const y2 of s2.symbols) {
+    const b2 = symbolBox(y2);
+    tagAt(y2.id, b2.x, b2.y);
+  }
+  for (const k2 of s2.strokes) {
+    const b2 = boxOfPoints(k2.points);
+    if (b2)
+      tagAt(k2.id, b2.x, b2.y);
+  }
+  return c2.toDataURL("image/png").split(",")[1];
+};
+var httpInstruct = async (req) => {
+  const res = await fetch("/api/instruct", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req)
+  });
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text);
+    if (!res.ok && !body.error)
+      body.error = `instruct ${res.status}`;
+    return { ops: Array.isArray(body.ops) ? body.ops : [], reply: body.reply ?? "", error: body.error };
+  } catch {
+    return { ops: [], reply: "", error: res.ok ? "unreadable answer" : `instruct ${res.status}: ${text.slice(0, 80)}` };
+  }
+};
+var speechCtor = () => {
+  const w4 = window;
+  return w4.SpeechRecognition ?? w4.webkitSpeechRecognition;
+};
+var STYLE = `
+#voice { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 8px); z-index: 20; display: flex;
+  align-items: center; gap: 10px; max-width: min(680px, calc(100vw - 32px)); padding: 10px 18px; border-radius: 20px;
+  background: color-mix(in srgb, var(--page) 88%, transparent); box-shadow: 0 0 0 1px var(--edge), 0 8px 30px rgba(0,0,0,0.3);
+  color: var(--bright); font: 15px/1.35 -apple-system, "SF Pro", Inter, sans-serif; opacity: 0; pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+#voice.on { opacity: 1; transform: translate(-50%, 0); }
+#voice.typing { pointer-events: auto; }
+#voice .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); }
+#voice.listening .dot { background: var(--blue); animation: voicepulse 1.1s ease-in-out infinite; }
+#voice.thinking .dot { background: var(--blue); opacity: 0.5; animation: breathe 1.6s ease-in-out infinite; }
+#voice.reply .dot { background: var(--blue); }
+#voice.error .dot { background: var(--amber); }
+#voice .text { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+#voice .text .interim { color: var(--text); }
+#voice .text .hint { color: var(--text); }
+#voice input { display: none; width: min(520px, calc(100vw - 110px)); background: none; border: none; outline: none;
+  color: var(--bright); font: inherit; user-select: text; -webkit-user-select: text; }
+#voice.typing input { display: block; }
+#voice.typing .text { display: none; }
+#toolbar #mic.on { color: var(--blue); border-color: var(--blue); }
+@keyframes voicepulse { 50% { transform: scale(1.5); opacity: 0.55; } }
+`;
+var installVoice = (host) => {
+  const style = document.createElement("style");
+  style.textContent = STYLE;
+  document.head.appendChild(style);
+  const cap = document.createElement("div");
+  cap.id = "voice";
+  cap.innerHTML = `<span class="dot"></span><span class="text"></span><input spellcheck="false" autocomplete="off" placeholder="say what should happen — Enter sends, Esc cancels" />`;
+  document.body.appendChild(cap);
+  const textEl = cap.querySelector(".text");
+  const input = cap.querySelector("input");
+  const mic = document.createElement("button");
+  mic.id = "mic";
+  mic.textContent = "\uD83C\uDF99";
+  mic.title = "Speak an instruction — hold Space, or hold the pen button while hovering. Click to start/stop; right-click to type.";
+  const anchor = document.getElementById("redo");
+  if (anchor)
+    anchor.insertAdjacentElement("afterend", mic);
+  else
+    document.getElementById("toolbar")?.appendChild(mic);
+  mic.addEventListener("pointerdown", (e2) => e2.preventDefault());
+  let phase = "idle";
+  let source;
+  let rec;
+  let heard = "";
+  let finalText = "";
+  let interim = "";
+  let finishing;
+  let speechBroken = !speechCtor();
+  let hideTimer;
+  let instructor = httpInstruct;
+  const show = (cls, html, text) => {
+    if (hideTimer)
+      clearTimeout(hideTimer);
+    cap.className = `on ${cls}`;
+    if (html !== undefined)
+      textEl.innerHTML = html;
+    else
+      textEl.textContent = text ?? "";
+    mic.classList.toggle("on", cls === "listening");
+  };
+  const hide = (after = 0) => {
+    if (hideTimer)
+      clearTimeout(hideTimer);
+    const go = () => {
+      cap.className = "";
+      mic.classList.remove("on");
+      if (phase === "reply")
+        phase = "idle";
+    };
+    if (after)
+      hideTimer = setTimeout(go, after);
+    else
+      go();
+  };
+  const esc = (s2) => s2.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+  const spoken = () => `${heard} ${finalText} ${interim}`.replace(/\s+/g, " ").trim();
+  const renderListening = () => {
+    const done = `${heard} ${finalText}`.trim();
+    textEl.innerHTML = done || interim ? `${esc(done)} <span class="interim">${esc(interim)}</span>` : `<span class="hint">listening${host.selection().length ? " — about the selection" : " — about the whole page"}…</span>`;
+  };
+  const openTyping = (hint) => {
+    stopRec(true);
+    phase = "typing";
+    source = undefined;
+    show("typing");
+    input.value = "";
+    if (hint)
+      input.placeholder = hint;
+    input.focus();
+  };
+  input.addEventListener("keydown", (e2) => {
+    e2.stopPropagation();
+    if (e2.key === "Enter") {
+      e2.preventDefault();
+      const text = input.value.trim();
+      input.blur();
+      if (text)
+        send(text);
+      else
+        phase = "idle", hide();
+    } else if (e2.key === "Escape") {
+      input.blur();
+      phase = "idle";
+      hide();
+    }
+  });
+  input.addEventListener("blur", () => {
+    if (phase === "typing" && !input.value.trim()) {
+      phase = "idle";
+      hide();
+    }
+  });
+  const stopRec = (abort) => {
+    const r4 = rec;
+    rec = undefined;
+    if (!r4)
+      return;
+    r4.onend = r4.onresult = r4.onerror = null;
+    try {
+      if (abort)
+        r4.abort();
+      else
+        r4.stop();
+    } catch {}
+  };
+  const startSession = () => {
+    const Ctor = speechCtor();
+    const r4 = new Ctor;
+    r4.continuous = true;
+    r4.interimResults = true;
+    r4.lang = navigator.language || "en-US";
+    r4.onresult = (e2) => {
+      if (rec !== r4)
+        return;
+      let f2 = "";
+      let i2 = "";
+      for (let k2 = 0;k2 < e2.results.length; k2++) {
+        const res = e2.results[k2];
+        if (res.isFinal)
+          f2 += res[0].transcript;
+        else
+          i2 += res[0].transcript;
+      }
+      finalText = f2;
+      interim = i2;
+      if (phase === "listening")
+        renderListening();
+    };
+    r4.onerror = (e2) => {
+      if (rec !== r4)
+        return;
+      if (e2.error === "no-speech" || e2.error === "aborted")
+        return;
+      speechBroken = true;
+      const was = spoken();
+      openTyping(e2.error === "not-allowed" || e2.error === "service-not-allowed" ? "microphone not allowed — type it instead (Enter sends)" : `speech unavailable (${e2.error}) — type it instead (Enter sends)`);
+      input.value = was;
+    };
+    r4.onend = () => {
+      if (rec !== r4)
+        return;
+      heard = `${heard} ${finalText}`.trim();
+      finalText = "";
+      if (finishing) {
+        rec = undefined;
+        const done = finishing;
+        finishing = undefined;
+        done();
+      } else if (phase === "listening") {
+        try {
+          r4.start();
+        } catch {
+          rec = undefined;
+        }
+      }
+    };
+    rec = r4;
+    r4.start();
+  };
+  const listen = (from) => {
+    if (phase === "listening" || phase === "thinking" || phase === "typing")
+      return;
+    if (speechBroken) {
+      openTyping();
+      return;
+    }
+    host.closeRing();
+    phase = "listening";
+    source = from;
+    heard = finalText = interim = "";
+    show("listening");
+    renderListening();
+    try {
+      startSession();
+    } catch (err) {
+      speechBroken = true;
+      openTyping(`speech unavailable (${err.message}) — type it instead`);
+    }
+  };
+  const release = async () => {
+    if (phase !== "listening")
+      return;
+    const r4 = rec;
+    if (r4) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          finishing = undefined;
+          resolve();
+        }, 1500);
+        finishing = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        try {
+          r4.stop();
+        } catch {
+          finishing = undefined;
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    }
+    stopRec(true);
+    if (phase !== "listening")
+      return;
+    const text = spoken();
+    source = undefined;
+    if (!text) {
+      phase = "reply";
+      show("", undefined, "heard nothing");
+      hide(1400);
+      return;
+    }
+    await send(text);
+  };
+  const cancel = () => {
+    if (phase !== "listening")
+      return;
+    finishing = undefined;
+    stopRec(true);
+    phase = "idle";
+    source = undefined;
+    hide();
+  };
+  const send = async (transcript) => {
+    if (phase === "thinking")
+      return { ops: [], reply: "", error: "already thinking" };
+    phase = "thinking";
+    source = undefined;
+    const state2 = host.state();
+    const selected = host.selection();
+    const t0 = performance.now();
+    show("thinking", `“${esc(transcript)}” <span class="interim">· thinking…</span>`);
+    let res;
+    try {
+      const labels = tagsFor(state2);
+      const png = await renderPage(state2, new Set(selected), labels);
+      res = await instructor({
+        transcript,
+        png,
+        selection: selected,
+        board: { strokes: state2.strokes, symbols: state2.symbols },
+        vocabulary: VOCABULARY.map((e2) => e2.id),
+        labels
+      });
+    } catch (err) {
+      res = { ops: [], reply: "", error: err.message || "instruct unreachable" };
+    }
+    lastSeconds = (performance.now() - t0) / 1000;
+    last = res;
+    phase = "reply";
+    const cmd = editCommand(host.state(), res.ops, selected);
+    if (cmd) {
+      const fresh = cmd.steps.find((s2) => s2.kind === "addSymbol" || s2.kind === "replace");
+      host.commit(cmd, fresh && (fresh.kind === "addSymbol" || fresh.kind === "replace") ? fresh.symbol.id : undefined);
+      host.setSelection(touched(cmd));
+    }
+    if (res.error && !cmd)
+      show("error", undefined, res.reply || res.error);
+    else
+      show("reply", undefined, res.reply || (cmd ? "done" : "nothing to change"));
+    hide(REPLY_MS);
+    return res;
+  };
+  let last;
+  let lastSeconds = 0;
+  const typingIn = (t2) => t2 instanceof HTMLInputElement || t2 instanceof HTMLTextAreaElement || t2 instanceof HTMLElement && t2.isContentEditable;
+  window.addEventListener("keydown", (e2) => {
+    if (e2.code !== "Space" || typingIn(e2.target) || e2.metaKey || e2.ctrlKey || e2.altKey)
+      return;
+    e2.preventDefault();
+    if (e2.repeat)
+      return;
+    listen("key");
+  });
+  window.addEventListener("keyup", (e2) => {
+    if (e2.code !== "Space" || source !== "key")
+      return;
+    e2.preventDefault();
+    release();
+  });
+  window.addEventListener("blur", () => {
+    if (source === "key")
+      release();
+  });
+  mic.addEventListener("click", () => {
+    if (phase === "listening")
+      release();
+    else if (phase === "typing")
+      input.blur(), phase = "idle", hide();
+    else
+      listen("button");
+  });
+  mic.addEventListener("contextmenu", (e2) => {
+    e2.preventDefault();
+    if (phase === "idle" || phase === "reply")
+      openTyping();
+  });
+  let penButton = false;
+  let penContact = false;
+  let penTimer;
+  const penPress = () => {
+    if (penButton)
+      return;
+    penButton = true;
+    if (penTimer)
+      clearTimeout(penTimer);
+    if (penContact)
+      return;
+    penTimer = setTimeout(() => {
+      penTimer = undefined;
+      if (penButton && !penContact && !host.busy())
+        listen("pen");
+    }, PEN_HOLD_MS);
+  };
+  const penRelease = () => {
+    if (!penButton)
+      return;
+    penButton = false;
+    if (penTimer)
+      clearTimeout(penTimer);
+    penTimer = undefined;
+    if (source === "pen")
+      release();
+  };
+  const pen = (ev) => {
+    switch (ev.kind) {
+      case "button":
+        if (ev.pressed)
+          penPress();
+        else
+          penRelease();
+        return;
+      case "hover":
+        penContact = false;
+        if (ev.button)
+          penPress();
+        else
+          penRelease();
+        return;
+      case "down":
+        penContact = true;
+        if (penTimer)
+          clearTimeout(penTimer);
+        penTimer = undefined;
+        if (source === "pen")
+          cancel();
+        return;
+      case "up":
+        penContact = false;
+        return;
+      case "leave":
+        penContact = false;
+        penRelease();
+        return;
+      default:
+    }
+  };
+  const sketch = window.__sketch ??= {};
+  Object.assign(sketch, {
+    instruct: (text) => send(text),
+    stubInstruct: (r4) => {
+      instructor = r4 === null ? httpInstruct : typeof r4 === "function" ? r4 : async () => r4;
+    },
+    voice: () => ({ phase, source, caption: cap.className ? textEl.textContent : "", typing: phase === "typing", speech: !speechBroken }),
+    lastInstruct: () => last && { ...last, seconds: lastSeconds },
+    pageImage: async () => {
+      const s2 = host.state();
+      return renderPage(s2, new Set(host.selection()), tagsFor(s2));
+    }
+  });
+  return { pen, send };
+};
+
+// sketch/display.ts
+var encodeItem = (item) => ({ id: item.id, json: JSON.stringify({ op: "put", ...item }) });
+var CLEAR = '{"op":"clear"}';
+var FLUSH = '{"op":"flush"}';
+
+class DisplayDiff {
+  sent = new Map;
+  full(items) {
+    this.sent = new Map(items.map((e2) => [e2.id, e2.json]));
+    return `[${[CLEAR, ...items.map((e2) => e2.json), FLUSH].join(",")}]`;
+  }
+  diff(items) {
+    const parts = [];
+    const seen = new Set;
+    for (const e2 of items) {
+      seen.add(e2.id);
+      if (this.sent.get(e2.id) === e2.json)
+        continue;
+      this.sent.set(e2.id, e2.json);
+      parts.push(e2.json);
+    }
+    for (const id of [...this.sent.keys()]) {
+      if (seen.has(id))
+        continue;
+      this.sent.delete(id);
+      parts.push(JSON.stringify({ op: "del", id }));
+    }
+    return parts.length ? `[${[...parts, FLUSH].join(",")}]` : undefined;
+  }
+  reset() {
+    this.sent.clear();
+  }
+}
+class DisplayStore {
+  items = new Map;
+  apply(ops) {
+    for (const op of ops) {
+      if (op.op === "clear")
+        this.items.clear();
+      else if (op.op === "del")
+        this.items.delete(op.id);
+      else if (op.op === "put") {
+        const { op: _2, ...item } = op;
+        this.items.set(item.id, item);
+      }
+    }
+  }
+  get size() {
+    return this.items.size;
+  }
+  has(id) {
+    return this.items.has(id);
+  }
+  snapshot() {
+    return [{ op: "clear" }, ...[...this.items.values()].map((item) => ({ op: "put", ...item })), { op: "flush" }];
+  }
+}
+
+// sketch/mirror.ts
+var r1 = (v2) => Math.round(v2 * 10) / 10;
+var flat = (pts) => {
+  const out = [];
+  for (const p2 of pts)
+    out.push(r1(p2.x), r1(p2.y));
+  return out;
+};
+var circlePts = (c2, r4, n2 = 48) => {
+  const out = [];
+  for (let i2 = 0;i2 <= n2; i2++) {
+    const a2 = i2 / n2 * Math.PI * 2;
+    out.push({ x: c2.x + r4 * Math.cos(a2), y: c2.y + r4 * Math.sin(a2) });
+  }
+  return out;
+};
+var quadOf = (b2) => [
+  { x: b2.x, y: b2.y },
+  { x: b2.x + b2.w, y: b2.y },
+  { x: b2.x + b2.w, y: b2.y + b2.h },
+  { x: b2.x, y: b2.y + b2.h },
+  { x: b2.x, y: b2.y }
+];
+var mapPrim = (p2, f2, widthScale = 1) => {
+  const pts = [];
+  for (let i2 = 0;i2 + 1 < p2.pts.length; i2 += 2) {
+    const q = f2({ x: p2.pts[i2], y: p2.pts[i2 + 1] });
+    pts.push(r1(q.x), r1(q.y));
+  }
+  if (p2.k === "fill")
+    return { ...p2, pts };
+  const w4 = typeof p2.w === "number" ? r1(p2.w * widthScale) : p2.w.map((v2) => r1(v2 * widthScale));
+  return { ...p2, pts, w: w4 };
+};
+var primsBox = (prims) => {
+  const pts = [];
+  for (const p2 of prims)
+    for (let i2 = 0;i2 + 1 < p2.pts.length; i2 += 2)
+      pts.push({ x: p2.pts[i2], y: p2.pts[i2 + 1] });
+  return boxOfPoints(pts);
+};
+var inkWidth = (p2) => 2.2 + 3.2 * Math.min(1, Math.max(0, p2.pressure || 0.5));
+var inkPrim = (points, grey = 0) => ({
+  k: "line",
+  pts: flat(points),
+  w: points.map((p2) => r1(inkWidth(p2))),
+  ...grey ? { grey } : {}
+});
+var inverseGrey = (c2) => Math.round(255 * (1 - Math.min(1, Math.max(0, 0.2126 * c2.r + 0.7152 * c2.g + 0.0722 * c2.b))));
+var lineGrey = (c2) => inverseGrey(c2) > 200 ? undefined : 0;
+var LINE_W = (px) => r1(Math.min(12, Math.max(1.5, px)));
+var STRAIGHT_ON = new Euler;
+var tmpV = new Vector3;
+
+class FlatDream extends Dream {
+  holon;
+  constructor(holon) {
+    super();
+    this.holon = holon;
+    framePage(this);
+  }
+  unfold() {
+    this.stage(this.holon);
+  }
+}
+var pageProjector = (dream) => {
+  const obs = dream.observer;
+  const cam = new PerspectiveCamera;
+  const phi = obs.phi.value;
+  const theta = obs.theta.value;
+  const r4 = obs.radius.value / (obs.zoom.value || 1);
+  const focus = new Vector3(obs.x.value, obs.y.value, obs.z.value);
+  cam.position.set(focus.x + r4 * Math.sin(phi) * Math.cos(theta), focus.y + r4 * Math.sin(theta), focus.z + r4 * Math.cos(phi) * Math.cos(theta));
+  cam.up.set(0, 1, 0);
+  cam.lookAt(focus);
+  if (obs.tilt.value !== 0)
+    cam.rotateZ(obs.tilt.value);
+  cam.aspect = 16 / 9;
+  cam.fov = MathUtils.radToDeg(obs.fov.value);
+  cam.near = 0.1;
+  cam.far = 1e7;
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld(true);
+  const cx = PAGE_W / 2;
+  const cy = PAGE_H / 2;
+  const half = PAGE_H / 2;
+  return (v2) => {
+    tmpV.copy(v2).project(cam);
+    return { x: cx + tmpV.x * half * cam.aspect, y: cy - tmpV.y * half };
+  };
+};
+var visibleRun = (pts, from, to) => {
+  if (from <= 0 && to >= 1)
+    return [...pts];
+  if (to <= from || pts.length < 2)
+    return [];
+  const cum = [0];
+  for (let i2 = 1;i2 < pts.length; i2++)
+    cum.push(cum[i2 - 1] + Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y));
+  const total = cum[cum.length - 1];
+  const a2 = from * total;
+  const b2 = to * total;
+  const at2 = (s2) => {
+    let i2 = 1;
+    while (i2 < pts.length - 1 && cum[i2] < s2)
+      i2++;
+    const seg = cum[i2] - cum[i2 - 1];
+    const u2 = seg < 0.000000001 ? 0 : (s2 - cum[i2 - 1]) / seg;
+    return { x: pts[i2 - 1].x + (pts[i2].x - pts[i2 - 1].x) * u2, y: pts[i2 - 1].y + (pts[i2].y - pts[i2 - 1].y) * u2 };
+  };
+  const out = [at2(a2)];
+  for (let i2 = 0;i2 < pts.length; i2++)
+    if (cum[i2] > a2 && cum[i2] < b2)
+      out.push(pts[i2]);
+  out.push(at2(b2));
+  return out;
+};
+var flattenHolon = (root, project) => {
+  const prims = [];
+  const local = new Matrix4;
+  const quat = new Quaternion;
+  const pos = new Vector3;
+  const scl = new Vector3;
+  const toPage = (m2, pts) => pts.map((p2) => project(tmpV.set(p2.x, p2.y, p2.z).applyMatrix4(m2)));
+  const visit = (h2, parent) => {
+    pos.set(h2.x.value, h2.y.value, h2.z.value);
+    quat.setFromEuler(STRAIGHT_ON.set(h2.p.value, h2.h.value, h2.b.value, "ZXY"));
+    const s2 = h2.scale.value;
+    scl.set(s2, s2, s2);
+    const world = new Matrix4().multiplyMatrices(parent, local.compose(pos, quat, scl));
+    if (h2 instanceof Stroke && h2.opacity.value > 0.01) {
+      const filledShape = h2 instanceof Ellipse && h2.filled.value || h2 instanceof Rectangle && h2.filled.value ? h2 : undefined;
+      if (filledShape) {
+        if (h2.creation.value * h2.opacity.value > 0.5) {
+          const outline = filledShape instanceof Ellipse ? ellipseOutline(filledShape.radiusX.value, filledShape.radiusY.value) : rectanglePolyline(filledShape.width.value, filledShape.height.value, filledShape.rounding.value);
+          prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: inverseGrey(h2.tint.value) });
+        }
+      } else {
+        const wash = h2.fillOpacity.value * h2.opacity.value;
+        if (wash > 0.05 && (h2 instanceof Circle || h2 instanceof Ellipse || h2 instanceof Rectangle)) {
+          const outline = h2 instanceof Circle ? ellipseOutline(h2.radius.value, h2.radius.value) : h2 instanceof Ellipse ? ellipseOutline(h2.radiusX.value, h2.radiusY.value) : rectanglePolyline(h2.width.value, h2.height.value, h2.rounding.value);
+          const grey2 = Math.round(255 - (255 - inverseGrey(h2.tint.value)) * Math.min(1, wash));
+          if (grey2 < 245)
+            prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: grey2 });
+        }
+        const grey = lineGrey(h2.tint.value);
+        const pts = grey === undefined ? undefined : polyline(h2);
+        if (pts && pts.length >= 2) {
+          const run = visibleRun(toPage(world, pts), h2.erasure.value, h2.creation.value);
+          if (run.length >= 2)
+            prims.push({ k: "line", pts: flat(run), w: LINE_W(h2.stroke.value), ...grey ? { grey } : {} });
+        }
+      }
+    }
+    for (const part of h2.parts)
+      visit(part, world);
+  };
+  visit(root, new Matrix4);
+  return prims;
+};
+var ellipseOutline = (rx, ry, n2 = 64) => {
+  const out = [];
+  for (let i2 = 0;i2 <= n2; i2++) {
+    const a2 = i2 / n2 * Math.PI * 2;
+    out.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
+  }
+  return out;
+};
+var symbolCache = new Map;
+var flattenSymbol = (s2) => {
+  const key = JSON.stringify([s2.symbol, s2.params]);
+  const hit = symbolCache.get(key);
+  if (hit)
+    return hit;
+  let prims = [];
+  try {
+    const holon = buildSymbol({ id: "mirror", symbol: s2.symbol, params: s2.params, fromStrokes: [] });
+    const dream = new FlatDream(holon);
+    dream.applyAt(dream.duration);
+    const project = pageProjector(dream);
+    for (const r4 of dream.roots)
+      prims.push(...flattenHolon(r4, project));
+  } catch {
+    prims = [];
+  }
+  if (symbolCache.size > 256)
+    symbolCache.clear();
+  symbolCache.set(key, prims);
+  return prims;
+};
+var Z2 = { symbol: 10, lifted: 11, ink: 20, frame: 30, chrome: 40, live: 50, ring: 60, ringChip: 61 };
+var knockout = (pts, w4) => [
+  { k: "fill", pts: flat(pts), grey: 255 },
+  { k: "line", pts: flat(pts), w: r1(w4) }
+];
+var star = (c2, r4) => {
+  const out = [];
+  for (let i2 = 0;i2 <= 8; i2++) {
+    const a2 = -Math.PI / 2 + i2 * Math.PI / 4;
+    const k2 = i2 % 2 === 0 ? r4 : r4 * 0.32;
+    out.push({ x: c2.x + k2 * Math.cos(a2), y: c2.y + k2 * Math.sin(a2) });
+  }
+  return out;
+};
+var inkCache = new WeakMap;
+var buildDisplay = (v2) => {
+  const out = [];
+  const put = (item) => out.push(encodeItem(item));
+  const xf = v2.liveXf;
+  const moved = (p2) => xf ? xfPoint(xf, p2) : p2;
+  const u2 = v2.unit;
+  for (const y2 of v2.symbols) {
+    const sel = v2.selection.has(y2.id);
+    let prims = flattenSymbol(y2);
+    if (sel && xf)
+      prims = prims.map((p2) => mapPrim(p2, moved));
+    put({ id: `sym:${y2.id}`, z: sel ? Z2.lifted : Z2.symbol, prims });
+  }
+  for (const k2 of v2.strokes) {
+    const transformed = v2.selection.has(k2.id) && xf;
+    const grey = v2.erased.has(k2.id) ? 200 : 0;
+    if (!transformed && !grey) {
+      let e2 = inkCache.get(k2);
+      if (!e2) {
+        e2 = encodeItem({ id: `ink:${k2.id}`, z: Z2.ink, prims: [inkPrim(k2.points)] });
+        inkCache.set(k2, e2);
+      }
+      out.push(e2);
+      continue;
+    }
+    const pts = transformed ? k2.points.map((p2) => ({ ...p2, ...xfPoint(xf, p2) })) : k2.points;
+    put({ id: `ink:${k2.id}`, z: Z2.ink, prims: [inkPrim(pts, grey)] });
+  }
+  const dash = [r1(3 * u2), r1(6 * u2)];
+  if (v2.frame && !v2.thinking) {
+    const q = quadOf(v2.frame).map(moved);
+    put({ id: "frame", z: Z2.frame, grab: true, prims: [{ k: "line", pts: flat(q), w: 1.5, dash }] });
+  }
+  for (const g2 of v2.groupBoxes) {
+    const q = quadOf(g2.box).map(moved);
+    put({ id: `group:${g2.id}`, z: Z2.frame, prims: [{ k: "line", pts: flat(q), w: 1.5, dash: [r1(5 * u2), r1(5 * u2)] }] });
+  }
+  const c2 = v2.chrome;
+  if (c2) {
+    put({
+      id: "chrome:knob",
+      z: Z2.chrome,
+      noInk: true,
+      prims: [
+        { k: "line", pts: flat([c2.frameTop, { x: c2.knob.x, y: c2.knob.y + c2.knobR }]), w: 1.5 },
+        ...knockout(circlePts(c2.knob, c2.knobR, 24), 2)
+      ]
+    });
+    c2.corners.forEach((p2, i2) => {
+      const s2 = c2.handle / 2;
+      put({ id: `chrome:corner${i2}`, z: Z2.chrome, noInk: true, prims: knockout(quadOf({ x: p2.x - s2, y: p2.y - s2, w: 2 * s2, h: 2 * s2 }), 2) });
+    });
+    if (c2.chip) {
+      put({
+        id: "chrome:chip",
+        z: Z2.chrome,
+        noInk: true,
+        prims: [...knockout(circlePts(c2.chip, c2.chipR, 32), 2), { k: "fill", pts: flat(star(c2.chip, c2.chipR * 0.62)), grey: 0 }]
+      });
+    }
+  }
+  if (v2.thinking) {
+    put({ id: "thinking", z: Z2.frame, prims: [{ k: "line", pts: flat(quadOf(v2.thinking)), w: 2, dash: [r1(6 * u2), r1(8 * u2)] }] });
+  }
+  if (v2.liveStroke.length)
+    put({ id: "live", z: Z2.live, live: true, prims: [inkPrim(v2.liveStroke)] });
+  if (v2.lasso.length > 1) {
+    put({
+      id: "lasso",
+      z: Z2.live,
+      live: true,
+      prims: [{ k: "line", pts: flat([...v2.lasso, v2.lasso[0]]), w: 2, dash: [r1(6 * u2), r1(6 * u2)] }]
+    });
+  }
+  const ring = v2.ring;
+  if (ring) {
+    put({ id: "ring", z: Z2.ring, prims: [{ k: "line", pts: flat(circlePts(ring.center, ring.radius, 96)), w: 1, grey: 170 }] });
+    ring.chips.forEach((chip, i2) => {
+      const at2 = { x: chip.x, y: chip.y };
+      const r4 = ring.chipPage / 2;
+      const prims = knockout(circlePts(at2, r4, 48), 2);
+      const thumb = flattenSymbol(chip.candidate);
+      const b2 = primsBox(thumb);
+      if (b2) {
+        const k2 = r4 * 0.72 / Math.max(b2.w / 2, b2.h / 2, 1);
+        const mid = { x: b2.x + b2.w / 2, y: b2.y + b2.h / 2 };
+        prims.push(...thumb.map((p2) => mapPrim(p2, (q) => ({ x: at2.x + (q.x - mid.x) * k2, y: at2.y + (q.y - mid.y) * k2 }), Math.min(1, k2))));
+      }
+      put({ id: `ring:${i2}`, z: Z2.ringChip, noInk: true, prims });
+    });
+  }
+  return out;
+};
+var MIRROR_INTERVAL_MS = 100;
+
+class Mirror {
+  view;
+  url;
+  ws;
+  diff = new DisplayDiff;
+  last = -Infinity;
+  timer;
+  dirty = false;
+  delay = 1000;
+  constructor(view, url) {
+    this.view = view;
+    this.url = url;
+  }
+  start() {
+    let ws;
+    try {
+      ws = new WebSocket(this.url);
+    } catch {
+      setTimeout(() => this.start(), this.delay);
+      return;
+    }
+    this.ws = ws;
+    ws.onopen = () => {
+      this.delay = 1000;
+      this.diff.reset();
+      this.send(true);
+    };
+    ws.onclose = () => {
+      if (this.ws === ws)
+        this.ws = undefined;
+      this.delay = Math.min(this.delay * 2, 15000);
+      setTimeout(() => this.start(), this.delay);
+    };
+    ws.onerror = () => {};
+  }
+  changed() {
+    this.dirty = true;
+    const wait = this.last + MIRROR_INTERVAL_MS - performance.now();
+    if (wait <= 0)
+      this.send(false);
+    else
+      this.timer ??= setTimeout(() => {
+        this.timer = undefined;
+        if (this.dirty)
+          this.send(false);
+      }, wait);
+  }
+  send(full) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN)
+      return;
+    this.dirty = false;
+    this.last = performance.now();
+    let items;
+    try {
+      items = buildDisplay(this.view());
+    } catch (err) {
+      console.warn("[mirror] display list failed", err);
+      return;
+    }
+    const msg = full ? this.diff.full(items) : this.diff.diff(items);
+    if (msg)
+      ws.send(msg);
+  }
+}
+
 // sketch/main.ts
 var pageEl = document.getElementById("page");
 var ink = document.getElementById("ink");
@@ -66202,6 +67398,7 @@ var LEGACY_KEY = "dreamtalk.sketch.page.v1";
 var localKey = (name) => `dreamtalk.board.${name}.v1`;
 var requested = new URLSearchParams(location.search).get("board") ?? "scratch";
 var boardName = isValidBoardName(requested) ? requested : "scratch";
+var looking = new URLSearchParams(location.search).get("look") === "1";
 var readLocal = (key) => {
   try {
     const raw = localStorage.getItem(key);
@@ -66234,6 +67431,8 @@ var saveNow = () => {
   if (saveTimer)
     clearTimeout(saveTimer);
   saveTimer = undefined;
+  if (looking)
+    return saving;
   const body = serializeBoard(history.state);
   saving = saving.then(async () => {
     try {
@@ -66252,6 +67451,8 @@ var saveNow = () => {
   return saving;
 };
 var saveState = () => {
+  if (looking)
+    return;
   try {
     localStorage.setItem(localKey(boardName), serializeBoard(history.state));
   } catch {}
@@ -66276,8 +67477,9 @@ var pressButton = false;
 var erased = new Set;
 var liveXf;
 var handleDrag;
+var tumbleDrag;
 var keys = { alt: false, shift: false };
-var TOOLBAR_H = 44;
+var TOOLBAR_H = looking ? 0 : 44;
 var scale2 = 1;
 var dpr = window.devicePixelRatio || 1;
 var layout = () => {
@@ -66316,10 +67518,13 @@ var accent = "#00a2ff";
 class SymbolsDream extends Dream {
   placed;
   fresh;
-  constructor(placed, frame, fresh) {
+  withPivots;
+  pivots = [];
+  constructor(placed, frame, fresh, withPivots = false) {
     super();
     this.placed = placed;
     this.fresh = fresh;
+    this.withPivots = withPivots;
     framePage(this, frame);
   }
   unfold() {
@@ -66330,6 +67535,12 @@ class SymbolsDream extends Dream {
       } catch (err) {
         console.warn("[sketch] cannot build", s2.symbol, err);
         continue;
+      }
+      const c2 = this.withPivots && canTumble(s2) ? tumbleCentre(s2) : undefined;
+      if (c2) {
+        const pivot = new Group({ members: [new Group({ members: [h2], x: -c2.x, y: c2.y })], x: c2.x, y: -c2.y });
+        this.pivots.push(pivot);
+        h2 = pivot;
       }
       if (s2.id === this.fresh)
         this.play(Create(h2), 0.9);
@@ -66381,7 +67592,7 @@ var syncSymbols = async (fresh) => {
         built.push({ L: L2, sig: layerSig(list), duration: 0 });
         continue;
       }
-      const dream = new SymbolsDream(list, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh);
+      const dream = new SymbolsDream(list, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh, L2 === liftedLayer);
       const canvas = glCanvasOf(w4, h2);
       canvas.classList.add(L2.name);
       canvas.style.left = `${left}px`;
@@ -66392,7 +67603,7 @@ var syncSymbols = async (fresh) => {
       host.renderer.setSize(w4, h2, false);
       await host.renderFrame(0);
       await host.renderFrame(0);
-      built.push({ L: L2, sig: layerSig(list), canvas, host, duration: dream.duration });
+      built.push({ L: L2, sig: layerSig(list), canvas, host, duration: dream.duration, pivots: dream.pivots });
     }
     for (const b2 of built) {
       const old = b2.L.canvas;
@@ -66402,6 +67613,7 @@ var syncSymbols = async (fresh) => {
       b2.L.canvas = b2.canvas;
       b2.L.host = b2.host;
       b2.L.sig = b2.sig;
+      b2.L.pivots = b2.pivots;
       old?.remove();
       oldHost?.dispose();
       const host = b2.host;
@@ -66420,6 +67632,8 @@ var syncSymbols = async (fresh) => {
     }
     if (liveXf)
       liftCss(liveXf);
+    if (liveXf?.tumble)
+      tumblePreview(liveXf.tumble);
   } catch (err) {
     console.error("[sketch] symbol layer failed", err);
     flash(`render failed: ${err.message}`);
@@ -66446,6 +67660,27 @@ var liftCss = (xf) => {
   const { left } = glGeometry();
   c2.style.transformOrigin = `${xf.pivot.x * scale2 - left}px ${xf.pivot.y * scale2}px`;
   c2.style.transform = `translate(${xf.translate.x * scale2}px, ${xf.translate.y * scale2}px) rotate(${xf.rotate}rad) scale(${xf.scale})`;
+};
+var tumbleFrame = null;
+var tumblePreview = (m2) => {
+  const pending = tumbleFrame !== null;
+  tumbleFrame = m2;
+  if (pending)
+    return;
+  const host = liftedLayer.host;
+  requestAnimationFrame(() => {
+    const turn = tumbleFrame ?? MAT3_IDENTITY;
+    tumbleFrame = null;
+    if (!host || host !== liftedLayer.host || !liftedLayer.pivots?.length)
+      return;
+    const e2 = mat3ToEuler(turn);
+    for (const p2 of liftedLayer.pivots) {
+      p2.h.defaultValue = p2.h.value = e2.h;
+      p2.p.defaultValue = p2.p.value = e2.p;
+      p2.b.defaultValue = p2.b.value = e2.b;
+    }
+    host.renderFrame(0);
+  });
 };
 var FRAME_PAD = 10;
 var HANDLE = 7;
@@ -66558,6 +67793,7 @@ var dashedBox = (b2, k2, color4, pad, dash, offset = 0) => {
 };
 var inkQueued = false;
 var drawInk = () => {
+  mirror?.changed();
   if (inkQueued)
     return;
   inkQueued = true;
@@ -66566,6 +67802,36 @@ var drawInk = () => {
     paintInk();
   });
 };
+var padBox = (b2, d2) => ({ x: b2.x - d2, y: b2.y - d2, w: b2.w + 2 * d2, h: b2.h + 2 * d2 });
+var mirrorView = () => {
+  const sel = history.state.symbols.filter((y2) => selection.has(y2.id));
+  const c2 = chrome();
+  return {
+    strokes: history.state.strokes,
+    symbols: history.state.symbols,
+    selection,
+    liveXf,
+    liveStroke: mode === "draw" ? live : [],
+    lasso: mode === "lasso" ? lasso : [],
+    erased,
+    unit: px(1),
+    frame: frameBox(),
+    groupBoxes: selection.size < 2 ? [] : sel.map((y2) => ({ id: y2.id, box: padBox(symbolBox(y2), px(5)) })),
+    chrome: c2 && {
+      corners: c2.corners,
+      knob: c2.knob,
+      frameTop: { x: c2.frame.x + c2.frame.w / 2, y: c2.frame.y },
+      chip: c2.chip,
+      handle: px(HANDLE),
+      knobR: px(KNOB_R),
+      chipR: px(CHIP_R)
+    },
+    thinking: thinking && padBox(thinking.box, px(FRAME_PAD)),
+    ring: ring && { center: ring.center, radius: ring.radius, chipPage: ring.chipPage, chips: ring.chips }
+  };
+};
+var mirror = looking ? undefined : new Mirror(mirrorView, `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/display`);
+mirror?.start();
 var paintChrome = (c2, k2) => {
   ctx.save();
   const top = { x: c2.frame.x + c2.frame.w / 2, y: c2.frame.y };
@@ -66710,10 +67976,14 @@ var commitLive = () => {
     afterChange();
   } else {
     liftCss(undefined);
+    if (xf?.tumble)
+      tumblePreview(undefined);
     drawInk();
   }
 };
 var cancelLive = () => {
+  if (liveXf?.tumble)
+    tumblePreview(undefined);
   liveXf = undefined;
   liftCss(undefined);
   drawInk();
@@ -66728,6 +67998,8 @@ var undo = () => {
     selection = new Set(cmd.ids);
   else if (cmd.kind === "move" || cmd.kind === "transform")
     selection = new Set(cmd.ids);
+  else if (cmd.kind === "edit")
+    selection = new Set(cmd.selected);
   else
     selection = new Set;
   afterChange();
@@ -66740,7 +68012,7 @@ var redo = () => {
   const cmd = history.redo();
   if (!cmd)
     return;
-  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : new Set;
+  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : cmd.kind === "edit" ? new Set(touched(cmd)) : new Set;
   afterChange(cmd.kind === "replace" ? cmd.symbol.id : undefined);
 };
 var sameIds = (a2, b2) => a2.length === b2.length && [...a2].sort().join() === [...b2].sort().join();
@@ -66964,9 +68236,20 @@ var pathLength = (pts) => {
     d2 += Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y);
   return d2;
 };
+var tumbleable = () => history.state.symbols.some((y2) => selection.has(y2.id) && canTumble(y2));
+var POINTER_TUMBLE = Math.PI / 360;
+var FINGER_TUMBLE = Math.PI / 700;
+var startTumble = (p2) => {
+  mode = "tumble";
+  tumbleDrag = { last: p2, m: MAT3_IDENTITY };
+  const fb = frameBox();
+  liveXf = { ...IDENTITY, pivot: fb ? boxCenter(fb) : p2, tumble: MAT3_IDENTITY };
+};
 var startHandle = (hit, p2) => {
   const c2 = chrome();
   const center = boxCenter(c2.frame);
+  if (hit.kind === "rotate" && keys.alt && tumbleable())
+    return startTumble(p2);
   if (hit.kind === "rotate") {
     mode = "rotate";
     handleDrag = { corner: c2.knob, opposite: center, center, start: p2 };
@@ -66995,6 +68278,8 @@ var dragHandle = (p2) => {
   }
 };
 var handlePen = (ev, source) => {
+  if (source === "tablet")
+    voice.pen(ev);
   switch (ev.kind) {
     case "leave":
       penLeft();
@@ -67042,6 +68327,8 @@ var handlePen = (ev, source) => {
       live = [ev.sample];
     } else if (hit) {
       startHandle(hit, p2);
+    } else if (source === "pointer" && keys.alt && tumbleable() && frameBox() && inBox(p2, frameBox())) {
+      startTumble(p2);
     } else if (ev.button) {
       pressStart = p2;
       const fb = frameBox();
@@ -67093,6 +68380,14 @@ var handlePen = (ev, source) => {
       case "rotate":
         dragHandle(p2);
         break;
+      case "tumble": {
+        const d2 = tumbleDrag;
+        d2.m = mat3Mul(trackball(p2.x - d2.last.x, p2.y - d2.last.y, POINTER_TUMBLE * scale2), d2.m);
+        d2.last = p2;
+        liveXf = { ...liveXf, tumble: d2.m };
+        tumblePreview(d2.m);
+        break;
+      }
       case "erase":
         for (const id of strokesNear(history.state, p2, 10))
           erased.add(id);
@@ -67134,7 +68429,9 @@ var handlePen = (ev, source) => {
     case "move":
     case "scale":
     case "rotate":
+    case "tumble":
       handleDrag = undefined;
+      tumbleDrag = undefined;
       commitLive();
       break;
     case "erase": {
@@ -67237,7 +68534,7 @@ var handleTouch = (touches, t2) => {
     }
     g2.segSim = simFromPairs(g2.seg.a0, g2.seg.b0, a2, b2);
     if (g2.travel >= FINGER_TAP_TRAVEL) {
-      liveXf = xfFromSim(composeSim(g2.segSim, g2.acc), g2.pivot);
+      liveXf = { ...xfFromSim(composeSim(g2.segSim, g2.acc), g2.pivot), ...g2.tumble ? { tumble: g2.tumble } : {} };
       drawInk();
     }
   } else if (g2.seg) {
@@ -67245,6 +68542,24 @@ var handleTouch = (touches, t2) => {
     g2.segSim = SIM_IDENTITY;
     g2.seg = undefined;
   }
+  if (touches.length === 3 && selection.size > 0 && !thinking && !ring && tumbleable()) {
+    const ids = touches.map((f2) => f2.id).sort((a2, b2) => a2 - b2).join();
+    const c2 = {
+      x: touches.reduce((n2, f2) => n2 + f2.x, 0) / 3,
+      y: touches.reduce((n2, f2) => n2 + f2.y, 0) / 3
+    };
+    if (!g2.trio || g2.trio.ids !== ids)
+      g2.trio = { ids, last: c2 };
+    g2.tumble = mat3Mul(trackball(c2.x - g2.trio.last.x, c2.y - g2.trio.last.y, FINGER_TUMBLE), g2.tumble ?? MAT3_IDENTITY);
+    g2.trio.last = c2;
+    g2.pivot ??= boxCenter(selectionBox(history.state, selection) ?? { x: c2.x, y: c2.y, w: 0, h: 0 });
+    if (g2.travel >= FINGER_TAP_TRAVEL) {
+      liveXf = { ...xfFromSim(composeSim(g2.segSim, g2.acc), g2.pivot), tumble: g2.tumble };
+      tumblePreview(g2.tumble);
+      drawInk();
+    }
+  } else
+    g2.trio = undefined;
 };
 var lastTap = { name: "", at: -Infinity };
 var fingerTap = (name) => {
@@ -67550,10 +68865,25 @@ window.__sketch = {
     afterChange();
   }
 };
+var voice = installVoice({
+  state: () => history.state,
+  selection: () => [...selection],
+  setSelection,
+  commit,
+  busy: () => !!thinking || mode !== "idle",
+  closeRing
+});
 layout();
 applyTheme();
 renderTablet();
-connectPen();
+if (looking) {
+  for (const id of ["toolbar", "status", "presence", "banner"]) {
+    const el = document.getElementById(id);
+    if (el)
+      el.style.display = "none";
+  }
+} else
+  connectPen();
 listBoards();
 loadBoard().then(async ({ state: state2, migrate }) => {
   history = new History(state2);

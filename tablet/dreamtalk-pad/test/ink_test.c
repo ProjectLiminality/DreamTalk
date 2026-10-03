@@ -26,7 +26,7 @@ static int failures = 0, checks = 0;
     } while (0)
 
 static uint16_t buf[W * H];
-static ink_canvas cv = {buf, W, H};
+static ink_canvas cv = {buf, W, H, {0, 0, 0, 0}};
 
 static void blank(void) {
     for (int i = 0; i < W * H; i++) buf[i] = INK_WHITE;
@@ -181,47 +181,131 @@ static void test_pressure(void) {
     CHECK(fabsf(ink_pressure_radius(-9, 2, 6) - 1.0f) < 1e-6, "d clamps low");
 }
 
-static int parse(const char *s, dl_cmd *c, float *p, int max) { return dl_parse(s, strlen(s), c, p, max); }
+static dl_prim P[64];
+static float N[256];
+static int parse(const char *s, dl_op *o) { return dl_parse(s, strlen(s), o, P, 64, N, 256); }
 
 static void test_json(void) {
-    float p[64];
-    dl_cmd c;
-    CHECK(parse("{\"kind\":\"draw\",\"id\":\"s1\",\"points\":[[10,20],[30.5,-4e1]],\"width\":3}", &c, p, 32) == 0, "draw");
-    CHECK(c.kind == DL_DRAW && !strcmp(c.id, "s1") && c.npts == 2 && c.width == 3.0f, "draw fields");
-    CHECK(p[0] == 10 && p[1] == 20 && p[2] == 30.5f && p[3] == -40, "draw points %g %g %g %g", p[0], p[1], p[2], p[3]);
+    dl_op o;
+    CHECK(parse("{\"op\":\"put\",\"id\":\"ink:a\",\"z\":20,\"prims\":[{\"k\":\"line\",\"pts\":[10,20,30.5,-4e1],\"w\":[3,4]}]}", &o) == 0, "put");
+    CHECK(o.kind == DL_PUT && !strcmp(o.id, "ink:a") && o.z == 20 && o.nprims == 1 && !o.flags, "put fields");
+    CHECK(P[0].kind == DLP_LINE && P[0].npts == 2 && P[0].w >= 0 && P[0].grey == 0 && P[0].dash_on == 0, "line prim");
+    CHECK(N[P[0].pts] == 10 && N[P[0].pts + 3] == -40 && N[P[0].w] == 3 && N[P[0].w + 1] == 4, "line numbers");
 
-    CHECK(parse("  { \"width\" : 2 , \"points\" : [ 1, 2, 3, 4, 5, 6 ] ,\"kind\":\"draw\" , \"extra\":{\"a\":[1,{\"b\":null}],\"t\":true} }\r", &c, p, 32) == 0, "flat points, any order, unknown keys");
-    CHECK(c.npts == 3 && c.width == 2 && !c.id[0], "flat fields npts=%d", c.npts);
-
-    CHECK(parse("{\"kind\":\"draw\",\"id\":42,\"points\":[[1,1]]}", &c, p, 32) == 0 && !strcmp(c.id, "42") && c.width < 0, "numeric id, no width");
-    CHECK(parse("{\"kind\":\"draw\",\"id\":\"a\\\"b\\u00e9\",\"points\":[[1,1]]}", &c, p, 32) == 0 && !strcmp(c.id, "a\"b?"), "escaped id '%s'", c.id);
-    CHECK(parse("{\"kind\":\"clear\"}", &c, p, 32) == 0 && c.kind == DL_CLEAR, "clear");
-    CHECK(parse("{\"kind\":\"remove\",\"id\":\"s1\"}", &c, p, 32) == 0 && c.kind == DL_REMOVE, "remove");
+    CHECK(parse("  { \"prims\" : [ {\"w\":2.5,\"dash\":[6,4],\"grey\":170,\"pts\":[1,2,3,4,5,6],\"k\":\"line\",\"x\":{\"a\":[1,{\"b\":null}]}},"
+                "{\"k\":\"fill\",\"pts\":[0,0,10,0,10,10],\"grey\":255} ] ,\"op\":\"put\", \"live\":true,\"noInk\":false,\"grab\":true,\"id\":\"frame\" }\r",
+                &o) == 0,
+          "any order, unknown keys, flags");
+    CHECK(o.nprims == 2 && o.flags == (DL_LIVE | DL_GRAB), "flags %d", o.flags);
+    CHECK(P[0].npts == 3 && P[0].w < 0 && P[0].wconst == 2.5f && P[0].grey == 170 && P[0].dash_on == 6 && P[0].dash_off == 4, "line options");
+    CHECK(P[1].kind == DLP_FILL && P[1].npts == 3 && P[1].grey == 255, "fill prim");
+    CHECK(parse("{\"op\":\"put\",\"id\":\"m\",\"prims\":[{\"k\":\"line\",\"pts\":[1,1,2,2],\"w\":[7]}]}", &o) == 0 && P[0].w < 0 && P[0].wconst == 7,
+          "mismatched widths: the first for all");
+    CHECK(parse("{\"op\":\"put\",\"id\":\"a\\\"b\\u00e9\",\"prims\":[]}", &o) == 0 && !strcmp(o.id, "a\"b?") && o.nprims == 0, "escaped id '%s'", o.id);
+    CHECK(parse("{\"op\":\"clear\"}", &o) == 0 && o.kind == DL_CLEAR, "clear");
+    CHECK(parse("{\"op\":\"flush\"}", &o) == 0 && o.kind == DL_FLUSH, "flush");
+    CHECK(parse("{\"op\":\"del\",\"id\":\"s1\"}", &o) == 0 && o.kind == DL_DEL && !strcmp(o.id, "s1"), "del");
 
     const char *bad[] = {
         "",
         "{",
-        "{\"kind\":\"draw\"}",                                  /* no points */
-        "{\"kind\":\"draw\",\"points\":[[1,2],[3]]}",           /* odd count */
-        "{\"kind\":\"draw\",\"points\":[[1,2],[3,4]]",          /* unterminated */
-        "{\"kind\":\"draw\",\"points\":[[1,\"x\"]]}",           /* not a number */
-        "{\"kind\":\"draw\",\"points\":[[1,2]]} trailing",      /* junk after */
-        "{\"kind\":\"explode\"}",                               /* unknown kind */
-        "{\"kind\":\"remove\"}",                                /* remove needs an id */
-        "{\"kind\":\"draw\",\"points\":[[1e999,2]]}",           /* not finite */
+        "{\"op\":\"put\",\"id\":\"a\"}",                                          /* no prims */
+        "{\"op\":\"put\",\"prims\":[]}",                                          /* no id */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1,2,3]}]}",   /* odd count */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"fill\",\"pts\":[1,2,3,4]}]}", /* a fill needs 3 points */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"blob\",\"pts\":[1,2]}]}",    /* unknown primitive */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1,\"x\"]}]}", /* not a number */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1e999,2]}]}", /* not finite */
+        "{\"op\":\"put\",\"id\":\"a\",\"prims\":[]",                              /* unterminated */
+        "{\"op\":\"clear\"} trailing",                                            /* junk after */
+        "{\"op\":\"explode\"}",                                                   /* unknown op */
+        "{\"op\":\"del\"}",                                                       /* del needs an id */
+        "{\"op\":\"put\",\"id\":\"a\",\"live\":7,\"prims\":[]}",                       /* flags are booleans */
         "[1,2,3]",
-        "{\"kind\":\"draw\",\"points\":[[[[[1,2]]]]]}",         /* nested too deep */
     };
-    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(parse(bad[i], &c, p, 32) == -1, "bad[%zu] accepted: %s", i, bad[i]);
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(parse(bad[i], &o) == -1, "bad[%zu] accepted: %s", i, bad[i]);
 
-    /* Too many points for the buffer: reported, never written past it. */
-    float small[4] = {0, 0, 0, 0};
-    CHECK(parse("{\"kind\":\"draw\",\"points\":[[1,2],[3,4],[5,6]]}", &c, small, 2) == -2, "overflow is -2");
-    CHECK(small[2] == 3 && small[3] == 4, "overflow keeps what fits");
+    /* Too many numbers or primitives for the pools: reported, never written past. */
+    float small[5] = {0, 0, 0, 0, -1};
+    const char *many = "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1,2,3,4,5,6]}]}";
+    CHECK(dl_parse(many, strlen(many), &o, P, 64, small, 4) == -2, "numbers overflow is -2");
+    CHECK(small[4] == -1, "overflow never writes past the pool");
+    dl_prim one[1];
+    const char *two = "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1,2]},{\"k\":\"line\",\"pts\":[3,4]}]}";
+    CHECK(dl_parse(two, strlen(two), &o, one, 1, N, 256) == -2, "prims overflow is -2");
 
     /* Not NUL-terminated: the parser must stop at len. */
-    const char *s = "{\"kind\":\"clear\"}XXXX";
-    CHECK(dl_parse(s, 16, &c, p, 32) == 0 && c.kind == DL_CLEAR, "respects len");
+    const char *s = "{\"op\":\"clear\"}XXXX";
+    CHECK(dl_parse(s, 14, &o, P, 64, N, 256) == 0 && o.kind == DL_CLEAR, "respects len");
+
+    /* Bounds include half the widest width and an AA pixel. */
+    parse("{\"op\":\"put\",\"id\":\"b\",\"prims\":[{\"k\":\"line\",\"pts\":[100,100,200,100],\"w\":[2,10]}]}", &o);
+    ink_rect b = dl_bounds(o.prims, o.nprims, o.nums);
+    CHECK(b.x0 == 93 && b.y0 == 93 && b.x1 == 207 && b.y1 == 107, "bounds %d,%d,%d,%d", R(b));
+}
+
+static void test_canvas_clip(void) {
+    /* A clip rect confines every call; outside it the page is untouched. */
+    blank();
+    ink_rect clip = {300, 300, 400, 400};
+    cv.clip = clip;
+    ink_rect d = ink_segment(&cv, 200, 350.5f, 6, 500, 350.5f, 6, 1);
+    ink_rect f = ink_fill(&cv, (ink_rect){0, 0, W, H}, INK_BLACK);
+    float tri[] = {250, 250, 450, 300, 300, 450};
+    ink_rect p = ink_polygon(&cv, tri, 3, 0);
+    cv.clip = ink_rect_empty();
+    ink_rect bb = ink_bbox();
+    CHECK(rect_eq(f, clip) && bb.x0 >= 300 && bb.y0 >= 300 && bb.x1 <= 400 && bb.y1 <= 400, "clipped %d,%d,%d,%d", R(bb));
+    CHECK(d.x0 == 300 && d.x1 == 400, "segment dirty clipped %d,%d,%d,%d", R(d));
+    CHECK(p.x0 >= 300 && p.x1 <= 400, "polygon dirty clipped %d,%d,%d,%d", R(p));
+}
+
+static void test_polygon(void) {
+    blank();
+    /* A 100x100 square: exactly 10000 pixel centres inside. */
+    float sq[] = {100, 100, 200, 100, 200, 200, 100, 200};
+    ink_rect d = ink_polygon(&cv, sq, 4, 0);
+    int n = 0;
+    for (int y = 0; y < 300; y++)
+        for (int x = 0; x < 300; x++) n += is_ink(x, y);
+    CHECK(n == 10000 && d.x0 == 100 && d.y0 == 100 && d.x1 == 200 && d.y1 == 200, "square fill %d px, %d,%d,%d,%d", n, R(d));
+    /* Fills PAINT: a white fill knocks out ink under it (FoldableCube's faces). */
+    float in[] = {120, 120, 180, 120, 180, 180, 120, 180};
+    ink_polygon(&cv, in, 4, 255);
+    CHECK(!is_ink(150, 150) && is_ink(110, 110), "white fill knocks out");
+    /* Even-odd: a star's pentagon centre stays empty. */
+    blank();
+    float st[10];
+    for (int k = 0; k < 5; k++) st[2 * k] = 700 + 200 * cosf(k * 4 * (float)M_PI / 5 - (float)M_PI / 2), st[2 * k + 1] = 900 + 200 * sinf(k * 4 * (float)M_PI / 5 - (float)M_PI / 2);
+    ink_polygon(&cv, st, 5, 0);
+    CHECK(!is_ink(700, 900) && is_ink(700, 730), "even-odd star");
+}
+
+static void test_polyline(void) {
+    /* Dashes: on/off along the line, phase carried across vertices. */
+    blank();
+    float line[] = {100, 500.5f, 300, 500.5f, 500, 500.5f};
+    ink_polyline(&cv, line, 3, NULL, 2, 0, 10, 10, 0);
+    int on = 0;
+    for (int x = 100; x < 500; x++) on += is_ink(x, 500);
+    /* 20 dashes of 10, each a round cap (r = 1) longer at both ends */
+    CHECK(on >= 200 && on <= 250, "dashed: %d of 400 px on", on);
+    CHECK(is_ink(105, 500) && !is_ink(115, 500) && is_ink(305, 500) && !is_ink(315, 500), "dash phase");
+    /* Grey lines are grey, and never lighten black ink. */
+    blank();
+    float g[] = {100, 800.5f, 400, 800.5f};
+    ink_polyline(&cv, g, 2, NULL, 4, 170, 0, 0, 0);
+    CHECK(abs(ink_grey_from_rgb565(buf[800 * W + 200]) - 170) <= 4, "grey %d", ink_grey_from_rgb565(buf[800 * W + 200]));
+    ink_segment(&cv, 250, 790, 3, 250, 810, 3, 0);
+    ink_polyline(&cv, g, 2, NULL, 4, 170, 0, 0, 0);
+    CHECK(buf[800 * W + 250] == INK_BLACK, "grey over black stays black");
+    /* Per-point widths widen the line. */
+    blank();
+    float t[] = {100, 1200.5f, 600, 1200.5f};
+    float w[] = {2, 12};
+    ink_polyline(&cv, t, 2, w, 0, 0, 0, 0, 0);
+    CHECK(column_run(150) < column_run(550), "per-point widths %d < %d", column_run(150), column_run(550));
+    CHECK(fabsf(ink_page_width(0) - 3.8f) < 1e-5 && fabsf(ink_page_width(1) - 5.4f) < 1e-5, "the page's nib");
 }
 
 /* A page to look at: pressure sweeps, a taper, AA symbol, the clip corner. */
@@ -269,6 +353,9 @@ int main(int argc, char **argv) {
     test_aa();
     test_pressure();
     test_json();
+    test_canvas_clip();
+    test_polygon();
+    test_polyline();
     dump_page(argc > 1 ? argv[1] : "ink_test.ppm");
     printf("%d/%d checks passed\n", checks - failures, checks);
     return failures ? 1 : 0;

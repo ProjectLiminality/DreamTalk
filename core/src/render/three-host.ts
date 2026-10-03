@@ -450,7 +450,7 @@ const drawingSigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
  * geometry, re-phased to its `drawStart` and wound to its `drawReversed`
  * (parts/index.ts: rephasePolyline). Open strokes pass through untouched.
  */
-const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
+export const polyline = (holon: Stroke): THREE.Vector3[] | undefined => {
   const pts = basePolyline(holon)
   if (!pts) return undefined
   const phase = holon.drawStart.value

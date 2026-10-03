@@ -101558,13 +101558,16 @@ var buildMindVirus = (p2) => {
   }
   if (!Number.isFinite(heading))
     heading = 0;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
+  const tilt = clamp8(num(p2, "tilt", 0), -Math.PI / 2, Math.PI / 2);
+  const fx = Math.cos(heading) * Math.cos(tilt);
+  const fy = Math.sin(heading) * Math.cos(tilt);
+  const fz = Math.sin(tilt);
   const ox = cx + fx * size * 0.5;
   const oy = cy + fy * size * 0.5;
-  const forward = { x: fx, y: -fy, z: 0 };
+  const oz = fz * size * 0.5;
+  const forward = { x: fx, y: -fy, z: fz };
   if (cable.length < 2) {
-    const mv2 = new MindVirus({ x: ox, y: -oy, scale: s2, fold });
+    const mv2 = new MindVirus({ x: ox, y: -oy, z: oz, scale: s2, fold });
     mv2.h.value = Math.atan2(forward.x, Math.hypot(forward.y, forward.z));
     mv2.p.value = Math.atan2(-forward.y, forward.z);
     return mv2;
@@ -101576,7 +101579,7 @@ var buildMindVirus = (p2) => {
     to: scenePt(q.x, q.y)
   }));
   const tCable = CABLE_PULSES * PULSE_SECONDS;
-  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: scenePt(ox, oy), heading: forward });
+  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward });
   const T3 = tCable + PULSE_SECONDS;
   const mv = new MindVirus({ scale: s2, clock: T3 });
   mv.journey = { origin: scenePt(walk[0].x, walk[0].y), pulses };
@@ -101586,6 +101589,40 @@ var buildMindVirus = (p2) => {
   mv.cable.width.value = mv.cable.width.value * s2;
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
+};
+var TEXT_CAP_EM = 1409 / 2048;
+var TEXT_LINE_STEP_EM = 1.2;
+var TEXT_ADVANCE_EM = 0.55;
+var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
+`);
+var buildText = (p2) => {
+  const cap = Math.max(1, num(p2, "size", 60));
+  const em = cap / TEXT_CAP_EM;
+  const lines = textLines(p2);
+  const step4 = em * TEXT_LINE_STEP_EM;
+  const down = cap / 2 - (lines.length - 1) * step4 / 2;
+  const r2 = num(p2, "rotation", 0);
+  const cx = num(p2, "cx", 0);
+  const cy = num(p2, "cy", 0);
+  const ax = cx - Math.sin(r2) * down;
+  const ay = cy + Math.cos(r2) * down;
+  return new Text({
+    content: lines.join(`
+`),
+    size: em,
+    tint: WHITE,
+    ...lines.length > 1 ? { lineHeight: TEXT_LINE_STEP_EM } : {},
+    x: ax,
+    y: -ay,
+    b: -r2
+  });
+};
+var textFootprint = (p2) => {
+  const cap = Math.max(1, num(p2, "size", 60));
+  const em = cap / TEXT_CAP_EM;
+  const lines = textLines(p2);
+  const longest = Math.max(1, ...lines.map((l2) => l2.length));
+  return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM };
 };
 var ANGLE = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
 var VOCABULARY = [
@@ -101647,8 +101684,8 @@ var VOCABULARY = [
       cx: { type: "number", role: "x", description: "centre x, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
-      h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
-      p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
+      h: { type: "number", role: "yaw", default: 0.6, description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
+      p: { type: "number", role: "pitch", default: 0.4, description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
       b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" }
     },
     build: (p2) => {
@@ -101708,6 +101745,12 @@ var VOCABULARY = [
       y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
       size: { type: "number", role: "length", description: "cube edge length, page units" },
       heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      tilt: {
+        type: "number",
+        role: "tilt",
+        default: 0,
+        description: "radians, how far the heading lifts out of the page toward the viewer; 0 for any drawing (a flat page shows no tilt)"
+      },
       fold: {
         type: "number",
         description: "−1..1, how the cube's walls sit: 1 = closed box (walls upright, reads as a plain cube), ~0.5 = walls half open, 0 = walls splayed flat (an open cross/flower), negative = walls folded forward around something (wrapping a victim)"
@@ -101748,6 +101791,32 @@ var VOCABULARY = [
       height: { type: "number", role: "length", description: "crown-to-feet height, page units" }
     },
     build: (p2) => new Figure({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), height: Math.max(1, num(p2, "height", 120)) })
+  },
+  {
+    id: "text",
+    name: "Text",
+    description: "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
+    params: {
+      content: {
+        type: "string",
+        role: "content",
+        description: "the words EXACTLY as handwritten — same spelling (even if misspelt), same upper/lower case, no added or dropped punctuation; a new written line is \\n"
+      },
+      cx: { type: "number", role: "x", description: "centre x of the written words (middle of their left..right extent), page units" },
+      cy: {
+        type: "number",
+        role: "y",
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block"
+      },
+      size: {
+        type: "number",
+        role: "length",
+        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below"
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` }
+    },
+    build: buildText,
+    footprint: textFootprint
   }
 ];
 var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
@@ -101806,6 +101875,7 @@ var parseBoard = (v2) => {
 
 // demo/boards/Board.ts
 class BoardDream extends Dream {
+  board = { version: 1, page: { w: 0, h: 0 }, strokes: [], symbols: [] };
   symbols = [];
   byId = {};
   ink = [];

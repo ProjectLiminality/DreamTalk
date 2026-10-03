@@ -12,8 +12,8 @@
  * No DOM here — the page (main.ts) and the tests drive the same functions.
  */
 
-import type { InkStroke, PenSample, PlacedSymbol } from "./protocol"
-import { transformSymbol } from "./vocabulary"
+import type { EditOp, InkStroke, PenSample, PlacedSymbol } from "./protocol"
+import { transformSymbol, vocabById } from "./vocabulary"
 import { xfPoint, type Xf } from "./xform"
 
 export interface SketchState {
@@ -35,6 +35,15 @@ export type Command =
   | { kind: "move"; ids: string[]; dx: number; dy: number }
   /** Move/rotate/scale strokes and/or symbols together about one pivot (xform.ts). */
   | { kind: "transform"; ids: string[]; xf: Xf }
+  /** Place a symbol that replaces nothing. */
+  | { kind: "addSymbol"; symbol: PlacedSymbol }
+  /** Merge params into a placed symbol; `symbol` turns it into another entry. */
+  | { kind: "update"; id: string; symbol?: string; params: Record<string, unknown> }
+  /**
+   * Several commands as ONE step — a spoken instruction's edits (voice.ts).
+   * `selected` is what was selected when it was said, restored on undo.
+   */
+  | { kind: "edit"; steps: Command[]; selected: string[] }
   | { kind: "clear" }
 
 /** Apply a command to a page, returning a NEW page (inputs untouched). */
@@ -72,9 +81,105 @@ export const apply = (s: SketchState, cmd: Command): SketchState => {
         symbols: s.symbols.map((y) => (moving.has(y.id) ? transformSymbol(y, cmd.xf) : y)),
       }
     }
+    case "addSymbol":
+      return { strokes: s.strokes, symbols: [...s.symbols, cmd.symbol] }
+    case "update":
+      return { strokes: s.strokes, symbols: s.symbols.map((y) => (y.id === cmd.id ? updateSymbol(y, cmd) : y)) }
+    case "edit":
+      return cmd.steps.reduce(apply, s)
     case "clear":
       return emptyState()
   }
+}
+
+/**
+ * A symbol with new params merged in. Turned into ANOTHER symbol, it keeps
+ * only the params the new entry also has (a circle's centre and radius
+ * carry over into a flower of life; nothing else does).
+ */
+export const updateSymbol = (
+  y: PlacedSymbol,
+  u: { symbol?: string; params: Record<string, unknown> },
+): PlacedSymbol => {
+  if (!u.symbol || u.symbol === y.symbol) return { ...y, params: { ...y.params, ...u.params } }
+  const entry = vocabById(u.symbol)
+  const kept = Object.fromEntries(Object.entries(y.params).filter(([k]) => !entry || k in entry.params))
+  return { ...y, symbol: u.symbol, params: { ...kept, ...u.params } }
+}
+
+/** The ids a command leaves changed or new on the page — what stays selected after it. */
+export const touched = (cmd: Command): string[] => {
+  switch (cmd.kind) {
+    case "move":
+    case "transform":
+      return [...cmd.ids]
+    case "replace":
+    case "addSymbol":
+      return [cmd.symbol.id]
+    case "update":
+      return [cmd.id]
+    case "edit":
+      return [...new Set(cmd.steps.flatMap(touched))]
+    default:
+      return []
+  }
+}
+
+/**
+ * Validated edit ops (protocol.ts EditOp) → one undoable `edit` command,
+ * read against the page as it is NOW: ops on ids that no longer exist are
+ * dropped, new symbols get fresh ids, and a transform without a pivot
+ * turns about the centre of what it moves. Undefined if nothing is left.
+ */
+export const editCommand = (
+  s: SketchState,
+  ops: readonly EditOp[],
+  selected: readonly string[],
+  makeId: (prefix: string) => string = newId,
+): Extract<Command, { kind: "edit" }> | undefined => {
+  const steps: Command[] = []
+  let cur = s
+  const has = (st: SketchState, id: string) => st.strokes.some((k) => k.id === id) || st.symbols.some((y) => y.id === id)
+  for (const op of ops) {
+    let step: Command | undefined
+    switch (op.op) {
+      case "update":
+        if (cur.symbols.some((y) => y.id === op.id)) step = { kind: "update", id: op.id, symbol: op.symbol, params: { ...op.params } }
+        break
+      case "add":
+        step = { kind: "addSymbol", symbol: { id: makeId("sym"), symbol: op.symbol, params: { ...op.params }, fromStrokes: [] } }
+        break
+      case "remove":
+        if (has(cur, op.id)) step = { kind: "delete", ids: [op.id] }
+        break
+      case "replaceStrokes": {
+        const ids = op.strokeIds.filter((id) => cur.strokes.some((k) => k.id === id))
+        if (ids.length)
+          step = { kind: "replace", ids, symbol: { id: makeId("sym"), symbol: op.symbol, params: { ...op.params }, fromStrokes: ids } }
+        break
+      }
+      case "transform": {
+        const ids = op.ids.filter((id) => has(cur, id))
+        const box = selectionBox(cur, new Set(ids))
+        if (ids.length && box)
+          step = {
+            kind: "transform",
+            ids,
+            xf: {
+              translate: op.translate ?? { x: 0, y: 0 },
+              rotate: op.rotate ?? 0,
+              scale: op.scale ?? 1,
+              pivot: op.pivot ?? boxCenter(box),
+            },
+          }
+        break
+      }
+    }
+    if (!step) continue
+    steps.push(step)
+    cur = apply(cur, step)
+  }
+  return steps.length ? { kind: "edit", steps, selected: [...selected] } : undefined
 }
 
 /** Ink transforms point by point; pressure and timing are the pen's, and stay. */
@@ -222,8 +327,9 @@ export const symbolBox = (y: PlacedSymbol): Box => {
   const cy = num(p.y) ?? num(p.cy) ?? 0
   const r = num(p.r) ?? num(p.radius) ?? undefined
   const size = num(p.size)
-  const w = num(p.width) ?? (r !== undefined ? 2 * r : size ?? 160)
-  const h = num(p.height) ?? (r !== undefined ? 2 * r : size ?? w)
+  const fp = vocabById(y.symbol)?.footprint?.(p)
+  const w = fp?.w ?? num(p.width) ?? (r !== undefined ? 2 * r : size ?? 160)
+  const h = fp?.h ?? num(p.height) ?? (r !== undefined ? 2 * r : size ?? w)
   const pts: Pt[] = [
     { x: cx - w / 2, y: cy - h / 2 },
     { x: cx + w / 2, y: cy + h / 2 },

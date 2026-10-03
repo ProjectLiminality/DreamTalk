@@ -87,7 +87,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { connect as netConnect } from "node:net"
 import { homedir, networkInterfaces } from "node:os"
 import { join } from "node:path"
-import { PAGE_H, PAGE_W, type PenEvent, type PenSample } from "../sketch/protocol"
+import { PAD_DISPLAY_PORT, PAGE_H, PAGE_W, type PenEvent, type PenSample } from "../sketch/protocol"
+import { DisplayStore, parseDisplayOps, toLines } from "../sketch/display"
 
 export interface RawEvent {
   type: number
@@ -634,6 +635,16 @@ export const sshArgs = (host: string, cmd: string, key = KEY_PATH): string[] => 
   cmd,
 ]
 
+/**
+ * The ssh argv that makes ssh's own stdin/stdout a TCP stream to `port` on
+ * the TABLET's loopback (`-W`: dropbear's direct-tcpip, on by default — no
+ * listener on either machine, nothing to go stale when Wi-Fi drops).
+ */
+export const sshForwardArgs = (host: string, port: number, key = KEY_PATH): string[] => {
+  const args = sshArgs(host, "", key).slice(0, -2)
+  return [...args, "-W", `127.0.0.1:${port}`, `root@${host}`]
+}
+
 const ssh = (host: string, cmd: string) => Bun.spawn(sshArgs(host, cmd), { stdout: "pipe", stderr: "pipe", stdin: "ignore" })
 
 const login = async (host: string): Promise<{ result: Confirm; info?: DeviceInfo; stderr: string }> => {
@@ -852,11 +863,113 @@ const relay = (url: string, onOpen: () => void) => {
   }
 }
 
+// ── the tablet's screen ───────────────────────────────────────────────────
+//
+// The whiteboard page publishes what it shows as a display list on the
+// daemon's /ws/display (sketch/mirror.ts). The bridge keeps the merged list
+// and hands it to dreamtalk-pad — the AppLoad app on the tablet, listening on
+// the tablet's 127.0.0.1:7777 — through `ssh -W`, one JSON op per line: a
+// snapshot on every (re)connect, then each batch as it comes. While the app
+// isn't running the connect is simply refused; the bridge knocks again
+// quietly. RM_SCREEN=off leaves the screen alone.
+
+type Lines = (text: string) => void
+
+/** The display list from the daemon, kept merged, offered to whoever listens. */
+const displayFeed = (url: string) => {
+  const store = new DisplayStore()
+  const sinks = new Set<Lines>()
+  const connect = () => {
+    const ws = new WebSocket(url)
+    ws.onmessage = (m) => {
+      let ops
+      try {
+        ops = parseDisplayOps(JSON.parse(String(m.data)))
+      } catch {
+        return
+      }
+      if (!ops.length) return
+      store.apply(ops)
+      const text = toLines(ops)
+      for (const sink of sinks) sink(text)
+    }
+    ws.onclose = () => setTimeout(connect, 1000)
+    ws.onerror = () => {}
+  }
+  connect()
+  return {
+    snapshot: () => toLines(store.snapshot()),
+    listen(sink: Lines): () => void {
+      sinks.add(sink)
+      return () => sinks.delete(sink)
+    },
+  }
+}
+
+type Feed = ReturnType<typeof displayFeed>
+
+/** Keep one `ssh -W` open to the pad while the tablet session lasts. */
+const linkScreen = (host: string, feed: Feed): { stop: () => void } => {
+  let stopped = false
+  let proc: ReturnType<typeof Bun.spawn> | undefined
+  const run = async () => {
+    let quiet = 2000
+    while (!stopped) {
+      const p = Bun.spawn(sshForwardArgs(host, PAD_DISPLAY_PORT), { stdin: "pipe", stdout: "pipe", stderr: "ignore" })
+      proc = p
+      const sink = p.stdin as import("bun").FileSink
+      const send: Lines = (text) => {
+        try {
+          sink.write(text)
+          sink.flush()
+        } catch {
+          // the link is going down; exited follows
+        }
+      }
+      send(feed.snapshot())
+      const unlisten = feed.listen(send)
+      // The pad greets on accept: that line is what "connected" means.
+      let hello = false
+      const reader = (p.stdout as ReadableStream<Uint8Array>).getReader()
+      void (async () => {
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          if (!hello && value && new TextDecoder().decode(value).includes("dreamtalk-pad")) {
+            hello = true
+            log(`screen: dreamtalk-pad connected on ${host}`)
+          }
+        }
+      })().catch(() => {})
+      await p.exited
+      unlisten()
+      if (stopped) break
+      if (hello) {
+        log("screen: dreamtalk-pad disconnected")
+        quiet = 2000
+      } else quiet = Math.min(15_000, quiet * 1.5)
+      await sleep(hello ? 1000 : quiet)
+    }
+  }
+  void run()
+  return {
+    stop: () => {
+      stopped = true
+      proc?.kill()
+    },
+  }
+}
+
 /** The bridge proper: find, connect, stream, and on any loss start over. Never returns. */
 const runBridge = async () => {
   const tracker = new StatusTracker()
+  const penUrl = process.env.DT_WS ?? "ws://localhost:4174/ws/pen"
+  const feed =
+    process.env.RM_SCREEN === "off"
+      ? undefined
+      : displayFeed(process.env.DT_DISPLAY_WS ?? penUrl.replace(/\/ws\/pen$/, "/ws/display"))
   let send: (ev: PenEvent) => void = () => {}
-  send = relay(process.env.DT_WS ?? "ws://localhost:4174/ws/pen", () => {
+  send = relay(penUrl, () => {
     // A (re)connected daemon learns the state at once; it replays it to pages.
     if (tracker.current) send(tracker.current)
   })
@@ -890,7 +1003,7 @@ const runBridge = async () => {
         await writeCache(cache)
         const started = Date.now()
         say({ kind: "status", state, host: outcome.host, message })
-        await streamTablet(outcome.host, report.info, send)
+        await streamTablet(outcome.host, report.info, send, feed)
         // A stream that dies at once is a fault, not a sleep: keep backing off
         // instead of hammering the tablet once a second.
         attempt = Date.now() - started > 5000 ? 0 : attempt + 1
@@ -915,7 +1028,7 @@ const runBridge = async () => {
 }
 
 /** Pen and touchscreen in parallel; resolves when either stream ends (both are then stopped). */
-const streamTablet = async (host: string, info: DeviceInfo, send: (ev: PenEvent) => void) => {
+const streamTablet = async (host: string, info: DeviceInfo, send: (ev: PenEvent) => void, feed?: Feed) => {
   const pen = new PenStateMachine(penMap())
   let lastHover = 0
   const penStream = streamDevice(host, info.pen, info.recordSize, (raw) => {
@@ -953,7 +1066,9 @@ const streamTablet = async (host: string, info: DeviceInfo, send: (ev: PenEvent)
       }),
     )
   }
+  const screen = feed && linkScreen(host, feed)
   await Promise.race(streams.map((s) => s.done))
+  screen?.stop()
   for (const s of streams) s.stop()
   await Promise.all(streams.map((s) => s.done))
 }

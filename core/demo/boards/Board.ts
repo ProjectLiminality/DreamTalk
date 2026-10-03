@@ -45,9 +45,11 @@ import type { Line } from "../../src/parts/primitives"
 import { buildSymbol, framePage, inkHolon } from "../../sketch/vocabulary"
 import { BOARD_SUFFIX, isValidBoardName, parseBoard, type BoardFile } from "../../sketch/board"
 
-/** A staged board: its symbols and ink, addressable from choreography. */
-export abstract class BoardDream extends Dream {
-  abstract readonly board: BoardFile
+/** A staged board: its symbols and ink, addressable from choreography.
+ *  Concrete (an empty page) so `class X extends boardDream(…)` can call
+ *  `super.unfold()`; boardDream fills `board` in. */
+export class BoardDream extends Dream {
+  readonly board: BoardFile = { version: 1, page: { w: 0, h: 0 }, strokes: [], symbols: [] }
   /** One holon per placed symbol, in the board's order (unbuildable ones skipped). */
   symbols: Holon[] = []
   /** Symbol holons by their board id. */
@@ -73,11 +75,12 @@ export abstract class BoardDream extends Dream {
   }
 }
 
-/** The Dream class for one board's data. */
-export const boardDream = (name: string, data: unknown): DreamClass => {
+/** The Dream class for one board's data — concrete, and typed as a
+ *  BoardDream so choreography can extend it and call `super.unfold()`. */
+export const boardDream = (name: string, data: unknown): typeof BoardDream => {
   const board = parseBoard(data) ?? { version: 1, page: { w: 0, h: 0 }, strokes: [], symbols: [] }
   const cls = class extends BoardDream {
-    readonly board = board
+    override readonly board = board
   }
   // The editor names a scene after its class (minus "Dream").
   Object.defineProperty(cls, "name", { value: `Board ${name}Dream` })

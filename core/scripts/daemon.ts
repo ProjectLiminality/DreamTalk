@@ -15,9 +15,15 @@
  *     written atomically, echo-suppressed at the watcher, one queue
  *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
  *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts)
+ *   - POST /api/instruct → the whiteboard's voice instructions
+ *     (scripts/instruct.ts): an InstructRequest in, edit ops out
  *   - WS  /ws/pen → pen-event relay: whatever one client sends, every OTHER
  *     /ws/pen client receives (the reMarkable bridge → the sketch page);
  *     the bridge's last `status` is replayed to each new client
+ *   - WS  /ws/display → the whiteboard page's display list for the tablet's
+ *     own screen (sketch/display.ts): batches relayed to every other client
+ *     (the page → the bridge → dreamtalk-pad), the merged list kept so a
+ *     client that connects later starts from a snapshot
  *   - GET /api/boards, GET/PUT /api/board/<name> → whiteboard pages as
  *     scene files, core/demo/boards/<name>.board.json (scripts/boards.ts);
  *     a board file changing tells editors showing it to remount
@@ -31,8 +37,10 @@ import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
 import { recognize } from "./recognize"
+import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
-import type { RecognizeRequest } from "../sketch/protocol"
+import { displayHub } from "../sketch/display"
+import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
@@ -639,9 +647,23 @@ const recognizeResponse = async (req: Request): Promise<Response> => {
   return Response.json(await recognize(body))
 }
 
+const instructResponse = async (req: Request): Promise<Response> => {
+  let body: InstructRequest
+  try {
+    body = (await req.json()) as InstructRequest
+  } catch {
+    return Response.json({ ops: [], reply: "", error: "malformed JSON" }, { status: 400 })
+  }
+  if (typeof body?.transcript !== "string" || typeof body.png !== "string" || !body.board || !Array.isArray(body.selection)) {
+    return Response.json({ ops: [], reply: "", error: "need transcript, png, board, selection" }, { status: 400 })
+  }
+  return Response.json(await instruct(body))
+}
+
 /** Which socket a connection is: the editor's /ws or the pen relay. */
 interface SocketData {
   pen?: boolean
+  display?: boolean
 }
 
 /**
@@ -650,6 +672,9 @@ interface SocketData {
  * once whether the tablet is connected, asleep, or waiting on its key.
  */
 let tabletStatus: { from: ServerWebSocket<SocketData>; raw: string } | undefined
+
+/** The tablet screen's display list: relayed, and kept for late joiners. */
+const display = displayHub()
 
 // --- Server ----------------------------------------------------------------
 
@@ -660,12 +685,18 @@ const server = Bun.serve<SocketData>({
     if (url.pathname === "/ws") {
       return srv.upgrade(req, { data: {} }) ? undefined : new Response("upgrade failed", { status: 400 })
     }
+    if (url.pathname === "/ws/display") {
+      return srv.upgrade(req, { data: { display: true } })
+        ? undefined
+        : new Response("upgrade failed", { status: 400 })
+    }
     if (url.pathname === "/ws/pen") {
       return srv.upgrade(req, { data: { pen: true } })
         ? undefined
         : new Response("upgrade failed", { status: 400 })
     }
     if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
+    if (url.pathname === "/api/instruct" && req.method === "POST") return instructResponse(req)
     if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
     if (url.pathname.startsWith("/api/board/"))
       return boardResponse(req, repoRoot, decodeURIComponent(url.pathname.slice("/api/board/".length)))
@@ -685,10 +716,12 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
+      if (ws.data.display) return display.open(ws)
       ws.subscribe(ws.data.pen ? "pen" : "editor")
       if (ws.data.pen && tabletStatus) ws.send(tabletStatus.raw)
     },
     message(ws, raw) {
+      if (ws.data.display) return display.message(ws, raw)
       // The pen relay: publish() reaches every subscriber but the sender.
       if (ws.data.pen) {
         ws.publish("pen", raw)
@@ -706,6 +739,7 @@ const server = Bun.serve<SocketData>({
       opQueue = opQueue.then(() => applyOp(ws, msg)).catch((err) => log("op error:", err))
     },
     close(ws) {
+      if (ws.data.display) return display.close(ws)
       ws.unsubscribe(ws.data.pen ? "pen" : "editor")
       if (tabletStatus?.from === ws) tabletStatus = undefined
     },

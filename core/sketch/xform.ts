@@ -31,6 +31,8 @@ export interface Xf {
   rotate: number
   scale: number
   pivot: Pt
+  /** A 3D turn of each oriented symbol about its own centre (see Mat3). */
+  tumble?: Mat3
 }
 
 export const IDENTITY: Xf = { translate: { x: 0, y: 0 }, rotate: 0, scale: 1, pivot: { x: 0, y: 0 } }
@@ -41,6 +43,7 @@ export const xfOf = (t: Partial<Xf>): Xf => ({
   rotate: t.rotate ?? 0,
   scale: t.scale ?? 1,
   pivot: t.pivot ?? { x: 0, y: 0 },
+  ...(t.tumble ? { tumble: t.tumble } : {}),
 })
 
 export const xfPoint = (xf: Xf, p: Pt): Pt => {
@@ -60,7 +63,8 @@ export const isIdentity = (xf: Xf, eps = 1e-3): boolean =>
   Math.abs(xf.translate.x) < eps * 100 &&
   Math.abs(xf.translate.y) < eps * 100 &&
   Math.abs(xf.rotate) < eps &&
-  Math.abs(xf.scale - 1) < eps
+  Math.abs(xf.scale - 1) < eps &&
+  (!xf.tumble || isMat3Identity(xf.tumble, eps))
 
 /** Wrap an angle into (−π, π]. */
 export const wrapAngle = (a: number): number => {
@@ -121,3 +125,68 @@ export const simFromPairs = (a0: Pt, b0: Pt, a: Pt, b: Pt): Sim => {
   const r = Math.atan2(v.y, v.x) - Math.atan2(v0.y, v0.x)
   return simOf({ pivot: a0, translate: { x: a.x - a0.x, y: a.y - a0.y }, rotate: r, scale: k })
 }
+
+// --- Tumble: the selection turned in 3D ---------------------------------------
+
+/**
+ * A 3D rotation, row-major 3×3, in SCENE axes — x right, y UP, z toward
+ * the viewer (vocabulary.ts: scene x = page x, scene y = −page y). The
+ * page is flat, so a tumble moves nothing on it; it turns the ORIENTATION
+ * of each symbol that has one (a cube's h/p/b, a MindVirus's heading and
+ * tilt) about that symbol's own centre. 2D symbols and ink ignore it.
+ */
+export type Mat3 = readonly [number, number, number, number, number, number, number, number, number]
+
+export const MAT3_IDENTITY: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+
+export const mat3Mul = (a: Mat3, b: Mat3): Mat3 => {
+  const o: number[] = []
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 3; c++) o.push(a[r * 3]! * b[c]! + a[r * 3 + 1]! * b[3 + c]! + a[r * 3 + 2]! * b[6 + c]!)
+  return o as unknown as Mat3
+}
+
+export const mat3Apply = (m: Mat3, v: { x: number; y: number; z: number }) => ({
+  x: m[0] * v.x + m[1] * v.y + m[2] * v.z,
+  y: m[3] * v.x + m[4] * v.y + m[5] * v.z,
+  z: m[6] * v.x + m[7] * v.y + m[8] * v.z,
+})
+
+export const isMat3Identity = (m: Mat3, eps = 1e-6): boolean => m.every((v, i) => Math.abs(v - MAT3_IDENTITY[i]!) < eps)
+
+export const rotX = (a: number): Mat3 => {
+  const c = Math.cos(a), s = Math.sin(a)
+  return [1, 0, 0, 0, c, -s, 0, s, c]
+}
+export const rotY = (a: number): Mat3 => {
+  const c = Math.cos(a), s = Math.sin(a)
+  return [c, 0, s, 0, 1, 0, -s, 0, c]
+}
+export const rotZ = (a: number): Mat3 => {
+  const c = Math.cos(a), s = Math.sin(a)
+  return [c, -s, 0, s, c, 0, 0, 0, 1]
+}
+
+/**
+ * A holon's h/p/b as a matrix. The renderer composes them as
+ * Rz(b) · Rx(p) · Ry(h) (three-host.ts sync(): three's 'ZXY' order — C4D's
+ * HPB under the axis dictionary), and so does this.
+ */
+export const eulerToMat3 = (h: number, p: number, b: number): Mat3 => mat3Mul(rotZ(b), mat3Mul(rotX(p), rotY(h)))
+
+/** The inverse of eulerToMat3, p ∈ [−π/2, π/2]; at gimbal lock h is 0. */
+export const mat3ToEuler = (m: Mat3): { h: number; p: number; b: number } => {
+  const p = Math.asin(Math.max(-1, Math.min(1, m[7])))
+  if (Math.abs(m[7]) < 0.9999999) return { h: Math.atan2(-m[6], m[8]), p, b: Math.atan2(-m[1], m[4]) }
+  return { h: 0, p, b: Math.atan2(m[3], m[0]) }
+}
+
+/**
+ * The trackball: a drag of (dx, dy) PAGE units turns the object about the
+ * view's axes — drag right spins it about the vertical (yaw: its front
+ * swings right), drag up about the horizontal (pitch: its front swings
+ * up). Applied incrementally per pointer move, the way Blender's trackball
+ * is, so circling the pointer rolls it — the feel of turning a real thing.
+ */
+export const trackball = (dx: number, dy: number, radPerUnit: number): Mat3 =>
+  mat3Mul(rotX(dy * radPerUnit), rotY(dx * radPerUnit))

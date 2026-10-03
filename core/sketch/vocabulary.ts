@@ -32,23 +32,40 @@ import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { MindVirus, type PulseSpec } from "../vocabulary/MindVirus/MindVirus"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
+import { Text } from "../src/parts/text"
 import { WHITE } from "../src/constants"
 import type { Dream } from "../src/dream"
 import { PAGE_H, PAGE_W, type InkStroke, type PlacedSymbol } from "./protocol"
-import { wrapAngle, xfOf, xfPoint, type Xf } from "./xform"
+import { eulerToMat3, isMat3Identity, mat3Apply, mat3Mul, mat3ToEuler, wrapAngle, xfOf, xfPoint, type Xf } from "./xform"
 
 /**
  * What a param MEANS geometrically — which is all a whiteboard transform
  * needs to know (transformSymbol). Unstated means "shape, not place": a
- * fold, a ring count, a 3D heading/pitch the page plane does not turn.
+ * fold, a ring count.
+ *
+ *  - `content` — the symbol's DATA (a Text's string): what it says, which
+ *    no transform touches.
+ *  - `yaw` / `pitch` — 3D Euler angles in the holon's own h/p (radians,
+ *    scene convention); with the entry's `angle` param as the roll (b,
+ *    page-angle sign) they are the symbol's full orientation, which a
+ *    TUMBLE turns (xform.ts Mat3). The page plane's own rotate leaves
+ *    them alone.
+ *  - `tilt` — the elevation of a DIRECTION out of the page, toward the
+ *    viewer positive (radians); the entry's `angle` param is that
+ *    direction's azimuth on the page. A tumble turns the direction.
+ *
+ * An entry with a yaw, pitch or tilt param is TUMBLEABLE; every other
+ * symbol is flat and ignores a tumble.
  */
-export type ParamRole = "x" | "y" | "length" | "angle" | "points"
+export type ParamRole = "x" | "y" | "length" | "angle" | "points" | "content" | "yaw" | "pitch" | "tilt"
 
 export interface ParamSpec {
-  type: "number" | "points" | "enum"
+  type: "number" | "points" | "enum" | "string"
   description: string
   options?: string[]
   role?: ParamRole
+  /** What `build` assumes when the param is missing — transforms start from it too. */
+  default?: number
 }
 
 export interface VocabEntry {
@@ -57,6 +74,9 @@ export interface VocabEntry {
   description: string
   params: Record<string, ParamSpec>
   build(params: Record<string, unknown>): Holon
+  /** The symbol's page footprint (w × h about its x/y), when the generic
+   *  reading of its params would be wrong (state.ts symbolBox). */
+  footprint?(params: Record<string, unknown>): { w: number; h: number }
 }
 
 // -- param readers (the recognizer validates, but build must never throw) ---
@@ -137,17 +157,21 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
     if (Math.hypot(cx - a.x, cy - a.y) < 1e-6) heading = Math.atan2(b.y - a.y, b.x - a.x)
   }
   if (!Number.isFinite(heading)) heading = 0
+  // Tilt: the heading lifted out of the page toward the viewer (a tumble).
+  const tilt = clamp(num(p, "tilt", 0), -Math.PI / 2, Math.PI / 2)
   // Forward on the page, and the creature's ORIGIN: MindVirus is built
   // about its face (the cube's bottom), its bell trailing a full edge
   // behind — so the body centre (x, y) sits half an edge aft of it.
-  const fx = Math.cos(heading)
-  const fy = Math.sin(heading)
+  const fx = Math.cos(heading) * Math.cos(tilt)
+  const fy = Math.sin(heading) * Math.cos(tilt)
+  const fz = Math.sin(tilt)
   const ox = cx + fx * size * 0.5
   const oy = cy + fy * size * 0.5
-  const forward = { x: fx, y: -fy, z: 0 }
+  const oz = fz * size * 0.5
+  const forward = { x: fx, y: -fy, z: fz }
 
   if (cable.length < 2) {
-    const mv = new MindVirus({ x: ox, y: -oy, scale: s, fold })
+    const mv = new MindVirus({ x: ox, y: -oy, z: oz, scale: s, fold })
     // headingFor's convention, inline (h/p that put local +z on `forward`).
     mv.h.value = Math.atan2(forward.x, Math.hypot(forward.y, forward.z))
     mv.p.value = Math.atan2(-forward.y, forward.z)
@@ -166,7 +190,7 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
     to: scenePt(q.x, q.y),
   }))
   const tCable = CABLE_PULSES * PULSE_SECONDS
-  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: scenePt(ox, oy), heading: forward })
+  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: { x: ox, y: -oy, z: oz }, heading: forward })
   const T = tCable + PULSE_SECONDS
   const mv = new MindVirus({ scale: s, clock: T })
   mv.journey = { origin: scenePt(walk[0]!.x, walk[0]!.y), pulses }
@@ -179,6 +203,67 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
   mv.cable.width.value = mv.cable.width.value * s
   mv.cable.ringStep.value = mv.cable.ringStep.value * s
   return mv
+}
+
+// -- Text: the words as written, made platonic ---------------------------------
+
+/**
+ * Arimo's capital height as a fraction of its em (the bundled default face,
+ * render/text.ts): `H`, `D`, `T` and the ascenders of `d l k` stand 1466
+ * units of its 2048 above the baseline (Arial's metric; the font's OS/2
+ * capHeight field says 1409, but the glyphs measure 1466 — a rendered
+ * "DreamTalk" at size 91 inks 92-93 tall, antialiasing included). The
+ * vocabulary's `size` is that height — what a hand writing a word actually
+ * controls — and the Text holon's `size` is the em.
+ */
+export const TEXT_CAP_EM = 1466 / 2048
+/** Baseline to baseline, in caps, for a written block of several lines. */
+const TEXT_LINE_STEP_EM = 1.2
+/** Arimo's mean advance per character, in em — a footprint, not a layout. */
+const TEXT_ADVANCE_EM = 0.55
+
+const textLines = (p: Record<string, unknown>): string[] =>
+  String(typeof p.content === "string" || typeof p.content === "number" ? p.content : "").split("\n")
+
+/**
+ * The words as a Text holon, placed so the CAP BAND of the block — baseline
+ * to capital top, descenders not counted, every line included — is centred
+ * on (cx, cy) and turned by `rotation` about that centre. The holon itself
+ * anchors on its first line's baseline middle (render/text.ts: the 2021 C4D
+ * spline's origin), so that anchor is offset from the centre, in the
+ * text's own turned frame. Returned bare — not wrapped — so a board's
+ * choreography can `Write(this.symbols[i] as Text)` directly.
+ */
+const buildText = (p: Record<string, unknown>): Text => {
+  const cap = Math.max(1, num(p, "size", 60))
+  const em = cap / TEXT_CAP_EM
+  const lines = textLines(p)
+  const step = em * TEXT_LINE_STEP_EM
+  // Page offset of the first baseline below the block's centre, unturned.
+  const down = cap / 2 - ((lines.length - 1) * step) / 2
+  const r = num(p, "rotation", 0)
+  const cx = num(p, "cx", 0)
+  const cy = num(p, "cy", 0)
+  // (0, down) turned clockwise by r on the page.
+  const ax = cx - Math.sin(r) * down
+  const ay = cy + Math.cos(r) * down
+  return new Text({
+    content: lines.join("\n"),
+    size: em,
+    tint: WHITE,
+    ...(lines.length > 1 ? { lineHeight: TEXT_LINE_STEP_EM } : {}),
+    x: ax,
+    y: -ay,
+    b: -r,
+  })
+}
+
+const textFootprint = (p: Record<string, unknown>): { w: number; h: number } => {
+  const cap = Math.max(1, num(p, "size", 60))
+  const em = cap / TEXT_CAP_EM
+  const lines = textLines(p)
+  const longest = Math.max(1, ...lines.map((l) => l.length))
+  return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM }
 }
 
 // -- the vocabulary -----------------------------------------------------------
@@ -249,8 +334,8 @@ export const VOCABULARY: VocabEntry[] = [
       cx: { type: "number", role: "x", description: "centre x, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
-      h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
-      p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
+      h: { type: "number", role: "yaw", default: 0.6, description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
+      p: { type: "number", role: "pitch", default: 0.4, description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
       b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" },
     },
     build: (p) => {
@@ -315,6 +400,12 @@ export const VOCABULARY: VocabEntry[] = [
       y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
       size: { type: "number", role: "length", description: "cube edge length, page units" },
       heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      tilt: {
+        type: "number",
+        role: "tilt",
+        default: 0,
+        description: "radians, how far the heading lifts out of the page toward the viewer; 0 for any drawing (a flat page shows no tilt)",
+      },
       fold: {
         type: "number",
         description:
@@ -361,6 +452,34 @@ export const VOCABULARY: VocabEntry[] = [
     build: (p) =>
       new Figure({ x: num(p, "cx", 0), y: -num(p, "cy", 0), height: Math.max(1, num(p, "height", 120)) }),
   },
+  {
+    id: "text",
+    name: "Text",
+    description:
+      "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
+    params: {
+      content: {
+        type: "string",
+        role: "content",
+        description:
+          "the words EXACTLY as handwritten — same spelling (even if misspelt), same upper/lower case, no added or dropped punctuation; a new written line is \\n",
+      },
+      cx: { type: "number", role: "x", description: "centre x of the written words (middle of their left..right extent), page units" },
+      cy: {
+        type: "number",
+        role: "y",
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block",
+      },
+      size: {
+        type: "number",
+        role: "length",
+        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below",
+      },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` },
+    },
+    build: buildText,
+    footprint: textFootprint,
+  },
 ]
 
 const BY_ID = new Map(VOCABULARY.map((e) => [e.id, e]))
@@ -391,6 +510,7 @@ const ROLE_BY_NAME: Record<string, ParamRole> = {
   height: "length",
   rotation: "angle",
   heading: "angle",
+  content: "content",
 }
 
 const roleOf = (entry: VocabEntry | undefined, key: string): ParamRole | undefined =>
@@ -416,13 +536,16 @@ const isPointLike = (e: unknown): boolean =>
 export const transformSymbol = (s: PlacedSymbol, t: Partial<Xf>): PlacedSymbol => {
   const xf = xfOf(t)
   const entry = vocabById(s.symbol)
-  const params: Record<string, unknown> = { ...s.params }
-  const keys = Object.keys(s.params)
+  // The tumble first — it turns the symbol about its own centre, which
+  // the page transform then carries along like everything else.
+  const base = xf.tumble && entry ? tumbleParams(entry, s.params, xf.tumble) : s.params
+  const params: Record<string, unknown> = { ...base }
+  const keys = Object.keys(base)
   const xKey = keys.find((k) => roleOf(entry, k) === "x")
   const yKey = keys.find((k) => roleOf(entry, k) === "y")
   if (xKey && yKey) {
-    const x = Number(s.params[xKey])
-    const y = Number(s.params[yKey])
+    const x = Number(base[xKey])
+    const y = Number(base[yKey])
     if (Number.isFinite(x) && Number.isFinite(y)) {
       const q = xfPoint(xf, { x, y })
       params[xKey] = q.x
@@ -430,7 +553,7 @@ export const transformSymbol = (s: PlacedSymbol, t: Partial<Xf>): PlacedSymbol =
     }
   }
   for (const k of keys) {
-    const v = s.params[k]
+    const v = base[k]
     const role = roleOf(entry, k)
     if (role === "length" && typeof v === "number" && Number.isFinite(v)) params[k] = v * xf.scale
     else if (role === "angle" && typeof v === "number" && Number.isFinite(v))
@@ -446,6 +569,66 @@ export const transformSymbol = (s: PlacedSymbol, t: Partial<Xf>): PlacedSymbol =
       })
   }
   return { ...s, params }
+}
+
+/** Does this symbol have a 3D orientation a tumble can turn? */
+export const canTumble = (s: PlacedSymbol): boolean => {
+  const entry = vocabById(s.symbol)
+  return !!entry && Object.values(entry.params).some((p) => p.role === "yaw" || p.role === "pitch" || p.role === "tilt")
+}
+
+/** The page point a tumble turns a symbol about: its x/y params. */
+export const tumbleCentre = (s: PlacedSymbol): { x: number; y: number } | undefined => {
+  const entry = vocabById(s.symbol)
+  if (!entry) return undefined
+  const x = Number(s.params[keyOfRole(entry, "x") ?? ""])
+  const y = Number(s.params[keyOfRole(entry, "y") ?? ""])
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined
+}
+
+const keyOfRole = (entry: VocabEntry, role: ParamRole): string | undefined =>
+  Object.keys(entry.params).find((k) => entry.params[k]!.role === role)
+
+/**
+ * A symbol's orientation params turned by a scene-axes rotation (xform.ts
+ * Mat3), read back into the SAME params — Euler entries (yaw/pitch, the
+ * `angle` param as roll) through the renderer's own h/p/b composition,
+ * direction entries (`angle` azimuth + tilt) by turning the direction.
+ * Flat symbols come back untouched. Missing params start from their spec's
+ * default, as `build` would.
+ */
+export const tumbleParams = (
+  entry: VocabEntry,
+  given: Record<string, unknown>,
+  m: Parameters<typeof mat3Apply>[0],
+): Record<string, unknown> => {
+  if (isMat3Identity(m, 1e-12)) return given
+  const read = (k: string | undefined): number => {
+    if (!k) return 0
+    const v = Number(given[k])
+    return Number.isFinite(v) ? v : (entry.params[k]!.default ?? 0)
+  }
+  const yaw = keyOfRole(entry, "yaw")
+  const pitch = keyOfRole(entry, "pitch")
+  const tilt = keyOfRole(entry, "tilt")
+  const angle = keyOfRole(entry, "angle")
+  const out = { ...given }
+  if (yaw || pitch) {
+    // The roll is a PAGE angle (clockwise); the holon's b is its negation.
+    const e = mat3ToEuler(mat3Mul(m, eulerToMat3(read(yaw), read(pitch), -read(angle))))
+    if (yaw) out[yaw] = e.h
+    if (pitch) out[pitch] = e.p
+    if (angle) out[angle] = wrapAngle(-e.b)
+  } else if (tilt) {
+    const a = read(angle)
+    const tl = read(tilt)
+    // Scene direction: page azimuth a (clockwise) is scene (cos a, −sin a).
+    const v = mat3Apply(m, { x: Math.cos(a) * Math.cos(tl), y: -Math.sin(a) * Math.cos(tl), z: Math.sin(tl) })
+    out[tilt] = Math.asin(Math.max(-1, Math.min(1, v.z)))
+    // Pointing straight at the viewer, the azimuth is undefined: keep it.
+    if (angle && Math.hypot(v.x, v.y) > 1e-9) out[angle] = Math.atan2(-v.y, v.x)
+  }
+  return out
 }
 
 // -- ink: a raw stroke as scene data -------------------------------------------

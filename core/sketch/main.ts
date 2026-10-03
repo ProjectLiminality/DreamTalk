@@ -33,9 +33,13 @@
  *   ✦ chip             (below the selection) tap/click → TRANSFORM
  *   corner handles     uniform scale about the opposite corner (Alt: centre)
  *   rotate knob        rotate about the centre (Shift snaps 15°)
+ *   Alt + knob / drag  on a selection holding a 3D symbol (cube, MindVirus):
+ *                      TUMBLE it — a trackball turning the object, never the
+ *                      camera (right = yaw, up = pitch); flat things ignore it
  *   eraser end         erase strokes touched
  *   FINGERS            with a selection: pinch / twist / pan, live and
- *                      combined, ONE undo step on lift. Two-finger tap =
+ *                      combined, ONE undo step on lift. THREE-finger drag
+ *                      tumbles a 3D selection (as Alt-drag). Two-finger tap =
  *                      undo, three-finger tap = redo. Nothing else — no
  *                      camera on e-ink. Ignored while the pen is in range
  *                      and for 300 ms after it leaves (palm rejection).
@@ -45,14 +49,22 @@ import { Dream } from "../src/dream"
 import { Create } from "../src/verbs"
 import type { Holon } from "../src/holon"
 import { ThreeHost } from "../src/render/three-host"
-import { VOCABULARY, buildSymbol, framePage } from "./vocabulary"
+import { VOCABULARY, buildSymbol, canTumble, framePage, tumbleCentre } from "./vocabulary"
+import { Group } from "../src/parts/primitives"
 import { emptyBoard, isValidBoardName, parseBoard, serializeBoard } from "./board"
+import { installVoice } from "./voice"
+import { Mirror, type MirrorView } from "./mirror"
 import {
   IDENTITY,
   SIM_IDENTITY,
   composeSim,
   isIdentity,
+  MAT3_IDENTITY,
+  mat3Mul,
+  mat3ToEuler,
   simFromPairs,
+  trackball,
+  type Mat3,
   xfFromSim,
   xfPoint,
   type Sim,
@@ -81,6 +93,7 @@ import {
   selectionBox,
   strokesNear,
   symbolBox,
+  touched,
   transformStroke,
   unionBox,
   type Box,
@@ -114,6 +127,10 @@ const localKey = (name: string) => `dreamtalk.board.${name}.v1`
 
 const requested = new URLSearchParams(location.search).get("board") ?? "scratch"
 const boardName = isValidBoardName(requested) ? requested : "scratch"
+/** `look=1`: the page as a picture for Claude (scripts/look.ts) — no
+ *  toolbar, no tablet socket, never a save. A second page must not echo
+ *  the tablet's strokes or write over the board. */
+const looking = new URLSearchParams(location.search).get("look") === "1"
 
 const readLocal = (key: string): SketchState | undefined => {
   try {
@@ -154,6 +171,7 @@ let saveWarned = false
 const saveNow = (): Promise<void> => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = undefined
+  if (looking) return saving
   const body = serializeBoard(history.state)
   saving = saving.then(async () => {
     try {
@@ -172,6 +190,7 @@ const saveNow = (): Promise<void> => {
 
 /** Every committed change: mirrored locally at once, written to the file shortly after. */
 const saveState = () => {
+  if (looking) return
   try {
     localStorage.setItem(localKey(boardName), serializeBoard(history.state))
   } catch {
@@ -226,7 +245,7 @@ interface Ring {
 let ring: Ring | undefined
 
 // Gesture state
-type Mode = "idle" | "draw" | "lasso" | "pressSel" | "move" | "erase" | "chipPress" | "scale" | "rotate"
+type Mode = "idle" | "draw" | "lasso" | "pressSel" | "move" | "erase" | "chipPress" | "scale" | "rotate" | "tumble"
 let mode: Mode = "idle"
 let live: PenSample[] = []
 let lasso: Pt[] = []
@@ -237,12 +256,14 @@ let erased = new Set<string>()
 let liveXf: Xf | undefined
 /** What a handle drag holds on to. */
 let handleDrag: { corner: Pt; opposite: Pt; center: Pt; start: Pt } | undefined
+/** A pointer tumble (Alt-drag): where the pointer was, and the turn so far. */
+let tumbleDrag: { last: Pt; m: Mat3 } | undefined
 /** Modifier keys, for handle drags (Alt: scale about centre; Shift: snap rotation). */
 const keys = { alt: false, shift: false }
 
 // --- Layout -----------------------------------------------------------------------
 
-const TOOLBAR_H = 44
+const TOOLBAR_H = looking ? 0 : 44
 let scale = 1 // css px per page unit
 let dpr = window.devicePixelRatio || 1
 
@@ -297,10 +318,15 @@ const accent = "#00a2ff"
  *  centred, the page container clipping the sides — so the vertical
  *  framing is exact and nothing is stretched. */
 class SymbolsDream extends Dream {
+  /** With `pivots`: one Group per 3D symbol, turning about its centre —
+   *  the live tumble's preview handle (tumblePreview). */
+  readonly pivots: Holon[] = []
+
   constructor(
     private readonly placed: readonly PlacedSymbol[],
     frame: { cx: number; cy: number; h: number },
     private readonly fresh?: string,
+    private readonly withPivots = false,
   ) {
     super()
     framePage(this, frame)
@@ -314,6 +340,13 @@ class SymbolsDream extends Dream {
       } catch (err) {
         console.warn("[sketch] cannot build", s.symbol, err)
         continue
+      }
+      const c = this.withPivots && canTumble(s) ? tumbleCentre(s) : undefined
+      if (c) {
+        // T(c) · R · T(−c): the pivot turns the symbol about its own centre.
+        const pivot = new Group({ members: [new Group({ members: [h], x: -c.x, y: c.y })], x: c.x, y: -c.y })
+        this.pivots.push(pivot)
+        h = pivot
       }
       if (s.id === this.fresh) this.play(Create(h), 0.9)
       else this.stage(h)
@@ -337,6 +370,8 @@ interface Layer {
   canvas?: HTMLCanvasElement
   host?: ThreeHost
   sig: string
+  /** The lifted layer's 3D symbols, each on its own pivot (SymbolsDream). */
+  pivots?: Holon[]
 }
 const restLayer: Layer = { name: "rest", sig: "" }
 const liftedLayer: Layer = { name: "lifted", sig: "" }
@@ -372,7 +407,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
   const todo = layerLists().filter(([L, list]) => layerSig(list) !== L.sig || (list.length > 0 && !L.host))
   if (todo.length === 0) return
   glBusy = true
-  const built: { L: Layer; sig: string; canvas?: HTMLCanvasElement; host?: ThreeHost; duration: number }[] = []
+  const built: { L: Layer; sig: string; canvas?: HTMLCanvasElement; host?: ThreeHost; duration: number; pivots?: Holon[] }[] = []
   try {
     const { w, h, left } = glGeometry()
     for (const [L, list] of todo) {
@@ -380,7 +415,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
         built.push({ L, sig: layerSig(list), duration: 0 })
         continue
       }
-      const dream = new SymbolsDream(list, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh)
+      const dream = new SymbolsDream(list, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh, L === liftedLayer)
       const canvas = glCanvasOf(w, h)
       canvas.classList.add(L.name)
       canvas.style.left = `${left}px`
@@ -392,7 +427,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
       host.renderer.setSize(w, h, false)
       await host.renderFrame(0)
       await host.renderFrame(0)
-      built.push({ L, sig: layerSig(list), canvas, host, duration: dream.duration })
+      built.push({ L, sig: layerSig(list), canvas, host, duration: dream.duration, pivots: dream.pivots })
     }
     for (const b of built) {
       const old = b.L.canvas
@@ -401,6 +436,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
       b.L.canvas = b.canvas
       b.L.host = b.host
       b.L.sig = b.sig
+      b.L.pivots = b.pivots
       old?.remove()
       oldHost?.dispose()
       // Draw the fresh symbol on, if there is one to draw.
@@ -417,6 +453,7 @@ const syncSymbols = async (fresh?: string): Promise<void> => {
       }
     }
     if (liveXf) liftCss(liveXf)
+    if (liveXf?.tumble) tumblePreview(liveXf.tumble)
   } catch (err) {
     console.error("[sketch] symbol layer failed", err)
     flash(`render failed: ${(err as Error).message}`)
@@ -446,6 +483,31 @@ const liftCss = (xf: Xf | undefined) => {
   c.style.transformOrigin = `${xf.pivot.x * scale - left}px ${xf.pivot.y * scale}px`
   c.style.transform =
     `translate(${xf.translate.x * scale}px, ${xf.translate.y * scale}px) rotate(${xf.rotate}rad) scale(${xf.scale})`
+}
+
+/** Preview a tumble on the lifted layer: CSS cannot turn a picture in
+ *  depth, so each 3D symbol's pivot takes the turn and the layer renders
+ *  again (one frame per animation frame, however fast the pointer). The
+ *  committed params then rebuild the layer to exactly this picture. */
+let tumbleFrame: Mat3 | undefined | null = null
+const tumblePreview = (m: Mat3 | undefined) => {
+  const pending = tumbleFrame !== null
+  tumbleFrame = m
+  if (pending) return
+  const host = liftedLayer.host
+  requestAnimationFrame(() => {
+    const turn = tumbleFrame ?? MAT3_IDENTITY
+    tumbleFrame = null
+    // A layer rebuilt meanwhile already shows its own params.
+    if (!host || host !== liftedLayer.host || !liftedLayer.pivots?.length) return
+    const e = mat3ToEuler(turn)
+    for (const p of liftedLayer.pivots) {
+      p.h.defaultValue = p.h.value = e.h
+      p.p.defaultValue = p.p.value = e.p
+      p.b.defaultValue = p.b.value = e.b
+    }
+    void host.renderFrame(0)
+  })
 }
 
 // --- Selection chrome: frame, handles, rotate knob, ✦ chip ---------------------------
@@ -578,6 +640,7 @@ const dashedBox = (b: Box, k: number, color: string, pad: number, dash: number[]
 
 let inkQueued = false
 const drawInk = () => {
+  mirror?.changed()
   if (inkQueued) return
   inkQueued = true
   requestAnimationFrame(() => {
@@ -585,6 +648,45 @@ const drawInk = () => {
     paintInk()
   })
 }
+
+// --- The reMarkable's screen: this page as a display list (sketch/mirror.ts) ----------
+// Every repaint is also offered to the tablet's e-ink, throttled there; this
+// section only states what is visible, in page units.
+
+const padBox = (b: Box, d: number): Box => ({ x: b.x - d, y: b.y - d, w: b.w + 2 * d, h: b.h + 2 * d })
+
+const mirrorView = (): MirrorView => {
+  const sel = history.state.symbols.filter((y) => selection.has(y.id))
+  const c = chrome()
+  return {
+    strokes: history.state.strokes,
+    symbols: history.state.symbols,
+    selection,
+    liveXf,
+    liveStroke: mode === "draw" ? live : [],
+    lasso: mode === "lasso" ? lasso : [],
+    erased,
+    unit: px(1),
+    frame: frameBox(),
+    groupBoxes: selection.size < 2 ? [] : sel.map((y) => ({ id: y.id, box: padBox(symbolBox(y), px(5)) })),
+    chrome: c && {
+      corners: c.corners,
+      knob: c.knob,
+      frameTop: { x: c.frame.x + c.frame.w / 2, y: c.frame.y },
+      chip: c.chip,
+      handle: px(HANDLE),
+      knobR: px(KNOB_R),
+      chipR: px(CHIP_R),
+    },
+    thinking: thinking && padBox(thinking.box, px(FRAME_PAD)),
+    ring: ring && { center: ring.center, radius: ring.radius, chipPage: ring.chipPage, chips: ring.chips },
+  }
+}
+
+const mirror = looking ? undefined : new Mirror(mirrorView, `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/display`)
+mirror?.start()
+
+// --- (end of the reMarkable screen section) --------------------------------------------
 
 const paintChrome = (c: Chrome, k: number) => {
   ctx.save()
@@ -746,11 +848,13 @@ const commitLive = () => {
     afterChange()
   } else {
     liftCss(undefined)
+    if (xf?.tumble) tumblePreview(undefined)
     drawInk()
   }
 }
 
 const cancelLive = () => {
+  if (liveXf?.tumble) tumblePreview(undefined)
   liveXf = undefined
   liftCss(undefined)
   drawInk()
@@ -765,6 +869,7 @@ const undo = () => {
   // next move (a different pick, a re-ask) has its subject in hand.
   if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase") selection = new Set(cmd.ids)
   else if (cmd.kind === "move" || cmd.kind === "transform") selection = new Set(cmd.ids)
+  else if (cmd.kind === "edit") selection = new Set(cmd.selected)
   else selection = new Set()
   afterChange()
   if (cmd.kind === "replace" && last && sameIds(last.ids, cmd.ids) && last.response.candidates.length > 1) openRing(last)
@@ -775,7 +880,8 @@ const redo = () => {
   cancelLive()
   const cmd = history.redo()
   if (!cmd) return
-  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : new Set()
+  selection =
+    cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : cmd.kind === "edit" ? new Set(touched(cmd)) : new Set()
   afterChange(cmd.kind === "replace" ? cmd.symbol.id : undefined)
 }
 
@@ -1024,9 +1130,26 @@ const pathLength = (pts: readonly Pt[]) => {
   return d
 }
 
+/** Is anything selected that has a 3D orientation to tumble? */
+const tumbleable = () => history.state.symbols.some((y) => selection.has(y.id) && canTumble(y))
+
+/** The mouse trackball: half a degree per css px (a 360 px drag = half a turn). */
+const POINTER_TUMBLE = Math.PI / 360
+/** The tablet's: half a turn per 700 page units (half the page's width). */
+const FINGER_TUMBLE = Math.PI / 700
+
+const startTumble = (p: Pt) => {
+  mode = "tumble"
+  tumbleDrag = { last: p, m: MAT3_IDENTITY }
+  const fb = frameBox()
+  liveXf = { ...IDENTITY, pivot: fb ? boxCenter(fb) : p, tumble: MAT3_IDENTITY }
+}
+
 const startHandle = (hit: { kind: "rotate" } | { kind: "corner"; i: number }, p: Pt) => {
   const c = chrome()!
   const center = boxCenter(c.frame)
+  // Alt on the knob turns it in depth instead (Mac; the tablet uses three fingers).
+  if (hit.kind === "rotate" && keys.alt && tumbleable()) return startTumble(p)
   if (hit.kind === "rotate") {
     mode = "rotate"
     handleDrag = { corner: c.knob, opposite: center, center, start: p }
@@ -1060,6 +1183,7 @@ const dragHandle = (p: Pt) => {
 }
 
 const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
+  if (source === "tablet") voice.pen(ev) // the pen button, hovering: push-to-talk (voice.ts)
   switch (ev.kind) {
     case "leave":
       penLeft()
@@ -1107,6 +1231,8 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
       live = [ev.sample]
     } else if (hit) {
       startHandle(hit, p)
+    } else if (source === "pointer" && keys.alt && tumbleable() && frameBox() && inBox(p, frameBox()!)) {
+      startTumble(p)
     } else if (ev.button) {
       pressStart = p
       const fb = frameBox()
@@ -1158,6 +1284,14 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
       case "rotate":
         dragHandle(p)
         break
+      case "tumble": {
+        const d = tumbleDrag!
+        d.m = mat3Mul(trackball(p.x - d.last.x, p.y - d.last.y, POINTER_TUMBLE * scale), d.m)
+        d.last = p
+        liveXf = { ...liveXf!, tumble: d.m }
+        tumblePreview(d.m)
+        break
+      }
       case "erase":
         for (const id of strokesNear(history.state, p, 10)) erased.add(id)
         break
@@ -1202,7 +1336,9 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
     case "move":
     case "scale":
     case "rotate":
+    case "tumble":
       handleDrag = undefined
+      tumbleDrag = undefined
       commitLive()
       break
     case "erase": {
@@ -1265,6 +1401,10 @@ interface Touching {
   seg?: { ids: [number, number]; a0: Pt; b0: Pt }
   segSim: Sim
   pivot?: Pt
+  /** Three fingers: which trio, and where its centroid was last frame. */
+  trio?: { ids: string; last: Pt }
+  /** The 3D turn the trio has made so far (a trackball, like Alt-drag). */
+  tumble?: Mat3
   rejected: boolean
 }
 let touching: Touching | undefined
@@ -1328,7 +1468,7 @@ const handleTouch = (touches: readonly { id: number; x: number; y: number }[], t
     }
     g.segSim = simFromPairs(g.seg.a0, g.seg.b0, a, b)
     if (g.travel >= FINGER_TAP_TRAVEL) {
-      liveXf = xfFromSim(composeSim(g.segSim, g.acc), g.pivot!)
+      liveXf = { ...xfFromSim(composeSim(g.segSim, g.acc), g.pivot!), ...(g.tumble ? { tumble: g.tumble } : {}) }
       drawInk()
     }
   } else if (g.seg) {
@@ -1336,6 +1476,24 @@ const handleTouch = (touches: readonly { id: number; x: number; y: number }[], t
     g.segSim = SIM_IDENTITY
     g.seg = undefined
   }
+  // Three fingers on a 3D selection: TUMBLE — the trio's centroid drags a
+  // trackball (right = yaw, up = pitch). A short still trio is still redo.
+  if (touches.length === 3 && selection.size > 0 && !thinking && !ring && tumbleable()) {
+    const ids = touches.map((f) => f.id).sort((a, b) => a - b).join()
+    const c = {
+      x: touches.reduce((n, f) => n + f.x, 0) / 3,
+      y: touches.reduce((n, f) => n + f.y, 0) / 3,
+    }
+    if (!g.trio || g.trio.ids !== ids) g.trio = { ids, last: c }
+    g.tumble = mat3Mul(trackball(c.x - g.trio.last.x, c.y - g.trio.last.y, FINGER_TUMBLE), g.tumble ?? MAT3_IDENTITY)
+    g.trio.last = c
+    g.pivot ??= boxCenter(selectionBox(history.state, selection) ?? { x: c.x, y: c.y, w: 0, h: 0 })
+    if (g.travel >= FINGER_TAP_TRAVEL) {
+      liveXf = { ...xfFromSim(composeSim(g.segSim, g.acc), g.pivot), tumble: g.tumble }
+      tumblePreview(g.tumble)
+      drawInk()
+    }
+  } else g.trio = undefined
 }
 
 /** A finger tap — from raw frames or the bridge's own `gesture` — once. */
@@ -1670,12 +1828,27 @@ window.__sketch = {
   },
 }
 
+// Speak to the page: hold Space / 🎙 / the pen button hovering (voice.ts).
+const voice = installVoice({
+  state: () => history.state,
+  selection: () => [...selection],
+  setSelection,
+  commit,
+  busy: () => !!thinking || mode !== "idle",
+  closeRing,
+})
+
 // --- Boot ------------------------------------------------------------------------------------
 
 layout()
 applyTheme()
 renderTablet()
-connectPen()
+if (looking) {
+  for (const id of ["toolbar", "status", "presence", "banner"]) {
+    const el = document.getElementById(id)
+    if (el) el.style.display = "none"
+  }
+} else connectPen()
 void listBoards()
 void loadBoard().then(async ({ state, migrate }) => {
   history = new History(state)
