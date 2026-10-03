@@ -6,7 +6,8 @@
 #                       also writes build/ink_test.ppm, a page to look at
 #   ./build.sh e2e      the real ARM binary against test/fake-qtfb.c, in an
 #                       emulated armv7 Linux container (needs Docker running);
-#                       writes build/e2e.pgm
+#                       writes build/e2e.pgm. E2E_LIST=build/<file>.ndjson
+#                       sends that display list last (core/scripts/mirror-e2e.ts)
 #   ./build.sh all      test + arm
 # Needs zig (brew install zig). No reMarkable SDK.
 set -eu
@@ -31,7 +32,7 @@ e2e() {
   zig cc -target arm-linux-musleabihf -mcpu=cortex_a7 -static $CFLAGS \
     -o build/arm/fake-qtfb test/fake-qtfb.c ink.c -lm
   docker run --rm --platform linux/arm/v7 -v "$PWD/build:/w" alpine:3 \
-    /w/arm/fake-qtfb /w/arm/dreamtalk-pad /w/e2e.pgm
+    /w/arm/fake-qtfb /w/arm/dreamtalk-pad /w/e2e.pgm ${E2E_LIST:+/w/${E2E_LIST#build/}}
 }
 
 case "${1:-arm}" in

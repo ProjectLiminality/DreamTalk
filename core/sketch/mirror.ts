@@ -419,7 +419,7 @@ export const buildDisplay = (v: MirrorView): EncodedItem[] => {
       const thumb = flattenSymbol(chip.candidate)
       const b = primsBox(thumb)
       if (b) {
-        const k = (r * 0.72) / Math.max(b.w / 2, b.h / 2, 1)
+        const k = (r * 0.8) / Math.max(Math.hypot(b.w, b.h) / 2, 1) // its corners stay in the circle
         const mid = { x: b.x + b.w / 2, y: b.y + b.h / 2 }
         prims.push(...thumb.map((p) => mapPrim(p, (q) => ({ x: at.x + (q.x - mid.x) * k, y: at.y + (q.y - mid.y) * k }), Math.min(1, k))))
       }

@@ -657,6 +657,9 @@ int main(void) {
                 int type = m.input.input_type, x = m.input.x, y = m.input.y;
                 float w = ink_page_width((float)m.input.d / 100.0f);
                 if (type == QTFB_INPUT_PEN_PRESS) {
+                    /* The kernel had the button long before xochitl passed the
+                     * press on; read it now, whatever order poll reported. */
+                    if (efd >= 0) pen_dev_read();
                     pen_down = 1;
                     last_activity = now_ms();
                     if (gate) ink = ink_rect_union(ink, repaint(MARKER));
