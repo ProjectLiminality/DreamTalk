@@ -1,0 +1,99 @@
+<!doctype html>
+<html data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DreamTalk Sketch</title>
+  <style>
+    /* The sketchpad: a page, a pen, and almost nothing else. Dark by
+       default (white ink on black); the light page inverts the ink and,
+       through a filter, the symbol layer — hue-rotated back so a red
+       symbol stays red. */
+    :root {
+      --bg: #050506;
+      --page: #000;
+      --edge: #1c1c20;
+      --text: #8a8a94;
+      --bright: #e8e8ee;
+      --dim: #45454d;
+      --blue: #00a2ff;
+      --chip: #000;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    }
+    :root[data-theme="light"] {
+      --bg: #e9e9ec;
+      --page: #fff;
+      --edge: #d4d4da;
+      --text: #6a6a72;
+      --bright: #111;
+      --dim: #a8a8b0;
+      --chip: #fff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+      font: 12px/1.4 -apple-system, "SF Pro", Inter, sans-serif; -webkit-font-smoothing: antialiased;
+      user-select: none; -webkit-user-select: none; }
+
+    #toolbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center;
+      gap: 4px; padding: 0 14px; white-space: nowrap; }
+    #toolbar > * { flex-shrink: 0; }
+    #toolbar #status, #toolbar .imports { flex-shrink: 1; min-width: 0; }
+    #toolbar .brand { color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px;
+      margin-right: 10px; }
+    #toolbar button { background: none; border: 1px solid transparent; color: var(--text); font: inherit;
+      height: 28px; min-width: 30px; padding: 0 9px; border-radius: 7px; cursor: pointer; }
+    #toolbar button:hover:not(:disabled) { color: var(--bright); border-color: var(--edge); }
+    #toolbar button:disabled { color: var(--dim); cursor: default; }
+    #toolbar #transform { color: var(--blue); font-size: 14px; }
+    #toolbar #transform:disabled { color: var(--dim); }
+    #toolbar .sep { width: 1px; height: 16px; background: var(--edge); margin: 0 6px; }
+    #status { margin-left: 10px; color: var(--bright); opacity: 0; transition: opacity 0.3s; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+    #status.on { opacity: 0.8; }
+    #toolbar .spacer { flex: 1; }
+    #toolbar .imports { color: var(--dim); font: 10.5px var(--mono); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; max-width: 42vw; cursor: help; }
+    #toolbar .imports::before { content: "import "; color: var(--text); }
+    #toolbar .tabletdot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); margin-left: 10px; }
+    body.tablet #toolbar .tabletdot { background: var(--blue); }
+
+    #page { position: absolute; background: var(--page); overflow: hidden; border-radius: 4px;
+      box-shadow: 0 0 0 1px var(--edge); }
+    #page canvas.gl { position: absolute; top: 0; display: block; pointer-events: none; }
+    :root[data-theme="light"] canvas.gl { filter: invert(1) hue-rotate(180deg); }
+    #ink { position: absolute; left: 0; top: 0; touch-action: none; cursor: crosshair; z-index: 2; }
+
+    #ring { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+    .chip { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; background: var(--chip);
+      box-shadow: 0 0 0 1px var(--edge), 0 6px 24px rgba(0,0,0,0.35); overflow: hidden;
+      animation: chipIn 0.28s ease-out both; }
+    .chip .thumb { position: absolute; left: 0; right: 0; top: 9%; height: 58%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .chip .thumb canvas.gl { position: relative; flex: none; }
+    .chip .label { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; line-height: 1.15; }
+    .chip .label b { display: block; color: var(--bright); font-weight: 500; font-size: 11px; }
+    .chip .label span { color: var(--text); font: 9.5px var(--mono); }
+    .chip:not(.drawn) .label { bottom: auto; top: 50%; transform: translateY(-50%); }
+    @keyframes chipIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); } }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="brand">DreamTalk · sketch</span>
+    <button id="transform" title="Make it real (Enter, or a button-held tap inside the selection)">✦</button>
+    <button id="undo" title="Undo (⌘Z)">↶</button>
+    <button id="redo" title="Redo (⇧⌘Z)">↷</button>
+    <span class="sep"></span>
+    <button id="theme" title="Dark / light page">◐ dark</button>
+    <button id="clear" title="Clear the page (undoable)">clear</button>
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <span class="imports" id="imports"></span>
+    <span class="tabletdot" title="reMarkable (/ws/pen)"></span>
+  </div>
+  <div id="page">
+    <canvas id="ink"></canvas>
+    <div id="ring"></div>
+  </div>
+  <script type="module" src="/core/sketch/dist/main.js"></script>
+</body>
+</html>

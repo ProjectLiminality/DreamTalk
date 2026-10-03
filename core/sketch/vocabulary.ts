@@ -76,8 +76,8 @@ const scenePt = (x: number, y: number): Vec3Like => ({ x, y: -y, z: 0 })
 // -- MindVirus: the cable is a journey ---------------------------------------
 
 /** The Cable samples its trail at 12 equal-time control points (Cable.ts
- *  CTRL_POINTS). A journey of 11 equal pulses over equal arc lengths puts
- *  every control point exactly on a pulse boundary — on the drawn line. */
+ *  CTRL_POINTS). 11 equal pulses over equal arc lengths of the drawn cable
+ *  put every control point exactly on a pulse boundary — on the line. */
 const CABLE_PULSES = 11
 const PULSE_SECONDS = 0.5
 /** MindVirus's native cube edge (FoldableCube default size). */
@@ -144,22 +144,28 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
     return mv
   }
 
-  // Journey mode: the drawn cable, then into the body, then to the face.
-  const walk = resampleByArcLength([...cable, { x: cx, y: cy }, { x: ox, y: oy }], CABLE_PULSES)
+  // Journey mode: the creature swims the drawn cable, then one last pulse
+  // from where the cable meets the body to its resting pose. The TRAIL is
+  // installed on the cable part only — re-timed so the whole window maps
+  // onto the drawn line, never through the body (the journey's own path
+  // would run on through the cube to the face).
+  const walk = resampleByArcLength(cable, CABLE_PULSES)
   const pulses: PulseSpec[] = walk.slice(1).map((q, i) => ({
     start: i * PULSE_SECONDS,
     duration: PULSE_SECONDS,
     to: scenePt(q.x, q.y),
   }))
-  pulses[pulses.length - 1]!.heading = forward
-  const T = CABLE_PULSES * PULSE_SECONDS
+  const tCable = CABLE_PULSES * PULSE_SECONDS
+  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: scenePt(ox, oy), heading: forward })
+  const T = tCable + PULSE_SECONDS
   const mv = new MindVirus({ scale: s, clock: T })
   mv.journey = { origin: scenePt(walk[0]!.x, walk[0]!.y), pulses }
   void mv.parts // compose(): position/heading/fold now follow the clock
   // At rest the journey's bell is closed; the drawing says how open it is.
   mv.fold.follow(derive(() => fold))
-  // The whole drawn trail, at the creature's scale.
-  mv.cable.window.value = T
+  // The window [0, T] read as cable time [0, tCable]: the 12 equal-time
+  // control points still land on pulse boundaries — on the drawn line.
+  mv.cable.trail((t) => mv.pathAt((t * tCable) / T), { since: 0, window: T })
   mv.cable.width.value = mv.cable.width.value * s
   mv.cable.ringStep.value = mv.cable.ringStep.value * s
   return mv

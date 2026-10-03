@@ -58,6 +58,11 @@ describe("sketch vocabulary", () => {
     expect(tail.x).toBeCloseTo(150, 6)
     expect(tail.y).toBeCloseTo(-600, 6)
     expect(mv.cable.edgeA.points.length).toBeGreaterThan(10)
+    // The trail ends where the drawn cable meets the body — not through it.
+    const trail = (mv.cable as unknown as { _path: (t: number) => { x: number; y: number } })._path
+    const head = trail(mv.cable.clock.value)
+    expect(head.x).toBeCloseTo(720, 6)
+    expect(head.y).toBeCloseTo(-600, 6)
   })
 
   test("resampleByArcLength walks equal steps", () => {
