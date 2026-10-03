@@ -13,6 +13,11 @@
  *
  * THE BAR: the tablet only has to be on the same Wi-Fi. So the bridge
  *
+ *   FIRST TIME, once, over USB (since OS 3.22 SSH is USB-only by default):
+ *     (1) ssh root@10.11.99.1 rm-ssh-over-wlan on   (2) ssh-copy-id with the
+ *     bridge's key (below). Then unplug. The bridge and `--doctor` say exactly
+ *     this, in this order, whenever it is what's missing.
+ *
  *   FINDS it — the cached address, USB (10.11.99.1), the names `remarkable.local`
  *     and `remarkable`, then a quick parallel sweep of the Mac's own /24 for
  *     an SSH server that announces itself as dropbear (the tablet's sshd),
@@ -458,6 +463,8 @@ export interface DeviceInfo {
   recordSize: 16 | 24
   pen: string
   touch?: string
+  /** The tablet's own Wi-Fi address, if it has joined a network. */
+  wlan?: string
 }
 
 /** The pen and touchscreen nodes by NAME (numbers move between models/firmware). */
@@ -474,18 +481,39 @@ export const findDevices = (procDevices: string): { pen: string; touch?: string 
   return { pen: pen ?? "/dev/input/event1", touch } // event1: the rM2's well-known pen
 }
 
-/** One SSH round-trip tells us everything: model, word size, device nodes. */
-export const PROBE_CMD = "cat /sys/devices/soc0/machine; echo; echo ---; uname -m; echo ---; cat /proc/bus/input/devices"
+/** One SSH round-trip tells us everything: model, word size, device nodes, Wi-Fi address. */
+export const PROBE_CMD =
+  "cat /sys/devices/soc0/machine; echo; echo ---; uname -m; echo ---; cat /proc/bus/input/devices; " +
+  "echo; echo ---; (ip -4 addr show wlan0 || ifconfig wlan0) 2>/dev/null"
 
 export const parseDeviceInfo = (stdout: string): DeviceInfo => {
-  const [machine = "", arch = "", devices = ""] = stdout.split(/\n---\n/)
+  const [machine = "", arch = "", devices = "", wlan = ""] = stdout.split(/\n---\n/)
   const a = arch.trim()
   return {
     machine: machine.trim(),
     arch: a,
     recordSize: /64|aarch/.test(a) ? 24 : 16,
     ...findDevices(devices),
+    wlan: wlan.match(/inet (?:addr:)?(\d+\.\d+\.\d+\.\d+)/)?.[1],
   }
+}
+
+/**
+ * Since OS 3.22 the tablet serves SSH over USB only until this is run once,
+ * over USB (docs/reports/remarkable-display.md §1). It survives updates.
+ */
+export const WLAN_ON_CMD = `ssh root@${USB_HOST} rm-ssh-over-wlan on`
+
+/**
+ * Connected over USB: can it go cordless? `wifiAnswers` is the Mac knocking on
+ * the tablet's own Wi-Fi address — proof, not a guess about the setting. When
+ * Wi-Fi SSH is on, the Wi-Fi address is what gets cached, so unplugging the
+ * cable reconnects over the air at once.
+ */
+export const usbAdvice = (wlan: string | undefined, wifiAnswers: boolean): { cache: string; message: string } => {
+  if (wlan && wifiAnswers) return { cache: wlan, message: `Connected over USB; Wi-Fi SSH is on (${wlan}) — unplug any time.` }
+  if (wlan) return { cache: USB_HOST, message: `Connected over USB. To go cordless, run once: ${WLAN_ON_CMD} — then unplug.` }
+  return { cache: USB_HOST, message: "Connected over USB. The tablet isn't on Wi-Fi — join the Mac's network to go cordless." }
 }
 
 // ── status and retry (pure) ───────────────────────────────────────────────
@@ -535,11 +563,23 @@ export const KEY_PATH = join(CONFIG_DIR, "remarkable_ed25519")
 const KEY_SHOWN = "~/.config/dreamtalk/remarkable_ed25519"
 const CACHE_PATH = join(CONFIG_DIR, "remarkable.json")
 
-export const needsKeyMessage = (host: string): string =>
-  `One-time setup — run on the Mac: ssh-copy-id -i ${KEY_SHOWN}.pub root@${host}  ` +
-  `(the password is on the tablet: Settings → Help → Copyrights and licenses)`
+const PASSWORD_AT = "password: tablet → Settings → Help → Copyrights and licenses"
 
-const SEARCHING_MSG = "Looking for the reMarkable on this network — is it awake and on the same Wi-Fi?"
+/**
+ * The one-time setup, in the order it has to happen. Over USB both steps fit
+ * in one sitting — the key copied there works over Wi-Fi too.
+ */
+export const needsKeyMessage = (host: string): string =>
+  host === USB_HOST
+    ? `One-time, over USB: (1) ${WLAN_ON_CMD}  (2) ssh-copy-id -i ${KEY_SHOWN}.pub root@${USB_HOST}  ` +
+      `(${PASSWORD_AT}). Then unplug — same Wi-Fi is all it needs from then on.`
+    : `One-time: ssh-copy-id -i ${KEY_SHOWN}.pub root@${host}  (${PASSWORD_AT})`
+
+const SEARCHING_MSG = "Looking for the reMarkable on this network…"
+/** Most likely cause of a tablet not found on Wi-Fi: Wi-Fi SSH is off (the default since OS 3.22). */
+export const NOT_FOUND_MSG =
+  `Not found on this Wi-Fi. First time? Plug in USB and run once: ${WLAN_ON_CMD} — then unplug. ` +
+  "(Otherwise: wake the tablet, same Wi-Fi as the Mac.)"
 const LOCAL_NETWORK_MSG =
   "macOS is blocking local-network access for this terminal: System Settings → Privacy & Security → Local Network → turn it on, then restart the studio."
 const ASLEEP_MSG = "The tablet stopped answering (asleep?) — it reconnects by itself when it wakes."
@@ -838,10 +878,18 @@ const runBridge = async () => {
       const outcome = report.outcome
       state = nextState(tracker.current?.state, outcome.kind)
       if (outcome.kind === "found" && report.info) {
-        lastSeen = outcome.host
-        await writeCache(outcome.host)
+        let message = `${report.info.machine} at ${outcome.host}`
+        let cache = outcome.host
+        if (outcome.host === USB_HOST) {
+          const wlan = report.info.wlan
+          const advice = usbAdvice(wlan, !!wlan && !!(await probeSsh(wlan, 1200)).banner)
+          message = advice.message
+          cache = advice.cache
+        }
+        lastSeen = cache
+        await writeCache(cache)
         const started = Date.now()
-        say({ kind: "status", state, host: outcome.host, message: `${report.info.machine} at ${outcome.host}` })
+        say({ kind: "status", state, host: outcome.host, message })
         await streamTablet(outcome.host, report.info, send)
         // A stream that dies at once is a fault, not a sleep: keep backing off
         // instead of hammering the tablet once a second.
@@ -853,7 +901,7 @@ const runBridge = async () => {
         say({ kind: "status", state, host: outcome.host, message: needsKeyMessage(outcome.host) })
       } else {
         attempt++
-        const message = report.blocked ? LOCAL_NETWORK_MSG : state === "asleep" ? ASLEEP_MSG : SEARCHING_MSG
+        const message = report.blocked ? LOCAL_NETWORK_MSG : state === "asleep" ? ASLEEP_MSG : NOT_FOUND_MSG
         say({ kind: "status", state, host: state === "asleep" ? lastSeen : undefined, message })
       }
     } catch (err) {
@@ -941,19 +989,39 @@ const doctorDiscover = async (): Promise<{ host: string; info: DeviceInfo } | un
       `no reMarkable found (${r.scanned} addresses swept in ${secs}s, ${servers.length} SSH servers seen)`,
       "Wake the tablet (press the power button) and check it's on the same Wi-Fi as this Mac.",
       "Its IP is on the tablet under Settings → Help → Copyrights and licenses; try RM_HOST=<ip> bun scripts/remarkable-bridge.ts --doctor",
-      "Newer firmware may keep SSH off on Wi-Fi: plug in USB once and run  ssh root@10.11.99.1 rm-ssh-over-wlan on",
+    )
+    bad(
+      "wifi ssh",
+      "unknown — the tablet isn't reachable over USB to check",
+      `MOST LIKELY CAUSE (first time): SSH over Wi-Fi is off by default. Plug in USB and run once: ${WLAN_ON_CMD}`,
+      "then run this doctor again (still plugged in) to finish the setup.",
     )
     return undefined
   }
   ok("discovery", `${o.host} in ${secs}s`)
   if (o.kind === "needs-key") {
-    bad("auth", "the tablet refused the bridge's key", needsKeyMessage(o.host))
+    if (o.host === USB_HOST) {
+      bad(
+        "auth",
+        "the tablet refused the bridge's key — one-time setup, in this order, while plugged in:",
+        `1. ${WLAN_ON_CMD}`,
+        `2. ssh-copy-id -i ${KEY_SHOWN}.pub root@${USB_HOST}`,
+        `   (${PASSWORD_AT}, both times)`,
+        "3. run this doctor again, then unplug — same Wi-Fi is all it needs from then on.",
+      )
+    } else bad("auth", "the tablet refused the bridge's key", needsKeyMessage(o.host))
     return undefined
   }
   const info = r.info!
   ok("auth", `${info.machine} (key accepted)`)
   ok("devices", `${info.arch}, ${info.recordSize}-byte events · pen ${info.pen} · touch ${info.touch ?? "—"}`)
   if (!info.touch) bad("touch", "no touchscreen device found by name in /proc/bus/input/devices")
+  if (o.host !== USB_HOST) ok("wifi ssh", `on (connected over Wi-Fi at ${o.host})`)
+  else if (!info.wlan) bad("wifi ssh", "the tablet isn't on Wi-Fi", "join the same network as this Mac (tablet → Settings → Wi-Fi)")
+  else if ((await probeSsh(info.wlan, 1200)).banner) {
+    await writeCache(info.wlan)
+    ok("wifi ssh", `on — ${info.wlan} answers; unplug any time`)
+  } else bad("wifi ssh", `off — ${info.wlan} doesn't answer SSH`, `run once (plugged in): ${WLAN_ON_CMD}`)
   return { host: o.host, info }
 }
 

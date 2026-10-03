@@ -13,6 +13,8 @@
  */
 
 import type { InkStroke, PenSample, PlacedSymbol } from "./protocol"
+import { transformSymbol } from "./vocabulary"
+import { xfPoint, type Xf } from "./xform"
 
 export interface SketchState {
   strokes: InkStroke[]
@@ -31,6 +33,8 @@ export type Command =
   | { kind: "delete"; ids: string[] }
   /** Translate strokes and/or symbols, in page units. */
   | { kind: "move"; ids: string[]; dx: number; dy: number }
+  /** Move/rotate/scale strokes and/or symbols together about one pivot (xform.ts). */
+  | { kind: "transform"; ids: string[]; xf: Xf }
   | { kind: "clear" }
 
 /** Apply a command to a page, returning a NEW page (inputs untouched). */
@@ -61,45 +65,32 @@ export const apply = (s: SketchState, cmd: Command): SketchState => {
         symbols: s.symbols.map((y) => (moving.has(y.id) ? translateSymbol(y, cmd.dx, cmd.dy) : y)),
       }
     }
+    case "transform": {
+      const moving = new Set(cmd.ids)
+      return {
+        strokes: s.strokes.map((k) => (moving.has(k.id) ? transformStroke(k, cmd.xf) : k)),
+        symbols: s.symbols.map((y) => (moving.has(y.id) ? transformSymbol(y, cmd.xf) : y)),
+      }
+    }
     case "clear":
       return emptyState()
   }
 }
+
+/** Ink transforms point by point; pressure and timing are the pen's, and stay. */
+export const transformStroke = (k: InkStroke, xf: Xf): InkStroke => ({
+  id: k.id,
+  points: k.points.map((p) => ({ ...p, ...xfPoint(xf, p) })),
+})
 
 export const translateStroke = (k: InkStroke, dx: number, dy: number): InkStroke => ({
   id: k.id,
   points: k.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
 })
 
-const X_KEYS = new Set(["x", "cx", "x0", "x1", "x2"])
-const Y_KEYS = new Set(["y", "cy", "y0", "y1", "y2"])
-
-/**
- * Translate a symbol's POSITIONAL params. The vocabulary states positions in
- * page units under the conventional names (x/y, cx/cy, …) and paths as
- * arrays of {x, y}; anything else (radius, fold, heading) is shape, not
- * place, and is left alone.
- */
-export const translateSymbol = (y: PlacedSymbol, dx: number, dy: number): PlacedSymbol => {
-  const shift = (key: string, v: unknown): unknown => {
-    if (typeof v === "number") {
-      if (X_KEYS.has(key)) return v + dx
-      if (Y_KEYS.has(key)) return v + dy
-      return v
-    }
-    if (Array.isArray(v)) return v.map((e) => shift("", e))
-    if (isPoint(v)) return { ...v, x: v.x + dx, y: v.y + dy }
-    return v
-  }
-  const params: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(y.params)) {
-    // [x, y] pairs inside a path array
-    if (Array.isArray(v) && v.every((e) => Array.isArray(e) && e.length === 2 && e.every((n) => typeof n === "number")))
-      params[k] = (v as [number, number][]).map(([px, py]) => [px + dx, py + dy])
-    else params[k] = shift(k, v)
-  }
-  return { ...y, params }
-}
+/** Translate a symbol's position and paths, never its shape (vocabulary.ts transformSymbol). */
+export const translateSymbol = (y: PlacedSymbol, dx: number, dy: number): PlacedSymbol =>
+  transformSymbol(y, { translate: { x: dx, y: dy } })
 
 const isPoint = (v: unknown): v is { x: number; y: number } =>
   typeof v === "object" && v !== null && typeof (v as { x?: unknown }).x === "number" &&

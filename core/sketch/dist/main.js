@@ -65513,6 +65513,69 @@ class Figure extends Stroke {
   }
 }
 
+// sketch/protocol.ts
+var PAGE_W = 1404;
+var PAGE_H = 1872;
+
+// sketch/xform.ts
+var IDENTITY = { translate: { x: 0, y: 0 }, rotate: 0, scale: 1, pivot: { x: 0, y: 0 } };
+var xfOf = (t2) => ({
+  translate: t2.translate ?? { x: 0, y: 0 },
+  rotate: t2.rotate ?? 0,
+  scale: t2.scale ?? 1,
+  pivot: t2.pivot ?? { x: 0, y: 0 }
+});
+var xfPoint = (xf, p2) => {
+  if (xf.rotate === 0 && xf.scale === 1)
+    return { x: p2.x + xf.translate.x, y: p2.y + xf.translate.y };
+  const c2 = Math.cos(xf.rotate) * xf.scale;
+  const s2 = Math.sin(xf.rotate) * xf.scale;
+  const dx = p2.x - xf.pivot.x;
+  const dy = p2.y - xf.pivot.y;
+  return {
+    x: xf.pivot.x + xf.translate.x + c2 * dx - s2 * dy,
+    y: xf.pivot.y + xf.translate.y + s2 * dx + c2 * dy
+  };
+};
+var isIdentity = (xf, eps = 0.001) => Math.abs(xf.translate.x) < eps * 100 && Math.abs(xf.translate.y) < eps * 100 && Math.abs(xf.rotate) < eps && Math.abs(xf.scale - 1) < eps;
+var wrapAngle = (a2) => {
+  const w4 = a2 - 2 * Math.PI * Math.floor((a2 + Math.PI) / (2 * Math.PI));
+  return w4 === -Math.PI ? Math.PI : w4;
+};
+var SIM_IDENTITY = { a: 1, b: 0, tx: 0, ty: 0 };
+var simApply = (m2, p2) => ({ x: m2.a * p2.x - m2.b * p2.y + m2.tx, y: m2.b * p2.x + m2.a * p2.y + m2.ty });
+var simOf = (xf) => {
+  const a2 = Math.cos(xf.rotate) * xf.scale;
+  const b2 = Math.sin(xf.rotate) * xf.scale;
+  const o2 = { x: xf.pivot.x + xf.translate.x, y: xf.pivot.y + xf.translate.y };
+  return { a: a2, b: b2, tx: o2.x - (a2 * xf.pivot.x - b2 * xf.pivot.y), ty: o2.y - (b2 * xf.pivot.x + a2 * xf.pivot.y) };
+};
+var xfFromSim = (m2, pivot) => {
+  const to = simApply(m2, pivot);
+  return {
+    translate: { x: to.x - pivot.x, y: to.y - pivot.y },
+    rotate: Math.atan2(m2.b, m2.a),
+    scale: Math.hypot(m2.a, m2.b),
+    pivot
+  };
+};
+var composeSim = (second, first) => ({
+  a: second.a * first.a - second.b * first.b,
+  b: second.b * first.a + second.a * first.b,
+  tx: second.a * first.tx - second.b * first.ty + second.tx,
+  ty: second.b * first.tx + second.a * first.ty + second.ty
+});
+var simFromPairs = (a0, b0, a2, b2) => {
+  const v0 = { x: b0.x - a0.x, y: b0.y - a0.y };
+  const v2 = { x: b2.x - a2.x, y: b2.y - a2.y };
+  const len0 = Math.hypot(v0.x, v0.y);
+  if (len0 < 0.000001)
+    return { a: 1, b: 0, tx: a2.x - a0.x, ty: a2.y - a0.y };
+  const k2 = Math.hypot(v2.x, v2.y) / len0;
+  const r2 = Math.atan2(v2.y, v2.x) - Math.atan2(v0.y, v0.x);
+  return simOf({ pivot: a0, translate: { x: a2.x - a0.x, y: a2.y - a0.y }, rotate: r2, scale: k2 });
+};
+
 // sketch/vocabulary.ts
 var num = (p2, key, fallback) => {
   const v2 = Number(p2[key]);
@@ -65613,9 +65676,9 @@ var VOCABULARY = [
     name: "Circle",
     description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      r: { type: "number", description: "radius, page units (mean distance of the loop from its centre)" }
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      r: { type: "number", role: "length", description: "radius, page units (mean distance of the loop from its centre)" }
     },
     build: (p2) => new Circle({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), radius: Math.max(1, num(p2, "r", 50)), tint: WHITE })
   },
@@ -65624,10 +65687,10 @@ var VOCABULARY = [
     name: "Square",
     description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "side length, page units" },
-      rotation: { type: "number", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` }
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "side length, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` }
     },
     build: (p2) => new Square({
       x: num(p2, "cx", 0),
@@ -65641,11 +65704,12 @@ var VOCABULARY = [
     name: "Triangle",
     description: "An equilateral-ish triangle (three corners).",
     params: {
-      cx: { type: "number", description: "centre x (centroid), page units" },
-      cy: { type: "number", description: "centre y (centroid), page units" },
-      r: { type: "number", description: "circumradius: centroid-to-corner distance, page units" },
+      cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
+      cy: { type: "number", role: "y", description: "centre y (centroid), page units" },
+      r: { type: "number", role: "length", description: "circumradius: centroid-to-corner distance, page units" },
       rotation: {
         type: "number",
+        role: "angle",
         description: `${ANGLE}; 0 = one corner pointing straight UP (flat bottom); π/3 (or π) = pointing DOWN`
       }
     },
@@ -65662,12 +65726,12 @@ var VOCABULARY = [
     name: "Cube",
     description: "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "edge length, page units (roughly the front face's side)" },
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
       h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
       p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
-      b: { type: "number", description: "bank (in-plane roll), radians; usually 0" }
+      b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" }
     },
     build: (p2) => {
       const size = Math.max(1, num(p2, "size", 100));
@@ -65687,11 +65751,11 @@ var VOCABULARY = [
     name: "Flower of Life",
     description: "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
     params: {
-      cx: { type: "number", description: "centre of the middle circle x, page units" },
-      cy: { type: "number", description: "centre of the middle circle y, page units" },
-      r: { type: "number", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
+      cx: { type: "number", role: "x", description: "centre of the middle circle x, page units" },
+      cy: { type: "number", role: "y", description: "centre of the middle circle y, page units" },
+      r: { type: "number", role: "length", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
       rings: { type: "enum", options: ["1", "2"], description: "1 → 7 circles, 2 → 19 circles" },
-      rotation: { type: "number", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` }
     },
     build: (p2) => {
       const r2 = Math.max(1, num(p2, "r", 50));
@@ -65722,16 +65786,17 @@ var VOCABULARY = [
     name: "MindVirus",
     description: "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
     params: {
-      x: { type: "number", description: "body (cube) centre x, page units" },
-      y: { type: "number", description: "body (cube) centre y, page units" },
-      size: { type: "number", description: "cube edge length, page units" },
-      heading: { type: "number", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      x: { type: "number", role: "x", description: "body (cube) centre x, page units" },
+      y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
+      size: { type: "number", role: "length", description: "cube edge length, page units" },
+      heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
       fold: {
         type: "number",
         description: "−1..1, how the cube's walls sit: 1 = closed box (walls upright, reads as a plain cube), ~0.5 = walls half open, 0 = walls splayed flat (an open cross/flower), negative = walls folded forward around something (wrapping a victim)"
       },
       cable: {
         type: "points",
+        role: "points",
         description: "the drawn tail as page points [[x,y],…] ordered from the FREE TAIL END to where it touches the body; follow the actual drawn line (8–20 points). Omit or [] if no tail was drawn"
       }
     },
@@ -65742,10 +65807,10 @@ var VOCABULARY = [
     name: "Eye",
     description: "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
     params: {
-      cx: { type: "number", description: "centre x of the eye's bounding box, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "length from apex to the far arc, page units" },
-      rotation: { type: "number", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` }
+      cx: { type: "number", role: "x", description: "centre x of the eye's bounding box, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "length from apex to the far arc, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` }
     },
     build: (p2) => {
       const size = Math.max(1, num(p2, "size", 100));
@@ -65760,9 +65825,9 @@ var VOCABULARY = [
     name: "Figure",
     description: "A person: a stick figure (round head, body line, arms, legs).",
     params: {
-      cx: { type: "number", description: "centre x (the figure's middle), page units" },
-      cy: { type: "number", description: "centre y (halfway between crown and feet), page units" },
-      height: { type: "number", description: "crown-to-feet height, page units" }
+      cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
+      cy: { type: "number", role: "y", description: "centre y (halfway between crown and feet), page units" },
+      height: { type: "number", role: "length", description: "crown-to-feet height, page units" }
     },
     build: (p2) => new Figure({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), height: Math.max(1, num(p2, "height", 120)) })
   }
@@ -65775,10 +65840,130 @@ var buildSymbol = (s2) => {
     throw new Error(`sketch vocabulary: unknown symbol '${s2.symbol}'`);
   return entry.build(s2.params ?? {});
 };
+var ROLE_BY_NAME = {
+  x: "x",
+  cx: "x",
+  y: "y",
+  cy: "y",
+  r: "length",
+  radius: "length",
+  size: "length",
+  width: "length",
+  height: "length",
+  rotation: "angle",
+  heading: "angle"
+};
+var roleOf = (entry, key) => entry ? entry.params[key]?.role : ROLE_BY_NAME[key];
+var isPointLike = (e2) => Array.isArray(e2) && typeof e2[0] === "number" && typeof e2[1] === "number" || typeof e2 === "object" && e2 !== null && typeof e2.x === "number" && typeof e2.y === "number";
+var transformSymbol = (s2, t2) => {
+  const xf = xfOf(t2);
+  const entry = vocabById(s2.symbol);
+  const params = { ...s2.params };
+  const keys = Object.keys(s2.params);
+  const xKey = keys.find((k2) => roleOf(entry, k2) === "x");
+  const yKey = keys.find((k2) => roleOf(entry, k2) === "y");
+  if (xKey && yKey) {
+    const x2 = Number(s2.params[xKey]);
+    const y2 = Number(s2.params[yKey]);
+    if (Number.isFinite(x2) && Number.isFinite(y2)) {
+      const q = xfPoint(xf, { x: x2, y: y2 });
+      params[xKey] = q.x;
+      params[yKey] = q.y;
+    }
+  }
+  for (const k2 of keys) {
+    const v2 = s2.params[k2];
+    const role = roleOf(entry, k2);
+    if (role === "length" && typeof v2 === "number" && Number.isFinite(v2))
+      params[k2] = v2 * xf.scale;
+    else if (role === "angle" && typeof v2 === "number" && Number.isFinite(v2))
+      params[k2] = xf.rotate === 0 ? v2 : wrapAngle(v2 + xf.rotate);
+    else if ((role === "points" || role === undefined) && Array.isArray(v2) && v2.length > 0 && v2.every(isPointLike))
+      params[k2] = v2.map((e2) => {
+        if (Array.isArray(e2)) {
+          const q = xfPoint(xf, { x: e2[0], y: e2[1] });
+          return [q.x, q.y];
+        }
+        const pt = e2;
+        return { ...pt, ...xfPoint(xf, pt) };
+      });
+  }
+  return { ...s2, params };
+};
+var framePage = (dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }) => {
+  const o2 = dream.observer;
+  o2.x.defaultValue = o2.x.value = frame.cx;
+  o2.y.defaultValue = o2.y.value = -frame.cy;
+  const r2 = frame.h / (2 * Math.tan(o2.fov.value / 2));
+  o2.radius.defaultValue = o2.radius.value = r2;
+};
 
-// sketch/protocol.ts
-var PAGE_W = 1404;
-var PAGE_H = 1872;
+// sketch/board.ts
+var BOARD_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+var isValidBoardName = (name) => BOARD_NAME.test(name);
+var emptyBoard = () => ({ version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes: [], symbols: [] });
+var finite = (v2) => typeof v2 === "number" && Number.isFinite(v2);
+var parseSample = (v2) => {
+  const p2 = v2;
+  if (!p2 || !finite(p2.x) || !finite(p2.y))
+    return;
+  return { x: p2.x, y: p2.y, pressure: finite(p2.pressure) ? p2.pressure : 0.5, t: finite(p2.t) ? p2.t : 0 };
+};
+var parseBoard = (v2) => {
+  if (typeof v2 !== "object" || v2 === null)
+    return;
+  const b2 = v2;
+  if (!Array.isArray(b2.strokes) || !Array.isArray(b2.symbols))
+    return;
+  const strokes = [];
+  for (const k2 of b2.strokes) {
+    const s2 = k2;
+    if (!s2 || typeof s2.id !== "string" || !Array.isArray(s2.points))
+      continue;
+    const points = s2.points.map(parseSample).filter((p2) => !!p2);
+    if (points.length)
+      strokes.push({ id: s2.id, points });
+  }
+  const symbols = [];
+  for (const y2 of b2.symbols) {
+    const s2 = y2;
+    if (!s2 || typeof s2.id !== "string" || typeof s2.symbol !== "string")
+      continue;
+    const params = typeof s2.params === "object" && s2.params !== null ? s2.params : {};
+    const fromStrokes = Array.isArray(s2.fromStrokes) ? s2.fromStrokes.filter((x2) => typeof x2 === "string") : [];
+    symbols.push({ id: s2.id, symbol: s2.symbol, params, fromStrokes });
+  }
+  return { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols };
+};
+var r2 = (v2) => Math.round(v2 * 100) / 100;
+var r3 = (v2) => Math.round(v2 * 1000) / 1000;
+var roundDeep = (v2) => {
+  if (typeof v2 === "number")
+    return Number.isFinite(v2) ? Math.round(v2 * 1e4) / 1e4 : v2;
+  if (Array.isArray(v2))
+    return v2.map(roundDeep);
+  if (typeof v2 === "object" && v2 !== null)
+    return Object.fromEntries(Object.entries(v2).map(([k2, e2]) => [k2, roundDeep(e2)]));
+  return v2;
+};
+var serializeBoard = (b2) => {
+  const strokes = b2.strokes.map((k2) => JSON.stringify({
+    id: k2.id,
+    points: k2.points.map((p2) => ({ x: r2(p2.x), y: r2(p2.y), pressure: r3(p2.pressure), t: Math.round(p2.t) }))
+  }));
+  const symbols = b2.symbols.map((y2) => JSON.stringify({ ...y2, params: roundDeep(y2.params) }));
+  const list = (rows) => rows.length ? `[
+    ${rows.join(`,
+    `)}
+  ]` : "[]";
+  return `{
+  "version": 1,
+  "page": { "w": ${PAGE_W}, "h": ${PAGE_H} },
+  "symbols": ${list(symbols)},
+  "strokes": ${list(strokes)}
+}
+`;
+};
 
 // sketch/state.ts
 var emptyState = () => ({ strokes: [], symbols: [] });
@@ -65809,40 +65994,26 @@ var apply = (s2, cmd) => {
         symbols: s2.symbols.map((y2) => moving.has(y2.id) ? translateSymbol(y2, cmd.dx, cmd.dy) : y2)
       };
     }
+    case "transform": {
+      const moving = new Set(cmd.ids);
+      return {
+        strokes: s2.strokes.map((k2) => moving.has(k2.id) ? transformStroke(k2, cmd.xf) : k2),
+        symbols: s2.symbols.map((y2) => moving.has(y2.id) ? transformSymbol(y2, cmd.xf) : y2)
+      };
+    }
     case "clear":
       return emptyState();
   }
 };
+var transformStroke = (k2, xf) => ({
+  id: k2.id,
+  points: k2.points.map((p2) => ({ ...p2, ...xfPoint(xf, p2) }))
+});
 var translateStroke = (k2, dx, dy) => ({
   id: k2.id,
   points: k2.points.map((p2) => ({ ...p2, x: p2.x + dx, y: p2.y + dy }))
 });
-var X_KEYS = new Set(["x", "cx", "x0", "x1", "x2"]);
-var Y_KEYS = new Set(["y", "cy", "y0", "y1", "y2"]);
-var translateSymbol = (y2, dx, dy) => {
-  const shift = (key, v2) => {
-    if (typeof v2 === "number") {
-      if (X_KEYS.has(key))
-        return v2 + dx;
-      if (Y_KEYS.has(key))
-        return v2 + dy;
-      return v2;
-    }
-    if (Array.isArray(v2))
-      return v2.map((e2) => shift("", e2));
-    if (isPoint(v2))
-      return { ...v2, x: v2.x + dx, y: v2.y + dy };
-    return v2;
-  };
-  const params = {};
-  for (const [k2, v2] of Object.entries(y2.params)) {
-    if (Array.isArray(v2) && v2.every((e2) => Array.isArray(e2) && e2.length === 2 && e2.every((n2) => typeof n2 === "number")))
-      params[k2] = v2.map(([px, py]) => [px + dx, py + dy]);
-    else
-      params[k2] = shift(k2, v2);
-  }
-  return { ...y2, params };
-};
+var translateSymbol = (y2, dx, dy) => transformSymbol(y2, { translate: { x: dx, y: dy } });
 var isPoint = (v2) => typeof v2 === "object" && v2 !== null && typeof v2.x === "number" && typeof v2.y === "number";
 
 class History {
@@ -65936,10 +66107,10 @@ var symbolBox = (y2) => {
   const p2 = y2.params;
   const cx = num2(p2.x) ?? num2(p2.cx) ?? 0;
   const cy = num2(p2.y) ?? num2(p2.cy) ?? 0;
-  const r2 = num2(p2.r) ?? num2(p2.radius) ?? undefined;
+  const r4 = num2(p2.r) ?? num2(p2.radius) ?? undefined;
   const size = num2(p2.size);
-  const w4 = num2(p2.width) ?? (r2 !== undefined ? 2 * r2 : size ?? 160);
-  const h2 = num2(p2.height) ?? (r2 !== undefined ? 2 * r2 : size ?? w4);
+  const w4 = num2(p2.width) ?? (r4 !== undefined ? 2 * r4 : size ?? 160);
+  const h2 = num2(p2.height) ?? (r4 !== undefined ? 2 * r4 : size ?? w4);
   const pts = [
     { x: cx - w4 / 2, y: cy - h2 / 2 },
     { x: cx + w4 / 2, y: cy + h2 / 2 }
@@ -66018,31 +66189,81 @@ var ink = document.getElementById("ink");
 var ringEl = document.getElementById("ring");
 var statusEl = document.getElementById("status");
 var importsEl = document.getElementById("imports");
+var presenceEl = document.getElementById("presence");
+var dotEl = document.getElementById("tabletdot");
+var bannerEl = document.getElementById("banner");
+var boardInput = document.getElementById("board");
+var boardList = document.getElementById("boards");
+var editorLink = document.getElementById("toeditor");
 var btn = (id) => document.getElementById(id);
 var ctx = ink.getContext("2d");
-var STORE_KEY = "dreamtalk.sketch.page.v1";
 var THEME_KEY = "dreamtalk.sketch.dark";
-var loadState = () => {
+var LEGACY_KEY = "dreamtalk.sketch.page.v1";
+var localKey = (name) => `dreamtalk.board.${name}.v1`;
+var requested = new URLSearchParams(location.search).get("board") ?? "scratch";
+var boardName = isValidBoardName(requested) ? requested : "scratch";
+var readLocal = (key) => {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const s2 = JSON.parse(raw);
-      if (Array.isArray(s2.strokes) && Array.isArray(s2.symbols))
-        return s2;
+    const raw = localStorage.getItem(key);
+    const b2 = raw ? parseBoard(JSON.parse(raw)) : undefined;
+    return b2 && (b2.strokes.length || b2.symbols.length) ? { strokes: b2.strokes, symbols: b2.symbols } : undefined;
+  } catch {
+    return;
+  }
+};
+var loadBoard = async () => {
+  try {
+    const res = await fetch(`/api/board/${encodeURIComponent(boardName)}`, { cache: "no-store" });
+    if (res.ok) {
+      const b2 = parseBoard(await res.json()) ?? emptyBoard();
+      return { state: { strokes: b2.strokes, symbols: b2.symbols }, migrate: false };
+    }
+    if (res.status === 404) {
+      const local = readLocal(localKey(boardName)) ?? (boardName === "scratch" ? readLocal(LEGACY_KEY) : undefined);
+      return { state: local ?? { strokes: [], symbols: [] }, migrate: !!local };
     }
   } catch {}
-  return { strokes: [], symbols: [] };
+  offline = true;
+  return { state: readLocal(localKey(boardName)) ?? { strokes: [], symbols: [] }, migrate: false };
+};
+var offline = false;
+var saveTimer;
+var saving = Promise.resolve();
+var saveWarned = false;
+var saveNow = () => {
+  if (saveTimer)
+    clearTimeout(saveTimer);
+  saveTimer = undefined;
+  const body = serializeBoard(history.state);
+  saving = saving.then(async () => {
+    try {
+      const res = await fetch(`/api/board/${encodeURIComponent(boardName)}`, { method: "PUT", body });
+      if (!res.ok)
+        throw new Error(`daemon ${res.status}`);
+      offline = false;
+      saveWarned = false;
+    } catch {
+      offline = true;
+      if (!saveWarned)
+        flash("not saved to disk — daemon unreachable (kept in this browser)", 6000);
+      saveWarned = true;
+    }
+  });
+  return saving;
 };
 var saveState = () => {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(history.state));
+    localStorage.setItem(localKey(boardName), serializeBoard(history.state));
   } catch {}
+  if (saveTimer)
+    clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => void saveNow(), 350);
 };
 var dark = true;
 try {
   dark = localStorage.getItem(THEME_KEY) !== "0";
 } catch {}
-var history = new History(loadState());
+var history = new History;
 var selection = new Set;
 var thinking;
 var last;
@@ -66051,9 +66272,11 @@ var mode = "idle";
 var live = [];
 var lasso = [];
 var pressStart;
-var moveDelta = { x: 0, y: 0 };
+var pressButton = false;
 var erased = new Set;
-var hover;
+var liveXf;
+var handleDrag;
+var keys = { alt: false, shift: false };
 var TOOLBAR_H = 44;
 var scale2 = 1;
 var dpr = window.devicePixelRatio || 1;
@@ -66074,9 +66297,10 @@ var layout = () => {
   ink.style.height = `${h2}px`;
 };
 var toPage = (clientX, clientY) => {
-  const r2 = pageEl.getBoundingClientRect();
-  return { x: (clientX - r2.left) / scale2, y: (clientY - r2.top) / scale2 };
+  const r4 = pageEl.getBoundingClientRect();
+  return { x: (clientX - r4.left) / scale2, y: (clientY - r4.top) / scale2 };
 };
+var px = (n2) => n2 / scale2;
 var applyTheme = () => {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   btn("theme").textContent = dark ? "◐ dark" : "◑ light";
@@ -66086,6 +66310,7 @@ var applyTheme = () => {
   drawInk();
 };
 var inkColor = () => dark ? "#f2f2f2" : "#111";
+var pageColor = () => dark ? "#000" : "#fff";
 var accent = "#00a2ff";
 
 class SymbolsDream extends Dream {
@@ -66095,11 +66320,7 @@ class SymbolsDream extends Dream {
     super();
     this.placed = placed;
     this.fresh = fresh;
-    const o2 = this.observer;
-    o2.x.defaultValue = o2.x.value = frame.cx;
-    o2.y.defaultValue = o2.y.value = -frame.cy;
-    const r2 = frame.h / (2 * Math.tan(o2.fov.value / 2));
-    o2.radius.defaultValue = o2.radius.value = r2;
+    framePage(this, frame);
   }
   unfold() {
     for (const s2 of this.placed) {
@@ -66126,58 +66347,85 @@ var glCanvasOf = (cssW, cssH) => {
   canvas.height = Math.round(cssH * dpr);
   return canvas;
 };
-var glHost;
-var glCanvas;
+var restLayer = { name: "rest", sig: "" };
+var liftedLayer = { name: "lifted", sig: "" };
 var glBusy = false;
 var glAgain;
-var glSignature = "";
-var symbolsSignature = () => JSON.stringify(history.state.symbols) + `|${scale2}|${dpr}`;
+var layerLists = () => {
+  const all3 = history.state.symbols;
+  return [
+    [restLayer, all3.filter((y2) => !selection.has(y2.id))],
+    [liftedLayer, all3.filter((y2) => selection.has(y2.id))]
+  ];
+};
+var layerSig = (list) => JSON.stringify(list) + `|${scale2}|${dpr}`;
+var glGeometry = () => {
+  const h2 = PAGE_H * scale2;
+  const w4 = h2 * 16 / 9;
+  return { w: w4, h: h2, left: (PAGE_W * scale2 - w4) / 2 };
+};
 var syncSymbols = async (fresh) => {
   if (glBusy) {
     glAgain = { fresh: fresh ?? glAgain?.fresh };
     return;
   }
-  const sig = symbolsSignature();
-  if (sig === glSignature && glHost)
+  const todo = layerLists().filter(([L2, list]) => layerSig(list) !== L2.sig || list.length > 0 && !L2.host);
+  if (todo.length === 0)
     return;
   glBusy = true;
+  const built = [];
   try {
-    const h2 = PAGE_H * scale2;
-    const w4 = h2 * 16 / 9;
-    const dream = new SymbolsDream(history.state.symbols, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh);
-    const canvas = glCanvasOf(w4, h2);
-    canvas.style.left = `${(PAGE_W * scale2 - w4) / 2}px`;
-    canvas.style.visibility = "hidden";
-    pageEl.insertBefore(canvas, ink);
-    const host = await ThreeHost.mount(dream, canvas);
-    host.renderer.setPixelRatio(dpr);
-    host.renderer.setSize(w4, h2, false);
-    await host.renderFrame(0);
-    await host.renderFrame(0);
-    canvas.style.visibility = "visible";
-    const old = glCanvas;
-    const oldHost = glHost;
-    glCanvas = canvas;
-    glHost = host;
-    glSignature = sig;
-    old?.remove();
-    oldHost?.dispose();
-    const duration = dream.duration;
-    if (duration > 0) {
-      const t0 = performance.now();
-      const tick = async () => {
-        if (glHost !== host)
-          return;
-        const t2 = Math.min(duration, (performance.now() - t0) / 1000);
-        await host.renderFrame(t2);
-        if (t2 < duration)
-          requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+    const { w: w4, h: h2, left } = glGeometry();
+    for (const [L2, list] of todo) {
+      if (list.length === 0) {
+        built.push({ L: L2, sig: layerSig(list), duration: 0 });
+        continue;
+      }
+      const dream = new SymbolsDream(list, { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }, fresh);
+      const canvas = glCanvasOf(w4, h2);
+      canvas.classList.add(L2.name);
+      canvas.style.left = `${left}px`;
+      canvas.style.visibility = "hidden";
+      pageEl.insertBefore(canvas, ink);
+      const host = await ThreeHost.mount(dream, canvas);
+      host.renderer.setPixelRatio(dpr);
+      host.renderer.setSize(w4, h2, false);
+      await host.renderFrame(0);
+      await host.renderFrame(0);
+      built.push({ L: L2, sig: layerSig(list), canvas, host, duration: dream.duration });
     }
+    for (const b2 of built) {
+      const old = b2.L.canvas;
+      const oldHost = b2.L.host;
+      if (b2.canvas)
+        b2.canvas.style.visibility = "visible";
+      b2.L.canvas = b2.canvas;
+      b2.L.host = b2.host;
+      b2.L.sig = b2.sig;
+      old?.remove();
+      oldHost?.dispose();
+      const host = b2.host;
+      if (host && b2.duration > 0) {
+        const t0 = performance.now();
+        const tick = async () => {
+          if (b2.L.host !== host)
+            return;
+          const t2 = Math.min(b2.duration, (performance.now() - t0) / 1000);
+          await host.renderFrame(t2);
+          if (t2 < b2.duration)
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+    }
+    if (liveXf)
+      liftCss(liveXf);
   } catch (err) {
     console.error("[sketch] symbol layer failed", err);
     flash(`render failed: ${err.message}`);
+    for (const b2 of built)
+      if (b2.L.canvas !== b2.canvas)
+        b2.canvas?.remove(), b2.host?.dispose();
   } finally {
     glBusy = false;
     if (glAgain) {
@@ -66186,6 +66434,69 @@ var syncSymbols = async (fresh) => {
       syncSymbols(next.fresh);
     }
   }
+};
+var liftCss = (xf) => {
+  const c2 = liftedLayer.canvas;
+  if (!c2)
+    return;
+  if (!xf) {
+    c2.style.transform = "";
+    return;
+  }
+  const { left } = glGeometry();
+  c2.style.transformOrigin = `${xf.pivot.x * scale2 - left}px ${xf.pivot.y * scale2}px`;
+  c2.style.transform = `translate(${xf.translate.x * scale2}px, ${xf.translate.y * scale2}px) rotate(${xf.rotate}rad) scale(${xf.scale})`;
+};
+var FRAME_PAD = 10;
+var HANDLE = 7;
+var HANDLE_HIT = 11;
+var KNOB_GAP = 24;
+var KNOB_R = 5;
+var KNOB_HIT = 12;
+var CHIP_R = 13;
+var CHIP_GAP = 10;
+var CHIP_HIT = 16;
+var selectedStrokes = () => history.state.strokes.filter((k2) => selection.has(k2.id));
+var frameBox = () => {
+  if (selection.size === 0)
+    return;
+  const sb = selectionBox(history.state, selection);
+  if (!sb)
+    return;
+  const pad = px(FRAME_PAD);
+  return { x: sb.x - pad, y: sb.y - pad, w: sb.w + 2 * pad, h: sb.h + 2 * pad };
+};
+var clampY = (y2, r4) => Math.min(PAGE_H - px(r4 + 3), Math.max(px(r4 + 3), y2));
+var chrome = () => {
+  if (thinking || ring || liveXf)
+    return;
+  const frame = frameBox();
+  if (!frame)
+    return;
+  const corners = [
+    { x: frame.x, y: frame.y },
+    { x: frame.x + frame.w, y: frame.y },
+    { x: frame.x + frame.w, y: frame.y + frame.h },
+    { x: frame.x, y: frame.y + frame.h }
+  ];
+  const cx = frame.x + frame.w / 2;
+  const knob = { x: cx, y: clampY(frame.y - px(KNOB_GAP), KNOB_R) };
+  const chip = selectedStrokes().length ? { x: cx, y: clampY(frame.y + frame.h + px(CHIP_GAP + CHIP_R), CHIP_R) } : undefined;
+  return { frame, corners, knob, chip };
+};
+var chromeAt = (p2) => {
+  const c2 = chrome();
+  if (!c2)
+    return;
+  const near = (q, r4) => Math.hypot(p2.x - q.x, p2.y - q.y) <= px(r4);
+  if (c2.chip && near(c2.chip, CHIP_HIT))
+    return { kind: "chip" };
+  if (near(c2.knob, KNOB_HIT))
+    return { kind: "rotate" };
+  for (let i2 = 0;i2 < 4; i2++)
+    if (near(c2.corners[i2], HANDLE_HIT))
+      return { kind: "corner", i: i2 };
+  return;
 };
 var strokeWidth = (p2) => 2.2 + 3.2 * Math.min(1, Math.max(0, p2.pressure || 0.5));
 var drawStroke = (c2, pts, k2, color4, extra = 0) => {
@@ -66210,19 +66521,38 @@ var drawStroke = (c2, pts, k2, color4, extra = 0) => {
     c2.stroke();
   }
 };
+var boxQuad = (b2, pad = 0) => {
+  const q = [
+    { x: b2.x - pad, y: b2.y - pad },
+    { x: b2.x + b2.w + pad, y: b2.y - pad },
+    { x: b2.x + b2.w + pad, y: b2.y + b2.h + pad },
+    { x: b2.x - pad, y: b2.y + b2.h + pad }
+  ];
+  return liveXf ? q.map((p2) => xfPoint(liveXf, p2)) : q;
+};
+var dashedQuad = (quad, k2, color4, dash, offset = 0) => {
+  ctx.save();
+  ctx.strokeStyle = color4;
+  ctx.lineWidth = 1.2 * dpr;
+  ctx.setLineDash(dash.map((d2) => d2 * dpr));
+  ctx.lineDashOffset = offset;
+  ctx.beginPath();
+  ctx.moveTo(quad[0].x * k2, quad[0].y * k2);
+  for (const p2 of quad.slice(1))
+    ctx.lineTo(p2.x * k2, p2.y * k2);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+};
 var dashedBox = (b2, k2, color4, pad, dash, offset = 0) => {
   ctx.save();
   ctx.strokeStyle = color4;
   ctx.lineWidth = 1.2 * dpr;
   ctx.setLineDash(dash.map((d2) => d2 * dpr));
   ctx.lineDashOffset = offset;
-  const r2 = 10 * dpr;
-  const x2 = (b2.x - pad) * k2;
-  const y2 = (b2.y - pad) * k2;
-  const w4 = (b2.w + 2 * pad) * k2;
-  const h2 = (b2.h + 2 * pad) * k2;
+  const r4 = 10 * dpr;
   ctx.beginPath();
-  ctx.roundRect(x2, y2, w4, h2, r2);
+  ctx.roundRect((b2.x - pad) * k2, (b2.y - pad) * k2, (b2.w + 2 * pad) * k2, (b2.h + 2 * pad) * k2, r4);
   ctx.stroke();
   ctx.restore();
 };
@@ -66236,6 +66566,48 @@ var drawInk = () => {
     paintInk();
   });
 };
+var paintChrome = (c2, k2) => {
+  ctx.save();
+  const top = { x: c2.frame.x + c2.frame.w / 2, y: c2.frame.y };
+  ctx.strokeStyle = accent;
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 1 * dpr;
+  ctx.beginPath();
+  ctx.moveTo(top.x * k2, top.y * k2);
+  ctx.lineTo(c2.knob.x * k2, (c2.knob.y + px(KNOB_R)) * k2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = pageColor();
+  ctx.lineWidth = 1.3 * dpr;
+  ctx.beginPath();
+  ctx.arc(c2.knob.x * k2, c2.knob.y * k2, KNOB_R * dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  const s2 = HANDLE * dpr;
+  for (const p2 of c2.corners) {
+    ctx.beginPath();
+    ctx.rect(p2.x * k2 - s2 / 2, p2.y * k2 - s2 / 2, s2, s2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  if (c2.chip) {
+    const x2 = c2.chip.x * k2;
+    const y2 = c2.chip.y * k2;
+    ctx.beginPath();
+    ctx.arc(x2, y2, CHIP_R * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = pageColor();
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.3 * dpr;
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.font = `${13 * dpr}px -apple-system, "SF Pro", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("✦", x2, y2 + 0.5 * dpr);
+  }
+  ctx.restore();
+};
 var paintInk = () => {
   const k2 = scale2 * dpr;
   ctx.clearRect(0, 0, ink.width, ink.height);
@@ -66243,9 +66615,7 @@ var paintInk = () => {
   const busy = new Set(thinking?.ids ?? []);
   for (const stroke of s2.strokes) {
     const sel = selection.has(stroke.id);
-    let pts = stroke.points;
-    if (sel && mode === "move")
-      pts = translateStroke(stroke, moveDelta.x, moveDelta.y).points;
+    const pts = sel && liveXf ? transformStroke(stroke, liveXf).points : stroke.points;
     if (sel) {
       ctx.save();
       ctx.globalAlpha = 0.3;
@@ -66264,19 +66634,19 @@ var paintInk = () => {
     }
   }
   for (const y2 of s2.symbols) {
-    if (!selection.has(y2.id))
+    if (!selection.has(y2.id) || selection.size < 2)
       continue;
-    const b2 = symbolBox(y2);
-    const shifted = mode === "move" ? { ...b2, x: b2.x + moveDelta.x, y: b2.y + moveDelta.y } : b2;
-    dashedBox(shifted, k2, accent, 10, [5, 5]);
+    dashedQuad(boxQuad(symbolBox(y2), px(5)), k2, accent, [5, 5]);
   }
-  const sb = selectionBox(s2, selection);
-  if (sb && selection.size > 0 && !thinking) {
-    const b2 = mode === "move" ? { ...sb, x: sb.x + moveDelta.x, y: sb.y + moveDelta.y } : sb;
-    dashedBox(b2, k2, dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.25)", 26, [2, 6]);
+  const fb = frameBox();
+  if (fb && !thinking) {
+    dashedQuad(boxQuad(fb), k2, dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.25)", [2, 6]);
   }
+  const c2 = chrome();
+  if (c2)
+    paintChrome(c2, k2);
   if (thinking) {
-    dashedBox(thinking.box, k2, accent, 26, [6, 8], -(performance.now() / 40) % 1000);
+    dashedBox(thinking.box, k2, accent, px(FRAME_PAD), [6, 8], -(performance.now() / 40) % 1000);
   }
   if (mode === "draw" && live.length)
     drawStroke(ctx, live, k2, inkColor());
@@ -66306,15 +66676,7 @@ var paintInk = () => {
     ctx.stroke();
     ctx.restore();
   }
-  if (hover && performance.now() - hover.at < 1500) {
-    ctx.save();
-    ctx.strokeStyle = hover.button ? accent : dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-    ctx.lineWidth = 1.5 * dpr;
-    ctx.beginPath();
-    ctx.arc(hover.p.x * k2, hover.p.y * k2, 7 * dpr, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
+  liftCss(liveXf);
   if (thinking)
     drawInk();
 };
@@ -66334,20 +66696,37 @@ var updateButtons = () => {
   btn("redo").disabled = !history.canRedo;
   btn("transform").disabled = !!thinking || selectedStrokes().length === 0;
 };
-var selectedStrokes = () => history.state.strokes.filter((k2) => selection.has(k2.id));
 var setSelection = (ids) => {
   selection = pruneSelection(history.state, ids);
   updateButtons();
   drawInk();
+  syncSymbols();
+};
+var commitLive = () => {
+  const xf = liveXf;
+  liveXf = undefined;
+  if (xf && !isIdentity(xf) && selection.size > 0) {
+    history.do({ kind: "transform", ids: [...selection], xf });
+    afterChange();
+  } else {
+    liftCss(undefined);
+    drawInk();
+  }
+};
+var cancelLive = () => {
+  liveXf = undefined;
+  liftCss(undefined);
+  drawInk();
 };
 var undo = () => {
   closeRing();
+  cancelLive();
   const cmd = history.undo();
   if (!cmd)
     return;
   if (cmd.kind === "replace" || cmd.kind === "delete" || cmd.kind === "erase")
     selection = new Set(cmd.ids);
-  else if (cmd.kind === "move")
+  else if (cmd.kind === "move" || cmd.kind === "transform")
     selection = new Set(cmd.ids);
   else
     selection = new Set;
@@ -66357,10 +66736,11 @@ var undo = () => {
 };
 var redo = () => {
   closeRing();
+  cancelLive();
   const cmd = history.redo();
   if (!cmd)
     return;
-  selection = cmd.kind === "move" ? new Set(cmd.ids) : new Set;
+  selection = cmd.kind === "move" || cmd.kind === "transform" ? new Set(cmd.ids) : new Set;
   afterChange(cmd.kind === "replace" ? cmd.symbol.id : undefined);
 };
 var sameIds = (a2, b2) => a2.length === b2.length && [...a2].sort().join() === [...b2].sort().join();
@@ -66467,8 +66847,8 @@ var transform = async () => {
     flash(response.notes ? `no symbol — ${response.notes}` : "no symbol recognised");
     return;
   }
-  const live2 = new Set(history.state.strokes.map((k2) => k2.id));
-  if (!ids.every((id) => live2.has(id))) {
+  const liveIds = new Set(history.state.strokes.map((k2) => k2.id));
+  if (!ids.every((id) => liveIds.has(id))) {
     flash("the ink changed while thinking — try again");
     return;
   }
@@ -66528,9 +66908,9 @@ var openRing = (from) => {
   drawInk();
   renderThumbs(ring, from.box);
 };
-var renderThumbs = async (r2, box) => {
-  for (const chip of r2.chips) {
-    if (ring !== r2)
+var renderThumbs = async (r4, box) => {
+  for (const chip of r4.chips) {
+    if (ring !== r4)
       return;
     try {
       const placed = { id: "thumb", symbol: chip.candidate.symbol, params: chip.candidate.params, fromStrokes: [] };
@@ -66547,7 +66927,7 @@ var renderThumbs = async (r2, box) => {
       host.renderer.setSize(cssW, cssH, false);
       await host.renderFrame(0);
       await host.renderFrame(0);
-      if (ring !== r2) {
+      if (ring !== r4) {
         host.dispose();
         return;
       }
@@ -66584,17 +66964,60 @@ var pathLength = (pts) => {
     d2 += Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y);
   return d2;
 };
-var handlePen = (ev, source) => {
-  const p2 = { x: ev.sample.x, y: ev.sample.y };
-  if (ev.kind === "hover" || ev.kind === "button") {
-    if (source === "tablet") {
-      hover = { p: p2, button: ev.kind === "button" ? ev.pressed : ev.button, at: performance.now() };
-      drawInk();
-    }
-    return;
+var startHandle = (hit, p2) => {
+  const c2 = chrome();
+  const center = boxCenter(c2.frame);
+  if (hit.kind === "rotate") {
+    mode = "rotate";
+    handleDrag = { corner: c2.knob, opposite: center, center, start: p2 };
+  } else {
+    mode = "scale";
+    handleDrag = { corner: c2.corners[hit.i], opposite: c2.corners[(hit.i + 2) % 4], center, start: p2 };
   }
+  liveXf = { ...IDENTITY, pivot: center };
+};
+var SNAP = Math.PI / 12;
+var dragHandle = (p2) => {
+  const d2 = handleDrag;
+  if (mode === "rotate") {
+    let a2 = Math.atan2(p2.y - d2.center.y, p2.x - d2.center.x) - Math.atan2(d2.start.y - d2.center.y, d2.start.x - d2.center.x);
+    if (keys.shift)
+      a2 = Math.round(a2 / SNAP) * SNAP;
+    liveXf = { ...IDENTITY, pivot: d2.center, rotate: a2 };
+  } else {
+    const pivot = keys.alt ? d2.center : d2.opposite;
+    const v2 = { x: d2.corner.x - pivot.x, y: d2.corner.y - pivot.y };
+    const len22 = v2.x * v2.x + v2.y * v2.y;
+    const grab = { x: d2.start.x - d2.corner.x, y: d2.start.y - d2.corner.y };
+    const q = { x: p2.x - grab.x - pivot.x, y: p2.y - grab.y - pivot.y };
+    const k2 = len22 < 0.000000001 ? 1 : Math.min(50, Math.max(0.05, (q.x * v2.x + q.y * v2.y) / len22));
+    liveXf = { ...IDENTITY, pivot, scale: k2 };
+  }
+};
+var handlePen = (ev, source) => {
+  switch (ev.kind) {
+    case "leave":
+      penLeft();
+      return;
+    case "status":
+      setTabletStatus(ev);
+      return;
+    case "gesture":
+      if (!penNear())
+        fingerTap(ev.name);
+      return;
+    case "touch":
+      handleTouch(ev.touches, ev.t);
+      return;
+    default:
+  }
+  const p2 = { x: ev.sample.x, y: ev.sample.y };
   if (source === "tablet")
-    hover = { p: p2, button: ev.button, at: performance.now() };
+    penAt(p2, ev.kind === "button" ? ev.pressed : ev.button);
+  if (touching && !touching.rejected)
+    rejectTouch();
+  if (ev.kind === "hover" || ev.kind === "button")
+    return;
   if (ev.kind === "down") {
     if (ring) {
       const chip = chipAt(p2);
@@ -66608,12 +67031,23 @@ var handlePen = (ev, source) => {
     if (ev.eraser) {
       mode = "erase";
       erased = new Set(strokesNear(history.state, p2, 10));
+      drawInk();
+      return;
+    }
+    const hit = chromeAt(p2);
+    if (hit?.kind === "chip") {
+      mode = "chipPress";
+      pressStart = p2;
+      pressButton = ev.button;
+      live = [ev.sample];
+    } else if (hit) {
+      startHandle(hit, p2);
     } else if (ev.button) {
       pressStart = p2;
-      const sb = selectionBox(history.state, selection);
-      if (selection.size > 0 && sb && inBox(p2, sb, 26)) {
+      const fb = frameBox();
+      if (fb && inBox(p2, fb)) {
         mode = "pressSel";
-        moveDelta = { x: 0, y: 0 };
+        liveXf = undefined;
       } else {
         mode = "lasso";
         lasso = [p2];
@@ -66622,8 +67056,7 @@ var handlePen = (ev, source) => {
       mode = "draw";
       live = [ev.sample];
       if (selection.size)
-        selection = new Set;
-      updateButtons();
+        setSelection([]);
     }
     drawInk();
     return;
@@ -66636,13 +67069,29 @@ var handlePen = (ev, source) => {
       case "lasso":
         lasso.push(p2);
         break;
+      case "chipPress":
+        live.push(ev.sample);
+        if (pressStart && Math.hypot(p2.x - pressStart.x, p2.y - pressStart.y) > TAP) {
+          if (pressButton) {
+            mode = "lasso";
+            lasso = live.map((q) => ({ x: q.x, y: q.y }));
+          } else {
+            mode = "draw";
+            setSelection([]);
+          }
+        }
+        break;
       case "pressSel":
         if (pressStart && Math.hypot(p2.x - pressStart.x, p2.y - pressStart.y) > TAP)
           mode = "move";
         if (mode !== "move")
           break;
       case "move":
-        moveDelta = { x: p2.x - pressStart.x, y: p2.y - pressStart.y };
+        liveXf = { ...IDENTITY, translate: { x: p2.x - pressStart.x, y: p2.y - pressStart.y } };
+        break;
+      case "scale":
+      case "rotate":
+        dragHandle(p2);
         break;
       case "erase":
         for (const id of strokesNear(history.state, p2, 10))
@@ -66673,19 +67122,21 @@ var handlePen = (ev, source) => {
       }
       break;
     }
+    case "chipPress":
+      live = [];
+      drawInk();
+      transform();
+      break;
     case "pressSel":
       drawInk();
       transform();
       break;
-    case "move": {
-      const d2 = moveDelta;
-      moveDelta = { x: 0, y: 0 };
-      if (Math.hypot(d2.x, d2.y) > 0.5)
-        commit({ kind: "move", ids: [...selection], dx: d2.x, dy: d2.y });
-      else
-        drawInk();
+    case "move":
+    case "scale":
+    case "rotate":
+      handleDrag = undefined;
+      commitLive();
       break;
-    }
     case "erase": {
       const ids = [...erased];
       erased = new Set;
@@ -66699,6 +67150,120 @@ var handlePen = (ev, source) => {
       drawInk();
   }
 };
+var penInRange = false;
+var penSeenAt = -Infinity;
+var presenceTimer;
+var PEN_STALE_MS = 1500;
+var PALM_GRACE_MS = 300;
+var penNear = () => {
+  const since = performance.now() - penSeenAt;
+  return penInRange && since < PEN_STALE_MS || since < PALM_GRACE_MS;
+};
+var penAt = (p2, button) => {
+  penInRange = true;
+  penSeenAt = performance.now();
+  presenceEl.style.transform = `translate(${p2.x * scale2}px, ${p2.y * scale2}px)`;
+  presenceEl.classList.add("on");
+  presenceEl.classList.toggle("button", button);
+  if (presenceTimer)
+    clearTimeout(presenceTimer);
+  presenceTimer = setTimeout(() => presenceEl.classList.remove("on"), 3000);
+};
+var penLeft = () => {
+  penInRange = false;
+  penSeenAt = performance.now();
+  presenceEl.classList.remove("on", "button");
+};
+var touching;
+var FINGER_TAP_MS = 250;
+var FINGER_TAP_TRAVEL = 40;
+var rejectTouch = () => {
+  if (!touching)
+    return;
+  touching.rejected = true;
+  if (mode === "idle")
+    cancelLive();
+};
+var handleTouch = (touches, t2) => {
+  const now = Number.isFinite(t2) ? t2 : performance.now();
+  if (!touching) {
+    if (touches.length === 0)
+      return;
+    touching = {
+      t0: now,
+      maxN: 0,
+      travel: 0,
+      starts: new Map,
+      acc: SIM_IDENTITY,
+      segSim: SIM_IDENTITY,
+      rejected: penNear() || mode !== "idle"
+    };
+  }
+  const g2 = touching;
+  if (!g2.rejected && (penNear() || mode !== "idle"))
+    rejectTouch();
+  if (touches.length === 0) {
+    touching = undefined;
+    if (g2.rejected)
+      return;
+    if (now - g2.t0 < FINGER_TAP_MS && g2.travel < FINGER_TAP_TRAVEL) {
+      if (g2.maxN === 2)
+        fingerTap("undo");
+      else if (g2.maxN === 3)
+        fingerTap("redo");
+      cancelLive();
+    } else if (liveXf) {
+      commitLive();
+    }
+    return;
+  }
+  if (g2.rejected)
+    return;
+  g2.maxN = Math.max(g2.maxN, touches.length);
+  for (const f2 of touches) {
+    const s2 = g2.starts.get(f2.id);
+    if (!s2)
+      g2.starts.set(f2.id, { x: f2.x, y: f2.y });
+    else
+      g2.travel = Math.max(g2.travel, Math.hypot(f2.x - s2.x, f2.y - s2.y));
+  }
+  if (touches.length === 2 && selection.size > 0 && !thinking && !ring) {
+    const [a2, b2] = [...touches].sort((p2, q) => p2.id - q.id);
+    if (!g2.seg || g2.seg.ids[0] !== a2.id || g2.seg.ids[1] !== b2.id) {
+      g2.acc = composeSim(g2.segSim, g2.acc);
+      g2.segSim = SIM_IDENTITY;
+      g2.seg = { ids: [a2.id, b2.id], a0: { x: a2.x, y: a2.y }, b0: { x: b2.x, y: b2.y } };
+      g2.pivot ??= boxCenter(selectionBox(history.state, selection) ?? { x: a2.x, y: a2.y, w: 0, h: 0 });
+    }
+    g2.segSim = simFromPairs(g2.seg.a0, g2.seg.b0, a2, b2);
+    if (g2.travel >= FINGER_TAP_TRAVEL) {
+      liveXf = xfFromSim(composeSim(g2.segSim, g2.acc), g2.pivot);
+      drawInk();
+    }
+  } else if (g2.seg) {
+    g2.acc = composeSim(g2.segSim, g2.acc);
+    g2.segSim = SIM_IDENTITY;
+    g2.seg = undefined;
+  }
+};
+var lastTap = { name: "", at: -Infinity };
+var fingerTap = (name) => {
+  const now = performance.now();
+  if (lastTap.name === name && now - lastTap.at < 400)
+    return;
+  lastTap = { name, at: now };
+  if (name === "undo") {
+    if (!history.canUndo)
+      return;
+    undo();
+    flash("↶ undo", 1200);
+  } else {
+    if (!history.canRedo)
+      return;
+    redo();
+    flash("↷ redo", 1200);
+  }
+};
 var pointerT0 = performance.now();
 var sampleOf = (e2) => {
   const p2 = toPage(e2.clientX, e2.clientY);
@@ -66706,6 +67271,17 @@ var sampleOf = (e2) => {
 };
 var buttonOf = (e2) => e2.shiftKey || (e2.buttons & 2) !== 0 || e2.button === 2;
 var eraserOf = (e2) => e2.pointerType === "pen" && ((e2.buttons & 32) !== 0 || e2.button === 5);
+var noteKeys = (e2) => {
+  keys.alt = e2.altKey;
+  keys.shift = e2.shiftKey;
+};
+var CORNER_CURSORS = ["nwse-resize", "nesw-resize", "nwse-resize", "nesw-resize"];
+var hoverCursor = (e2) => {
+  const p2 = toPage(e2.clientX, e2.clientY);
+  const hit = chromeAt(p2);
+  const fb = frameBox();
+  ink.style.cursor = hit?.kind === "chip" ? "pointer" : hit?.kind === "rotate" ? "grab" : hit?.kind === "corner" ? CORNER_CURSORS[hit.i] : e2.shiftKey && fb && inBox(p2, fb) ? "move" : "crosshair";
+};
 var activePointer;
 ink.addEventListener("pointerdown", (e2) => {
   if (activePointer !== undefined)
@@ -66713,11 +67289,16 @@ ink.addEventListener("pointerdown", (e2) => {
   activePointer = e2.pointerId;
   ink.setPointerCapture(e2.pointerId);
   e2.preventDefault();
+  noteKeys(e2);
   handlePen({ kind: "down", sample: sampleOf(e2), button: buttonOf(e2), eraser: eraserOf(e2) }, "pointer");
 });
 ink.addEventListener("pointermove", (e2) => {
-  if (e2.pointerId !== activePointer)
+  noteKeys(e2);
+  if (e2.pointerId !== activePointer) {
+    if (activePointer === undefined)
+      hoverCursor(e2);
     return;
+  }
   const events = typeof e2.getCoalescedEvents === "function" ? e2.getCoalescedEvents() : [];
   for (const ce of events.length ? events : [e2])
     handlePen({ kind: "move", sample: sampleOf(ce), button: buttonOf(e2), eraser: eraserOf(e2) }, "pointer");
@@ -66727,12 +67308,53 @@ var pointerEnd = (e2) => {
     return;
   activePointer = undefined;
   handlePen({ kind: "up", sample: sampleOf(e2), button: buttonOf(e2), eraser: eraserOf(e2) }, "pointer");
+  hoverCursor(e2);
 };
 ink.addEventListener("pointerup", pointerEnd);
 ink.addEventListener("pointercancel", pointerEnd);
 ink.addEventListener("contextmenu", (e2) => e2.preventDefault());
-var isPenEvent = (v2) => typeof v2 === "object" && v2 !== null && typeof v2.kind === "string" && typeof v2.sample === "object";
+var SAMPLED = new Set(["down", "move", "up", "hover", "button"]);
+var UNSAMPLED = new Set(["leave", "gesture", "touch", "status"]);
+var isPenEvent = (v2) => {
+  if (typeof v2 !== "object" || v2 === null)
+    return false;
+  const kind = v2.kind;
+  if (typeof kind !== "string")
+    return false;
+  if (SAMPLED.has(kind))
+    return typeof v2.sample === "object";
+  if (kind === "touch")
+    return Array.isArray(v2.touches);
+  return UNSAMPLED.has(kind);
+};
 var penSocketUp = false;
+var tablet;
+var bannerDismissed = false;
+var TABLET_WORDS = {
+  connected: "reMarkable connected",
+  searching: "looking for the reMarkable…",
+  asleep: "reMarkable asleep — will reconnect",
+  "needs-key": "reMarkable found — needs its one-time key setup"
+};
+var renderTablet = () => {
+  const state2 = penSocketUp ? tablet?.state ?? "none" : "offline";
+  dotEl.className = `tabletdot ${state2}`;
+  dotEl.title = !penSocketUp ? "daemon unreachable (/ws/pen)" : tablet ? `${TABLET_WORDS[tablet.state]}${tablet.host ? ` (${tablet.host})` : ""}` : "no tablet bridge running";
+  const showBanner = penSocketUp && tablet?.state === "needs-key" && !bannerDismissed;
+  bannerEl.classList.toggle("on", showBanner);
+  if (showBanner) {
+    const cmd = bannerEl.querySelector("code");
+    cmd.textContent = tablet.message ?? "bun scripts/remarkable-bridge.ts --setup";
+  }
+};
+var setTabletStatus = (ev) => {
+  if (ev.state !== "needs-key")
+    bannerDismissed = false;
+  tablet = { state: ev.state, host: ev.host, message: ev.message };
+  if (ev.state !== "connected")
+    penLeft();
+  renderTablet();
+};
 var connectPen = (delay = 1000) => {
   let ws;
   try {
@@ -66744,7 +67366,7 @@ var connectPen = (delay = 1000) => {
   ws.onopen = () => {
     penSocketUp = true;
     delay = 1000;
-    document.body.classList.add("tablet");
+    renderTablet();
   };
   ws.onmessage = (m2) => {
     let v2;
@@ -66760,12 +67382,17 @@ var connectPen = (delay = 1000) => {
   };
   ws.onclose = () => {
     penSocketUp = false;
-    document.body.classList.remove("tablet");
+    tablet = undefined;
+    renderTablet();
     setTimeout(() => connectPen(Math.min(delay * 2, 15000)), delay);
   };
   ws.onerror = () => {};
 };
+var typing = (e2) => e2.target instanceof HTMLInputElement;
 window.addEventListener("keydown", (e2) => {
+  noteKeys(e2);
+  if (typing(e2))
+    return;
   const meta = e2.metaKey || e2.ctrlKey;
   if (meta && e2.key.toLowerCase() === "z") {
     e2.preventDefault();
@@ -66790,6 +67417,7 @@ window.addEventListener("keydown", (e2) => {
     deleteSelection();
   }
 });
+window.addEventListener("keyup", noteKeys);
 btn("transform").addEventListener("click", () => void transform());
 btn("undo").addEventListener("click", undo);
 btn("redo").addEventListener("click", redo);
@@ -66799,6 +67427,49 @@ btn("theme").addEventListener("click", () => {
 });
 btn("clear").addEventListener("click", clearPage);
 document.querySelectorAll("#toolbar button").forEach((b2) => b2.addEventListener("pointerdown", (e2) => e2.preventDefault()));
+bannerEl.querySelector("button").addEventListener("click", () => {
+  bannerDismissed = true;
+  renderTablet();
+});
+boardInput.value = boardName;
+editorLink.href = `/?scene=${encodeURIComponent(`board:${boardName}`)}`;
+var openBoard = async () => {
+  const name = boardInput.value.trim();
+  if (name === boardName)
+    return;
+  if (!isValidBoardName(name)) {
+    flash("a board name is letters, digits, - and _");
+    boardInput.value = boardName;
+    return;
+  }
+  if (saveTimer)
+    await saveNow();
+  await saving;
+  location.search = `?board=${encodeURIComponent(name)}`;
+};
+boardInput.addEventListener("keydown", (e2) => {
+  if (e2.key === "Enter")
+    openBoard();
+  else if (e2.key === "Escape") {
+    boardInput.value = boardName;
+    boardInput.blur();
+  }
+});
+boardInput.addEventListener("change", () => void openBoard());
+var listBoards = async () => {
+  try {
+    const res = await fetch("/api/boards");
+    if (!res.ok)
+      return;
+    const list = await res.json();
+    boardList.textContent = "";
+    for (const { name } of list) {
+      const o2 = document.createElement("option");
+      o2.value = name;
+      boardList.appendChild(o2);
+    }
+  } catch {}
+};
 importsEl.textContent = VOCABULARY.map((e2) => e2.id).join(" · ");
 importsEl.title = VOCABULARY.map((e2) => `${e2.name} — ${e2.description}`).join(`
 
@@ -66809,8 +67480,17 @@ window.addEventListener("resize", () => {
   drawInk();
   syncSymbols();
 });
+window.addEventListener("beforeunload", () => {
+  if (saveTimer)
+    saveNow();
+});
+var pageToClient = (p2) => {
+  const r4 = pageEl.getBoundingClientRect();
+  return { x: r4.left + p2.x * scale2, y: r4.top + p2.y * scale2 };
+};
 window.__sketch = {
   ready: false,
+  board: () => boardName,
   state: () => history.state,
   selection: () => [...selection],
   injectStroke: (points) => {
@@ -66825,9 +67505,10 @@ window.__sketch = {
   transform: () => transform(),
   undo,
   redo,
+  canUndo: () => history.canUndo,
   lastResponse: () => last?.response,
-  stubRecognize: (r2) => {
-    recognize = r2 === null ? httpRecognize : typeof r2 === "function" ? r2 : async () => r2;
+  stubRecognize: (r4) => {
+    recognize = r4 === null ? httpRecognize : typeof r4 === "function" ? r4 : async () => r4;
   },
   ring: () => ring && {
     center: ring.center,
@@ -66840,8 +67521,24 @@ window.__sketch = {
       choose(ring.ids, c2.candidate);
   },
   pen: (ev) => handlePen(ev, "tablet"),
-  symbolsReady: () => !glBusy && !glAgain && glSignature === symbolsSignature(),
+  chrome: () => {
+    const c2 = chrome();
+    if (!c2)
+      return;
+    const both = (p2) => ({ page: p2, client: pageToClient(p2) });
+    return { frame: c2.frame, corners: c2.corners.map(both), knob: both(c2.knob), chip: c2.chip && both(c2.chip) };
+  },
+  toClient: pageToClient,
+  liveXf: () => liveXf,
+  symbolsReady: () => !glBusy && !glAgain && layerLists().every(([L2, list]) => L2.sig === layerSig(list)),
   tabletConnected: () => penSocketUp,
+  tablet: () => tablet,
+  saved: async () => {
+    if (saveTimer)
+      await saveNow();
+    await saving;
+    return !offline;
+  },
   setDark: (d2) => {
     dark = d2;
     applyTheme();
@@ -66855,10 +67552,18 @@ window.__sketch = {
 };
 layout();
 applyTheme();
-updateButtons();
-drawInk();
+renderTablet();
 connectPen();
-syncSymbols().then(() => {
+listBoards();
+loadBoard().then(async ({ state: state2, migrate }) => {
+  history = new History(state2);
+  if (migrate)
+    saveState();
+  if (offline)
+    flash("daemon unreachable — this board is this browser's copy", 6000);
+  updateButtons();
+  drawInk();
+  await syncSymbols();
   window.__sketch.ready = true;
 });
 export {

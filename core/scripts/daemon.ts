@@ -16,7 +16,13 @@
  *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
  *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts)
  *   - WS  /ws/pen → pen-event relay: whatever one client sends, every OTHER
- *     /ws/pen client receives (the reMarkable bridge → the sketch page)
+ *     /ws/pen client receives (the reMarkable bridge → the sketch page);
+ *     the bridge's last `status` is replayed to each new client
+ *   - GET /api/boards, GET/PUT /api/board/<name> → whiteboard pages as
+ *     scene files, core/demo/boards/<name>.board.json (scripts/boards.ts);
+ *     a board file changing tells editors showing it to remount
+ *   - the reMarkable bridge itself, spawned as a child (DT_REMARKABLE=off
+ *     to skip), its log lines prefixed [tablet]
  */
 
 import { watch } from "node:fs"
@@ -25,6 +31,7 @@ import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
 import { recognize } from "./recognize"
+import { boardNameOf, boardResponse, listBoards } from "./boards"
 import type { RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
@@ -345,7 +352,22 @@ const scheduleFlush = () => {
   debounceTimer = setTimeout(() => void flushChanges(), 50)
 }
 
+/** Boards are data, not code: no rebuild, just "board <name> changed". */
+const boardTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const noteBoardChange = (name: string) => {
+  clearTimeout(boardTimers.get(name))
+  boardTimers.set(
+    name,
+    setTimeout(() => {
+      boardTimers.delete(name)
+      server.publish("editor", JSON.stringify({ type: "board", name }))
+    }, 50),
+  )
+}
+
 const noteChange = (dir: string, filename: string | null) => {
+  const board = filename ? boardNameOf(filename) : undefined
+  if (board) return noteBoardChange(board)
   if (!filename || !filename.endsWith(".ts")) return
   changed.add(`${repoRoot}${dir}/${filename}`)
   scheduleFlush()
@@ -622,6 +644,13 @@ interface SocketData {
   pen?: boolean
 }
 
+/**
+ * The tablet bridge's latest `status` event and the socket that said it,
+ * replayed to every page that opens /ws/pen — a freshly opened page learns at
+ * once whether the tablet is connected, asleep, or waiting on its key.
+ */
+let tabletStatus: { from: ServerWebSocket<SocketData>; raw: string } | undefined
+
 // --- Server ----------------------------------------------------------------
 
 const server = Bun.serve<SocketData>({
@@ -637,6 +666,9 @@ const server = Bun.serve<SocketData>({
         : new Response("upgrade failed", { status: 400 })
     }
     if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
+    if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
+    if (url.pathname.startsWith("/api/board/"))
+      return boardResponse(req, repoRoot, decodeURIComponent(url.pathname.slice("/api/board/".length)))
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
     if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
@@ -654,11 +686,13 @@ const server = Bun.serve<SocketData>({
   websocket: {
     open(ws) {
       ws.subscribe(ws.data.pen ? "pen" : "editor")
+      if (ws.data.pen && tabletStatus) ws.send(tabletStatus.raw)
     },
     message(ws, raw) {
       // The pen relay: publish() reaches every subscriber but the sender.
       if (ws.data.pen) {
         ws.publish("pen", raw)
+        if (typeof raw === "string" && raw.includes('"kind":"status"')) tabletStatus = { from: ws, raw }
         return
       }
       let msg: OpMessage
@@ -673,6 +707,7 @@ const server = Bun.serve<SocketData>({
     },
     close(ws) {
       ws.unsubscribe(ws.data.pen ? "pen" : "editor")
+      if (tabletStatus?.from === ws) tabletStatus = undefined
     },
   },
 })
@@ -682,5 +717,63 @@ const rebuildAndReload = async (cause?: { external: string[] }) => {
     server.publish("editor", JSON.stringify({ type: "reload", external: cause?.external }))
 }
 
+// --- The reMarkable bridge, as a child (DT_REMARKABLE=off to skip) ----------
+//
+// One command for the whole studio: the bridge finds the tablet, survives its
+// sleep, and reports over /ws/pen; this only keeps it running and prefixes its
+// lines. A bridge that dies young is restarted on a growing delay, so a
+// broken script can't spin.
+
+const startTabletBridge = () => {
+  let child: ReturnType<typeof Bun.spawn> | undefined
+  let stopping = false
+  let delay = 2000
+  const pipeLines = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder()
+    const reader = stream.getReader()
+    let tail = ""
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      const lines = (tail + decoder.decode(value, { stream: true })).split("\n")
+      tail = lines.pop() ?? ""
+      for (const line of lines) if (line.trim()) console.log("[tablet]", line)
+    }
+    if (tail.trim()) console.log("[tablet]", tail)
+  }
+  const spawnBridge = () => {
+    const started = Date.now()
+    child = Bun.spawn([process.execPath, `${repoRoot}core/scripts/remarkable-bridge.ts`], {
+      cwd: `${repoRoot}core`,
+      env: { ...process.env, DT_WS: `ws://localhost:${port}/ws/pen`, DT_BRIDGE_CHILD: "1" },
+      // stdin is our pipe: when this daemon dies, the bridge sees EOF and exits.
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    void pipeLines(child.stdout as ReadableStream<Uint8Array>)
+    void pipeLines(child.stderr as ReadableStream<Uint8Array>)
+    void child.exited.then((code) => {
+      if (stopping) return
+      delay = Date.now() - started > 60_000 ? 2000 : Math.min(60_000, delay * 2)
+      log(`tablet bridge exited (${code}); restarting in ${delay / 1000}s`)
+      setTimeout(spawnBridge, delay)
+    })
+  }
+  const stop = () => {
+    stopping = true
+    child?.kill()
+  }
+  process.on("exit", stop)
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      stop()
+      process.exit(0)
+    })
+  }
+  spawnBridge()
+}
+
 await buildEditor()
+if (process.env.DT_REMARKABLE !== "off") startTabletBridge()
 log(`daemon at http://localhost:${port} · demo at /demo · ws at /ws`)

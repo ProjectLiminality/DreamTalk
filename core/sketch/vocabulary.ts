@@ -26,19 +26,29 @@
  */
 
 import type { Holon } from "../src/holon"
-import { Circle, Group, Polygon, Square, type Vec3Like } from "../src/parts/primitives"
+import { Circle, Group, Line, Polygon, Square, type Vec3Like } from "../src/parts/primitives"
 import { derive } from "../src/params"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { MindVirus, type PulseSpec } from "../vocabulary/MindVirus/MindVirus"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
 import { WHITE } from "../src/constants"
-import type { PlacedSymbol } from "./protocol"
+import type { Dream } from "../src/dream"
+import { PAGE_H, PAGE_W, type InkStroke, type PlacedSymbol } from "./protocol"
+import { wrapAngle, xfOf, xfPoint, type Xf } from "./xform"
+
+/**
+ * What a param MEANS geometrically — which is all a whiteboard transform
+ * needs to know (transformSymbol). Unstated means "shape, not place": a
+ * fold, a ring count, a 3D heading/pitch the page plane does not turn.
+ */
+export type ParamRole = "x" | "y" | "length" | "angle" | "points"
 
 export interface ParamSpec {
   type: "number" | "points" | "enum"
   description: string
   options?: string[]
+  role?: ParamRole
 }
 
 export interface VocabEntry {
@@ -181,9 +191,9 @@ export const VOCABULARY: VocabEntry[] = [
     name: "Circle",
     description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      r: { type: "number", description: "radius, page units (mean distance of the loop from its centre)" },
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      r: { type: "number", role: "length", description: "radius, page units (mean distance of the loop from its centre)" },
     },
     build: (p) =>
       new Circle({ x: num(p, "cx", 0), y: -num(p, "cy", 0), radius: Math.max(1, num(p, "r", 50)), tint: WHITE }),
@@ -193,10 +203,10 @@ export const VOCABULARY: VocabEntry[] = [
     name: "Square",
     description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "side length, page units" },
-      rotation: { type: "number", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` },
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "side length, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` },
     },
     build: (p) =>
       new Square({
@@ -211,11 +221,12 @@ export const VOCABULARY: VocabEntry[] = [
     name: "Triangle",
     description: "An equilateral-ish triangle (three corners).",
     params: {
-      cx: { type: "number", description: "centre x (centroid), page units" },
-      cy: { type: "number", description: "centre y (centroid), page units" },
-      r: { type: "number", description: "circumradius: centroid-to-corner distance, page units" },
+      cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
+      cy: { type: "number", role: "y", description: "centre y (centroid), page units" },
+      r: { type: "number", role: "length", description: "circumradius: centroid-to-corner distance, page units" },
       rotation: {
         type: "number",
+        role: "angle",
         description: `${ANGLE}; 0 = one corner pointing straight UP (flat bottom); π/3 (or π) = pointing DOWN`,
       },
     },
@@ -235,12 +246,12 @@ export const VOCABULARY: VocabEntry[] = [
     description:
       "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
     params: {
-      cx: { type: "number", description: "centre x, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "edge length, page units (roughly the front face's side)" },
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
       h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
       p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
-      b: { type: "number", description: "bank (in-plane roll), radians; usually 0" },
+      b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" },
     },
     build: (p) => {
       const size = Math.max(1, num(p, "size", 100))
@@ -264,11 +275,11 @@ export const VOCABULARY: VocabEntry[] = [
     description:
       "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
     params: {
-      cx: { type: "number", description: "centre of the middle circle x, page units" },
-      cy: { type: "number", description: "centre of the middle circle y, page units" },
-      r: { type: "number", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
+      cx: { type: "number", role: "x", description: "centre of the middle circle x, page units" },
+      cy: { type: "number", role: "y", description: "centre of the middle circle y, page units" },
+      r: { type: "number", role: "length", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
       rings: { type: "enum", options: ["1", "2"], description: "1 → 7 circles, 2 → 19 circles" },
-      rotation: { type: "number", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` },
     },
     build: (p) => {
       const r = Math.max(1, num(p, "r", 50))
@@ -300,10 +311,10 @@ export const VOCABULARY: VocabEntry[] = [
     description:
       "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
     params: {
-      x: { type: "number", description: "body (cube) centre x, page units" },
-      y: { type: "number", description: "body (cube) centre y, page units" },
-      size: { type: "number", description: "cube edge length, page units" },
-      heading: { type: "number", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      x: { type: "number", role: "x", description: "body (cube) centre x, page units" },
+      y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
+      size: { type: "number", role: "length", description: "cube edge length, page units" },
+      heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
       fold: {
         type: "number",
         description:
@@ -311,6 +322,7 @@ export const VOCABULARY: VocabEntry[] = [
       },
       cable: {
         type: "points",
+        role: "points",
         description:
           "the drawn tail as page points [[x,y],…] ordered from the FREE TAIL END to where it touches the body; follow the actual drawn line (8–20 points). Omit or [] if no tail was drawn",
       },
@@ -323,10 +335,10 @@ export const VOCABULARY: VocabEntry[] = [
     description:
       "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
     params: {
-      cx: { type: "number", description: "centre x of the eye's bounding box, page units" },
-      cy: { type: "number", description: "centre y, page units" },
-      size: { type: "number", description: "length from apex to the far arc, page units" },
-      rotation: { type: "number", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` },
+      cx: { type: "number", role: "x", description: "centre x of the eye's bounding box, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "length from apex to the far arc, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` },
     },
     build: (p) => {
       // Native Eye: apex at the origin, gazing +x, lids reaching x = 230.
@@ -342,9 +354,9 @@ export const VOCABULARY: VocabEntry[] = [
     name: "Figure",
     description: "A person: a stick figure (round head, body line, arms, legs).",
     params: {
-      cx: { type: "number", description: "centre x (the figure's middle), page units" },
-      cy: { type: "number", description: "centre y (halfway between crown and feet), page units" },
-      height: { type: "number", description: "crown-to-feet height, page units" },
+      cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
+      cy: { type: "number", role: "y", description: "centre y (halfway between crown and feet), page units" },
+      height: { type: "number", role: "length", description: "crown-to-feet height, page units" },
     },
     build: (p) =>
       new Figure({ x: num(p, "cx", 0), y: -num(p, "cy", 0), height: Math.max(1, num(p, "height", 120)) }),
@@ -361,4 +373,103 @@ export const buildSymbol = (s: PlacedSymbol): Holon => {
   const entry = vocabById(s.symbol)
   if (!entry) throw new Error(`sketch vocabulary: unknown symbol '${s.symbol}'`)
   return entry.build(s.params ?? {})
+}
+
+// -- transforms: move / rotate / scale a placed symbol ------------------------
+
+/** The conventional names, for params whose entry states no role (or a
+ *  symbol this vocabulary no longer knows — a board outlives its imports). */
+const ROLE_BY_NAME: Record<string, ParamRole> = {
+  x: "x",
+  cx: "x",
+  y: "y",
+  cy: "y",
+  r: "length",
+  radius: "length",
+  size: "length",
+  width: "length",
+  height: "length",
+  rotation: "angle",
+  heading: "angle",
+}
+
+const roleOf = (entry: VocabEntry | undefined, key: string): ParamRole | undefined =>
+  entry ? entry.params[key]?.role : ROLE_BY_NAME[key]
+
+const isPointLike = (e: unknown): boolean =>
+  (Array.isArray(e) && typeof e[0] === "number" && typeof e[1] === "number") ||
+  (typeof e === "object" && e !== null && typeof (e as { x?: unknown }).x === "number" &&
+    typeof (e as { y?: unknown }).y === "number")
+
+/**
+ * A placed symbol under a whiteboard transform (xform.ts): its position
+ * (the x/y pair) moves about the pivot, lengths scale, PAGE angles turn
+ * (clockwise-positive, the convention above), and point paths — the
+ * MindVirus cable — move point by point, keeping whichever spelling
+ * ([x, y] or {x, y}) they arrived in. Everything else is shape and stays.
+ *
+ * A symbol with no angle (a Figure stands upright) still orbits a pivot
+ * it does not sit on: its centre moves, it simply does not tilt. Unknown
+ * symbols fall back to the conventional param names, so a board never
+ * becomes unmovable because its vocabulary changed.
+ */
+export const transformSymbol = (s: PlacedSymbol, t: Partial<Xf>): PlacedSymbol => {
+  const xf = xfOf(t)
+  const entry = vocabById(s.symbol)
+  const params: Record<string, unknown> = { ...s.params }
+  const keys = Object.keys(s.params)
+  const xKey = keys.find((k) => roleOf(entry, k) === "x")
+  const yKey = keys.find((k) => roleOf(entry, k) === "y")
+  if (xKey && yKey) {
+    const x = Number(s.params[xKey])
+    const y = Number(s.params[yKey])
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      const q = xfPoint(xf, { x, y })
+      params[xKey] = q.x
+      params[yKey] = q.y
+    }
+  }
+  for (const k of keys) {
+    const v = s.params[k]
+    const role = roleOf(entry, k)
+    if (role === "length" && typeof v === "number" && Number.isFinite(v)) params[k] = v * xf.scale
+    else if (role === "angle" && typeof v === "number" && Number.isFinite(v))
+      params[k] = xf.rotate === 0 ? v : wrapAngle(v + xf.rotate)
+    else if ((role === "points" || role === undefined) && Array.isArray(v) && v.length > 0 && v.every(isPointLike))
+      params[k] = v.map((e) => {
+        if (Array.isArray(e)) {
+          const q = xfPoint(xf, { x: e[0] as number, y: e[1] as number })
+          return [q.x, q.y]
+        }
+        const pt = e as { x: number; y: number }
+        return { ...pt, ...xfPoint(xf, pt) }
+      })
+  }
+  return { ...s, params }
+}
+
+// -- ink: a raw stroke as scene data -------------------------------------------
+
+/**
+ * One ink stroke as a scene holon — a Line in the same page → scene
+ * mapping as every symbol (x, −y, 0). The whiteboard's Grease Pencil: a
+ * scribble that was never "made real" is still first-class scene data the
+ * editor can select, and that choreography can Create, Erase or tint.
+ */
+export const inkHolon = (k: InkStroke): Line =>
+  new Line({ points: k.points.map((p) => scenePt(p.x, p.y)), tint: WHITE, stroke: 2 })
+
+/**
+ * Frame a dream's observer on a page rectangle, straight on, so scene
+ * (x, −y) lands on page (x, y) and the rectangle's HEIGHT fills the
+ * frame (the host is 16:9; a portrait page is clipped at the sides by
+ * whoever shows it, or sits in the middle of a wider frame).
+ */
+export const framePage = (dream: Dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }): void => {
+  const o = dream.observer
+  o.x.defaultValue = o.x.value = frame.cx
+  o.y.defaultValue = o.y.value = -frame.cy
+  // The default vertical fov is 53.13°, tan(fov/2) = 0.5, so distance = height.
+  const r = frame.h / (2 * Math.tan(o.fov.value / 2))
+  o.radius.defaultValue = o.radius.value = r
 }

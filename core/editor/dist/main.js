@@ -101490,6 +101490,367 @@ var scenes = {
 };
 var defaultScene = "founding";
 
+// sketch/protocol.ts
+var PAGE_W = 1404;
+var PAGE_H = 1872;
+
+// sketch/vocabulary.ts
+var num = (p2, key, fallback) => {
+  const v2 = Number(p2[key]);
+  return Number.isFinite(v2) ? v2 : fallback;
+};
+var clamp8 = (v2, lo, hi) => Math.min(hi, Math.max(lo, v2));
+var readPoints = (v2) => {
+  if (!Array.isArray(v2))
+    return [];
+  const out = [];
+  for (const p2 of v2) {
+    const x2 = Array.isArray(p2) ? Number(p2[0]) : Number(p2?.x);
+    const y2 = Array.isArray(p2) ? Number(p2[1]) : Number(p2?.y);
+    if (Number.isFinite(x2) && Number.isFinite(y2))
+      out.push({ x: x2, y: y2 });
+  }
+  return out;
+};
+var scenePt = (x2, y2) => ({ x: x2, y: -y2, z: 0 });
+var CABLE_PULSES = 11;
+var PULSE_SECONDS = 0.5;
+var MV_NATIVE = 100;
+var resampleByArcLength = (pts, n2) => {
+  if (pts.length < 2)
+    return [...pts];
+  const cum = [0];
+  for (let i2 = 1;i2 < pts.length; i2++) {
+    cum.push(cum[i2 - 1] + Math.hypot(pts[i2].x - pts[i2 - 1].x, pts[i2].y - pts[i2 - 1].y));
+  }
+  const total = cum[cum.length - 1];
+  if (total < 0.000001)
+    return [pts[0], pts[pts.length - 1]];
+  const out = [];
+  let j2 = 1;
+  for (let k2 = 0;k2 <= n2; k2++) {
+    const s2 = k2 / n2 * total;
+    while (j2 < pts.length - 1 && cum[j2] < s2)
+      j2++;
+    const seg = cum[j2] - cum[j2 - 1];
+    const u2 = seg < 0.000000001 ? 0 : (s2 - cum[j2 - 1]) / seg;
+    out.push({
+      x: pts[j2 - 1].x + (pts[j2].x - pts[j2 - 1].x) * u2,
+      y: pts[j2 - 1].y + (pts[j2].y - pts[j2 - 1].y) * u2
+    });
+  }
+  return out;
+};
+var buildMindVirus = (p2) => {
+  const size = Math.max(5, num(p2, "size", 100));
+  const s2 = size / MV_NATIVE;
+  const fold = clamp8(num(p2, "fold", 1), -1, 1);
+  const cx = num(p2, "x", 0);
+  const cy = num(p2, "y", 0);
+  const cable = readPoints(p2.cable);
+  let heading = num(p2, "heading", NaN);
+  if (!Number.isFinite(heading) && cable.length >= 2) {
+    const a2 = cable[cable.length - 2];
+    const b2 = cable[cable.length - 1];
+    heading = Math.atan2(cy - a2.y, cx - a2.x);
+    if (Math.hypot(cx - a2.x, cy - a2.y) < 0.000001)
+      heading = Math.atan2(b2.y - a2.y, b2.x - a2.x);
+  }
+  if (!Number.isFinite(heading))
+    heading = 0;
+  const fx = Math.cos(heading);
+  const fy = Math.sin(heading);
+  const ox = cx + fx * size * 0.5;
+  const oy = cy + fy * size * 0.5;
+  const forward = { x: fx, y: -fy, z: 0 };
+  if (cable.length < 2) {
+    const mv2 = new MindVirus({ x: ox, y: -oy, scale: s2, fold });
+    mv2.h.value = Math.atan2(forward.x, Math.hypot(forward.y, forward.z));
+    mv2.p.value = Math.atan2(-forward.y, forward.z);
+    return mv2;
+  }
+  const walk = resampleByArcLength(cable, CABLE_PULSES);
+  const pulses = walk.slice(1).map((q, i2) => ({
+    start: i2 * PULSE_SECONDS,
+    duration: PULSE_SECONDS,
+    to: scenePt(q.x, q.y)
+  }));
+  const tCable = CABLE_PULSES * PULSE_SECONDS;
+  pulses.push({ start: tCable, duration: PULSE_SECONDS, to: scenePt(ox, oy), heading: forward });
+  const T3 = tCable + PULSE_SECONDS;
+  const mv = new MindVirus({ scale: s2, clock: T3 });
+  mv.journey = { origin: scenePt(walk[0].x, walk[0].y), pulses };
+  mv.parts;
+  mv.fold.follow(derive(() => fold));
+  mv.cable.trail((t2) => mv.pathAt(t2 * tCable / T3), { since: 0, window: T3 });
+  mv.cable.width.value = mv.cable.width.value * s2;
+  mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
+  return mv;
+};
+var ANGLE = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
+var VOCABULARY = [
+  {
+    id: "circle",
+    name: "Circle",
+    description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      r: { type: "number", role: "length", description: "radius, page units (mean distance of the loop from its centre)" }
+    },
+    build: (p2) => new Circle({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), radius: Math.max(1, num(p2, "r", 50)), tint: WHITE })
+  },
+  {
+    id: "square",
+    name: "Square",
+    description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "side length, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` }
+    },
+    build: (p2) => new Square({
+      x: num(p2, "cx", 0),
+      y: -num(p2, "cy", 0),
+      size: Math.max(1, num(p2, "size", 100)),
+      b: -num(p2, "rotation", 0)
+    })
+  },
+  {
+    id: "triangle",
+    name: "Triangle",
+    description: "An equilateral-ish triangle (three corners).",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
+      cy: { type: "number", role: "y", description: "centre y (centroid), page units" },
+      r: { type: "number", role: "length", description: "circumradius: centroid-to-corner distance, page units" },
+      rotation: {
+        type: "number",
+        role: "angle",
+        description: `${ANGLE}; 0 = one corner pointing straight UP (flat bottom); π/3 (or π) = pointing DOWN`
+      }
+    },
+    build: (p2) => new Polygon({
+      x: num(p2, "cx", 0),
+      y: -num(p2, "cy", 0),
+      radius: Math.max(1, num(p2, "r", 50)),
+      sides: 3,
+      phase: Math.PI / 2 - num(p2, "rotation", 0)
+    })
+  },
+  {
+    id: "cube",
+    name: "Cube",
+    description: "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "edge length, page units (roughly the front face's side)" },
+      h: { type: "number", description: "heading (turn about the vertical axis), radians; ~0.6 shows a side face" },
+      p: { type: "number", description: "pitch (tilt about the horizontal axis), radians; ~0.4 shows the top face" },
+      b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" }
+    },
+    build: (p2) => {
+      const size = Math.max(1, num(p2, "size", 100));
+      const cube2 = new FoldableCube({ size, fold: 1, y: -size / 2 });
+      return new Group2({
+        members: [cube2],
+        x: num(p2, "cx", 0),
+        y: -num(p2, "cy", 0),
+        h: num(p2, "h", 0.6),
+        p: num(p2, "p", 0.4),
+        b: -num(p2, "b", 0)
+      });
+    }
+  },
+  {
+    id: "flowerOfLife",
+    name: "Flower of Life",
+    description: "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre of the middle circle x, page units" },
+      cy: { type: "number", role: "y", description: "centre of the middle circle y, page units" },
+      r: { type: "number", role: "length", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
+      rings: { type: "enum", options: ["1", "2"], description: "1 → 7 circles, 2 → 19 circles" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` }
+    },
+    build: (p2) => {
+      const r2 = Math.max(1, num(p2, "r", 50));
+      const rings = num(p2, "rings", 1) >= 2 ? 2 : 1;
+      const rot = -num(p2, "rotation", 0);
+      const centres = [{ x: 0, y: 0 }];
+      for (let k2 = 0;k2 < 6; k2++) {
+        const a2 = rot + k2 * Math.PI / 3;
+        centres.push({ x: r2 * Math.cos(a2), y: r2 * Math.sin(a2) });
+      }
+      if (rings === 2) {
+        for (let k2 = 0;k2 < 6; k2++) {
+          const a2 = rot + k2 * Math.PI / 3;
+          centres.push({ x: 2 * r2 * Math.cos(a2), y: 2 * r2 * Math.sin(a2) });
+          const b2 = a2 + Math.PI / 6;
+          centres.push({ x: Math.sqrt(3) * r2 * Math.cos(b2), y: Math.sqrt(3) * r2 * Math.sin(b2) });
+        }
+      }
+      return new Group2({
+        members: centres.map((c2) => new Circle({ x: c2.x, y: c2.y, radius: r2 })),
+        x: num(p2, "cx", 0),
+        y: -num(p2, "cy", 0)
+      });
+    }
+  },
+  {
+    id: "mindVirus",
+    name: "MindVirus",
+    description: "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
+    params: {
+      x: { type: "number", role: "x", description: "body (cube) centre x, page units" },
+      y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
+      size: { type: "number", role: "length", description: "cube edge length, page units" },
+      heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      fold: {
+        type: "number",
+        description: "−1..1, how the cube's walls sit: 1 = closed box (walls upright, reads as a plain cube), ~0.5 = walls half open, 0 = walls splayed flat (an open cross/flower), negative = walls folded forward around something (wrapping a victim)"
+      },
+      cable: {
+        type: "points",
+        role: "points",
+        description: "the drawn tail as page points [[x,y],…] ordered from the FREE TAIL END to where it touches the body; follow the actual drawn line (8–20 points). Omit or [] if no tail was drawn"
+      }
+    },
+    build: buildMindVirus
+  },
+  {
+    id: "eye",
+    name: "Eye",
+    description: "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x of the eye's bounding box, page units" },
+      cy: { type: "number", role: "y", description: "centre y, page units" },
+      size: { type: "number", role: "length", description: "length from apex to the far arc, page units" },
+      rotation: { type: "number", role: "angle", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` }
+    },
+    build: (p2) => {
+      const size = Math.max(1, num(p2, "size", 100));
+      const k2 = size / 230;
+      const rot = -num(p2, "rotation", 0);
+      const eye = new Eye({ scale: k2, x: -115 * k2 });
+      return new Group2({ members: [eye], x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: rot });
+    }
+  },
+  {
+    id: "figure",
+    name: "Figure",
+    description: "A person: a stick figure (round head, body line, arms, legs).",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
+      cy: { type: "number", role: "y", description: "centre y (halfway between crown and feet), page units" },
+      height: { type: "number", role: "length", description: "crown-to-feet height, page units" }
+    },
+    build: (p2) => new Figure({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), height: Math.max(1, num(p2, "height", 120)) })
+  }
+];
+var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
+var vocabById = (id) => BY_ID.get(id);
+var buildSymbol = (s2) => {
+  const entry = vocabById(s2.symbol);
+  if (!entry)
+    throw new Error(`sketch vocabulary: unknown symbol '${s2.symbol}'`);
+  return entry.build(s2.params ?? {});
+};
+var inkHolon = (k2) => new Line2({ points: k2.points.map((p2) => scenePt(p2.x, p2.y)), tint: WHITE, stroke: 2 });
+var framePage = (dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }) => {
+  const o2 = dream.observer;
+  o2.x.defaultValue = o2.x.value = frame.cx;
+  o2.y.defaultValue = o2.y.value = -frame.cy;
+  const r2 = frame.h / (2 * Math.tan(o2.fov.value / 2));
+  o2.radius.defaultValue = o2.radius.value = r2;
+};
+
+// sketch/board.ts
+var BOARD_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+var isValidBoardName = (name) => BOARD_NAME.test(name);
+var finite = (v2) => typeof v2 === "number" && Number.isFinite(v2);
+var parseSample = (v2) => {
+  const p2 = v2;
+  if (!p2 || !finite(p2.x) || !finite(p2.y))
+    return;
+  return { x: p2.x, y: p2.y, pressure: finite(p2.pressure) ? p2.pressure : 0.5, t: finite(p2.t) ? p2.t : 0 };
+};
+var parseBoard = (v2) => {
+  if (typeof v2 !== "object" || v2 === null)
+    return;
+  const b2 = v2;
+  if (!Array.isArray(b2.strokes) || !Array.isArray(b2.symbols))
+    return;
+  const strokes = [];
+  for (const k2 of b2.strokes) {
+    const s2 = k2;
+    if (!s2 || typeof s2.id !== "string" || !Array.isArray(s2.points))
+      continue;
+    const points = s2.points.map(parseSample).filter((p2) => !!p2);
+    if (points.length)
+      strokes.push({ id: s2.id, points });
+  }
+  const symbols = [];
+  for (const y2 of b2.symbols) {
+    const s2 = y2;
+    if (!s2 || typeof s2.id !== "string" || typeof s2.symbol !== "string")
+      continue;
+    const params = typeof s2.params === "object" && s2.params !== null ? s2.params : {};
+    const fromStrokes = Array.isArray(s2.fromStrokes) ? s2.fromStrokes.filter((x2) => typeof x2 === "string") : [];
+    symbols.push({ id: s2.id, symbol: s2.symbol, params, fromStrokes });
+  }
+  return { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols };
+};
+
+// demo/boards/Board.ts
+class BoardDream extends Dream {
+  symbols = [];
+  byId = {};
+  ink = [];
+  unfold() {
+    framePage(this);
+    for (const s2 of this.board.symbols) {
+      let h2;
+      try {
+        h2 = buildSymbol(s2);
+      } catch (err) {
+        console.warn("[board] cannot build", s2.symbol, err);
+        continue;
+      }
+      this.symbols.push(h2);
+      this.byId[s2.id] = h2;
+      this.stage(h2);
+    }
+    for (const k2 of this.board.strokes)
+      this.ink.push(this.stage(inkHolon(k2)));
+  }
+}
+var boardDream = (name, data) => {
+  const board = parseBoard(data) ?? { version: 1, page: { w: 0, h: 0 }, strokes: [], symbols: [] };
+  const cls = class extends BoardDream {
+    board = board;
+  };
+  Object.defineProperty(cls, "name", { value: `Board ${name}Dream` });
+  return cls;
+};
+var boardSceneKey = (name) => `board:${name}`;
+var loadBoards = async () => {
+  const out = {};
+  try {
+    const res = await fetch("/api/boards");
+    if (!res.ok)
+      return out;
+    const list = await res.json();
+    for (const { name, board } of list) {
+      if (typeof name === "string" && isValidBoardName(name))
+        out[boardSceneKey(name)] = boardDream(name, board);
+    }
+  } catch {}
+  return out;
+};
+
 // editor/selection.ts
 class Selection {
   #current = null;
@@ -104262,6 +104623,9 @@ var ensureWs = () => {
       if (msg.external?.length && undoStack.clear())
         setPendingNote("history cleared (file edited)");
       window.__dtRemount?.();
+    } else if (msg.type === "board") {
+      if (new URLSearchParams(location.search).get("scene") === `board:${msg.name}`)
+        window.__dtRemount?.();
     } else if (msg.type === "opApplied") {
       undoStack.applied(msg);
     } else if (msg.type === "opRejected") {
@@ -104322,6 +104686,10 @@ var boot = async (resume) => {
   document.body.classList.toggle("player", playerMode);
   if (playerMode)
     marquee.enabled = false;
+  for (const key of Object.keys(scenes))
+    if (key.startsWith("board:"))
+      delete scenes[key];
+  Object.assign(scenes, await loadBoards());
   const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene;
   const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene];
   const dream = new DreamCtor;
@@ -104575,6 +104943,16 @@ var boot = async (resume) => {
       nameEl.classList.remove("selected");
       metaEl.textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`;
       metaEl.title = sceneFileFor(sceneKey);
+      if (sceneKey.startsWith("board:")) {
+        const a2 = document.createElement("a");
+        a2.className = "boardlink";
+        a2.href = `/sketch/?board=${encodeURIComponent(sceneKey.slice("board:".length))}`;
+        a2.target = "dreamtalk-whiteboard";
+        a2.textContent = "open whiteboard ↗";
+        a2.title = "This scene's layout lives on the whiteboard; edits there land here.";
+        metaEl.append(" · ", a2);
+        metaEl.title = `core/demo/boards/${sceneKey.slice("board:".length)}.board.json`;
+      }
       const hint = document.createElement("div");
       hint.className = "empty";
       hint.textContent = "Nothing selected — click an object in the viewport.";
@@ -105355,7 +105733,7 @@ var boot = async (resume) => {
     if (!alive)
       return;
     if (playing) {
-      const t2 = (now - anchor) / 1000 % duration;
+      const t2 = duration > 0 ? (now - anchor) / 1000 % duration : 0;
       stepReturn(now, t2);
       await paint(t2);
     } else if (stepReturn(now)) {

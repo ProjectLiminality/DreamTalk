@@ -42,6 +42,7 @@ import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
 import { scenes, defaultScene } from "../demo/scenes"
+import { loadBoards } from "../demo/boards/Board"
 import { Selection, pathOf, type SelectionPath } from "./selection"
 import { mountOutline, identityOf, rootIdentityOf } from "./outline"
 import { mountNavigator } from "./navigator"
@@ -230,6 +231,7 @@ const ensureWs = () => {
   ws.addEventListener("message", (e) => {
     let msg: {
       type?: string
+      name?: string
       reason?: string
       opId?: string
       undo?: OpDescriptor
@@ -250,6 +252,11 @@ const ensureWs = () => {
       if (msg.external?.length && undoStack.clear())
         setPendingNote("history cleared (file edited)")
       window.__dtRemount?.()
+    } else if (msg.type === "board") {
+      // A whiteboard page changed on disk (Board.ts): only the editor
+      // showing that board remounts — data, not code, so no rebuild and no
+      // history to void.
+      if (new URLSearchParams(location.search).get("scene") === `board:${msg.name}`) window.__dtRemount?.()
     } else if (msg.type === "opApplied") {
       undoStack.applied(msg)
     } else if (msg.type === "opRejected") {
@@ -330,6 +337,10 @@ const boot = async (resume?: Transport) => {
 
   // Which DreamWeaving the editor is editing: /?scene=s04 (registry in
   // demo/scenes.ts). Reproduction scenes carry their own backdrop line.
+  // Whiteboard pages join the registry as `board:<name>` — fetched fresh on
+  // every (re)mount, so a board saved a moment ago is what opens.
+  for (const key of Object.keys(scenes)) if (key.startsWith("board:")) delete scenes[key]
+  Object.assign(scenes, await loadBoards())
   const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene
   const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene]!
   const dream = new DreamCtor()
@@ -735,6 +746,16 @@ const boot = async (resume?: Transport) => {
       nameEl.classList.remove("selected")
       metaEl.textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`
       metaEl.title = sceneFileFor(sceneKey)
+      if (sceneKey.startsWith("board:")) {
+        const a = document.createElement("a")
+        a.className = "boardlink"
+        a.href = `/sketch/?board=${encodeURIComponent(sceneKey.slice("board:".length))}`
+        a.target = "dreamtalk-whiteboard"
+        a.textContent = "open whiteboard ↗"
+        a.title = "This scene's layout lives on the whiteboard; edits there land here."
+        metaEl.append(" · ", a)
+        metaEl.title = `core/demo/boards/${sceneKey.slice("board:".length)}.board.json`
+      }
       const hint = document.createElement("div")
       hint.className = "empty"
       hint.textContent = "Nothing selected — click an object in the viewport."
@@ -1844,7 +1865,8 @@ const boot = async (resume?: Transport) => {
   const loop = async (now: number) => {
     if (!alive) return
     if (playing) {
-      const t = ((now - anchor) / 1000) % duration
+      // A still (a board with no choreography yet) has no time to loop.
+      const t = duration > 0 ? ((now - anchor) / 1000) % duration : 0
       // The tween runs BEFORE the frame is drawn, so the overlay it
       // writes is what this frame renders; paint() then holds the
       // observer back from the time-move clear while it is in flight.

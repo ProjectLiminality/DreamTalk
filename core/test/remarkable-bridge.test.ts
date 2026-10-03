@@ -29,6 +29,9 @@ import {
   TouchStateMachine,
   TouchThrottle,
   USB_HOST,
+  WLAN_ON_CMD,
+  NOT_FOUND_MSG,
+  usbAdvice,
   backoffMs,
   classifyLogin,
   decide,
@@ -415,5 +418,38 @@ describe("status and retry", () => {
     expect(t.set({ ...s })).toBe(false)
     expect(t.set({ ...s, state: "asleep" })).toBe(true)
     expect(t.set({ ...s, state: "asleep", host: "h" })).toBe(true)
+  })
+})
+
+describe("first run: SSH over Wi-Fi is off until enabled over USB", () => {
+  test("the tablet's Wi-Fi address comes back in the same round-trip (iproute2 or busybox ifconfig)", () => {
+    const base = `reMarkable 2.0\n\n---\narmv7l\n---\nN: Name="pt_mt"\nH: Handlers=event2\n\n---\n`
+    expect(parseDeviceInfo(base + "3: wlan0: <UP>\n    inet 192.168.0.23/24 brd 192.168.0.255 scope global wlan0\n").wlan).toBe("192.168.0.23")
+    expect(parseDeviceInfo(base + "wlan0  Link encap:Ethernet\n  inet addr:10.0.0.7  Bcast:10.0.0.255\n").wlan).toBe("10.0.0.7")
+    expect(parseDeviceInfo(base).wlan).toBeUndefined()
+  })
+
+  test("over USB: cordless when Wi-Fi SSH answers, else the exact command", () => {
+    expect(usbAdvice("192.168.0.23", true)).toEqual({ cache: "192.168.0.23", message: expect.stringContaining("unplug any time") })
+    const off = usbAdvice("192.168.0.23", false)
+    expect(off.cache).toBe(USB_HOST)
+    expect(off.message).toContain("ssh root@10.11.99.1 rm-ssh-over-wlan on")
+    expect(usbAdvice(undefined, false).message).toContain("isn't on Wi-Fi")
+  })
+
+  test("a key refused over USB lists the steps in order: wlan on, then the key, then unplug", () => {
+    const m = needsKeyMessage(USB_HOST)
+    const i1 = m.indexOf(WLAN_ON_CMD)
+    const i2 = m.indexOf("ssh-copy-id -i ~/.config/dreamtalk/remarkable_ed25519.pub root@10.11.99.1")
+    const i3 = m.indexOf("unplug")
+    expect(i1).toBeGreaterThanOrEqual(0)
+    expect(i2).toBeGreaterThan(i1)
+    expect(i3).toBeGreaterThan(i2)
+    // Over Wi-Fi, SSH is evidently on — just the key.
+    expect(needsKeyMessage("192.168.0.23")).not.toContain("rm-ssh-over-wlan")
+  })
+
+  test("not found anywhere points first at the most likely cause", () => {
+    expect(NOT_FOUND_MSG).toContain(WLAN_ON_CMD)
   })
 })

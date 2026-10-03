@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DreamTalk Sketch</title>
+  <title>DreamTalk Whiteboard</title>
   <style>
     /* The sketchpad: a page, a pen, and almost nothing else. Dark by
        default (white ink on black); the light page inverts the ink and,
@@ -18,6 +18,7 @@
       --dim: #45454d;
       --blue: #00a2ff;
       --chip: #000;
+      --amber: #e8a33d;
       --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     }
     :root[data-theme="light"] {
@@ -54,12 +55,49 @@
     #toolbar .imports { color: var(--dim); font: 10.5px var(--mono); white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; max-width: 42vw; cursor: help; }
     #toolbar .imports::before { content: "import "; color: var(--text); }
-    #toolbar .tabletdot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); margin-left: 10px; }
-    body.tablet #toolbar .tabletdot { background: var(--blue); }
+    #toolbar #board { width: 92px; height: 24px; margin-left: 12px; padding: 0 7px; border-radius: 6px;
+      background: none; border: 1px solid var(--edge); color: var(--bright); font: 11px var(--mono); outline: none; }
+    #toolbar #board:focus { border-color: var(--blue); }
+    #toolbar a { color: var(--text); text-decoration: none; font-size: 11px; margin-left: 10px; }
+    #toolbar a:hover { color: var(--bright); }
+
+    /* The tablet: one quiet dot. Blue = streaming; hollow = asleep; a slow
+       breath = searching; amber = waiting on its one-time key. */
+    #toolbar .tabletdot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); margin-left: 12px;
+      cursor: help; box-sizing: border-box; }
+    #toolbar .tabletdot.connected { background: var(--blue); }
+    #toolbar .tabletdot.asleep { background: none; border: 1.5px solid var(--dim); }
+    #toolbar .tabletdot.searching { animation: breathe 2.4s ease-in-out infinite; }
+    #toolbar .tabletdot.needs-key { background: var(--amber); }
+    #toolbar .tabletdot.offline { background: none; border: 1.5px solid var(--edge); }
+    @keyframes breathe { 50% { opacity: 0.25; } }
+
+    #banner { position: fixed; top: 44px; left: 50%; transform: translateX(-50%); z-index: 10; display: none;
+      align-items: center; gap: 10px; max-width: calc(100vw - 32px); padding: 6px 8px 6px 14px; border-radius: 8px;
+      background: var(--page); box-shadow: 0 0 0 1px var(--edge); color: var(--text); white-space: nowrap; }
+    #banner.on { display: flex; }
+    #banner code { font: 11px var(--mono); color: var(--bright); user-select: text; -webkit-user-select: text;
+      overflow: hidden; text-overflow: ellipsis; }
+    #banner button { background: none; border: none; color: var(--dim); font: inherit; font-size: 14px;
+      cursor: pointer; padding: 0 4px; }
+    #banner button:hover { color: var(--bright); }
+
+    /* Where the tablet's pen is: a hollow ring, filled while its button is held. */
+    #presence { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+      border: 1.5px solid var(--text); pointer-events: none; z-index: 4; opacity: 0; transition: opacity 0.25s; }
+    #presence.on { opacity: 0.75; }
+    #presence.button { background: var(--blue); border-color: var(--blue); }
 
     #page { position: absolute; background: var(--page); overflow: hidden; border-radius: 4px;
       box-shadow: 0 0 0 1px var(--edge); }
     #page canvas.gl { position: absolute; top: 0; display: block; pointer-events: none; }
+    #page canvas.gl.rest { z-index: 0; }
+    /* The selected symbols on their own layer. The host clears to opaque
+       black, so the layer is blended in rather than stacked: black is
+       neutral under screen, and the light page's inverted white under
+       multiply. */
+    #page canvas.gl.lifted { z-index: 1; mix-blend-mode: screen; }
+    :root[data-theme="light"] #page canvas.gl.lifted { mix-blend-mode: multiply; }
     :root[data-theme="light"] canvas.gl { filter: invert(1) hue-rotate(180deg); }
     #ink { position: absolute; left: 0; top: 0; touch-action: none; cursor: crosshair; z-index: 2; }
 
@@ -78,7 +116,7 @@
 </head>
 <body>
   <div id="toolbar">
-    <span class="brand">DreamTalk · sketch</span>
+    <span class="brand">DreamTalk · whiteboard</span>
     <button id="transform" title="Make it real (Enter, or a button-held tap inside the selection)">✦</button>
     <button id="undo" title="Undo (⌘Z)">↶</button>
     <button id="redo" title="Redo (⇧⌘Z)">↷</button>
@@ -88,11 +126,16 @@
     <span id="status"></span>
     <span class="spacer"></span>
     <span class="imports" id="imports"></span>
-    <span class="tabletdot" title="reMarkable (/ws/pen)"></span>
+    <input id="board" list="boards" spellcheck="false" autocomplete="off" title="Board — a scene file, core/demo/boards/&lt;name&gt;.board.json. Type a name + Enter to open or start one." />
+    <datalist id="boards"></datalist>
+    <a id="toeditor" target="dreamtalk-editor" title="The same scene in the DreamTalk editor — camera, timeline, choreography">open in editor ↗</a>
+    <span class="tabletdot" id="tabletdot"></span>
   </div>
+  <div id="banner"><span>reMarkable needs its one-time key — run:</span><code></code><button title="Dismiss">×</button></div>
   <div id="page">
     <canvas id="ink"></canvas>
     <div id="ring"></div>
+    <div id="presence"></div>
   </div>
   <script type="module" src="/core/sketch/dist/main.js"></script>
 </body>

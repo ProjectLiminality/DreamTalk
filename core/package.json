@@ -17,7 +17,8 @@
     "typecheck": "bunx tsc --noEmit",
     "build:demo": "bun build demo/main.ts --outdir demo/dist --format esm --target browser",
     "build:editor": "bun build editor/main.ts --outdir editor/dist --format esm --target browser",
-    "build:sketch": "bun build sketch/main.ts --outdir sketch/dist --format esm --target browser"
+    "build:sketch": "bun build sketch/main.ts --outdir sketch/dist --format esm --target browser",
+    "studio": "bun run build:sketch && bun scripts/daemon.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
