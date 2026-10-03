@@ -290,8 +290,13 @@ if (import.meta.main) {
   const machine = new PenStateMachine(map)
   let lastHover = 0
   const proc = ssh(host, `cat ${dev}`)
-  let pending = new Uint8Array(0)
-  for await (const chunk of proc.stdout) {
+  let pending: Uint8Array = new Uint8Array(0)
+  // An explicit reader rather than `for await`: the DOM lib's ReadableStream
+  // type lacks the async iterator even though Bun provides it.
+  const reader = proc.stdout.getReader()
+  for (;;) {
+    const { value: chunk, done } = await reader.read()
+    if (done || !chunk) break
     const joined = new Uint8Array(pending.length + chunk.length)
     joined.set(pending)
     joined.set(chunk, pending.length)

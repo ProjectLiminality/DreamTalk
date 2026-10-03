@@ -13,6 +13,10 @@
  *   - GET /api/face/<Name> → a holon's DreamTalk face png, for tooltips
  *   - WS  {type:"op"} → semantic ops applied via ts-morph (scripts/ops.ts),
  *     written atomically, echo-suppressed at the watcher, one queue
+ *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
+ *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts)
+ *   - WS  /ws/pen → pen-event relay: whatever one client sends, every OTHER
+ *     /ws/pen client receives (the reMarkable bridge → the sketch page)
  */
 
 import { watch } from "node:fs"
@@ -20,6 +24,8 @@ import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
+import { recognize } from "./recognize"
+import type { RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
@@ -59,6 +65,8 @@ const routes: Record<string, string> = {
   "/": "core/editor/index.html",
   "/demo": "core/demo/index.html",
   "/demo/": "core/demo/index.html",
+  "/sketch": "core/sketch/index.html",
+  "/sketch/": "core/sketch/index.html",
 }
 
 const serveStatic = async (pathname: string): Promise<Response> => {
@@ -594,15 +602,41 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
   await rebuildAndReload()
 }
 
+// --- Sketchpad (sketch/protocol.ts) -----------------------------------------
+
+const recognizeResponse = async (req: Request): Promise<Response> => {
+  let body: RecognizeRequest
+  try {
+    body = (await req.json()) as RecognizeRequest
+  } catch {
+    return Response.json({ candidates: [], error: "malformed JSON" }, { status: 400 })
+  }
+  if (typeof body?.png !== "string" || !body.crop || !Array.isArray(body.strokes)) {
+    return Response.json({ candidates: [], error: "need png, crop, strokes" }, { status: 400 })
+  }
+  return Response.json(await recognize(body))
+}
+
+/** Which socket a connection is: the editor's /ws or the pen relay. */
+interface SocketData {
+  pen?: boolean
+}
+
 // --- Server ----------------------------------------------------------------
 
-const server = Bun.serve({
+const server = Bun.serve<SocketData>({
   port,
   async fetch(req, srv) {
     const url = new URL(req.url)
     if (url.pathname === "/ws") {
-      return srv.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 })
+      return srv.upgrade(req, { data: {} }) ? undefined : new Response("upgrade failed", { status: 400 })
     }
+    if (url.pathname === "/ws/pen") {
+      return srv.upgrade(req, { data: { pen: true } })
+        ? undefined
+        : new Response("upgrade failed", { status: 400 })
+    }
+    if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
     if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
@@ -619,9 +653,14 @@ const server = Bun.serve({
   },
   websocket: {
     open(ws) {
-      ws.subscribe("editor")
+      ws.subscribe(ws.data.pen ? "pen" : "editor")
     },
     message(ws, raw) {
+      // The pen relay: publish() reaches every subscriber but the sender.
+      if (ws.data.pen) {
+        ws.publish("pen", raw)
+        return
+      }
       let msg: OpMessage
       try {
         msg = JSON.parse(String(raw)) as OpMessage
@@ -633,7 +672,7 @@ const server = Bun.serve({
       opQueue = opQueue.then(() => applyOp(ws, msg)).catch((err) => log("op error:", err))
     },
     close(ws) {
-      ws.unsubscribe("editor")
+      ws.unsubscribe(ws.data.pen ? "pen" : "editor")
     },
   },
 })
