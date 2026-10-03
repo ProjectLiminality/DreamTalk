@@ -1,11 +1,16 @@
 /**
  * The reMarkable bridge, verified without a reMarkable: byte-exact
- * input_event parsing for both record sizes, the digitizer→page map, and the
- * state machine that turns the kernel's change-stream into PenEvents.
+ * input_event parsing for both record sizes, the digitizer→page map, the
+ * state machines that turn the kernel's change-streams into PenEvents (pen
+ * and multitouch), and the pure halves of discovery, auth and retry.
  */
 
 import { describe, expect, test } from "bun:test"
 import {
+  ABS_MT_POSITION_X,
+  ABS_MT_POSITION_Y,
+  ABS_MT_SLOT,
+  ABS_MT_TRACKING_ID,
   ABS_PRESSURE,
   ABS_X,
   ABS_Y,
@@ -15,11 +20,31 @@ import {
   EV_ABS,
   EV_KEY,
   EV_SYN,
+  NEEDS_KEY_RETRY_MS,
   PenStateMachine,
   RM2_MAP,
-  parseEvents,
+  RM2_TOUCH_MAP,
+  StatusTracker,
+  SYN_DROPPED,
+  TouchStateMachine,
+  TouchThrottle,
+  USB_HOST,
+  backoffMs,
+  classifyLogin,
+  decide,
+  findDevices,
+  nameCandidates,
+  needsKeyMessage,
+  nextState,
+  parseDeviceInfo,
+  rankProbes,
+  retryDelay,
+  sshArgs,
+  subnetHosts,
   toPage,
+  parseEvents,
   type RawEvent,
+  type TouchFrame,
 } from "../scripts/remarkable-bridge"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
 
@@ -135,5 +160,260 @@ describe("PenStateMachine", () => {
     frame(m, [{ type: EV_KEY, code: BTN_STYLUS, value: 1 }], 1)
     const down = frame(m, [{ type: EV_KEY, code: BTN_TOUCH, value: 1 }], 2)
     expect(down.find((e) => e.kind === "down")).toMatchObject({ button: true })
+  })
+})
+
+describe("PenStateMachine — leave", () => {
+  const frame = (m: PenStateMachine, events: Omit<RawEvent, "t">[], t: number) =>
+    [...events, { type: EV_SYN, code: 0, value: 0 }].flatMap((e) => m.feed({ ...e, t }))
+
+  test("BTN_TOOL_PEN → 0 says leave, once", () => {
+    const m = new PenStateMachine(RM2_MAP)
+    frame(m, [{ type: EV_KEY, code: BTN_TOOL_PEN, value: 1 }], 1)
+    expect(frame(m, [{ type: EV_KEY, code: BTN_TOOL_PEN, value: 0 }], 2)).toEqual([{ kind: "leave" }])
+    expect(frame(m, [], 3)).toEqual([])
+  })
+
+  test("lifting and leaving in one frame is up, then leave", () => {
+    const m = new PenStateMachine(RM2_MAP)
+    frame(m, [{ type: EV_KEY, code: BTN_TOOL_PEN, value: 1 }, { type: EV_KEY, code: BTN_TOUCH, value: 1 }], 1)
+    const out = frame(m, [{ type: EV_KEY, code: BTN_TOUCH, value: 0 }, { type: EV_KEY, code: BTN_TOOL_PEN, value: 0 }], 2)
+    expect(out.map((e) => e.kind)).toEqual(["up", "leave"])
+  })
+
+  test("a pen never seen in range never leaves", () => {
+    const m = new PenStateMachine(RM2_MAP)
+    expect(frame(m, [{ type: EV_KEY, code: BTN_TOOL_PEN, value: 0 }], 1)).toEqual([])
+  })
+})
+
+describe("TouchStateMachine (multitouch protocol B)", () => {
+  const abs = (code: number, value: number) => ({ type: EV_ABS, code, value })
+  const syn = { type: EV_SYN, code: 0, value: 0 }
+  /** Feed encoded bytes through the real parser, as the SSH stream would. */
+  const feedBytes = (m: TouchStateMachine, events: Omit<RawEvent, "t">[]): TouchFrame[] => {
+    const { events: raw } = parseEvents(encode(events, 16), 16)
+    return raw.flatMap((e) => m.feed(e) ?? [])
+  }
+  const ident = { ...RM2_TOUCH_MAP, flipY: false }
+
+  test("two fingers down, move, one lifts, both lift", () => {
+    const m = new TouchStateMachine(ident)
+    const down = feedBytes(m, [
+      abs(ABS_MT_SLOT, 0), abs(ABS_MT_TRACKING_ID, 10), abs(ABS_MT_POSITION_X, 100), abs(ABS_MT_POSITION_Y, 200),
+      abs(ABS_MT_SLOT, 1), abs(ABS_MT_TRACKING_ID, 11), abs(ABS_MT_POSITION_X, 700), abs(ABS_MT_POSITION_Y, 900),
+      syn,
+    ])
+    expect(down.length).toBe(1)
+    expect(down[0]!.touches.map((t) => t.id)).toEqual([10, 11])
+    expect(down[0]!.touches[0]!.x).toBeCloseTo((100 / 1403) * 1404, 6)
+    expect(down[0]!.touches[1]!.y).toBeCloseTo((900 / 1871) * 1872, 6)
+
+    // Only slot 1's X changes; slot 0 keeps its last position.
+    const move = feedBytes(m, [abs(ABS_MT_POSITION_X, 750), syn])
+    expect(move[0]!.touches[0]!.x).toBeCloseTo((100 / 1403) * 1404, 6)
+    expect(move[0]!.touches[1]!.x).toBeCloseTo((750 / 1403) * 1404, 6)
+
+    const oneUp = feedBytes(m, [abs(ABS_MT_SLOT, 0), abs(ABS_MT_TRACKING_ID, -1), syn])
+    expect(oneUp[0]!.touches.map((t) => t.id)).toEqual([11])
+
+    const allUp = feedBytes(m, [abs(ABS_MT_SLOT, 1), abs(ABS_MT_TRACKING_ID, -1), syn])
+    expect(allUp[0]!.touches).toEqual([])
+    expect(allUp[0]!.kind).toBe("touch")
+  })
+
+  test("a finger already down when the stream started is picked up on first move", () => {
+    const m = new TouchStateMachine(ident)
+    const f = feedBytes(m, [abs(ABS_MT_POSITION_X, 5), abs(ABS_MT_POSITION_Y, 6), syn])
+    expect(f[0]!.touches.length).toBe(1)
+  })
+
+  test("events between SYN_DROPPED and the next SYN_REPORT are ignored", () => {
+    const m = new TouchStateMachine(ident)
+    feedBytes(m, [abs(ABS_MT_TRACKING_ID, 1), abs(ABS_MT_POSITION_X, 10), syn])
+    const f = feedBytes(m, [{ type: EV_SYN, code: SYN_DROPPED, value: 0 }, abs(ABS_MT_POSITION_X, 999), syn])
+    expect(f[0]!.touches[0]!.x).toBeCloseTo((10 / 1403) * 1404, 6)
+  })
+
+  test("the default rM2 map puts raw (0, 0) at the page's bottom-left", () => {
+    const m = new TouchStateMachine(RM2_TOUCH_MAP)
+    const f = feedBytes(m, [abs(ABS_MT_TRACKING_ID, 1), abs(ABS_MT_POSITION_X, 0), abs(ABS_MT_POSITION_Y, 0), syn])
+    expect(f[0]!.touches[0]).toMatchObject({ x: 0, y: 1872 })
+  })
+})
+
+describe("TouchThrottle", () => {
+  const fr = (ids: number[], x = 0): TouchFrame => ({ kind: "touch", touches: ids.map((id) => ({ id, x, y: 0 })), t: 0 })
+
+  test("moves are held to ~60 Hz; landings, lifts and the empty frame are never held", () => {
+    const th = new TouchThrottle(16)
+    expect(th.offer(fr([1]), 0)).toBeDefined() // landing
+    expect(th.offer(fr([1], 5), 5)).toBeUndefined() // move, too soon
+    expect(th.pending?.touches[0]!.x).toBe(5)
+    expect(th.offer(fr([1, 2]), 6)).toBeDefined() // a second finger lands
+    expect(th.pending).toBeUndefined()
+    expect(th.offer(fr([1, 2], 9), 7)).toBeUndefined()
+    expect(th.offer(fr([]), 8)).toBeDefined() // all lifted — always
+  })
+
+  test("a held frame is flushed, and counts as a send", () => {
+    const th = new TouchThrottle(16)
+    th.offer(fr([1]), 0)
+    th.offer(fr([1], 7), 4)
+    expect(th.flush(16)?.touches[0]!.x).toBe(7)
+    expect(th.flush(17)).toBeUndefined()
+    expect(th.offer(fr([1], 8), 20)).toBeUndefined() // 4 ms after the flush
+    expect(th.offer(fr([1], 9), 32)).toBeDefined()
+  })
+})
+
+describe("discovery", () => {
+  test("cheap guesses in order: cached, USB, names — no duplicates", () => {
+    expect(nameCandidates("192.168.1.42").map((c) => c.host)).toEqual([
+      "192.168.1.42",
+      USB_HOST,
+      "remarkable.local",
+      "remarkable",
+    ])
+    expect(nameCandidates(undefined).map((c) => c.source)).toEqual(["usb", "name", "name"])
+    expect(nameCandidates(USB_HOST, USB_HOST).length).toBe(3)
+    expect(nameCandidates("10.0.0.5", "10.0.0.9").map((c) => c.host).slice(0, 2)).toEqual(["10.0.0.5", "10.0.0.9"])
+  })
+
+  test("the sweep covers each real interface's /24, minus ourselves, tunnels and link-local", () => {
+    const hosts = subnetHosts([
+      { name: "en0", address: "192.168.1.20", netmask: "255.255.255.0", family: "IPv4", internal: false },
+      { name: "lo0", address: "127.0.0.1", netmask: "255.0.0.0", family: "IPv4", internal: true },
+      { name: "utun3", address: "10.8.0.2", netmask: "255.255.255.0", family: "IPv4", internal: false },
+      { name: "en5", address: "169.254.3.3", netmask: "255.255.0.0", family: "IPv4", internal: false },
+      { name: "en0", address: "fe80::1", netmask: "ffff:ffff:ffff:ffff::", family: "IPv6", internal: false },
+    ])
+    expect(hosts.length).toBe(253)
+    expect(hosts).toContain("192.168.1.1")
+    expect(hosts).toContain("192.168.1.254")
+    expect(hosts).not.toContain("192.168.1.20")
+    expect(hosts.some((h) => h.startsWith("10.8."))).toBe(false)
+  })
+
+  test("rank: guesses before the sweep; the sweep needs dropbear and must not be the router", () => {
+    const ranked = rankProbes(
+      [
+        { host: "192.168.1.1", source: "scan", address: "192.168.1.1", banner: "SSH-2.0-dropbear_2022.83" },
+        { host: "192.168.1.30", source: "scan", address: "192.168.1.30", banner: "SSH-2.0-OpenSSH_9.6" },
+        { host: "192.168.1.42", source: "scan", address: "192.168.1.42", banner: "SSH-2.0-dropbear_2020.81" },
+        { host: "remarkable.local", source: "name", address: "192.168.1.42", banner: "SSH-2.0-dropbear_2020.81" },
+        { host: USB_HOST, source: "usb" },
+        { host: "192.168.1.7", source: "cached", address: "192.168.1.7", banner: "SSH-2.0-OpenSSH_9.6" },
+      ],
+      "192.168.1.1",
+    )
+    // cached speaks SSH → tried first even though it isn't dropbear; .42 once.
+    expect(ranked).toEqual(["192.168.1.7", "192.168.1.42"])
+  })
+
+  test("login outcomes are classified from ssh's exit and stderr", () => {
+    expect(classifyLogin(0, "reMarkable 2.0\n\n---\narmv7l\n---\n", "")).toBe("ok")
+    expect(classifyLogin(0, "Raspberry Pi 4\n---\n", "")).toBe("not-remarkable")
+    expect(classifyLogin(255, "", "root@192.168.1.42: Permission denied (publickey,password).")).toBe("auth")
+    expect(classifyLogin(255, "", "ssh: connect to host 10.11.99.1 port 22: Operation timed out")).toBe("unreachable")
+  })
+
+  test("decide: a login wins over a refusal wins over nothing", () => {
+    expect(decide([{ host: "a", result: "auth" }, { host: "b", result: "ok" }])).toEqual({ kind: "found", host: "b" })
+    expect(decide([{ host: "a", result: "unreachable" }, { host: "b", result: "auth" }])).toEqual({
+      kind: "needs-key",
+      host: "b",
+    })
+    expect(decide([{ host: "a", result: "not-remarkable" }])).toEqual({ kind: "none" })
+    expect(decide([])).toEqual({ kind: "none" })
+  })
+})
+
+describe("device detection", () => {
+  // /proc/bus/input/devices as an rM2 prints it (abridged).
+  const RM2 = `I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="30370000.snvs:snvs-powerkey"
+H: Handlers=kbd event0
+B: EV=3
+
+I: Bus=0018 Vendor=056a Product=0000 Version=0036
+N: Name="Wacom I2C Digitizer"
+H: Handlers=event1
+B: EV=b
+
+I: Bus=0018 Vendor=0000 Product=0000 Version=0000
+N: Name="pt_mt"
+H: Handlers=event2
+B: EV=b
+`
+
+  test("pen and touchscreen are found by name", () => {
+    expect(findDevices(RM2)).toEqual({ pen: "/dev/input/event1", touch: "/dev/input/event2" })
+  })
+
+  test("an unknown layout falls back to event1 for the pen and no touch", () => {
+    expect(findDevices("N: Name=\"something\"\nH: Handlers=event5\n")).toEqual({ pen: "/dev/input/event1", touch: undefined })
+  })
+
+  test("one SSH round-trip parses into model, word size and nodes", () => {
+    const info = parseDeviceInfo(`reMarkable 2.0\n\n---\narmv7l\n---\n${RM2}`)
+    expect(info).toEqual({
+      machine: "reMarkable 2.0",
+      arch: "armv7l",
+      recordSize: 16,
+      pen: "/dev/input/event1",
+      touch: "/dev/input/event2",
+    })
+    expect(parseDeviceInfo(`reMarkable Ferrari\n\n---\naarch64\n---\n`).recordSize).toBe(24)
+  })
+})
+
+describe("auth", () => {
+  test("ssh uses the bridge's own key and never David's ssh config or known_hosts", () => {
+    const args = sshArgs("192.168.1.42", "cat /dev/input/event1", "/k/remarkable_ed25519")
+    const opt = (o: string) => args.includes(o)
+    expect(args.slice(args.indexOf("-i"), args.indexOf("-i") + 2)).toEqual(["-i", "/k/remarkable_ed25519"])
+    expect(args.slice(args.indexOf("-F"), args.indexOf("-F") + 2)).toEqual(["-F", "/dev/null"])
+    for (const o of ["IdentitiesOnly=yes", "BatchMode=yes", "UserKnownHostsFile=/dev/null", "ServerAliveInterval=3", "ServerAliveCountMax=3"])
+      expect(opt(o)).toBe(true)
+    expect(args.slice(-2)).toEqual(["root@192.168.1.42", "cat /dev/input/event1"])
+  })
+
+  test("needs-key carries the exact one-time command and where the password is", () => {
+    const m = needsKeyMessage("192.168.1.42")
+    expect(m).toContain("ssh-copy-id -i ~/.config/dreamtalk/remarkable_ed25519.pub root@192.168.1.42")
+    expect(m).toContain("Settings → Help → Copyrights and licenses")
+  })
+})
+
+describe("status and retry", () => {
+  test("back-off doubles from 1 s and caps at 30 s", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 20].map(backoffMs)).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000])
+  })
+
+  test("waiting on the key retries briskly, whatever the attempt count", () => {
+    expect(retryDelay("needs-key", 9)).toBe(NEEDS_KEY_RETRY_MS)
+    expect(retryDelay("asleep", 9)).toBe(30000)
+    expect(retryDelay("searching", 0)).toBe(1000)
+  })
+
+  test("searching until first seen; losing a seen tablet is asleep", () => {
+    expect(nextState(undefined, "none")).toBe("searching")
+    expect(nextState("searching", "none")).toBe("searching")
+    expect(nextState("searching", "needs-key")).toBe("needs-key")
+    expect(nextState("needs-key", "found")).toBe("connected")
+    expect(nextState("connected", "stream-ended")).toBe("asleep")
+    expect(nextState("asleep", "none")).toBe("asleep")
+    expect(nextState("needs-key", "none")).toBe("asleep")
+    expect(nextState("asleep", "found")).toBe("connected")
+  })
+
+  test("a status is said once per change, not once per retry", () => {
+    const t = new StatusTracker()
+    const s = { kind: "status" as const, state: "searching" as const, message: "m" }
+    expect(t.set(s)).toBe(true)
+    expect(t.set({ ...s })).toBe(false)
+    expect(t.set({ ...s, state: "asleep" })).toBe(true)
+    expect(t.set({ ...s, state: "asleep", host: "h" })).toBe(true)
   })
 })
