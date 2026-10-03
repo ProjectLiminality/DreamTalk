@@ -22,11 +22,12 @@
  *
  * The cost of that choice, stated up front: the tablet shows xochitl's ink,
  * not DreamTalk's scene — selections, options and symbols appear on the Mac.
- * And the Lamy side button is xochitl's eraser, so a lasso drawn with the
- * button held also rubs out the native ink under it on the tablet (the
- * DreamTalk scene is unaffected). Owning the screen — rendering symbols back
- * onto the e-ink — is the next step (rm2fb / AppLoad), and this protocol
- * doesn't change when it comes.
+ * David's pen is a third-party EMR pen whose side button xochitl ignores
+ * entirely (corrected 2026-10-03: an earlier version of this note said it was
+ * xochitl's eraser — it is not). So the button is free for DreamTalk, but a
+ * lasso drawn with it held is also laid down as ordinary ink in the notebook.
+ * Owning the screen — rendering DreamTalk onto the e-ink — is the next step,
+ * and this protocol doesn't change when it comes.
  *
  * ONE-TIME SETUP
  *

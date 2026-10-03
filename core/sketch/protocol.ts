@@ -49,6 +49,16 @@ export type PenEvent =
   | { kind: "down" | "move" | "up"; sample: PenSample; button: boolean; eraser: boolean }
   | { kind: "hover"; sample: PenSample; button: boolean }
   | { kind: "button"; pressed: boolean; sample: PenSample }
+  /** The pen left the digitizer's range — hide the presence cursor. */
+  | { kind: "leave" }
+  /**
+   * A finger gesture on the tablet's TOUCHSCREEN (a separate digitizer from
+   * the pen). The pen draws; fingers only ever command — the convention of
+   * Procreate and every serious drawing app, which is what keeps a palm
+   * resting on the glass from ever becoming a stroke.
+   *   undo — two-finger tap      redo — three-finger tap
+   */
+  | { kind: "gesture"; name: "undo" | "redo" }
 
 /** A raw scribble. */
 export interface InkStroke {
