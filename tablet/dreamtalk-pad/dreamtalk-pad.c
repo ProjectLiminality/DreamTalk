@@ -19,7 +19,10 @@
  *     parallel) and sends it back as an item on the same pixels; the trail
  *     is kept as a local overlay until the page's batch that ends the
  *     gesture arrives, or 2 s pass (a tap that wasn't ink), so nothing is
- *     darkened twice and nothing the page didn't keep lingers.
+ *     darkened twice and nothing the page didn't keep lingers. A lasso
+ *     trail goes the moment the pen lifts: a selection is never content.
+ *     That trail is the ONLY thing drawn here; every other pixel is the
+ *     display list's.
  *   - the PEN BUTTON is read from the digitizer's evdev node directly
  *     (non-exclusive): qtfb forwards the pen as plain Qt mouse events,
  *     without the button (rm-appload FBController.cpp, "TODO -
@@ -346,12 +349,12 @@ static int trail_start(int lasso) {
 static int pen_down = 0;
 static int mac_connected = 0;
 
-#define DOT_R 9
-static const ink_rect STATUS_DOT = {W - 40, 16, W - 16, 40};
 static const ink_rect MARKER = {W - 64, 16, W - 16, 64};
 
 /* A region, from the list: white, then every item touching it in order,
- * then the local trails, then this app's own marks — all clipped to it. */
+ * then the live trails — all clipped to it. The display list is the truth
+ * for every pixel; the trail is the only thing drawn here, and only until
+ * the page has the stroke. */
 static ink_rect repaint(ink_rect r) {
     r = ink_rect_clip(r, W, H);
     if (ink_rect_is_empty(r)) return r;
@@ -364,16 +367,6 @@ static ink_rect repaint(ink_rect r) {
     }
     for (int i = 0; i < ntrails; i++)
         if (ink_rect_overlaps(trails[i].box, r)) trail_replay(&trails[i]);
-    if (!mac_connected) {
-        /* a hollow dot, top right: nothing from the Mac yet */
-        float cx = (STATUS_DOT.x0 + STATUS_DOT.x1) / 2.0f, cy = (STATUS_DOT.y0 + STATUS_DOT.y1) / 2.0f;
-        float ring[2 * 25];
-        for (int k = 0; k <= 24; k++) {
-            float a = (float)k / 24 * 6.2831853f;
-            ring[2 * k] = cx + DOT_R * cosf(a), ring[2 * k + 1] = cy + DOT_R * sinf(a);
-        }
-        ink_polyline(&page, ring, 25, NULL, 2.0f, 0, 0, 0, 1);
-    }
     if (gate) {
         ink_rect in = {MARKER.x0 + 4, MARKER.y0 + 4, MARKER.x1 - 4, MARKER.y1 - 4};
         float o[] = {MARKER.x0 + .5f, MARKER.y0 + .5f, MARKER.x1 - .5f, MARKER.y0 + .5f, MARKER.x1 - .5f,
@@ -466,9 +459,8 @@ static void listen_on(int port) {
 }
 
 static ink_rect set_connected(int on) {
-    if (mac_connected == on) return ink_rect_empty();
     mac_connected = on;
-    return STATUS_DOT;
+    return ink_rect_empty();
 }
 
 static void c_close(void) {
@@ -679,7 +671,11 @@ int main(void) {
                     if (cur >= 0) ink = ink_rect_union(ink, trail_add(&trails[cur], (float)x, (float)y, w));
                     if (type == QTFB_INPUT_PEN_RELEASE) {
                         pen_down = 0;
-                        if (cur >= 0) trails[cur].done = 1, trails[cur].ended = now_ms();
+                        if (cur >= 0 && trails[cur].lasso) {
+                            /* A lasso is a gesture, never content: it goes as the pen lifts. */
+                            ink_rect gone = trail_drop(cur);
+                            ink = ink_rect_union(ink, repaint(gone));
+                        } else if (cur >= 0) trails[cur].done = 1, trails[cur].ended = now_ms();
                         cur = -1;
                         if (gate) ink = ink_rect_union(ink, repaint(MARKER));
                     }

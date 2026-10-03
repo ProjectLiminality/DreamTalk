@@ -207,8 +207,7 @@ int main(int argc, char **argv) {
     updates u = drain(1500);
     CHECK(u.modes == 1 && u.seq[0] == QTFB_REFRESH_UFAST, "startup sets UFAST (modes %d, first %d)", u.modes, u.seq[0]);
     CHECK(u.alls == 1, "startup sends one full update (%d)", u.alls);
-    CHECK(count_ink(0, 60, W, H) == 0, "page cleared to white");
-    CHECK(count_ink(W - 40, 16, W - 16, 40) > 0, "a hollow dot: no Mac yet");
+    CHECK(count_ink(0, 0, W, H) == 0, "page cleared to white: nothing is drawn but the list");
 
     /* ---- the Mac connects, as ssh -W does, and is greeted ---- */
     for (int i = 0; i < 100 && mac < 0; i++) {
@@ -222,8 +221,7 @@ int main(int argc, char **argv) {
     struct pollfd hp = {mac, POLLIN, 0};
     if (poll(&hp, 1, 3000) > 0) recv(mac, hello, sizeof hello - 1, 0);
     CHECK(strstr(hello, "\"pad\":\"dreamtalk-pad\"") != NULL, "hello line: %s", hello);
-    u = drain(500);
-    CHECK(count_ink(W - 40, 16, W - 16, 40) == 0 && u.partials >= 1, "the dot goes once the Mac is there");
+    drain(300);
 
     /* ---- a stroke: every sample comes back at once as one small update ---- */
     evdev_key(320, 1); /* BTN_TOOL_PEN: in range */
@@ -274,19 +272,27 @@ int main(int argc, char **argv) {
     for (int y = 390; y < 411; y++) thick += ink_at(450, y);
     CHECK(thick <= 7, "not darkened twice: the item replaced the trail (%d px tall)", thick);
 
-    /* ---- the button: a dashed lasso, local, gone when nothing adopts it ---- */
+    /* ---- the button: a dashed lasso while drawing, gone as the pen lifts ---- */
     evdev_key(331, 1); /* BTN_STYLUS */
     pen(QTFB_INPUT_PEN_PRESS, 300, 800, 50);
     for (int i = 1; i <= 40; i++) pen(QTFB_INPUT_PEN_UPDATE, 300 + i * 10, 800, 50);
-    pen(QTFB_INPUT_PEN_RELEASE, 700, 800, 50);
-    drain(300); /* the hand lets go of the button after the stroke, not 2 ms into it */
-    evdev_key(331, 0);
+    drain(300);
     int on = 0;
     for (int x = 300; x < 700; x++) on += ink_at(x, 800);
     CHECK(on > 120 && on < 300, "lasso is dashed: %d of 400 px on", on);
-    usleep(2300000); /* longer than the trail's 2 s */
+    pen(QTFB_INPUT_PEN_RELEASE, 700, 800, 50);
+    drain(300); /* the hand lets go of the button after the stroke, not 2 ms into it */
+    evdev_key(331, 0);
+    CHECK(count_ink(290, 790, 710, 811) == 0, "a lasso never stays: gone at the lift");
+    /* A tip stroke the page never adopts (the link is down, say) fades in 2 s. */
+    pen(QTFB_INPUT_PEN_PRESS, 300, 900, 50);
+    pen(QTFB_INPUT_PEN_UPDATE, 400, 900, 50);
+    pen(QTFB_INPUT_PEN_RELEASE, 400, 900, 50);
     drain(300);
-    CHECK(count_ink(290, 790, 710, 811) == 0, "an unadopted lasso fades after 2 s");
+    CHECK(ink_at(350, 900), "the trail shows at once");
+    usleep(2300000);
+    drain(300);
+    CHECK(count_ink(290, 890, 410, 911) == 0, "an unadopted trail fades after 2 s");
 
     /* ---- controls take the tip: no trail on a noInk item ---- */
     mac_send("{\"op\":\"put\",\"id\":\"chrome:chip\",\"z\":40,\"noInk\":true,\"prims\":[{\"k\":\"fill\",\"pts\":[1000,1000,1040,1000,1040,1040,1000,1040],\"grey\":255},"
@@ -350,11 +356,11 @@ int main(int argc, char **argv) {
     if (argc <= 3) CHECK(ink_at(800, 900) && ink_at(1000, 1200) && !ink_at(400, 1310), "clear, then the triangle and the dot");
     dump(argv[2]);
 
-    /* ---- the Mac goes: the dot says so; the page stays ---- */
-    int kept = count_ink(0, 60, W, H);
+    /* ---- the Mac goes: the page stays as it was last told ---- */
+    int kept = count_ink(0, 0, W, H);
     close(mac);
     drain(500);
-    CHECK(count_ink(W - 40, 16, W - 16, 40) > 0 && count_ink(0, 60, W, H) == kept, "dot back, page kept");
+    CHECK(count_ink(0, 0, W, H) == kept, "page kept");
 
     /* ---- AppLoad closes the framebuffer: the pad exits cleanly ---- */
     close(cfd);
