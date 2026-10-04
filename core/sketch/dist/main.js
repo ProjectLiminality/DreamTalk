@@ -71029,10 +71029,11 @@ var pageProjector = (dream) => {
   const cx = PAGE_W / 2;
   const cy = PAGE_H / 2;
   const half = PAGE_H / 2;
-  return (v2) => {
+  const project2 = (v2) => {
     tmpV.copy(v2).project(cam);
     return { x: cx + tmpV.x * half * cam.aspect, y: cy - tmpV.y * half };
   };
+  return Object.assign(project2, { eye: cam.position.clone() });
 };
 var visibleRun = (pts, from, to) => {
   if (from <= 0 && to >= 1)
@@ -71077,7 +71078,23 @@ var flattenHolon = (root, project2, note = { pending: false }) => {
     const world2 = new Matrix4().multiplyMatrices(parent, local.compose(pos, quat, scl));
     if (h2 instanceof Stroke && h2.opacity.value > 0.01) {
       const filledShape = h2 instanceof Ellipse && h2.filled.value || h2 instanceof Rectangle && h2.filled.value ? h2 : undefined;
-      if (filledShape) {
+      if (h2 instanceof Cylinder) {
+        const grey = lineGrey(h2.tint.value);
+        if (grey !== undefined && h2.creation.value > h2.erasure.value) {
+          const eye = (project2.eye ?? new Vector3(0, 0, 1e6)).clone();
+          const cam = eye.applyMatrix4(new Matrix4().copy(world2).invert());
+          const r4 = h2.radius.value;
+          const half = h2.height.value / 2;
+          const w4 = LINE_W(h2.stroke.value);
+          const line = (pts) => prims.push({ k: "line", pts: flat(toPage(world2, pts.map(([x2, y2, z2]) => ({ x: x2, y: y2, z: z2 })))), w: w4, ...grey ? { grey } : {} });
+          line(capPolylineFrom(r4, half, 0, false));
+          line(capPolylineFrom(r4, -half, 0, false));
+          const angles = silhouetteAngles(cam.x, cam.z, r4);
+          if (angles)
+            for (const t2 of [angles.thetaA, angles.thetaB])
+              line([generatorPoint(t2, r4, half), generatorPoint(t2, r4, -half)]);
+        }
+      } else if (filledShape) {
         if (h2.creation.value * h2.opacity.value > 0.5) {
           const outline = filledShape instanceof Ellipse ? ellipseOutline(filledShape.radiusX.value, filledShape.radiusY.value) : rectanglePolyline(filledShape.width.value, filledShape.height.value, filledShape.rounding.value);
           prims.push({ k: "fill", pts: flat(toPage(world2, outline)), grey: inverseGrey(h2.tint.value) });
