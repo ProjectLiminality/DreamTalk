@@ -729,6 +729,20 @@ const centreLinesInPlace = (geometry: THREE.BufferGeometry, size: number): void 
 }
 
 /**
+ * Layout is async: a Text whose content changes re-lays out later, on its
+ * own. A host that renders on demand (a paused editor) subscribes here to
+ * repaint when new glyphs land — otherwise the change shows stale glyphs
+ * until something else asks for a frame.
+ */
+const layoutListeners = new Set<() => void>()
+export const onTextLayout = (fn: () => void): (() => void) => {
+  layoutListeners.add(fn)
+  return () => {
+    layoutListeners.delete(fn)
+  }
+}
+
+/**
  * Mount a Text holon into a host group. The host owns the group's
  * transform (the standard params); this binding owns the glyph geometry
  * and the material's uniforms.
@@ -829,6 +843,7 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
         rebuildOutlines()
         handle?.dispose()
         handle = next
+        for (const fn of layoutListeners) fn()
       })
       .catch((err: unknown) => {
         // A missing font or an unshapeable string must not kill the
