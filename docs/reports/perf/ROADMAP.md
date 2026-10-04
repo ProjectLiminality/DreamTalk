@@ -294,3 +294,43 @@ Gate: instancing/state gate + PNG cmp on thewall, then the wall gauntlet.
 Open question for the build: whether "degenerate" should be judged on
 screen extent (view-dependent, per frame) or on world scale ≈ 0 (cheaper,
 covers exactly the unlaunched creatures) — measure both.
+
+### Item I, continued (2026-10-04) — the one-parent fix measured, and Web3's ceiling
+
+**One parent per holon (57a347b), GPU-complete, auto mode,** two worktrees
+built from 57a347b~1 (before) and 57a347b (after):
+
+| scene | before (wall ms / GPU pass) | after | boot before → after |
+|---|---|---|---|
+| pl02 (t 60, 300) | 114 / 92 · 111 / 87 | **70 / 50 · 78 / 72** | 51.3 → 33.4 s |
+| p02k (t 5, 20) | 24 / 23 · 28 / 33 | **14 / 13 · 16 / 17** | 3.2 → 2.2 s |
+| thewall (t 0.5, 8.33, 15.8) | 267 · 169 · 77 | 268 · 166 · 74 | unchanged (no doubles) |
+| web3 (t 40, 100, 138) | 90 · 78 · 71 | 87 · 75 · 70 | unchanged (no doubles) |
+
+So the double attach was 30–41% of the PL02 frames and none of TheWall's
+or Web3's ceilings — those stand as attributed above (TheWall) and below.
+
+**Web3 is CPU-bound, not GPU** (its pass is 4–17 against 70–90 ms walls).
+CPU profile, per frame at t=40 (after the fix; 17,648 strokes, 6,460
+washes, ~35k scene nodes), self time:
+
+- matrix settle ~19 ms — `updateMatrixWorld` 10.6 + `multiplyMatrices`
+  8.3. Three recomposes every auto-updating node each settle; the ribbon
+  and fill MESHES (identity, never moved — the only transform writers are
+  the group loop and the camera) still auto-update.
+- shape dirty-check ~9.6 ms — `shapeKey` 6.8 + `sigChanged` 2.8: Web3 is
+  mostly PARAMETRIC strokes (circles…), and F's allocation-free path
+  covers only Lines; parametric shapes still allocate a key array per
+  stroke per frame.
+- sync() loops ~13.6, Holon proxy reads ~5.8 (the parametric key reads),
+  Param getters ~3.2, render-list build ~5, applyAt 2.2.
+
+| # | Optimization | Lever | Expected | Risk |
+|---|---|---|---|---|
+| I-1 | Hide stacked degenerate strokes, one dot per identical (centre, width, tint, fade) — exact under MAX | TheWall GPU (above) | t=0.5 ~265→~25 ms; t=8.33 ~half | LOW-MED (gate: PNG cmp + wall gauntlet) |
+| I-2 | Ribbon/fill meshes `matrixAutoUpdate=false` (identity) and a non-forced settle, so only moved subtrees recompute | Web3/pl02 matrix settle ~19 ms | −10…−15 ms on Web3 | LOW (state gate: matrices must hash identical) |
+| I-3 | Allocation-free parametric dirty-check (cached shape Params + scalar compare, like E/F did for transforms/style) | Web3 shapeKey ~9.6 ms | −6…−8 ms | LOW (state gate) |
+
+Measuring kit (scratchpad/engine): GPU-complete probe with runtime
+timestamps (`gpulite.ts`, `gpuattr.ts`), census of host bindings
+(`dupes.ts`). Every number above awaits GPU completion.
