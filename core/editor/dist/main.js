@@ -60253,11 +60253,45 @@ var insetLoop = (loop, amount) => {
   }
   return pts.map(({ p: p2 }) => p2);
 };
-var insetLoopDeepest = (loop, amount) => {
+var insetLoopDeepest = (loop, amount, others = []) => {
   if (amount <= 0)
     return { loop, depth: 0 };
+  const outer = loopArea(loop) > 0;
+  const within = (p2) => {
+    let inside = false;
+    for (let i2 = 0, j2 = loop.length - 1;i2 < loop.length; j2 = i2++) {
+      const a2 = loop[i2];
+      const b2 = loop[j2];
+      if (a2.y > p2.y !== b2.y > p2.y && p2.x < (b2.x - a2.x) * (p2.y - a2.y) / (b2.y - a2.y) + a2.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+  const fits = (inset, depth3, strictOwn) => {
+    if (inset === loop)
+      return false;
+    let close = 0;
+    for (const p2 of inset) {
+      if (strictOwn && within(p2) !== outer)
+        return false;
+      let own = Infinity;
+      for (let e2 = 0;strictOwn && e2 < loop.length && own >= depth3 * 0.95; e2++) {
+        own = Math.min(own, segmentDistance(p2, loop[e2], loop[(e2 + 1) % loop.length]));
+      }
+      let other = Infinity;
+      for (const ring of others) {
+        for (let e2 = 0;e2 < ring.length && other >= depth3 * 0.95; e2++) {
+          other = Math.min(other, segmentDistance(p2, ring[e2], ring[(e2 + 1) % ring.length]));
+        }
+      }
+      if ((own < depth3 * 0.95 || other < depth3 * 0.95) && ++close > inset.length * 0.02)
+        return false;
+    }
+    return true;
+  };
   const full = insetLoop(loop, amount);
-  if (full !== loop)
+  if (fits(full, amount, false))
     return { loop: full, depth: amount };
   let lo = 0;
   let hi = amount;
@@ -60265,7 +60299,7 @@ var insetLoopDeepest = (loop, amount) => {
   for (let k2 = 0;k2 < 12; k2++) {
     const mid = (lo + hi) / 2;
     const inset = insetLoop(loop, mid);
-    if (inset !== loop) {
+    if (fits(inset, mid, true)) {
       lo = mid;
       best = inset;
     } else {
@@ -60804,7 +60838,8 @@ var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   const outlines = [];
   for (let g2 = 0;g2 < glyphCount; g2++) {
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 0.000001);
-    const loops = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2).map((loop) => insetLoopDeepest(loop, inset));
+    const rings = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2);
+    const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r2) => r2 !== loop)));
     const lengths = loops.map(({ loop }) => loopLength(loop));
     const total = lengths.reduce((a2, b2) => a2 + b2, 0);
     let walked = 0;
@@ -61298,6 +61333,7 @@ class Dream {
   #clips = [];
   #backdrop;
   #roots = [];
+  #rootsMemo;
   #built;
   #narration = new Narration;
   play(anim, runTime = 1) {
@@ -61328,6 +61364,7 @@ class Dream {
   }
   stage(holon) {
     this.#roots.push(holon);
+    this.#rootsMemo = undefined;
     return holon;
   }
   get backdropSpec() {
@@ -61336,24 +61373,39 @@ class Dream {
   }
   get roots() {
     this.build();
+    if (this.#rootsMemo)
+      return this.#rootsMemo;
+    const touched = [...this.#roots];
+    for (const clip of this.#clips) {
+      for (const track of clip.anim.tracks) {
+        const owner = track.param.owner;
+        if (owner instanceof Holon)
+          touched.push(owner);
+      }
+    }
+    const composed = new Set;
+    for (let grew = true;grew; ) {
+      grew = false;
+      for (const h2 of touched) {
+        const r2 = h2.root;
+        if (composed.has(r2))
+          continue;
+        composed.add(r2);
+        for (const _2 of r2.walk())
+          ;
+        grew = true;
+      }
+    }
     const seen = new Set;
     const roots = [];
-    const consider = (h2) => {
+    for (const h2 of touched) {
       const r2 = h2.root;
       if (!seen.has(r2) && !(r2 instanceof Observer)) {
         seen.add(r2);
         roots.push(r2);
       }
-    };
-    for (const r2 of this.#roots)
-      consider(r2);
-    for (const clip of this.#clips) {
-      for (const track of clip.anim.tracks) {
-        const owner = track.param.owner;
-        if (owner instanceof Holon)
-          consider(owner);
-      }
     }
+    this.#rootsMemo = roots;
     return roots;
   }
   get clips() {
@@ -64271,6 +64323,9 @@ var {
   Fn: Fn5,
   If: If4,
   attribute: attribute5,
+  int: int3,
+  mat4: mat43,
+  storage: storage3,
   cameraProjectionMatrix: cameraProjectionMatrix5,
   clamp: clamp7,
   float: float5,
@@ -64298,8 +64353,10 @@ var vTint = varyingProperty5("vec3", "dtBatchTint");
 var vFade = varyingProperty5("float", "dtBatchFade");
 
 class RibbonBatchMaterial extends NodeMaterial {
-  constructor() {
+  table;
+  constructor(table) {
     super();
+    this.table = table;
     this.transparent = true;
     this.depthWrite = false;
     this.side = DoubleSide;
@@ -64310,17 +64367,21 @@ class RibbonBatchMaterial extends NodeMaterial {
     this.blendEquationAlpha = MaxEquation;
     this.blendSrcAlpha = OneFactor;
     this.blendDstAlpha = OneFactor;
-    const widthPx = float5(attribute5("instanceWidthPx"));
-    const drawn = float5(attribute5("instanceDrawn"));
-    const erased = float5(attribute5("instanceErased"));
-    const tint = vec35(attribute5("instanceTint"));
-    const fade = float5(attribute5("instanceFade"));
+    const rows = storage3(table, "vec4", table.count).toReadOnly();
+    const row = int3(attribute5("instanceStroke")).mul(TABLE_VEC4);
+    const mv = mat43(rows.element(row), rows.element(row.add(1)), rows.element(row.add(2)), rows.element(row.add(3)));
+    const style = rows.element(row.add(4));
+    const widthPx = style.x;
+    const drawn = style.y;
+    const erased = style.z;
+    const fade = style.w;
+    const tint = rows.element(row.add(5)).xyz;
     const halfWidth = (w4) => w4.mul(screenDPR4).mul(0.5);
     const pad = (w4) => halfWidth(w4).add(AA_PX2).add(1);
     this.vertexNode = Fn5(() => {
       const corner = attribute5("position").xy;
-      const start = vec45(vec35(attribute5("instanceStart")), 1).toVar();
-      const end = vec45(vec35(attribute5("instanceEnd")), 1).toVar();
+      const start = mv.mul(vec45(attribute5("instanceStart"), 1)).toVar();
+      const end = mv.mul(vec45(attribute5("instanceEnd"), 1)).toVar();
       const distStart = float5(attribute5("instanceDistanceStart")).toVar();
       const distEnd = float5(attribute5("instanceDistanceEnd")).toVar();
       const nearAlpha = (from, to) => {
@@ -64395,8 +64456,7 @@ class RibbonBatchMaterial extends NodeMaterial {
     })();
   }
 }
-var shared2;
-var sharedRibbonBatchMaterial = () => shared2 ??= new RibbonBatchMaterial;
+var TABLE_VEC4 = 6;
 var POS_STRIDE = 6;
 var DIST_STRIDE = 2;
 
@@ -64406,20 +64466,21 @@ class RibbonBatch {
   geometry;
   capacity = 0;
   cursor = 0;
+  rows = 1;
+  table;
   posBuf;
   distBuf;
-  widthAttr;
-  drawnAttr;
-  erasedAttr;
-  fadeAttr;
-  tintAttr;
-  constructor(initialCapacity = 256) {
-    this.material = sharedRibbonBatchMaterial();
+  strokeAttr;
+  dirtyLo = Infinity;
+  dirtyHi = -Infinity;
+  constructor(initialCapacity = 256, initialRows = 64) {
     this.geometry = new InstancedBufferGeometry;
     this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
     this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
     this.allocate(Math.max(1, initialCapacity));
     this.geometry.instanceCount = 0;
+    this.table = new StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4);
+    this.material = new RibbonBatchMaterial(this.table);
     this.mesh = new Mesh(this.geometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
@@ -64429,19 +64490,11 @@ class RibbonBatch {
     const cap = Math.max(1, segments);
     const pos = new Float32Array(cap * POS_STRIDE);
     const dist3 = new Float32Array(cap * DIST_STRIDE);
-    const width = new Float32Array(cap);
-    const drawn = new Float32Array(cap);
-    const erased = new Float32Array(cap);
-    const fade = new Float32Array(cap);
-    const tint = new Float32Array(cap * 3);
+    const stroke = new Float32Array(cap);
     if (old > 0) {
       pos.set(this.posBuf.array);
       dist3.set(this.distBuf.array);
-      width.set(this.widthAttr.array);
-      drawn.set(this.drawnAttr.array);
-      erased.set(this.erasedAttr.array);
-      fade.set(this.fadeAttr.array);
-      tint.set(this.tintAttr.array);
+      stroke.set(this.strokeAttr.array);
     }
     this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
     this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
@@ -64449,79 +64502,109 @@ class RibbonBatch {
     this.distBuf = new InstancedInterleavedBuffer(dist3, DIST_STRIDE, 1);
     this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
     this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
-    this.widthAttr = new InstancedBufferAttribute(width, 1);
-    this.drawnAttr = new InstancedBufferAttribute(drawn, 1);
-    this.erasedAttr = new InstancedBufferAttribute(erased, 1);
-    this.fadeAttr = new InstancedBufferAttribute(fade, 1);
-    this.tintAttr = new InstancedBufferAttribute(tint, 3);
-    this.geometry.setAttribute("instanceWidthPx", this.widthAttr);
-    this.geometry.setAttribute("instanceDrawn", this.drawnAttr);
-    this.geometry.setAttribute("instanceErased", this.erasedAttr);
-    this.geometry.setAttribute("instanceFade", this.fadeAttr);
-    this.geometry.setAttribute("instanceTint", this.tintAttr);
+    this.strokeAttr = new InstancedBufferAttribute(stroke, 1);
+    this.geometry.setAttribute("instanceStroke", this.strokeAttr);
     this.capacity = cap;
   }
+  growTable(rows) {
+    const next = new Float32Array((1 << Math.ceil(Math.log2(rows))) * TABLE_VEC4 * 4);
+    next.set(this.table.array);
+    this.table = new StorageBufferAttribute(next, 4);
+    this.material.dispose();
+    this.material = new RibbonBatchMaterial(this.table);
+    this.mesh.material = this.material;
+  }
   reserve(maxSegments) {
+    const row = this.rows++;
+    if (this.rows * TABLE_VEC4 > this.table.count)
+      this.growTable(this.rows);
+    return { ...this.reserveRun(maxSegments), row };
+  }
+  reserveRun(maxSegments) {
     const cap = Math.max(1, maxSegments);
     const offset = this.cursor;
     this.cursor += cap;
     if (this.cursor > this.capacity) {
       this.allocate(1 << Math.ceil(Math.log2(this.cursor)));
     }
-    for (let i2 = offset;i2 < offset + cap; i2++)
-      this.fadeAttr.array[i2] = 0;
-    this.fadeAttr.needsUpdate = true;
+    this.pointRun(offset, cap, 0);
     if (offset + cap > this.geometry.instanceCount)
       this.geometry.instanceCount = offset + cap;
     this.mesh.visible = this.geometry.instanceCount > 0;
     return { offset, maxSegments: cap, count: 0 };
   }
-  relocate(slot, needSegments) {
-    for (let i2 = 0;i2 < slot.maxSegments; i2++)
-      this.fadeAttr.array[slot.offset + i2] = 0;
-    this.fadeAttr.needsUpdate = true;
-    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))));
+  pointRun(offset, n2, row) {
+    if (n2 <= 0)
+      return;
+    const arr = this.strokeAttr.array;
+    arr.fill(row, offset, offset + n2);
+    this.markDirty(offset, offset + n2);
   }
-  writeSlot(slot, positions, distances, count, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
-    if (count > slot.maxSegments)
-      slot = this.relocate(slot, count);
-    const n2 = Math.min(count, slot.maxSegments);
-    const posArr = this.posBuf.array;
-    const distArr = this.distBuf.array;
-    posArr.set(positions.subarray(0, n2 * POS_STRIDE), slot.offset * POS_STRIDE);
-    distArr.set(distances.subarray(0, n2 * DIST_STRIDE), slot.offset * DIST_STRIDE);
-    for (let i2 = 0;i2 < n2; i2++) {
-      const s2 = slot.offset + i2;
-      this.widthAttr.array[s2] = widthPx;
-      this.drawnAttr.array[s2] = drawn;
-      this.erasedAttr.array[s2] = erased;
-      this.tintAttr.array[s2 * 3] = tintR;
-      this.tintAttr.array[s2 * 3 + 1] = tintG;
-      this.tintAttr.array[s2 * 3 + 2] = tintB;
-      this.fadeAttr.array[s2] = fade;
+  writeStroke(slot, stroke, mv, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
+    const count = stroke.count;
+    if (count > slot.maxSegments) {
+      this.pointRun(slot.offset, slot.maxSegments, 0);
+      const run = this.reserveRun(1 << Math.ceil(Math.log2(Math.max(2, count))));
+      slot = { ...run, row: slot.row };
     }
-    for (let i2 = n2;i2 < slot.maxSegments; i2++)
-      this.fadeAttr.array[slot.offset + i2] = 0;
-    slot.count = n2;
-    this.markDirty();
+    if (slot.points !== stroke.points || slot.count !== count) {
+      const n2 = Math.min(count, slot.maxSegments);
+      const posArr = this.posBuf.array;
+      const distArr = this.distBuf.array;
+      for (let i2 = 0;i2 < n2 * POS_STRIDE; i2++)
+        posArr[slot.offset * POS_STRIDE + i2] = stroke.positions[i2];
+      for (let i2 = 0;i2 < n2 * DIST_STRIDE; i2++)
+        distArr[slot.offset * DIST_STRIDE + i2] = stroke.distances[i2];
+      this.markDirty(slot.offset, slot.offset + n2);
+      if (slot.count !== n2 || slot.points === undefined) {
+        this.pointRun(slot.offset, n2, slot.row);
+        this.pointRun(slot.offset + n2, slot.maxSegments - n2, 0);
+      }
+      slot.points = stroke.points;
+      slot.count = n2;
+    }
+    const t2 = this.table.array;
+    const base = slot.row * TABLE_VEC4 * 4;
+    const e2 = mv.elements;
+    for (let i2 = 0;i2 < 16; i2++)
+      t2[base + i2] = e2[i2];
+    t2[base + 16] = widthPx;
+    t2[base + 17] = drawn;
+    t2[base + 18] = erased;
+    t2[base + 19] = fade;
+    t2[base + 20] = tintR;
+    t2[base + 21] = tintG;
+    t2[base + 22] = tintB;
+    this.table.needsUpdate = true;
     return slot;
   }
-  hideSlot(slot) {
-    if (slot.count === 0)
-      return;
-    for (let i2 = 0;i2 < slot.maxSegments; i2++)
-      this.fadeAttr.array[slot.offset + i2] = 0;
-    slot.count = 0;
-    this.fadeAttr.needsUpdate = true;
+  markDirty(lo, hi) {
+    if (lo < this.dirtyLo)
+      this.dirtyLo = lo;
+    if (hi > this.dirtyHi)
+      this.dirtyHi = hi;
   }
-  markDirty() {
+  flush() {
+    if (this.dirtyHi <= this.dirtyLo)
+      return;
+    const lo = this.dirtyLo;
+    const n2 = this.dirtyHi - lo;
+    this.posBuf.addUpdateRange(lo * POS_STRIDE, n2 * POS_STRIDE);
     this.posBuf.needsUpdate = true;
+    this.distBuf.addUpdateRange(lo * DIST_STRIDE, n2 * DIST_STRIDE);
     this.distBuf.needsUpdate = true;
-    this.widthAttr.needsUpdate = true;
-    this.drawnAttr.needsUpdate = true;
-    this.erasedAttr.needsUpdate = true;
-    this.fadeAttr.needsUpdate = true;
-    this.tintAttr.needsUpdate = true;
+    this.strokeAttr.addUpdateRange(lo, n2);
+    this.strokeAttr.needsUpdate = true;
+    this.dirtyLo = Infinity;
+    this.dirtyHi = -Infinity;
+  }
+  hideStroke(slot) {
+    const t2 = this.table.array;
+    t2[slot.row * TABLE_VEC4 * 4 + 19] = 0;
+    this.table.needsUpdate = true;
+  }
+  get tableArray() {
+    return this.table.array;
   }
 }
 
@@ -64602,17 +64685,17 @@ var FILL_KEYS = {
   tint: "dtFillTint",
   fade: "dtFillFade"
 };
-var shared3;
+var shared2;
 var sharedFillMaterial = () => {
-  if (!shared3) {
-    shared3 = new MeshBasicNodeMaterial;
-    shared3.transparent = true;
-    shared3.depthWrite = false;
-    shared3.side = DoubleSide;
-    shared3.colorNode = userData4(FILL_KEYS.tint, "color");
-    shared3.opacityNode = userData4(FILL_KEYS.fade, "float");
+  if (!shared2) {
+    shared2 = new MeshBasicNodeMaterial;
+    shared2.transparent = true;
+    shared2.depthWrite = false;
+    shared2.side = DoubleSide;
+    shared2.colorNode = userData4(FILL_KEYS.tint, "color");
+    shared2.opacityNode = userData4(FILL_KEYS.fade, "float");
   }
-  return shared3;
+  return shared2;
 };
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
@@ -65347,21 +65430,23 @@ class ThreeHost {
       const { ribbon, group, slot } = binding;
       if (!slot)
         continue;
-      const count = ribbon.geometry.instanceCount;
+      const geometry = ribbon.geometry;
+      const count = geometry.instanceCount;
       if (!ribbon.mesh.visible || count < 1) {
-        batch3.hideSlot(slot);
+        batch3.hideStroke(slot);
         continue;
       }
-      if (this.batchPos.length < count * 6) {
-        this.batchPos = new Float32Array(count * 6);
-        this.batchDist = new Float32Array(count * 2);
-      }
       this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld);
-      const n2 = ribbon.packViewSegments(this.batchMv, this.batchPos, this.batchDist, this.batchPoint);
       const ud = ribbon.mesh.userData;
       const tint = ud[RIBBON_KEYS.tint];
-      binding.slot = batch3.writeSlot(slot, this.batchPos, this.batchDist, n2, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
+      binding.slot = batch3.writeStroke(slot, {
+        points: ribbon.worldPoints(),
+        positions: geometry.getAttribute("instanceStart").data.array,
+        distances: geometry.getAttribute("instanceDistanceStart").data.array,
+        count
+      }, this.batchMv, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
     }
+    batch3.flush();
   }
   cullFrustum = new Frustum;
   cullVP = new Matrix4;
@@ -65376,9 +65461,6 @@ class ThreeHost {
   useInstancedRibbons;
   ribbonBatch;
   batchMv = new Matrix4;
-  batchPoint = new Vector3;
-  batchPos = new Float32Array(0);
-  batchDist = new Float32Array(0);
   cullOffscreen() {
     if (!this.cullEnabled || this.strokes.length === 0) {
       this.culledOffscreen = 0;
@@ -67141,6 +67223,7 @@ if (false)
 // src/transitions.ts
 var crossfade = (duration) => ({ kind: "crossfade", duration });
 var magicMove = (duration) => ({ kind: "magicMove", duration });
+var slide = (duration) => ({ kind: "slide", duration });
 var BUILD_FRACTION = 0.4;
 var smooth = (u2) => c4dEaseWith(u2, C4D_SMOOTHING, C4D_SMOOTHING);
 var buildOut = (u2) => 1 - smooth(Math.min(u2 / BUILD_FRACTION, 1));
@@ -67214,6 +67297,12 @@ var matchedParams = (a2, b2) => {
 };
 
 // src/song.ts
+var frameHeight = (observer) => {
+  const zoom = observer.zoom.value || 1;
+  return observer.orthographic.value ? 2 * orthoHalfHeight(zoom, 16 / 9) : 2 * (observer.radius.value / zoom) * Math.tan(observer.fov.value / 2);
+};
+var liftsOf = (dream) => dream.roots.filter((r2) => !r2.y.isBound).map((r2) => r2.y);
+
 class DreamSong extends Dream {
   #specs;
   #chapters = [];
@@ -67294,7 +67383,8 @@ class DreamSong extends Dream {
           into: i2,
           pairs: [],
           outs: [],
-          ins: []
+          ins: [],
+          lifts: { from: [], into: [] }
         };
         if (transition.kind === "magicMove") {
           const a2 = this.#chapters[i2 - 1];
@@ -67302,6 +67392,9 @@ class DreamSong extends Dream {
           window2.pairs = match.pairs.flatMap(([ra, rb]) => matchedParams(ra, rb));
           window2.outs = match.outs.flatMap((root) => [...root.walk()]);
           window2.ins = match.ins.flatMap((root) => [...root.walk()]);
+        }
+        if (transition.kind === "slide") {
+          window2.lifts = { from: liftsOf(this.#chapters[i2 - 1].dream), into: liftsOf(ch.dream) };
         }
         this.#windows.push(window2);
       }
@@ -67314,7 +67407,7 @@ class DreamSong extends Dream {
     const { holons, driven, windows: windows2 } = this.#resolve();
     const window2 = windows2.find((w4) => t2 >= w4.start && t2 < w4.end);
     for (const w4 of windows2) {
-      if (w4 === window2 || w4.kind !== "magicMove")
+      if (w4 === window2)
         continue;
       for (const { a: a2, b: b2 } of w4.pairs) {
         if (!driven.has(a2))
@@ -67322,6 +67415,9 @@ class DreamSong extends Dream {
         if (!driven.has(b2))
           b2.value = b2.defaultValue;
       }
+      for (const y2 of [...w4.lifts.from, ...w4.lifts.into])
+        if (!driven.has(y2))
+          y2.value = y2.defaultValue;
     }
     if (window2 && window2.kind === "magicMove") {
       const e2 = smooth((t2 - window2.start) / (window2.end - window2.start));
@@ -67332,6 +67428,15 @@ class DreamSong extends Dream {
         a2.value = v2;
         b2.value = v2;
       }
+    }
+    if (window2 && window2.kind === "slide") {
+      const e2 = smooth((t2 - window2.start) / (window2.end - window2.start));
+      const lift = (ys, dy) => {
+        for (const y2 of ys)
+          y2.value = (driven.has(y2) ? y2.value : y2.defaultValue) + dy;
+      };
+      lift(window2.lifts.from, e2 * frameHeight(this.#chapters[window2.from].dream.observer));
+      lift(window2.lifts.into, (e2 - 1) * frameHeight(this.#chapters[window2.into].dream.observer));
     }
     const active = this.chapterAt(t2);
     const fromChapter = window2 ? this.#chapters[window2.from] : undefined;
@@ -67353,7 +67458,7 @@ class DreamSong extends Dream {
           holon.opacity.gate *= 1 - u2;
         for (const holon of holons[window2.into])
           holon.opacity.gate *= u2;
-      } else {
+      } else if (window2.kind === "magicMove") {
         const out = buildOut(u2);
         const into = buildIn(u2);
         for (const holon of window2.outs)
@@ -67365,7 +67470,7 @@ class DreamSong extends Dream {
     const mirror = this.observer.params;
     if (window2) {
       const u2 = (t2 - window2.start) / (window2.end - window2.start);
-      const e2 = window2.kind === "magicMove" ? smooth(u2) : u2;
+      const e2 = window2.kind === "crossfade" ? u2 : smooth(u2);
       const aObs = this.#chapters[window2.from].dream.observer.params;
       const bObs = this.#chapters[window2.into].dream.observer.params;
       for (const [name, target] of mirror) {
@@ -70069,7 +70174,7 @@ var SHAPES = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "
 var SLIDE_WIDTH = 1920;
 var SLIDE_HEIGHT = 1080;
 var SLIDE_UNITS_PER_VIDEO_PIXEL = 3 / 2;
-var slideToWorld = (frameHeight) => frameHeight / SLIDE_HEIGHT;
+var slideToWorld = (frameHeight2) => frameHeight2 / SLIDE_HEIGHT;
 var slidePointToWorld = (p2, scale2) => ({
   x: (p2.x - SLIDE_WIDTH / 2) * scale2,
   y: -(p2.y - SLIDE_HEIGHT / 2) * scale2
@@ -97817,7 +97922,7 @@ var shapeClass = (shape) => {
     const total = cum[n2 - 1];
     let at2 = 0;
     for (let k2 = 0;k2 < SAMPLES; k2++) {
-      const target = total * (SAMPLES === 1 ? 0 : k2 / (SAMPLES - 1));
+      const target = total * (k2 / (SAMPLES - 1));
       while (at2 < n2 - 1 && cum[at2 + 1] < target)
         at2++;
       const seg = cum[at2 + 1] !== undefined ? cum[at2 + 1] - cum[at2] : 0;
@@ -102375,24 +102480,62 @@ class Shot15HeroDream extends Dream {
 }
 
 // demo/web3/Web3Song.ts
+var DIVE_KEYS = [
+  [0.25, 1.3],
+  [0.5, 1.8],
+  [0.75, 2.8],
+  [1, 5],
+  [1.25, 7.5]
+];
+var DIVE_START = 16.25;
+var DIVE_ZOOM = 0.82;
+var BLUE2 = (() => {
+  const pose = __dt(new YinYangDream, "core/demo/web3/Web3Song.ts:5960:5978");
+  pose.orbit.creation.value = 1;
+  return { x: pose.blueNode.x.value, y: pose.blueNode.y.value };
+})();
+var focusAt = (k2) => 1 - Math.pow(k2, -1.5);
+var DIVE_END = (() => {
+  const k2 = DIVE_KEYS[DIVE_KEYS.length - 1][1];
+  const f2 = focusAt(k2);
+  return { zoom: DIVE_ZOOM * k2, x: BLUE2.x * f2, y: BLUE2.y * f2 };
+})();
+
+class YinYangShot extends YinYangDream {
+  unfold() {
+    this.wait(DIVE_START);
+    let at2 = 0;
+    for (const [t2, k2] of DIVE_KEYS) {
+      const f2 = focusAt(k2);
+      const linear = { easing: "linear" };
+      __dt(this.play(together(this.observer.zoom.to(DIVE_ZOOM * k2, linear), this.observer.x.to(BLUE2.x * f2, linear), this.observer.y.to(BLUE2.y * f2, linear)), t2 - at2), "core/demo/web3/Web3Song.ts:7314:7533");
+      at2 = t2;
+    }
+    this.wait(-(DIVE_START + at2));
+    super.unfold();
+  }
+}
+
 class Web2Shot extends Web2DisintegratingDream {
   unfold() {
     this.observer.look("front");
-    this.set(this.observer.zoom.to(1));
+    this.set(this.observer.zoom.to(DIVE_END.zoom), this.observer.x.to(DIVE_END.x), this.observer.y.to(DIVE_END.y));
     this.stage(this.lattice);
     this.wait(0.5);
-    __dt(this.play(this.assemble.creation.to(1), 1), "core/demo/web3/Web3Song.ts:4671:4713");
+    this.set(this.observer.zoom.to(1), this.observer.x.to(0), this.observer.y.to(0));
+    this.wait(0.5);
+    __dt(this.play(this.assemble.creation.to(1), 1), "core/demo/web3/Web3Song.ts:8364:8406");
     this.wait(3);
-    __dt(this.play(this.collapse.creation.to(1, { easing: "easeIn" }), 6), "core/demo/web3/Web3Song.ts:4735:4799");
+    __dt(this.play(this.collapse.creation.to(1, { easing: "easeIn" }), 6), "core/demo/web3/Web3Song.ts:8428:8492");
   }
 }
 
 class ClarityShot extends ClarityFieldDream {
   unfold() {
     this.stageField();
-    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/Web3Song.ts:4980:5044");
+    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/Web3Song.ts:8673:8737");
     this.wait(2.5);
-    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/Web3Song.ts:5068:5111");
+    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/Web3Song.ts:8761:8804");
     this.wait(10);
   }
 }
@@ -102406,11 +102549,11 @@ class NodeShot extends NodeNetworkDream {
     this.stage(this.cloud);
     for (const c2 of crystals)
       this.stage(c2);
-    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/Web3Song.ts:5521:5561");
+    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/Web3Song.ts:9214:9254");
     this.wait(4.75);
-    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 3), "core/demo/web3/Web3Song.ts:5586:5649");
+    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 3), "core/demo/web3/Web3Song.ts:9279:9342");
     this.wait(0.25);
-    __dt(this.play(together([this.crystallise.creation.to(1), 0, 0.6], [together(...crystals.map((c2) => FadeIn(c2))), 0, 0.6], ...crystals.map((c2) => c2.spin.to(TAU * 0.5, { easing: "linear" }))), 4.75), "core/demo/web3/Web3Song.ts:5674:5917");
+    __dt(this.play(together([this.crystallise.creation.to(1), 0, 0.6], [together(...crystals.map((c2) => FadeIn(c2))), 0, 0.6], ...crystals.map((c2) => c2.spin.to(TAU * 0.5, { easing: "linear" }))), 4.75), "core/demo/web3/Web3Song.ts:9367:9610");
   }
 }
 
@@ -102421,7 +102564,7 @@ class LightShot extends LightSpreadDream {
     this.outline.spin.follow(this.fill.spin.map((s2) => s2));
     for (const h2 of [this.fill, this.outline, this.hotspot, this.arcs])
       this.stage(h2);
-    __dt(this.play(together(this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" }), [this.ignite.creation.to(1), 4.5 / 12, 7 / 12], [this.fill.landOpacity.to(1), 4.5 / 12, 7 / 12], [this.spread.creation.to(1, { easing: "linear" }), 7 / 12, 1]), 12), "core/demo/web3/Web3Song.ts:6582:6932");
+    __dt(this.play(together(this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" }), [this.ignite.creation.to(1), 4.5 / 12, 7 / 12], [this.fill.landOpacity.to(1), 4.5 / 12, 7 / 12], [this.spread.creation.to(1, { easing: "linear" }), 7 / 12, 1]), 12), "core/demo/web3/Web3Song.ts:10275:10625");
     this.wait(2);
   }
 }
@@ -102432,10 +102575,11 @@ class PortraitShot extends PortraitCardDream {
     this.set(this.observer.zoom.to(1));
     for (const h2 of [this.plate, this.ring, this.label, this.note])
       this.stage(h2);
-    __dt(this.play(together(Create(this.ring), [FadeIn(this.plate), 0.2, 1]), 1), "core/demo/web3/Web3Song.ts:7251:7322");
-    __dt(this.play(together(FadeIn(this.label), [FadeIn(this.note), 0.3, 1]), 1), "core/demo/web3/Web3Song.ts:7327:7398");
+    this.set(this.ring.creation.to(1), this.plate.opacity.to(1));
+    this.wait(1.5);
+    __dt(this.play(together(FadeIn(this.label), [FadeIn(this.note), 0.3, 1]), 1), "core/demo/web3/Web3Song.ts:11159:11230");
     this.wait(9.5);
-    __dt(this.play(together(FadeOut(this.ring), FadeOut(this.plate), FadeOut(this.label), FadeOut(this.note)), 0.75), "core/demo/web3/Web3Song.ts:7422:7548");
+    __dt(this.play(together(FadeOut(this.ring), FadeOut(this.plate), FadeOut(this.label), FadeOut(this.note)), 0.75), "core/demo/web3/Web3Song.ts:11254:11380");
   }
 }
 
@@ -102447,11 +102591,11 @@ class ClosingShot extends ClosingDream {
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(1));
-    __dt(this.play(Create(this.blue), 1.25), "core/demo/web3/Web3Song.ts:8112:8146");
-    __dt(this.play(Create(this.mark), 1), "core/demo/web3/Web3Song.ts:8151:8182");
-    __dt(this.play(Create(this.red), 1.5), "core/demo/web3/Web3Song.ts:8187:8219");
+    __dt(this.play(Create(this.blue), 1.25), "core/demo/web3/Web3Song.ts:11944:11978");
+    __dt(this.play(Create(this.mark), 1), "core/demo/web3/Web3Song.ts:11983:12014");
+    __dt(this.play(Create(this.red), 1.5), "core/demo/web3/Web3Song.ts:12019:12051");
     this.wait(1);
-    __dt(this.play(Write(this.title), 1.5), "core/demo/web3/Web3Song.ts:8241:8274");
+    __dt(this.play(Write(this.title), 1.5), "core/demo/web3/Web3Song.ts:12073:12106");
     this.wait(6);
   }
 }
@@ -102482,17 +102626,17 @@ class Web3Dream extends DreamSong {
   constructor() {
     super([
       { scene: Shot01GlobeDream, span: 4.5 },
-      [{ scene: YinYangDream, span: 18 }, crossfade(0.5)],
-      [{ scene: Web2Shot, span: 10.25 }, crossfade(0.5)],
+      [{ scene: YinYangShot, span: 17.5 }, crossfade(0.5)],
+      [{ scene: Web2Shot, span: 10.75 }, crossfade(0.5)],
       [{ scene: Shot06Web3WordDream, span: 16 }, crossfade(1)],
       [{ scene: ClarityShot, span: 16.5 }, crossfade(1.75)],
       { scene: Shot09QuoteDream, span: 17.25 },
       { scene: NodeShot, span: 15.75 },
       [{ scene: Shot12VitruvianDream, span: 13.25 }, crossfade(0.75)],
-      [{ scene: LightShot, span: 13.75 }, crossfade(1)],
+      [{ scene: LightShot, span: 13.75 }, slide(1)],
       [{ scene: Shot14CallbackDream, span: 11.5 }, crossfade(1.25)],
       { scene: Shot15HeroDream, span: 16 },
-      [{ scene: PortraitShot, span: 13.75 }, crossfade(1)],
+      [{ scene: PortraitShot, span: 14.25 }, slide(1.5)],
       { scene: ClosingShot, span: 12.25 }
     ]);
   }
@@ -104278,7 +104422,7 @@ var mountCast = (root, roots, selection, signal, onHover) => {
 };
 
 // editor/marquee.ts
-var BLUE2 = "#00a2ff";
+var BLUE3 = "#00a2ff";
 var TICK = 14;
 var PAD = 8;
 var MIN_SIZE = 22;
@@ -104326,7 +104470,7 @@ class Marquee {
     if (right <= left || bottom <= top)
       return;
     ctx.save();
-    ctx.strokeStyle = BLUE2;
+    ctx.strokeStyle = BLUE3;
     ctx.lineWidth = 2;
     ctx.lineCap = "butt";
     const arm = Math.min(TICK, (right - left) / 3, (bottom - top) / 3);
