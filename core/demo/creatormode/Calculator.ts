@@ -18,14 +18,19 @@
  * change that number. A blob of geometry could be drawn but not operated on,
  * and being operable is the whole point.
  *
- * The operator and the output are DATA (plain `Text` content), not fixed
- * drawing, so the scene can switch `+`→`×` and `8`→`15` and have the same
- * holon simply say something else. That is the small, honest version of the
- * transmission's claim: the symbol carries what it does.
+ * The calculator CONTAINS WHAT IT DOES (HyperTalk: "the button contains
+ * what it does"). Its operator is a param — `op`, a choice among four rules
+ * — and the output is not drawn, it is DERIVED: `out` says whatever the
+ * rule makes of the two operands, recomputed on every read. So changing `op`
+ * from `+` to `×` — on the timeline, or in creator mode from the editor's
+ * inspector, where it lands as `new Calculator({ op: "×" })` in the
+ * DreamWeaving — makes the same holon say 15 where it said 8. The behaviour
+ * is data, held by the holon, and git-tracked with the scene.
  */
 
 import { Group, Null, Rectangle } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
+import { choice, derive, text } from "../../src/params"
 import { WHITE } from "../../src/constants"
 
 /** Button and field geometry — one grid, stated once.
@@ -33,40 +38,68 @@ import { WHITE } from "../../src/constants"
 const CELL = 120
 const GAP = 34
 
+/**
+ * The rules the operator button can hold — the button's whole behaviour,
+ * as data. The keys are what the button SAYS, so the glyph and the rule
+ * cannot disagree.
+ */
+export const RULES: Readonly<Record<string, (a: number, b: number) => number>> = {
+  "+": (a, b) => a + b,
+  "−": (a, b) => a - b,
+  "×": (a, b) => a * b,
+  "÷": (a, b) => a / b,
+}
+
+/** What a rule makes of two typed operands, as the output field shows it. */
+export const compute = (a: string, op: string, b: string): string => {
+  const rule = RULES[op]
+  const r = rule ? rule(Number(a), Number(b)) : NaN
+  if (!Number.isFinite(r)) return "—"
+  // Six places are a calculator's honesty; trailing zeros are not.
+  return String(Math.round(r * 1e6) / 1e6).replace("-", "−")
+}
+
 export class Calculator extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
+
+  // --- what the calculator IS: two inputs and a rule ---------------------
+  // Strings, because an input field holds what was typed into it.
+  // (Not `a`/`b`: `b` is every holon's bank angle.)
+  inputA = text("3")
+  inputB = text("5")
+  op = choice("+", Object.keys(RULES))
 
   // The window the app lives in. In DreamOS this frame is not decoration:
   // it is the boundary of the DreamNode — window ≡ folder ≡ place.
   frame = new Rectangle({ width: 520, height: 400, rounding: 0.12, tint: WHITE })
 
   // --- the two operands ---------------------------------------------------
+  // Each glyph SHARES its input param: it says exactly what was typed.
   slotA = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: -(CELL + GAP), y: 90, tint: WHITE })
-  valueA = new Text({ content: "3", size: 64, tint: WHITE, x: -(CELL + GAP), y: 90 })
+  valueA = new Text({ content: this.inputA, size: 64, tint: WHITE, x: -(CELL + GAP), y: 90 })
   slotB = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: CELL + GAP, y: 90, tint: WHITE })
-  valueB = new Text({ content: "5", size: 64, tint: WHITE, x: CELL + GAP, y: 90 })
+  valueB = new Text({ content: this.inputB, size: 64, tint: WHITE, x: CELL + GAP, y: 90 })
 
   /**
-   * The operator — the button the whole scene turns on.
-   *
-   * TWO glyphs, not one that changes: `Text.content` is DATA, fixed at
-   * construction (like Line.points), so a rule cannot be edited in place.
-   * That constraint turns out to say the right thing — the old rule LEAVES
-   * and the new rule ARRIVES, which is what changing a rule actually is.
-   * `opPlus` is written at birth; `opTimes` waits at opacity 0 for the
-   * moment creator mode rewrites the behaviour.
+   * The operator — the button the whole scene turns on. ONE glyph whose
+   * content IS the `op` param: select it in creator mode and the inspector
+   * offers the four rules; pick one and the edit is written where `op` is
+   * declared — on this Calculator's construction.
    */
   opButton = new Rectangle({ width: CELL, height: CELL, rounding: 0.18, y: 90, tint: WHITE })
-  opPlus = new Text({ content: "+", size: 64, tint: WHITE, y: 90 })
-  opTimes = new Text({ content: "×", size: 64, tint: WHITE, y: 90, opacity: 0 })
+  opGlyph = new Text({ content: this.op, size: 64, tint: WHITE, y: 90 })
 
   // --- the result ---------------------------------------------------------
   outSlot = new Rectangle({ width: CELL * 3 + GAP * 2, height: CELL, rounding: 0.18, y: -90, tint: WHITE })
-  /** What the old rule produced, and what the new one produces. Same reason
-   *  as the operator: a result is not edited, it is RE-COMPUTED. */
-  out8 = new Text({ content: "8", size: 72, tint: WHITE, y: -90, opacity: 0 })
-  out15 = new Text({ content: "15", size: 72, tint: WHITE, y: -90, opacity: 0 })
+  /** Not edited — RE-COMPUTED: a reading of the inputs through the rule. */
+  out = new Text({
+    content: derive(() => compute(this.inputA.value, this.op.value, this.inputB.value)),
+    size: 72,
+    tint: WHITE,
+    y: -90,
+    opacity: 0,
+  })
 
   /** Everything, for one-line staging and fades. */
   all = new Group({
@@ -77,11 +110,9 @@ export class Calculator extends Null {
       this.slotB,
       this.valueB,
       this.opButton,
-      this.opPlus,
-      this.opTimes,
+      this.opGlyph,
       this.outSlot,
-      this.out8,
-      this.out15,
+      this.out,
     ],
   })
 }

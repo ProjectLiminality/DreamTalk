@@ -54,8 +54,9 @@
  *      that attention is what makes a thing editable.
  *   4. SELECT, DON'T FIRE. The dot clicks `+`. Nothing computes. The button
  *      is SELECTED — the same click, a different world.
- *   5. CHANGE THE RULE. `+` leaves, `×` arrives, and the output recomputes
- *      from 8 to 15. The behaviour was rewritten, not the pixels.
+ *   5. CHANGE THE RULE. The calculator's `op` param becomes `×`, and the
+ *      output — derived from the rule, never drawn — recomputes from 8 to
+ *      15. The behaviour was rewritten, not the pixels.
  *   6. RETURN. The glow concentrates back into the avatar; the arrow is
  *      itself again; and the calculator — changed — is playable once more.
  *
@@ -143,7 +144,7 @@ export class CreatorModeDream extends Dream {
         [Create(this.app.slotB), 0.15, 1],
         [Write(this.app.valueB), 0.5, 1],
         [Create(this.app.opButton), 0.3, 1],
-        [Write(this.app.opPlus), 0.6, 1],
+        [Write(this.app.opGlyph), 0.6, 1],
         [Create(this.app.outSlot), 0.45, 1],
       ),
       2.4,
@@ -159,7 +160,7 @@ export class CreatorModeDream extends Dream {
     this.wait(0.3)
     this.play(this.cursor.scale.to(0.88), 0.14)
     this.play(this.cursor.scale.to(1), 0.14)
-    this.play(FadeIn(this.app.out8), 0.5)
+    this.play(FadeIn(this.app.out), 0.5)
     this.wait(1.4)
 
     // ---- BEAT 2 · THE FLIP -------------------------------------------
@@ -226,19 +227,23 @@ export class CreatorModeDream extends Dream {
     this.wait(1.2)
 
     // ---- BEAT 5 · CHANGE THE RULE ------------------------------------
-    // The old rule leaves, the new one arrives, and the result recomputes
-    // itself — because what changed was the behaviour, not the picture.
+    // Not a glyph swap: the calculator's `op` param itself becomes `×`, and
+    // `out` — a reading of the inputs through the rule — recomputes on its
+    // own. The step lands at the bottom of the button's dip, and the answer
+    // is held dark until the narration names it, so neither glyph is ever
+    // seen mid re-layout.
     this.say("So change the rule. Let plus become times.", { hold: true })
     this.play(
       together(
-        FadeOut(this.app.opPlus),
-        [FadeIn(this.app.opTimes), 0.4, 1],
+        this.app.opGlyph.opacity.sequence(1, 0, 1),
+        [this.app.op.to("×"), 0.45, 0.5],
+        [this.app.out.opacity.to(0), 0, 0.4],
       ),
       1.4,
     )
     this.wait(0.5)
     this.say("And the answer recomputes itself. Fifteen. The behaviour changed, not the picture.", { hold: true })
-    this.play(together(FadeOut(this.app.out8), [FadeIn(this.app.out15), 0.45, 1]), 1.2)
+    this.play(this.app.out.opacity.to(1), 1.2)
     this.wait(1.6)
 
     // ---- BEAT 6 · RETURN ---------------------------------------------
