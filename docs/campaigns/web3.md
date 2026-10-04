@@ -373,18 +373,25 @@ visibly differs, in order:
 **FINAL remaining differences (1fps full-song sheet vs reference,
 2026-10-04, after all of the above):**
 
-- 1–3s: the original's far half has a soft white glow beyond the right
-  limb; ours has only the frosted veil.
-- 31s: the Web3 cloud's red rises into the Web2 collapse a beat early.
+- ~~1–3s glow~~ DONE: soft columns of light where the seam meets the
+  limb, top and bottom (nested filled ellipses), fitted to the frames'
+  brightness, width and drift.
+- ~~31s~~ DONE: the cloud enters at ~31.1 and settles by 33.4. Still
+  different: the original's Web2 lattice lifts off the top of frame while
+  the word arrives (ours crossfades it), and its word forms left to right
+  ("Veb" reads at 32 with the 3 still loose); ours settles evenly.
 - 31–45s: the word's typeface (Arimo vs Helvetica — a licensing call) and
   colour (David's call).
 - 108–113s: the light globe ignites as a radial glow shading the land
   white → grey; ours floods flat (needs a gradient fill — with engine).
-- 128–130s: the swelling disc fills brighter/whiter in the original and
-  the hero's globe arrives already lit; ours is dimmer through the hand-off.
+- ~~128–130s~~ DONE: the swell starts at 123.0 (not 125) on the measured
+  radius keys, the ring is red by ~129.25, the disc keeps its lattice while
+  the halo goes, and the hero crossfades in over it (130–130.5) on one
+  shared camera, then comes up slowly — bloom over 3s, land white by 131.5,
+  ring carried 237 → 253px — with its ring, lattice and bloom re-measured.
 - 63–74s: our quote type is heavier than Manim's hairline serif.
 - 146–157s: the portrait is a placeholder — awaiting David's photograph.
-- 163s: the title's first letters ~0.3s behind.
+- ~~163s~~ DONE: the title's ink width tracks the frames within ~0.1s.
 
 Everything else — the opening, the yin-yang's birth, spin and dive, Web2,
 the field's contraction, the quote's timing, the network, the pushes, the

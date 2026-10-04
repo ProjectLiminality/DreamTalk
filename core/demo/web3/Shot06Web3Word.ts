@@ -50,14 +50,18 @@ export class Shot06Web3WordDream extends FlowerTextDemoDream {
     this.stage(this.word)
     this.set(this.word.y.to(RISE_FROM))
 
+    // Re-measured at 4fps (the red cloud's median height): it enters the
+    // bottom of frame at ~31.1 and reaches rest at ~33.4 — so the rise
+    // starts 0.35s into the chapter and takes 2.3s.
+    this.wait(0.35)
     this.play(
       together(
-        [this.word.y.to(REST_Y, { easing: "easeOut" }), 0, 0.4],
+        [this.word.y.to(REST_Y, { easing: "easeOut" }), 0, 0.48],
         [this.word.settle.to(1, { easing: "easeOut" }), 0.02, 0.6],
       ),
       4.75,
     )
     // Held to the chapter's end (46.75).
-    this.wait(11.25)
+    this.wait(10.9)
   }
 }

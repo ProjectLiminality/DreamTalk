@@ -86,7 +86,7 @@ const RED_CORE = seen(150, 62, 60)
 const RIM_GREY = rgb(0x9a, 0x96, 0x96)
 const CLARITY_BLUE = seen(25, 125, 205)
 /** The hero ring's red (shot 15) — where `expand` takes the clarity ring. */
-const HERO_RED = rgb(0xe0, 0x50, 0x40)
+const HERO_RED = seen(252, 93, 75) // the hero ring, measured at 135s
 const DOT_WHITE = rgb(0xff, 0xff, 0xff)
 
 /** The red core's reach and the halo's, in scene units (see header). */
@@ -181,21 +181,21 @@ export class ClarityFieldDream extends Dream {
         stroke: 0.8,
         opacity: this.discReading((on, rNow, e) => {
           const inside = clamp01((rNow - 5 - d) / 6)
-          return on * inside * (1 - e) ** 1.5
+          return on * inside * this.dotFade(e)
         }),
       })
     })
     this.inner = new Group({ members: dots })
     this.ring = new Circle({
       radius: this.expand.creation.map((e) => this.discRadius(e)),
-      tint: this.expand.creation.map((e) => mix(CLARITY_BLUE, HERO_RED, smooth((e - 0.45) / 0.55))),
+      tint: this.expand.creation.map((e) => mix(CLARITY_BLUE, HERO_RED, this.ringRed(e))),
       stroke: 3,
       opacity: this.discReading((on) => on),
     })
   }
 
   /** The clarity ring's radius at expansion `e`. */
-  private discRadius(e: number): number {
+  protected discRadius(e: number): number {
     return CLARITY_RADIUS + (HERO_RING_RADIUS - CLARITY_RADIUS) * smooth(e)
   }
 
@@ -226,10 +226,26 @@ export class ClarityFieldDream extends Dream {
       opacity: this.burst.creation.map((b) => {
         const k = this.fadeAt(b)
         const dim = 1 - 0.3 * clamp01(this.clarity.creation.value) - 0.45 * clamp01(this.veil.creation.value)
-        const fade = 1 - smooth((this.expand.creation.value - 0.2) / 0.8)
+        const fade = this.fieldFade(this.expand.creation.value, Math.hypot(c.x, c.y))
         return rest * k * dim * fade
       }),
     })
+  }
+
+  /** How present the clarity dots stay as the disc swells (expand `e`). */
+  protected dotFade(e: number): number {
+    return (1 - e) ** 1.5
+  }
+
+  /** How far the ring has turned from blue to red at expand `e`. */
+  protected ringRed(e: number): number {
+    return smooth((e - 0.45) / 0.55)
+  }
+
+  /** How present a field ringlet `r` from the centre stays as the disc
+   *  swells (expand `e`). */
+  protected fieldFade(e: number, _r: number): number {
+    return 1 - smooth((e - 0.2) / 0.8)
   }
 
   /** How far out the field stands at `burst` b (1 = at rest). */

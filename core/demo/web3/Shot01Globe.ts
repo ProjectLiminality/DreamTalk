@@ -29,7 +29,7 @@
 
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
-import { Circle, Line, Null, Stroke } from "../../src/parts/primitives"
+import { Circle, Ellipse, Group, Line, Null, Stroke } from "../../src/parts/primitives"
 import { Globe } from "../../vocabulary/Globe/Globe"
 import { projectLatLon } from "../../src/geometry/globe"
 import { rgb, type Color } from "../../src/constants"
@@ -53,6 +53,17 @@ const SEAM: readonly (readonly [number, number])[] = [
 const SEAM_TINT = rgb(226, 206, 174)
 /** The veil's opacity: it lifts the far half's black sea to ~0.21 on screen. */
 const FROST = 0.036
+
+/**
+ * The light leaking past the limb where the seam meets it, top and bottom:
+ * a soft column of white ~120px wide (at half strength) reaching ~80px out, brightest at the
+ * limb (~0.12 on screen). Its strength, measured from the frames' column
+ * mean above the globe: up from 1.0s, full at 3.0, gone by 4.5.
+ */
+const GLOW: readonly (readonly [number, number])[] = [
+  [1.4, 0], [2.0, 0.6], [2.5, 0.8], [3.0, 1], [3.5, 0.95], [4.0, 0.4], [4.5, 0],
+]
+const GLOW_LAYERS = 6
 
 /** Piecewise-linear read of measured keys, held at both ends. */
 const keyed = (keys: readonly (readonly [number, number])[], t: number): number => {
@@ -118,6 +129,8 @@ export class Shot01GlobeDream extends Dream {
   seam = new Line({ tint: SEAM_TINT, stroke: 2 })
   frost = new Stroke({ tint: rgb(255, 255, 255), stroke: 0, fillOpacity: 0 })
   ring = new Circle({ radius: 203, tint: rgb(240, 240, 240), stroke: 1.5, opacity: 0 })
+  glowTop!: Group
+  glowBottom!: Group
 
   constructor() {
     super()
@@ -142,6 +155,35 @@ export class Shot01GlobeDream extends Dream {
     }
     derive(this.seam, t, seamPoints)
     this.seam.opacity.follow(c.map(() => land()))
+
+    // The glow at the seam's two ends: nested soft ellipses, their sum the
+    // measured falloff, riding the seam's end points (pushed a little out).
+    const glowAt = (end: "top" | "bottom") => {
+      const layers = Array.from({ length: GLOW_LAYERS }, (_, i) => {
+        const k = (i + 1) / GLOW_LAYERS
+        return new Ellipse({
+          radiusX: (95 * k) / PX,
+          radiusY: (75 * k) / PX,
+          tint: rgb(255, 255, 255),
+          filled: true,
+          stroke: 0,
+          opacity: c.map(() => 0.002 * keyed(GLOW, t())),
+        })
+      })
+      const g = new Group({ members: layers })
+      const point = () => {
+        const pts = seamPoints()
+        const p = end === "top" ? pts[0] : pts[pts.length - 1]
+        return p ?? { x: 0, y: 0, z: 0 }
+      }
+      // It stands over the seam's own longitude at the limb — about 0.3 of
+      // the way out to where the seam crosses the equator (measured).
+      g.x.follow(c.map(() => 0.3 * r() * Math.sin((keyed(SEAM, t()) * Math.PI) / 180)))
+      g.y.follow(c.map(() => point().y + (end === "top" ? 1 : -1) * (25 / PX)))
+      return g
+    }
+    this.glowTop = glowAt("top")
+    this.glowBottom = glowAt("bottom")
 
     // The veil: from the seam round the right limb, a closed outline.
     const veil = new Line({ tint: rgb(255, 255, 255), stroke: 0, opacity: 0 })
@@ -170,6 +212,8 @@ export class Shot01GlobeDream extends Dream {
   unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
+    this.stage(this.glowTop)
+    this.stage(this.glowBottom)
     this.stage(this.globe)
     this.stage(this.frost)
     this.stage(this.seam)

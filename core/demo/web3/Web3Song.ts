@@ -23,8 +23,8 @@
  *    7  10–11  NodeNet (retimed)   78.75   78.75 –  94.50   cut
  *    8  12     Shot12Vitruvian     93.75   93.75 – 108.05   crossfade 0.75
  *    9  13     Light (retimed)    105.30  105.30 – 120.40   slide 2.75
- *   10  14     Shot14Callback     117.85  117.85 – 130.00   dip 2.55
- *   11  15     Shot15Hero         130.00  130.00 – 146.80   cut
+ *   10  14     Callback (retimed) 117.85  117.85 – 130.50   dip 2.55
+ *   11  15     Hero (retimed)     130.00  130.00 – 146.80   crossfade 0.5
  *   12  16     Portrait (retimed) 144.25  144.25 – 158.75   slide 2.55
  *   13  17     Closing (retimed)  158.75  158.75 – 171.00   cut
  *
@@ -77,13 +77,13 @@ import { Create, FadeIn, FadeOut } from "../../src/verbs"
 import { Write } from "../../src/parts/text"
 import { TAU } from "../../src/constants"
 import { DEFAULT_DISTANCE } from "../../src/dream"
-import { Line } from "../../src/parts/primitives"
+import { Circle, Line } from "../../src/parts/primitives"
 import { c4dEaseWith, ease } from "../../src/timeline"
 import { Shot01GlobeDream } from "./Shot01Globe"
 import { YinYangDream } from "./YinYang"
 import { Web2DisintegratingDream } from "./Web2Disintegrating"
 import { Shot06Web3WordDream } from "./Shot06Web3Word"
-import { ClarityFieldDream } from "./ClarityField"
+import { ClarityFieldDream, CLARITY_RADIUS, HERO_RING_RADIUS } from "./ClarityField"
 import { Shot09QuoteDream } from "./Shot09Quote"
 import { NodeNetworkDream } from "./NodeNetwork"
 import { Shot12VitruvianDream } from "./Shot12Vitruvian"
@@ -368,6 +368,132 @@ class LightShot extends LightSpreadDream {
 }
 
 /**
+ * Shot 14, the swell re-measured at 4fps (the ring's radius, 1280w): it
+ * starts at 123.0, not 125, and accelerates — 89px at 124.5, 131 at 126.5,
+ * 177 at 128, 237 at 129.75 — stopping short of the hero's ring, which the
+ * hero's own camera then carries the last 7% (HeroShot). The disc does not
+ * empty as it grows: its lattice and dots stay, dimming only a little.
+ */
+const SWELL: readonly (readonly [number, number])[] = [
+  [123.0, 75], [123.75, 81], [124.5, 89], [125.0, 99], [125.5, 109], [126.0, 119],
+  [126.5, 131], [127.0, 145], [127.5, 159], [128.0, 177], [128.5, 193], [129.0, 209],
+  [129.5, 227], [129.75, 237],
+]
+const CALLBACK_IN = 117.85
+/** A screen colour handed to the host decoded (it encodes tints for display). */
+const seenColor = (r: number, g: number, b: number) => {
+  const d = (v: number) => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return { r: d(r), g: d(g), b: d(b) }
+}
+
+/** The expand value at which the disc stands `px` pixels in radius. */
+/**
+ * The hero opens at this zoom (its ring 237px, not 253), and the callback's
+ * camera eases there over the swell, so that under their crossfade — one
+ * camera for both pictures — the swollen ring and the hero's ring coincide.
+ */
+const HERO_OPEN_ZOOM = 237 / 253
+const callbackZoom = (t: number) => 1 - (1 - HERO_OPEN_ZOOM) * Math.max(0, Math.min(1, (t - 123) / 6.75))
+
+const expandFor = (px: number, t: number): number => {
+  const units = px / (1.28 * callbackZoom(t))
+  const u = Math.max(0, Math.min(1, (units - CLARITY_RADIUS) / (HERO_RING_RADIUS - CLARITY_RADIUS)))
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (mid * mid * (3 - 2 * mid) < u) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+class CallbackShot extends Shot14CallbackDream {
+  protected override dotFade(e: number): number {
+    return 1 - 0.3 * e
+  }
+  /** Inside the swelling ring the lattice stays; the halo outside it goes
+   *  (gone by 129.5 in the frames). */
+  protected override fieldFade(e: number, r: number): number {
+    return r < this.discRadius(e) ? 1 - 0.3 * e : 1 - Math.min(1, Math.max(0, (e - 0.2) / 0.55))
+  }
+  /** The ring is fully red by ~129.25 (e ≈ 0.75), lavender at 128. */
+  protected override ringRed(e: number): number {
+    const u = Math.min(1, Math.max(0, (e - 0.4) / 0.35))
+    return u * u * (3 - 2 * u)
+  }
+  override unfold() {
+    this.stageField()
+    this.set(this.burst.creation.to(1), this.clarity.creation.to(1))
+    this.wait(SWELL[0]![0] - CALLBACK_IN)
+    this.play(this.observer.zoom.to(HERO_OPEN_ZOOM, { easing: "linear" }), 6.75)
+    this.wait(-6.75)
+    for (let i = 1; i < SWELL.length; i++) {
+      const [t, px] = SWELL[i]!
+      this.play(this.expand.creation.to(expandFor(px, t), { easing: "linear" }), t - SWELL[i - 1]![0])
+    }
+    this.wait(130.5 - 129.75)
+  }
+}
+
+/**
+ * Shot 15, arriving as the frames show (4fps, 130–133): it crossfades in
+ * over the swollen disc (130.0–130.5) and comes up SLOWLY — the bloom eases
+ * up over three seconds, the land is grey until ~131 and white by 131.5 —
+ * while its camera carries the ring the last stretch (237 → 253px), easing
+ * out by 133.
+ */
+class HeroShot extends Shot15HeroDream {
+  constructor() {
+    super()
+    // Measured at 135s: ring (252,93,75), lattice (109,46,39) on screen —
+    // handed over decoded, as the host encodes tints for display.
+    this.ring.tint.value = seenColor(252, 93, 75)
+    for (const h of this.lattice.members) (h as Circle).tint.value = seenColor(150, 58, 50)
+    // The bloom, re-fitted to the frame's radial profile at 135s (its
+    // whiteness 134/104/77/55/37/23/11 at 120–180px): a touch wider and
+    // fainter in the middle than the standalone's.
+    const n = this.bloom.members.length
+    this.bloom.members.forEach((h, i) => {
+      const c = h as Circle
+      c.radius.value = (c.radius.value / (1.02 + i * 0.04)) * (1.02 + i * 0.046)
+    })
+    this.bloomLevel = (i: number) => 0.42 * (1 - i / n) ** 2.6
+  }
+
+  private bloomLevel = (_i: number) => 0
+
+  override unfold() {
+    this.observer.look("front")
+    this.set(this.observer.zoom.to(HERO_OPEN_ZOOM))
+    this.stage(this.bloom)
+    this.stage(this.lattice)
+    this.stage(this.rays)
+    this.stage(this.globe)
+    this.stage(this.ring)
+    const bloomLevels = this.bloom.members.map((h, i) =>
+      h.opacity.to(this.bloomLevel(i), { easing: "easeOut" }),
+    )
+    this.play(
+      together(
+        this.observer.zoom.to(1, { easing: "easeOut" }),
+        [together(this.globe.landOpacity.to(1, { easing: "linear" }), this.globe.oceanOpacity.to(1)), 0, 0.5],
+        together(...bloomLevels),
+        // Brighter than the standalone 0.55: its tint is now the decoded (darker) red.
+        together(...this.lattice.members.map((h) => h.opacity.to(0.9))),
+        [together(...this.rays.members.map((h) => h.opacity.to(0.85))), 0.05, 0.6],
+        this.globe.spin.to(0.1, { easing: "linear" }),
+      ),
+      3,
+    )
+    this.play(this.globe.spin.to(-0.25, { easing: "linear" }), 13.8)
+  }
+}
+
+/**
  * Shot 16: it rises in WHOLE under the hero (the slide, 144.25–146.8 — ring
  * and photograph already there in every frame of the push), the words at
  * 146–147, held to 156.5, gone by 157.25.
@@ -403,7 +529,8 @@ class PortraitShot extends PortraitCardDream {
  *   158.75–159.5  the blue ring FADES in, whole (it is not drawn);
  *   160.0–161.0   the A's two legs draw up from their feet together;
  *   161.0–162.0   the red ring draws;
- *   162.75–164.4  the title writes.
+ *   162.6–164.25  the title writes (ink width 67/161/325/549px of 587 at
+ *                 162.75/163/163.5/164).
  */
 const CLOSING_ZOOM = 0.786
 const TITLE_Y = -222
@@ -432,9 +559,9 @@ class ClosingShot extends ClosingDream {
     this.wait(0.5)
     this.play(together(Create(this.mark), Create(this.rightLeg)), 1)
     this.play(Create(this.red), 1)
-    this.wait(0.75)
+    this.wait(0.6)
     this.play(Write(this.title), 1.65)
-    this.wait(6.6)
+    this.wait(6.75)
   }
 }
 
@@ -484,8 +611,8 @@ export class Web3Dream extends DreamSong {
       { scene: NodeShot, span: 15.75 }, //                  78.75 –  94.50
       [{ scene: Shot12VitruvianDream, span: 14.3 }, crossfade(0.75)], // 93.75 – 108.05
       [{ scene: LightShot, span: 15.1 }, slide(2.75, PUSH, PUSH1_DISSOLVE)], // 105.30 – 120.40 (push up)
-      [{ scene: Shot14CallbackDream, span: 12.15 }, crossfade(2.55, CALLBACK_DIP)], // 117.85 – 130.00
-      { scene: Shot15HeroDream, span: 16.8 }, //            130.00 – 146.80
+      [{ scene: CallbackShot, span: 12.65 }, crossfade(2.55, CALLBACK_DIP)], // 117.85 – 130.50
+      [{ scene: HeroShot, span: 16.8 }, crossfade(0.5)], //   130.00 – 146.80
       [{ scene: PortraitShot, span: 14.5 }, slide(2.55, PUSH)], // 144.25 – 158.75 (push up)
       { scene: ClosingShot, span: 12.25 }, //               158.75 – 171.00
     ])
