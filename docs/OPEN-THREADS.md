@@ -10,6 +10,11 @@ when done.
   (AppLoad + qtfb installed on the tablet; `tablet/dreamtalk-pad/`).
 - **Voice on a selection** — select, then speak; nothing selected = the whole
   scene. Built (`sketch/voice.ts`); needs David's first real use.
+- **Live distill** — "a cool UX where that could happen in real time while
+  I'm drawing": passes traced over each other distil by themselves once the
+  pen rests 600 ms, one undo step, a brief glow (`sketch/livedistill.ts`,
+  toolbar "≋ live", OFF by default). Built 2026-10-04; needs David's first
+  real use, then tuning of the pause and tolerances to his hand.
 - **Text as a platonic symbol** — handwriting → Text whose input is the string
   and output the animated writing geometry.
 - **3D tumble** — rotate a selected symbol and discover it was 3D all along.
@@ -30,15 +35,16 @@ when done.
   selects. The player freezes t and shows a read-only panel with "open in
   editor ↗" (`?sel=…&creator=1`), where a param change is a setOverride op
   written into the DreamWeaving — i.e. git-tracked.
-- **Why `+` → `×` cannot yet be done honestly in creator mode:** the
-  calculator has no behaviour to change. Its `8` and `15` are two authored
-  `Text`s the score fades in, not the output of a rule; `+`/`×` are two glyphs
-  swapped by opacity. The data model lacks (a) **behaviour as data** — a holon
-  carrying a rule (an operator function, HyperTalk's "the button contains what
-  it does") from which another holon's content derives; (b) **string params**
-  — `Text.content` is construction data, not a `Param`, and the only
-  persisted edit (`setOverride`) writes numbers. Both are needed before
-  selecting `+` and saying "make it times" can recompute 15.
+- **`+` → `×` is now honest (2026-10-04):** behaviour is data. String
+  params exist (`text()`, `choice()` in src/params); `Text.content` is a
+  param read as data (`asData`), so it can share another holon's param or
+  follow a derived reading. The Calculator holds `op = choice(...)` and
+  `out` DERIVES from inputA/op/inputB through its rule table; the song's
+  beat 5 changes `op` itself. In creator mode: select `+`, open in editor,
+  pick `×` in the inspector's menu → `new Calculator({ op: "×" })` is
+  written into CreatorMode.ts (a shared param commits to its OWNER), 8
+  becomes 15, reload keeps it. Open: a paused view does not repaint when an
+  async text re-layout lands (needs a "layout landed" hook in render/text).
 - **Changes are git-tracked**; Claude-artifact-style comment mode generalised to
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its

@@ -33,6 +33,9 @@
  *   ✦ chip             (below the selection) tap/click → TRANSFORM
  *   ≋ chip / D         (beside ✦) DISTILL: many rough strokes → the clean
  *                      stroke(s) they mean (distill.ts), one undo step
+ *   ≋ live (toolbar)   LIVE DISTILL, off by default: passes traced over
+ *                      each other distil by themselves once the pen rests
+ *                      (livedistill.ts), one undo step, a brief glow
  *   corner handles     uniform scale about the opposite corner (Alt: centre)
  *   rotate knob        rotate about the centre (Shift snaps 15°)
  *   Alt + knob / drag  on a selection holding a 3D symbol (cube, MindVirus):
@@ -57,6 +60,7 @@ import { emptyBoard, isValidBoardName, parseBoard, serializeBoard } from "./boar
 import { installVoice } from "./voice"
 import { Mirror, type MirrorView } from "./mirror"
 import { distillGlyph, distillStrokes } from "./distill"
+import { PAUSE_MS, nextSearch, ripe, type Search } from "./livedistill"
 import {
   IDENTITY,
   SIM_IDENTITY,
@@ -124,6 +128,7 @@ const ctx = ink.getContext("2d")!
 // --- The board: a file through the daemon, the browser only as a fallback ------
 
 const THEME_KEY = "dreamtalk.sketch.dark"
+const LIVE_KEY = "dreamtalk.sketch.liveDistill"
 /** The page as the sketchpad kept it before boards were files. */
 const LEGACY_KEY = "dreamtalk.sketch.page.v1"
 const localKey = (name: string) => `dreamtalk.board.${name}.v1`
@@ -208,6 +213,14 @@ try {
   dark = localStorage.getItem(THEME_KEY) !== "0"
 } catch {
   // default dark
+}
+
+/** Live distill (livedistill.ts) — off until David turns it on. */
+let liveDistill = false
+try {
+  liveDistill = localStorage.getItem(LIVE_KEY) === "1"
+} catch {
+  // default off
 }
 
 // --- Page state -----------------------------------------------------------------
@@ -801,6 +814,18 @@ const paintInk = () => {
       ctx.restore()
     }
   }
+  // a live distillation just landed: its line glows, briefly
+  if (glow) {
+    const age = (performance.now() - glow.at) / GLOW_MS
+    if (age >= 1) glow = undefined
+    else {
+      ctx.save()
+      ctx.globalAlpha = 0.45 * (1 - age) * (1 - age)
+      for (const stroke of s.strokes) if (glow.ids.has(stroke.id)) drawStroke(ctx, stroke.points, k, accent, 10)
+      ctx.restore()
+      drawInk()
+    }
+  }
   // selected symbols in a group: a dashed frame around each (alone, the
   // selection's own frame says it)
   for (const y of s.symbols) {
@@ -905,6 +930,7 @@ const cancelLive = () => {
 const undo = () => {
   closeRing()
   cancelLive()
+  forgetSearch()
   const cmd = history.undo()
   if (!cmd) return
   // Restore what the step took away (or moved) as the selection, so the
@@ -920,6 +946,7 @@ const undo = () => {
 const redo = () => {
   closeRing()
   cancelLive()
+  forgetSearch()
   const cmd = history.redo()
   if (!cmd) return
   selection =
@@ -1022,6 +1049,65 @@ const distill = () => {
   history.do(cmd)
   selection = new Set([...[...selection].filter((id) => !cmd.ids.includes(id)), ...touched(cmd)])
   afterChange()
+}
+
+// --- Live distill: the search, distilled when the pen rests (livedistill.ts) --------------
+
+/** The passes being drawn right now that re-trace each other. */
+let search: Search | undefined
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+/** When the pen went down for the stroke in progress. */
+let drawStartedAt = 0
+/** A live distillation's brief glow. */
+let glow: { ids: Set<string>; at: number } | undefined
+const GLOW_MS = 700
+
+const forgetSearch = () => {
+  search = undefined
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = undefined
+}
+
+/** Distil a finished search in place — if its passes are all still on the page as drawn. */
+const distillSearch = (s: Search) => {
+  const byId = new Map(history.state.strokes.map((k) => [k.id, k]))
+  const strokes = s.ids.map((id) => byId.get(id))
+  if (strokes.some((k) => !k) || thinking?.ids.some((id) => s.ids.includes(id))) return
+  const out = distillStrokes(strokes as InkStroke[], () => newId("ink"))
+  if (out.length === 0) return
+  history.do({ kind: "distill", ids: [...s.ids], strokes: out })
+  glow = { ids: new Set(out.map((k) => k.id)), at: performance.now() }
+  afterChange()
+}
+
+/** A stroke has just been committed: does it continue the search, or end it? */
+const strokeDrawn = (stroke: InkStroke) => {
+  if (!liveDistill) return
+  const now = performance.now()
+  const { search: next, done } = nextSearch(search, { id: stroke.id, points: stroke.points, start: drawStartedAt, end: now })
+  search = next
+  if (done) distillSearch(done)
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined
+    if (mode !== "idle" || !ripe(search, performance.now())) return
+    const s = search
+    search = undefined
+    distillSearch(s)
+  }, PAUSE_MS)
+}
+
+const setLiveDistill = (on: boolean) => {
+  liveDistill = on
+  forgetSearch()
+  const b = btn("live")
+  b.classList.toggle("on", on)
+  b.setAttribute("aria-pressed", String(on))
+  try {
+    localStorage.setItem(LIVE_KEY, on ? "1" : "0")
+  } catch {
+    // ignore
+  }
 }
 
 const transform = async (): Promise<void> => {
@@ -1314,8 +1400,12 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
     } else {
       mode = "draw"
       live = [ev.sample]
+      drawStartedAt = performance.now()
       if (selection.size) setSelection([])
     }
+    // The pen is down again: whatever was resting is not resting any more.
+    if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = undefined
     drawInk()
     return
   }
@@ -1337,6 +1427,7 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
             lasso = live.map((q) => ({ x: q.x, y: q.y }))
           } else {
             mode = "draw"
+            drawStartedAt = performance.now()
             setSelection([])
           }
         }
@@ -1377,6 +1468,7 @@ const handlePen = (ev: PenEvent, source: "pointer" | "tablet") => {
       const stroke: InkStroke = { id: newId("ink"), points: live }
       live = []
       commit({ kind: "addStroke", stroke })
+      strokeDrawn(stroke)
       break
     }
     case "lasso": {
@@ -1766,6 +1858,10 @@ btn("theme").addEventListener("click", () => {
   applyTheme()
 })
 btn("clear").addEventListener("click", clearPage)
+btn("live").addEventListener("click", () => {
+  setLiveDistill(!liveDistill)
+  flash(liveDistill ? "live distill on — trace over a line, rest the pen" : "live distill off — ≋ distils a selection", 2500)
+})
 document.querySelectorAll("#toolbar button").forEach((b) => b.addEventListener("pointerdown", (e) => e.preventDefault()))
 bannerEl.querySelector("button")!.addEventListener("click", () => {
   bannerDismissed = true
@@ -1851,6 +1947,12 @@ window.__sketch = {
     return stroke.id
   },
   select: (ids: string[]) => setSelection(ids),
+  /** Live distill on/off (no argument: read it), and the search in progress. */
+  liveDistill: (on?: boolean) => {
+    if (on !== undefined) setLiveDistill(on)
+    return liveDistill
+  },
+  search: () => search && [...search.ids],
   transform: () => transform(),
   distill,
   undo,
@@ -1921,6 +2023,7 @@ const voice = installVoice({
 
 layout()
 applyTheme()
+setLiveDistill(liveDistill)
 renderTablet()
 if (looking) {
   for (const id of ["toolbar", "status", "presence", "banner"]) {

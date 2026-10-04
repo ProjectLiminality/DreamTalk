@@ -47,6 +47,8 @@
     #toolbar button:disabled { color: var(--dim); cursor: default; }
     #toolbar #transform { color: var(--blue); font-size: 14px; }
     #toolbar #transform:disabled { color: var(--dim); }
+    #toolbar #live { color: var(--dim); }
+    #toolbar #live.on { color: var(--blue); }
     #toolbar .sep { width: 1px; height: 16px; background: var(--edge); margin: 0 6px; }
     #status { margin-left: 10px; color: var(--bright); opacity: 0; transition: opacity 0.3s; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
@@ -120,6 +122,7 @@
     <button id="transform" title="Make it real (Enter, or a button-held tap inside the selection)">✦</button>
     <button id="undo" title="Undo (⌘Z)">↶</button>
     <button id="redo" title="Redo (⇧⌘Z)">↷</button>
+    <button id="live" aria-pressed="false" title="Live distill: passes traced over each other become the one line they mean when the pen rests (off: select + ≋ / D)">≋ live</button>
     <span class="sep"></span>
     <button id="theme" title="Dark / light page">◐ dark</button>
     <button id="clear" title="Clear the page (undoable)">clear</button>

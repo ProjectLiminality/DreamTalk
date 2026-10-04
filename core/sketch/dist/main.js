@@ -69,19 +69,22 @@ class Param {
   kind;
   min;
   max;
+  options;
+  asData = false;
   defaultValue;
   name;
   owner;
   #value;
   #source;
   #gate = 1;
-  constructor(kind, value, min, max) {
+  constructor(kind, value, min, max, options) {
     this.id = nextParamId++;
     this.kind = kind;
-    this.defaultValue = value;
-    this.#value = value;
     this.min = min;
     this.max = max;
+    this.options = options;
+    this.defaultValue = options ? this.clamp(value) : value;
+    this.#value = this.defaultValue;
   }
   get value() {
     const v = this.#source ? this.#source.value : this.#value;
@@ -116,13 +119,16 @@ class Param {
         out = Math.round(out);
       return out;
     }
+    if (this.options && typeof v === "string" && !this.options.includes(v)) {
+      throw new Error(`Param '${this.name ?? this.id}' is a choice of ${this.options.join(" ")} — not '${v}'`);
+    }
     return v;
   }
   to(v, opts = {}) {
     return animOf(this.track("to", [v], opts));
   }
   by(dv, opts = {}) {
-    if (this.kind === "color" || this.kind === "bool") {
+    if (typeof this.defaultValue !== "number") {
       throw new Error(`Param '${this.name ?? this.id}' (${this.kind}) cannot animate .by()`);
     }
     return animOf(this.track("by", [dv], opts));
@@ -163,7 +169,7 @@ var scaleValue = (v, k) => {
     return v * k;
   if (isColor(v))
     return { r: v.r * k, g: v.g * k, b: v.b * k };
-  throw new Error("cannot scale a boolean value");
+  throw new Error(`cannot scale a ${typeof v} value`);
 };
 var derive = (fn) => ({
   get value() {
@@ -179,6 +185,11 @@ var completion = (v = 0) => new Param("completion", v, 0, 1);
 var integer = (v = 0) => new Param("integer", v);
 var bool = (v = false) => new Param("bool", v);
 var color = (v) => new Param("color", v);
+var text = (v = "") => new Param("text", v);
+var asData = (param) => {
+  param.asData = true;
+  return param;
+};
 
 class State {
   values;
@@ -209,6 +220,8 @@ var scan = (target) => {
       const known = int.params.get(name);
       if (known === value)
         continue;
+      if (value.asData && !known)
+        int.dataFields.add(name);
       if (int.overrides.has(name)) {
         const o = int.overrides.get(name);
         int.overrides.delete(name);
@@ -279,16 +292,25 @@ class Holon {
       dynamicParts: [],
       scannedKeys: -1,
       composed: false,
-      settled: false
+      settled: false,
+      dataFields: new Set
     };
     INTERNALS.set(this, internals);
     const proxy = new Proxy(this, {
       get(target, prop, receiver) {
         if (typeof prop === "string" && !internals.settled)
           scan(target);
-        return Reflect.get(target, prop, receiver);
+        const value = Reflect.get(target, prop, receiver);
+        return internals.dataFields.size > 0 && value instanceof Param && internals.dataFields.has(prop) ? value.value : value;
       },
       set(target, prop, value, receiver) {
+        if (typeof prop === "string" && !internals.settled)
+          scan(target);
+        if (typeof prop === "string" && internals.dataFields.has(prop) && !(value instanceof Param)) {
+          const param = Reflect.get(target, prop);
+          param.value = param.clamp(value);
+          return true;
+        }
         if (internals.settled && typeof prop === "string" && (value instanceof Param || value instanceof Holon) && !Object.prototype.hasOwnProperty.call(target, prop)) {
           throw new Error(`${target.constructor.name}: cannot add '${prop}' after construction — ` + `the field set is final once compose() has run. Declare it as a class ` + `field, or add dynamic structure from compose() with this.add().`);
         }
@@ -375,6 +397,8 @@ var lerpValue = (a, b, u) => {
   if (typeof a === "number" && typeof b === "number")
     return a + (b - a) * u;
   if (typeof a === "boolean" || typeof b === "boolean")
+    return u >= 1 ? b : a;
+  if (typeof a === "string" || typeof b === "string")
     return u >= 1 ? b : a;
   if (isColor(a) && isColor(b)) {
     return {
@@ -484,20 +508,20 @@ class Timeline {
 // src/narration.ts
 var WORDS_PER_MINUTE = 165;
 var PADDING_SECONDS = 0.35;
-var spokenSeconds = (text) => {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
+var spokenSeconds = (text2) => {
+  const words = text2.trim().split(/\s+/).filter(Boolean).length;
   if (words === 0)
     return 0;
   const base = words / WORDS_PER_MINUTE * 60;
-  const stops = (text.match(/[.!?]/g) ?? []).length;
-  const commas = (text.match(/[,;:—–]/g) ?? []).length;
+  const stops = (text2.match(/[.!?]/g) ?? []).length;
+  const commas = (text2.match(/[,;:—–]/g) ?? []).length;
   return base + stops * 0.35 + commas * 0.15 + PADDING_SECONDS;
 };
 class Narration {
   lines = [];
-  add(text, start, voice, duration) {
-    const slot = duration ?? spokenSeconds(text);
-    this.lines.push({ text: text.trim(), start, duration: slot, voice });
+  add(text2, start, voice, duration) {
+    const slot = duration ?? spokenSeconds(text2);
+    this.lines.push({ text: text2.trim(), start, duration: slot, voice });
     return slot;
   }
   get isEmpty() {
@@ -607,8 +631,8 @@ class Dream {
   wait(dt = 1) {
     this.#cursor += dt;
   }
-  say(text, opts = {}) {
-    const duration = this.#narration.add(text, this.#cursor, opts.voice, opts.duration);
+  say(text2, opts = {}) {
+    const duration = this.#narration.add(text2, this.#cursor, opts.voice, opts.duration);
     if (opts.hold)
       this.#cursor += duration;
   }
@@ -49476,7 +49500,7 @@ var linearCreation = (param, values) => {
 };
 
 class Text extends Holon {
-  content = "Text";
+  content = asData(text("Text"));
   font = undefined;
   align = "center";
   lineHeight = undefined;
@@ -56745,23 +56769,23 @@ class LineBreak {
     }
     return hyphenPoints.filter((pos) => pos >= lefthyphenmin && word.length - pos >= righthyphenmin);
   }
-  static itemizeText(text, measureText, measureTextWidths, hyphenate = false, language = "en-us", availablePatterns, lefthyphenmin = DEFAULT_LEFT_HYPHEN_MIN, righthyphenmin = DEFAULT_RIGHT_HYPHEN_MIN, context3, lineWidth) {
+  static itemizeText(text2, measureText, measureTextWidths, hyphenate = false, language = "en-us", availablePatterns, lefthyphenmin = DEFAULT_LEFT_HYPHEN_MIN, righthyphenmin = DEFAULT_RIGHT_HYPHEN_MIN, context3, lineWidth) {
     const items = [];
-    items.push(...this.itemizeParagraph(text, measureText, measureTextWidths, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth));
+    items.push(...this.itemizeParagraph(text2, measureText, measureTextWidths, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth));
     items.push({
       type: ItemType.GLUE,
       width: 0,
       stretch: 1e7,
       shrink: 0,
       text: "",
-      originIndex: text.length
+      originIndex: text2.length
     });
     items.push({
       type: ItemType.PENALTY,
       width: 0,
       penalty: EJECT_PENALTY,
       text: "",
-      originIndex: text.length
+      originIndex: text2.length
     });
     return items;
   }
@@ -56782,10 +56806,10 @@ class LineBreak {
   static isCJPunctuation(char) {
     return this.isCJClosingPunctuation(char) || this.isCJOpeningPunctuation(char);
   }
-  static itemizeCJKText(text, measureText, measureTextWidths, context3, startOffset = 0, glueParams) {
+  static itemizeCJKText(text2, measureText, measureTextWidths, context3, startOffset = 0, glueParams) {
     const items = [];
-    const chars = Array.from(text);
-    const widths = measureTextWidths ? measureTextWidths(text) : null;
+    const chars = Array.from(text2);
+    const widths = measureTextWidths ? measureTextWidths(text2) : null;
     let textPosition = startOffset;
     let glueWidth, glueStretch, glueShrink;
     if (glueParams) {
@@ -56842,9 +56866,9 @@ class LineBreak {
     }
     return items;
   }
-  static itemizeParagraph(text, measureText, measureTextWidths, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth) {
+  static itemizeParagraph(text2, measureText, measureTextWidths, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth) {
     const items = [];
-    const chars = Array.from(text);
+    const chars = Array.from(text2);
     let cjkGlueParams;
     const getCjkGlueParams = () => {
       if (!cjkGlueParams) {
@@ -56890,9 +56914,9 @@ class LineBreak {
     flushBuffer();
     return items;
   }
-  static itemizeWordBased(text, startOffset, measureText, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth) {
+  static itemizeWordBased(text2, startOffset, measureText, hyphenate, language, availablePatterns, lefthyphenmin, righthyphenmin, context3, lineWidth) {
     const items = [];
-    const tokens = text.match(/\S+|\s+/g) || [];
+    const tokens = text2.match(/\S+|\s+/g) || [];
     let currentIndex = 0;
     for (const token of tokens) {
       const tokenStartIndex = startOffset + currentIndex;
@@ -57230,10 +57254,10 @@ class LineBreak {
       align: options.align || "left",
       hyphenate: options.hyphenate || false
     });
-    const { text, width, align = "left", direction = "ltr", hyphenate = false, language = "en-us", respectExistingBreaks = true, measureText, measureTextWidths, hyphenationPatterns, unitsPerEm, letterSpacing = 0, tolerance = DEFAULT_TOLERANCE, pretolerance = DEFAULT_PRETOLERANCE, emergencyStretch = DEFAULT_EMERGENCY_STRETCH, autoEmergencyStretch, lefthyphenmin = DEFAULT_LEFT_HYPHEN_MIN, righthyphenmin = DEFAULT_RIGHT_HYPHEN_MIN, linepenalty = DEFAULT_LINE_PENALTY, adjdemerits = DEFAULT_FITNESS_DIFF_DEMERITS, hyphenpenalty = DEFAULT_HYPHEN_PENALTY, exhyphenpenalty = DEFAULT_EX_HYPHEN_PENALTY, doublehyphendemerits = DEFAULT_DOUBLE_HYPHEN_DEMERITS, finalhyphendemerits = DEFAULT_FINAL_HYPHEN_DEMERITS } = options;
-    if (respectExistingBreaks && text.includes(`
+    const { text: text2, width, align = "left", direction = "ltr", hyphenate = false, language = "en-us", respectExistingBreaks = true, measureText, measureTextWidths, hyphenationPatterns, unitsPerEm, letterSpacing = 0, tolerance = DEFAULT_TOLERANCE, pretolerance = DEFAULT_PRETOLERANCE, emergencyStretch = DEFAULT_EMERGENCY_STRETCH, autoEmergencyStretch, lefthyphenmin = DEFAULT_LEFT_HYPHEN_MIN, righthyphenmin = DEFAULT_RIGHT_HYPHEN_MIN, linepenalty = DEFAULT_LINE_PENALTY, adjdemerits = DEFAULT_FITNESS_DIFF_DEMERITS, hyphenpenalty = DEFAULT_HYPHEN_PENALTY, exhyphenpenalty = DEFAULT_EX_HYPHEN_PENALTY, doublehyphendemerits = DEFAULT_DOUBLE_HYPHEN_DEMERITS, finalhyphendemerits = DEFAULT_FINAL_HYPHEN_DEMERITS } = options;
+    if (respectExistingBreaks && text2.includes(`
 `)) {
-      const paragraphs = text.split(`
+      const paragraphs = text2.split(`
 `);
       const allLines = [];
       let currentOriginOffset = 0;
@@ -57286,13 +57310,13 @@ class LineBreak {
       letterSpacingFU: unitsPerEm ? letterSpacing * unitsPerEm : 0
     };
     if (!width || width === Infinity) {
-      const measuredWidth = measureText(text);
+      const measuredWidth = measureText(text2);
       perfLogger.end("LineBreak.breakText");
       return [
         {
-          text,
+          text: text2,
           originalStart: 0,
-          originalEnd: text.length - 1,
+          originalEnd: text2.length - 1,
           xOffset: 0,
           isLastLine: true,
           naturalWidth: measuredWidth,
@@ -57300,10 +57324,10 @@ class LineBreak {
         }
       ];
     }
-    let items = this.itemizeText(text, measureText, measureTextWidths, false, language, hyphenationPatterns, lefthyphenmin, righthyphenmin, context3, width);
+    let items = this.itemizeText(text2, measureText, measureTextWidths, false, language, hyphenationPatterns, lefthyphenmin, righthyphenmin, context3, width);
     let best = this.lineBreak(items, width, pretolerance, 0, context3);
     if (!best && useHyphenation) {
-      items = this.itemizeText(text, measureText, measureTextWidths, true, language, hyphenationPatterns, lefthyphenmin, righthyphenmin, context3, width);
+      items = this.itemizeText(text2, measureText, measureTextWidths, true, language, hyphenationPatterns, lefthyphenmin, righthyphenmin, context3, width);
       best = this.lineBreak(items, width, tolerance, 0, context3);
     }
     if (!best) {
@@ -57324,29 +57348,29 @@ class LineBreak {
         node = node.previous;
       }
       perfLogger.end("LineBreak.breakText");
-      return this.postLineBreak(text, items, breakpoints, width, align, direction, context3);
+      return this.postLineBreak(text2, items, breakpoints, width, align, direction, context3);
     }
     perfLogger.end("LineBreak.breakText");
     return [
       {
-        text,
+        text: text2,
         originalStart: 0,
-        originalEnd: text.length - 1,
+        originalEnd: text2.length - 1,
         xOffset: 0,
         adjustmentRatio: 0,
         isLastLine: true,
-        naturalWidth: measureText(text),
+        naturalWidth: measureText(text2),
         endedWithHyphen: false
       }
     ];
   }
-  static postLineBreak(text, items, breakpoints, lineWidth, align, direction, context3) {
+  static postLineBreak(text2, items, breakpoints, lineWidth, align, direction, context3) {
     if (breakpoints.length === 0) {
       return [
         {
-          text,
+          text: text2,
           originalStart: 0,
-          originalEnd: text.length - 1,
+          originalEnd: text2.length - 1,
           xOffset: 0
         }
       ];
@@ -57527,8 +57551,8 @@ function convertFontFeaturesToString(features) {
 }
 
 class TextMeasurer {
-  static measureTextWidths(loadedFont, text, letterSpacing = 0) {
-    const chars = Array.from(text);
+  static measureTextWidths(loadedFont, text2, letterSpacing = 0) {
+    const chars = Array.from(text2);
     if (chars.length === 0)
       return [];
     const startToCharIndex = new Map;
@@ -57540,7 +57564,7 @@ class TextMeasurer {
     const widths = new Array(chars.length).fill(0);
     const buffer3 = loadedFont.hb.createBuffer();
     try {
-      buffer3.addText(text);
+      buffer3.addText(text2);
       buffer3.guessSegmentProperties();
       const featuresString = convertFontFeaturesToString(loadedFont.fontFeatures);
       loadedFont.hb.shape(loadedFont.font, buffer3, featuresString);
@@ -57571,10 +57595,10 @@ class TextMeasurer {
       buffer3.destroy();
     }
   }
-  static measureTextWidth(loadedFont, text, letterSpacing = 0) {
+  static measureTextWidth(loadedFont, text2, letterSpacing = 0) {
     const buffer3 = loadedFont.hb.createBuffer();
     try {
-      buffer3.addText(text);
+      buffer3.addText(text2);
       buffer3.guessSegmentProperties();
       const featuresString = convertFontFeaturesToString(loadedFont.fontFeatures);
       loadedFont.hb.shape(loadedFont.font, buffer3, featuresString);
@@ -57599,12 +57623,12 @@ class TextLayout {
     this.loadedFont = loadedFont;
   }
   computeLines(options) {
-    const { text, width, align, direction, hyphenate, language, respectExistingBreaks, tolerance, pretolerance, emergencyStretch, autoEmergencyStretch, hyphenationPatterns, lefthyphenmin, righthyphenmin, linepenalty, adjdemerits, hyphenpenalty, exhyphenpenalty, doublehyphendemerits, letterSpacing } = options;
+    const { text: text2, width, align, direction, hyphenate, language, respectExistingBreaks, tolerance, pretolerance, emergencyStretch, autoEmergencyStretch, hyphenationPatterns, lefthyphenmin, righthyphenmin, linepenalty, adjdemerits, hyphenpenalty, exhyphenpenalty, doublehyphendemerits, letterSpacing } = options;
     let lines;
     if (width) {
       const widthMemo = new Map;
       lines = LineBreak.breakText({
-        text,
+        text: text2,
         width,
         align,
         direction,
@@ -57636,7 +57660,7 @@ class TextLayout {
         measureTextWidths: (textToMeasure) => TextMeasurer.measureTextWidths(this.loadedFont, textToMeasure, letterSpacing)
       });
     } else {
-      const linesArray = text.split(`
+      const linesArray = text2.split(`
 `);
       lines = [];
       let currentIndex = 0;
@@ -59551,28 +59575,28 @@ function hbjs(Module) {
       }
     };
   }
-  function createAsciiString(text) {
-    var ptr = exports.malloc(text.length + 1);
-    for (let i = 0;i < text.length; ++i) {
-      const char = text.charCodeAt(i);
+  function createAsciiString(text2) {
+    var ptr = exports.malloc(text2.length + 1);
+    for (let i = 0;i < text2.length; ++i) {
+      const char = text2.charCodeAt(i);
       if (char > 127)
         throw new Error("Expected ASCII text");
       Module.HEAPU8[ptr + i] = char;
     }
-    Module.HEAPU8[ptr + text.length] = 0;
+    Module.HEAPU8[ptr + text2.length] = 0;
     return {
       ptr,
-      length: text.length,
+      length: text2.length,
       free: function() {
         exports.free(ptr);
       }
     };
   }
-  function createJsString(text) {
-    const ptr = exports.malloc(text.length * 2);
-    const words = new Uint16Array(Module.wasmMemory.buffer, ptr, text.length);
+  function createJsString(text2) {
+    const ptr = exports.malloc(text2.length * 2);
+    const words = new Uint16Array(Module.wasmMemory.buffer, ptr, text2.length);
     for (let i = 0;i < words.length; ++i)
-      words[i] = text.charCodeAt(i);
+      words[i] = text2.charCodeAt(i);
     return {
       ptr,
       length: words.length,
@@ -59585,8 +59609,8 @@ function hbjs(Module) {
     var ptr = exports.hb_buffer_create();
     return {
       ptr,
-      addText: function(text) {
-        const str = createJsString(text);
+      addText: function(text2) {
+        const str = createJsString(text2);
         exports.hb_buffer_add_utf16(ptr, str.ptr, str.length, 0, str.length);
         str.free();
       },
@@ -59842,9 +59866,9 @@ class Text2 {
       Text2.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
     }
     const { loadedFont, fontKey } = await Text2.resolveFont(options);
-    const text = new Text2;
-    text.setLoadedFont(loadedFont, fontKey);
-    const result = await text.createLayout(options);
+    const text2 = new Text2;
+    text2.setLoadedFont(loadedFont, fontKey);
+    const result = await text2.createLayout(options);
     const update = async (newOptions) => {
       const mergedOptions = { ...options };
       for (const key in newOptions) {
@@ -59855,25 +59879,25 @@ class Text2 {
       }
       if (newOptions.font !== undefined || newOptions.fontVariations !== undefined || newOptions.fontFeatures !== undefined) {
         const { loadedFont: newLoadedFont, fontKey: newFontKey } = await Text2.resolveFont(mergedOptions);
-        text.setLoadedFont(newLoadedFont, newFontKey);
-        text.resetHelpers();
+        text2.setLoadedFont(newLoadedFont, newFontKey);
+        text2.resetHelpers();
       }
       options = mergedOptions;
-      const newResult = await text.createLayout(options);
+      const newResult = await text2.createLayout(options);
       return {
         ...newResult,
-        getLoadedFont: () => text.getLoadedFont(),
-        measureTextWidth: (textString, letterSpacing) => text.measureTextWidth(textString, letterSpacing),
+        getLoadedFont: () => text2.getLoadedFont(),
+        measureTextWidth: (textString, letterSpacing) => text2.measureTextWidth(textString, letterSpacing),
         update,
-        dispose: () => text.destroy()
+        dispose: () => text2.destroy()
       };
     };
     return {
       ...result,
-      getLoadedFont: () => text.getLoadedFont(),
-      measureTextWidth: (textString, letterSpacing) => text.measureTextWidth(textString, letterSpacing),
+      getLoadedFont: () => text2.getLoadedFont(),
+      measureTextWidth: (textString, letterSpacing) => text2.measureTextWidth(textString, letterSpacing),
       update,
-      dispose: () => text.destroy()
+      dispose: () => text2.destroy()
     };
   }
   static retainFont(fontKey) {
@@ -60120,7 +60144,7 @@ class Text2 {
     if (!this.loadedFont) {
       throw new Error("Font not loaded. Use Text.create() with a font option");
     }
-    const { text, size = DEFAULT_FONT_SIZE, depth: depth3 = 0, lineHeight = 1, letterSpacing = 0, layout = {} } = options;
+    const { text: text2, size = DEFAULT_FONT_SIZE, depth: depth3 = 0, lineHeight = 1, letterSpacing = 0, layout = {} } = options;
     const { width, direction = "ltr", align = direction === "rtl" ? "right" : "left", respectExistingBreaks = true, hyphenate = true, language = "en-us", tolerance = DEFAULT_TOLERANCE, pretolerance = DEFAULT_PRETOLERANCE, emergencyStretch = DEFAULT_EMERGENCY_STRETCH, autoEmergencyStretch, hyphenationPatterns, lefthyphenmin, righthyphenmin, linepenalty, adjdemerits, hyphenpenalty, exhyphenpenalty, doublehyphendemerits } = layout;
     const fontUnitsPerPixel = this.loadedFont.upem / size;
     let widthInFontUnits;
@@ -60134,7 +60158,7 @@ class Text2 {
       this.textLayout = new TextLayout(this.loadedFont);
     }
     const layoutResult = this.textLayout.computeLines({
-      text,
+      text: text2,
       width: widthInFontUnits,
       align,
       direction,
@@ -60197,11 +60221,11 @@ class Text2 {
   getLoadedFont() {
     return this.loadedFont;
   }
-  measureTextWidth(text, letterSpacing = 0) {
+  measureTextWidth(text2, letterSpacing = 0) {
     if (!this.loadedFont) {
       throw new Error("Font not loaded. Call loadFont() first");
     }
-    return TextMeasurer.measureTextWidth(this.loadedFont, text, letterSpacing);
+    return TextMeasurer.measureTextWidth(this.loadedFont, text2, letterSpacing);
   }
   resetHelpers() {
     this.textShaper = undefined;
@@ -63268,8 +63292,8 @@ class GlyphGeometryBuilder {
 }
 
 class TextRangeQuery {
-  constructor(text, glyphs) {
-    this.text = text;
+  constructor(text2, glyphs) {
+    this.text = text2;
     this.glyphsByTextIndex = new Map;
     glyphs.forEach((g2) => {
       const existing = this.glyphsByTextIndex.get(g2.textIndex) || [];
@@ -63300,8 +63324,8 @@ class TextRangeQuery {
   }
   findByCharRange(ranges) {
     return ranges.map((range3) => {
-      const text = this.text.slice(range3.start, range3.end);
-      return this.createTextRange(range3.start, range3.end, text);
+      const text2 = this.text.slice(range3.start, range3.end);
+      return this.createTextRange(range3.start, range3.end, text2);
     });
   }
   createTextRange(start, end, originalText) {
@@ -63741,7 +63765,7 @@ function buildThreeResult(layoutHandle, meshPipeline, options) {
     getLoadedFont: () => layoutHandle.getLoadedFont(),
     getCacheSize: () => meshPipeline.getCacheSize(),
     clearCache: () => meshPipeline.clearCache(),
-    measureTextWidth: (text, letterSpacing) => layoutHandle.measureTextWidth(text, letterSpacing),
+    measureTextWidth: (text2, letterSpacing) => layoutHandle.measureTextWidth(text2, letterSpacing),
     update,
     dispose: () => {
       geometry.dispose();
@@ -63888,16 +63912,70 @@ var insetLoop = (loop, amount) => {
     const scale2 = Math.min(1 / Math.max(mx * b2.x + my * b2.y, 0.001), MITER_CAP);
     out.push({ x: p2.x + mx * amount * scale2, y: p2.y + my * amount * scale2, z: p2.z });
   }
-  for (let i2 = 0;i2 < n2; i2++) {
-    const a0 = loop[i2];
-    const b0 = loop[(i2 + 1) % n2];
-    const a1 = out[i2];
-    const b1 = out[(i2 + 1) % n2];
-    const dot4 = (b0.x - a0.x) * (b1.x - a1.x) + (b0.y - a0.y) * (b1.y - a1.y);
-    if (dot4 < 0)
+  const pts = out.map((p2, i2) => ({ p: p2, o: loop[i2], k: i2, cut: false }));
+  const reversedAt = (i2) => {
+    const m2 = pts.length;
+    const a2 = pts[i2];
+    const b2 = pts[(i2 + 1) % m2];
+    return (b2.o.x - a2.o.x) * (b2.p.x - a2.p.x) + (b2.o.y - a2.o.y) * (b2.p.y - a2.p.y) < 0;
+  };
+  let trimmed = 0;
+  for (let i2 = 0;i2 < pts.length; ) {
+    if (!reversedAt(i2)) {
+      i2++;
+      continue;
+    }
+    trimmed++;
+    if (trimmed > n2 / 4 || pts.length <= 3)
       return loop;
+    const m2 = pts.length;
+    const j2 = (i2 + 1) % m2;
+    const corner = trimCorner(pts, i2, j2);
+    const reach = amount * MITER_CAP;
+    if (!corner || Math.hypot(corner.x - pts[i2].o.x, corner.y - pts[i2].o.y) > reach || Math.hypot(corner.x - pts[j2].o.x, corner.y - pts[j2].o.y) > reach) {
+      return loop;
+    }
+    pts[i2] = { p: corner, o: pts[i2].o, k: pts[i2].k, cut: true };
+    pts.splice(j2, 1);
+    i2 = Math.max(0, (j2 === 0 ? i2 - 1 : i2) - 1);
   }
-  return out;
+  if (trimmed === 0)
+    return out;
+  const CLEARANCE = 0.9;
+  for (const { p: p2, k: k2, cut } of pts) {
+    if (!cut)
+      continue;
+    for (let e2 = 0;e2 < n2; e2++) {
+      if (e2 === k2 || (e2 + 1) % n2 === k2)
+        continue;
+      if (segmentDistance(p2, loop[e2], loop[(e2 + 1) % n2]) < amount * CLEARANCE)
+        return loop;
+    }
+  }
+  return pts.map(({ p: p2 }) => p2);
+};
+var segmentDistance = (p2, a2, b2) => {
+  const dx = b2.x - a2.x;
+  const dy = b2.y - a2.y;
+  const len22 = dx * dx + dy * dy;
+  const t2 = len22 > 0 ? Math.max(0, Math.min(1, ((p2.x - a2.x) * dx + (p2.y - a2.y) * dy) / len22)) : 0;
+  return Math.hypot(p2.x - (a2.x + dx * t2), p2.y - (a2.y + dy * t2));
+};
+var trimCorner = (pts, i2, j2) => {
+  const m2 = pts.length;
+  const a0 = pts[(i2 - 1 + m2) % m2].p;
+  const a1 = pts[i2].p;
+  const b0 = pts[j2].p;
+  const b1 = pts[(j2 + 1) % m2].p;
+  const dax = a1.x - a0.x;
+  const day = a1.y - a0.y;
+  const dbx = b1.x - b0.x;
+  const dby = b1.y - b0.y;
+  const den = dax * dby - day * dbx;
+  if (Math.abs(den) < 0.000000000001)
+    return;
+  const s2 = ((b0.x - a0.x) * dby - (b0.y - a0.y) * dbx) / den;
+  return { x: a0.x + dax * s2, y: a0.y + day * s2, z: a1.z };
 };
 var closeLoop = (loop) => loop.length === 0 ? [] : [...loop, loop[0]];
 
@@ -64200,6 +64278,7 @@ var centreLinesInPlace = (geometry, size) => {
   position.needsUpdate = true;
   geometry.computeBoundingBox();
 };
+var layoutListeners = new Set;
 var attachText = (holon, group) => {
   let mesh;
   let material;
@@ -64256,6 +64335,8 @@ var attachText = (holon, group) => {
       rebuildOutlines();
       handle?.dispose();
       handle = next;
+      for (const fn of layoutListeners)
+        fn();
     }).catch((err) => {
       console.error("[dreamtalk] text layout failed:", err);
     });
@@ -64414,6 +64495,14 @@ var screenArcRemap = (points, totalWorld, view) => {
 // src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var CYLINDER_ROTATION_SEGMENTS = 64;
+var styleOf = (holon) => ({
+  creation: holon.creation,
+  opacity: holon.opacity,
+  tint: holon.tint,
+  stroke: holon.stroke,
+  erasure: holon.erasure,
+  fillOpacity: holon.fillOpacity
+});
 var basePolyline = (holon) => {
   if (holon instanceof Circle) {
     const pts = [];
@@ -64781,12 +64870,12 @@ class ThreeHost {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
@@ -64794,7 +64883,7 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygons(loops);
         group.add(fill.mesh);
-        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon) });
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) });
         for (const part of holon.parts)
           this.washedByAncestor.add(part);
       }
@@ -64803,14 +64892,14 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
-        this.washes.push({ holon, fill, sig: freshSig(holon) });
+        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
       }
       const pts = polyline(holon);
       if (pts || holon instanceof Line) {
         const ribbon = new RibbonStroke(holon.stroke.value);
         ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
-        strokeBinding = { holon, ribbon, sig: freshSig(holon), group };
+        strokeBinding = { holon, ribbon, sig: freshSig(holon), group, look: styleOf(holon) };
         if (this.useInstancedRibbons) {
           group.add(ribbon.mesh);
           ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER);
@@ -64853,10 +64942,24 @@ class ThreeHost {
     this.dream.applyAt(t2);
     this.beforeSync?.();
     this.sync();
-    await this.renderer.render(this.scene, this.camera);
+    const settled = this.matricesSettled;
+    if (settled)
+      this.scene.matrixWorldAutoUpdate = false;
+    try {
+      await this.renderer.render(this.scene, this.camera);
+    } finally {
+      if (settled)
+        this.scene.matrixWorldAutoUpdate = true;
+    }
+  }
+  matricesSettled = false;
+  settleScene() {
+    this.scene.updateMatrixWorld(true);
+    this.matricesSettled = true;
   }
   frameT = Number.NaN;
   sync() {
+    this.matricesSettled = false;
     for (const { group, transform: tr, applied: last } of this.groups) {
       const x2 = tr[0].value;
       const y2 = tr[1].value;
@@ -64888,14 +64991,24 @@ class ThreeHost {
           ribbon.setPoints(pts ?? []);
       }
       const lift = this.highlightOf(holon);
-      ribbon.style(this.screenArc(binding, holon.creation.value), holon.opacity.value, liftTint(holon.tint.value, lift), holon.stroke.value * (1 + 2 * lift), this.screenArc(binding, holon.erasure.value));
+      const { look } = binding;
+      const creation = look.creation.value;
+      const opacity = look.opacity.value;
+      const tint = look.tint.value;
+      const width = look.stroke.value;
+      const erasure = look.erasure.value;
+      const creationMid = !(creation <= 0) && !(creation >= 1);
+      const erasureMid = !(erasure <= 0) && !(erasure >= 1);
+      const measured = creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined;
+      ribbon.style(creationMid ? this.arcFrom(measured, creation) : creation <= 0 ? 0 : 1, opacity, liftTint(tint, lift), width * (1 + 2 * lift), erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1);
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding;
       if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
-      fill.style(holon.creation.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      const { look } = binding;
+      fill.style(look.creation.value * look.opacity.value, liftTint(look.tint.value, this.highlightOf(holon)));
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding;
@@ -64904,18 +65017,18 @@ class ThreeHost {
         if (washed)
           fill.setPolygon(washed.points, washed.triangles);
       }
-      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding;
       if (drawingSigChanged(holon, binding.sig)) {
         fill.setPolygons(drawingSubpaths(holon) ?? []);
       }
-      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
     if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatch !== undefined) {
-      this.scene.updateMatrixWorld(true);
+      this.settleScene();
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
       for (const binding of this.arrows)
@@ -64923,6 +65036,8 @@ class ThreeHost {
       for (const { binding, group } of this.texts) {
         binding.sync(1 / this.unitsPerPixelAt(group, new Vector3));
       }
+      if (this.texts.length > 0)
+        this.matricesSettled = false;
     }
     this.cullOffscreen();
     this.packRibbonBatch();
@@ -64980,7 +65095,8 @@ class ThreeHost {
       return;
     }
     this.culledOffscreen = 0;
-    this.scene.updateMatrixWorld(true);
+    if (!this.matricesSettled)
+      this.settleScene();
     this.cullFrustum.setFromProjectionMatrix(this.cullVP);
     const heightPx = this.renderer.domElement.height || 720;
     const cam = this.camera;
@@ -65422,7 +65538,9 @@ class ThreeHost {
       return 0;
     if (fraction >= 1)
       return 1;
-    const measured = this.measureScreenArc(binding.ribbon);
+    return this.arcFrom(this.measureScreenArc(binding.ribbon), fraction);
+  }
+  arcFrom(measured, fraction) {
     if (!measured)
       return fraction;
     return Math.max(0, Math.min(1, measured.remap.worldAt(fraction) / measured.totalWorld));
@@ -65435,13 +65553,15 @@ class ThreeHost {
     const height = this.renderer.domElement.height || 720;
     const matrix = ribbon.mesh.matrixWorld;
     const projected = [];
-    const v2 = new Vector3;
+    let v2 = this.arcPoint;
+    let previous = this.arcPrevious;
     let world = 0;
-    let previous;
+    let first = true;
     for (const local of pts) {
       v2.copy(local).applyMatrix4(matrix);
-      if (previous)
+      if (!first)
         world += v2.distanceTo(previous);
+      first = false;
       const screen2 = this.toScreen(v2, width, height);
       projected.push({
         x: screen2?.x ?? 0,
@@ -65449,7 +65569,9 @@ class ThreeHost {
         world,
         onCamera: screen2 !== undefined
       });
-      previous = v2.clone();
+      const swap = previous;
+      previous = v2;
+      v2 = swap;
     }
     if (world <= 0)
       return;
@@ -65461,8 +65583,11 @@ class ThreeHost {
   screenLength(ribbon) {
     return this.measureScreenArc(ribbon)?.remap.screenLength ?? 0;
   }
+  arcPoint = new Vector3;
+  arcPrevious = new Vector3;
+  ndcScratch = new Vector3;
   toScreen(world, width, height) {
-    const ndc = world.clone().project(this.camera);
+    const ndc = this.ndcScratch.copy(world).project(this.camera);
     if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y))
       return;
     if (this.camera instanceof PerspectiveCamera && ndc.z > 1)
@@ -65898,6 +66023,22 @@ var SMARK = {
   square: 0.25,
   band: 0.08
 };
+var SMARK_PEN = 1.5;
+var sCentreline = (R2, samples = 40) => {
+  const k2 = SMARK.offset * R2;
+  const c2 = k2 * Math.SQRT1_2;
+  const q = Math.PI / 4;
+  const out = [];
+  for (let i2 = 0;i2 <= samples; i2++) {
+    const a2 = q + Math.PI * i2 / samples;
+    out.push({ x: c2 + k2 * Math.cos(a2), y: c2 + k2 * Math.sin(a2), z: 0 });
+  }
+  for (let i2 = 1;i2 <= samples; i2++) {
+    const a2 = q - Math.PI * i2 / samples;
+    out.push({ x: -c2 + k2 * Math.cos(a2), y: -c2 + k2 * Math.sin(a2), z: 0 });
+  }
+  return out;
+};
 var sBandOutline = (R2, samples = 40) => {
   const k2 = SMARK.offset * R2;
   const w4 = SMARK.band * R2 / 2;
@@ -65925,13 +66066,15 @@ class SMark extends Null {
   radius = length(100);
   tint = color(MARK_RED);
   band;
+  spine;
   dot;
   square;
   compose() {
     const R2 = this.radius.value;
     const k2 = SMARK.offset * R2 * Math.SQRT1_2;
     this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }));
-    this.band.add(new Line({ points: sBandOutline(R2), tint: this.tint, stroke: 1 }));
+    this.band.add(new Line({ points: sBandOutline(R2), tint: this.tint, stroke: 0, opacity: 0 }));
+    this.spine = this.add(new Line({ points: sCentreline(R2), tint: this.tint, stroke: SMARK_PEN }));
     this.dot = this.add(new Circle({ x: k2, y: k2, radius: SMARK.dot * R2, tint: this.tint, stroke: 0, fillOpacity: 1 }));
     const a2 = SMARK.square * R2 / 2;
     this.square = this.add(new Line({
@@ -65949,7 +66092,7 @@ class SMark extends Null {
   }
   createAnim() {
     this.parts;
-    return together(restage(together(...this.band.parts.map((p2) => p2.creation.sequence(0, 1))), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
+    return together(restage(this.spine.creation.sequence(0, 1), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
   }
 }
 
@@ -66298,15 +66441,18 @@ var buildMindVirus = (p2) => {
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
 };
-var TEXT_CAP_EM = 1466 / 2048;
+var TEXT_CAP_EM = 1409 / 2048;
+var TEXT_ASCENDER_EM = 1484 / 2048;
+var textBandEm = (content) => !/[\p{Lu}\p{Nd}]/u.test(content) && /[bdfhklß]/.test(content) ? TEXT_ASCENDER_EM : TEXT_CAP_EM;
 var TEXT_LINE_STEP_EM = 1.2;
 var TEXT_ADVANCE_EM = 0.55;
 var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
 `);
 var buildText = (p2) => {
   const cap = Math.max(1, num(p2, "size", 60));
-  const em = cap / TEXT_CAP_EM;
   const lines = textLines(p2);
+  const em = cap / textBandEm(lines.join(`
+`));
   const step4 = em * TEXT_LINE_STEP_EM;
   const down = cap / 2 - (lines.length - 1) * step4 / 2;
   const r2 = num(p2, "rotation", 0);
@@ -66327,8 +66473,9 @@ var buildText = (p2) => {
 };
 var textFootprint = (p2) => {
   const cap = Math.max(1, num(p2, "size", 60));
-  const em = cap / TEXT_CAP_EM;
   const lines = textLines(p2);
+  const em = cap / textBandEm(lines.join(`
+`));
   const longest = Math.max(1, ...lines.map((l2) => l2.length));
   return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM };
 };
@@ -66514,12 +66661,12 @@ var VOCABULARY = [
       cy: {
         type: "number",
         role: "y",
-        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block"
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals — or, if no capital was written, of the tall letters (d, l, k) — ignoring descenders like g, y, p; for several lines, the middle of the whole block"
       },
       size: {
         type: "number",
         role: "length",
-        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below"
+        description: "cap height: baseline to the top of the CAPITALS as written (D, T, H…); if no capital was written, to the top of the tall letters (d, l, k) instead. Page units — NOT the full bbox height when descenders hang below"
       },
       rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` }
     },
@@ -67200,15 +67347,15 @@ var renderPage = async (s2, selection, tags) => {
   g2.font = `600 ${Math.round(26 * K3)}px -apple-system, Helvetica, sans-serif`;
   g2.textBaseline = "bottom";
   const tagAt = (id, x2, y2) => {
-    const text = tags[id];
-    if (!text)
+    const text2 = tags[id];
+    if (!text2)
       return;
     const tx = Math.max(2, Math.min(c2.width - 40, x2 * K3));
     const ty = Math.max(16, y2 * K3 - 3);
     g2.fillStyle = "rgba(255,255,255,0.8)";
-    g2.fillRect(tx - 2, ty - Math.round(26 * K3) - 1, g2.measureText(text).width + 4, Math.round(26 * K3) + 2);
+    g2.fillRect(tx - 2, ty - Math.round(26 * K3) - 1, g2.measureText(text2).width + 4, Math.round(26 * K3) + 2);
     g2.fillStyle = selection.has(id) ? ACCENT : "#6a6a72";
-    g2.fillText(text, tx, ty);
+    g2.fillText(text2, tx, ty);
   };
   for (const y2 of s2.symbols) {
     const b2 = symbolBox(y2);
@@ -67227,14 +67374,14 @@ var httpInstruct = async (req) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(req)
   });
-  const text = await res.text();
+  const text2 = await res.text();
   try {
-    const body = JSON.parse(text);
+    const body = JSON.parse(text2);
     if (!res.ok && !body.error)
       body.error = `instruct ${res.status}`;
     return { ops: Array.isArray(body.ops) ? body.ops : [], reply: body.reply ?? "", error: body.error };
   } catch {
-    return { ops: [], reply: "", error: res.ok ? "unreadable answer" : `instruct ${res.status}: ${text.slice(0, 80)}` };
+    return { ops: [], reply: "", error: res.ok ? "unreadable answer" : `instruct ${res.status}: ${text2.slice(0, 80)}` };
   }
 };
 var speechCtor = () => {
@@ -67294,14 +67441,14 @@ var installVoice = (host) => {
   let speechBroken = !speechCtor();
   let hideTimer;
   let instructor = httpInstruct;
-  const show = (cls, html, text) => {
+  const show = (cls, html, text2) => {
     if (hideTimer)
       clearTimeout(hideTimer);
     cap.className = `on ${cls}`;
     if (html !== undefined)
       textEl.innerHTML = html;
     else
-      textEl.textContent = text ?? "";
+      textEl.textContent = text2 ?? "";
     mic.classList.toggle("on", cls === "listening");
   };
   const hide = (after = 0) => {
@@ -67338,10 +67485,10 @@ var installVoice = (host) => {
     e2.stopPropagation();
     if (e2.key === "Enter") {
       e2.preventDefault();
-      const text = input.value.trim();
+      const text2 = input.value.trim();
       input.blur();
-      if (text)
-        send(text);
+      if (text2)
+        send(text2);
       else
         phase = "idle", hide();
     } else if (e2.key === "Escape") {
@@ -67469,15 +67616,15 @@ var installVoice = (host) => {
     stopRec(true);
     if (phase !== "listening")
       return;
-    const text = spoken();
+    const text2 = spoken();
     source = undefined;
-    if (!text) {
+    if (!text2) {
       phase = "reply";
       show("", undefined, "heard nothing");
       hide(1400);
       return;
     }
-    await send(text);
+    await send(text2);
   };
   const cancel = () => {
     if (phase !== "listening")
@@ -67624,7 +67771,7 @@ var installVoice = (host) => {
   };
   const sketch = window.__sketch ??= {};
   Object.assign(sketch, {
-    instruct: (text) => send(text),
+    instruct: (text2) => send(text2),
     stubInstruct: (r4) => {
       instructor = r4 === null ? httpInstruct : typeof r4 === "function" ? r4 : async () => r4;
     },
@@ -69127,6 +69274,8 @@ var flattenHolon = (root, project, note = { pending: false }) => {
   const pos = new Vector3;
   const scl = new Vector3;
   const toPage = (m2, pts) => pts.map((p2) => project(tmpV.set(p2.x, p2.y, p2.z).applyMatrix4(m2)));
+  const washedByAncestor = new Set;
+  const washedTints = new Map;
   const visit = (h2, parent) => {
     pos.set(h2.x.value, h2.y.value, h2.z.value);
     quat.setFromEuler(STRAIGHT_ON.set(h2.p.value, h2.h.value, h2.b.value, "ZXY"));
@@ -69142,13 +69291,26 @@ var flattenHolon = (root, project, note = { pending: false }) => {
         }
       } else {
         const wash = h2.fillOpacity.value * h2.opacity.value;
-        if (wash > 0.05 && (h2 instanceof Circle || h2 instanceof Ellipse || h2 instanceof Rectangle)) {
-          const outline = h2 instanceof Circle ? ellipseOutline(h2.radius.value, h2.radius.value) : h2 instanceof Ellipse ? ellipseOutline(h2.radiusX.value, h2.radiusY.value) : rectanglePolyline(h2.width.value, h2.height.value, h2.rounding.value);
-          const grey2 = Math.round(255 - (255 - inverseGrey(h2.tint.value)) * Math.min(1, wash));
-          if (grey2 < 245)
-            prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: grey2 });
+        const washGrey = Math.round(255 - (255 - inverseGrey(h2.tint.value)) * Math.min(1, wash));
+        const loops = wash > 0.05 ? drawingLoops(h2) : undefined;
+        if (loops) {
+          for (const part of h2.parts)
+            washedByAncestor.add(part);
+          if (washGrey < 245) {
+            const rings = loops.map((l2) => toPage(world, l2));
+            prims.push({ k: "fill", pts: flat(rings.flat()), grey: washGrey, rings: rings.map((r4) => r4.length) });
+            if (wash >= 0.99)
+              washedTints.set(tintKey(h2.tint.value), washGrey);
+          }
+        } else if (wash > 0.05 && !washedByAncestor.has(h2) && washGrey < 245) {
+          const outline = h2 instanceof Circle ? ellipseOutline(h2.radius.value, h2.radius.value) : h2 instanceof Ellipse ? ellipseOutline(h2.radiusX.value, h2.radiusY.value) : h2 instanceof Rectangle ? rectanglePolyline(h2.width.value, h2.height.value, h2.rounding.value) : h2 instanceof Line && closesOnItself2(h2.points) ? h2.points : undefined;
+          if (outline) {
+            prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: washGrey });
+            if (wash >= 0.99)
+              washedTints.set(tintKey(h2.tint.value), washGrey);
+          }
         }
-        const grey = lineGrey(h2.tint.value);
+        const grey = washedTints.get(tintKey(h2.tint.value)) ?? lineGrey(h2.tint.value);
         const pts = grey === undefined ? undefined : polyline(h2);
         if (pts && pts.length >= 2) {
           const run = visibleRun(toPage(world, pts), h2.erasure.value, h2.creation.value);
@@ -69174,6 +69336,25 @@ var flattenHolon = (root, project, note = { pending: false }) => {
   };
   visit(root, new Matrix4);
   return prims;
+};
+var tintKey = (c2) => `${c2.r} ${c2.g} ${c2.b}`;
+var closesOnItself2 = (pts) => {
+  if (pts.length < 4)
+    return false;
+  const a2 = pts[0];
+  const b2 = pts[pts.length - 1];
+  return Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z) < 0.000001;
+};
+var drawingLoops = (h2) => {
+  if (h2.parts.length < 1)
+    return;
+  const loops = [];
+  for (const part of h2.parts) {
+    if (!(part instanceof Line) || !closesOnItself2(part.points))
+      return;
+    loops.push(part.points.slice());
+  }
+  return loops;
 };
 var ellipseOutline = (rx, ry, n2 = 64) => {
   const out = [];
@@ -69398,6 +69579,81 @@ class Mirror {
   }
 }
 
+// sketch/livedistill.ts
+var PAUSE_MS = 600;
+var ON_FRAC = 0.6;
+var COVER_FRAC = 0.5;
+var MIN_RETRACE = 36;
+var STEP = 3;
+var nearFor = (diag) => Math.min(30, Math.max(6, 0.05 * diag));
+var sampled = (pts) => pts.length > 1 ? resample(pts, STEP) : pts.map((p2) => ({ x: p2.x, y: p2.y }));
+var diagOf = (sets) => {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const s2 of sets)
+    for (const p2 of s2) {
+      x0 = Math.min(x0, p2.x);
+      y0 = Math.min(y0, p2.y);
+      x1 = Math.max(x1, p2.x);
+      y1 = Math.max(y1, p2.y);
+    }
+  return x1 >= x0 ? Math.hypot(x1 - x0, y1 - y0) : 0;
+};
+var nearIndex = (pts, r4) => {
+  const cells = new Map;
+  const key = (cx, cy) => `${cx},${cy}`;
+  for (const p2 of pts) {
+    const k2 = key(Math.floor(p2.x / r4), Math.floor(p2.y / r4));
+    const list = cells.get(k2);
+    if (list)
+      list.push(p2);
+    else
+      cells.set(k2, [p2]);
+  }
+  return (q) => {
+    const cx = Math.floor(q.x / r4);
+    const cy = Math.floor(q.y / r4);
+    for (let dx = -1;dx <= 1; dx++)
+      for (let dy = -1;dy <= 1; dy++)
+        for (const p2 of cells.get(key(cx + dx, cy + dy)) ?? [])
+          if (Math.hypot(p2.x - q.x, p2.y - q.y) <= r4)
+            return true;
+    return false;
+  };
+};
+var overlap = (search, points) => {
+  const mine = sampled(points);
+  const ink = search.paths.flat();
+  const near = nearFor(diagOf([ink, mine]));
+  const onInk = nearIndex(ink, near);
+  const onMine = nearIndex(mine, near);
+  const on = mine.filter(onInk).length;
+  return {
+    near,
+    on: mine.length ? on / mine.length : 0,
+    covers: ink.length ? ink.filter(onMine).length / ink.length : 0,
+    retrace: on * STEP
+  };
+};
+var joins = (search, pass3) => {
+  if (pass3.start - search.endedAt > PAUSE_MS)
+    return false;
+  const o2 = overlap(search, pass3.points);
+  return o2.on >= ON_FRAC && o2.covers >= COVER_FRAC && o2.retrace >= MIN_RETRACE;
+};
+var isSearch = (s2) => !!s2 && s2.ids.length >= 2;
+var nextSearch = (cur, pass3) => {
+  if (cur && joins(cur, pass3))
+    return { search: { ids: [...cur.ids, pass3.id], paths: [...cur.paths, sampled(pass3.points)], endedAt: pass3.end } };
+  return {
+    search: { ids: [pass3.id], paths: [sampled(pass3.points)], endedAt: pass3.end },
+    ...isSearch(cur) ? { done: cur } : {}
+  };
+};
+var ripe = (s2, now) => isSearch(s2) && now - s2.endedAt >= PAUSE_MS;
+
 // sketch/main.ts
 var pageEl = document.getElementById("page");
 var ink = document.getElementById("ink");
@@ -69413,6 +69669,7 @@ var editorLink = document.getElementById("toeditor");
 var btn = (id) => document.getElementById(id);
 var ctx = ink.getContext("2d");
 var THEME_KEY = "dreamtalk.sketch.dark";
+var LIVE_KEY = "dreamtalk.sketch.liveDistill";
 var LEGACY_KEY = "dreamtalk.sketch.page.v1";
 var localKey = (name) => `dreamtalk.board.${name}.v1`;
 var requested = new URLSearchParams(location.search).get("board") ?? "scratch";
@@ -69482,6 +69739,10 @@ var saveState = () => {
 var dark = true;
 try {
   dark = localStorage.getItem(THEME_KEY) !== "0";
+} catch {}
+var liveDistill = false;
+try {
+  liveDistill = localStorage.getItem(LIVE_KEY) === "1";
 } catch {}
 var history = new History;
 var selection = new Set;
@@ -69948,6 +70209,20 @@ var paintInk = () => {
       ctx.restore();
     }
   }
+  if (glow) {
+    const age = (performance.now() - glow.at) / GLOW_MS;
+    if (age >= 1)
+      glow = undefined;
+    else {
+      ctx.save();
+      ctx.globalAlpha = 0.45 * (1 - age) * (1 - age);
+      for (const stroke of s2.strokes)
+        if (glow.ids.has(stroke.id))
+          drawStroke(ctx, stroke.points, k2, accent, 10);
+      ctx.restore();
+      drawInk();
+    }
+  }
   for (const y2 of s2.symbols) {
     if (!selection.has(y2.id) || selection.size < 2)
       continue;
@@ -70040,6 +70315,7 @@ var cancelLive = () => {
 var undo = () => {
   closeRing();
   cancelLive();
+  forgetSearch();
   const cmd = history.undo();
   if (!cmd)
     return;
@@ -70058,6 +70334,7 @@ var undo = () => {
 var redo = () => {
   closeRing();
   cancelLive();
+  forgetSearch();
   const cmd = history.redo();
   if (!cmd)
     return;
@@ -70115,12 +70392,12 @@ var httpRecognize = async (req) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(req)
   });
-  const text = await res.text();
+  const text2 = await res.text();
   let body;
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(text2);
   } catch {
-    return { candidates: [], error: res.ok ? "unreadable answer" : `recognizer ${res.status}: ${text.slice(0, 80)}` };
+    return { candidates: [], error: res.ok ? "unreadable answer" : `recognizer ${res.status}: ${text2.slice(0, 80)}` };
   }
   if (!res.ok && !body.error)
     body.error = `recognizer ${res.status}`;
@@ -70143,6 +70420,58 @@ var distill = () => {
   history.do(cmd);
   selection = new Set([...[...selection].filter((id) => !cmd.ids.includes(id)), ...touched(cmd)]);
   afterChange();
+};
+var search;
+var searchTimer;
+var drawStartedAt = 0;
+var glow;
+var GLOW_MS = 700;
+var forgetSearch = () => {
+  search = undefined;
+  if (searchTimer)
+    clearTimeout(searchTimer);
+  searchTimer = undefined;
+};
+var distillSearch = (s2) => {
+  const byId = new Map(history.state.strokes.map((k2) => [k2.id, k2]));
+  const strokes = s2.ids.map((id) => byId.get(id));
+  if (strokes.some((k2) => !k2) || thinking?.ids.some((id) => s2.ids.includes(id)))
+    return;
+  const out = distillStrokes(strokes, () => newId("ink"));
+  if (out.length === 0)
+    return;
+  history.do({ kind: "distill", ids: [...s2.ids], strokes: out });
+  glow = { ids: new Set(out.map((k2) => k2.id)), at: performance.now() };
+  afterChange();
+};
+var strokeDrawn = (stroke) => {
+  if (!liveDistill)
+    return;
+  const now = performance.now();
+  const { search: next, done } = nextSearch(search, { id: stroke.id, points: stroke.points, start: drawStartedAt, end: now });
+  search = next;
+  if (done)
+    distillSearch(done);
+  if (searchTimer)
+    clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined;
+    if (mode !== "idle" || !ripe(search, performance.now()))
+      return;
+    const s2 = search;
+    search = undefined;
+    distillSearch(s2);
+  }, PAUSE_MS);
+};
+var setLiveDistill = (on) => {
+  liveDistill = on;
+  forgetSearch();
+  const b2 = btn("live");
+  b2.classList.toggle("on", on);
+  b2.setAttribute("aria-pressed", String(on));
+  try {
+    localStorage.setItem(LIVE_KEY, on ? "1" : "0");
+  } catch {}
 };
 var transform = async () => {
   if (thinking)
@@ -70409,9 +70738,13 @@ var handlePen = (ev, source) => {
     } else {
       mode = "draw";
       live = [ev.sample];
+      drawStartedAt = performance.now();
       if (selection.size)
         setSelection([]);
     }
+    if (searchTimer)
+      clearTimeout(searchTimer);
+    searchTimer = undefined;
     drawInk();
     return;
   }
@@ -70431,6 +70764,7 @@ var handlePen = (ev, source) => {
             lasso = live.map((q) => ({ x: q.x, y: q.y }));
           } else {
             mode = "draw";
+            drawStartedAt = performance.now();
             setSelection([]);
           }
         }
@@ -70471,6 +70805,7 @@ var handlePen = (ev, source) => {
       const stroke = { id: newId("ink"), points: live };
       live = [];
       commit({ kind: "addStroke", stroke });
+      strokeDrawn(stroke);
       break;
     }
     case "lasso": {
@@ -70814,6 +71149,10 @@ btn("theme").addEventListener("click", () => {
   applyTheme();
 });
 btn("clear").addEventListener("click", clearPage);
+btn("live").addEventListener("click", () => {
+  setLiveDistill(!liveDistill);
+  flash(liveDistill ? "live distill on — trace over a line, rest the pen" : "live distill off — ≋ distils a selection", 2500);
+});
 document.querySelectorAll("#toolbar button").forEach((b2) => b2.addEventListener("pointerdown", (e2) => e2.preventDefault()));
 bannerEl.querySelector("button").addEventListener("click", () => {
   bannerDismissed = true;
@@ -70890,6 +71229,12 @@ window.__sketch = {
     return stroke.id;
   },
   select: (ids) => setSelection(ids),
+  liveDistill: (on) => {
+    if (on !== undefined)
+      setLiveDistill(on);
+    return liveDistill;
+  },
+  search: () => search && [...search.ids],
   transform: () => transform(),
   distill,
   undo,
@@ -70955,6 +71300,7 @@ var voice = installVoice({
 });
 layout2();
 applyTheme();
+setLiveDistill(liveDistill);
 renderTablet();
 if (looking) {
   for (const id of ["toolbar", "status", "presence", "banner"]) {
