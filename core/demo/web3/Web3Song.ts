@@ -358,7 +358,9 @@ class LightShot extends LightSpreadDream {
         this.spin.creation.to(1, { easing: "linear" }),
         this.fill.spin.to(SPIN_END, { easing: "linear" }),
         [this.ignite.creation.to(1), 4.5 / 12, 7 / 12],
-        [this.fill.landOpacity.to(1), 4.5 / 12, 7 / 12],
+        // The land is lit at once; how much of it shows is the light's
+        // spread (LightSpread.lightTheLand), not a flood.
+        [this.fill.landOpacity.to(1), 4.4 / 12, 4.7 / 12],
         [this.spread.creation.to(1, { easing: "linear" }), 7 / 12, 1],
       ),
       12,
@@ -425,7 +427,24 @@ class CallbackShot extends Shot14CallbackDream {
     const u = Math.min(1, Math.max(0, (e - 0.4) / 0.35))
     return u * u * (3 - 2 * u)
   }
+  /**
+   * The swollen disc is not dark between its lattice lines: the frames'
+   * floor inside it is a dim red haze (~(25,8,6) on screen at 128–129.75,
+   * flat across the disc — measured radially, it has no falloff), rising as
+   * the disc swells. Ours was black there, ~10 levels darker throughout.
+   */
+  haze = new Circle({
+    radius: this.expand.creation.map((e) => this.discRadius(e)),
+    tint: seenColor(28, 9, 7),
+    stroke: 0,
+    fillOpacity: this.expand.creation.map((e) => {
+      const u = Math.min(1, Math.max(0, e / 0.4))
+      return u * u * (3 - 2 * u)
+    }),
+  })
+
   override unfold() {
+    this.stage(this.haze)
     this.stageField()
     this.set(this.burst.creation.to(1), this.clarity.creation.to(1))
     this.wait(SWELL[0]![0] - CALLBACK_IN)

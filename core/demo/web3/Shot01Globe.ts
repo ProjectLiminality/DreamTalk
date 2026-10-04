@@ -29,7 +29,7 @@
 
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
-import { Circle, Ellipse, Group, Line, Null, Stroke } from "../../src/parts/primitives"
+import { Circle, Line, Null, Stroke } from "../../src/parts/primitives"
 import { Globe } from "../../vocabulary/Globe/Globe"
 import { projectLatLon } from "../../src/geometry/globe"
 import { rgb, type Color } from "../../src/constants"
@@ -63,7 +63,6 @@ const FROST = 0.036
 const GLOW: readonly (readonly [number, number])[] = [
   [1.4, 0], [2.0, 0.6], [2.5, 0.8], [3.0, 1], [3.5, 0.95], [4.0, 0.4], [4.5, 0],
 ]
-const GLOW_LAYERS = 6
 
 /** Piecewise-linear read of measured keys, held at both ends. */
 const keyed = (keys: readonly (readonly [number, number])[], t: number): number => {
@@ -129,8 +128,8 @@ export class Shot01GlobeDream extends Dream {
   seam = new Line({ tint: SEAM_TINT, stroke: 2 })
   frost = new Stroke({ tint: rgb(255, 255, 255), stroke: 0, fillOpacity: 0 })
   ring = new Circle({ radius: 203, tint: rgb(240, 240, 240), stroke: 1.5, opacity: 0 })
-  glowTop!: Group
-  glowBottom!: Group
+  glowTop!: Stroke
+  glowBottom!: Stroke
 
   constructor() {
     super()
@@ -156,21 +155,29 @@ export class Shot01GlobeDream extends Dream {
     derive(this.seam, t, seamPoints)
     this.seam.opacity.follow(c.map(() => land()))
 
-    // The glow at the seam's two ends: nested soft ellipses, their sum the
-    // measured falloff, riding the seam's end points (pushed a little out).
+    // The glow at the seam's two ends, riding the seam's end points
+    // (pushed a little out).
     const glowAt = (end: "top" | "bottom") => {
-      const layers = Array.from({ length: GLOW_LAYERS }, (_, i) => {
-        const k = (i + 1) / GLOW_LAYERS
-        return new Ellipse({
-          radiusX: (95 * k) / PX,
-          radiusY: (75 * k) / PX,
-          tint: rgb(255, 255, 255),
-          filled: true,
-          stroke: 0,
-          opacity: c.map(() => 0.002 * keyed(GLOW, t())),
-        })
+      // One disc of light, its brightness falling radially to nothing at its
+      // rim (the host's fillFalloff) — white at the limb, gone ~90px out.
+      // A drawing (a Stroke whose one child is the closed outline, never
+      // inked) — a bare Circle draws a hairline rim even at stroke 0.
+      const g = new Stroke({
+        tint: rgb(255, 255, 255),
+        stroke: 0,
+        fillOpacity: c.map(() => 0.014 * keyed(GLOW, t())),
+        fillFalloff: 1,
       })
-      const g = new Group({ members: layers })
+      const rim = new Line({
+        points: Array.from({ length: 49 }, (_, i) => {
+          const a = (i / 48) * Math.PI * 2
+          return { x: (Math.cos(a) * 100) / PX, y: (Math.sin(a) * 72) / PX, z: 0 }
+        }),
+        tint: rgb(255, 255, 255),
+        stroke: 0,
+        opacity: 0,
+      })
+      ;(g as unknown as { add(h: Line): Line }).add(rim)
       const point = () => {
         const pts = seamPoints()
         const p = end === "top" ? pts[0] : pts[pts.length - 1]

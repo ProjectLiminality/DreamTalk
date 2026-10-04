@@ -373,22 +373,29 @@ visibly differs, in order:
 **FINAL remaining differences (1fps full-song sheet vs reference,
 2026-10-04, after all of the above):**
 
-- ~~1–3s glow~~ DONE: soft columns of light where the seam meets the
-  limb, top and bottom (nested filled ellipses), fitted to the frames'
-  brightness, width and drift.
+- ~~1–3s glow~~ DONE: a soft disc of light where the seam meets the limb,
+  top and bottom — one fill each with the host's radial falloff (it
+  replaced six stacked ellipses), within ~6 levels of the frames.
 - ~~31s~~ DONE: the cloud enters at ~31.1 and settles by 33.4. Still
   different: the original's Web2 lattice lifts off the top of frame while
   the word arrives (ours crossfades it), and its word forms left to right
   ("Veb" reads at 32 with the 3 still loose); ours settles evenly.
 - 31–45s: the word's typeface (Arimo vs Helvetica — a licensing call) and
   colour (David's call).
-- 108–113s: the light globe ignites as a radial glow shading the land
-  white → grey; ours floods flat (needs a gradient fill — with engine).
+- ~~108–113s~~ DONE with the host's `fillFalloff`: the land is re-origined
+  at the hotspot and lit radially from it — the front ~30px out at 110.5,
+  travelling ~47px/s, half-strength at ~1.5× the front, letting go
+  114–115 — and the globe's turn re-fitted (China 108 → the Atlantic 117,
+  ~14.5°/s). Still different: the original keeps a flat white plateau
+  inside the front (a smoothstep has none) and its outlines stay over the
+  lit land a second longer.
 - ~~128–130s~~ DONE: the swell starts at 123.0 (not 125) on the measured
   radius keys, the ring is red by ~129.25, the disc keeps its lattice while
   the halo goes, and the hero crossfades in over it (130–130.5) on one
   shared camera, then comes up slowly — bloom over 3s, land white by 131.5,
   ring carried 237 → 253px — with its ring, lattice and bloom re-measured.
+  The swollen disc's floor is a FLAT dim-red haze (measured radially, no
+  falloff — so a plain fill, not `fillFalloff`): interior mean within ~5.
 - 63–74s: our quote type is heavier than Manim's hairline serif.
 - 146–157s: the portrait is a placeholder — awaiting David's photograph.
 - ~~163s~~ DONE: the title's ink width tracks the frames within ~0.1s.
@@ -399,5 +406,4 @@ light globe's turn and arcs, the dip into the callback, the hero and the
 closing — matches the frames at 1fps.
 
 **Not reproduced, stated rather than faked:** Text renders
-heavier than Manim's hairline serif; the light globe's radial glow (a
-gradient fill, host-side).
+heavier than Manim's hairline serif.

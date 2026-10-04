@@ -89,13 +89,14 @@ const TILT = 0.12
  *  (Africa/Europe); the frames open on the Asia face and turn TO Africa/Europe
  *  as the hotspot fires, so we start east of the meridian and turn back to it. */
 /**
- * Re-measured in the song (2026-10-04): the frames turn the whole way —
- * Asia (105°E) at 107s, India at 110, Africa/Europe at 113, the Atlantic by
- * 116, South America's bulge (45°W) at 118.5 — at a steady ~13°/s, over the
- * 12s play 106–118. (The centre longitude is −spin.)
+ * Re-measured side by side at 1s steps (2026-10-04, second pass): China at
+ * 108s, India at 110, Arabia at 112, the Sahara at 113, West Africa at 115,
+ * the Atlantic at 116–117 — a steady ~14.5°/s over the 12s play 106–118.
+ * (Stated against our own renders of the same faces, so any projection
+ * offset is already folded in.)
  */
-export const SPIN_START = -2.06
-export const SPIN_END = 0.67
+export const SPIN_START = -2.51
+export const SPIN_END = 0.52
 
 /**
  * The hotspot's location, in lon/lat degrees — the eastern Mediterranean /
@@ -321,6 +322,8 @@ export class LightSpreadDream extends Dream {
     }
     this.hotspot = new Group({ members: [...rings, core] })
 
+    this.lightTheLand()
+
     // --- the arc-network ---------------------------------------------------
     // One Line per arc, its `points` DERIVED from `spin` (so it turns with the
     // sphere) and its `creation` windowed by index over the `spread` beat, so
@@ -338,6 +341,64 @@ export class LightSpreadDream extends Dream {
       lines.push(line)
     }
     this.arcs = new Group({ members: lines })
+  }
+
+  /**
+   * THE LIGHT ACROSS THE LAND (re-measured 2026-10-04 at full resolution).
+   * The land does not flood grey → white: a white light spreads OUT OF the
+   * hotspot, the land white at its heart and falling through grey to dark
+   * across a ~180px band beyond its front (screen 252 → 208 → 176 → 143 →
+   * 102 at 30px steps, 112.5–114s). The front stands ~30px out at 110.5 and
+   * travels ~47px/s; by ~115 the whole face is white.
+   *
+   * The host's radial fill (`fillFalloff`) lights from the holon's LOCAL
+   * ORIGIN, so the land is re-origined at the hotspot: its Stroke stands on
+   * the projected hotspot and every coastline ring is given relative to it
+   * — the same world positions, a different centre. Its time is "seconds
+   * since ignition": 2s of `ignite` (the song's 110.5–112.5), then 5.5s of
+   * `spread`.
+   */
+  private lightTheLand(): void {
+    void this.fill.parts // compose the globe, so its land exists
+    const land = this.fill.landHolon
+    const spin = this.fill.spin
+    const hot = () => projectLatLon(HOTSPOT_LON, HOTSPOT_LAT, GLOBE_R, spin.value, TILT)
+    for (const part of land.parts) {
+      if (!(part instanceof Line)) continue
+      const own = Object.getOwnPropertyDescriptor(part, "points")!.get!
+      let source: Vec3Like[] | undefined
+      let shifted: Vec3Like[] = []
+      Object.defineProperty(part, "points", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          const pts = own.call(part) as Vec3Like[]
+          if (pts !== source) {
+            // The source recomputes (and bumps geomVersion) only when the
+            // spin moves — the only thing the hotspot's position follows.
+            source = pts
+            const h = hot()
+            shifted = pts.map((q) => ({ x: q.x - h.x, y: q.y - h.y, z: q.z }))
+          }
+          return shifted
+        },
+        set(_v) {},
+      })
+    }
+    land.x.follow(spin.map(() => hot().x))
+    land.y.follow(spin.map(() => hot().y))
+
+    const since = () => 2 * clamp01(this.ignite.creation.value) + 5.5 * clamp01(this.spread.creation.value)
+    // The front P (px), and the light half-strength at ~1.5 P (P + 60 at
+    // 112.5s, a small spot at 111): smoothstep(0, R) halves at 0.54 R.
+    land.fillFalloffRadius.follow(
+      this.ignite.creation.map(() => (1.48 * (30 + 47 * since())) / 0.54 / 1.28),
+    )
+    // The light holds its falloff until the face is lit, then lets go
+    // (114 → 115: the far side whitens).
+    land.fillFalloff.follow(
+      this.ignite.creation.map(() => 1 - clamp01((since() - 3.5) / 1)),
+    )
   }
 
   /** The live spin value both globes and the arcs read. */
