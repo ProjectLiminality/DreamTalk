@@ -237,3 +237,60 @@ show only the documented first-frame `hg` floor); thewall differs
 structurally (237 batch meshes for 1) and is covered by the instancing
 gate. VISIBLE CHANGE: the Web3 hero's lattice no longer draws over the
 globe — the reference's own composition.
+
+## Item I — the GPU ceiling, attributed (2026-10-04)
+
+Method: three's timestamp queries switched on at runtime
+(`renderer.backend.trackTimestamp = true`; the device already holds
+`timestamp-query`), `resolveTimestampsAsync("render")` per frame, plus
+GPU-complete wall time; differential hides applied after sync(). The
+timestamp figure is the render pass in three's units — read it
+RELATIVELY (it tracks wall − sync ≈ ×1.8).
+
+**TheWall — what the GPU time is.**
+
+| t | wall ms | sync ms | GPU pass | ribbons hidden | fills hidden | half the instances |
+|---|---|---|---|---|---|---|
+| 0.5 | 265 | 21 | 474 | 0.4 | 475 | 239 |
+| 8.33 | 164 | 27 | 258 | 0.4 | 259 | 128 |
+| 15.8 | 87 | 38 | 77 | 0.6 | 61 | 49 |
+
+- Ribbons are all of it; fills nothing. Linear in instance count.
+- Truly resolution-independent (canvas really resized 320×180 →
+  2560×1440 in-page via `renderer.setSize`: 483/484/480/481 at t=0.5).
+- Not the tethers: hiding the 472 cable strokes changes nothing at t=0.5
+  (412 vs 415); the other 425,272 segments cost 412 / 234 / 69 at
+  t = 0.5 / 8.33 / 15.8 — the SAME segment count, 6× apart by POSE.
+- **The cause: degenerate geometry stacked on one spot.** At t=0.5,
+  3,294 of 3,308 visible strokes are under 2 px on screen (median 0 px)
+  and 423,790 segments fall in ONE 10-px cell — the unlaunched creatures
+  at the spawn point. Every segment still rasterizes its pen-padded quad
+  (pad in PIXELS, hence resolution-independent) onto the same pixels,
+  and the MAX blends serialize. ~410 ms of GPU for one visible dot. At
+  t=8.33: 2,146 sub-2-px strokes, 211,604 segments in the hottest cell;
+  at 15.8 the creatures have spread (7,948).
+
+**The double attach (explorer's find) — measured, and NOT TheWall's
+cost.** At HEAD (separate worktree, before `oneparent`'s fix) a census of
+host bindings: pl02 7,807 extra ribbons (18,371 drawn for 10,564 real,
++74%), p02k 2,103 extra (+74%), creatormode 5; TheWall, Web3 and video01
+NONE. p02k, oracle path, HEAD → fixed tree: boot 3.7 → 2.0 s, frame
+10.8/9.5 → 6.6/6.4 ms (CPU; its GPU pass is ~0.1 either way). pl02: see
+the line below once measured.
+
+**Proposed fix (not built) — I-1: drop stacked degenerate strokes from
+the draw, exactly.** A stroke whose ink collapses to (sub-)pixel extent
+draws a round dot of its pen width; N identical dots under MAX are ONE
+dot, byte-exact. So per frame, among visible strokes whose projected
+extent is below ~1 px, keep one representative per (pixel-snapped
+centre, width, tint, fade) and hide the rest — the cull pass already
+projects bounds, so the test is its own cost. Where degenerate strokes
+differ (width, tint) the rule keeps each distinct dot, so it stays exact
+(MAX of identical inputs is idempotent; differing ones are all kept).
+Expected gain to GPU completion on TheWall: t=0.5 ~240 ms → ~25 ms (the
+pass collapses to the ~14 real strokes plus sync); t=8.33 ~135 ms →
+roughly half or better (2,146 of 3,540 strokes degenerate); t=15.8 small.
+Gate: instancing/state gate + PNG cmp on thewall, then the wall gauntlet.
+Open question for the build: whether "degenerate" should be judged on
+screen extent (view-dependent, per frame) or on world scale ≈ 0 (cheaper,
+covers exactly the unlaunched creatures) — measure both.
