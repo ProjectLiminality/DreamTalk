@@ -141,9 +141,9 @@ const frameHeight = (observer: Observer): number => {
     : 2 * (observer.radius.value / zoom) * Math.tan(observer.fov.value / 2)
 }
 
-/** A chapter's carriable roots: true roots (not a Group's late-gathered member), y unbound. */
+/** A chapter's carriable roots: those whose y is not a derived binding. */
 const liftsOf = (dream: Dream): Param<number>[] =>
-  dream.roots.filter((r) => r.parent === undefined && !r.y.isBound).map((r) => r.y)
+  dream.roots.filter((r) => !r.y.isBound).map((r) => r.y)
 
 export class DreamSong extends Dream {
   readonly #specs: readonly ChapterSpec[]
@@ -264,8 +264,6 @@ export class DreamSong extends Dream {
           window.ins = match.ins.flatMap((root) => [...root.walk()])
         }
         if (transition.kind === "slide") {
-          // The holon trees above have composed every Group, so a member
-          // the scene also listed as a root now knows its whole.
           window.lifts = { from: liftsOf(this.#chapters[i - 1]!.dream), into: liftsOf(ch.dream) }
         }
         this.#windows.push(window)

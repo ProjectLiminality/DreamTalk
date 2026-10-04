@@ -79,11 +79,7 @@ export const dreamNodesOf = (
 ): DreamNode => {
   const root: DreamNode = { name, members: [], count: 1, others: [], children: [], depth: 0 }
   const byClass = new Map<string, DreamNode>()
-  // A root may be given a whole only when that whole composes (a Group
-  // gathers its members lazily), so compose everything first; a root that
-  // turns out to be a member is then visited through its whole, once.
-  for (const r of roots) for (const _ of r.walk());
-  const live = roots.filter((r) => r.parent === undefined && isLive(r))
+  const live = roots.filter(isLive)
 
   const merged = live.find((r) => isSovereign(r) && nodeNameOf(r) === name)
   if (merged) {

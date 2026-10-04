@@ -65,6 +65,13 @@ when done.
 - Open: slide-wipe transitions; heavier-than-Manim text weight.
 
 ## Engine
+
+- **Holons attached twice (found 2026-10-04, not fixed):** a holon that is
+  both a FIELD of a whole and a MEMBER of a Group inside it is registered
+  twice (field scan + Group add) and drawn twice — Calculator 9, pl02 8529,
+  p02k 2256. Mostly invisible (strokes max-blend over their twin; fills draw
+  twice). Fix in holon.ts/Group registration: one parent per holon. Check
+  whether this is part of perf item I's GPU cost before building I.
 - Performance roadmap E/F; ontology builds (SDF square∩circle cylinder,
   GeometrySketch, RayCaster, node-graph visualisation).
 - DreamOS as one "dream graph" (Plan 9 / Houdini: a uniform data model through

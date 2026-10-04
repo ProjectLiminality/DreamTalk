@@ -200,6 +200,8 @@ export abstract class Dream {
   #clips: Clip[] = []
   #backdrop?: BackdropSpec
   #roots: Holon[] = []
+  /** The settled roots — computed once the dream is built (it cannot change after). */
+  #rootsMemo?: readonly Holon[]
   #built?: Timeline
   #narration = new Narration()
 
@@ -271,6 +273,7 @@ export abstract class Dream {
   /** Explicitly stage a holon that no animation touches. */
   stage<T extends Holon>(holon: T): T {
     this.#roots.push(holon)
+    this.#rootsMemo = undefined
     return holon
   }
 
@@ -279,25 +282,53 @@ export abstract class Dream {
     return this.#backdrop
   }
 
-  /** Unique root holons of everything the dream touches or stages. */
+  /**
+   * Unique root holons of everything the dream touches or stages.
+   *
+   * A holon's root is only knowable once every whole above it has
+   * composed: a Group gathers its members — and becomes their parent —
+   * the first time its parts are read. So the trees of everything touched
+   * are composed first (walking a tree composes it), and only then is each
+   * holon asked for its root. Asked earlier, a member the scene also
+   * animates or stages answered "myself", was listed as a root, and the
+   * host drew it twice: inside its whole, and loose.
+   *
+   * Composing every tree is not free (pl02: ~30ms), and the answer cannot
+   * change once the dream is built, so it is worked out once.
+   */
   get roots(): readonly Holon[] {
     this.build()
+    if (this.#rootsMemo) return this.#rootsMemo
+    const touched: Holon[] = [...this.#roots]
+    for (const clip of this.#clips) {
+      for (const track of clip.anim.tracks) {
+        const owner = track.param.owner
+        if (owner instanceof Holon) touched.push(owner)
+      }
+    }
+    // Composing can reveal a higher whole, whose own composing can reveal
+    // one higher still — settle until no tree grows a new root.
+    const composed = new Set<Holon>()
+    for (let grew = true; grew; ) {
+      grew = false
+      for (const h of touched) {
+        const r = h.root
+        if (composed.has(r)) continue
+        composed.add(r)
+        for (const _ of r.walk());
+        grew = true
+      }
+    }
     const seen = new Set<Holon>()
     const roots: Holon[] = []
-    const consider = (h: Holon) => {
+    for (const h of touched) {
       const r = h.root
       if (!seen.has(r) && !(r instanceof Observer)) {
         seen.add(r)
         roots.push(r)
       }
     }
-    for (const r of this.#roots) consider(r)
-    for (const clip of this.#clips) {
-      for (const track of clip.anim.tracks) {
-        const owner = track.param.owner
-        if (owner instanceof Holon) consider(owner)
-      }
-    }
+    this.#rootsMemo = roots
     return roots
   }
 
