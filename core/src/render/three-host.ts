@@ -109,13 +109,39 @@ interface StrokeBinding {
    * per-mesh path (the oracle) renders this stroke's own mesh.
    */
   slot?: BatchSlot
+  look: StyleParams
 }
+
+/**
+ * A stroke's style params, captured once at attach (perf F) — the same
+ * Params `holon.creation` etc. return, since a built holon is settled —
+ * so sync() reads them directly every frame instead of through the Holon
+ * proxy's get-trap, five-plus times per stroke.
+ */
+interface StyleParams {
+  creation: Param<number>
+  opacity: Param<number>
+  tint: Param<Color>
+  stroke: Param<number>
+  erasure: Param<number>
+  fillOpacity: Param<number>
+}
+
+const styleOf = (holon: Stroke): StyleParams => ({
+  creation: holon.creation,
+  opacity: holon.opacity,
+  tint: holon.tint,
+  stroke: holon.stroke,
+  erasure: holon.erasure,
+  fillOpacity: holon.fillOpacity,
+})
 
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
 interface FillBinding {
   holon: Ellipse | Rectangle
   fill: FillShape
   sig: ShapeSig
+  look: StyleParams
 }
 
 /**
@@ -129,6 +155,7 @@ interface WashBinding {
   holon: Stroke
   fill: FillShape
   sig: ShapeSig
+  look: StyleParams
 }
 
 /**
@@ -889,14 +916,14 @@ export class ThreeHost {
       const fill = new FillShape(this.nextFillOrder++)
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, sig: freshSig(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++)
       fill.setPolygon(
         rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
       )
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, sig: freshSig(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -922,7 +949,7 @@ export class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++)
         fill.setPolygons(loops)
         group.add(fill.mesh)
-        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon) })
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) })
         for (const part of holon.parts) this.washedByAncestor.add(part)
       }
       const washed =
@@ -933,7 +960,7 @@ export class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++)
         fill.setPolygon(washed.points, washed.triangles)
         group.add(fill.mesh)
-        this.washes.push({ holon, fill, sig: freshSig(holon) })
+        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
       }
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
@@ -948,7 +975,7 @@ export class ThreeHost {
         // Stroke-vs-stroke order is a no-op under MAX blending.
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
-        strokeBinding = { holon, ribbon, sig: freshSig(holon), group }
+        strokeBinding = { holon, ribbon, sig: freshSig(holon), group, look: styleOf(holon) }
         if (this.useInstancedRibbons) {
           // Instancing on: one batch mesh draws every ribbon. The stroke's
           // own mesh STILL joins the group — so its world matrix updates
@@ -1009,13 +1036,40 @@ export class ThreeHost {
     this.dream.applyAt(t)
     this.beforeSync?.()
     this.sync()
-    await this.renderer.render(this.scene, this.camera)
+    // When sync() left every world matrix settled and nothing has moved
+    // since, the renderer's own scene.updateMatrixWorld() would only
+    // recompute the same matrices over every node (perf F) — skip it for
+    // this one call. Camera matrices are the renderer's to update, as
+    // ever. The flag is restored before anything else can render.
+    const settled = this.matricesSettled
+    if (settled) this.scene.matrixWorldAutoUpdate = false
+    try {
+      await this.renderer.render(this.scene, this.camera)
+    } finally {
+      if (settled) this.scene.matrixWorldAutoUpdate = true
+    }
+  }
+
+  /**
+   * True from a full scene settle until anything could move a node again
+   * (perf F). sync() clears it on entry — the group loop recomposes
+   * matrices — and after the view-dependent pass when Text is present
+   * (its contour rebuild can parent new meshes). Read by the cull, to
+   * skip re-settling what sync() just settled, and by renderFrame.
+   */
+  private matricesSettled = false
+
+  /** scene.updateMatrixWorld(true), recorded as the frame's settle. */
+  private settleScene(): void {
+    this.scene.updateMatrixWorld(true)
+    this.matricesSettled = true
   }
 
   /** The t of the frame in flight — the cull's idle latch reads it. */
   private frameT = Number.NaN
 
   private sync(): void {
+    this.matricesSettled = false
     for (const { group, transform: tr, applied: last } of this.groups) {
       const x = tr[0]!.value
       const y = tr[1]!.value
@@ -1070,12 +1124,25 @@ export class ThreeHost {
         if (pts || holon instanceof Line) ribbon.setPoints(pts ?? [])
       }
       const lift = this.highlightOf(holon)
+      const { look } = binding
+      const creation = look.creation.value
+      const opacity = look.opacity.value
+      const tint = look.tint.value
+      const width = look.stroke.value
+      const erasure = look.erasure.value
+      // One screen-arc measurement serves both fronts (perf F): a stroke
+      // mid-draw AND mid-erase used to project its polyline twice. Only a
+      // front strictly inside (0, 1) needs it — screenArc's own early outs.
+      const creationMid = !(creation <= 0) && !(creation >= 1)
+      const erasureMid = !(erasure <= 0) && !(erasure >= 1)
+      const measured =
+        creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined
       ribbon.style(
-        this.screenArc(binding, holon.creation.value),
-        holon.opacity.value,
-        liftTint(holon.tint.value, lift),
-        holon.stroke.value * (1 + 2 * lift),
-        this.screenArc(binding, holon.erasure.value),
+        creationMid ? this.arcFrom(measured, creation) : creation <= 0 ? 0 : 1,
+        opacity,
+        liftTint(tint, lift),
+        width * (1 + 2 * lift),
+        erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1,
       )
     }
     for (const binding of this.fills) {
@@ -1088,9 +1155,10 @@ export class ThreeHost {
         )
       }
       // Fill semantics: creation IS the fill-in, composed with fade.
+      const { look } = binding
       fill.style(
-        holon.creation.value * holon.opacity.value,
-        liftTint(holon.tint.value, this.highlightOf(holon)),
+        look.creation.value * look.opacity.value,
+        liftTint(look.tint.value, this.highlightOf(holon)),
       )
     }
     for (const binding of this.washes) {
@@ -1105,8 +1173,8 @@ export class ThreeHost {
       // the outline is still there to go afterwards. Fade still
       // multiplies through, as it does for the sketch line.
       fill.style(
-        holon.fillOpacity.value * holon.opacity.value,
-        liftTint(holon.tint.value, this.highlightOf(holon)),
+        binding.look.fillOpacity.value * binding.look.opacity.value,
+        liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
     }
     for (const binding of this.drawingWashes) {
@@ -1122,8 +1190,8 @@ export class ThreeHost {
         fill.setPolygons(drawingSubpaths(holon) ?? [])
       }
       fill.style(
-        holon.fillOpacity.value * holon.opacity.value,
-        liftTint(holon.tint.value, this.highlightOf(holon)),
+        binding.look.fillOpacity.value * binding.look.opacity.value,
+        liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
     }
     this.syncCamera()
@@ -1141,7 +1209,7 @@ export class ThreeHost {
       this.texts.length > 0 ||
       this.ribbonBatch !== undefined
     ) {
-      this.scene.updateMatrixWorld(true)
+      this.settleScene()
       for (const binding of this.cylinders) this.syncCylinder(binding)
       for (const binding of this.arrows) this.syncArrow(binding)
       // Text belongs here too: a letter's traced contour is inset by half
@@ -1150,6 +1218,9 @@ export class ThreeHost {
       for (const { binding, group } of this.texts) {
         binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
+      // A contour rebuild parents fresh ribbon meshes whose world
+      // matrices are not yet settled.
+      if (this.texts.length > 0) this.matricesSettled = false
     }
 
     this.cullOffscreen()
@@ -1338,9 +1409,10 @@ export class ThreeHost {
 
     this.culledOffscreen = 0
     // The frustum must be this frame's: the no-cylinder fast path never
-    // settles the scene graph, so do it here (render calls it again, no
-    // double-apply).
-    this.scene.updateMatrixWorld(true)
+    // settles the scene graph, so do it here — unless sync() already did
+    // and nothing has moved since (the stroke groups this pass reads are
+    // exactly what that settle produced).
+    if (!this.matricesSettled) this.settleScene()
     this.cullFrustum.setFromProjectionMatrix(this.cullVP)
 
     // World units per screen pixel, for the SDF-skirt padding. Perspective:
@@ -2262,7 +2334,14 @@ export class ThreeHost {
   private screenArc(binding: StrokeBinding, fraction: number): number {
     if (fraction <= 0) return 0
     if (fraction >= 1) return 1
-    const measured = this.measureScreenArc(binding.ribbon)
+    return this.arcFrom(this.measureScreenArc(binding.ribbon), fraction)
+  }
+
+  /** A fraction strictly inside (0, 1), remapped through a measurement. */
+  private arcFrom(
+    measured: { remap: ReturnType<typeof screenArcRemap>; totalWorld: number } | undefined,
+    fraction: number,
+  ): number {
     if (!measured) return fraction
     return Math.max(0, Math.min(1, measured.remap.worldAt(fraction) / measured.totalWorld))
   }
@@ -2284,12 +2363,16 @@ export class ThreeHost {
     const height = this.renderer.domElement.height || 720
     const matrix = ribbon.mesh.matrixWorld
     const projected: ProjectedPoint[] = []
-    const v = new THREE.Vector3()
+    // Two scratch points, swapped each step, in place of a clone per
+    // point (perf F) — the same values, so the same arithmetic.
+    let v = this.arcPoint
+    let previous = this.arcPrevious
     let world = 0
-    let previous: THREE.Vector3 | undefined
+    let first = true
     for (const local of pts) {
       v.copy(local).applyMatrix4(matrix)
-      if (previous) world += v.distanceTo(previous)
+      if (!first) world += v.distanceTo(previous)
+      first = false
       const screen = this.toScreen(v, width, height)
       projected.push({
         x: screen?.x ?? 0,
@@ -2297,7 +2380,9 @@ export class ThreeHost {
         world,
         onCamera: screen !== undefined,
       })
-      previous = v.clone()
+      const swap = previous
+      previous = v
+      v = swap
     }
     if (world <= 0) return undefined
     const remap = screenArcRemap(projected, world, { width, height })
@@ -2318,13 +2403,18 @@ export class ThreeHost {
     return this.measureScreenArc(ribbon)?.remap.screenLength ?? 0
   }
 
+  /** Scratch for measureScreenArc / toScreen — never held across calls. */
+  private readonly arcPoint = new THREE.Vector3()
+  private readonly arcPrevious = new THREE.Vector3()
+  private readonly ndcScratch = new THREE.Vector3()
+
   /** World point → device pixels (y down), or undefined behind the camera. */
   private toScreen(
     world: THREE.Vector3,
     width: number,
     height: number,
   ): { x: number; y: number } | undefined {
-    const ndc = world.clone().project(this.camera)
+    const ndc = this.ndcScratch.copy(world).project(this.camera)
     if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y)) return undefined
     if (this.camera instanceof THREE.PerspectiveCamera && ndc.z > 1) return undefined
     return { x: ((ndc.x + 1) / 2) * width, y: ((1 - ndc.y) / 2) * height }

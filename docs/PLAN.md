@@ -524,3 +524,23 @@ slide 8's outset geometry, the cursor glyph (synthesis-unverified,
 announced in-model). NEXT: the ASSEMBLY — the 903.4s film at the
 video's own boundaries, deck 59 rendered in its FILMED state per the
 ruling (translation + the three deleted labels from footage).
+
+## Engine threads (OPEN-THREADS "Engine", 2026-10-04)
+
+- [x] **Text weight fix** (lead-assigned) — `insetLoop` refused whole glyph
+      contours over one flipped tessellation edge beside a sharp corner, so
+      `r e a m` traced half a pen bolder than `D`. Reversed edges are now
+      trimmed at the true offset corner; genuine folds (stem narrower than
+      the pen) still refuse. parts/outline.ts + test/text-inset.test.ts;
+      mirror e2e Mac-only ink 4776 → 1491 px (residual = shared AA).
+- [x] **Perf E** — transform loop: cached Params (no proxy trap), skip
+      unchanged groups, compose-on-change. −5–6 ms/frame on TheWall. Literal
+      flattening measured and declined (< 0.5 ms left; needs a promote
+      guard). docs/reports/perf/ROADMAP.md "E/F result".
+- [x] **Perf F** — cached style Params, one screen-arc measurement per
+      stroke per frame (alloc-free), one scene settle per frame. Byte-
+      identity proven by the new scripts/state-gate.ts (16 scenes × 28
+      frames). Next measured levers G (batch pack, ~30 ms) and H (Cable
+      tube, ~20 ms) recorded in the roadmap, not built.
+- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): SDF square∩circle
+      cylinder · GeometrySketch · RayCaster · node-graph visualisation.
