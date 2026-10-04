@@ -601,6 +601,9 @@ ruling (translation + the three deleted labels from footage).
 - [x] **Perf I-2** — host meshes + scene root stop auto-updating; non-
       forced settle. Matrices identical (state gate, 18 scenes). Web3
       80/77/73 → 71/59/57 ms.
+- [x] **Perf I-3** — allocation-free parametric dirty-check (captured
+      Params, in-place compare; same frames regenerate). Web3 80/66/60 →
+      65/57/50 ms.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

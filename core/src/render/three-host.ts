@@ -86,6 +86,16 @@ interface ShapeSig {
   reversed: number
   /** Parametric fallback: the flattened shape-param array. */
   key: number[]
+  /**
+   * Parametric fast path (perf I-3): the shape's Params, captured at
+   * attach in `shapeKey`'s exact order, and the values last seen — compared
+   * in place each frame instead of allocating a fresh key array through
+   * the Holon proxy. `reversedAt` marks drawReversed (a boolean, read as
+   * 1/0 like shapeKey), −1 when the shape has none.
+   */
+  params?: readonly { readonly value: unknown }[]
+  vals?: Float64Array
+  reversedAt?: number
 }
 
 interface StrokeBinding {
@@ -690,9 +700,39 @@ const freshSig = (holon: Stroke): ShapeSig => {
       key: EMPTY_KEY,
     }
   }
-  // Parametric shapes: no version (a bound Param would miss it) — the
-  // small value array is already cheap and always correct.
-  return { version: 0, drawStart: 0, reversed: 0, key: shapeKey(holon) }
+  // Parametric shapes: no version (a bound Param would miss it) — their
+  // few Params, read directly and compared in place (perf I-3).
+  const { params, reversedAt } = shapeParams(holon)
+  const vals = new Float64Array(params.length)
+  for (let i = 0; i < params.length; i++) {
+    const v = params[i]!.value
+    vals[i] = i === reversedAt ? (v ? 1 : 0) : (v as number)
+  }
+  return { version: 0, drawStart: 0, reversed: 0, key: EMPTY_KEY, params, vals, reversedAt }
+}
+
+/**
+ * The Params `shapeKey` reads, in its order and with its class dispatch —
+ * so comparing them value by value is exactly comparing the key arrays.
+ */
+const shapeParams = (
+  holon: Stroke,
+): { params: readonly { readonly value: unknown }[]; reversedAt: number } => {
+  const phase = [holon.drawStart, holon.drawReversed]
+  const withPhase = (...shape: { readonly value: unknown }[]) => ({
+    params: [...shape, ...phase],
+    reversedAt: shape.length + 1,
+  })
+  if (holon instanceof Circle) return withPhase(holon.radius)
+  if (holon instanceof Square) return withPhase(holon.size)
+  if (holon instanceof Polygon) return withPhase(holon.radius, holon.sides, holon.phase)
+  if (holon instanceof Arc)
+    return { params: [holon.radius, holon.startAngle, holon.endAngle], reversedAt: -1 }
+  if (holon instanceof AnnularSector)
+    return withPhase(holon.radius, holon.innerRadius, holon.startAngle, holon.endAngle)
+  if (holon instanceof Rectangle) return withPhase(holon.width, holon.height, holon.rounding)
+  if (holon instanceof Ellipse) return withPhase(holon.radiusX, holon.radiusY)
+  return { params: [], reversedAt: -1 }
 }
 
 /** Shared empty array for the Line fast path — its `key` is never read. */
@@ -719,10 +759,22 @@ const sigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
     prev.reversed = reversed
     return true
   }
-  const key = shapeKey(holon)
-  if (keysEqual(key, prev.key)) return false
-  prev.key = key
-  return true
+  // Parametric: the same `===` element compare the key arrays had (a NaN
+  // still always reads as a change), without the per-frame array.
+  const params = prev.params!
+  const vals = prev.vals!
+  const reversedAt = prev.reversedAt!
+  // One read per Param, as shapeKey made; storing as we go is the same as
+  // keeping the old key when nothing changed (=== can't tell the stored
+  // value from the one it replaces).
+  let changed = false
+  for (let i = 0; i < params.length; i++) {
+    const raw = params[i]!.value
+    const v = i === reversedAt ? (raw ? 1 : 0) : (raw as number)
+    if (!(v === vals[i])) changed = true
+    vals[i] = v
+  }
+  return changed
 }
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
@@ -736,9 +788,6 @@ const liftTint = (tint: Color, amount: number): Color =>
         g: tint.g + (1 - tint.g) * amount,
         b: tint.b + (1 - tint.b) * amount,
       }
-
-const keysEqual = (a: number[], b: number[]): boolean =>
-  a.length === b.length && a.every((v, i) => v === b[i])
 
 export class ThreeHost {
   readonly renderer: THREE.WebGPURenderer

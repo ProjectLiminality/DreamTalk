@@ -329,7 +329,7 @@ washes, ~35k scene nodes), self time:
 |---|---|---|---|---|
 | I-1 | Hide stacked degenerate strokes, one dot per identical (centre, width, tint, fade) — exact under MAX | TheWall GPU (above) | t=0.5 ~265→~25 ms; t=8.33 ~half | **DONE 2026-10-04** — see "I-1 result" |
 | I-2 | Ribbon/fill meshes `matrixAutoUpdate=false` (identity) and a non-forced settle, so only moved subtrees recompute | Web3/pl02 matrix settle ~19 ms | −10…−15 ms on Web3 | **DONE 2026-10-04** — see "I-2 result" |
-| I-3 | Allocation-free parametric dirty-check (cached shape Params + scalar compare, like E/F did for transforms/style) | Web3 shapeKey ~9.6 ms | −6…−8 ms | LOW (state gate) |
+| I-3 | Allocation-free parametric dirty-check (cached shape Params + scalar compare, like E/F did for transforms/style) | Web3 shapeKey ~9.6 ms | −6…−8 ms | **DONE 2026-10-04** — see "I-3 result" |
 
 Measuring kit (scratchpad/engine): GPU-complete probe with runtime
 timestamps (`gpulite.ts`, `gpuattr.ts`), census of host bindings
@@ -409,3 +409,36 @@ and child order differ — MAX-blended, order-free. 1,810 tests green.
 
 Also: state-gate.ts waits for the ready flag instead of `networkidle0`
 (the page streams audio now — same fix as the two gauntlets).
+
+## I-3 result (2026-10-04) — the parametric dirty-check, in place
+
+`freshSig` captures a parametric stroke's Params at attach — `shapeParams`,
+the exact Params `shapeKey` reads, in its class-dispatch and field order —
+with their values in a Float64Array; `sigChanged` compares them in place,
+one read per Param, with the same `===` (a NaN still always reads as a
+change; drawReversed still 1/0). No key array per stroke per frame, no
+proxy traps. Regeneration happens on exactly the same frames.
+
+**Gate.** state-gate on 18 scenes: 17 identical (s01's documented
+first-frame `hg` floor aside). Web3 differed in its first capture — in
+NODE COUNT, i.e. its holons — because the web3 agent saved Web3Song.ts
+between my base and new captures; a fresh base matched 28/28. 1,817 tests
+green.
+
+**Win, GPU-complete wall ms** (before = HEAD 35fdad9 worktree; after = the
+same plus only this diff):
+
+| scene | before | after |
+|---|---|---|
+| web3 (t 40 / 100 / 138) | 80 / 66 / 60 | **65 / 57 / 50** |
+| thewall (t 0.5 / 8.33) | 44.5 / 76 | 44 / 69 |
+| p02k (t 5 / 20, 4 runs) | ~13.2 / ~14.3 | ~13.7 / ~15.9 |
+
+p02k's t=20 reads ~1.5 ms higher in 3 of 4 runs, yet its CPU profile
+FALLS (5.1 → 3.7 ms a frame, sigChanged and the proxy reads both down);
+I-3 does not touch the GPU path, so the residue is submission timing on a
+15 ms frame — recorded, not explained.
+
+**Where Web3 now stands.** 89/78/71 ms before I-2 → 65/57/50 after I-3
+(GPU-complete, this machine), still CPU-bound: sync loops, proxy reads on
+the remaining paths, render-list build. Next lever if wanted: re-profile.
