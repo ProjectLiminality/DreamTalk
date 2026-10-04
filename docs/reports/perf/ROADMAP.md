@@ -327,10 +327,54 @@ washes, ~35k scene nodes), self time:
 
 | # | Optimization | Lever | Expected | Risk |
 |---|---|---|---|---|
-| I-1 | Hide stacked degenerate strokes, one dot per identical (centre, width, tint, fade) — exact under MAX | TheWall GPU (above) | t=0.5 ~265→~25 ms; t=8.33 ~half | LOW-MED (gate: PNG cmp + wall gauntlet) |
+| I-1 | Hide stacked degenerate strokes, one dot per identical (centre, width, tint, fade) — exact under MAX | TheWall GPU (above) | t=0.5 ~265→~25 ms; t=8.33 ~half | **DONE 2026-10-04** — see "I-1 result" |
 | I-2 | Ribbon/fill meshes `matrixAutoUpdate=false` (identity) and a non-forced settle, so only moved subtrees recompute | Web3/pl02 matrix settle ~19 ms | −10…−15 ms on Web3 | LOW (state gate: matrices must hash identical) |
 | I-3 | Allocation-free parametric dirty-check (cached shape Params + scalar compare, like E/F did for transforms/style) | Web3 shapeKey ~9.6 ms | −6…−8 ms | LOW (state gate) |
 
 Measuring kit (scratchpad/engine): GPU-complete probe with runtime
 timestamps (`gpulite.ts`, `gpuattr.ts`), census of host bindings
 (`dupes.ts`). Every number above awaits GPU completion.
+
+## I-1 result (2026-10-04) — a stroke scaled to nothing is one dot
+
+**Criterion: exact world scale 0, not screen extent.** A stroke whose
+group world matrix has an exactly-zero 3×3 maps every endpoint to exactly
+the matrix's translation (0·x adds nothing, f64 or GPU f32); its screen
+length is 0 and the shader's fronts multiply by a pxPerUnit of 0, so every
+segment paints the same round dot whatever drawn/erased are. A "< 1 px on
+screen" rule is NOT exact (a sub-pixel capsule is not a dot) and buys
+little more: at t=0.5 exact-zero covers 3,728 strokes / 419,866 segments
+(→ 5 distinct dots) against 423,108 for < 1 px; at 8.33, 205,428 vs
+242,184. Kept: exact zero.
+
+**Build.** In packRibbonBatch, per batch per frame: the first collapsed
+stroke per (translation, width, tint, fade) draws ONE segment
+(`writeStroke(…, drawSegments)` points the rest of its run at the hidden
+row, re-pointing only when that count changes); later identical ones hide
+their row. Only within a batch — between batches a fill may lie.
+
+**Gates.** instancing-gate (collapsed strokes left out of the data proof on
+both sides, so the rendered PNG must then be byte-identical): thewall at
+0.2 / 0.5 / 1 / 2 / 3.33 / 5 / 6.5 / 8.33 / 10 / 12 / 14 / 16 — data EQUAL,
+PNG IDENTICAL to the oracle every time (submitted segments 425,592 → 3,297
+at t=0.2; 463,032 → 258,174 at 8.33); mindvirus, s06, molocheye pass as
+before. Wall gauntlet (every 4th reference frame): summary identical
+before/after and all 20 scored renders byte-identical. state-gate on the
+non-batched set 168/168 identical. 1,810 tests green.
+
+**Win, GPU-complete wall ms (TheWall):**
+
+| t | before | after |
+|---|---|---|
+| 0.5 | 265 | **43** |
+| 3.33 | 231 | **60** |
+| 8.33 | 167 | **64** |
+| 12 | 112–129 | **79–90** |
+| 15.8 | 62–87 (noisy) | 77–98 (noisy; I-1 touches 32 strokes there) |
+
+Harness fixes made on the way (both scripts had stopped working): the
+instancing and wall gauntlets waited for `networkidle0`, which never
+settles now that the page streams audio — they wait for the ready flag.
+And the wall gauntlet's freshness guard (9bdf659) had been pasted INSIDE
+its embedded Python crop script, so every crop failed and nothing was
+scored; it is back at top level.

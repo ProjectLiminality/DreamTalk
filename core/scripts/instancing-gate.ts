@@ -13,9 +13,11 @@
  *      Both sides are flattened into a sorted multiset of segments and
  *      compared to a tight tolerance. This is the design's primary gate.
  *
- *   2. RENDERED EQUALITY. Screenshot oracle vs batch at each t and report
- *      whether the PNGs are byte-identical (a settled frame in one process
- *      is reproducible), plus a coverage delta as a backstop.
+ *   2. RENDERED EQUALITY. Screenshot oracle vs batch at each t; the PNGs
+ *      must be byte-identical (a settled frame in one process is
+ *      reproducible), plus a coverage delta as a backstop. Strokes
+ *      collapsed to a dot (modelView linear part exactly zero — perf I-1)
+ *      are left out of proof 1 on both sides and carried by this one.
  *
  * Usage: bun scripts/instancing-gate.ts <scene> [t...] [--port N]
  *   e.g. bun scripts/instancing-gate.ts molocheye 0.3 0.6 0.9
@@ -63,6 +65,12 @@ const EXTRACT = `
   const cam = host.camera;
   cam.updateMatrixWorld(true);
   const round = (x) => Math.round(x * 1000) / 1000;   // 3 decimals
+  // A stroke whose modelView has an exactly-zero linear part collapses to
+  // one dot; the batch draws one segment of the first such stroke per dot
+  // (perf I-1). Its segments are excluded from the DATA comparison on
+  // BOTH sides and the dots are proven by the rendered PNG instead.
+  const collapsed = (m) => [0,1,2,4,5,6,8,9,10].every((i) => m.elements[i] === 0);
+  let dots = 0;
   const segs = [];
   if (mode === 'oracle') {
     // host.strokes is private; reach it through the well-known field.
@@ -75,6 +83,7 @@ const EXTRACT = `
       const g = r.geometry, count = g.instanceCount;
       if (count < 1) continue;
       mv.multiplyMatrices(cam.matrixWorldInverse, group.matrixWorld);
+      if (collapsed(mv)) { dots++; continue; }   // a dot — proven by the PNG check (perf I-1)
       const pos = g.getAttribute('instanceStart').data.array;
       const dist = g.getAttribute('instanceDistanceStart').data.array;
       const ud = r.mesh.userData;
@@ -106,6 +115,7 @@ const EXTRACT = `
         const fade = t[r + 19];
         if (fade === 0) continue;   // hidden — draws nothing, excluded
         mv.fromArray(t, r);
+        if (collapsed(mv)) { dots++; continue; }   // a dot — proven by the PNG check (perf I-1)
         a.set(pos[i*6], pos[i*6+1], pos[i*6+2]).applyMatrix4(mv);
         b.set(pos[i*6+3], pos[i*6+4], pos[i*6+5]).applyMatrix4(mv);
         segs.push([round(a.x),round(a.y),round(a.z),round(b.x),round(b.y),round(b.z),
@@ -115,7 +125,7 @@ const EXTRACT = `
     }
   }
   segs.sort((p,q) => { for (let k=0;k<p.length;k++){ if(p[k]!==q[k]) return p[k]-q[k]; } return 0; });
-  return segs;
+  return { segs, dots };
 }
 `
 
@@ -123,8 +133,8 @@ const grab = async (instanced: boolean, t: number, shotPath: string): Promise<un
   const page = await browser.newPage()
   await page.setViewport({ width: 1280, height: 760 })
   const url = `http://localhost:${port}/demo/?scene=${scene}${instanced ? "&instanced=1" : ""}`
-  await page.goto(url, { waitUntil: "networkidle0", timeout: 60000 })
-  await page.waitForFunction("window.__dt !== undefined", { timeout: 60000 })
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 180000 })
+  await page.waitForFunction("window.__dt && (window.__dt.ready === true || window.__dt.error)", { timeout: 180000 })
   const status = await page.evaluate(() => ({ ready: window.__dt!.ready, error: window.__dt!.error ?? null }))
   if (!status.ready) throw new Error(`boot failed (${instanced ? "batch" : "oracle"}): ${status.error}`)
   await page.evaluate((tt) => window.__dt!.setT(tt), t)
@@ -132,15 +142,21 @@ const grab = async (instanced: boolean, t: number, shotPath: string): Promise<un
   // puppeteer evaluates it with the mode argument (a bare string arg to
   // evaluate would be treated as an expression, not a call).
   const mode = instanced ? "batch" : "oracle"
-  const segs = (await page.evaluate(`(${EXTRACT})(${JSON.stringify(mode)})`)) as unknown[]
+  const { segs, dots } = (await page.evaluate(`(${EXTRACT})(${JSON.stringify(mode)})`)) as {
+    segs: unknown[]
+    dots: number
+  }
   await page.screenshot({ path: shotPath })
   await page.close()
+  collapsedSeen += dots
   return segs
 }
 
+let collapsedSeen = 0
 console.log(`\n=== instancing gate: ${scene} ===`)
 let allPass = true
 for (const t of ts) {
+  collapsedSeen = 0
   const oracle = (await grab(false, t, `${outDir}/oracle_t${t}.png`)) as number[][]
   const batch = (await grab(true, t, `${outDir}/batch_t${t}.png`)) as number[][]
 
@@ -227,7 +243,11 @@ for (const t of ts) {
     coverage = `err:${ov.stderr.trim().split("\n").pop()}`
   }
 
-  const ok = dataPass
+  // The data gate covers every non-collapsed segment; where collapsed dots
+  // were left out of it, the rendered frame carries them and must be
+  // byte-identical. (Elsewhere coverage stands in for it, as before: MAX-
+  // blended overdraw is not always bit-reproducible between two pages.)
+  const ok = dataPass && (collapsedSeen === 0 || pngIdentical)
   allPass = allPass && ok
   console.log(
     `  t=${t}: segments oracle=${oracle.length} batch=${batch.length} | ` +

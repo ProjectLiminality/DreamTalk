@@ -20,6 +20,8 @@ import { mkdirSync, existsSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import puppeteer from "puppeteer-core"
 
+ensureFreshDemoBundle()
+
 const args = process.argv.slice(2)
 const flag = (name: string, dflt: string): string => {
   const i = args.indexOf(`--${name}`)
@@ -85,10 +87,12 @@ try {
   const page = await browser.newPage()
   await page.setViewport({ width: 1280, height: 760 })
   await page.goto(`http://localhost:${port}/demo/?scene=${sceneKey}`, {
-    waitUntil: "networkidle0",
+    // domcontentloaded + the ready flag: the page now streams audio, and
+    // networkidle0 never settles under it.
+    waitUntil: "domcontentloaded",
     timeout: 180000,
   })
-  await page.waitForFunction("window.__dt !== undefined", { timeout: 180000 })
+  await page.waitForFunction("window.__dt && (window.__dt.ready === true || window.__dt.error)", { timeout: 180000 })
   const status = await page.evaluate(() => ({
     ready: window.__dt!.ready,
     error: (window.__dt as { error?: string }).error ?? null,
@@ -113,8 +117,6 @@ try {
       "-c",
       `
 import sys
-
-ensureFreshDemoBundle()
 from PIL import Image
 img = Image.open(sys.argv[1]).convert("RGB").crop((0, 0, 1280, 720))
 left = (1280 - 720) // 2

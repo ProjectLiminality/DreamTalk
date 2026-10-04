@@ -269,6 +269,8 @@ export interface BatchSlot {
   row: number
   /** The polyline last copied in — a new array means the shape changed. */
   points?: unknown
+  /** How many of the run's instances currently read this stroke's row. */
+  pointed?: number
 }
 
 /** What a stroke hands the batch each frame. */
@@ -462,6 +464,7 @@ export class RibbonBatch {
     tintG: number,
     tintB: number,
     fade: number,
+    drawSegments?: number,
   ): BatchSlot {
     const count = stroke.count
     if (count > slot.maxSegments) {
@@ -477,13 +480,18 @@ export class RibbonBatch {
       for (let i = 0; i < n * POS_STRIDE; i++) posArr[slot.offset * POS_STRIDE + i] = stroke.positions[i]!
       for (let i = 0; i < n * DIST_STRIDE; i++) distArr[slot.offset * DIST_STRIDE + i] = stroke.distances[i]!
       this.markDirty(slot.offset, slot.offset + n)
-      // Live segments read this stroke's row; the run's tail, the hidden row.
-      if (slot.count !== n || slot.points === undefined) {
-        this.pointRun(slot.offset, n, slot.row)
-        this.pointRun(slot.offset + n, slot.maxSegments - n, 0)
-      }
       slot.points = stroke.points
       slot.count = n
+    }
+    // The drawn segments read this stroke's row; the rest of the run, the
+    // hidden row. Normally every live segment draws; a stroke collapsed to
+    // a single dot draws just one (perf I-1, three-host.ts). Re-pointed
+    // only when that number changes.
+    const draw = Math.min(drawSegments ?? slot.count, slot.count)
+    if (slot.pointed !== draw) {
+      this.pointRun(slot.offset, draw, slot.row)
+      this.pointRun(slot.offset + draw, slot.maxSegments - draw, 0)
+      slot.pointed = draw
     }
     const t = this.shared.array
     const base = slot.row * TABLE_VEC4 * 4

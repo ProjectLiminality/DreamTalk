@@ -1275,6 +1275,8 @@ export class ThreeHost {
   private packRibbonBatch(): void {
     if (this.ribbonBatches.length === 0) return
     const viewInverse = this.camera.matrixWorldInverse
+    const dots = this.batchDots
+    for (const set of dots.values()) set.clear()
     for (const binding of this.strokes) {
       const { ribbon, group, slot, batch } = binding
       if (!slot || !batch) continue
@@ -1286,9 +1288,37 @@ export class ThreeHost {
         batch.hideStroke(slot)
         continue
       }
-      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld)
       const ud = ribbon.mesh.userData
       const tint = ud[RIBBON_KEYS.tint] as THREE.Color
+      // Perf I-1 — a stroke scaled to NOTHING is one dot, drawn ~128 times.
+      // With its world matrix's linear part exactly zero, every endpoint
+      // is exactly the matrix's translation (0·x adds nothing, CPU or GPU
+      // f32), the screen length is 0, and the shader's draw fronts multiply
+      // by a pxPerUnit of 0 — so each segment paints the SAME round dot,
+      // whatever drawn/erased say. N identical dots under MAX are one dot,
+      // byte for byte: draw one segment of the first such stroke per
+      // (centre, width, tint, fade) in this batch, hide the rest. Only
+      // within a batch — between batches a fill may lie, and it could
+      // cover the first dot and not a later one. (TheWall's unlaunched
+      // creatures: ~420k segments at t=0.5, ~205k at 8.33.)
+      const w = group.matrixWorld.elements
+      let drawSegments: number | undefined
+      if (
+        w[0] === 0 && w[1] === 0 && w[2] === 0 &&
+        w[4] === 0 && w[5] === 0 && w[6] === 0 &&
+        w[8] === 0 && w[9] === 0 && w[10] === 0
+      ) {
+        const key = `${w[12]},${w[13]},${w[14]},${ud[RIBBON_KEYS.widthPx]},${tint.r},${tint.g},${tint.b},${ud[RIBBON_KEYS.fade]}`
+        let seen = dots.get(batch)
+        if (!seen) dots.set(batch, (seen = new Set()))
+        if (seen.has(key)) {
+          batch.hideStroke(slot)
+          continue
+        }
+        seen.add(key)
+        drawSegments = 1
+      }
+      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld)
       binding.slot = batch.writeStroke(
         slot,
         {
@@ -1307,6 +1337,7 @@ export class ThreeHost {
         tint.g,
         tint.b,
         ud[RIBBON_KEYS.fade] as number,
+        drawSegments,
       )
     }
     for (const batch of this.ribbonBatches) batch.flush()
@@ -1409,6 +1440,8 @@ export class ThreeHost {
    * stroke every frame, so the batch path makes no per-frame garbage.
    */
   private readonly batchMv = new THREE.Matrix4()
+  /** Per batch, this frame's dots already drawn (perf I-1, packRibbonBatch). */
+  private readonly batchDots = new Map<RibbonBatch, Set<string>>()
 
   /**
    * ADDITIVE off-screen cull (perf #2): hide ribbon meshes that are
