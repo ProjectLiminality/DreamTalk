@@ -22,8 +22,8 @@
  *    6   9     Shot09Quote         61.50   61.50 –  78.75   cut
  *    7  10–11  NodeNet (retimed)   78.75   78.75 –  94.50   cut
  *    8  12     Shot12Vitruvian     93.75   93.75 – 108.05   crossfade 0.75
- *    9  13     Light (retimed)    105.30  105.30 – 119.75   slide 2.75
- *   10  14     Shot14Callback     118.50  118.50 – 130.00   crossfade 1.25
+ *    9  13     Light (retimed)    105.30  105.30 – 120.40   slide 2.75
+ *   10  14     Shot14Callback     117.85  117.85 – 130.00   dip 2.55
  *   11  15     Shot15Hero         130.00  130.00 – 146.80   cut
  *   12  16     Portrait (retimed) 144.25  144.25 – 158.75   slide 2.55
  *   13  17     Closing (retimed)  158.75  158.75 – 171.00   cut
@@ -77,6 +77,7 @@ import { Create, FadeIn, FadeOut } from "../../src/verbs"
 import { Write } from "../../src/parts/text"
 import { TAU } from "../../src/constants"
 import { DEFAULT_DISTANCE } from "../../src/dream"
+import { Line } from "../../src/parts/primitives"
 import { c4dEaseWith, ease } from "../../src/timeline"
 import { Shot01GlobeDream } from "./Shot01Globe"
 import { YinYangDream } from "./YinYang"
@@ -140,6 +141,19 @@ const PUSH = { left: 0.4, right: 0.45 }
  * (RMS 1%, measured as screen brightness), so both stand at about half
  * as they pass. The second push keeps full brightness throughout.
  */
+/**
+ * Into the callback, measured at 10fps: not a cross but a DIP through
+ * black — the lit globe goes 117.85–119.05 (tangents 0.4/0.05) and only
+ * then does the field come in, 119.05–120.4 (tangents 0/0.5), both read as
+ * screen brightness (RMS ~1%).
+ */
+const CALLBACK_DIP = {
+  dip: 1.2 / 2.55,
+  smoothing: { left: 0.4, right: 0.05 },
+  inSmoothing: { left: 0, right: 0.5 },
+  screen: true,
+}
+
 const PUSH1_DISSOLVE = { start: 0.2, end: 2.3, smoothing: { left: 0.35, right: 0.35 }, screen: true }
 
 /** Shots 2–3, and the dive out of them (the dim is the crossfade into Web2,
@@ -239,26 +253,86 @@ class ClarityShot extends ClarityFieldDream {
   }
 }
 
-/** Shots 10–11: nodes drift 78.75–86.5, wire up to 89.5, crystals by 92.75. */
+/**
+ * Shots 10–11, as the frames show them (re-read at 1280w):
+ *
+ *  - 78.75–80.5  the clarity disc's dots are a tight cluster that EXPANDS
+ *                into the node cloud (a camera pull-back, ease-out);
+ *  - 85.5–86.5   the four crystals draw on ALL AT ONCE, one inside another
+ *                at the centre, the icosahedron ~2.5× its final size and
+ *                the others nested inside it — the "dense
+ *                graph" is the four solids superimposed, not a mesh of the
+ *                cloud — while the cloud's own dots fade (86–87);
+ *  - 88.5–89.4   they part into a compact 2×2 about the centre (octahedron
+ *                and icosahedron above at ±142, y +145; tetrahedron and cube
+ *                below, y −128) and shrink to rest, turning throughout.
+ *
+ * The near-neighbour mesh the standalone scene wires is not staged.
+ */
+const NODE_IN = 78.75
+/** How large each crystal stands while superimposed (oct, ico, tet, cube):
+ *  the icosahedron is the outer cage, the others nest inside it. */
+const OVERLAP = [1.6, 2.5, 1.2, 1.0]
+const QUADS: readonly (readonly [number, number])[] = [
+  [-142, 145],
+  [142, 145],
+  [-142, -128],
+  [142, -128],
+]
+
 class NodeShot extends NodeNetworkDream {
   override unfold() {
     const crystals = [this.octa, this.icosa, this.tetra, this.cube]
+    const rest = crystals.map((c) => c.radius.value)
+    const edges = crystals.flatMap((c) => [...c.walk()].filter((h): h is Line => h instanceof Line))
     this.observer.look("front")
-    this.set(this.observer.zoom.to(1))
-    this.stage(this.mesh)
+    this.set(
+      this.observer.zoom.to(0.2),
+      ...crystals.flatMap((c, i) => [c.x.to(0), c.y.to(0), c.radius.to(rest[i]! * OVERLAP[i]!)]),
+      ...edges.map((l) => l.creation.to(0)),
+    )
     this.stage(this.cloud)
     for (const c of crystals) this.stage(c)
-    this.play(this.gather.creation.to(1), 3)
-    this.wait(4.75)
-    this.play(this.connect.creation.to(1, { easing: "linear" }), 3)
-    this.wait(0.25)
+
+    // The cluster expands into the cloud (78.75–80.5).
     this.play(
       together(
-        [this.crystallise.creation.to(1), 0, 0.6],
-        [together(...crystals.map((c) => FadeIn(c))), 0, 0.6],
-        ...crystals.map((c) => c.spin.to(TAU * 0.5, { easing: "linear" })),
+        [this.gather.creation.to(1), 0, 0.25],
+        this.observer.zoom.to(1, { easing: "easeOut" }),
       ),
-      4.75,
+      1.75,
+    )
+    this.wait(85.5 - NODE_IN - 1.75)
+
+    // The crystals draw on, superimposed (85.5–86.5); the cloud fades (86–87).
+    this.play(
+      together(
+        ...crystals.map((c) => FadeIn(c)),
+        ...edges.map((l) => l.creation.to(1)),
+        [this.crystallise.creation.to(1), 0.5, 1],
+      ),
+      1.5,
+    )
+    this.wait(88.5 - 87)
+
+    // They part into the 2×2 and come to rest (88.5–89.4).
+    this.play(
+      together(
+        ...crystals.flatMap((c, i) => [
+          c.x.to(QUADS[i]![0]),
+          c.y.to(QUADS[i]![1]),
+          c.radius.to(rest[i]!),
+        ]),
+      ),
+      0.9,
+    )
+    this.wait(94.5 - 89.4)
+
+    // Turning throughout, from the moment they appear.
+    this.wait(-(94.5 - 85.5))
+    this.play(
+      together(...crystals.map((c) => c.spin.to(TAU * 0.5, { easing: "linear" }))),
+      94.5 - 85.5,
     )
   }
 }
@@ -320,22 +394,47 @@ class PortraitShot extends PortraitCardDream {
  * holds to the end of the film. The standalone scene draws both circles
  * together and fades out; the final render does neither.
  */
+/**
+ * Re-measured at 1280w (2026-10-04): the logo is drawn 0.786× as large as
+ * the standalone (blue ring 155.5px in radius, centred 70px above the
+ * frame's middle), the title centred 210px below it at the same width as
+ * before. And the order and pace, at 2fps:
+ *
+ *   158.75–159.5  the blue ring FADES in, whole (it is not drawn);
+ *   160.0–161.0   the A's two legs draw up from their feet together;
+ *   161.0–162.0   the red ring draws;
+ *   162.75–164.4  the title writes.
+ */
+const CLOSING_ZOOM = 0.786
+const TITLE_Y = -222
+const TITLE_SIZE = 80
+
 class ClosingShot extends ClosingDream {
+  /** The A's right leg, drawn up from its foot beside the left. */
+  rightLeg: Line
+
   constructor() {
     super()
     // The title is Manim's serif in the final render.
     this.title.font = "Times-Roman"
+    this.title.size.value = TITLE_SIZE
+    this.title.y.value = TITLE_Y
+    const [footL, apex, footR] = this.mark.points
+    this.mark.points = [footL!, apex!]
+    this.rightLeg = new Line({ points: [footR!, apex!], tint: this.mark.tint, stroke: this.mark.stroke })
   }
 
   override unfold() {
     this.observer.look("front")
-    this.set(this.observer.zoom.to(1))
-    this.play(Create(this.blue), 1.25)
-    this.play(Create(this.mark), 1)
-    this.play(Create(this.red), 1.5)
-    this.wait(1)
-    this.play(Write(this.title), 1.5)
-    this.wait(6)
+    this.set(this.observer.zoom.to(CLOSING_ZOOM))
+    this.stage(this.rightLeg)
+    this.play(FadeIn(this.blue), 0.75)
+    this.wait(0.5)
+    this.play(together(Create(this.mark), Create(this.rightLeg)), 1)
+    this.play(Create(this.red), 1)
+    this.wait(0.75)
+    this.play(Write(this.title), 1.65)
+    this.wait(6.6)
   }
 }
 
@@ -384,8 +483,8 @@ export class Web3Dream extends DreamSong {
       { scene: Shot09QuoteDream, span: 17.25 }, //          61.50 –  78.75
       { scene: NodeShot, span: 15.75 }, //                  78.75 –  94.50
       [{ scene: Shot12VitruvianDream, span: 14.3 }, crossfade(0.75)], // 93.75 – 108.05
-      [{ scene: LightShot, span: 14.45 }, slide(2.75, PUSH, PUSH1_DISSOLVE)], // 105.30 – 119.75 (push up)
-      [{ scene: Shot14CallbackDream, span: 11.5 }, crossfade(1.25)], // 118.50 – 130.00
+      [{ scene: LightShot, span: 15.1 }, slide(2.75, PUSH, PUSH1_DISSOLVE)], // 105.30 – 120.40 (push up)
+      [{ scene: Shot14CallbackDream, span: 12.15 }, crossfade(2.55, CALLBACK_DIP)], // 117.85 – 130.00
       { scene: Shot15HeroDream, span: 16.8 }, //            130.00 – 146.80
       [{ scene: PortraitShot, span: 14.5 }, slide(2.55, PUSH)], // 144.25 – 158.75 (push up)
       { scene: ClosingShot, span: 12.25 }, //               158.75 – 171.00

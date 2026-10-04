@@ -80,14 +80,22 @@ import { Globe } from "../../vocabulary/Globe/Globe"
 
 /** The globe's drawn size and lean — matched to GlobeDemo's outline globe so
  *  the sphere reads the same as the rest of the campaign. */
-const GLOBE_R = 200
+/** Re-measured (2026-10-04): the globe's limb is 124px at 640w, ~3% under
+ *  the 200 it was drawn at. */
+const GLOBE_R = 194
 const TILT = 0.12
 
 /** Where the shot starts and ends its rotation. 0 faces the prime meridian
  *  (Africa/Europe); the frames open on the Asia face and turn TO Africa/Europe
  *  as the hotspot fires, so we start east of the meridian and turn back to it. */
-export const SPIN_START = -1.15
-export const SPIN_END = 0.15
+/**
+ * Re-measured in the song (2026-10-04): the frames turn the whole way —
+ * Asia (105°E) at 107s, India at 110, Africa/Europe at 113, the Atlantic by
+ * 116, South America's bulge (45°W) at 118.5 — at a steady ~13°/s, over the
+ * 12s play 106–118. (The centre longitude is −spin.)
+ */
+export const SPIN_START = -2.06
+export const SPIN_END = 0.67
 
 /**
  * The hotspot's location, in lon/lat degrees — the eastern Mediterranean /
@@ -96,8 +104,11 @@ export const SPIN_END = 0.15
  * the same spin as the land, keeping it pinned to its region as the sphere
  * turns. Roughly the Levant.
  */
-const HOTSPOT_LON = 36
-const HOTSPOT_LAT = 33
+/** Re-measured: the light first shows at the LEFT limb (110.5s) and is over
+ *  North Africa by 112 — the Sahara, west of the Levant the 1fps frames
+ *  suggested. */
+const HOTSPOT_LON = 10
+const HOTSPOT_LAT = 20
 
 /** How many arcs wrap the globe by the end. The frames show dozens; this reads
  *  as the same dense band while staying well under the instancing threshold. */
@@ -121,7 +132,14 @@ const ARC_SEGMENTS = 40
  * FRONT of the land (which is what sells three dimensions) without leaving
  * the disc.
  */
-const ARC_LIFT = 1.015
+/**
+ * RE-MEASURED AGAIN (2026-10-04, the whole shot at 2fps): the ink's extent
+ * is 1.00× the globe only as the first arcs start (113s); by 115s and on it
+ * is ~1.19× — the arcs loop out past the limb like orbits. What ballooned
+ * before was arcs drawn through the BACK of the sphere; that is now handled
+ * by occlusion (below), so the lift can be the frames' own.
+ */
+const ARC_LIFT = 1.2
 
 /** Hotspot ripple-ring count and their reach, in globe radii. */
 const RIPPLE_RINGS = 4
@@ -195,7 +213,9 @@ const raisedArc = (
     // Globe's own outline mode drops the far half for exactly this reason.
     // A break in the polyline is the honest rendering of an arc going behind
     // the sphere — the eye reads the gap as occlusion, which is what it is.
-    if (p.z < 0) {
+    // Behind the sphere AND inside its silhouette is hidden; a lifted arc
+    // that passes behind but outside the limb is still seen — the loops.
+    if (p.z < 0 && Math.hypot(p.x, p.y) < GLOBE_R) {
       if (pts.length > 1) break
       pts.length = 0
       continue

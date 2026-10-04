@@ -342,21 +342,36 @@ visibly differs, in order:
 - ~~63–74 (quote)~~ DONE: per-line write-on measured at 8fps (63.3–65.5,
   65.75–67.5, 67.8–70.0), credit 71.0–71.75, fade 73.35–74.1 — ours within
   ~0.1 of a line throughout.
-- 86–93 (node network): the original wires up at ~86s and gathers its four
-  crystals into a compact 2×2 in the upper middle with the mesh gone; ours
-  wires at ~88s, spreads the crystals to the corners and keeps the mesh.
-- 107–113 (light): the original's outline globe faces Asia and ignites to
-  a shaded white; ours faces Africa/Europe and floods through grey.
-- 114–118: the original's arcs loop wide around the globe; ours stay close
-  (as noted below).
-- 119 and 128–130: the original dims into the callback and into the hero
-  earlier and darker; ours is brighter through those changes.
+- ~~86–93 (node network)~~ DONE: the cluster now expands out of the
+  disc (camera pull-back, 78.75–80.5); at 85.5 the four crystals draw on
+  SUPERIMPOSED at the centre (icosahedron the outer cage, the others nested
+  — that is the original's "dense graph", not a mesh of the cloud), the
+  cloud fading 86–87; at 88.5–89.4 they part into the compact 2×2
+  (±142, +145 / −128) and shrink to rest. The near-neighbour mesh is not
+  staged.
+- ~~107–113 (light globe)~~ PARTLY DONE: it now turns the frames' whole
+  way (Asia at 107 → India 110 → Africa 113 → South America 118.5) at the
+  measured size, and the light starts at the left limb over the Sahara.
+  Still different: the original ignites as a soft radial GLOW that shades
+  the land from white to grey across the disc; ours floods flat grey →
+  white. A radial gradient fill is a host capability (src/render) — not
+  done here.
+- ~~114–118 (arcs)~~ DONE: lifted to the measured 1.2× (the ink spans
+  1.19× the globe from 115s on) and occluded only where they pass behind
+  AND inside the silhouette, so they loop out past the limb as orbits.
+- ~~119 and 128–130 (fades)~~ 119 DONE: it is a DIP through black, not a
+  cross — the globe gone 117.85–119.05, the field in 119.05–120.4 (new
+  `FadeCurve.dip`, src/transitions.ts). The field's colours re-measured
+  too (deep-red lattice, 13px cells, smaller dots, ring (25,125,205)). Our
+  field still comes back ~15% brighter than the reference. 128–130 needed
+  nothing once the field's brightness matched.
+- ~~163–165 (closing)~~ DONE: logo 0.786× (blue ring 155.5px), title
+  centred 210px below at the same width; the blue ring FADES in
+  (158.75–159.5), the A's legs draw up together (160–161), the red ring
+  161–162, the title 162.75–164.4. Within ~3px everywhere.
 - 146–157 (portrait): ours is the placeholder — the photograph awaits David.
-- 163–165 (closing): the title arrives ~0.5–1s later in ours; our circles
-  draw slightly larger.
 
-**Not reproduced, stated rather than faked:** the C4D terminator light in
-shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch
+**Not reproduced, stated rather than faked:** the hero's flower lattice draws OVER the globe (the ribbon batch
 composites every stroke above every fill — a host property); Text renders
-heavier than Manim's hairline serif; LightSpread's arcs stay closer to the
-sphere than the original's wide loops.
+heavier than Manim's hairline serif; the light globe's radial glow (a
+gradient fill, host-side).

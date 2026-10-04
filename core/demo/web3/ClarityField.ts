@@ -69,9 +69,22 @@ import { rgb, type Color } from "../../src/constants"
  * black after the original's bloom. Drawn literally as ink it reads
  * near-black, so the ink is brighter than the field it averages to.
  */
-const RED_CORE = rgb(0xc4, 0x46, 0x3a)
+/**
+ * Re-measured at full resolution (2026-10-04, 55s): the core reads as thin
+ * deep-red lines (median (30,12,11) on screen), the halo's brightest grey
+ * ~(33,30,31), the ring (25,117,192). The host treats a tint as linear light
+ * and encodes it for display, so screen colours go over decoded (`seen`).
+ */
+const seen = (r: number, g: number, b: number): Color => {
+  const decode = (v: number) => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return { r: decode(r), g: decode(g), b: decode(b) }
+}
+const RED_CORE = seen(150, 62, 60)
 const RIM_GREY = rgb(0x9a, 0x96, 0x96)
-const CLARITY_BLUE = rgb(0x2f, 0x8f, 0xe0)
+const CLARITY_BLUE = seen(25, 125, 205)
 /** The hero ring's red (shot 15) — where `expand` takes the clarity ring. */
 const HERO_RED = rgb(0xe0, 0x50, 0x40)
 const DOT_WHITE = rgb(0xff, 0xff, 0xff)
@@ -128,9 +141,10 @@ export class ClarityFieldDream extends Dream {
     // --- the complexity field: a dim red core ------------------------------
     // Flower-of-life spacing (radius = spacing) over a disc; brightness falls
     // toward the edge, the lattice never does.
-    const core = hexPack([disc(CORE_RADIUS)], { spacing: 8 }).map((c) => {
+    // Cell size re-measured (55s, 1280w): ~13px, i.e. 10 units.
+    const core = hexPack([disc(CORE_RADIUS)], { spacing: 10 }).map((c) => {
       const d = Math.hypot(c.x, c.y) / CORE_RADIUS
-      return this.ringlet(c, 8, RED_CORE, 0.14 * (1 - 0.45 * d * d), 1)
+      return this.ringlet(c, 10, RED_CORE, 0.22 * (1 - 0.45 * d * d), 1)
     })
 
     // --- the loose grey halo -----------------------------------------------
@@ -147,7 +161,7 @@ export class ClarityFieldDream extends Dream {
         { x: Math.cos(a) * r, y: Math.sin(a) * r },
         size,
         mix(RED_CORE, RIM_GREY, clamp01(0.6 + out * 2.5)),
-        0.17 * (1 - out) + 0.03,
+        0.1 * (1 - out) + 0.02,
         0.8,
       )
     })
@@ -159,7 +173,7 @@ export class ClarityFieldDream extends Dream {
     const dots = hexPack([disc(HERO_RING_RADIUS - 4)], { spacing: 8 }).map((c) => {
       const d = Math.hypot(c.x, c.y)
       return new Circle({
-        radius: 1.25,
+        radius: 0.75,
         x: c.x,
         y: c.y,
         tint: DOT_WHITE,

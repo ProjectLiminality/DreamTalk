@@ -54,6 +54,14 @@ export interface Transition {
 export interface FadeCurve {
   smoothing?: { left: number; right: number }
   screen?: boolean
+  /**
+   * A dip through black: the fraction of the window at which A has gone
+   * and B begins. A fades out over [0, dip] on `smoothing`, B in over
+   * [dip, 1] on `inSmoothing` (default `smoothing`). Absent: the two
+   * cross, one curve for both.
+   */
+  dip?: number
+  inSmoothing?: { left: number; right: number }
 }
 
 /**
@@ -87,8 +95,15 @@ const fadeFactors = (
   fallback: { left: number; right: number },
 ): { from: number; into: number } => {
   const sm = curve.smoothing ?? fallback
+  const out = (k: number) => (curve.screen ? decodeScreen(k) : k)
+  if (curve.dip !== undefined) {
+    const si = curve.inSmoothing ?? sm
+    const eo = c4dEaseWith(u / curve.dip, sm.left, sm.right)
+    const ei = c4dEaseWith((u - curve.dip) / (1 - curve.dip), si.left, si.right)
+    return { from: out(1 - eo), into: out(ei) }
+  }
   const e = c4dEaseWith(u, sm.left, sm.right)
-  return curve.screen ? { from: decodeScreen(1 - e), into: decodeScreen(e) } : { from: 1 - e, into: e }
+  return { from: out(1 - e), into: out(e) }
 }
 
 /** A crossfade's opacity factors at window progress `u`. */
