@@ -31,6 +31,7 @@ import { Holon } from "../src/holon"
 import { Dream, type DreamClass } from "../src/dream"
 import { Create } from "../src/verbs"
 import { classNameOf } from "./classname"
+import { pathOf, type SelectionPath } from "./selection"
 
 /**
  * A DreamNode's name: its class's. A bundler that meets two classes of one
@@ -356,10 +357,17 @@ export const sceneOfNode = (scenes: Record<string, DreamClass>, name: string): s
  * defaults, created, held.
  */
 export const aloneDream = (Ctor: new () => Holon, name: string): DreamClass => {
+  // The field is named for the node (`calculator`), as a DreamWeaving would
+  // name it — the creator panel calls a root by its field.
+  const field = name.charAt(0).toLowerCase() + name.slice(1)
   const Alone = class extends Dream {
-    holon = new Ctor()
+    constructor() {
+      super()
+      ;(this as unknown as Record<string, Holon>)[field] = new Ctor()
+    }
     unfold() {
-      this.play(Create(this.holon), 2)
+      const holon = (this as unknown as Record<string, Holon>)[field]!
+      this.play(Create(holon), 2)
       this.wait(2)
     }
   }
@@ -417,4 +425,60 @@ export const resolvePlace = (
   return own
     ? { Dream: scenes[own]!, name: found.name, crumbs, alone: false }
     : { Dream: aloneDream(found.ctor, found.name), name: found.name, crumbs, alone: true }
+}
+
+/** What the editor can open: a registered scene, and a holon in it. */
+export interface EditorAddress {
+  scene: string
+  sel?: SelectionPath
+}
+
+/**
+ * Where the editor can find what an entered page shows. The editor opens
+ * registered scenes only, so: a node with its own scene is addressed
+ * there directly (its roots ARE this page's). A node standing alone has
+ * no file the editor could write into except the scene above it — so the
+ * address is the top scene, with the same holon selected inside the
+ * instance the path walked through (the class at its defaults here, the
+ * scene's own instance there — same parts, so the same indices). If the
+ * part does not line up, the instance itself is selected: still true.
+ */
+export const editorAddressOf = (
+  scenes: Record<string, DreamClass>,
+  sceneKey: string,
+  place: Place,
+  roots: readonly Holon[],
+  holon: Holon,
+): EditorAddress => {
+  const path = place.crumbs.slice(1).map((c) => c.name)
+  if (!place.alone) {
+    const own = path.length ? sceneOfNode(scenes, place.name) ?? sceneKey : sceneKey
+    return { scene: own, sel: pathOf(roots, holon) }
+  }
+  const topRoots = new scenes[sceneKey]!().roots
+  // Walk the path through the scene's own instances (a whole's first
+  // matching part; never the whole itself, which named the previous step).
+  let instance: Holon | undefined
+  for (const step of path) {
+    const within: readonly Holon[] = instance ? instance.parts : topRoots
+    instance = undefined
+    for (const r of within) {
+      for (const h of r.walk()) {
+        if (isSovereign(h) && nodeNameOf(h) === step) {
+          instance = h
+          break
+        }
+      }
+      if (instance) break
+    }
+    if (!instance) return { scene: sceneKey }
+  }
+  const there = pathOf(topRoots, instance!)
+  const here = pathOf(roots, holon)
+  if (!there || !here || here.root !== 0) return { scene: sceneKey, sel: there }
+  const sel: SelectionPath = { root: there.root, indices: [...there.indices, ...here.indices], className: here.className }
+  // Only if the indices really land on the same kind of holon there.
+  let node: Holon | undefined = topRoots[sel.root]
+  for (const i of sel.indices) node = node?.parts[i]
+  return { scene: sceneKey, sel: node && classNameOf(node) === sel.className ? sel : there }
 }

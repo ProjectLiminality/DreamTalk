@@ -19,7 +19,7 @@ import { isColor, type Color } from "../src/constants"
 import { inspectorGroups, formatValue } from "../editor/inspector"
 import { classNameOf } from "../editor/classname"
 import { rootIdentityOf } from "../editor/outline"
-import { pathOf } from "../editor/selection"
+import { pathOf, type SelectionPath } from "../editor/selection"
 import { CREATOR_KEY, GOLD_CSS, encodePath } from "../editor/creator"
 
 const STYLE = `
@@ -69,6 +69,12 @@ export const mountCreatorPanel = (
   sceneKey: string,
   now: () => number,
   select: (holon: Holon) => void,
+  /**
+   * Where the editor can open this holon, when the page is not simply
+   * `sceneKey` — an entered DreamNode (demo/explorer.ts). The editor
+   * opens registered scenes, so it is told which one, and what to select.
+   */
+  addressOf?: (holon: Holon) => { scene: string; sel?: SelectionPath; t: number },
 ): CreatorPanel => {
   const style = document.createElement("style")
   style.textContent = STYLE
@@ -125,9 +131,14 @@ export const mountCreatorPanel = (
       }
     }
 
-    const path = pathOf(dream.roots, holon)
-    if (path) {
-      const q = new URLSearchParams({ scene: sceneKey, t: now().toFixed(2), sel: encodePath(path), creator: "1" })
+    const address = addressOf?.(holon) ?? { scene: sceneKey, sel: pathOf(dream.roots, holon), t: now() }
+    if (address.sel) {
+      const q = new URLSearchParams({
+        scene: address.scene,
+        t: address.t.toFixed(2),
+        sel: encodePath(address.sel),
+        creator: "1",
+      })
       const open = document.createElement("a")
       open.className = "open"
       open.href = `/?${q.toString()}`

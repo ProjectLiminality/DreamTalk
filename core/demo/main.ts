@@ -12,7 +12,7 @@ import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
 import { CreatorMode, isCreatorToggle } from "../editor/creator"
 import { mountCreatorPanel } from "./creatorpanel"
-import { resolvePlace } from "../editor/dreamnodes"
+import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
@@ -159,10 +159,25 @@ const main = async () => {
       },
     },
   )
-  const panel = mountCreatorPanel(dream, sceneName, () => current, (holon) => {
-    creator.select(holon)
-    panel.render(holon)
-  })
+  // On an entered DreamNode the editor is pointed at what is actually on
+  // screen: the node's own scene, else the scene above with it selected
+  // (at the t the node was entered from — the alone page's t is its own).
+  const entered = place.crumbs.length > 1
+  const panel = mountCreatorPanel(
+    dream,
+    sceneName,
+    () => current,
+    (holon) => {
+      creator.select(holon)
+      panel.render(holon)
+    },
+    entered
+      ? (holon) => ({
+          ...editorAddressOf(scenes, sceneName, place, dream.roots, holon),
+          t: place.alone ? Number(query.get("at")) || 0 : current,
+        })
+      : undefined,
+  )
 
   // --- The Dream Explorer (demo/explorer.ts) -------------------------------
   //

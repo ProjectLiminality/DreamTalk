@@ -17,8 +17,10 @@ import {
   nodeNameOf,
   resolvePlace,
   sceneOfNode,
+  editorAddressOf,
 } from "../editor/dreamnodes"
 import type { Holon } from "../src/holon"
+import { classNameOf } from "../editor/classname"
 
 const treeOf = (key: string) => {
   const Scene = scenes[key]!
@@ -117,5 +119,33 @@ describe("resolvePlace — the path IS the place", () => {
     const place = resolvePlace(scenes, "creatormode", ["Nope", "Calculator"])
     expect(place.name).toBe("CreatorMode")
     expect(place.crumbs).toHaveLength(1)
+  })
+})
+
+describe("editorAddressOf — open in editor what is on screen", () => {
+  test("a node with its own scene: that scene, the holon as this page has it", () => {
+    const place = resolvePlace(scenes, "mindvirus", ["MolochEye"])
+    const roots = new place.Dream().roots
+    const holon = roots[0]!.parts[0]!
+    const address = editorAddressOf(scenes, "mindvirus", place, roots, holon)
+    expect(address.scene).toBe("molocheye")
+    expect(address.sel).toEqual({ root: 0, indices: [0], className: classNameOf(holon) })
+  })
+
+  test("a node alone: the scene above, the same part of the scene's own instance", () => {
+    const place = resolvePlace(scenes, "creatormode", ["Calculator"])
+    const roots = new place.Dream().roots
+    const part = [...roots[0]!.walk()].find((h) => h.parts.length === 0 && h !== roots[0])!
+    const address = editorAddressOf(scenes, "creatormode", place, roots, part)
+    expect(address.scene).toBe("creatormode")
+    // Resolve it the way the editor will, in a fresh build of the scene.
+    const top = new scenes.creatormode!().roots
+    let node: Holon | undefined = top[address.sel!.root]
+    for (const i of address.sel!.indices) node = node?.parts[i]
+    expect(node && classNameOf(node)).toBe(classNameOf(part))
+    // …and it lies inside the scene's Calculator, not some other whole.
+    let up: Holon | undefined = node
+    while (up && nodeNameOf(up) !== "Calculator") up = up.parent
+    expect(up).toBeDefined()
   })
 })
