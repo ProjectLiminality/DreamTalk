@@ -1,65 +1,79 @@
 /**
- * bench-recognize.ts — David's real cylinder (59 searching strokes on the
- * scratch board, read-only), read N times by each path: choice
- * correctness, end-to-end ms, fit. Prints table rows for
- * docs/reports/fast-recognition.md §6.
+ * bench-recognize.ts — every reader on a benchmark set, N times each:
+ * choice correctness, end-to-end ms, fit. Prints table rows for
+ * docs/reports/fast-recognition.md.
  *
- *   WHICH=geometry,cli,groq,clef,clef-mock,groq-mock  N=10  bun scripts/bench-recognize.ts
+ *   WHICH=geometry,groq,clef,haiku,opus  N=5  bun scripts/bench-recognize.ts
+ *   REAL=cylinder BOARD=scratch          also David's newest burst on that board, read as a cylinder
  *
- * groq/clef need their keys (core/.env); the -mock paths fake the model
- * (CLEF_LAT / GROQ_LAT ms) to time our own share.
+ * The set: seeded scribbles (test/scribbles.ts — circle, cylinder, cube,
+ * MindVirus with its tail) plus, with REAL, the newest burst of ink on a
+ * board (speculate.ts likelySelection; read-only). Readers without keys
+ * print "awaiting key". Each reading goes through recognize() with the
+ * magic switch's name — exactly what the whiteboard does.
  */
+
+import { eyesOptions, loadEnv } from "./backends"
 import { recognize } from "./recognize"
-import { cliBackend, clefBackend, decisionFirst, groqBackend, loadEnv, type Backend } from "./backends"
-import { instantReading } from "../sketch/fit"
-import { DEFAULT_IMPORTS } from "../sketch/vocabulary"
 import type { InkStroke } from "../sketch/protocol"
-const vocab = [...DEFAULT_IMPORTS.filter((v) => v !== "cylinder"), "cylinder"]
+import { likelySelection } from "../sketch/speculate"
+import { DEFAULT_IMPORTS } from "../sketch/vocabulary"
+import { roughCube, roughCylinder, roughMindVirus, wobblyCircle } from "../test/scribbles"
+
 loadEnv()
 const out = new URL("../../.cache/sketch", import.meta.url).pathname
 await Bun.$`mkdir -p ${out}`
-const board = await Bun.file(new URL("../demo/boards/scratch.board.json", import.meta.url).pathname).json()
-const ink: InkStroke[] = board.strokes.filter((s: InkStroke) => s.points.every((p) => p.x > 1300 && p.y > 900))
-let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-for (const s of ink) for (const p of s.points) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y) }
-const crop = { x: x0 - 32, y: y0 - 32, w: x1 - x0 + 64, h: y1 - y0 + 64 }
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${crop.w}" height="${crop.h}" viewBox="${crop.x} ${crop.y} ${crop.w} ${crop.h}"><rect x="${crop.x}" y="${crop.y}" width="${crop.w}" height="${crop.h}" fill="white"/>` + ink.map((s) => `<polyline fill="none" stroke="black" stroke-width="3" stroke-linecap="round" points="${s.points.map((p) => p.x + "," + p.y).join(" ")}"/>`).join("") + "</svg>"
-await Bun.write(`${out}/realcyl.svg`, svg)
-Bun.spawnSync(["rsvg-convert", "-o", `${out}/realcyl.png`, `${out}/realcyl.svg`])
-const png = Buffer.from(await Bun.file(`${out}/realcyl.png`).arrayBuffer()).toString("base64")
-const req = { png, crop, strokes: ink, vocabulary: vocab }
-console.log("strokes", ink.length, "vocab", vocab.length)
-const N = Number(process.env.N ?? 10)
-const which = (process.env.WHICH ?? "geometry,clef-mock,groq-mock").split(",")
-const row = (name: string, runs: { ok: boolean; ms: number; fit?: number; what: string }[]) => {
-  const ms = runs.map((r) => r.ms).sort((a, b) => a - b)
-  const med = ms[Math.floor(ms.length / 2)]!
-  console.log(`ROW | ${name} | ${runs.filter((r) => r.ok).length}/${runs.length} | ${med.toFixed(0)} | ${ms[0]!.toFixed(0)}–${ms.at(-1)!.toFixed(0)} | ${runs.map((r) => r.fit?.toFixed(3) ?? "–").join(" ")} | ${[...new Set(runs.map((r) => r.what))].join(", ")}`)
+const vocab = [...new Set([...DEFAULT_IMPORTS, "cylinder"])]
+
+/** The ink as the page renders it for the model: dark on white, cropped + margin. */
+const pngOf = async (ink: readonly InkStroke[], name: string) => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const s of ink) for (const p of s.points) (x0 = Math.min(x0, p.x)), (y0 = Math.min(y0, p.y)), (x1 = Math.max(x1, p.x)), (y1 = Math.max(y1, p.y))
+  const crop = { x: x0 - 32, y: y0 - 32, w: x1 - x0 + 64, h: y1 - y0 + 64 }
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${crop.w}" height="${crop.h}" viewBox="${crop.x} ${crop.y} ${crop.w} ${crop.h}"><rect x="${crop.x}" y="${crop.y}" width="${crop.w}" height="${crop.h}" fill="white"/>` +
+    ink.map((s) => `<polyline fill="none" stroke="black" stroke-width="3" stroke-linecap="round" points="${s.points.map((p) => `${p.x},${p.y}`).join(" ")}"/>`).join("") +
+    "</svg>"
+  await Bun.write(`${out}/bench-${name}.svg`, svg)
+  Bun.spawnSync(["rsvg-convert", "-o", `${out}/bench-${name}.png`, `${out}/bench-${name}.svg`])
+  return { png: Buffer.from(await Bun.file(`${out}/bench-${name}.png`).arrayBuffer()).toString("base64"), crop }
 }
-const mockFetch = (lat: number, body: () => unknown) => async () => { await new Promise((r) => setTimeout(r, lat)); return new Response(JSON.stringify(body())) }
+
+const set: { name: string; truth: string; ink: InkStroke[] }[] = [
+  { name: "circle", truth: "circle", ink: wobblyCircle(3) },
+  { name: "cylinder", truth: "cylinder", ink: roughCylinder(3) },
+  { name: "cube", truth: "cube", ink: roughCube(3) },
+  { name: "mindVirus", truth: "mindVirus", ink: roughMindVirus(3).ink },
+]
+if (process.env.REAL) {
+  const board = await Bun.file(new URL(`../demo/boards/${process.env.BOARD ?? "scratch"}.board.json`, import.meta.url).pathname).json()
+  const ink = likelySelection(board.strokes as InkStroke[])
+  if (ink.length) set.push({ name: `real ${process.env.REAL} (${ink.length} strokes)`, truth: process.env.REAL, ink })
+  else console.log("REAL: the board has no ink")
+}
+
+const N = Number(process.env.N ?? 5)
+const which = (process.env.WHICH ?? "geometry,groq,clef,haiku,opus").split(",")
+const options = eyesOptions()
+console.log("| reader | sketch | right | median ms | range ms | fit |\n|---|---|---|---|---|---|")
 for (const w of which) {
-  const runs: { ok: boolean; ms: number; fit?: number; what: string }[] = []
-  for (let i = 0; i < N; i++) {
-    const t0 = performance.now()
-    if (w === "geometry") {
-      const r = instantReading(ink, vocab)
-      runs.push({ ok: r?.response.candidates[0]?.symbol === "cylinder", ms: performance.now() - t0, fit: r?.fits[0]?.score.total, what: r?.response.candidates[0]?.symbol ?? "deferred" })
-      continue
-    }
-    let chain: Backend[] = [], decision: any = null
-    if (w === "cli") chain = [cliBackend()]
-    if (w === "groq") {
-      if (!process.env.GROQ_API_KEY) { console.log("groq: awaiting key"); break }
-      chain = [groqBackend({ apiKey: process.env.GROQ_API_KEY, model: process.env.GROQ_MODEL })]
-    }
-    if (w === "clef") {
-      decision = decisionFirst({ ...process.env, RECOGNIZE_BACKENDS: "clef" })
-      if (!decision) { console.log("clef: awaiting CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN"); break }
-    }
-    if (w === "clef-mock") decision = clefBackend({ accountId: "x", apiToken: "x", fetch: mockFetch(Number(process.env.CLEF_LAT ?? 150), () => ({ result: { answers: { symbol: { type: "choice", choice: "cylinder", probabilities: { cylinder: 0.9, cube: 0.1 }, confidence: 0.8 } } } })) })
-    if (w === "groq-mock") chain = [groqBackend({ apiKey: "x", fetch: mockFetch(Number(process.env.GROQ_LAT ?? 450), () => ({ choices: [{ message: { content: JSON.stringify({ candidates: [{ symbol: "cylinder", params: [["cx", 1420], ["cy", 1075], ["radius", 70], ["height", 200], ["h", 0], ["p", 0.4], ["b", 0]].map(([name, number]) => ({ name, number, text: null, points: [] })), confidence: 0.9, why: "" }], notes: "" }) } }] })) })]
-    const r = await recognize(req, { chain, decision })
-    runs.push({ ok: r.candidates[0]?.symbol === "cylinder", ms: performance.now() - t0, fit: r.fit, what: r.candidates[0]?.symbol ?? (r.error ?? "none").slice(0, 60) })
+  const opt = options.find((o) => o.id === w)
+  if (!opt?.available) {
+    console.log(`| ${w} | — | awaiting key (${opt?.needs ?? "?"}) | | | |`)
+    continue
   }
-  if (runs.length) row(w, runs)
+  for (const c of set) {
+    const { png, crop } = await pngOf(c.ink, c.name.split(" ")[0]!)
+    const runs: { ok: boolean; ms: number; fit?: number }[] = []
+    for (let i = 0; i < N; i++) {
+      const t0 = performance.now()
+      const r = await recognize({ png, crop, strokes: c.ink, vocabulary: vocab, backend: w })
+      runs.push({ ok: r.candidates[0]?.symbol === c.truth, ms: performance.now() - t0, fit: r.fit })
+    }
+    const ms = runs.map((r) => r.ms).sort((a, b) => a - b)
+    const fits = runs.map((r) => r.fit).filter((f): f is number => f !== undefined).sort((a, b) => a - b)
+    console.log(
+      `| ${opt.label} | ${c.name} | ${runs.filter((r) => r.ok).length}/${N} | ${ms[Math.floor(N / 2)]!.toFixed(0)} | ${ms[0]!.toFixed(0)}–${ms.at(-1)!.toFixed(0)} | ${fits.length ? fits[Math.floor(fits.length / 2)]!.toFixed(3) : "–"} |`,
+    )
+  }
 }

@@ -30,7 +30,7 @@
 import type { EditOp, InkStroke, InstructRequest, InstructResponse, PlacedSymbol } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
 import { vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
-import { askChain, backendChain } from "./backends"
+import { askChain, backendChain, eyesFor } from "./backends"
 import { describeShelf } from "./catalogue"
 import { bbox, coerceParam, fitCircle, pngSize, stripFences, subsample, vocabBlock } from "./recognize"
 
@@ -245,7 +245,9 @@ export async function instruct(req: InstructRequest): Promise<InstructResponse> 
     const size = pngSize(Uint8Array.from(Buffer.from(b64, "base64")))
     // The recognizer's backends (backends.ts): fast eyes when a key is set,
     // else the CLI's lean session exactly as before.
-    const { reply, failures } = await askChain(backendChain(), {
+    // The magic switch picks the reader; geometry and clef read no instructions (→ the chain).
+    const chosen = req.backend && req.backend !== "auto" ? eyesFor(req.backend)?.chain : undefined
+    const { reply, failures } = await askChain(chosen?.length ? chosen : backendChain(), {
       system: SYSTEM,
       pngs: [b64],
       tag: "page",

@@ -38,7 +38,7 @@
 
 import { flattenSymbol } from "./mirror"
 import { PAGE_H, PAGE_W, type Candidate, type InkStroke, type RecognizeResponse } from "./protocol"
-import { vocabById, type ParamSpec, type VocabEntry } from "./vocabulary"
+import { resampleByArcLength, vocabById, type ParamSpec, type VocabEntry } from "./vocabulary"
 
 export interface Pt {
   x: number
@@ -339,6 +339,8 @@ export interface Ink {
   diag: number
   /** The arc-length step both sides are sampled at. */
   step: number
+  /** The strokes themselves — a drawn path (the MindVirus cable) is traced from them. */
+  strokes: readonly InkStroke[]
 }
 
 export const prepareInk = (strokes: readonly InkStroke[]): Ink | undefined => {
@@ -347,7 +349,7 @@ export const prepareInk = (strokes: readonly InkStroke[]): Ink | undefined => {
   if (!box) return undefined
   const diag = Math.max(1, Math.hypot(box.x1 - box.x0, box.y1 - box.y0))
   const step = Math.max(diag / 400, polysLength(polys) / INK_SAMPLES)
-  return { samples: sampleAlong(polys, step), box, diag, step }
+  return { samples: sampleAlong(polys, step), box, diag, step, strokes }
 }
 
 export interface Score {
@@ -693,6 +695,9 @@ export const fitSymbol = (
   const t0 = performance.now()
   const initial = scoreParams(ink, symbol, base)
   const evalMs = performance.now() - t0
+  // A drawn path not given (or not usable) is traced from the ink around the body.
+  const pathKey = pathKeyOf(entry)
+  if (pathKey && !(Array.isArray(base[pathKey]) && (base[pathKey] as unknown[]).length >= 2)) base = withTracedPath(entry, ink.strokes, base)
   // A param the drawing doesn't show (a cylinder's turn about its own axis) is not tuned.
   for (let i = dims.length - 1; i >= 0; i--) {
     const d = dims[i]!
@@ -743,7 +748,13 @@ export const fitSymbol = (
     const w = d.role === "angle" ? v - 2 * Math.PI * Math.ceil((v - Math.PI) / (2 * Math.PI)) : v
     params[d.key] = d.role === "x" || d.role === "y" || d.role === "length" ? Math.round(w * 10) / 10 : Math.round(w * 1000) / 1000
   }
-  const score = scoreParams(ink, symbol, params)
+  let score = scoreParams(ink, symbol, params)
+  // The body has moved: its tail, traced again around where it now is, may lie better.
+  if (pathKey) {
+    const retraced = withTracedPath(entry, ink.strokes, params)
+    const again = retraced === params ? score : scoreParams(ink, symbol, retraced)
+    if (again.total < score.total) return { symbol, params: retraced, score: again, initial, history, evals: evals + 3, ms: performance.now() - started }
+  }
   return { symbol, params, score, initial, history, evals: evals + 2, ms: performance.now() - started }
 }
 
@@ -768,6 +779,94 @@ export const refineResponse = (
     return fit.score.total < fit.initial.total ? { ...c, params: fit.params } : c
   })
   return { response: { ...res, candidates }, fits }
+}
+
+// --- A drawn path, traced from the ink (the MindVirus cable) -------------------------
+
+/** The entry's drawn-path param (role "points"), if it has one. */
+export const pathKeyOf = (entry: VocabEntry): string | undefined => Object.keys(entry.params).find((k) => entry.params[k]!.role === "points")
+
+const strokeLength = (pts: readonly { x: number; y: number }[]): number => {
+  let L = 0
+  for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y)
+  return L
+}
+
+/** Points along a tail, from its free end to the body. */
+const TAIL_POINTS = 16
+
+/**
+ * THE TAIL: the ink that leaves the body. Every stroke is cut into runs of
+ * points farther than ~0.8·size from the body's centre; the longest run
+ * (at least half a body long) is the tail, ordered from its free end to the
+ * end nearest the body, as the cable param wants it, resampled evenly.
+ */
+export const traceTail = (
+  strokes: readonly InkStroke[],
+  body: { x: number; y: number; size: number },
+  n = TAIL_POINTS,
+): [number, number][] | undefined => {
+  const R = body.size * 0.8
+  let best: { x: number; y: number }[] | undefined
+  let bestLen = body.size * 0.5
+  for (const s of strokes) {
+    let run: { x: number; y: number }[] = []
+    const close = () => {
+      const L = strokeLength(run)
+      if (L > bestLen) (best = run), (bestLen = L)
+      run = []
+    }
+    for (const p of s.points) {
+      if (Math.hypot(p.x - body.x, p.y - body.y) > R) run.push({ x: p.x, y: p.y })
+      else if (run.length) close()
+    }
+    if (run.length) close()
+  }
+  if (!best) return undefined
+  const d = (p: { x: number; y: number }) => Math.hypot(p.x - body.x, p.y - body.y)
+  const ordered = d(best[0]!) < d(best[best.length - 1]!) ? [...best].reverse() : best
+  return resampleByArcLength(ordered, n - 1).map((p) => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10])
+}
+
+/** A creature's body as the tracer needs it: centre and size, from its params. */
+const bodyOf = (entry: VocabEntry, p: Record<string, unknown>): { x: number; y: number; size: number } | undefined => {
+  const x = Number(p[roleKey(entry, "x") ?? ""]), y = Number(p[roleKey(entry, "y") ?? ""]), size = Number(p[roleKey(entry, "length") ?? ""])
+  return Number.isFinite(x) && Number.isFinite(y) && size > 0 ? { x, y, size } : undefined
+}
+
+/** The params with their path traced afresh around their body (unchanged if no tail is found). */
+export const withTracedPath = (entry: VocabEntry, strokes: readonly InkStroke[], p: Record<string, unknown>): Record<string, unknown> => {
+  const key = pathKeyOf(entry)
+  const body = key ? bodyOf(entry, p) : undefined
+  const tail = body ? traceTail(strokes, body) : undefined
+  return tail ? { ...p, [key!]: tail } : p
+}
+
+/**
+ * The cheap start of a creature with a tail: the longest OPEN stroke is the
+ * tail, the rest the body (bboxStart on the body's ink alone), heading
+ * away from where the tail meets it; then the tail traced around that body.
+ * Undefined when the ink has no open stroke to be a tail.
+ */
+export const pathStart = (entry: VocabEntry, ink: Ink, fixed: Record<string, unknown> = {}): Record<string, unknown> | undefined => {
+  const key = pathKeyOf(entry)
+  if (!key) return undefined
+  let tail: InkStroke | undefined
+  let tailLen = 0
+  for (const s of ink.strokes) {
+    const L = strokeLength(s.points)
+    const a = s.points[0], b = s.points[s.points.length - 1]
+    if (!a || !b || Math.hypot(a.x - b.x, a.y - b.y) < 0.25 * L) continue // closed: part of the body
+    if (L > tailLen) (tail = s), (tailLen = L)
+  }
+  const bodyInk = tail ? prepareInk(ink.strokes.filter((s) => s !== tail)) : undefined
+  if (!tail || !bodyInk) return undefined
+  const cx = (bodyInk.box.x0 + bodyInk.box.x1) / 2, cy = (bodyInk.box.y0 + bodyInk.box.y1) / 2
+  const a = tail.points[0]!, b = tail.points[tail.points.length - 1]!
+  const near = Math.hypot(a.x - cx, a.y - cy) < Math.hypot(b.x - cx, b.y - cy) ? a : b
+  const heading = Math.atan2(cy - near.y, cx - near.x)
+  const p = bboxStart(entry, bodyInk, { ...fixed, [key]: [] }, heading)
+  return withTracedPath(entry, ink.strokes, p)
 }
 
 // --- Without a model: race the vocabulary --------------------------------------------
@@ -829,12 +928,12 @@ const hypotheses = (entry: VocabEntry): Record<string, unknown>[] => {
 }
 
 /**
- * Entries the race can't try: words need their letters, not their ink, and
- * a symbol with a drawn path (the MindVirus cable) needs that path traced —
- * both are the model's to read.
+ * Entries the race can't try: words need their letters, not their ink —
+ * the model's to read. (A drawn path, the MindVirus cable, is traced:
+ * pathStart.)
  */
 export const raceable = (entry: VocabEntry): boolean =>
-  !Object.values(entry.params).some((s) => s.type === "string" || s.role === "content" || s.role === "points")
+  !Object.values(entry.params).some((s) => s.type === "string" || s.role === "content")
 
 /**
  * Every imported symbol, fitted from a cheap start, best score first.
@@ -851,6 +950,13 @@ export const raceVocabulary = (strokes: readonly InkStroke[], vocabulary: readon
     if (!entry || !raceable(entry)) continue
     for (const fixed of hypotheses(entry)) {
       const started = performance.now()
+      // A creature with a tail starts from its traced tail: the tail says where it swims.
+      if (pathKeyOf(entry)) {
+        // No open stroke to be its tail: not this creature (a tailless one is the model's to read).
+        const traced = pathStart(entry, ink, fixed)
+        if (traced) scans.push({ id, entry, started, ms: performance.now() - started, starts: [{ params: traced, total: scoreParams(ink, id, traced, true).total }] })
+        continue
+      }
       const aKey = roleKey(entry, "angle")
       const angles = aKey ? Array.from({ length: ANGLE_SCAN }, (_, i) => (i / ANGLE_SCAN) * 2 * Math.PI - Math.PI) : [undefined]
       const lengths = Object.keys(entry.params).filter((k) => entry.params[k]!.role === "length")
@@ -954,15 +1060,18 @@ export const instantReading = (
   opts: RaceOptions = {},
 ): { response: RecognizeResponse; fits: FitResult[] } | undefined => {
   const fits = raceVocabulary(strokes, vocabulary, opts)
+  const response = clearReading(fits)
+  return response ? { response, fits } : undefined
+}
+
+/** A race's answer when it is clear (instantReading's rule), else undefined. */
+export const clearReading = (fits: readonly FitResult[]): RecognizeResponse | undefined => {
   const best = fits[0]
   if (!best || best.score.total > CLEAR_SCORE || degenerate(best)) return undefined
   const rival = fits.find((f) => f.symbol !== best.symbol)
   if (rival && rank(rival) < rank(best) * CLEAR_MARGIN) return undefined
   const confidence = Math.round(Math.min(0.99, 1 - best.score.total / CLEAR_SCORE / 2) * 100) / 100
   return {
-    response: {
-      candidates: [{ symbol: best.symbol, params: best.params, confidence, why: `geometry fit ${best.score.total.toFixed(3)}` }],
-    },
-    fits,
+    candidates: [{ symbol: best.symbol, params: best.params, confidence, why: `geometry fit ${best.score.total.toFixed(3)}` }],
   }
 }

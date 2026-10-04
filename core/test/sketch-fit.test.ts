@@ -18,13 +18,14 @@ import {
   refineResponse,
   scoreOutline,
   symbolOutline,
+  traceTail,
   type Pt,
 } from "../sketch/fit"
 import type { InkStroke } from "../sketch/protocol"
 import { DEFAULT_IMPORTS } from "../sketch/vocabulary"
 import { roughCylinder, roughFlower, roughMindVirus, roughSquare, roughTriangle, wobblyCircle } from "./scribbles"
 
-const VOCAB = [...DEFAULT_IMPORTS, "cylinder"]
+const VOCAB = [...new Set([...DEFAULT_IMPORTS, "cylinder"])]
 
 const inkOf = (polys: Pt[][]): InkStroke[] =>
   polys.map((pts, i) => ({ id: `k${i}`, points: pts.map((p, t) => ({ ...p, pressure: 0.5, t })) }))
@@ -112,12 +113,25 @@ describe("fitting one reading", () => {
     expect(Math.abs(Number(fit.params.height) * Math.cos(Number(fit.params.p)) - 220)).toBeLessThan(20)
   })
 
-  test("params it cannot see stay as given: the MindVirus cable is untouched", () => {
+  test("the MindVirus tail is traced from the ink: with no cable given, the fit finds one", async () => {
     const { ink, tail } = roughMindVirus(1)
-    const cable = tail.map((p) => [p.x, p.y])
-    const fit = fitSymbol(ink, { symbol: "mindVirus", params: { x: 880, y: 620, size: 180, heading: 0.2, fold: 1, cable } }, { maxEvals: 60 })
-    expect(fit.params.cable).toEqual(cable)
-    expect(fit.score.total).toBeLessThan(fit.initial.total)
+    const fit = fitSymbol(ink, { symbol: "mindVirus", params: { x: 880, y: 620, size: 180, heading: 0.2, fold: 1 } }, { maxMs: 150 })
+    const cable = fit.params.cable as [number, number][]
+    expect(cable.length).toBe(16)
+    // Ordered free end → body: it starts where the drawn tail starts, far left.
+    expect(Math.hypot(cable[0]![0] - tail[0]!.x, cable[0]![1] - tail[0]!.y)).toBeLessThan(30)
+    expect(fit.score.total).toBeLessThan(0.02)
+    expect(Math.abs(Number(fit.params.x) - 900)).toBeLessThan(15)
+  })
+
+  test("traceTail: the longest run of ink outside the body, free end first", () => {
+    const { ink, tail } = roughMindVirus(2)
+    const t = traceTail(ink, { x: 900, y: 600, size: 160 })!
+    expect(t).toHaveLength(16)
+    expect(t[0]![0]).toBeLessThan(t[15]![0]) // the tail trails off to the left, the body is right
+    expect(Math.abs(t[0]![0] - tail[0]!.x)).toBeLessThan(30)
+    // No ink leaves a lone circle's body: no tail.
+    expect(traceTail(wobblyCircle(1, 600, 500, 60), { x: 600, y: 500, size: 120 })).toBeUndefined()
   })
 
   test("refineResponse refines shapes and leaves words alone", () => {
@@ -146,11 +160,12 @@ describe("racing the vocabulary (no model)", () => {
     expect(fits[0]!.symbol).toBe(symbol)
   })
 
-  test("a clear shape is answered at once; a semantic one is left to the model", () => {
+  test("a clear shape is answered at once — the MindVirus too, its tail traced", () => {
     const circle = instantReading(wobblyCircle(9), VOCAB, { maxEvals: 120 })
     expect(circle?.response.candidates[0]?.symbol).toBe("circle")
-    // The MindVirus needs its cable traced — not the race's to answer.
-    expect(instantReading(roughMindVirus(9).ink, VOCAB, { maxEvals: 120 })).toBeUndefined()
+    const virus = instantReading(roughMindVirus(9).ink, VOCAB, { maxEvals: 120 })
+    expect(virus?.response.candidates[0]?.symbol).toBe("mindVirus")
+    expect(Math.abs(Number(virus!.response.candidates[0]!.params.heading))).toBeLessThan(0.2) // swims right, away from its tail
   })
 
   test("a degenerate reading never answers: a cylinder with no height is an ellipse", () => {

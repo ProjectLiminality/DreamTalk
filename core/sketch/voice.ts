@@ -43,6 +43,7 @@ import { Dream } from "../src/dream"
 import { ThreeHost } from "../src/render/three-host"
 import { buildSymbol, framePage } from "./vocabulary"
 import { importsOf } from "./catalogue"
+import { currentEyes } from "./magic"
 import {
   boxOfPoints,
   editCommand,
@@ -224,7 +225,8 @@ const httpInstruct: Instructor = async (req) => {
   const res = await fetch("/api/instruct", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(req),
+    // The magic switch picks the reader for the voice too (magic.ts).
+    body: JSON.stringify({ ...req, backend: req.backend ?? currentEyes() }),
   })
   const text = await res.text()
   try {

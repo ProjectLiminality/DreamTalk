@@ -64,6 +64,7 @@ import { Mirror, type MirrorView } from "./mirror"
 import { distillGlyph, distillStrokes } from "./distill"
 import { PAUSE_MS, nextSearch, ripe, type Search } from "./livedistill"
 import { likelySelection, Speculator } from "./speculate"
+import { COMPARE, currentEyes, installMagic, viaLine } from "./magic"
 import {
   IDENTITY,
   SIM_IDENTITY,
@@ -84,6 +85,7 @@ import {
   PAGE_H,
   PAGE_W,
   type Candidate,
+  type CompareResponse,
   type InkStroke,
   type PenEvent,
   type PenSample,
@@ -905,19 +907,28 @@ const afterChange = (fresh?: string) => {
  *  when the daemon has a fast backend. */
 const speculation = new Speculator({
   ask: (req, signal) => httpRecognize(req, { signal, speculative: true }),
-  build: (strokes, vocabulary) => ({ ...renderCrop(strokes), strokes, vocabulary }),
+  build: (strokes, vocabulary, backend) => ({ ...renderCrop(strokes), strokes, vocabulary, backend }),
   isIdle: () => mode === "idle" && !thinking,
   onReady: () => updateButtons(),
 })
+/** The magic switch (magic.ts): which eyes ✦ reads with; reading ahead only with fast ones. */
+const magic = installMagic(btn("transform"), () => {
+  speculation.enabled = magic.fast()
+  updateButtons()
+})
 void fetch("/api/recognize/config")
-  .then((r) => r.json() as Promise<{ speculate?: boolean }>)
-  .then((c) => (speculation.enabled = !!c.speculate))
+  .then((r) => r.json() as Promise<{ eyes?: Parameters<typeof magic.setOptions>[0] }>)
+  .then((c) => magic.setOptions(c.eyes ?? []))
   .catch(() => {})
 const readAheadTarget = () => {
   const sel = selectedStrokes()
   const strokes = sel.length > 0 ? sel : likelySelection(history.state.strokes)
-  return { strokes, vocabulary: importsOf(history.state) }
+  return { strokes, vocabulary: importsOf(history.state), backend: currentEyes() }
 }
+/** Who answered the last ✦, how fast, how well (shown with the replacement). */
+let lastVia: string | undefined
+/** The comparison the open ring came from: a pick is logged against it. */
+let lastCompare: string | undefined
 
 const updateButtons = () => {
   btn("undo").disabled = !history.canUndo
@@ -925,7 +936,7 @@ const updateButtons = () => {
   btn("transform").disabled = !!thinking || selectedStrokes().length === 0
   speculation.poke(readAheadTarget)
   // ✦ glows faintly when its reading is already here.
-  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state) })
+  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state), backend: currentEyes() })
   btn("transform").style.boxShadow = ready ? "0 0 0 2px rgba(120, 200, 140, 0.7)" : ""
 }
 
@@ -1066,6 +1077,30 @@ const httpRecognize = async (
 
 let recognize: Recognizer = httpRecognize
 
+/** Every available reader on the same ink (POST /api/recognize/compare): one
+ *  ring, each chip its reader's top reading, labelled reader · ms · fit. */
+const compareAll = async (req: RecognizeRequest): Promise<{ response: RecognizeResponse; id?: string }> => {
+  const res = await fetch("/api/recognize/compare", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req),
+  })
+  const body = (await res.json()) as CompareResponse & { error?: string }
+  const candidates: Candidate[] = []
+  const failed: string[] = []
+  for (const r of body.results ?? []) {
+    const top = r.response.candidates[0]
+    if (!top) {
+      failed.push(r.backend)
+      continue
+    }
+    const fit = r.response.fit !== undefined ? ` · ${r.response.fit.toFixed(3)}` : ""
+    candidates.push({ ...top, confidence: 0.5, via: r.backend, label: `${r.backend} ${r.ms} ms${fit}` })
+  }
+  if (failed.length) console.info("[compare] no reading from", failed.join(", "))
+  return { response: { candidates, error: body.error ?? (candidates.length ? undefined : "no reader answered") }, id: body.id }
+}
+
 /**
  * DISTILL (distill.ts): the selected rough strokes → the clean stroke(s)
  * they collectively mean, as ONE undo step. The result stays selected, so ✦
@@ -1146,7 +1181,9 @@ const setLiveDistill = (on: boolean) => {
   }
 }
 
-const transform = async (): Promise<void> => {
+/** ✦ — or, with `compare` (Shift+✦, or the switch on "compare all"), every reader at once. */
+const transform = async (compare = false): Promise<void> => {
+  compare ||= magic.choice() === COMPARE
   if (thinking) return
   const strokes = selectedStrokes()
   if (strokes.length === 0) {
@@ -1161,7 +1198,7 @@ const transform = async (): Promise<void> => {
   const ids = strokes.map((k) => k.id)
   // A multi-reading we already have for exactly this ink: show it again
   // rather than asking twice. Asked again from an OPEN ring → re-ask.
-  if (!ring && last && sameIds(last.ids, ids) && last.response.candidates.length > 1) {
+  if (!compare && !ring && last && sameIds(last.ids, ids) && last.response.candidates.length > 1) {
     openRing(last)
     return
   }
@@ -1174,9 +1211,18 @@ const transform = async (): Promise<void> => {
   let response: RecognizeResponse
   try {
     const vocabulary = importsOf(history.state)
-    // Read ahead already (speculate.ts)? Then that is the answer — unless it found nothing.
-    const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary }) : undefined
-    response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary })
+    const backend = currentEyes()
+    const t0 = performance.now()
+    lastVia = lastCompare = undefined
+    if (compare) {
+      say("comparing every reader…")
+      ;({ response, id: lastCompare } = await compareAll({ ...renderCrop(strokes), strokes, vocabulary }))
+    } else {
+      // Read ahead already (speculate.ts)? Then that is the answer — unless it found nothing.
+      const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary, backend }) : undefined
+      response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary, backend })
+      lastVia = viaLine(response, performance.now() - t0, !!ahead?.candidates.length)
+    }
   } catch (err) {
     response = { candidates: [], error: (err as Error).message || "recognizer unreachable" }
   }
@@ -1220,7 +1266,14 @@ const choose = (ids: string[], c: Candidate) => {
   selection = new Set()
   commit({ kind: "replace", ids, symbol }, symbol.id)
   const name = vocabById(c.symbol)?.name ?? c.symbol
-  flash(`${name}${c.why ? ` — ${c.why}` : ""}`, 3500)
+  flash(c.via ? `${name} — ${c.label ?? c.via}` : `${name}${c.why ? ` — ${c.why}` : ""}${lastVia ? ` · ${lastVia}` : ""}`, 3500)
+  if (c.via && lastCompare)
+    void fetch("/api/recognize/compare/pick", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: lastCompare, backend: c.via, symbol: c.symbol }),
+    }).catch(() => {})
+  lastVia = undefined
 }
 
 // --- The options ring ----------------------------------------------------------------
@@ -1255,7 +1308,7 @@ const openRing = (from: LastResponse) => {
     const name = vocabById(candidate.symbol)?.name ?? candidate.symbol
     el.innerHTML = `<div class="thumb"></div><div class="label"><b></b><span></span></div>`
     el.querySelector("b")!.textContent = name
-    el.querySelector("span")!.textContent = `${Math.round((candidate.confidence ?? 0) * 100)}%`
+    el.querySelector("span")!.textContent = candidate.label ?? `${Math.round((candidate.confidence ?? 0) * 100)}%`
     el.style.animationDelay = `${i * 40}ms`
     ringEl.appendChild(el)
     return { candidate, x, y, el }
@@ -1897,7 +1950,7 @@ window.addEventListener("keydown", (e) => {
 })
 window.addEventListener("keyup", noteKeys)
 
-btn("transform").addEventListener("click", () => void transform())
+btn("transform").addEventListener("click", (e) => void transform(e.shiftKey))
 btn("undo").addEventListener("click", undo)
 btn("redo").addEventListener("click", redo)
 btn("theme").addEventListener("click", () => {

@@ -355,6 +355,64 @@ export const decisionFirst = (env: Record<string, string | undefined> = (loadEnv
   return clefBackend({ accountId: env.CLOUDFLARE_ACCOUNT_ID, apiToken: env.CLOUDFLARE_API_TOKEN, model: env.CLEF_MODEL })
 }
 
+// --- The magic switch: one reader, chosen on the page -----------------------------
+
+export type Eyes = "auto" | "geometry" | "groq" | "clef" | "haiku" | "opus"
+export const EYES: readonly Eyes[] = ["auto", "geometry", "groq", "clef", "haiku", "opus"]
+
+export interface EyesOption {
+  id: Eyes
+  label: string
+  available: boolean
+  /** What to add to core/.env when it isn't. */
+  needs?: string
+  /** Fast enough to read ahead of ✦. */
+  fast: boolean
+}
+
+/** The switch's options, each enabled only when its key is present. */
+export const eyesOptions = (env: Record<string, string | undefined> = (loadEnv(), process.env)): EyesOption[] => [
+  { id: "auto", label: "auto", available: true, fast: backendChain(env).some(isFast) || !!decisionFirst(env) },
+  { id: "geometry", label: "geometry", available: true, fast: true },
+  { id: "groq", label: "groq", available: !!env.GROQ_API_KEY, needs: "GROQ_API_KEY", fast: true },
+  {
+    id: "clef",
+    label: "clef",
+    available: !!(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
+    needs: "CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN",
+    fast: true,
+  },
+  { id: "haiku", label: "haiku", available: !!env.ANTHROPIC_API_KEY, needs: "ANTHROPIC_API_KEY", fast: true },
+  { id: "opus", label: env.ANTHROPIC_API_KEY ? "opus" : "opus (cli)", available: true, fast: !!env.ANTHROPIC_API_KEY },
+]
+
+/**
+ * One reader, by the switch's name — exactly that backend, nothing behind
+ * it (so a comparison compares). "opus" is the Anthropic API when its key is
+ * set, else the CLI. Undefined for auto/geometry, or a key that is missing.
+ */
+export const eyesFor = (
+  id: string,
+  env: Record<string, string | undefined> = (loadEnv(), process.env),
+): { chain: Backend[]; decision: DecisionBackend | null } | undefined => {
+  switch (id) {
+    case "groq":
+      return env.GROQ_API_KEY ? { chain: [groqBackend({ apiKey: env.GROQ_API_KEY, model: env.GROQ_MODEL })], decision: null } : undefined
+    case "clef":
+      return env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN
+        ? { chain: [], decision: clefBackend({ accountId: env.CLOUDFLARE_ACCOUNT_ID, apiToken: env.CLOUDFLARE_API_TOKEN, model: env.CLEF_MODEL }) }
+        : undefined
+    case "haiku":
+      return env.ANTHROPIC_API_KEY ? { chain: [anthropicBackend({ apiKey: env.ANTHROPIC_API_KEY, model: ANTHROPIC_MODEL })], decision: null } : undefined
+    case "opus":
+      return {
+        chain: [env.ANTHROPIC_API_KEY ? anthropicBackend({ apiKey: env.ANTHROPIC_API_KEY, model: "claude-opus-5-5" }) : cliBackend()],
+        decision: null,
+      }
+  }
+  return undefined
+}
+
 // --- The chain ------------------------------------------------------------------
 
 /**

@@ -24,9 +24,9 @@ import type { InkStroke, RecognizeRequest, RecognizeResponse } from "./protocol"
 /** How long the page must rest before it reads ahead. */
 export const IDLE_MS = 300
 
-/** The ink + imports a reading is of (the daemon hashes the same string). */
-export const inkKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary">): string => {
-  const parts: string[] = [[...(req.vocabulary ?? [])].sort().join(",")]
+/** The ink + imports (+ the reader asked) a reading is of (the daemon hashes the same string). */
+export const inkKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary" | "backend">): string => {
+  const parts: string[] = [`${req.backend ?? "auto"}:${[...(req.vocabulary ?? [])].sort().join(",")}`]
   for (const s of [...req.strokes].sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const a = s.points[0], b = s.points[s.points.length - 1]
     parts.push(`${s.id}:${s.points.length}:${a ? `${Math.round(a.x)},${Math.round(a.y)}` : ""}:${b ? `${Math.round(b.x)},${Math.round(b.y)}` : ""}`)
@@ -77,13 +77,20 @@ export interface SpeculatorOptions {
   /** Ask the recognizer (ahead of ✦), abortable. */
   ask: (req: RecognizeRequest, signal: AbortSignal) => Promise<RecognizeResponse>
   /** The ink + imports → the request ✦ would send (the crop PNG is rendered here). */
-  build: (strokes: InkStroke[], vocabulary: string[]) => RecognizeRequest
+  build: (strokes: InkStroke[], vocabulary: string[], backend?: string) => RecognizeRequest
   /** False while a gesture is in progress or ✦ is thinking: wait longer. */
   isIdle?: () => boolean
   /** A reading arrived (the page may show its ✦ as ready). */
   onReady?: () => void
   idleMs?: number
   timers?: { set: (f: () => void, ms: number) => unknown; clear: (h: unknown) => void }
+}
+
+/** What is read: the ink, the imports, and which reader (the magic switch). */
+export interface Target {
+  strokes: InkStroke[]
+  vocabulary: string[]
+  backend?: string
 }
 
 interface Flight {
@@ -101,7 +108,7 @@ export class Speculator {
   private timer: unknown
   private flight: Flight | undefined
   private readonly done = new Map<string, RecognizeResponse>()
-  private target: (() => { strokes: InkStroke[]; vocabulary: string[] } | undefined) | undefined
+  private target: (() => Target | undefined) | undefined
   private readonly timers: NonNullable<SpeculatorOptions["timers"]>
 
   constructor(private readonly opts: SpeculatorOptions) {
@@ -109,7 +116,7 @@ export class Speculator {
   }
 
   /** Something changed: read ahead once the page has rested. */
-  poke(target: () => { strokes: InkStroke[]; vocabulary: string[] } | undefined): void {
+  poke(target: () => Target | undefined): void {
     if (!this.enabled) return
     this.target = target
     if (this.timer !== undefined) this.timers.clear(this.timer)
@@ -129,7 +136,7 @@ export class Speculator {
     if (this.done.has(key) || this.flight?.key === key) return
     this.flight?.ctrl.abort()
     const ctrl = new AbortController()
-    const promise = this.opts.ask(this.opts.build(t.strokes, t.vocabulary), ctrl.signal)
+    const promise = this.opts.ask(this.opts.build(t.strokes, t.vocabulary, t.backend), ctrl.signal)
     const flight: Flight = { key, ctrl, promise }
     this.flight = flight
     promise.then(
@@ -148,7 +155,7 @@ export class Speculator {
   }
 
   /** The reading of exactly this ink, if one is done or running; else undefined. */
-  answer(req: Pick<RecognizeRequest, "strokes" | "vocabulary">): Promise<RecognizeResponse> | undefined {
+  answer(req: Target): Promise<RecognizeResponse> | undefined {
     const key = inkKey(req)
     const hit = this.done.get(key)
     if (hit) return Promise.resolve(hit)
@@ -157,7 +164,7 @@ export class Speculator {
   }
 
   /** Is the reading of this ink already here? (✦ may say so.) */
-  ready(req: Pick<RecognizeRequest, "strokes" | "vocabulary">): boolean {
+  ready(req: Target): boolean {
     return this.done.has(inkKey(req))
   }
 

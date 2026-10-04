@@ -65311,7 +65311,35 @@ var freshSig = (holon) => {
       key: EMPTY_KEY
     };
   }
-  return { version: 0, drawStart: 0, reversed: 0, key: shapeKey(holon) };
+  const { params, reversedAt } = shapeParams(holon);
+  const vals = new Float64Array(params.length);
+  for (let i2 = 0;i2 < params.length; i2++) {
+    const v2 = params[i2].value;
+    vals[i2] = i2 === reversedAt ? v2 ? 1 : 0 : v2;
+  }
+  return { version: 0, drawStart: 0, reversed: 0, key: EMPTY_KEY, params, vals, reversedAt };
+};
+var shapeParams = (holon) => {
+  const phase = [holon.drawStart, holon.drawReversed];
+  const withPhase = (...shape) => ({
+    params: [...shape, ...phase],
+    reversedAt: shape.length + 1
+  });
+  if (holon instanceof Circle)
+    return withPhase(holon.radius);
+  if (holon instanceof Square)
+    return withPhase(holon.size);
+  if (holon instanceof Polygon)
+    return withPhase(holon.radius, holon.sides, holon.phase);
+  if (holon instanceof Arc)
+    return { params: [holon.radius, holon.startAngle, holon.endAngle], reversedAt: -1 };
+  if (holon instanceof AnnularSector)
+    return withPhase(holon.radius, holon.innerRadius, holon.startAngle, holon.endAngle);
+  if (holon instanceof Rectangle)
+    return withPhase(holon.width, holon.height, holon.rounding);
+  if (holon instanceof Ellipse)
+    return withPhase(holon.radiusX, holon.radiusY);
+  return { params: [], reversedAt: -1 };
 };
 var EMPTY_KEY = [];
 var sigChanged = (holon, prev) => {
@@ -65328,11 +65356,18 @@ var sigChanged = (holon, prev) => {
     prev.reversed = reversed;
     return true;
   }
-  const key = shapeKey(holon);
-  if (keysEqual(key, prev.key))
-    return false;
-  prev.key = key;
-  return true;
+  const params = prev.params;
+  const vals = prev.vals;
+  const reversedAt = prev.reversedAt;
+  let changed = false;
+  for (let i2 = 0;i2 < params.length; i2++) {
+    const raw = params[i2].value;
+    const v2 = i2 === reversedAt ? raw ? 1 : 0 : raw;
+    if (!(v2 === vals[i2]))
+      changed = true;
+    vals[i2] = v2;
+  }
+  return changed;
 };
 var clamp014 = (v2) => Math.min(1, Math.max(0, v2));
 var liftTint = (tint, amount) => amount <= 0 ? tint : {
@@ -65340,7 +65375,6 @@ var liftTint = (tint, amount) => amount <= 0 ? tint : {
   g: tint.g + (1 - tint.g) * amount,
   b: tint.b + (1 - tint.b) * amount
 };
-var keysEqual = (a2, b2) => a2.length === b2.length && a2.every((v2, i2) => v2 === b2[i2]);
 
 class ThreeHost {
   renderer;
@@ -68768,6 +68802,74 @@ var serializeBoard = (b2) => {
 `;
 };
 
+// sketch/magic.ts
+var KEY = "dreamtalk.magic";
+var COMPARE = "compare";
+var DEFAULT_OPTIONS = [
+  { id: "auto", label: "auto", available: true, fast: false },
+  { id: "geometry", label: "geometry", available: true, fast: true },
+  { id: "groq", label: "groq", available: false, fast: true },
+  { id: "clef", label: "clef", available: false, fast: true },
+  { id: "haiku", label: "haiku", available: false, fast: true },
+  { id: "opus", label: "opus", available: true, fast: false }
+];
+var read = () => {
+  try {
+    return localStorage.getItem(KEY) ?? "auto";
+  } catch {
+    return "auto";
+  }
+};
+var current = read();
+var currentEyes = () => current === COMPARE ? "auto" : current;
+var installMagic = (anchor, onChange) => {
+  let options = DEFAULT_OPTIONS;
+  const el = document.createElement("select");
+  el.id = "magic";
+  el.title = "magic: which eyes ✦ reads with (Shift+✦ compares them all)";
+  el.style.cssText = "margin-left:6px;font:inherit;font-size:12px;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.4);border-radius:6px;padding:2px 4px;opacity:.85";
+  anchor.after(el);
+  const render = () => {
+    el.innerHTML = "";
+    for (const o2 of [...options, { id: COMPARE, label: "compare all", available: true, fast: false }]) {
+      const opt = document.createElement("option");
+      opt.value = o2.id;
+      opt.disabled = !o2.available;
+      opt.textContent = o2.available ? o2.id === COMPARE ? o2.label : `magic: ${o2.label}` : `${o2.label} — add key`;
+      if (!o2.available && "needs" in o2 && o2.needs)
+        opt.title = `add ${o2.needs} to core/.env`;
+      el.appendChild(opt);
+    }
+    if (current !== COMPARE && !options.some((o2) => o2.id === current && o2.available))
+      current = "auto";
+    el.value = current;
+  };
+  el.addEventListener("change", () => {
+    current = el.value;
+    try {
+      localStorage.setItem(KEY, current);
+    } catch {}
+    el.blur();
+    onChange();
+  });
+  render();
+  return {
+    choice: () => current,
+    setOptions(eyes) {
+      if (eyes.length)
+        options = [...eyes];
+      render();
+      onChange();
+    },
+    fast: () => current !== COMPARE && !!options.find((o2) => o2.id === current)?.fast
+  };
+};
+var viaLine = (res, ms, ahead = false) => {
+  const who = (res.backend ?? "").split(":")[0] || "?";
+  const fit = res.fit !== undefined ? ` · fit ${res.fit.toFixed(3)}` : "";
+  return `${who} · ${ahead ? "read ahead" : `${Math.round(ms)} ms`}${fit}`;
+};
+
 // sketch/state.ts
 var emptyState = () => ({ strokes: [], symbols: [] });
 var apply = (s2, cmd) => {
@@ -69209,7 +69311,7 @@ var httpInstruct = async (req) => {
   const res = await fetch("/api/instruct", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(req)
+    body: JSON.stringify({ ...req, backend: req.backend ?? currentEyes() })
   });
   const text2 = await res.text();
   try {
@@ -71623,74 +71725,6 @@ class Speculator {
     this.flight = undefined;
   }
 }
-
-// sketch/magic.ts
-var KEY = "dreamtalk.magic";
-var COMPARE = "compare";
-var DEFAULT_OPTIONS = [
-  { id: "auto", label: "auto", available: true, fast: false },
-  { id: "geometry", label: "geometry", available: true, fast: true },
-  { id: "groq", label: "groq", available: false, fast: true },
-  { id: "clef", label: "clef", available: false, fast: true },
-  { id: "haiku", label: "haiku", available: false, fast: true },
-  { id: "opus", label: "opus", available: true, fast: false }
-];
-var read = () => {
-  try {
-    return localStorage.getItem(KEY) ?? "auto";
-  } catch {
-    return "auto";
-  }
-};
-var current = read();
-var currentEyes = () => current === COMPARE ? "auto" : current;
-var installMagic = (anchor2, onChange) => {
-  let options = DEFAULT_OPTIONS;
-  const el = document.createElement("select");
-  el.id = "magic";
-  el.title = "magic: which eyes ✦ reads with (Shift+✦ compares them all)";
-  el.style.cssText = "margin-left:6px;font:inherit;font-size:12px;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.4);border-radius:6px;padding:2px 4px;opacity:.85";
-  anchor2.after(el);
-  const render = () => {
-    el.innerHTML = "";
-    for (const o2 of [...options, { id: COMPARE, label: "compare all", available: true, fast: false }]) {
-      const opt = document.createElement("option");
-      opt.value = o2.id;
-      opt.disabled = !o2.available;
-      opt.textContent = o2.available ? o2.id === COMPARE ? o2.label : `magic: ${o2.label}` : `${o2.label} — add key`;
-      if (!o2.available && "needs" in o2 && o2.needs)
-        opt.title = `add ${o2.needs} to core/.env`;
-      el.appendChild(opt);
-    }
-    if (current !== COMPARE && !options.some((o2) => o2.id === current && o2.available))
-      current = "auto";
-    el.value = current;
-  };
-  el.addEventListener("change", () => {
-    current = el.value;
-    try {
-      localStorage.setItem(KEY, current);
-    } catch {}
-    el.blur();
-    onChange();
-  });
-  render();
-  return {
-    choice: () => current,
-    setOptions(eyes) {
-      if (eyes.length)
-        options = [...eyes];
-      render();
-      onChange();
-    },
-    fast: () => current !== COMPARE && !!options.find((o2) => o2.id === current)?.fast
-  };
-};
-var viaLine = (res, ms, ahead = false) => {
-  const who = (res.backend ?? "").split(":")[0] || "?";
-  const fit = res.fit !== undefined ? ` · fit ${res.fit.toFixed(3)}` : "";
-  return `${who} · ${ahead ? "read ahead" : `${Math.round(ms)} ms`}${fit}`;
-};
 
 // sketch/main.ts
 var pageEl = document.getElementById("page");

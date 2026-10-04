@@ -325,13 +325,69 @@ and Groq is unknown until real keys run. To reproduce:
     # to try Clef as the primary instead of Groq:
     # RECOGNIZE_BACKENDS=clef,groq,anthropic,cli
 
-## 7. Still open
+## 7. The magic switch, compare mode, and the MindVirus (2026-10-04, Groq live)
 
-- **The real latency and accuracy of Groq and Clef.** Re-run
-  `core/scripts/bench-recognize.ts` with the keys (`WHICH=groq,clef`).
-- **The real Groq latency**, and whether Qwen's first look is good enough
-  that the second look rarely runs. One session with David's key settles
-  both.
-- **Trace the MindVirus cable from the ink**, so its body takes the fast
-  shortcut path (today ~2.5 ms per evaluation).
+- **The switch** (`sketch/magic.ts`). It is a small select next to ✦ with
+  the options `auto · geometry · groq · clef · haiku · opus · compare all`.
+  - A reader without its key is greyed out, labelled "groq — add key", and
+    the tooltip names the `.env` variable.
+  - The choice is remembered per browser and sent with `/api/recognize` and
+    `/api/instruct`. The daemon treats it as an override of the chain: that
+    reader exactly, with no fallback behind it.
+  - "opus" is the Anthropic API when its key is set, otherwise `claude -p`.
+  - After each ✦ the status line shows who answered, the time and the fit,
+    for example `groq · 910 ms · fit 0.010`, or `read ahead` when the answer
+    was already there.
+- **Compare** works two ways: Shift+✦, or setting the switch to "compare all".
+  - `POST /api/recognize/compare` runs every available reader on the same
+    selection in parallel.
+  - The ring shows one chip per reader, labelled `groq 910 ms · 0.010`.
+  - Picking a chip replaces the selection as usual and logs the pick.
+  - Every comparison and every pick goes to `.cache/sketch/compare.jsonl`.
+  - `bun scripts/compare-summary.ts` prints one line per reader: picked,
+    answered, median ms, median fit, agreement with the majority.
+- **The MindVirus.** It was already in the default imports. Its tail is now
+  traced from the ink (`fit.ts` `traceTail` / `pathStart`):
+  - The tail is the longest run of ink leaving the body, ordered from its
+    free end to the body. Without a model, the longest open stroke is taken
+    as the tail and the rest as the body, and the heading points away from
+    where they meet.
+  - The fitter uses the traced tail when a model gives none, and traces it
+    again around the fitted body.
+  - So the MindVirus now works through every reader, including geometry
+    alone and Clef.
+
+**Benchmark set** (`core/scripts/bench-recognize.ts`): seeded scribbles
+plus, with `REAL=<symbol>`, the newest burst of ink on a board. These are
+**live** numbers, with Groq on David's key:
+
+| reader | sketch | right | median ms | range ms | fit |
+|---|---|---|---|---|---|
+| geometry | circle | 5/5 | 47 | 47–330 | 0.010 |
+| geometry | cylinder | 5/5 | 826 | 785–1157 | 0.004 |
+| geometry | cube | 5/5 (as the ring's top choice) | 383 | 380–409 | 0.018 |
+| geometry | MindVirus | 5/5 | 117 | 114–642 | 0.014 |
+| groq | circle | 5/5 | 910 | 813–1294 | 0.010 |
+| groq | cylinder | 5/5 | 1134 | 1097–1232 | 0.004 |
+| groq | cube | 5/5 | 1130 | 1093–1449 | 0.024 |
+| groq | MindVirus | 5/5 | 1557 | 1416–2325 | 0.014 |
+| opus (cli) | circle | 2/2 | 6888 | 6801–6888 | 0.010 |
+| opus (cli) | cylinder | 2/2 | 7499 | 7231–7499 | 0.004 |
+| opus (cli) | cube | 2/2 | 7834 | 7666–7834 | 0.024 |
+| opus (cli) | MindVirus | 2/2 | 7467 | 7283–7467 | 0.015 |
+| clef, haiku | — | awaiting key | | | |
+
+On these synthetic shapes every reader is right. The differences are speed
+and what each one can read beyond geometry: words, labels, notes. David's
+own sketches, through compare mode and the summary, will decide which reader
+wins.
+
+## 8. Still open
+
+- **Clef and Haiku**, once their keys exist:
+  `WHICH=clef,haiku bun scripts/bench-recognize.ts`.
+- **David's real sketches**: compare mode, then `bun scripts/compare-summary.ts`.
+- **The MindVirus body still takes the exact path** (~2.5 ms per
+  evaluation, held to 150 ms), because its absolute cable breaks the pose
+  shortcut.
 - **Flatten the cylinder in mirror.ts** from the same analytic outline.

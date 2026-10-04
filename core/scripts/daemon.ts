@@ -18,7 +18,10 @@
  *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
  *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts);
  *     `x-speculative: 1` asks ahead of ✦ (remembered for it), and
- *     GET /api/recognize/config says whether asking ahead is worth it
+ *     GET /api/recognize/config says whether asking ahead is worth it and
+ *     which readers the page's magic switch may offer;
+ *     POST /api/recognize/compare runs every available reader on the same
+ *     ink (logged to .cache/sketch/compare.jsonl), …/compare/pick logs the pick
  *   - POST /api/instruct → the whiteboard's voice instructions
  *     (scripts/instruct.ts): an InstructRequest in, edit ops out
  *   - WS  /ws/pen → pen-event relay: whatever one client sends, every OTHER
@@ -42,7 +45,7 @@ import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments, setResolved } from "./comments"
-import { recognizeConfig, recognizeMemo } from "./recognize"
+import { recognizeCompare, recognizeConfig, recognizeMemo, recordPick } from "./recognize"
 import { whereIs } from "./where"
 import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
@@ -673,6 +676,20 @@ const recognizeResponse = async (req: Request): Promise<Response> => {
   return Response.json(await recognizeMemo(body, { speculative: req.headers.get("x-speculative") === "1" }))
 }
 
+/** Every available reader on one selection (recognize.ts recognizeCompare), logged. */
+const compareResponse = async (req: Request): Promise<Response> => {
+  let body: RecognizeRequest
+  try {
+    body = (await req.json()) as RecognizeRequest
+  } catch {
+    return Response.json({ id: "", results: [], error: "malformed JSON" }, { status: 400 })
+  }
+  if (typeof body?.png !== "string" || !body.crop || !Array.isArray(body.strokes)) {
+    return Response.json({ id: "", results: [], error: "need png, crop, strokes" }, { status: 400 })
+  }
+  return Response.json(await recognizeCompare(body))
+}
+
 const instructResponse = async (req: Request): Promise<Response> => {
   let body: InstructRequest
   try {
@@ -723,6 +740,12 @@ const server = Bun.serve<SocketData>({
     }
     if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
     if (url.pathname === "/api/recognize/config") return Response.json(recognizeConfig())
+    if (url.pathname === "/api/recognize/compare" && req.method === "POST") return compareResponse(req)
+    if (url.pathname === "/api/recognize/compare/pick" && req.method === "POST")
+      return req.json().then(
+        (b) => recordPick(b as { id: string; backend: string; symbol: string }).then(() => Response.json({ ok: true })),
+        () => Response.json({ ok: false }, { status: 400 }),
+      )
     if (url.pathname === "/api/instruct" && req.method === "POST") return instructResponse(req)
     if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
     if (url.pathname === "/api/catalogue") return catalogueResponse(repoRoot)

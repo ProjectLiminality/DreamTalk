@@ -30,9 +30,9 @@
  * coercion — exported for the tests.
  */
 
-import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse, RecognizeStage } from "../sketch/protocol"
+import type { Candidate, CompareResponse, InkStroke, RecognizeRequest, RecognizeResponse, RecognizeStage } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
-import { instantReading, raceable, raceVocabulary, refineResponse, symbolOutline, type FitResult } from "../sketch/fit"
+import { clearReading, instantReading, raceable, raceVocabulary, refineResponse, symbolOutline, type FitResult } from "../sketch/fit"
 import { inkKey } from "../sketch/speculate"
 import { readPoints, vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
 import {
@@ -41,6 +41,9 @@ import {
   CLI_MODEL,
   cliResultText,
   decisionFirst,
+  EYES,
+  eyesFor,
+  eyesOptions,
   isFast,
   loadEnv,
   type Backend,
@@ -385,7 +388,8 @@ SECOND LOOK. The SECOND attached image is the same crop with your earlier readin
  *   4. ESCALATE — still poor: Claude (the API; the CLI too, but never
  *      ahead of ✦). RECOGNIZE_ESCALATE=0 turns 3–4 off.
  */
-export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = {}): Promise<RecognizeResponse> {
+export async function recognize(req: RecognizeRequest, options: RecognizeOptions = {}): Promise<RecognizeResponse> {
+  let opts = options
   const started = performance.now()
   const stages: RecognizeStage[] = []
   const timed = (name: string, t0: number, note?: string) =>
@@ -409,6 +413,20 @@ export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = 
     const entries = wanted.map(vocabById).filter((e): e is VocabEntry => !!e)
     if (entries.length === 0) return { candidates: [], error: "no known symbols in the imported vocabulary" }
     const ids = entries.map((e) => e.id)
+    // The magic switch: one reader, exactly (backends.ts eyesFor).
+    const eyesId = req.backend && req.backend !== "auto" ? req.backend : undefined
+    if (eyesId === "geometry") {
+      const t0 = performance.now()
+      const g = geometryReading(req.strokes, ids)
+      timed("geometry", t0, g.fit?.toFixed(3))
+      return done(g)
+    }
+    if (eyesId && !opts.chain) {
+      const eyes = eyesFor(eyesId)
+      const needs = eyesOptions().find((o) => o.id === eyesId)?.needs
+      if (!eyes) return done({ candidates: [], error: needs ? `${eyesId}: add ${needs} to core/.env` : `unknown reader '${eyesId}'` })
+      opts = { ...opts, chain: eyes.chain, decision: eyes.decision }
+    }
     const full = opts.chain ?? backendChain()
     const chain = opts.speculative ? full.filter(isFast) : full
     const clef = opts.decision === undefined ? decisionFirst() : (opts.decision ?? undefined)
@@ -536,7 +554,7 @@ export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = 
 // --- Asked once, answered twice: the reading of an ink set, remembered ---------------
 
 /** The ink + imports a reading is of (speculate.ts inkKey — the page keys its own by it too). */
-export const readingKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary">): string => Bun.hash(inkKey(req)).toString(36)
+export const readingKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary" | "backend">): string => Bun.hash(inkKey(req)).toString(36)
 
 const MEMO_SIZE = 32
 const memo = new Map<string, Promise<RecognizeResponse>>()
@@ -569,12 +587,99 @@ export const recognizeMemo = (req: RecognizeRequest, opts: RecognizeOptions = {}
   return p
 }
 
-/** What the page asks before it reads ahead: is there a fast backend at all? */
-export const recognizeConfig = (): { backends: string[]; speculate: boolean } => {
+/** What the page asks before it reads ahead: is there a fast backend at all —
+ *  and which readers can the magic switch offer? */
+export const recognizeConfig = (): { backends: string[]; speculate: boolean; eyes: ReturnType<typeof eyesOptions> } => {
   const chain = backendChain()
   const clef = decisionFirst()
   return {
     backends: [...(clef ? [`clef:${clef.model}`] : []), ...chain.map((b) => `${b.name}:${b.model}`)],
     speculate: !!clef || chain.some(isFast),
+    eyes: eyesOptions(),
   }
 }
+
+// --- Geometry alone, as a reader ------------------------------------------------------
+
+/**
+ * The race (fit.ts) as a reader of its own: a clear reading is one
+ * candidate; otherwise the three best-fitting symbols, the ring's to choose
+ * between, their confidences from the fit (the better the fit, the surer).
+ */
+export const geometryReading = (strokes: readonly InkStroke[], ids: readonly string[]): RecognizeResponse => {
+  const fits = raceVocabulary(strokes, ids)
+  const clear = clearReading(fits)
+  if (clear) return { ...clear, fit: fits[0]!.score.total, backend: "geometry" }
+  const seen = new Set<string>()
+  const top = fits.filter((f) => !seen.has(f.symbol) && seen.add(f.symbol)).slice(0, 3)
+  if (top.length === 0) return { candidates: [], notes: "nothing the geometry can place", backend: "geometry" }
+  const w = top.map((f) => 1 / Math.max(1e-4, f.score.total))
+  const sum = w.reduce((a, b) => a + b, 0)
+  return {
+    candidates: top.map((f, i) => ({
+      symbol: f.symbol,
+      params: f.params,
+      confidence: Math.round((w[i]! / sum) * 100) / 100,
+      why: `geometry fit ${f.score.total.toFixed(3)}`,
+    })),
+    fit: top[0]!.score.total,
+    backend: "geometry",
+  }
+}
+
+// --- Compare: every reader on the same ink -------------------------------------------
+
+const compareLog = `${repoRoot}.cache/sketch/compare.jsonl`
+
+/**
+ * Every AVAILABLE reader (the switch's options but auto) on the same ink,
+ * in parallel — the page shows them as one ring, each chip labelled with
+ * its reader, time and fit. Logged, one line per comparison, to
+ * .cache/sketch/compare.jsonl (scripts/compare-summary.ts reads it).
+ */
+export const recognizeCompare = async (
+  req: RecognizeRequest,
+  opts: { readers?: readonly string[]; read?: (req: RecognizeRequest) => Promise<RecognizeResponse>; log?: string } = {},
+): Promise<CompareResponse> => {
+  loadEnv()
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const readers =
+    opts.readers ??
+    eyesOptions()
+      .filter((o) => o.available && o.id !== "auto")
+      .map((o) => o.id)
+  const read = opts.read ?? ((r: RecognizeRequest) => recognize(r))
+  const results = await Promise.all(
+    readers.map(async (backend) => {
+      const t0 = performance.now()
+      const response = await read({ ...req, backend })
+      return { backend, ms: Math.round(performance.now() - t0), response }
+    }),
+  )
+  await appendLog(opts.log ?? compareLog, {
+    t: new Date().toISOString(),
+    id,
+    strokes: req.strokes.length,
+    ink: readingKey({ ...req, backend: "auto" }),
+    results: results.map((r) => ({
+      backend: r.backend,
+      choice: r.response.candidates[0]?.symbol ?? null,
+      ms: r.ms,
+      fit: r.response.fit ?? null,
+      ...(r.response.error ? { error: r.response.error.slice(0, 160) } : {}),
+    })),
+  })
+  return { id, results }
+}
+
+/** David picked one chip of a comparison: the strongest signal of which reader was right. */
+export const recordPick = async (pick: { id: string; backend: string; symbol: string }, log = compareLog): Promise<void> =>
+  appendLog(log, { t: new Date().toISOString(), pick: pick.id, backend: pick.backend, symbol: pick.symbol })
+
+const appendLog = async (path: string, line: unknown): Promise<void> => {
+  const { appendFile, mkdir } = await import("node:fs/promises")
+  await mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true })
+  await appendFile(path, JSON.stringify(line) + "\n")
+}
+
+export { EYES }

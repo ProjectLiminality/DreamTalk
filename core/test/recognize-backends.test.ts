@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { inflateSync } from "node:zlib"
 import {
@@ -16,6 +16,8 @@ import {
   backendChain,
   clefBackend,
   decisionFirst,
+  eyesFor,
+  eyesOptions,
   groqBackend,
   loadEnv,
   type Backend,
@@ -24,7 +26,8 @@ import {
   type VisionAsk,
 } from "../scripts/backends"
 import { overlayPng } from "../scripts/overlay"
-import { parseRecognizeReply, readingSchema, recognize, recognizeMemo, POOR_FIT } from "../scripts/recognize"
+import { parseRecognizeReply, readingSchema, recognize, recognizeCompare, recognizeMemo, recordPick, POOR_FIT } from "../scripts/recognize"
+import { summarize } from "../scripts/compare-summary"
 import type { RecognizeRequest } from "../sketch/protocol"
 import { roughCylinder, wobblyCircle } from "./scribbles"
 
@@ -354,5 +357,61 @@ describe("Clef (a decision model)", () => {
     expect(seen).toHaveLength(1)
     expect(res.candidates[0]!.symbol).toBe("circle")
     expect(res.stages!.map((s) => s.name)[0]).toBe("clef mock")
+  })
+})
+
+describe("the magic switch", () => {
+  test("each reader is offered only when its key is there", () => {
+    const off = Object.fromEntries(eyesOptions({}).map((o) => [o.id, o.available]))
+    expect(off).toEqual({ auto: true, geometry: true, groq: false, clef: false, haiku: false, opus: true })
+    expect(eyesOptions({}).find((o) => o.id === "opus")!.label).toBe("opus (cli)")
+    const on = eyesOptions({ GROQ_API_KEY: "g", ANTHROPIC_API_KEY: "a", CLOUDFLARE_ACCOUNT_ID: "c", CLOUDFLARE_API_TOKEN: "t" })
+    expect(on.every((o) => o.available)).toBe(true)
+  })
+
+  test("a reader by name is exactly that backend", () => {
+    expect(eyesFor("groq", {})).toBeUndefined()
+    expect(eyesFor("groq", { GROQ_API_KEY: "g" })!.chain.map((b) => b.name)).toEqual(["groq"])
+    expect(eyesFor("haiku", { ANTHROPIC_API_KEY: "a" })!.chain[0]!.model).toBe("claude-haiku-4-5")
+    expect(eyesFor("opus", {})!.chain.map((b) => b.name)).toEqual(["cli"])
+    expect(eyesFor("opus", { ANTHROPIC_API_KEY: "a" })!.chain[0]!.model).toBe("claude-opus-5-5")
+    expect(eyesFor("clef", { CLOUDFLARE_ACCOUNT_ID: "c", CLOUDFLARE_API_TOKEN: "t" })!.decision!.name).toBe("clef")
+  })
+
+  test("geometry as a reader: no model, the race's answer", async () => {
+    const res = await recognize({ ...request(), backend: "geometry" })
+    expect(res.backend).toBe("geometry")
+    expect(res.candidates[0]!.symbol).toBe("circle")
+    expect(res.stages!.map((s) => s.name)).toEqual(["geometry"])
+  })
+
+  test("a reader without its key says which key to add", async () => {
+    const saved = process.env.CLOUDFLARE_API_TOKEN
+    delete process.env.CLOUDFLARE_API_TOKEN
+    const res = await recognize({ ...request(), backend: "clef" })
+    if (saved !== undefined) process.env.CLOUDFLARE_API_TOKEN = saved
+    expect(res.error).toContain("CLOUDFLARE_API_TOKEN")
+  })
+})
+
+describe("compare", () => {
+  test("every reader on the same ink, side by side, logged — and the pick logged against it", async () => {
+    const log = `${mkdtempSync(`${tmpdir()}/cmp-`)}/compare.jsonl`
+    const cmp = await recognizeCompare(request(), {
+      readers: ["geometry", "groq"],
+      log,
+      read: async (r) =>
+        r.backend === "groq"
+          ? { candidates: [{ symbol: "circle", params: {}, confidence: 0.9, why: "" }], fit: 0.012, backend: "groq:mock" }
+          : { candidates: [], error: "nothing" },
+    })
+    expect(cmp.results.map((r) => r.backend)).toEqual(["geometry", "groq"])
+    await recordPick({ id: cmp.id, backend: "groq", symbol: "circle" }, log)
+    const lines = readFileSync(log, "utf8").trim().split("\n")
+    expect(JSON.parse(lines[0]!).results[1]).toMatchObject({ backend: "groq", choice: "circle", fit: 0.012 })
+    const summary = summarize(lines)
+    expect(summary[0]).toBe("1 comparisons, 1 picks")
+    expect(summary[1]).toContain("groq")
+    expect(summary[1]).toContain("picked   1")
   })
 })

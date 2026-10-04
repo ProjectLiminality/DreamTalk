@@ -129,6 +129,9 @@ export interface RecognizeRequest {
   strokes: InkStroke[]
   /** Which vocabulary is imported into this scene (symbol ids). */
   vocabulary: string[]
+  /** Which eyes read it (the page's magic switch): "auto" (the daemon's
+   *  chain), "geometry", "groq", "clef", "haiku", "opus". Absent = auto. */
+  backend?: string
 }
 
 /** One reading of the scribble. */
@@ -139,6 +142,10 @@ export interface Candidate {
   confidence: number
   /** One short line: why this symbol. Shown in the options ring. */
   why: string
+  /** Shown in the chip instead of the confidence (compare: "groq 736 ms · fit 0.014"). */
+  label?: string
+  /** Which eyes produced it (compare mode). */
+  via?: string
 }
 
 /**
@@ -157,6 +164,13 @@ export interface RecognizeResponse {
   fit?: number
   /** What ran, in order, and how long each took — the latency ledger. */
   stages?: RecognizeStage[]
+}
+
+/** Every available reader on the same ink, side by side (POST /api/recognize/compare). */
+export interface CompareResponse {
+  /** Names this comparison in .cache/sketch/compare.jsonl — the pick is logged against it. */
+  id: string
+  results: { backend: string; ms: number; response: RecognizeResponse }[]
 }
 
 /** One step of a reading: the model's look, the fit, a second look, … */
@@ -211,6 +225,8 @@ export interface InstructRequest {
   vocabulary: string[]
   /** The short tag drawn beside each item in the image (id → label). */
   labels: Record<string, string>
+  /** The magic switch, as for RecognizeRequest (geometry and clef read no instructions: auto). */
+  backend?: string
 }
 
 export interface InstructResponse {
