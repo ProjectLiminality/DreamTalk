@@ -89,11 +89,15 @@ const reports: FrameReport[] = []
 try {
   const page = await browser.newPage()
   await page.setViewport({ width: 1280, height: 760 })
+  // domcontentloaded + the ready flag: the page streams audio now, and
+  // networkidle0 never settles under it.
   await page.goto(`http://localhost:${port}/demo/?scene=${sceneKey}`, {
-    waitUntil: "networkidle0",
-    timeout: 30000,
+    waitUntil: "domcontentloaded",
+    timeout: 180000,
   })
-  await page.waitForFunction("window.__dt !== undefined", { timeout: 30000 })
+  await page.waitForFunction("window.__dt && (window.__dt.ready === true || window.__dt.error)", {
+    timeout: 180000,
+  })
   const status = await page.evaluate(() => ({
     ready: window.__dt!.ready,
     error: (window.__dt as { error?: string }).error ?? null,

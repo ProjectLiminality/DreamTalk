@@ -173,7 +173,7 @@ export class S10Dream extends Dream {
     size: 30,
     y: -150,
     tint: WHITE,
-    stroke: 0,
+    stroke: 1,
   })
 
   unfold() {

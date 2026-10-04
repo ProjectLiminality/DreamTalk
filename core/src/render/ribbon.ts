@@ -583,7 +583,10 @@ export class RibbonStroke {
     const ud = this.mesh.userData
     ud[RIBBON_KEYS.drawn] = fraction * this.totalLength
     ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength
-    this.mesh.visible = fraction > erasedFraction && opacity > 0
+    // A pen of no width draws nothing. (Its SDF still put 0.5 coverage on
+    // the centreline — a 1px antialiasing hairline — which every "stroke: 0"
+    // fill had to hide behind an invisible outline.)
+    this.mesh.visible = fraction > erasedFraction && opacity > 0 && widthPx > 0
     ud[RIBBON_KEYS.fade] = opacity
     ;(ud[RIBBON_KEYS.tint] as THREE.Color).setRGB(tint.r, tint.g, tint.b)
     ud[RIBBON_KEYS.widthPx] = widthPx

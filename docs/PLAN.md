@@ -619,6 +619,14 @@ ruling (translation + the three deleted labels from footage).
       (1 − falloff·smoothstep(0, R, r)) from the local origin, animatable.
       Only fills that ask switch material; state gate 504/504 identical.
       `/demo/?scene=fillglow`. For Web3's light globe (LightSpread).
+- [x] **stroke: 0 draws no rim** — a zero-width pen is invisible
+      (ribbon.ts style); its SDF had put a 1px antialiasing hairline on
+      every "stroke: 0" fill. Relied on by video01's Text (S02/S07/S09/
+      S10, Write traced in that hairline): those now say `stroke: 1`,
+      gauntlet-verified (S07 0.963→0.972, S09 0.995→0.996, S10 0.996→
+      0.997, S02 unchanged; all frames pass). State gate: only s07/s09/s10
+      and web3 (its glows lose the rim — docs/reports/perf/stroke0-rim-
+      web3-111.png) change. Also: gauntlet.ts waits for the ready flag.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

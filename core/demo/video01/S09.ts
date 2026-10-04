@@ -157,9 +157,9 @@ export class S09Dream extends Dream {
   })
 
   // The three names, all at z=-120 → our y=-120, height 30.
-  thesis = new Text({ content: "thesis", size: 30, x: -200, y: -120, stroke: 0 })
-  antithesis = new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 })
-  synthesis = new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 0 })
+  thesis = new Text({ content: "thesis", size: 30, x: -200, y: -120, stroke: 1 })
+  antithesis = new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 1 })
+  synthesis = new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 1 })
 
   unfold() {
     this.observer.look("front")
