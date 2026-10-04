@@ -352,7 +352,7 @@ export const shapeClass = (shape: SlideShapeData): string => {
     const total = cum[n - 1]!
     let at = 0
     for (let k = 0; k < SAMPLES; k++) {
-      const target = total * (SAMPLES === 1 ? 0 : k / (SAMPLES - 1))
+      const target = total * (k / (SAMPLES - 1))
       while (at < n - 1 && cum[at + 1]! < target) at++
       // Linear interpolation inside the segment the target falls in, so
       // the sample is a point on the silhouette rather than the nearest
