@@ -202,3 +202,38 @@ batch) on thewall, mindvirus, cable, labyrinth, molocheye, video01 —
 identical apart from the first-frame noise floor, which differs equally
 between two runs of the SAME code. GPU-complete TheWall frames:
 265/239/189/126 → 264/228/164/84 ms at t = 0.5/3.33/8.33/15.8.
+
+## Ribbon-vs-fill order in the batch (2026-10-04) — runs, and when batching wins
+
+**The bug.** One batch drew every ribbon at ONE renderOrder above every
+fill. Attach order IS composite order (the per-mesh oracle), so wherever
+a fill is attached AFTER strokes it must cover, the batch was wrong: the
+Web3 song's hero (shot 15) drew its flower lattice over the globe's black
+ocean.
+
+**The fix.** Ribbons batch in RUNS: a batched stroke joins the open batch
+unless a fill (fill, wash, arrowhead — `claimFillOrder`) has claimed an
+order since it opened, and each batch draws at its run's order. Within a
+run only ribbons lie between the orders, and ribbon-vs-ribbon is a MAX
+no-op, so runs composite exactly as the oracle does. All runs share ONE
+table and ONE material (`BatchTable`) — per-batch materials cost 23 s of
+boot on Web3's 6,466 runs; shared, 3.6 s.
+
+**When to batch at all.** Each run is a draw, so batching wins only on
+long runs (GPU-complete frames): TheWall 3,776 strokes / 237 runs —
+batched 263/228/165/69 ms vs oracle 276/242/182, a win; Web3 17,648 /
+6,466 — runs ~187 ms vs oracle 65–79, a loss, and the old single batch
+(82–90 ms) was ALSO slower than the oracle besides being wrong. "auto" now
+attaches batched, counts the runs, and below `MIN_STROKES_PER_RUN` (8)
+hands every stroke back to its own mesh (`unbatch` — the meshes are
+already in their groups), i.e. the oracle.
+
+**Gates.** instancing-gate (forced batching = runs) on thewall (4 t),
+o03, s01, molocheye, web3s15: data EQUAL and PNG BYTE-IDENTICAL to the
+oracle on every frame (o03/s01 had only reached coverage equality under
+the single batch). Web3 on auto: the hero frame is pixel-identical to the
+oracle. state-gate vs HEAD: identical on all non-batched scenes (s01/text
+show only the documented first-frame `hg` floor); thewall differs
+structurally (237 batch meshes for 1) and is covered by the instancing
+gate. VISIBLE CHANGE: the Web3 hero's lattice no longer draws over the
+globe — the reference's own composition.

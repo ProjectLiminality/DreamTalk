@@ -76,12 +76,12 @@ for (const scene of scenes) {
         hv = hashNums([o.visible ? 1 : 0, o.layers.mask, o.renderOrder], hv)
         for (const k of Object.keys(o.userData).sort()) { const v = o.userData[k]; hu = typeof v === "number" ? hashNums([v], hu) : v && v.isColor ? hashNums([v.r, v.g, v.b], hu) : hu }
         const g = o.geometry
-        if (g && g.attributes.instanceStroke && host.ribbonBatch) {
+        if (g && g.attributes.instanceStroke && o.userData.dtBatch) {
           // the ribbon batch, table layout (opt G): an instance is live when
           // its stroke's row has fade ≠ 0; hash each live instance as its
           // row (f32 modelView + style) plus its local endpoints/distances,
           // as an order-free multiset — abandoned runs keep stale history
-          const t = host.ribbonBatch.tableArray, rows = g.attributes.instanceStroke.array
+          const t = o.userData.dtBatch.tableArray, rows = g.attributes.instanceStroke.array
           const pos = g.attributes.instanceStart.data.array, dist = g.attributes.instanceDistanceStart.data.array
           let sum = 0, live = 0
           for (let i = 0; i < g.instanceCount; i++) {

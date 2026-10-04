@@ -590,6 +590,11 @@ ruling (translation + the three deleted labels from footage).
 - [x] **Perf H — Cable's tether frame read once per computation**
       (vocabulary/Cable/Cable.ts): same floats, byte-identical (state
       gate); TheWall GPU-complete frames up to −42 ms (t=15.8: 126→84).
+- [x] **Stroke/fill order in the batch** — ribbons batch in fill-free
+      RUNS (shared table/material), exact oracle compositing; "auto"
+      keeps a batch only at ≥ 8 strokes per run (TheWall yes, Web3 no).
+      Web3 hero: lattice no longer over the globe. ROADMAP "Ribbon-vs-
+      fill order".
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

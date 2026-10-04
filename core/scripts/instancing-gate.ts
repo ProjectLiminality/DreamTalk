@@ -92,25 +92,26 @@ const EXTRACT = `
     // Table layout (opt G): each instance carries LOCAL endpoints and its
     // stroke's row; the row holds that stroke's f32 modelView and style.
     // View space = row mv · local — the multiply the shader does.
-    const batch = host['ribbonBatch'];
-    const g = batch.geometry;
-    const n = g.instanceCount;
-    const pos = g.getAttribute('instanceStart').data.array;
-    const dist = g.getAttribute('instanceDistanceStart').data.array;
-    const rows = g.getAttribute('instanceStroke').array;
-    const t = batch.tableArray;
     const mv = new THREE.Matrix4();
     const a = new THREE.Vector3(), b = new THREE.Vector3();
-    for (let i = 0; i < n; i++) {
-      const r = rows[i] * 24;
-      const fade = t[r + 19];
-      if (fade === 0) continue;   // hidden — draws nothing, excluded
-      mv.fromArray(t, r);
-      a.set(pos[i*6], pos[i*6+1], pos[i*6+2]).applyMatrix4(mv);
-      b.set(pos[i*6+3], pos[i*6+4], pos[i*6+5]).applyMatrix4(mv);
-      segs.push([round(a.x),round(a.y),round(a.z),round(b.x),round(b.y),round(b.z),
-                 round(dist[i*2]),round(dist[i*2+1]),round(t[r+16]),round(t[r+17]),round(t[r+18]),
-                 round(t[r+20]),round(t[r+21]),round(t[r+22]),round(fade)]);
+    for (const batch of host['ribbonBatches']) {
+      const g = batch.geometry;
+      const n = g.instanceCount;
+      const pos = g.getAttribute('instanceStart').data.array;
+      const dist = g.getAttribute('instanceDistanceStart').data.array;
+      const rows = g.getAttribute('instanceStroke').array;
+      const t = batch.tableArray;
+      for (let i = 0; i < n; i++) {
+        const r = rows[i] * 24;
+        const fade = t[r + 19];
+        if (fade === 0) continue;   // hidden — draws nothing, excluded
+        mv.fromArray(t, r);
+        a.set(pos[i*6], pos[i*6+1], pos[i*6+2]).applyMatrix4(mv);
+        b.set(pos[i*6+3], pos[i*6+4], pos[i*6+5]).applyMatrix4(mv);
+        segs.push([round(a.x),round(a.y),round(a.z),round(b.x),round(b.y),round(b.z),
+                   round(dist[i*2]),round(dist[i*2+1]),round(t[r+16]),round(t[r+17]),round(t[r+18]),
+                   round(t[r+20]),round(t[r+21]),round(t[r+22]),round(fade)]);
+      }
     }
   }
   segs.sort((p,q) => { for (let k=0;k<p.length;k++){ if(p[k]!==q[k]) return p[k]-q[k]; } return 0; });

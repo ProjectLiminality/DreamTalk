@@ -282,6 +282,51 @@ export interface BatchStroke {
 }
 
 /**
+ * The per-stroke table and the one material that reads it, SHARED by all
+ * of a host's batches. A host batches ribbons in runs (one per stretch of
+ * attach order no fill interrupts — three-host.ts), so a scene with many
+ * fills has many batches; sharing means each extra batch is only a
+ * geometry and a draw on the same pipeline, never another material to
+ * build or another table to upload.
+ */
+export class BatchTable {
+  attr: THREE.StorageBufferAttribute
+  material: RibbonBatchMaterial
+  /** Rows handed out (row 0 is the hidden stroke). */
+  private rows = 1
+  /** Every mesh drawing with the material — re-pointed when it is rebuilt. */
+  private readonly meshes: THREE.Mesh[] = []
+
+  constructor(initialRows = 64) {
+    this.attr = new THREE.StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4)
+    this.material = new RibbonBatchMaterial(this.attr)
+  }
+
+  get array(): Float32Array {
+    return this.attr.array as Float32Array
+  }
+
+  adopt(mesh: THREE.Mesh): void {
+    this.meshes.push(mesh)
+    mesh.material = this.material
+  }
+
+  /** A fresh row, growing the table (and rebuilding its material) if full. */
+  reserveRow(): number {
+    const row = this.rows++
+    if (this.rows * TABLE_VEC4 > this.attr.count) {
+      const next = new Float32Array((1 << Math.ceil(Math.log2(this.rows))) * TABLE_VEC4 * 4)
+      next.set(this.attr.array as Float32Array)
+      this.attr = new THREE.StorageBufferAttribute(next, 4)
+      this.material.dispose()
+      this.material = new RibbonBatchMaterial(this.attr)
+      for (const mesh of this.meshes) mesh.material = this.material
+    }
+    return row
+  }
+}
+
+/**
  * One InstancedBufferGeometry holding many strokes' segments, drawn once.
  *
  * Layout mirrors RibbonStroke's per-mesh geometry exactly (the same unit
@@ -293,15 +338,13 @@ export interface BatchStroke {
  */
 export class RibbonBatch {
   readonly mesh: THREE.Mesh
-  material: RibbonBatchMaterial
   readonly geometry: THREE.InstancedBufferGeometry
+  /** The table (and material) this batch shares with its siblings. */
+  readonly shared: BatchTable
   /** High-water mark of reserved slots — the buffers' capacity in segments. */
   private capacity = 0
   /** Next free offset when reserving; runs are never freed, only hidden. */
   private cursor = 0
-  /** Rows handed out (row 0 is the hidden stroke). */
-  private rows = 1
-  private table: THREE.StorageBufferAttribute
 
   private posBuf!: THREE.InstancedInterleavedBuffer
   private distBuf!: THREE.InstancedInterleavedBuffer
@@ -314,7 +357,7 @@ export class RibbonBatch {
   private dirtyLo = Infinity
   private dirtyHi = -Infinity
 
-  constructor(initialCapacity = 256, initialRows = 64) {
+  constructor(initialCapacity = 256, shared: BatchTable = new BatchTable()) {
     this.geometry = new THREE.InstancedBufferGeometry()
     // The unit quad, shared by every instance — identical to RibbonStroke.
     this.geometry.setAttribute(
@@ -324,11 +367,13 @@ export class RibbonBatch {
     this.geometry.setIndex([0, 2, 1, 2, 3, 1])
     this.allocate(Math.max(1, initialCapacity))
     this.geometry.instanceCount = 0
-    this.table = new THREE.StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4)
-    this.material = new RibbonBatchMaterial(this.table)
-    this.mesh = new THREE.Mesh(this.geometry, this.material)
+    this.shared = shared
+    this.mesh = new THREE.Mesh(this.geometry, shared.material)
+    shared.adopt(this.mesh)
     this.mesh.frustumCulled = false
     this.mesh.visible = false
+    // For the gates (instancing-gate.ts, state-gate.ts): mesh → its batch.
+    this.mesh.userData.dtBatch = this
   }
 
   /** (Re)allocate the per-instance buffers to `segments`, preserving data. */
@@ -360,24 +405,13 @@ export class RibbonBatch {
     this.capacity = cap
   }
 
-  /** Grow the table to hold `rows`, rebuilding the material that reads it. */
-  private growTable(rows: number): void {
-    const next = new Float32Array((1 << Math.ceil(Math.log2(rows))) * TABLE_VEC4 * 4)
-    next.set(this.table.array as Float32Array)
-    this.table = new THREE.StorageBufferAttribute(next, 4)
-    this.material.dispose()
-    this.material = new RibbonBatchMaterial(this.table)
-    this.mesh.material = this.material
-  }
-
   /**
    * Reserve a run of `maxSegments` slots and a table row for a stroke,
    * growing the buffers if needed. The stroke keeps the slot for life
    * (unless it outgrows it — see writeStroke).
    */
   reserve(maxSegments: number): BatchSlot {
-    const row = this.rows++
-    if (this.rows * TABLE_VEC4 > this.table.count) this.growTable(this.rows)
+    const row = this.shared.reserveRow()
     return { ...this.reserveRun(maxSegments), row }
   }
 
@@ -451,7 +485,7 @@ export class RibbonBatch {
       slot.points = stroke.points
       slot.count = n
     }
-    const t = this.table.array as Float32Array
+    const t = this.shared.array
     const base = slot.row * TABLE_VEC4 * 4
     const e = mv.elements
     for (let i = 0; i < 16; i++) t[base + i] = e[i]!
@@ -462,7 +496,7 @@ export class RibbonBatch {
     t[base + 20] = tintR
     t[base + 21] = tintG
     t[base + 22] = tintB
-    this.table.needsUpdate = true
+    this.shared.attr.needsUpdate = true
     return slot
   }
 
@@ -492,13 +526,12 @@ export class RibbonBatch {
 
   /** Hide a stroke this frame: its row's fade to 0, its segments untouched. */
   hideStroke(slot: BatchSlot): void {
-    const t = this.table.array as Float32Array
-    t[slot.row * TABLE_VEC4 * 4 + 19] = 0
-    this.table.needsUpdate = true
+    this.shared.array[slot.row * TABLE_VEC4 * 4 + 19] = 0
+    this.shared.attr.needsUpdate = true
   }
 
   /** The table, for the byte-identity gate to read (instancing-gate.ts). */
   get tableArray(): Float32Array {
-    return this.table.array as Float32Array
+    return this.shared.array
   }
 }

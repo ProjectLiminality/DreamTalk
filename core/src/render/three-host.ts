@@ -45,7 +45,7 @@ import {
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
 import { RibbonStroke, RIBBON_KEYS } from "./ribbon"
-import { RibbonBatch, type BatchSlot } from "./ribbon-batch"
+import { BatchTable, RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
@@ -109,6 +109,8 @@ interface StrokeBinding {
    * per-mesh path (the oracle) renders this stroke's own mesh.
    */
   slot?: BatchSlot
+  /** The run this stroke's slot lives in (instancing on). */
+  batch?: RibbonBatch
   look: StyleParams
 }
 
@@ -787,7 +789,7 @@ export class ThreeHost {
 
   private constructor(dream: Dream, canvas: HTMLCanvasElement, useInstancedRibbons: boolean) {
     this.dream = dream
-    this.useInstancedRibbons = useInstancedRibbons
+    this.instanced = useInstancedRibbons
     this.renderer = new THREE.WebGPURenderer({ canvas, antialias: true })
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(0x000000)
@@ -807,6 +809,21 @@ export class ThreeHost {
    */
   static readonly INSTANCE_THRESHOLD = 1000
 
+  /**
+   * Batched ribbons draw in RUNS — one batch per stretch of attach order no
+   * fill interrupts (attach), which is what keeps them composited exactly
+   * as the per-mesh oracle composites them. Each run is a draw, so batching
+   * only wins when runs are long. Measured 2026-10-04, GPU-complete frames:
+   * TheWall, 3,776 strokes in 237 runs (~16 a run): batched 263/228/165/
+   * 69 ms vs oracle 276/242/182 — a win; Web3, 17,648 strokes in 6,466
+   * runs (~2.7 a run, its washes interleave everywhere): batched ~187 ms vs
+   * oracle 65–79 — a loss (and one single batch, besides drawing strokes
+   * over the fills that should cover them, was still slower than the
+   * oracle). "auto" keeps the batch only at or above this many strokes per
+   * run; otherwise the strokes simply render as themselves.
+   */
+  static readonly MIN_STROKES_PER_RUN = 8
+
   static async mount(
     dream: Dream,
     canvas: HTMLCanvasElement,
@@ -824,22 +841,20 @@ export class ThreeHost {
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
     for (const root of dream.roots) host.attach(root, host.scene)
-    // With instancing on, the single batch mesh joins the scene once every
-    // stroke has claimed its slot — at the ribbon renderOrder band so it
-    // composites correctly against fills (below). Ribbons MAX-blend, so
-    // stroke-vs-stroke order inside the batch is a no-op; only ribbon-vs-
-    // fill order matters, and the batch sits at one fixed order.
-    if (host.ribbonBatch) {
-      // The batch draws at ONE renderOrder for all ribbons. In this corpus
-      // a stroke is attached AFTER the fill it composites against (the
-      // MolochEye pupil over its black iris disk; a sketch line over its
-      // own wash), so ribbons draw OVER fills — and the batch must sit
-      // ABOVE every fill to reproduce that, at the highest order claimed at
-      // attach. (Stroke-vs-stroke order is a MAX-blend no-op; ribbon-vs-fill
-      // is the only order that matters, proven by the o03/s01/thewall gate.)
-      host.ribbonBatch.mesh.renderOrder = host.nextFillOrder
-      host.scene.add(host.ribbonBatch.mesh)
+    // "auto" decides the second half here, once the runs exist: short runs
+    // lose to the oracle, so the strokes go back to rendering themselves.
+    const auto = opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
+    if (
+      auto &&
+      host.ribbonBatches.length > 0 &&
+      host.strokes.length / host.ribbonBatches.length < ThreeHost.MIN_STROKES_PER_RUN
+    ) {
+      host.unbatch()
     }
+    // With instancing on, the batch meshes join the scene once every
+    // stroke has claimed its slot.
+    // Each batch already sits at its own run's renderOrder (see attach).
+    for (const batch of host.ribbonBatches) host.scene.add(batch.mesh)
     // Glyph layout is asynchronous (three-text loads HarfBuzz and the
     // font on first use), so a host carrying Text is not frame-ready the
     // moment it mounts. Awaiting every binding here is what makes a
@@ -913,12 +928,12 @@ export class ThreeHost {
       )
       this.cylinders.push(binding)
     } else if (holon instanceof Ellipse && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++)
+      const fill = new FillShape(this.claimFillOrder())
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
       group.add(fill.mesh)
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
     } else if (holon instanceof Rectangle && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++)
+      const fill = new FillShape(this.claimFillOrder())
       fill.setPolygon(
         rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
       )
@@ -946,7 +961,7 @@ export class ThreeHost {
       // boundary. Claimed here, before the children are reached.
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined
       if (loops) {
-        const fill = new FillShape(this.nextFillOrder++)
+        const fill = new FillShape(this.claimFillOrder())
         fill.setPolygons(loops)
         group.add(fill.mesh)
         this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) })
@@ -957,7 +972,7 @@ export class ThreeHost {
           ? washGeometry(holon)
           : undefined
       if (washed) {
-        const fill = new FillShape(this.nextFillOrder++)
+        const fill = new FillShape(this.claimFillOrder())
         fill.setPolygon(washed.points, washed.triangles)
         group.add(fill.mesh)
         this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
@@ -987,12 +1002,27 @@ export class ThreeHost {
           // visibility; layer BATCH_LAYER keeps it out of the frame.
           group.add(ribbon.mesh)
           ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER)
-          if (!this.ribbonBatch) this.ribbonBatch = new RibbonBatch()
+          // Attach order is composite order, and a batch draws at ONE
+          // renderOrder — so ribbons batch in RUNS: a stroke joins the open
+          // batch unless a fill has claimed an order since it opened, in
+          // which case it opens the next one. Within a run nothing but
+          // ribbons lies between their orders, and ribbon-vs-ribbon order
+          // is a MAX no-op, so the batch at the run's latest order
+          // composites exactly as the per-mesh oracle does. (One batch
+          // above every fill was wrong wherever a fill was attached AFTER
+          // strokes it must cover: Web3's hero globe over its lattice.)
+          if (!this.openBatch) {
+            this.batchTable ??= new BatchTable()
+            this.openBatch = new RibbonBatch(256, this.batchTable)
+            this.ribbonBatches.push(this.openBatch)
+          }
+          this.openBatch.mesh.renderOrder = ribbon.mesh.renderOrder
+          strokeBinding.batch = this.openBatch
           // Reserve with headroom over the current segment count so a
           // breathing stroke rarely relocates. A stroke with no segments
           // yet (an empty derived Line) still gets a small slot.
           const initial = ribbon.geometry.instanceCount
-          strokeBinding.slot = this.ribbonBatch.reserve(Math.max(2, initial))
+          strokeBinding.slot = this.openBatch.reserve(Math.max(2, initial))
         } else {
           group.add(ribbon.mesh)
         }
@@ -1003,7 +1033,7 @@ export class ThreeHost {
           if (!(atStart ? holon.arrowStart : holon.arrowEnd).value) continue
           const polygon = arrowPolygon(holon.points, atStart, holon.arrowSize.value)
           if (!polygon) continue
-          const fill = new FillShape(this.nextFillOrder++)
+          const fill = new FillShape(this.claimFillOrder())
           fill.setPolygon(polygon)
           group.add(fill.mesh)
           this.arrows.push({
@@ -1207,7 +1237,7 @@ export class ThreeHost {
       this.cylinders.length > 0 ||
       this.arrows.length > 0 ||
       this.texts.length > 0 ||
-      this.ribbonBatch !== undefined
+      this.ribbonBatches.length > 0
     ) {
       this.settleScene()
       for (const binding of this.cylinders) this.syncCylinder(binding)
@@ -1243,12 +1273,11 @@ export class ThreeHost {
    * shader multiplies it by the same local endpoint, on the GPU.
    */
   private packRibbonBatch(): void {
-    const batch = this.ribbonBatch
-    if (!batch) return
+    if (this.ribbonBatches.length === 0) return
     const viewInverse = this.camera.matrixWorldInverse
     for (const binding of this.strokes) {
-      const { ribbon, group, slot } = binding
-      if (!slot) continue
+      const { ribbon, group, slot, batch } = binding
+      if (!slot || !batch) continue
       const geometry = ribbon.geometry
       const count = geometry.instanceCount
       // A stroke style()/cull hid, or an empty derived polyline, draws
@@ -1280,7 +1309,7 @@ export class ThreeHost {
         ud[RIBBON_KEYS.fade] as number,
       )
     }
-    batch.flush()
+    for (const batch of this.ribbonBatches) batch.flush()
   }
 
   /**
@@ -1333,14 +1362,48 @@ export class ThreeHost {
    * the per-mesh RibbonStroke path is the byte-identity ORACLE and stays
    * the default until instancing is proven byte-identical on the full
    * scene set. When on, ribbons are baked into ONE batched draw
-   * (`ribbonBatch`) instead of 3,776 individual meshes, collapsing the
+   * (`ribbonBatches`, one per fill-free run) instead of 3,776 meshes, collapsing the
    * per-object WebGPU submission cost that IS the render ceiling
    * (hump-diagnosis.md). Read once at mount, since it decides what attach
    * builds; flipping it after mount does nothing until the next mount.
    */
-  readonly useInstancedRibbons: boolean
-  /** The one batched-ribbon mesh — present only when instancing is on. */
-  private ribbonBatch?: RibbonBatch
+  get useInstancedRibbons(): boolean {
+    return this.instanced
+  }
+  private instanced: boolean
+
+  /**
+   * Undo instancing after attach: every batched stroke's own mesh is
+   * already in its group (on BATCH_LAYER, for its world matrix), so it
+   * returns to the rendered layer and is the per-mesh oracle again — the
+   * same renderOrder, the same everything — and the batches are dropped.
+   */
+  private unbatch(): void {
+    for (const binding of this.strokes) {
+      if (!binding.batch) continue
+      binding.ribbon.mesh.layers.set(0)
+      binding.batch = undefined
+      binding.slot = undefined
+    }
+    for (const batch of this.ribbonBatches) batch.geometry.dispose()
+    this.ribbonBatches.length = 0
+    this.openBatch = undefined
+    this.batchTable?.material.dispose()
+    this.batchTable = undefined
+    this.instanced = false
+  }
+  /** The batched-ribbon runs, in attach order — present only when instancing is on. */
+  private readonly ribbonBatches: RibbonBatch[] = []
+  /** The run strokes are joining at attach; a fill closes it. */
+  private openBatch?: RibbonBatch
+  /** The table + material every run shares (ribbon-batch.ts BatchTable). */
+  private batchTable?: BatchTable
+
+  /** A fill's renderOrder — and the end of the open ribbon run. */
+  private claimFillOrder(): number {
+    this.openBatch = undefined
+    return this.nextFillOrder++
+  }
   /**
    * Scratch for the batch pack loop: one modelView matrix, reused every
    * stroke every frame, so the batch path makes no per-frame garbage.

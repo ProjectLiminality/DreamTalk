@@ -32,7 +32,7 @@
 import { describe, expect, test } from "bun:test"
 import * as THREE from "three/webgpu"
 import { RibbonStroke, RIBBON_KEYS } from "../src/render/ribbon"
-import { RibbonBatch } from "../src/render/ribbon-batch"
+import { BatchTable, RibbonBatch } from "../src/render/ribbon-batch"
 import { packSegments } from "../src/render/ribbon-math"
 
 const v3 = (x: number, y: number, z = 0) => new THREE.Vector3(x, y, z)
@@ -243,6 +243,23 @@ describe("RibbonBatch — the per-stroke table (opt G): offsets, rows, relocatio
   })
 })
 
+describe("BatchTable — one table and material shared by a host's runs", () => {
+  test("rows are unique across batches, and growth re-points every batch's material", () => {
+    const table = new BatchTable(4)
+    const a = new RibbonBatch(8, table)
+    const b = new RibbonBatch(8, table)
+    expect(a.mesh.material).toBe(b.mesh.material)
+    const rows = new Set<number>()
+    for (let i = 0; i < 20; i++) rows.add((i % 2 ? a : b).reserve(2).row)
+    expect(rows.size).toBe(20)
+    expect(rows.has(0)).toBe(false) // row 0 stays the hidden stroke
+    // 21 rows outgrew the initial 4: one rebuilt material, on both meshes.
+    expect(a.mesh.material).toBe(table.material)
+    expect(b.mesh.material).toBe(table.material)
+    expect(a.tableArray).toBe(b.tableArray)
+  })
+})
+
 // --- The auto-threshold (opt A integration) --------------------------------
 import { ThreeHost } from "../src/render/three-host"
 
@@ -252,5 +269,10 @@ describe("instancing auto-threshold", () => {
     // The threshold must exclude the former and include the latter.
     expect(ThreeHost.INSTANCE_THRESHOLD).toBeGreaterThan(572)
     expect(ThreeHost.INSTANCE_THRESHOLD).toBeLessThan(3776)
+  })
+
+  test("runs must be long enough to win: TheWall (~16 a run) batches, Web3 (~2.7) does not", () => {
+    expect(3776 / 237).toBeGreaterThanOrEqual(ThreeHost.MIN_STROKES_PER_RUN)
+    expect(17648 / 6466).toBeLessThan(ThreeHost.MIN_STROKES_PER_RUN)
   })
 })
