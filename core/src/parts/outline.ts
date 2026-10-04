@@ -221,15 +221,103 @@ export const insetLoop = (loop: Loop, amount: number): Loop => {
   // A folded loop is returned UNMOVED. The pen then straddles the true
   // contour and simply fills the stem, which is what an inside-clipped
   // stroke does on a stem narrower than itself anyway.
-  for (let i = 0; i < n; i++) {
-    const a0 = loop[i]!
-    const b0 = loop[(i + 1) % n]!
-    const a1 = out[i]!
-    const b1 = out[(i + 1) % n]!
-    const dot = (b0.x - a0.x) * (b1.x - a1.x) + (b0.y - a0.y) * (b1.y - a1.y)
-    if (dot < 0) return loop
+  //
+  // But a reversed edge is not always a fold. A font's tessellation
+  // leaves short edges right beside its sharp corners (Arimo's `r`: a
+  // 0.35-unit edge next to a 104° turn), and offsetting the corner
+  // carries it past its neighbour, flipping that one edge — a local
+  // swallowtail, not a shape running out of room. Refusing the whole
+  // contour for it left `r e a m` straddling their true outlines, half a
+  // pen bolder than `D` (the mirror e2e caught it). So a reversed edge is
+  // first TRIMMED — its two ends merged where the offset lines either
+  // side of it meet, which is where the true offset corner is — and the
+  // loop is refused when trimming eats a real share of it (or it runs out
+  // of points) — the square inset past its middle reverses every edge it
+  // has — or when what survives the trim comes closer to the outline
+  // than the offset itself: that is a stem narrower than the pen whose
+  // end edges flipped, a fold the trim must not paper over (the Quote's
+  // pen is wider than Arimo's stems; trimming those left notched
+  // half-insets where the whole contour should straddle).
+  const pts = out.map((p, i) => ({ p, o: loop[i]!, k: i, cut: false }))
+  const reversedAt = (i: number): boolean => {
+    const m = pts.length
+    const a = pts[i]!
+    const b = pts[(i + 1) % m]!
+    return (b.o.x - a.o.x) * (b.p.x - a.p.x) + (b.o.y - a.o.y) * (b.p.y - a.p.y) < 0
   }
-  return out
+  let trimmed = 0
+  for (let i = 0; i < pts.length; ) {
+    if (!reversedAt(i)) {
+      i++
+      continue
+    }
+    trimmed++
+    if (trimmed > n / 4 || pts.length <= 3) return loop
+    const m = pts.length
+    const j = (i + 1) % m
+    const corner = trimCorner(pts, i, j)
+    // No offset point moves further from its source corner than the
+    // capped miter allows; a trim that would is not a swallowtail.
+    const reach = amount * MITER_CAP
+    if (
+      !corner ||
+      Math.hypot(corner.x - pts[i]!.o.x, corner.y - pts[i]!.o.y) > reach ||
+      Math.hypot(corner.x - pts[j]!.o.x, corner.y - pts[j]!.o.y) > reach
+    ) {
+      return loop
+    }
+    pts[i] = { p: corner, o: pts[i]!.o, k: pts[i]!.k, cut: true }
+    pts.splice(j, 1)
+    // The merged point makes new edges on both sides; recheck from the
+    // edge arriving at it.
+    i = Math.max(0, (j === 0 ? i - 1 : i) - 1)
+  }
+  if (trimmed === 0) return out
+  // The fold test for a trimmed loop, asked of the TRIMMED points: a
+  // swallowtail's trim lands on the true offset corner, the offset's own
+  // distance from every edge, while a collapsed stem end lands mid-stem,
+  // closer to both sides than the pen's half. (Untrimmed points keep the
+  // miter's own small approximations near curves, as they always have.)
+  // A point's own two edges are left out.
+  const CLEARANCE = 0.9
+  for (const { p, k, cut } of pts) {
+    if (!cut) continue
+    for (let e = 0; e < n; e++) {
+      if (e === k || (e + 1) % n === k) continue
+      if (segmentDistance(p, loop[e]!, loop[(e + 1) % n]!) < amount * CLEARANCE) return loop
+    }
+  }
+  return pts.map(({ p }) => p)
+}
+
+/** Distance from p to the segment a–b (in the plane). */
+const segmentDistance = (p: Vec3Like, a: Vec3Like, b: Vec3Like): number => {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t))
+}
+
+/**
+ * Where the offset edges either side of the reversed edge i→j meet — the
+ * corner the offset curve actually has once the swallowtail is cut off —
+ * or undefined when those neighbours are parallel and never meet.
+ */
+const trimCorner = (pts: { p: Vec3Like }[], i: number, j: number): Vec3Like | undefined => {
+  const m = pts.length
+  const a0 = pts[(i - 1 + m) % m]!.p
+  const a1 = pts[i]!.p
+  const b0 = pts[j]!.p
+  const b1 = pts[(j + 1) % m]!.p
+  const dax = a1.x - a0.x
+  const day = a1.y - a0.y
+  const dbx = b1.x - b0.x
+  const dby = b1.y - b0.y
+  const den = dax * dby - day * dbx
+  if (Math.abs(den) < 1e-12) return undefined
+  const s = ((b0.x - a0.x) * dby - (b0.y - a0.y) * dbx) / den
+  return { x: a0.x + dax * s, y: a0.y + day * s, z: a1.z }
 }
 
 /**
