@@ -51,6 +51,7 @@ instantiate but a capability the whole space gains by importing it.
 | Ability | Grafts | Onto | Proven by |
 |---|---|---|---|
 | [Morph](Morph/) | `.morphTo()` + the `Morph` verb | every `Stroke` | face: mid-morph, `?scene=o01` t=24.4; Scene01's six simultaneous morphs; 46 morph tests |
+| [GeometrySketch](GeometrySketch/) | `.sketchGeometry()` + `new GeometrySketch(shape)` | every `Stroke` | face: five shapes sketched, `?scene=geometrysketch` t=3.9; 15 geometry-sketch tests |
 
 An ability is a self-contained DreamNode in `vocabulary/<Ability>/` that
 grafts itself onto all eligible objects when imported — TS declaration

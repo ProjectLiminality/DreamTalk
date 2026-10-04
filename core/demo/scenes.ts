@@ -90,12 +90,14 @@ import { Shot15HeroDream } from "./web3/Shot15Hero"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { SquareCircleDream } from "./SquareCircle"
+import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
 export const scenes: Record<string, DreamClass> = {
   founding: CylinderDream,
   squarecircle: SquareCircleDream,
+  geometrysketch: GeometrySketchDemoDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

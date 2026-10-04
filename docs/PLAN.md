@@ -549,5 +549,12 @@ ruling (translation + the three deleted labels from footage).
       squarecircle` shows the cascade. NOT done, deliberately: rewiring
       video01 to it (rectangle→square, red/blue swap) — the gauntlet-scored
       reproduction is the published canon; that switch is David's call.
-- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): GeometrySketch ·
-      RayCaster · node-graph visualisation.
+- [x] **GeometrySketch** — the second pluggable ability (Morph's
+      template): sharp corners found on any outline (≥ 20° turn), right-
+      angle square at 90°, arc across every other corner on the interior
+      side (reflex notches sweep inside; 3D-correct; curves get nothing);
+      marks follow the shape live. src/geometry/angles.ts +
+      vocabulary/GeometrySketch (holon, graft `.sketchGeometry()`, README,
+      face) + `/demo/?scene=geometrysketch`; 15 tests.
+- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): RayCaster · node-graph
+      visualisation.
