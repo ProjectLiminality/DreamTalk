@@ -831,7 +831,43 @@ export class ThreeHost {
    * is kept alongside because the contours' inset is stated in screen
    * pixels and has to be converted at this frame's projection.
    */
-  private readonly texts: { binding: TextBinding; group: THREE.Object3D }[] = []
+  private readonly texts: { binding: TextBinding; group: THREE.Object3D; holon: Holon }[] = []
+
+  /** Every attached holon's root — the chapter it belongs to, in a song. */
+  private readonly rootOf = new Map<Holon, Holon>()
+  /**
+   * Perf I-4 — this frame's DORMANT roots: a DreamSong's chapters off
+   * screen (song.ts liveRoots), gated to opacity 0 and drawing nothing.
+   * Their per-stroke work (geometry check, pen metering, style, text,
+   * cylinders, arrows, cull, batch) is skipped and their root groups are
+   * hidden, so the render walk skips them too. Their GROUP transforms and
+   * every settle still run — so every world matrix is exactly what it
+   * was, and a chapter waking up meters its pens from the same previous-
+   * frame matrices it always did. Undefined outside a song.
+   */
+  private dormant?: Set<Holon>
+
+  /** Is this holon in a dormant chapter this frame? */
+  private asleep(holon: Holon): boolean {
+    return this.dormant !== undefined && this.dormant.has(this.rootOf.get(holon)!)
+  }
+
+  /** Read the song's live roots; hide the dormant chapters' root groups. */
+  private updateDormancy(): void {
+    const live = (this.dream as { liveRoots?: ReadonlySet<Holon> }).liveRoots
+    if (!live) {
+      this.dormant = undefined
+      return
+    }
+    const roots = this.rootGroupMap()
+    const dormant = new Set<Holon>()
+    for (const [root, group] of roots) {
+      const asleep = !live.has(root)
+      if (asleep) dormant.add(root)
+      group.visible = !asleep
+    }
+    this.dormant = dormant
+  }
   /** Fills stack over strokes and over earlier fills — see fill.ts. */
   private nextFillOrder = 1
   /**
@@ -963,7 +999,8 @@ export class ThreeHost {
     return false
   }
 
-  private attach(holon: Holon, parent: THREE.Object3D): void {
+  private attach(holon: Holon, parent: THREE.Object3D, root: Holon = holon): void {
+    this.rootOf.set(holon, root)
     const group = new THREE.Group()
     // sync() composes the matrix itself, and only when the transform moved.
     group.matrixAutoUpdate = false
@@ -976,7 +1013,7 @@ export class ThreeHost {
     })
 
     if (holon instanceof Text) {
-      this.texts.push({ binding: attachText(holon, group), group })
+      this.texts.push({ binding: attachText(holon, group), group, holon })
     } else if (holon instanceof Cylinder) {
       const width = holon.stroke.value
       const r = holon.radius.value
@@ -1125,7 +1162,7 @@ export class ThreeHost {
       }
     }
 
-    for (const part of holon.parts) this.attach(part, group)
+    for (const part of holon.parts) this.attach(part, group, root)
   }
 
   /**
@@ -1176,11 +1213,7 @@ export class ThreeHost {
     const fades = (this.dream as { layerFades?: readonly { roots: readonly Holon[]; opacity: number }[] })
       .layerFades
     if (!fades || !fades.some((f) => f.opacity < 1) || this.ribbonBatches.length > 0) return undefined
-    if (!this.rootGroups) {
-      this.rootGroups = new Map()
-      for (const { holon, group } of this.groups) if (group.parent === this.scene) this.rootGroups.set(holon, group)
-    }
-    const roots = this.rootGroups
+    const roots = this.rootGroupMap()
     return fades
       .filter((f) => f.opacity < 1)
       .map((f) => ({
@@ -1193,6 +1226,15 @@ export class ThreeHost {
   }
 
   private rootGroups?: Map<Holon, THREE.Object3D>
+
+  /** Each root holon's group (the scene's direct children), built once. */
+  private rootGroupMap(): Map<Holon, THREE.Object3D> {
+    if (!this.rootGroups) {
+      this.rootGroups = new Map()
+      for (const { holon, group } of this.groups) if (group.parent === this.scene) this.rootGroups.set(holon, group)
+    }
+    return this.rootGroups
+  }
 
   /**
    * True from a full scene settle until anything could move a node again
@@ -1245,6 +1287,7 @@ export class ThreeHost {
 
   private sync(): void {
     this.matricesSettled = false
+    this.updateDormancy()
     for (const { group, transform: tr, applied: last } of this.groups) {
       const x = tr[0]!.value
       const y = tr[1]!.value
@@ -1288,6 +1331,7 @@ export class ThreeHost {
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding
+      if (this.dormant && this.asleep(holon)) continue
       // The geometry dirty-check: an O(1) version+phase compare for a Line
       // (the many-point case that dominated this loop), the small
       // shape-param array for a parametric shape. A superset of the old
@@ -1322,6 +1366,7 @@ export class ThreeHost {
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding
+      if (this.dormant && this.asleep(holon)) continue
       if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(
           holon instanceof Ellipse
@@ -1339,6 +1384,7 @@ export class ThreeHost {
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding
+      if (this.dormant && this.asleep(holon)) continue
       if (sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon)
         if (washed) fill.setPolygon(washed.points, washed.triangles)
@@ -1356,6 +1402,7 @@ export class ThreeHost {
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding
+      if (this.dormant && this.asleep(holon)) continue
       // The geometry watched is the SUBPATHS', since the drawing holon
       // has no polyline of its own — tracked by the sum of the subpath
       // Lines' geomVersions plus their count (drawingSig), an O(childCount)
@@ -1388,12 +1435,13 @@ export class ThreeHost {
       this.ribbonBatches.length > 0
     ) {
       this.settleScene()
-      for (const binding of this.cylinders) this.syncCylinder(binding)
-      for (const binding of this.arrows) this.syncArrow(binding)
+      for (const binding of this.cylinders) if (!this.asleep(binding.holon)) this.syncCylinder(binding)
+      for (const binding of this.arrows) if (!this.asleep(binding.holon)) this.syncArrow(binding)
       // Text belongs here too: a letter's traced contour is inset by half
       // a stroke, and a stroke is a count of PIXELS, so how far to pull
       // the contour in is a reading of this frame's projection.
-      for (const { binding, group } of this.texts) {
+      for (const { binding, group, holon } of this.texts) {
+        if (this.asleep(holon)) continue
         binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
       // A contour rebuild parents fresh ribbon meshes whose world
@@ -1428,6 +1476,10 @@ export class ThreeHost {
     for (const binding of this.strokes) {
       const { ribbon, group, slot, batch } = binding
       if (!slot || !batch) continue
+      if (this.dormant && this.asleep(binding.holon)) {
+        batch.hideStroke(slot)
+        continue
+      }
       const geometry = ribbon.geometry
       const count = geometry.instanceCount
       // A stroke style()/cull hid, or an empty derived polyline, draws
@@ -1670,7 +1722,8 @@ export class ThreeHost {
       cam instanceof THREE.OrthographicCamera ? (cam.top - cam.bottom) / heightPx : 0
     const camPos = cam.position
 
-    for (const { ribbon, group } of this.strokes) {
+    for (const { ribbon, group, holon } of this.strokes) {
+      if (this.dormant && this.asleep(holon)) continue
       const mesh = ribbon.mesh
       // Additive: never reconsider what style() already hid, and leave
       // empty/uninitialised strokes (radius 0) to the existing rule.
@@ -2254,7 +2307,7 @@ export class ThreeHost {
 
     let best: { holon: Holon; depth: number; distance: number } | undefined
     const consider = (holon: Holon, distance: number, tolerance: number) => {
-      if (distance > tolerance) return
+      if (distance > tolerance || this.asleep(holon)) return
       const depth = this.depthOf(holon)
       // Deeper wins outright; at equal depth, nearer ink wins.
       if (best && (best.depth > depth || (best.depth === depth && best.distance <= distance))) return

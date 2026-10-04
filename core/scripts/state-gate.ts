@@ -4,9 +4,10 @@
  *
  * For each scene, drives a fixed frame sequence (continuous run-ups into
  * seven marks, then backward jumps) and after every frame hashes EVERYTHING
- * the GPU will receive: each node's matrixWorld, visibility, layer mask and
- * renderOrder; every mesh's userData uniforms and numeric material
- * uniforms; the used range of every geometry buffer (the ribbon batch as
+ * the GPU will receive: every node's matrixWorld; and, over the VISIBLE
+ * traversal only (what can be submitted), which nodes are there, their
+ * layer mask and renderOrder, every mesh's userData uniforms and numeric
+ * material uniforms; the used range of every geometry buffer (the ribbon batch as
  * an order-free multiset of its LIVE instances — each its table row plus
  * its local segment — since hidden and abandoned slots are MAX-blend
  * no-ops whose stale contents depend on history); and the camera. Equal
@@ -67,13 +68,26 @@ for (const scene of scenes) {
     const h32 = (bytes: Uint8Array, h = 0x811c9dc5) => { for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]!; h = Math.imul(h, 0x01000193) } return h >>> 0 }
     const f64 = new Float64Array(1), u8 = new Uint8Array(f64.buffer)
     const hashNums = (nums: ArrayLike<number>, h: number) => { for (let i = 0; i < nums.length; i++) { f64[0] = nums[i]!; h = h32(u8, h) } return h }
-    const seen = new WeakSet()
     const hashFrame = () => {
+      // Shared buffers are hashed once PER FRAME. (Once per page made a
+      // frame's hash depend on which buffers earlier frames had shown —
+      // identity history, not content.)
+      const seen = new WeakSet()
       let hm = 0x811c9dc5, hu = 0x811c9dc5, hg = 0x811c9dc5, hv = 0x811c9dc5, nodes = 0
+      // Matrices of EVERY node (they feed later frames' pen metering even
+      // where nothing draws); everything else only along the visible
+      // traversal — an object in a hidden subtree is never submitted, so its
+      // uniforms and buffers cannot reach a pixel (perf I-4 skips their
+      // upkeep in dormant song chapters).
       host.scene.traverse((o: any) => {
-        nodes++
         hm = hashNums(o.matrixWorld.elements, hm)
-        hv = hashNums([o.visible ? 1 : 0, o.layers.mask, o.renderOrder], hv)
+      })
+      host.scene.traverseVisible((o: any) => {
+        // Only drawables are submitted; a visible group around invisible
+        // meshes and a hidden group are the same frame.
+        if (!(o.isMesh || o.isLine || o.isPoints || o.isSprite)) return
+        nodes++
+        hv = hashNums([o.layers.mask, o.renderOrder], hv)
         for (const k of Object.keys(o.userData).sort()) { const v = o.userData[k]; hu = typeof v === "number" ? hashNums([v], hu) : v && v.isColor ? hashNums([v.r, v.g, v.b], hu) : hu }
         const g = o.geometry
         if (g && g.attributes.instanceStroke && o.userData.dtBatch) {

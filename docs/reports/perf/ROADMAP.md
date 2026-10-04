@@ -540,4 +540,56 @@ visit them all, every frame:
 
 | # | Optimization | Lever | Expected | Risk |
 |---|---|---|---|---|
-| I-4 | Dormant chapters: the song names its live roots; the host skips the others' strokes/fills in sync() and hides their root groups (the render walk then skips them) | Web3 ~58 ms CPU | → single-digit ms | MEDIUM — screenArc reads the PREVIOUS frame's matrices by design, so a chapter woken after being skipped would meter its pen fronts from stale ones on its first live frame. Exact options: keep the cheap half (group transforms + settle) running for dormant chapters, or re-sync a waking chapter at the previous frame's t. Needs a design call before building. |
+| I-4 | Dormant chapters: the song names its live roots; the host skips the others' strokes/fills in sync() and hides their root groups (the render walk then skips them) | Web3 ~58 ms CPU | → single-digit ms | **DONE 2026-10-04** (option a) — see "I-4 + text-inset quantization" |
+
+## I-4 + text-inset quantization (2026-10-04)
+
+**Text inset quantization** (render/text.ts). The projection scale a Text
+insets at is snapped onto a fixed log grid of 0.5% steps
+(`insetBucketOf` / `insetScaleOf`) and the contours re-inset only when the
+BUCKET changes — a pure function of the frame, so the same t draws the
+same pixels whatever was played or scrubbed before (the old "re-inset when
+ppu moved > 1e-4 since last time" depended on history). Inset results are
+cached per (layout, glyph, inset depth), so a scrub back to a seen bucket
+skips the bisection. Pixels: only Text-bearing frames change, sub-pixel —
+max |Δ| 2/255 on Quote, 1/255 on the text showcase, 6/255 on web3s09
+(the comma's tip; `text-inset-quantized-crop.png`: before | after |
+difference ×40), nothing above 8 anywhere. Static-camera Text frames shift
+too, by design: today's static inset was itself history-chosen (the first
+ppu more than 1e-4 from the default); "exact on static frames" and "pure
+in the frame" cannot both hold. On its own it does not speed Web3's dive
+(the dolly crosses a bucket every frame) — its job there is purity, which
+I-4 then needs.
+
+**I-4, option (a)** (song.ts `liveRoots`, three-host.ts `updateDormancy` /
+`asleep`). A song names the roots of the chapters on screen; the host
+skips every dormant chapter's stroke / fill / wash / drawing-wash /
+cylinder / arrow / text work, its cull and batch entries, and its pick
+candidates, and hides its root group (the render walk skips it). The
+group transform loop and every settle still run, so every world matrix is
+exactly what it was and a waking chapter meters its pens from the same
+previous-frame matrices it always did.
+
+Gate (frozen worktrees at a26f983 + quantization, vs + I-4): **532/532
+frames identical across 19 scenes**, the four songs (video01, magicmove,
+web3, origins) included. Two refinements of state-gate.ts were needed and
+are honest ones: matrices of EVERY node still, but nodes/uniforms/geometry
+only for DRAWABLES on the visible traversal (an object in a hidden subtree
+is never submitted; a visible group around invisible meshes and a hidden
+group are the same frame); and shared buffers de-duplicated PER FRAME (the
+once-per-page set made a frame's hash depend on which buffers earlier
+frames had shown — identity history, not content). Before both, the only
+differences were exactly those artefacts, plus Text's history-dependent
+inset — which the quantization removes. 1,829 tests green.
+
+**Web3, GPU-complete wall ms, HEAD (a26f983) → quantization + I-4:**
+
+| t | 10 | 20.5 (dive) | 40 | 46 (crossfade) | 100 | 138 |
+|---|---|---|---|---|---|---|
+| before | 55 | 431 | 66 | 596 | 58 | 50 |
+| after | **34** | **37** | **45** | **184** | **35** | **28** |
+
+Note for anyone running worktrees here: DreamTalk is a submodule whose
+shared config sets `core.worktree`, so `git -C <linked-worktree>` status /
+checkout can report on or touch the MAIN tree. Verify a worktree's
+content with `git show <rev>:<path> | cmp` rather than its git status.

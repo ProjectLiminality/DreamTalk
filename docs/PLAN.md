@@ -608,10 +608,12 @@ ruling (translation + the three deleted labels from footage).
       dissolve fades each chapter as ONE flattened picture (offscreen
       layer, added by weight); Web3's dive no longer shows the lattice
       through the globe's sea. Every other frame/scene unchanged.
-- [~] **Text contour inset cost** — exact half done (segment grid +
-      cached rings, 945/945 identical): Web3 transitions 1.4–1.6 s → 0.44–
-      0.65 s a frame. The rest needs a coarser re-inset trigger (≤ 0.01 px
-      change during camera moves) — awaiting a decision (ROADMAP).
+- [x] **Text contour inset cost** — exact half (segment grid + cached
+      rings, 945/945 identical), then the inset scale quantized onto a
+      fixed 0.5% log grid (pure in the frame; Text frames ≤ 6/255).
+- [x] **Perf I-4** — dormant song chapters skip their per-stroke work and
+      render walk; transforms + settles kept, so 532/532 frames identical.
+      Web3 431 → 37 ms in the dive, 50–66 → 28–45 ms elsewhere.
 - [x] **Radial-light fill** — `Stroke.fillFalloff` (0 = flat, default)
       + `fillFalloffRadius` (0 = the fill's own extent): colour ×
       (1 − falloff·smoothstep(0, R, r)) from the local origin, animatable.

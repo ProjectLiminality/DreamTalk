@@ -182,6 +182,19 @@ export class DreamSong extends Dream {
     return this.#layers
   }
 
+  /** This frame's live chapters' roots (see `liveRoots`). */
+  #live = new Set<Holon>()
+
+  /**
+   * The roots of the chapters on screen at the sampled t — the active
+   * chapter and, inside a transition window, the one it leaves. Every
+   * other chapter is gated to opacity 0 and draws nothing, so a host may
+   * skip its per-stroke work entirely (three-host.ts, perf I-4).
+   */
+  get liveRoots(): ReadonlySet<Holon> {
+    return this.#live
+  }
+
   constructor(chapters: readonly ChapterSpec[]) {
     super()
     this.#specs = chapters
@@ -352,9 +365,11 @@ export class DreamSong extends Dream {
     // be written, and the gate scales either kind of reading alike.
     const active = this.chapterAt(t)
     const fromChapter = window ? this.#chapters[window.from]! : undefined
+    this.#live = new Set()
     for (let i = 0; i < this.#chapters.length; i++) {
       const chapter = this.#chapters[i]!
       const live = chapter === active || chapter === fromChapter
+      if (live) for (const root of chapter.dream.roots) this.#live.add(root)
       for (const holon of holons[i]!) {
         const opacity = holon.opacity
         opacity.gate = live ? 1 : 0
