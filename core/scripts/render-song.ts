@@ -6,15 +6,22 @@
  * every frame at the target fps, screenshot the canvas, and leave a
  * numbered PNG sequence for ffmpeg to assemble.
  *
- * Usage:
- *   bun scripts/render-song.ts <sceneKey> <framesDir> [--fps 30] [--port 4212]
+ * The audio track is written beside the frames as `<framesDir>/audio.wav`
+ * (narration + effect sounds, scripts/mixdown.ts) — exactly the song's
+ * length, so it lines up with the frames sample for sample.
  *
- * Assembly (h264, even the odd-duration tail is exact):
- *   ffmpeg -framerate 30 -i <framesDir>/f%05d.png -c:v libx264 -pix_fmt yuv420p out.mp4
+ * Usage:
+ *   bun scripts/render-song.ts <sceneKey> <framesDir> [--fps 30] [--port 4212] [--out song.mp4]
+ *
+ * `--out` assembles the movie with its sound. By hand (h264 + aac, even the
+ * odd-duration tail is exact):
+ *   ffmpeg -framerate 30 -i <framesDir>/f%05d.png -i <framesDir>/audio.wav \
+ *     -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k out.mp4
  */
 
-import { mkdirSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import puppeteer from "puppeteer-core"
+import { songWav } from "./mixdown"
 
 const args = process.argv.slice(2)
 const flag = (name: string, fallback: number): number => {
@@ -29,6 +36,8 @@ if (!sceneKey || !framesDir) {
 }
 const fps = flag("--fps", 30)
 const port = flag("--port", Number(process.env.GAUNTLET_PORT ?? 4212))
+const outAt = args.indexOf("--out")
+const out = outAt >= 0 ? args[outAt + 1] : undefined
 
 mkdirSync(framesDir, { recursive: true })
 
@@ -94,4 +103,28 @@ try {
   )
 } finally {
   await browser.close()
+}
+
+// The sound needs no browser: it is a function of the score alone.
+const audio = songWav(sceneKey)
+writeFileSync(`${framesDir}/audio.wav`, audio.wav)
+console.log(
+  `audio: ${audio.duration.toFixed(2)}s · narration ${audio.voiced}/${audio.lines} lines voiced · ` +
+    `${audio.events} effect sound(s) → ${framesDir}/audio.wav`,
+)
+
+if (out) {
+  const r = Bun.spawnSync(
+    [
+      "ffmpeg", "-y", "-v", "error",
+      "-framerate", String(fps), "-i", `${framesDir}/f%05d.png`,
+      "-i", `${framesDir}/audio.wav`,
+      "-c:v", "libx264", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "192k",
+      out,
+    ],
+    { stdout: "inherit", stderr: "inherit" },
+  )
+  if (r.exitCode !== 0) process.exit(r.exitCode ?? 1)
+  console.log(`movie: ${out}`)
 }

@@ -59,8 +59,11 @@ when done.
   synthesized ping / chime / whoosh as timeline events (`this.sound()`,
   holon `soundCues()`, opt-in `this.chimes()`); RayCaster pings wired. Open:
   David's ear on the three sounds (levels, timbre); whether `Move` should
-  whoosh on its own above some speed; offline render (`render-song.ts`) has
-  no audio mixdown yet — neither narration nor effects.
+  whoosh on its own above some speed.
+- **Audio mixdown built (2026-10-04):** `render-song.ts` writes
+  `<frames>/audio.wav` (narration from .cache/voice + effects, one recipe
+  shared with the live player: `src/timbre.ts`) and `--out x.mp4` muxes it;
+  `scripts/mixdown.ts <scene> <out.wav>` for audio alone. Deterministic bytes.
 
 ## Web3 video (Liminal Consulting)
 - **Assembled (2026-10-04):** `?scene=web3`, all 17 shots, 171s, David's
