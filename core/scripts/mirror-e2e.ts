@@ -61,6 +61,7 @@ const symbols: PlacedSymbol[] = [
   sym("s-cube", "cube", { cx: 260, cy: 680, size: 220, h: 0.6, p: 0.4 }),
   sym("s-eye", "eye", { cx: 700, cy: 680, size: 300, rotation: 0 }),
   sym("s-figure", "figure", { cx: 1720, cy: 1000, height: 360 }),
+  sym("s-cyl", "cylinder", { cx: 650, cy: 560, radius: 60, height: 130, p: 0.4 }),
   sym("s-word", "text", { content: "DreamTalk", cx: 400, cy: 1200, size: 70 }),
   sym("s-lines", "text", { content: "oea gob\nBagel 8", cx: 1180, cy: 620, size: 38, rotation: 0.2 }),
   sym("s-virus", "mindVirus", { x: 900, y: 1060, size: 140, heading: 0, fold: 0.8, cable: [[660, 1200], [740, 1160], [780, 1100], [830, 1070]] }),

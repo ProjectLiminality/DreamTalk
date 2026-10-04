@@ -30,6 +30,8 @@ import { Dream } from "../src/dream"
 import type { Holon } from "../src/holon"
 import { Circle, Ellipse, Line, Rectangle, Stroke, rectanglePolyline } from "../src/parts/primitives"
 import { polyline } from "../src/render/three-host"
+import { capPolylineFrom, generatorPoint, silhouetteAngles } from "../src/render/silhouette"
+import { Cylinder } from "../vocabulary/Cylinder/Cylinder"
 import { DisplayDiff, encodeItem, type EncodedItem } from "./display"
 import { distillGlyph } from "./distill"
 import {
@@ -160,11 +162,16 @@ const pageProjector = (dream: Dream) => {
   const cx = PAGE_W / 2
   const cy = PAGE_H / 2
   const half = PAGE_H / 2
-  return (v: THREE.Vector3): Pt => {
+  const project = (v: THREE.Vector3): Pt => {
     tmpV.copy(v).project(cam)
     return { x: cx + tmpV.x * half * cam.aspect, y: cy - tmpV.y * half }
   }
+  // Where the camera stands, for geometry that is alive to the observer (a cylinder's silhouette).
+  return Object.assign(project, { eye: cam.position.clone() })
 }
+
+/** World → page, and the camera's world position when the walk needs it. */
+export type Projector = ((v: THREE.Vector3) => Pt) & { eye?: THREE.Vector3 }
 
 /** The polyline cut to its visible window [erasure, creation] of arc length. */
 const visibleRun = (pts: readonly Pt[], from: number, to: number): Pt[] => {
@@ -196,7 +203,7 @@ const visibleRun = (pts: readonly Pt[], from: number, to: number): Pt[] => {
  */
 export const flattenHolon = (
   root: Holon,
-  project: (v: THREE.Vector3) => Pt,
+  project: Projector,
   note: { pending: boolean } = { pending: false },
 ): DisplayPrim[] => {
   const prims: DisplayPrim[] = []
@@ -219,7 +226,25 @@ export const flattenHolon = (
     if (h instanceof Stroke && h.opacity.value > 0.01) {
       const filledShape =
         (h instanceof Ellipse && h.filled.value) || (h instanceof Rectangle && h.filled.value) ? h : undefined
-      if (filledShape) {
+      if (h instanceof Cylinder) {
+        // ThreeHost.syncCylinder: two cap circles and the two silhouette
+        // generators, found from the camera in the cylinder's own space.
+        // At rest all five strokes are whole, so the caps go as full loops.
+        const grey = lineGrey(h.tint.value)
+        if (grey !== undefined && h.creation.value > h.erasure.value) {
+          const eye = (project.eye ?? new THREE.Vector3(0, 0, 1e6)).clone()
+          const cam = eye.applyMatrix4(new THREE.Matrix4().copy(world).invert())
+          const r = h.radius.value
+          const half = h.height.value / 2
+          const w = LINE_W(h.stroke.value)
+          const line = (pts: readonly [number, number, number][]) =>
+            prims.push({ k: "line", pts: flat(toPage(world, pts.map(([x, y, z]) => ({ x, y, z })))), w, ...(grey ? { grey } : {}) })
+          line(capPolylineFrom(r, half, 0, false))
+          line(capPolylineFrom(r, -half, 0, false))
+          const angles = silhouetteAngles(cam.x, cam.z, r)
+          if (angles) for (const t of [angles.thetaA, angles.thetaB]) line([generatorPoint(t, r, half), generatorPoint(t, r, -half)])
+        }
+      } else if (filledShape) {
         // A flat fill (no outline): present once it is more there than not.
         if (h.creation.value * h.opacity.value > 0.5) {
           const outline =

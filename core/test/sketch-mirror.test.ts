@@ -96,6 +96,33 @@ describe("flattenSymbol: the page's camera, exactly", () => {
     expect(flattenSymbol({ symbol: "noSuchThing", params: {} })).toEqual([])
   })
 
+  test("a cylinder is its two caps and the two silhouette lines the camera sees, tangent to the caps", () => {
+    const prims = flattenSymbol({ symbol: "cylinder", params: { cx: 700, cy: 900, radius: 100, height: 300, p: 0.4 } })
+    const caps = prims.filter((p) => p.pts.length > 4).map(pairs)
+    const gens = prims.filter((p) => p.pts.length === 4).map(pairs)
+    expect(caps).toHaveLength(2)
+    expect(gens).toHaveLength(2)
+    for (const c of caps) expect(Math.hypot(c[0]!.x - c.at(-1)!.x, c[0]!.y - c.at(-1)!.y)).toBeLessThan(0.2) // closed
+    // Each generator joins the two caps, touching each where the cap's own
+    // outline runs along it (a silhouette is tangent to what it bounds).
+    const near = (q: { x: number; y: number }, c: { x: number; y: number }[]) => Math.min(...c.map((p) => Math.hypot(p.x - q.x, p.y - q.y)))
+    for (const g of gens) {
+      for (const end of g) expect(Math.min(near(end, caps[0]!), near(end, caps[1]!))).toBeLessThan(3)
+      // How far a cap crosses the generator's line: ~0 for a tangent.
+      const crossing = (c: { x: number; y: number }[]) => {
+        const d = { x: g[1]!.x - g[0]!.x, y: g[1]!.y - g[0]!.y }
+        const len = Math.hypot(d.x, d.y)
+        const s = c.map((p) => ((p.x - g[0]!.x) * -d.y + (p.y - g[0]!.y) * d.x) / len)
+        return Math.min(Math.max(...s), -Math.min(...s))
+      }
+      for (const c of caps) expect(crossing(c)).toBeLessThan(1.5)
+    }
+    // the cylinder stands around its centre
+    const pts = prims.flatMap(pairs)
+    const ys = pts.map((q) => q.y)
+    expect(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2 - 900)).toBeLessThan(25)
+  })
+
   test("the Eye's iris is a fill (painted, so it covers what it should)", () => {
     const prims = flattenSymbol({ symbol: "eye", params: { cx: 700, cy: 900, size: 200 } })
     expect(prims.some((p) => p.k === "fill")).toBe(true)
