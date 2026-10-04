@@ -49,7 +49,7 @@ const css = (c: Color) => `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)
 /**
  * What a holon is called in its DreamWeaving — its field name, else its
  * class. The field can sit on any ancestor, not just the parent: a
- * Calculator's `opPlus` is a field of the Calculator but a member (part)
+ * Calculator's `opGlyph` is a field of the Calculator but a member (part)
  * of its `all` Group, so the nearest whole that NAMES it is what counts.
  */
 const nameOf = (dream: object, holon: Holon): string => {
@@ -114,10 +114,13 @@ export const mountCreatorPanel = (
         const row = document.createElement("div")
         row.className = "row"
         const v = param.value
-        const shown = isColor(v)
-          ? `<span class="sw" style="background:${css(v)}"></span>`
-          : formatValue(v)
-        row.innerHTML = `<span>${pname}</span><span>${shown}</span>`
+        const label = document.createElement("span")
+        label.textContent = pname
+        const value = document.createElement("span")
+        // A string param says arbitrary text — set it as text, never markup.
+        if (isColor(v)) value.innerHTML = `<span class="sw" style="background:${css(v)}"></span>`
+        else value.textContent = formatValue(v)
+        row.append(label, value)
         el.append(row)
       }
     }

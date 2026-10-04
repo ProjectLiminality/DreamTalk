@@ -45790,3600 +45790,6 @@ class WebGPURenderer extends Renderer {
   }
 }
 
-// src/anim.ts
-var SMOOTHING = {
-  smooth: { left: 0.25, right: 0.25 },
-  linear: { left: 0, right: 0 },
-  easeIn: { left: 0.25, right: 0 },
-  easeOut: { left: 0, right: 0.25 }
-};
-var rescaled = (track, a, b) => ({
-  ...track,
-  relStart: a + (b - a) * track.relStart,
-  relStop: a + (b - a) * track.relStop
-});
-var restage = (anim, a, b) => ({
-  tracks: anim.tracks.map((t) => ({
-    ...rescaled(t, a, b),
-    smoothingWindow: (t.smoothingWindow ?? t.relStop - t.relStart) || 1
-  }))
-});
-var windows = (items) => items.map((item) => Array.isArray(item) ? { anim: item[0], a: item[1], b: item[2] } : { anim: item, a: 0, b: 1 });
-var together = (...items) => ({
-  tracks: windows(items).flatMap(({ anim, a, b }) => anim.tracks.map((t) => rescaled(t, a, b)))
-});
-var eased = (easing, ...items) => ({
-  tracks: together(...items).tracks.map((t) => ({ ...t, easing }))
-});
-
-// src/constants.ts
-var rgb = (r, g, b) => ({
-  r: r / 255,
-  g: g / 255,
-  b: b / 255
-});
-var BLUE = rgb(0, 162, 255);
-var RED = rgb(255, 100, 78);
-var PURPLE = {
-  r: (BLUE.r + RED.r) / 2,
-  g: (BLUE.g + RED.g) / 2,
-  b: (BLUE.b + RED.b) / 2
-};
-var YELLOW = rgb(218, 218, 88);
-var GREEN = rgb(71, 196, 143);
-var WHITE = rgb(255, 255, 255);
-var BLACK = rgb(0, 0, 0);
-var PI3 = Math.PI;
-var TAU = 2 * Math.PI;
-var ASPECT_RATIO = 16 / 9;
-var isColor = (v) => typeof v === "object" && v !== null && typeof v.r === "number" && typeof v.g === "number" && typeof v.b === "number";
-
-// src/params.ts
-var nextParamId = 1;
-
-class Param {
-  id;
-  kind;
-  min;
-  max;
-  defaultValue;
-  name;
-  owner;
-  #value;
-  #source;
-  constructor(kind, value, min2, max2) {
-    this.id = nextParamId++;
-    this.kind = kind;
-    this.defaultValue = value;
-    this.#value = value;
-    this.min = min2;
-    this.max = max2;
-  }
-  get value() {
-    return this.#source ? this.#source.value : this.#value;
-  }
-  set value(v) {
-    if (this.#source) {
-      throw new Error(`Param '${this.name ?? this.id}' follows a derived binding; animate its source instead`);
-    }
-    this.#value = v;
-  }
-  follow(source) {
-    this.#source = source;
-  }
-  get isBound() {
-    return this.#source !== undefined;
-  }
-  clamp(v) {
-    if (typeof v === "number") {
-      let out = v;
-      if (this.min !== undefined)
-        out = Math.max(this.min, out);
-      if (this.max !== undefined)
-        out = Math.min(this.max, out);
-      if (this.kind === "integer")
-        out = Math.round(out);
-      return out;
-    }
-    return v;
-  }
-  to(v, opts = {}) {
-    return animOf(this.track("to", [v], opts));
-  }
-  by(dv, opts = {}) {
-    if (this.kind === "color" || this.kind === "bool") {
-      throw new Error(`Param '${this.name ?? this.id}' (${this.kind}) cannot animate .by()`);
-    }
-    return animOf(this.track("by", [dv], opts));
-  }
-  sequence(...values) {
-    if (values.length < 2)
-      throw new Error("sequence() needs at least two waypoints");
-    return animOf(this.track("sequence", values, {}));
-  }
-  track(mode, values, opts) {
-    return {
-      param: this,
-      mode,
-      values,
-      relStart: 0,
-      relStop: 1,
-      easing: opts.easing ?? "smooth"
-    };
-  }
-  times(k) {
-    return derive(() => scaleValue(this.value, k));
-  }
-  plus(k) {
-    const self2 = this;
-    return derive(() => {
-      if (typeof self2.value !== "number")
-        throw new Error(".plus() needs a numeric param");
-      return self2.value + k;
-    });
-  }
-  map(fn) {
-    return derive(() => fn(this.value));
-  }
-}
-var animOf = (track) => ({ tracks: [track] });
-var scaleValue = (v, k) => {
-  if (typeof v === "number")
-    return v * k;
-  if (isColor(v))
-    return { r: v.r * k, g: v.g * k, b: v.b * k };
-  throw new Error("cannot scale a boolean value");
-};
-var derive = (fn) => ({
-  get value() {
-    return fn();
-  }
-});
-var isReadable = (v) => typeof v === "object" && v !== null && ("value" in v) && !isColor(v);
-var scalar = (v = 0) => new Param("scalar", v);
-var length2 = (v = 0) => new Param("length", v, 0);
-var angle = (v = 0) => new Param("angle", v);
-var bipolar = (v = 0) => new Param("bipolar", v, -1, 1);
-var completion = (v = 0) => new Param("completion", v, 0, 1);
-var integer = (v = 0) => new Param("integer", v);
-var bool2 = (v = false) => new Param("bool", v);
-var color2 = (v) => new Param("color", v);
-
-class State {
-  values;
-  constructor(values) {
-    this.values = values;
-  }
-}
-var state = (values) => new State(values);
-
-// src/holon.ts
-var INTERNALS = new WeakMap;
-var internalsOf = (h) => {
-  const found = INTERNALS.get(h);
-  if (!found)
-    throw new Error("Holon internals missing — was the constructor bypassed?");
-  return found;
-};
-var scan = (target) => {
-  const int2 = internalsOf(target);
-  const keys = Object.keys(target);
-  if (keys.length === int2.scannedKeys)
-    return;
-  int2.scannedKeys = keys.length;
-  for (const [name, value] of Object.entries(target)) {
-    if (name === "parent" || name === "states")
-      continue;
-    if (value instanceof Param) {
-      const known = int2.params.get(name);
-      if (known === value)
-        continue;
-      if (int2.overrides.has(name)) {
-        const o = int2.overrides.get(name);
-        int2.overrides.delete(name);
-        if (o instanceof Param) {
-          target[name] = o;
-          int2.params.set(name, o);
-          continue;
-        }
-        if (isReadable(o)) {
-          value.follow(o);
-        } else {
-          value.defaultValue = value.clamp(o);
-          value.value = value.defaultValue;
-        }
-      }
-      if (value.name === undefined) {
-        value.name = name;
-        value.owner = int2.self ?? target;
-      }
-      int2.params.set(name, value);
-    } else if (value instanceof Holon) {
-      if (!int2.parts.includes(value)) {
-        value.parent = int2.self ?? target;
-        int2.parts.push(value);
-      }
-    } else if (int2.overrides.has(name)) {
-      target[name] = int2.overrides.get(name);
-      int2.overrides.delete(name);
-    }
-  }
-};
-var complete = (self2) => {
-  const int2 = internalsOf(self2);
-  if (int2.settled)
-    return;
-  scanViaProxy(self2);
-  if (int2.overrides.size > 0) {
-    const bad = [...int2.overrides.keys()].join("', '");
-    const valid = [...int2.params.keys()].join(", ");
-    throw new Error(`${self2.constructor.name}: unknown constructor option '${bad}' (params: ${valid})`);
-  }
-  if (!int2.composed) {
-    int2.composed = true;
-    self2["compose"]();
-    scanViaProxy(self2);
-    int2.settled = true;
-  }
-};
-var scanViaProxy = (h) => scan(h);
-
-class Holon {
-  x = scalar(0);
-  y = scalar(0);
-  z = scalar(0);
-  h = angle(0);
-  p = angle(0);
-  b = angle(0);
-  scale = scalar(1);
-  creation = completion(1);
-  opacity = completion(1);
-  parent;
-  states = {};
-  constructor(overrides = {}) {
-    const internals = {
-      overrides: new Map(Object.entries(overrides)),
-      params: new Map,
-      parts: [],
-      dynamicParts: [],
-      scannedKeys: -1,
-      composed: false,
-      settled: false
-    };
-    INTERNALS.set(this, internals);
-    const proxy = new Proxy(this, {
-      get(target, prop, receiver) {
-        if (typeof prop === "string" && !internals.settled)
-          scan(target);
-        return Reflect.get(target, prop, receiver);
-      },
-      set(target, prop, value, receiver) {
-        if (internals.settled && typeof prop === "string" && (value instanceof Param || value instanceof Holon) && !Object.prototype.hasOwnProperty.call(target, prop)) {
-          throw new Error(`${target.constructor.name}: cannot add '${prop}' after construction — ` + `the field set is final once compose() has run. Declare it as a class ` + `field, or add dynamic structure from compose() with this.add().`);
-        }
-        return Reflect.set(target, prop, value, receiver);
-      }
-    });
-    INTERNALS.set(proxy, internals);
-    internals.self = proxy;
-    return proxy;
-  }
-  compose() {}
-  createAnim() {
-    return;
-  }
-  unCreateAnim() {
-    return;
-  }
-  add(part) {
-    const int2 = internalsOf(this);
-    part.parent = int2.self ?? this;
-    int2.dynamicParts.push(part);
-    return part;
-  }
-  get params() {
-    complete(this);
-    return internalsOf(this).params;
-  }
-  get parts() {
-    complete(this);
-    const int2 = internalsOf(this);
-    return [...int2.parts, ...int2.dynamicParts];
-  }
-  *walk() {
-    yield internalsOf(this).self ?? this;
-    for (const part of this.parts)
-      yield* part.walk();
-  }
-  transitionTo(target) {
-    const params = this.params;
-    const anims = [];
-    for (const [name, value] of Object.entries(target.values)) {
-      const param = params.get(name);
-      if (!param)
-        throw new Error(`${this.constructor.name}: state targets unknown param '${name}'`);
-      anims.push(param.to(value));
-    }
-    return together(...anims);
-  }
-  get root() {
-    let node = internalsOf(this).self ?? this;
-    while (node.parent)
-      node = node.parent;
-    return node;
-  }
-}
-
-// src/timeline.ts
-var C4D_SMOOTHING = 0.25;
-var c4dEaseWith = (u, sl, sr) => {
-  if (u <= 0)
-    return 0;
-  if (u >= 1)
-    return 1;
-  const timeAt = (p2) => 3 * (1 - p2) * (1 - p2) * p2 * sl + 3 * (1 - p2) * p2 * p2 * (1 - sr) + p2 * p2 * p2;
-  let lo = 0;
-  let hi = 1;
-  for (let i = 0;i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (timeAt(mid) < u)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const p = (lo + hi) / 2;
-  return 3 * (1 - p) * p * p + p * p * p;
-};
-var ease = (easing, u) => easing === "linear" ? u : c4dEaseWith(u, SMOOTHING[easing].left, SMOOTHING[easing].right);
-var smoothingFor = (easing, fraction, statedAgainst = fraction) => {
-  const base = SMOOTHING[easing];
-  const k = fraction > 0 ? statedAgainst / fraction : 1;
-  const cap = (v) => Math.min(v * k, 1);
-  return { left: cap(base.left), right: cap(base.right) };
-};
-var lerpValue = (a, b, u) => {
-  if (typeof a === "number" && typeof b === "number")
-    return a + (b - a) * u;
-  if (typeof a === "boolean" || typeof b === "boolean")
-    return u >= 1 ? b : a;
-  if (isColor(a) && isColor(b)) {
-    return {
-      r: a.r + (b.r - a.r) * u,
-      g: a.g + (b.g - a.g) * u,
-      b: a.b + (b.b - a.b) * u
-    };
-  }
-  throw new Error("cannot interpolate between mismatched value types");
-};
-
-class Timeline {
-  duration;
-  params;
-  segments = new Map;
-  constructor(clips, minDuration = 0) {
-    const placed = [];
-    let end = 0;
-    for (const clip of clips) {
-      end = Math.max(end, clip.start + clip.duration);
-      for (const track of clip.anim.tracks) {
-        placed.push({
-          param: track.param,
-          t0: clip.start + track.relStart * clip.duration,
-          t1: clip.start + track.relStop * clip.duration,
-          mode: track.mode,
-          values: track.values,
-          easing: track.easing,
-          smoothing: smoothingFor(track.easing, track.relStop - track.relStart, track.smoothingWindow ?? track.relStop - track.relStart)
-        });
-      }
-    }
-    this.duration = Math.max(end, minDuration);
-    const byParam = new Map;
-    for (const p of placed) {
-      const list = byParam.get(p.param) ?? [];
-      list.push(p);
-      byParam.set(p.param, list);
-    }
-    for (const [param, list] of byParam) {
-      list.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
-      const segs = [];
-      let prevEnd = param.defaultValue;
-      let first = true;
-      for (const p of list) {
-        let waypoints;
-        switch (p.mode) {
-          case "to":
-            waypoints = [prevEnd, param.clamp(p.values[0])];
-            break;
-          case "by": {
-            if (typeof prevEnd !== "number" || typeof p.values[0] !== "number") {
-              throw new Error(`'.by()' needs numeric values on '${param.name ?? param.id}'`);
-            }
-            waypoints = [prevEnd, param.clamp(prevEnd + p.values[0])];
-            break;
-          }
-          case "sequence":
-            waypoints = p.values.map((v) => param.clamp(v));
-            break;
-        }
-        segs.push({ t0: p.t0, t1: p.t1, waypoints, easing: p.easing, smoothing: p.smoothing });
-        prevEnd = waypoints[waypoints.length - 1];
-        first = false;
-      }
-      this.segments.set(param, segs);
-    }
-    this.params = [...this.segments.keys()];
-  }
-  valueAt(param, t) {
-    const segs = this.segments.get(param);
-    if (!segs || segs.length === 0)
-      return param.defaultValue;
-    const firstSeg = segs[0];
-    if (t < firstSeg.t0)
-      return firstSeg.waypoints[0];
-    let active;
-    let lastEnded;
-    for (const seg of segs) {
-      if (t >= seg.t0 && t <= seg.t1)
-        active = seg;
-      if (seg.t1 <= t && (!lastEnded || seg.t1 >= lastEnded.t1))
-        lastEnded = seg;
-    }
-    if (active) {
-      const span = active.t1 - active.t0;
-      const u = span <= 0 ? 1 : (t - active.t0) / span;
-      const n = active.waypoints.length - 1;
-      if (u >= 1)
-        return active.waypoints[n];
-      const scaled = u * n;
-      const i = Math.min(Math.floor(scaled), n - 1);
-      const local = active.easing === "linear" ? scaled - i : c4dEaseWith(scaled - i, active.smoothing.left, active.smoothing.right);
-      return lerpValue(active.waypoints[i], active.waypoints[i + 1], local);
-    }
-    if (lastEnded)
-      return lastEnded.waypoints[lastEnded.waypoints.length - 1];
-    return firstSeg.waypoints[0];
-  }
-  apply(t) {
-    for (const param of this.params) {
-      param.value = this.valueAt(param, t);
-    }
-  }
-}
-
-// src/narration.ts
-var WORDS_PER_MINUTE = 165;
-var PADDING_SECONDS = 0.35;
-var spokenSeconds = (text) => {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  if (words === 0)
-    return 0;
-  const base = words / WORDS_PER_MINUTE * 60;
-  const stops = (text.match(/[.!?]/g) ?? []).length;
-  const commas = (text.match(/[,;:—–]/g) ?? []).length;
-  return base + stops * 0.35 + commas * 0.15 + PADDING_SECONDS;
-};
-var utteranceKey = (text, voice) => {
-  const input = `${voice}\x00${text.trim()}`;
-  let h = 2166136261;
-  for (let i = 0;i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
-  }
-  let g = 2166136261;
-  for (let i = input.length - 1;i >= 0; i--) {
-    g ^= input.charCodeAt(i);
-    g = Math.imul(g, 16777619) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0") + g.toString(16).padStart(8, "0");
-};
-
-class Narration {
-  lines = [];
-  add(text, start, voice, duration) {
-    const slot = duration ?? spokenSeconds(text);
-    this.lines.push({ text: text.trim(), start, duration: slot, voice });
-    return slot;
-  }
-  get isEmpty() {
-    return this.lines.length === 0;
-  }
-  get spokenDuration() {
-    return this.lines.reduce((end, l) => Math.max(end, l.start + l.duration), 0);
-  }
-  at(t) {
-    return this.lines.find((l) => t >= l.start && t < l.start + l.duration);
-  }
-  overlaps() {
-    const out = [];
-    const ordered = [...this.lines].sort((a, b) => a.start - b.start);
-    for (let i = 1;i < ordered.length; i++) {
-      const previous = ordered[i - 1];
-      const next = ordered[i];
-      const by = previous.start + previous.duration - next.start;
-      if (by > 0.000001)
-        out.push({ previous, next, by });
-    }
-    return out;
-  }
-  transcript() {
-    return this.lines.map((l) => `[${l.start.toFixed(2)}] ${l.text}`).join(`
-`);
-  }
-}
-
-// src/dream.ts
-var PERSPECTIVES = {
-  front: { phi: 0, theta: 0 },
-  default: { phi: PI3 / 4, theta: PI3 / 8 }
-};
-var ZOOM_REFERENCE_WIDTH = 1023;
-var orthoHalfHeight = (zoom, aspect2) => ZOOM_REFERENCE_WIDTH / (2 * zoom * aspect2);
-var DEFAULT_DISTANCE = 1000;
-var distanceForZoom = (zoom) => DEFAULT_DISTANCE / zoom;
-var CAMERA_FOCAL_MM = 36;
-var CAMERA_APERTURE_MM = 36;
-var CAMERA_FOV = 2 * Math.atan(CAMERA_APERTURE_MM / (2 * CAMERA_FOCAL_MM));
-var verticalFov = (horizontal, aspect2) => 2 * Math.atan(Math.tan(horizontal / 2) / aspect2);
-var CAMERA_FOV_VERTICAL = verticalFov(CAMERA_FOV, 16 / 9);
-
-class Observer extends Holon {
-  phi = angle(0);
-  theta = angle(0);
-  tilt = angle(0);
-  radius = scalar(1500);
-  zoom = scalar(1);
-  orthographic = bool2(false);
-  fov = angle(53.13 * Math.PI / 180);
-  baseHeight = length2(700);
-  look(perspective) {
-    const { phi, theta } = PERSPECTIVES[perspective];
-    this.phi.defaultValue = phi;
-    this.phi.value = phi;
-    this.theta.defaultValue = theta;
-    this.theta.value = theta;
-    this.radius.defaultValue = DEFAULT_DISTANCE;
-    this.radius.value = DEFAULT_DISTANCE;
-    this.fov.defaultValue = CAMERA_FOV_VERTICAL;
-    this.fov.value = CAMERA_FOV_VERTICAL;
-    return this;
-  }
-  orbit(cfg) {
-    const anims = [];
-    if (cfg.phi !== undefined)
-      anims.push(this.phi.to(cfg.phi));
-    if (cfg.theta !== undefined)
-      anims.push(this.theta.to(cfg.theta));
-    if (cfg.tilt !== undefined)
-      anims.push(this.tilt.to(cfg.tilt));
-    return anims;
-  }
-  pan(cfg) {
-    const anims = [];
-    if (cfg.x !== undefined)
-      anims.push(this.x.to(cfg.x));
-    if (cfg.y !== undefined)
-      anims.push(this.y.to(cfg.y));
-    return anims;
-  }
-  dolly(radius) {
-    return [this.radius.to(radius)];
-  }
-}
-
-class Dream {
-  observer = new Observer;
-  #cursor = 0;
-  #clips = [];
-  #backdrop;
-  #roots = [];
-  #built;
-  #narration = new Narration;
-  play(anim, runTime = 1) {
-    const clip = { anim, start: this.#cursor, duration: runTime };
-    this.#clips.push(clip);
-    this.#cursor += runTime;
-    return clip;
-  }
-  set(...anims) {
-    for (const anim of anims) {
-      this.#clips.push({ anim, start: this.#cursor, duration: 0 });
-    }
-  }
-  wait(dt = 1) {
-    this.#cursor += dt;
-  }
-  say(text, opts = {}) {
-    const duration = this.#narration.add(text, this.#cursor, opts.voice, opts.duration);
-    if (opts.hold)
-      this.#cursor += duration;
-  }
-  get narration() {
-    this.build();
-    return this.#narration;
-  }
-  backdrop(path, opts = {}) {
-    this.#backdrop = { path, offset: opts.offset ?? 0 };
-  }
-  stage(holon) {
-    this.#roots.push(holon);
-    return holon;
-  }
-  get backdropSpec() {
-    this.build();
-    return this.#backdrop;
-  }
-  get roots() {
-    this.build();
-    const seen = new Set;
-    const roots = [];
-    const consider = (h) => {
-      const r = h.root;
-      if (!seen.has(r) && !(r instanceof Observer)) {
-        seen.add(r);
-        roots.push(r);
-      }
-    };
-    for (const r of this.#roots)
-      consider(r);
-    for (const clip of this.#clips) {
-      for (const track of clip.anim.tracks) {
-        const owner = track.param.owner;
-        if (owner instanceof Holon)
-          consider(owner);
-      }
-    }
-    return roots;
-  }
-  get clips() {
-    this.build();
-    return this.#clips;
-  }
-  build() {
-    if (!this.#built) {
-      this.unfold();
-      this.#built = new Timeline(this.#clips, this.#cursor);
-    }
-    return this.#built;
-  }
-  get duration() {
-    return this.build().duration;
-  }
-  applyAt(t) {
-    this.build().apply(t);
-  }
-}
-
-// src/parts/index.ts
-var exports_parts = {};
-__export(exports_parts, {
-  smoothControlPoints: () => smoothControlPoints,
-  reverseOpenPolyline: () => reverseOpenPolyline,
-  rephasePolyline: () => rephasePolyline,
-  rectanglePolyline: () => rectanglePolyline,
-  pulseFold: () => pulseFold,
-  pulseDistance: () => pulseDistance,
-  perspectiveK: () => perspectiveK,
-  hingeAngle: () => hingeAngle,
-  headingFor: () => headingFor,
-  forwardFor: () => forwardFor,
-  dominoWindows: () => dominoWindows,
-  dashRuns: () => dashRuns,
-  catmullRomResample: () => catmullRomResample,
-  annularSectorPolyline: () => annularSectorPolyline,
-  annularSectorFill: () => annularSectorFill,
-  WALL_ROW_LAG: () => WALL_ROW_LAG,
-  WALL_ROW_HEIGHT: () => WALL_ROW_HEIGHT,
-  WALL_BRICK_SIZE: () => WALL_BRICK_SIZE,
-  TheWall: () => TheWall,
-  Stroke: () => Stroke,
-  Square: () => Square,
-  Rectangle: () => Rectangle,
-  Polygon: () => Polygon,
-  PUPIL_STROKE_RATIO: () => PUPIL_STROKE_RATIO,
-  PUPIL_EDGE_RATIO: () => PUPIL_EDGE_RATIO,
-  PULSE_SHARES: () => PULSE_SHARES,
-  PULSE_MIN_FOLD: () => PULSE_MIN_FOLD,
-  PULSE_DISTANCE_SHARES: () => PULSE_DISTANCE_SHARES,
-  Null: () => Null,
-  MolochEye: () => MolochEye,
-  MindVirus: () => MindVirus,
-  Line: () => Line2,
-  Labyrinth: () => Labyrinth,
-  LENS_STROKE_RATIO: () => LENS_STROKE_RATIO,
-  LENS_RADIUS_RATIO: () => LENS_RADIUS_RATIO,
-  IRIS_FILL_RATIO: () => IRIS_FILL_RATIO,
-  Group: () => Group2,
-  FoldableCube: () => FoldableCube,
-  Eye: () => Eye,
-  Ellipse: () => Ellipse,
-  DottedLine: () => DottedLine,
-  Cylinder: () => Cylinder,
-  Cross: () => Cross,
-  Circle: () => Circle,
-  Cable: () => Cable,
-  CAMERA_DISTANCE_RATIO: () => CAMERA_DISTANCE_RATIO,
-  Axes: () => Axes,
-  Arc: () => Arc,
-  AnnularSector: () => AnnularSector
-});
-
-// src/parts/primitives.ts
-class Stroke extends Holon {
-  tint = color2(WHITE);
-  stroke = length2(3);
-  erasure = completion(0);
-  drawStart = completion(0);
-  drawReversed = bool2(false);
-  fillOpacity = completion(0);
-}
-var reverseOpenPolyline = (points) => [...points].reverse();
-var rephasePolyline = (points, drawStart, reversed) => {
-  if (points.length < 3)
-    return [...points];
-  const first = points[0];
-  const last = points[points.length - 1];
-  const closed = Math.abs(first.x - last.x) < 0.000000001 && Math.abs(first.y - last.y) < 0.000000001 && Math.abs(first.z - last.z) < 0.000000001;
-  if (!closed)
-    return [...points];
-  const loop = points.slice(0, -1);
-  const n = loop.length;
-  const dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
-  const seg = [];
-  let total = 0;
-  for (let i2 = 0;i2 < n; i2++) {
-    const d = dist(loop[i2], loop[(i2 + 1) % n]);
-    seg.push(d);
-    total += d;
-  }
-  if (total <= 0)
-    return [...loop, loop[0]];
-  const phase = (drawStart % 1 + 1) % 1;
-  let target = phase * total;
-  let i = 0;
-  while (i < n - 1 && target > seg[i]) {
-    target -= seg[i];
-    i++;
-  }
-  let u = seg[i] > 0 ? Math.min(1, target / seg[i]) : 0;
-  const EPS = 0.000000001;
-  if (u >= 1 - EPS) {
-    i = (i + 1) % n;
-    u = 0;
-  } else if (u <= EPS) {
-    u = 0;
-  }
-  const a = loop[i];
-  const b = loop[(i + 1) % n];
-  const startPt = u === 0 ? a : { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u };
-  const at = (k) => loop[(k % n + n) % n];
-  const onVertex = u === 0;
-  const steps = onVertex ? n - 1 : n;
-  const out = [startPt];
-  for (let k = 0;k < steps; k++) {
-    out.push(reversed ? at(i - k - (onVertex ? 1 : 0)) : at(i + k + 1));
-  }
-  out.push(startPt);
-  return out;
-};
-
-class Circle extends Stroke {
-  radius = length2(100);
-}
-
-class Square extends Stroke {
-  size = length2(200);
-}
-
-class Polygon extends Stroke {
-  radius = length2(100);
-  sides = integer(6);
-  phase = angle(0);
-}
-
-class Arc extends Stroke {
-  radius = length2(100);
-  startAngle = angle(0);
-  endAngle = angle(PI3 / 2);
-}
-
-class AnnularSector extends Stroke {
-  radius = length2(200);
-  innerRadius = length2(100);
-  startAngle = angle(-PI3 / 3);
-  endAngle = angle(PI3 / 3);
-  outer = new Arc({
-    radius: this.radius,
-    startAngle: this.startAngle,
-    endAngle: this.endAngle,
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  inner = new Arc({
-    radius: this.innerRadius,
-    startAngle: this.startAngle,
-    endAngle: this.endAngle,
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  edgeStart = new Line2({ tint: this.tint, stroke: this.stroke });
-  edgeEnd = new Line2({ tint: this.tint, stroke: this.stroke });
-  compose() {
-    const edge = (angle2) => [
-      {
-        x: Math.cos(angle2) * this.innerRadius.value,
-        y: Math.sin(angle2) * this.innerRadius.value,
-        z: 0
-      },
-      { x: Math.cos(angle2) * this.radius.value, y: Math.sin(angle2) * this.radius.value, z: 0 }
-    ];
-    this.edgeStart.points = edge(this.startAngle.value);
-    this.edgeEnd.points = edge(this.endAngle.value);
-  }
-}
-var annularSectorPolyline = (radius, innerRadius, startAngle, endAngle, segments = 48) => {
-  const at = (r, a) => ({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: 0 });
-  const pts = [];
-  for (let i = 0;i <= segments; i++) {
-    pts.push(at(radius, startAngle + i / segments * (endAngle - startAngle)));
-  }
-  for (let i = 0;i <= segments; i++) {
-    pts.push(at(innerRadius, endAngle + i / segments * (startAngle - endAngle)));
-  }
-  pts.push(pts[0]);
-  return pts;
-};
-var annularSectorFill = (radius, innerRadius, startAngle, endAngle, segments = 48) => {
-  const points = [];
-  const indices = [];
-  for (let i = 0;i <= segments; i++) {
-    const a = startAngle + i / segments * (endAngle - startAngle);
-    points.push({ x: Math.cos(a) * innerRadius, y: Math.sin(a) * innerRadius, z: 0 });
-    points.push({ x: Math.cos(a) * radius, y: Math.sin(a) * radius, z: 0 });
-  }
-  for (let i = 0;i < segments; i++) {
-    const b = i * 2;
-    indices.push(b, b + 1, b + 3, b, b + 3, b + 2);
-  }
-  return { points, indices };
-};
-
-class Null extends Holon {
-}
-
-class Group2 extends Null {
-  members = [];
-  compose() {
-    for (const member of this.members)
-      this.add(member);
-  }
-}
-var LINE_POINTS = Symbol("Line.points");
-
-class Line2 extends Stroke {
-  geomVersion = 0;
-  points = [];
-  [LINE_POINTS] = [];
-  arrowStart = bool2(false);
-  arrowEnd = bool2(false);
-  arrowSize = length2(720 / 700);
-  constructor(overrides = {}) {
-    super(overrides);
-    const initial = this.points;
-    Object.defineProperty(this, "points", {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return this[LINE_POINTS] ?? [];
-      },
-      set(v) {
-        this[LINE_POINTS] = v;
-        this.geomVersion++;
-      }
-    });
-    this.points = initial;
-  }
-}
-
-class Rectangle extends Stroke {
-  width = length2(100);
-  height = length2(200);
-  rounding = completion(0);
-  filled = bool2(false);
-  tint = color2(RED);
-}
-
-class Ellipse extends Stroke {
-  radiusX = length2(100);
-  radiusY = length2(50);
-  filled = bool2(false);
-}
-var dominoWindows = (count, relDuration = 0.3, globalSmoothing = 0.5) => {
-  if (count <= 0)
-    return [];
-  const invSmoothstep = (x) => 0.5 - Math.sin(Math.asin(1 - 2 * x) / 3);
-  const windows2 = [];
-  for (let i = 0;i < count; i++) {
-    const mid = invSmoothstep(1 / 2 * (1 / count) + i / count);
-    const dur = relDuration * (1 + globalSmoothing * Math.cos(TAU * i / count));
-    windows2.push([mid - dur / 2, mid + dur / 2]);
-  }
-  const shift = Math.abs(windows2[0][0]);
-  for (const w of windows2) {
-    w[0] += shift;
-    w[1] += shift;
-  }
-  const rescale = 1 + (1 - windows2[windows2.length - 1][1]);
-  for (const w of windows2) {
-    w[0] = Math.min(1, Math.max(0, w[0] * rescale));
-    w[1] = Math.min(1, Math.max(0, w[1] * rescale));
-  }
-  return windows2;
-};
-var rectanglePolyline = (width, height, rounding, cornerSegments = 8) => {
-  const w = width / 2;
-  const h = height / 2;
-  const r = Math.min(w, h) * Math.min(1, Math.max(0, rounding));
-  const pts = [];
-  const push = (x, y) => pts.push({ x, y, z: 0 });
-  if (r <= 0) {
-    push(0, -h);
-    push(w, -h);
-    push(w, h);
-    push(-w, h);
-    push(-w, -h);
-    push(0, -h);
-    return pts;
-  }
-  const arc = (cx, cy, a0, a1) => {
-    for (let i = 1;i <= cornerSegments; i++) {
-      const a = a0 + (a1 - a0) * i / cornerSegments;
-      push(cx + r * Math.cos(a), cy + r * Math.sin(a));
-    }
-  };
-  push(0, -h);
-  push(w - r, -h);
-  arc(w - r, -h + r, -PI3 / 2, 0);
-  push(w, h - r);
-  arc(w - r, h - r, 0, PI3 / 2);
-  push(-w + r, h);
-  arc(-w + r, h - r, PI3 / 2, PI3);
-  push(-w, -h + r);
-  arc(-w + r, -h + r, PI3, 3 * PI3 / 2);
-  push(0, -h);
-  return pts;
-};
-
-class Cross extends Stroke {
-  size = length2(6);
-  fromCenter = bool2(true);
-  arms = [];
-  compose() {
-    const s = this.size.value;
-    const ends = this.fromCenter.value ? [
-      [{ x: 0, y: 0, z: 0 }, { x: 0, y: s, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }, { x: s, y: 0, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }, { x: 0, y: -s, z: 0 }],
-      [{ x: 0, y: 0, z: 0 }, { x: -s, y: 0, z: 0 }]
-    ] : [
-      [{ x: 0, y: -s, z: 0 }, { x: 0, y: s, z: 0 }],
-      [{ x: -s, y: 0, z: 0 }, { x: s, y: 0, z: 0 }]
-    ];
-    for (const [a, b] of ends) {
-      this.arms.push(this.add(new Line2({ points: [a, b], tint: this.tint, stroke: this.stroke })));
-    }
-  }
-}
-var dashRuns = (from, to, dash, gap) => {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const dz = to.z - from.z;
-  const total = Math.hypot(dx, dy, dz);
-  const period = dash + gap;
-  if (total <= 0 || dash <= 0 || period <= 0)
-    return [[from, to]];
-  const at = (d) => {
-    const u = d / total;
-    return { x: from.x + dx * u, y: from.y + dy * u, z: from.z + dz * u };
-  };
-  const runs = [];
-  for (let d = 0;d < total - 0.000000001; d += period) {
-    runs.push([at(d), at(Math.min(total, d + dash))]);
-  }
-  return runs;
-};
-
-class DottedLine extends Stroke {
-  points = [];
-  dash = length2(2.3);
-  gap = length2(3.2);
-  dashes = [];
-  compose() {
-    for (let i = 0;i < this.points.length - 1; i++) {
-      for (const [a, b] of dashRuns(this.points[i], this.points[i + 1], this.dash.value, this.gap.value)) {
-        this.dashes.push(this.add(new Line2({ points: [a, b], tint: this.tint, stroke: this.stroke })));
-      }
-    }
-  }
-  createAnim() {
-    this.parts;
-    const n = this.dashes.length;
-    if (n === 0)
-      return { tracks: [] };
-    return together(...this.dashes.map((d, i) => [d.creation.sequence(0, 1), i / n, (i + 1) / n]));
-  }
-  unCreateAnim() {
-    this.parts;
-    const n = this.dashes.length;
-    if (n === 0)
-      return { tracks: [] };
-    return together(...this.dashes.map((d, i) => [d.creation.to(0), 1 - (i + 1) / n, 1 - i / n]));
-  }
-}
-// vocabulary/Cylinder/Cylinder.ts
-class Cylinder extends Stroke {
-  static sovereign = true;
-  radius = length2(50);
-  height = length2(200);
-}
-// vocabulary/Eye/Eye.ts
-var oneStroke = (strokes, retract = false) => {
-  const n = strokes.length;
-  if (n === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i) => {
-    const values = [];
-    for (let k = 0;k <= STEPS; k++) {
-      const shared = ease("smooth", k / STEPS) * n;
-      const drawn = Math.min(1, Math.max(0, shared - i));
-      values.push(retract ? 1 - drawn : drawn);
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class Eye extends Stroke {
-  static sovereign = true;
-  opening = completion(1);
-  lidTop = new Line2({
-    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(PI3 / 8)
-  });
-  lidBottom = new Line2({
-    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(-PI3 / 8)
-  });
-  eyeball = new Arc({
-    radius: 200,
-    startAngle: this.opening.times(-PI3 / 8),
-    endAngle: this.opening.times(PI3 / 8),
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
-  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
-  createAnim() {
-    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
-  }
-  unCreateAnim() {
-    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
-  }
-}
-// vocabulary/Axes/Axes.ts
-var cascade = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => restage(line.creation.sequence(0, 1), windows2[i][0], windows2[i][1])));
-};
-var consume = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => restage(line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1])));
-};
-
-class Axes extends Stroke {
-  static sovereign = true;
-  mode = "xy";
-  xStart = scalar(-200);
-  xEnd = scalar(200);
-  yStart = scalar(-200);
-  yEnd = scalar(200);
-  zStart = scalar(-200);
-  zEnd = scalar(200);
-  gridSpacing = length2(30);
-  gridLineLength = length2(1000);
-  drawGrid = bool2(false);
-  drawTicks = bool2(false);
-  arrowEnd = bool2(true);
-  arrowSize = length2(720 / 700);
-  gridTint = color2(WHITE);
-  axisLines = [];
-  gridGroups = [];
-  tickGroups = [];
-  compose() {
-    const spacing = this.gridSpacing.value;
-    const halfGrid = this.gridLineLength.value / 2;
-    const extents = {
-      x: [this.xStart.value, this.xEnd.value],
-      y: [this.yStart.value, this.yEnd.value],
-      z: [this.zStart.value, this.zEnd.value]
-    };
-    const frames = {
-      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
-      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
-      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
-    };
-    const at = (v, k) => ({ x: v.x * k, y: v.y * k, z: v.z * k });
-    const sum = (a, b) => ({
-      x: a.x + b.x,
-      y: a.y + b.y,
-      z: a.z + b.z
-    });
-    const positions = (start, end) => {
-      const out = [];
-      const negCount = Math.round(Math.abs(start) / spacing);
-      const posCount = Math.round(end / spacing);
-      for (let i = negCount - 1;i >= 1; i--)
-        out.push(-i * spacing);
-      for (let i = 1;i < posCount; i++)
-        out.push(i * spacing);
-      return out;
-    };
-    for (const axis of this.mode) {
-      const frame = frames[axis];
-      const extent = extents[axis];
-      if (!frame || !extent)
-        continue;
-      const [start, end] = extent;
-      this.axisLines.push(this.add(new Line2({
-        points: [at(frame.dir, start), at(frame.dir, end)],
-        tint: this.tint,
-        stroke: this.stroke,
-        arrowEnd: this.arrowEnd.value,
-        arrowSize: this.arrowSize
-      })));
-      if (this.drawGrid.value) {
-        const group = [];
-        for (const pos of positions(start, end)) {
-          group.push(this.add(new Line2({
-            points: [
-              sum(at(frame.dir, pos), at(frame.perp, -halfGrid)),
-              sum(at(frame.dir, pos), at(frame.perp, halfGrid))
-            ],
-            tint: this.gridTint,
-            stroke: this.stroke.times(0.5)
-          })));
-        }
-        this.gridGroups.push(group);
-      }
-      if (this.drawTicks.value) {
-        const group = [];
-        const tickHalf = 5;
-        const posCount = Math.round(end / spacing);
-        const negCount = Math.round(Math.abs(start) / spacing);
-        for (let i = -(negCount - 1);i < posCount; i++) {
-          group.push(this.add(new Line2({
-            points: [
-              sum(at(frame.dir, i * spacing), at(frame.perp, -tickHalf)),
-              sum(at(frame.dir, i * spacing), at(frame.perp, tickHalf))
-            ],
-            tint: this.tint,
-            stroke: this.stroke
-          })));
-        }
-        this.tickGroups.push(group);
-      }
-    }
-  }
-  createAnim() {
-    this.parts;
-    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
-    const items = [
-      [together(...this.axisLines.map((l) => l.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([cascade(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([cascade(group), 0.3, 1]);
-    return together(...items);
-  }
-  unCreateAnim() {
-    this.parts;
-    const items = [
-      [together(...this.axisLines.map((l) => l.erasure.sequence(0, 1))), 0, 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([consume(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([consume(group), 0, 0.7]);
-    return together(...items);
-  }
-}
-// vocabulary/MolochEye/MolochEye.ts
-var SIN_HALF_SPAN = 4 / 5;
-var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
-var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
-var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
-var CAMERA_DISTANCE_RATIO = 1.282;
-var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
-var K = perspectiveK(CAMERA_DISTANCE_RATIO);
-var LENS_STROKE_RATIO = 0.0246;
-var PUPIL_EDGE_RATIO = 1.1673;
-var PUPIL_STROKE_RATIO = 2.284;
-var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
-var onePen = (strokes) => {
-  const n = strokes.length;
-  if (n === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i) => {
-    const values = [];
-    for (let k = 0;k <= STEPS; k++) {
-      const shared = ease("smooth", k / STEPS) * n;
-      values.push(Math.min(1, Math.max(0, shared - i)));
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class MolochEye extends Stroke {
-  static sovereign = true;
-  height = length2(100);
-  tint = color2(BLUE);
-  lensTop = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(-LENS_CENTER_RATIO),
-    startAngle: PI3 / 2 + HALF_SPAN,
-    endAngle: PI3 / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  lensBottom = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(LENS_CENTER_RATIO),
-    startAngle: -PI3 / 2 + HALF_SPAN,
-    endAngle: -PI3 / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
-  irisFill = new Ellipse({
-    radiusX: this.height.times(IRIS_FILL_RATIO),
-    radiusY: this.height.times(IRIS_FILL_RATIO),
-    filled: true,
-    tint: BLACK
-  });
-  pupilBack = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO * K),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K)
-  });
-  pupilFront = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
-  });
-  connectors = [];
-  compose() {
-    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
-    const back = front * K;
-    const corners = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1]
-    ];
-    for (const [sx, sy] of corners) {
-      this.connectors.push(this.add(new Line2({
-        points: [
-          { x: sx * back, y: sy * back, z: 0 },
-          { x: sx * front, y: sy * front, z: 0 }
-        ],
-        tint: this.tint,
-        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K) / 2)
-      })));
-    }
-  }
-  createAnim() {
-    this.parts;
-    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c) => c.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
-  }
-}
-// vocabulary/FoldableCube/FoldableCube.ts
-class FoldableCube extends Stroke {
-  static sovereign = true;
-  size = length2(100);
-  fold = bipolar(0);
-  tint = color2(BLUE);
-  bottom = new Rectangle({
-    width: this.size,
-    height: this.size,
-    p: PI3 / 2,
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
-  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
-  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
-  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
-  get foldAngle() {
-    return this.fold.value * PI3 / 2;
-  }
-  hinge(offset, angle2, axis = "p") {
-    return new Group2({
-      ...offset,
-      [axis]: derive(angle2),
-      members: [
-        new Rectangle({
-          width: this.size,
-          height: this.size,
-          p: PI3 / 2,
-          tint: this.tint,
-          stroke: this.stroke,
-          ...offset
-        })
-      ]
-    });
-  }
-  get walls() {
-    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
-  }
-}
-var hingeAngle = (fold) => fold * PI3 / 2;
-// src/parts/curves.ts
-var exports_curves = {};
-__export(exports_curves, {
-  worldPosition: () => worldPosition,
-  trimByArcLength: () => trimByArcLength,
-  rotHPB: () => rotHPB,
-  invRotHPB: () => invRotHPB,
-  catmullRom: () => catmullRom,
-  SectionPlane: () => SectionPlane,
-  SectionCurve: () => SectionCurve,
-  Connection: () => Connection
-});
-
-// src/geometry/section.ts
-var EPS = 0.000000001;
-var clamp3 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-var mantlePoint = (theta, radius, y) => ({
-  x: radius * Math.cos(theta),
-  y,
-  z: radius * Math.sin(theta)
-});
-var empty = { kind: "empty", points: [], closed: false };
-var cylinderPlaneSection = (radius, height, planePoint, planeNormal, segments = 96) => {
-  const halfH = height / 2;
-  const mag = Math.hypot(planeNormal.x, planeNormal.y, planeNormal.z);
-  if (!(mag > EPS) || !(radius > EPS) || !(height > EPS))
-    return empty;
-  const flip = planeNormal.y < 0 ? -1 : 1;
-  const nx = flip * planeNormal.x / mag;
-  const ny = flip * planeNormal.y / mag;
-  const nz = flip * planeNormal.z / mag;
-  const d = nx * planePoint.x + ny * planePoint.y + nz * planePoint.z;
-  const rho = Math.hypot(nx, nz);
-  const alpha = Math.atan2(nz, nx);
-  if (rho < EPS) {
-    const y = d / ny;
-    if (Math.abs(y) > halfH + EPS)
-      return empty;
-    const points2 = [];
-    for (let i = 0;i <= segments; i++) {
-      points2.push(mantlePoint(i / segments * 2 * Math.PI, radius, clamp3(y, -halfH, halfH)));
-    }
-    return { kind: "circle", points: points2, closed: true };
-  }
-  if (ny < EPS) {
-    const c = d / (radius * rho);
-    if (c > 1 + EPS || c < -1 - EPS)
-      return empty;
-    if (Math.abs(c) > 1 - EPS) {
-      const theta = alpha + (c > 0 ? 0 : Math.PI);
-      return {
-        kind: "line",
-        points: [mantlePoint(theta, radius, -halfH), mantlePoint(theta, radius, halfH)],
-        closed: false
-      };
-    }
-    const u = Math.acos(c);
-    const thetaA = alpha - u;
-    const thetaB = alpha + u;
-    const points2 = [
-      mantlePoint(thetaA, radius, -halfH),
-      mantlePoint(thetaA, radius, halfH),
-      mantlePoint(thetaB, radius, halfH),
-      mantlePoint(thetaB, radius, -halfH),
-      mantlePoint(thetaA, radius, -halfH)
-    ];
-    return { kind: "rectangle", points: points2, closed: true };
-  }
-  const cTop = (d - ny * halfH) / (radius * rho);
-  const cBot = (d + ny * halfH) / (radius * rho);
-  if (cTop > 1 - EPS || cBot < -1 + EPS)
-    return empty;
-  const clippedTop = cTop > -1;
-  const clippedBot = cBot < 1;
-  const aTop = Math.acos(clamp3(cTop, -1, 1));
-  const aBot = Math.acos(clamp3(cBot, -1, 1));
-  const yAt = (u) => clamp3((d - radius * rho * Math.cos(u)) / ny, -halfH, halfH);
-  const at = (u) => mantlePoint(alpha + u, radius, yAt(u));
-  if (!clippedTop && !clippedBot) {
-    const points2 = [];
-    for (let i = 0;i <= segments; i++)
-      points2.push(at(-Math.PI + i / segments * 2 * Math.PI));
-    return { kind: "ellipse", points: points2, closed: true };
-  }
-  const span = aTop - aBot;
-  const arcSteps = Math.max(2, Math.round(segments * span / (2 * Math.PI)));
-  const points = [];
-  const push = (p) => {
-    const prev = points[points.length - 1];
-    if (prev && Math.hypot(p.x - prev.x, p.y - prev.y, p.z - prev.z) < 0.0000001)
-      return;
-    points.push(p);
-  };
-  for (let i = 0;i <= arcSteps; i++)
-    push(at(aBot + span * i / arcSteps));
-  for (let i = arcSteps;i >= 0; i--)
-    push(at(-(aBot + span * i / arcSteps)));
-  points.push(points[0]);
-  return { kind: "truncated", points, closed: true };
-};
-
-// src/parts/curves.ts
-var derivePoints = (line, sourceKey, compute2) => {
-  let key;
-  let memo = [];
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = sourceKey();
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key[i])) {
-        key = next;
-        memo = compute2();
-        line.geomVersion++;
-      }
-      return memo;
-    },
-    set(_v) {}
-  });
-};
-var rotHPB = (v, p, h, b) => {
-  let { x, y, z } = v;
-  let t = x * Math.cos(h) + z * Math.sin(h);
-  z = -x * Math.sin(h) + z * Math.cos(h);
-  x = t;
-  t = y * Math.cos(p) - z * Math.sin(p);
-  z = y * Math.sin(p) + z * Math.cos(p);
-  y = t;
-  t = x * Math.cos(b) - y * Math.sin(b);
-  y = x * Math.sin(b) + y * Math.cos(b);
-  x = t;
-  return { x, y, z };
-};
-var invRotHPB = (v, p, h, b) => {
-  let { x, y, z } = v;
-  let t = x * Math.cos(-b) - y * Math.sin(-b);
-  y = x * Math.sin(-b) + y * Math.cos(-b);
-  x = t;
-  t = y * Math.cos(-p) - z * Math.sin(-p);
-  z = y * Math.sin(-p) + z * Math.cos(-p);
-  y = t;
-  t = x * Math.cos(-h) + z * Math.sin(-h);
-  z = -x * Math.sin(-h) + z * Math.cos(-h);
-  x = t;
-  return { x, y, z };
-};
-var worldPosition = (holon) => {
-  let pos = { x: holon.x.value, y: holon.y.value, z: holon.z.value };
-  for (let node = holon.parent;node; node = node.parent) {
-    const s = node.scale.value;
-    pos = rotHPB({ x: pos.x * s, y: pos.y * s, z: pos.z * s }, node.p.value, node.h.value, node.b.value);
-    pos = { x: pos.x + node.x.value, y: pos.y + node.y.value, z: pos.z + node.z.value };
-  }
-  return pos;
-};
-var catmullRom = (anchors, samplesPerSegment = 24) => {
-  if (anchors.length < 2)
-    return [...anchors];
-  const pts = [];
-  const P = (i) => anchors[Math.min(anchors.length - 1, Math.max(0, i))];
-  for (let seg = 0;seg < anchors.length - 1; seg++) {
-    const p0 = P(seg - 1);
-    const p1 = P(seg);
-    const p2 = P(seg + 1);
-    const p3 = P(seg + 2);
-    const last = seg === anchors.length - 2;
-    const end = last ? samplesPerSegment : samplesPerSegment - 1;
-    for (let i = 0;i <= end; i++) {
-      const t = i / samplesPerSegment;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      const co = (a, b, c, d) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - 3 * c + d - a) * t3);
-      pts.push({
-        x: co(p0.x, p1.x, p2.x, p3.x),
-        y: co(p0.y, p1.y, p2.y, p3.y),
-        z: co(p0.z, p1.z, p2.z, p3.z)
-      });
-    }
-  }
-  return pts;
-};
-var trimByArcLength = (points, startFrac, endFrac) => {
-  if (points.length < 2)
-    return [...points];
-  const lens = [0];
-  for (let i = 1;i < points.length; i++) {
-    const a = points[i - 1];
-    const b = points[i];
-    lens.push(lens[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
-  }
-  const total = lens[lens.length - 1];
-  if (!(total > 0))
-    return [...points];
-  const s0 = Math.max(0, Math.min(1, startFrac)) * total;
-  const s1 = (1 - Math.max(0, Math.min(1, endFrac))) * total;
-  if (!(s1 > s0))
-    return [];
-  const pointAt = (s) => {
-    let i = 1;
-    while (i < lens.length - 1 && lens[i] < s)
-      i++;
-    const a = points[i - 1];
-    const b = points[i];
-    const seg = lens[i] - lens[i - 1];
-    const t = seg > 0 ? (s - lens[i - 1]) / seg : 0;
-    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
-  };
-  const out = [pointAt(s0)];
-  for (let i = 0;i < points.length; i++) {
-    if (lens[i] > s0 && lens[i] < s1)
-      out.push(points[i]);
-  }
-  out.push(pointAt(s1));
-  return out;
-};
-var yaw = (v, a) => ({
-  x: v.x * Math.cos(a) + v.z * Math.sin(a),
-  y: v.y,
-  z: -v.x * Math.sin(a) + v.z * Math.cos(a)
-});
-var pitch = (v, a) => ({
-  x: v.x,
-  y: v.y * Math.cos(a) - v.z * Math.sin(a),
-  z: v.y * Math.sin(a) + v.z * Math.cos(a)
-});
-var roll = (v, a) => ({
-  x: v.x * Math.cos(a) - v.y * Math.sin(a),
-  y: v.x * Math.sin(a) + v.y * Math.cos(a),
-  z: v.z
-});
-
-class SectionPlane extends Holon {
-  frozenB = angle(0);
-  get normal() {
-    let n = { x: 0, y: 0, z: 1 };
-    n = yaw(n, this.b.value);
-    n = pitch(n, this.p.value);
-    n = roll(n, this.h.value);
-    return yaw(n, this.frozenB.value);
-  }
-  get origin() {
-    return yaw({ x: this.x.value, y: this.y.value, z: this.z.value }, this.frozenB.value);
-  }
-}
-
-class SectionCurve extends Stroke {
-  radius = length2(50);
-  height = length2(200);
-  tilt = angle(PI3 / 4);
-  spin = angle(0);
-  offset = scalar(0);
-  planeFrame = "local";
-  cutter = {};
-  cutBy(plane) {
-    this.cutter.plane = plane;
-    return this;
-  }
-  line = new Line2({ tint: this.tint, stroke: this.stroke });
-  section;
-  compose() {
-    derivePoints(this.line, () => {
-      const cutter = this.cutter.plane;
-      if (cutter) {
-        const n = cutter.normal;
-        const o = cutter.origin;
-        const c = worldPosition(this);
-        return [this.radius.value, this.height.value, n.x, n.y, n.z, o.x, o.y, o.z, c.x, c.y, c.z];
-      }
-      return [
-        this.radius.value,
-        this.height.value,
-        this.tilt.value,
-        this.spin.value,
-        this.offset.value,
-        this.planeFrame === "parent" ? this.p.value : 0,
-        this.planeFrame === "parent" ? this.h.value : 0,
-        this.planeFrame === "parent" ? this.b.value : 0
-      ];
-    }, () => this.refresh());
-  }
-  refresh() {
-    const cutter = this.cutter.plane;
-    if (cutter) {
-      const n = cutter.normal;
-      const o = cutter.origin;
-      const c = worldPosition(this);
-      const planePoint2 = { x: o.x - c.x, y: o.y - c.y, z: o.z - c.z };
-      this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint2, n);
-      return this.section.points;
-    }
-    const tilt = this.tilt.value;
-    const spin = this.spin.value;
-    let normal2 = {
-      x: Math.sin(tilt) * Math.cos(spin),
-      y: Math.cos(tilt),
-      z: Math.sin(tilt) * Math.sin(spin)
-    };
-    if (this.planeFrame === "parent") {
-      normal2 = invRotHPB(normal2, this.p.value, this.h.value, this.b.value);
-    }
-    const off = this.offset.value;
-    const planePoint = { x: normal2.x * off, y: normal2.y * off, z: normal2.z * off };
-    this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint, normal2);
-    return this.section.points;
-  }
-}
-
-class Connection extends Stroke {
-  via = [];
-  offsetStart = completion(0.1);
-  offsetEnd = completion(0.1);
-  line = new Line2({ tint: this.tint, stroke: this.stroke, arrowEnd: true });
-  anchors;
-  constructor(source, target, overrides = {}) {
-    super(overrides);
-    this.anchors = { source, target };
-  }
-  compose() {
-    derivePoints(this.line, () => {
-      const a = worldPosition(this.anchors.source);
-      const b = worldPosition(this.anchors.target);
-      return [a.x, a.y, a.z, b.x, b.y, b.z, this.offsetStart.value, this.offsetEnd.value];
-    }, () => this.refresh());
-  }
-  refresh() {
-    const anchors = [
-      worldPosition(this.anchors.source),
-      ...this.via,
-      worldPosition(this.anchors.target)
-    ];
-    return trimByArcLength(catmullRom(anchors), this.offsetStart.value, this.offsetEnd.value);
-  }
-}
-
-// src/bake.ts
-var bake = (sim, { fps, duration }) => {
-  if (fps <= 0)
-    throw new Error("bake: fps must be positive");
-  if (duration < 0)
-    throw new Error("bake: duration must be non-negative");
-  const width = sim.width;
-  const frames = Math.max(1, Math.round(duration * fps) + 1);
-  const dt = 1 / fps;
-  const data = new Float32Array(frames * width);
-  let state2 = sim.init();
-  sim.sample(state2, data, 0);
-  for (let f = 1;f < frames; f++) {
-    state2 = sim.step(state2, f, f * dt, dt);
-    sim.sample(state2, data, f * width);
-  }
-  return makeTrack(data, frames, width, fps, duration);
-};
-var makeTrack = (data, frames, width, fps, duration) => {
-  const track = {
-    data,
-    frames,
-    width,
-    fps,
-    duration,
-    sampleAt(t, out) {
-      const dest = out ?? new Float32Array(width);
-      if (frames === 1) {
-        dest.set(data.subarray(0, width));
-        return dest;
-      }
-      const u = Math.min(Math.max(t * fps, 0), frames - 1);
-      const i = Math.min(Math.floor(u), frames - 2);
-      const w = u - i;
-      const a = i * width;
-      const b = a + width;
-      if (w <= 0) {
-        dest.set(data.subarray(a, a + width));
-        return dest;
-      }
-      for (let k = 0;k < width; k++) {
-        dest[k] = data[a + k] + (data[b + k] - data[a + k]) * w;
-      }
-      return dest;
-    }
-  };
-  return track;
-};
-var CACHE_VERSION = 1;
-var CACHE_MAGIC = 1145782833;
-var HEADER_FLOATS = 6;
-var bakeHash = (key, fps, duration, width) => {
-  const payload = JSON.stringify([CACHE_VERSION, fps, duration, width, canonical(key)]);
-  const offsets = [2166136261, 16777619, 2654435769, 2246822507];
-  const out = [];
-  for (const offset of offsets) {
-    let h = offset >>> 0;
-    for (let i = 0;i < payload.length; i++) {
-      h ^= payload.charCodeAt(i) & 255;
-      h = Math.imul(h, 16777619) >>> 0;
-      h ^= payload.charCodeAt(i) >>> 8;
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    out.push(h.toString(16).padStart(8, "0"));
-  }
-  return out.join("");
-};
-var canonical = (value) => {
-  if (Array.isArray(value))
-    return value.map(canonical);
-  if (value && typeof value === "object") {
-    const src = value;
-    const out = {};
-    for (const k of Object.keys(src).sort())
-      out[k] = canonical(src[k]);
-    return out;
-  }
-  if (typeof value === "number" && !Number.isFinite(value))
-    return String(value);
-  return value;
-};
-var encodeTrack = (track) => {
-  const header = new Float64Array([
-    CACHE_MAGIC,
-    CACHE_VERSION,
-    track.frames,
-    track.width,
-    track.fps,
-    track.duration
-  ]);
-  const bytes = new Uint8Array(header.byteLength + track.data.byteLength);
-  bytes.set(new Uint8Array(header.buffer), 0);
-  bytes.set(new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength), header.byteLength);
-  return bytes;
-};
-var decodeTrack = (bytes, expect) => {
-  const headerBytes = HEADER_FLOATS * 8;
-  if (bytes.byteLength < headerBytes)
-    return;
-  const header = new Float64Array(bytes.slice(0, headerBytes).buffer);
-  if (header[0] !== CACHE_MAGIC || header[1] !== CACHE_VERSION)
-    return;
-  const frames = header[2];
-  const width = header[3];
-  const fps = header[4];
-  const duration = header[5];
-  if (!Number.isInteger(frames) || !Number.isInteger(width) || frames < 1 || width < 1) {
-    return;
-  }
-  if (expect && (expect.frames !== frames || expect.width !== width))
-    return;
-  if (bytes.byteLength !== headerBytes + frames * width * 4)
-    return;
-  const data = new Float32Array(bytes.slice(headerBytes).buffer);
-  return makeTrack(data, frames, width, fps, duration);
-};
-// src/geometry/xpbd.ts
-var add2 = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-var sub2 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
-var mul2 = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
-var dot2 = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
-var cross2 = (a, b) => ({
-  x: a.y * b.z - a.z * b.y,
-  y: a.z * b.x - a.x * b.z,
-  z: a.x * b.y - a.y * b.x
-});
-var length3 = (a) => Math.hypot(a.x, a.y, a.z);
-var normalize3 = (a) => {
-  const l = length3(a);
-  return l < 0.000000001 ? undefined : mul2(a, 1 / l);
-};
-var CABLE_PARTICLES = 21;
-var XPBD_ITERATIONS = 6;
-var CABLE_GRAVITY = -50;
-var CABLE_DRAG = 0.15;
-var CABLE_STIFFNESS = 0.15;
-var CABLE_MAX_VELOCITY = 300;
-var CABLE_VELOCITY_SMOOTHING = 0.3;
-var CABLE_DIR_STRENGTH = 0.5;
-var CABLE_SLACK = 1.3;
-var COLLISION_THICKNESS = 15;
-var COLLISION_PUSH = 0.5;
-var DIR_CONSTRAINT_REACH = 3;
-var XPBD_ACTIVATION = 0.08;
-var COLLIDER_FADE_START = 0.15;
-var COLLIDER_FADE_END = 0.5;
-var SETTLE_START = 0.75;
-var SETTLE_STIFFNESS = 0.8;
-var SETTLE_DRAG = 0.5;
-var SETTLE_DIR_FALLOFF = 0.5;
-var straightState = (anchor, tip, particles = CABLE_PARTICLES) => {
-  const positions = [];
-  const velocities = [];
-  for (let i = 0;i < particles; i++) {
-    const t = i / (particles - 1);
-    positions.push(add2(anchor, mul2(sub2(tip, anchor), t)));
-    velocities.push({ x: 0, y: 0, z: 0 });
-  }
-  return { positions, velocities };
-};
-var pointFaceCollision = (point, face, push = COLLISION_PUSH, thickness2 = COLLISION_THICKNESS) => {
-  const { corners, normal: normal2 } = face;
-  const dist = dot2(sub2(point, corners[0]), normal2);
-  if (dist < -thickness2 || dist > thickness2)
-    return { point, collided: false };
-  const proj = sub2(point, mul2(normal2, dist));
-  for (let e = 0;e < 4; e++) {
-    const a = corners[e];
-    const b = corners[(e + 1) % 4];
-    if (dot2(cross2(sub2(b, a), sub2(proj, a)), normal2) < 0)
-      return { point, collided: false };
-  }
-  const target = add2(proj, mul2(normal2, thickness2));
-  return { point: add2(point, mul2(sub2(target, point), push)), collided: true };
-};
-var foldableCubeFaces = (center, frame, fold, scale2, size = 100) => {
-  const angle2 = hingeAngle(fold);
-  const cos2 = Math.cos(angle2);
-  const sin2 = Math.sin(angle2);
-  const h = size / 2;
-  const toWorld = (p) => add2(center, {
-    x: (frame.vx.x * p.x + frame.vy.x * p.y + frame.vz.x * p.z) * scale2,
-    y: (frame.vx.y * p.x + frame.vy.y * p.y + frame.vz.y * p.z) * scale2,
-    z: (frame.vx.z * p.x + frame.vy.z * p.y + frame.vz.z * p.z) * scale2
-  });
-  const makeFace = (local) => {
-    const c = local.map(toWorld);
-    const n = normalize3(cross2(sub2(c[1], c[0]), sub2(c[3], c[0]))) ?? { x: 0, y: 1, z: 0 };
-    return { corners: c, normal: n };
-  };
-  const faces = [];
-  faces.push(makeFace([
-    { x: -h, y: 0, z: -h },
-    { x: h, y: 0, z: -h },
-    { x: h, y: 0, z: h },
-    { x: -h, y: 0, z: h }
-  ]));
-  const wall = (out, u) => {
-    const pivot = mul2(out, h);
-    const far = add2(mul2(out, size * cos2), { x: 0, y: size * sin2, z: 0 });
-    return makeFace([
-      add2(pivot, mul2(u, -h)),
-      add2(pivot, mul2(u, h)),
-      add2(add2(pivot, far), mul2(u, h)),
-      add2(add2(pivot, far), mul2(u, -h))
-    ]);
-  };
-  faces.push(wall({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 }));
-  faces.push(wall({ x: 0, y: 0, z: -1 }, { x: -1, y: 0, z: 0 }));
-  faces.push(wall({ x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }));
-  faces.push(wall({ x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
-  return faces;
-};
-var step2 = (state2, config) => {
-  const n = state2.positions.length;
-  if (n < 2)
-    return { positions: [...state2.positions], velocities: [...state2.velocities] };
-  const {
-    anchor,
-    tip,
-    dt,
-    restLength,
-    gravity = { x: 0, y: CABLE_GRAVITY, z: 0 },
-    drag = CABLE_DRAG,
-    stiffness = CABLE_STIFFNESS,
-    iterations = XPBD_ITERATIONS,
-    maxVelocity = CABLE_MAX_VELOCITY,
-    velocitySmoothing = CABLE_VELOCITY_SMOOTHING,
-    anchorDir,
-    tipDir,
-    dirStrength = CABLE_DIR_STRENGTH,
-    faces
-  } = config;
-  const clampSpeed = (v) => {
-    const speed = length3(v);
-    return speed > maxVelocity ? mul2(v, maxVelocity / speed) : v;
-  };
-  const predicted = [...state2.positions];
-  predicted[0] = anchor;
-  predicted[n - 1] = tip;
-  let velocities = state2.velocities;
-  if (velocitySmoothing > 0 && n > 2) {
-    const smoothed = [...velocities];
-    for (let i = 1;i < n - 1; i++) {
-      const avg = mul2(add2(add2(velocities[i - 1], velocities[i]), velocities[i + 1]), 1 / 3);
-      smoothed[i] = add2(velocities[i], mul2(sub2(avg, velocities[i]), velocitySmoothing));
-    }
-    velocities = smoothed;
-  }
-  const dragFactor = Math.max(0, 1 - drag * dt);
-  for (let i = 1;i < n - 1; i++) {
-    const vel = clampSpeed(mul2(add2(velocities[i], mul2(gravity, dt)), dragFactor));
-    predicted[i] = add2(state2.positions[i], mul2(vel, dt));
-  }
-  for (let pass2 = 0;pass2 < iterations; pass2++) {
-    for (let i = 0;i < n - 1; i++) {
-      const delta = sub2(predicted[i + 1], predicted[i]);
-      const dist = length3(delta);
-      if (dist < 0.001)
-        continue;
-      const correction = mul2(delta, 1 - restLength / dist);
-      if (i > 0)
-        predicted[i] = add2(predicted[i], mul2(correction, 0.5));
-      if (i < n - 2)
-        predicted[i + 1] = sub2(predicted[i + 1], mul2(correction, 0.5));
-    }
-    predicted[0] = anchor;
-    predicted[n - 1] = tip;
-    const pullEnd = (dir, base, indexOf) => {
-      const d = dir && length3(dir) > 0.001 ? normalize3(dir) : undefined;
-      if (!d)
-        return;
-      for (let j = 1;j < Math.min(DIR_CONSTRAINT_REACH + 1, n - 1); j++) {
-        const idx = indexOf(j);
-        const target = add2(base, mul2(d, j * restLength));
-        const weight = dirStrength * (1 - (j - 1) / DIR_CONSTRAINT_REACH);
-        predicted[idx] = add2(predicted[idx], mul2(sub2(target, predicted[idx]), weight));
-      }
-    };
-    pullEnd(anchorDir, anchor, (j) => j);
-    pullEnd(tipDir, tip, (j) => n - 1 - j);
-    for (let i = 1;i < n - 1; i++) {
-      const mid = mul2(add2(predicted[i - 1], predicted[i + 1]), 0.5);
-      predicted[i] = add2(predicted[i], mul2(sub2(mid, predicted[i]), stiffness));
-    }
-    if (faces && faces.length > 0) {
-      for (let i = 1;i < n - 1; i++) {
-        for (const face of faces) {
-          predicted[i] = pointFaceCollision(predicted[i], face).point;
-        }
-      }
-    }
-  }
-  const invDt = 1 / Math.max(dt, 0.001);
-  const newVelocities = [];
-  for (let i = 0;i < n; i++) {
-    newVelocities.push(clampSpeed(mul2(sub2(predicted[i], state2.positions[i]), invDt)));
-  }
-  return { positions: predicted, velocities: newVelocities };
-};
-var settleParams = (completion2) => {
-  if (completion2 <= SETTLE_START) {
-    return { stiffness: CABLE_STIFFNESS, drag: CABLE_DRAG, dirStrength: CABLE_DIR_STRENGTH };
-  }
-  const t = Math.min((completion2 - SETTLE_START) / (1 - SETTLE_START), 1);
-  return {
-    stiffness: CABLE_STIFFNESS + (SETTLE_STIFFNESS - CABLE_STIFFNESS) * t,
-    drag: CABLE_DRAG + (SETTLE_DRAG - CABLE_DRAG) * t,
-    dirStrength: CABLE_DIR_STRENGTH * (1 - t * SETTLE_DIR_FALLOFF)
-  };
-};
-var colliderScale = (completion2) => {
-  if (completion2 <= COLLIDER_FADE_START)
-    return 0;
-  if (completion2 >= COLLIDER_FADE_END)
-    return 1;
-  return (completion2 - COLLIDER_FADE_START) / (COLLIDER_FADE_END - COLLIDER_FADE_START);
-};
-
-// vocabulary/Cable/Cable.ts
-var CTRL_POINTS = 12;
-var SMOOTH_BLEND = 0.5;
-var SMOOTH_ITERATIONS = 3;
-var TUBE_SAMPLES = 48;
-var RING_SEGMENTS = 16;
-var TRAVEL_SAMPLES_PER_SEC = 120;
-var TETHER_SUBDIVISIONS = 3;
-var TETHER_TAPER_MIN = 0.3;
-var sub3 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
-var add3 = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-var mul3 = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
-var cross3 = (a, b) => ({
-  x: a.y * b.z - a.z * b.y,
-  y: a.z * b.x - a.x * b.z,
-  z: a.x * b.y - a.y * b.x
-});
-var len = (a) => Math.hypot(a.x, a.y, a.z);
-var norm = (a) => {
-  const l = len(a);
-  return l < 0.000000001 ? undefined : mul3(a, 1 / l);
-};
-var smoothControlPoints = (points, smoothing = SMOOTH_BLEND, iterations = SMOOTH_ITERATIONS) => {
-  if (points.length < 3)
-    return [...points];
-  let result = [...points];
-  for (let it = 0;it < iterations; it++) {
-    const out = [result[0]];
-    for (let i = 1;i < result.length - 1; i++) {
-      const t = i / (result.length - 1);
-      const blend = smoothing * (0.3 + 0.7 * t);
-      const avg = mul3(add3(add3(result[i - 1], result[i]), result[i + 1]), 1 / 3);
-      out.push(add3(result[i], mul3(sub3(avg, result[i]), blend)));
-    }
-    out.push(result[result.length - 1]);
-    result = out;
-  }
-  return result;
-};
-var catmullRomResample = (ctrl, count) => {
-  if (ctrl.length < 2)
-    return [...ctrl];
-  const P = (i) => ctrl[Math.min(ctrl.length - 1, Math.max(0, i))];
-  const out = [];
-  const segments = ctrl.length - 1;
-  for (let k = 0;k < count; k++) {
-    const u = k / (count - 1) * segments;
-    const j = Math.min(Math.floor(u), segments - 1);
-    const t = u - j;
-    const [p0, p1, p2, p3] = [P(j - 1), P(j), P(j + 1), P(j + 2)];
-    const t2 = t * t;
-    const t3 = t2 * t;
-    out.push({
-      x: 0.5 * (2 * p1.x + (p2.x - p0.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (3 * p1.x - p0.x - 3 * p2.x + p3.x) * t3),
-      y: 0.5 * (2 * p1.y + (p2.y - p0.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (3 * p1.y - p0.y - 3 * p2.y + p3.y) * t3),
-      z: 0.5 * (2 * p1.z + (p2.z - p0.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (3 * p1.z - p0.z - 3 * p2.z + p3.z) * t3)
-    });
-  }
-  return out;
-};
-
-class Cable extends Stroke {
-  static sovereign = true;
-  width = length2(2.5);
-  taper = completion(0.06);
-  ringStep = length2(30);
-  window = scalar(6);
-  clock = scalar(0);
-  rings = bool2(true);
-  tint = color2(WHITE);
-  view = { x: 0, y: 0, z: 1 };
-  maxRings = 64;
-  edgeA = new Line2({ tint: this.tint, stroke: this.stroke });
-  edgeB = new Line2({ tint: this.tint, stroke: this.stroke });
-  ringLines = [];
-  _path;
-  _since = 0;
-  _memoKey;
-  _memo;
-  _baked;
-  _bakedScratch;
-  _bakedVisible;
-  trail(source, opts = {}) {
-    this.parts;
-    this._path = typeof source === "function" ? source : (t) => source.pathAt(t);
-    this._since = opts.since ?? 0;
-    if (opts.window !== undefined) {
-      this.window.defaultValue = opts.window;
-      this.window.value = opts.window;
-    }
-    return this;
-  }
-  tether(anchor, tip, opts, prebaked) {
-    this.parts;
-    const sim = this.tetherSim(anchor, tip, opts);
-    if (prebaked) {
-      this.installTether(prebaked, sim.visible);
-      return;
-    }
-    const track = bake(sim.simulation, sim.bakeOptions);
-    this.installTether(track, sim.visible);
-    return track;
-  }
-  tetherSim(anchor, tip, opts) {
-    const particles = opts.particles ?? CABLE_PARTICLES;
-    const slack = opts.slack ?? CABLE_SLACK;
-    const fps = opts.bakeFps ?? 30;
-    const duration = opts.duration;
-    const cubeSize = opts.cubeSize ?? 100;
-    const anchorDir = opts.anchorDir;
-    const frames = Math.max(1, Math.round(duration * fps) + 1);
-    const dt = 1 / fps;
-    const visible = new Float32Array(frames);
-    for (let f = 0;f < frames; f++)
-      visible[f] = tip(f * dt).completion;
-    const simulation = {
-      width: particles * 3,
-      init: () => straightState(anchor, tip(0).position, particles),
-      step: (state2, frame, time2, dt2) => {
-        const t = tip(time2);
-        if (t.completion <= XPBD_ACTIVATION)
-          return straightState(anchor, t.position, particles);
-        const settle = settleParams(t.completion);
-        const cs = colliderScale(t.completion);
-        const restLength = Math.max(t.travelled * slack, 1) / (particles - 1);
-        const config = {
-          anchor,
-          tip: t.position,
-          dt: dt2,
-          restLength,
-          drag: settle.drag,
-          stiffness: settle.stiffness,
-          dirStrength: settle.dirStrength,
-          anchorDir,
-          tipDir: t.direction,
-          faces: cs > 0.01 ? foldableCubeFaces(t.position, t.frame, t.fold, t.scale * cs, cubeSize) : undefined
-        };
-        return step2(state2, config);
-      },
-      sample: (state2, out, offset) => {
-        for (let i = 0;i < particles; i++) {
-          const p = state2.positions[i];
-          out[offset + i * 3] = p.x;
-          out[offset + i * 3 + 1] = p.y;
-          out[offset + i * 3 + 2] = p.z;
-        }
-      }
-    };
-    return { simulation, bakeOptions: { fps, duration }, visible };
-  }
-  installTether(track, visible) {
-    this._baked = track;
-    this._bakedVisible = visible;
-    this._bakedScratch = new Float32Array(track.width);
-  }
-  get bakedBytes() {
-    return this._baked?.data.byteLength ?? 0;
-  }
-  compose() {
-    const derivedLine = (line, pick) => {
-      const cable = this;
-      let lastMemo;
-      Object.defineProperty(line, "points", {
-        configurable: true,
-        enumerable: true,
-        get() {
-          const g = cable.geometry();
-          if (g !== lastMemo) {
-            lastMemo = g;
-            line.geomVersion++;
-          }
-          return pick(g);
-        },
-        set(_v) {}
-      });
-    };
-    derivedLine(this.edgeA, (g) => g.a);
-    derivedLine(this.edgeB, (g) => g.b);
-    for (let i = 0;i < this.maxRings; i++) {
-      const ring = this.add(new Line2({ tint: this.tint, stroke: this.stroke }));
-      this.ringLines.push(ring);
-      derivedLine(ring, (g) => g.rings[i] ?? []);
-    }
-  }
-  geometryKey() {
-    const key = [
-      this.clock.value,
-      this.width.value,
-      this.taper.value,
-      this.ringStep.value,
-      this.window.value,
-      this.rings.value ? 1 : 0,
-      this._since
-    ];
-    for (let node = this.parent;node; node = node.parent) {
-      key.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
-    }
-    return key;
-  }
-  toLocal(v) {
-    const chain = [];
-    for (let node = this.parent;node; node = node.parent)
-      chain.push(node);
-    let out = v;
-    for (let i = chain.length - 1;i >= 0; i--) {
-      const anc = chain[i];
-      out = sub3(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
-      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
-      const s = anc.scale.value;
-      if (s !== 1)
-        out = mul3(out, 1 / s);
-    }
-    return out;
-  }
-  geometry() {
-    const key = this.geometryKey();
-    if (this._memo && this._memoKey && key.length === this._memoKey.length && key.every((v, i) => v === this._memoKey[i])) {
-      return this._memo;
-    }
-    this._memoKey = key;
-    this._memo = this.computeGeometry();
-    return this._memo;
-  }
-  tubeFrom(spine, empty2) {
-    if (spine.length < 2)
-      return empty2;
-    const view = this.view;
-    const a = [];
-    const b = [];
-    let lastNormal = { x: 0, y: 1, z: 0 };
-    for (let i = 0;i < spine.length; i++) {
-      const p0 = spine[Math.max(0, i - 1)];
-      const p1 = spine[Math.min(spine.length - 1, i + 1)];
-      const tan2 = norm(sub3(p1, p0)) ?? { x: 1, y: 0, z: 0 };
-      const n = norm(cross3(tan2, view)) ?? lastNormal;
-      lastNormal = n;
-      const f = i / (spine.length - 1);
-      const r = this.width.value * (TETHER_TAPER_MIN + (1 - TETHER_TAPER_MIN) * f);
-      a.push(this.toLocal(add3(spine[i], mul3(n, r))));
-      b.push(this.toLocal(sub3(spine[i], mul3(n, r))));
-    }
-    return { a, b, rings: this.ringLines.map(() => []) };
-  }
-  tetherSpine() {
-    const track = this._baked;
-    const visible = this._bakedVisible;
-    if (!track || !visible)
-      return;
-    const T2 = this.clock.value;
-    const u = Math.min(Math.max(T2 * track.fps, 0), visible.length - 1);
-    const completion2 = visible[Math.round(u)];
-    if (completion2 <= 0.02)
-      return;
-    const flat = track.sampleAt(T2, this._bakedScratch);
-    const n = flat.length / 3;
-    const particles = [];
-    for (let i = 0;i < n; i++) {
-      particles.push({ x: flat[i * 3], y: flat[i * 3 + 1], z: flat[i * 3 + 2] });
-    }
-    return catmullRomResample(particles, (n - 1) * (TETHER_SUBDIVISIONS + 1) + 1);
-  }
-  computeGeometry() {
-    const empty2 = { a: [], b: [], rings: this.ringLines.map(() => []) };
-    if (this._baked) {
-      const spine = this.tetherSpine();
-      return spine ? this.tubeFrom(spine, empty2) : empty2;
-    }
-    const path = this._path;
-    if (!path)
-      return empty2;
-    const T2 = this.clock.value;
-    const t0 = Math.max(this._since, T2 - this.window.value);
-    const span = T2 - t0;
-    if (span <= 0.0001)
-      return empty2;
-    const raw = [];
-    for (let i = 0;i < CTRL_POINTS; i++)
-      raw.push(path(T2 - i / (CTRL_POINTS - 1) * span));
-    const pts = catmullRomResample(smoothControlPoints(raw), TUBE_SAMPLES);
-    const cum = [0];
-    for (let i = 1;i < pts.length; i++)
-      cum.push(cum[i - 1] + len(sub3(pts[i], pts[i - 1])));
-    const total = cum[cum.length - 1];
-    if (total < 0.000001)
-      return empty2;
-    const view = this.view;
-    const tangents = [];
-    const normals = [];
-    let lastNormal = { x: 0, y: 1, z: 0 };
-    for (let i = 0;i < pts.length; i++) {
-      const p0 = pts[Math.max(0, i - 1)];
-      const p1 = pts[Math.min(pts.length - 1, i + 1)];
-      const tan2 = norm(sub3(p1, p0)) ?? { x: 1, y: 0, z: 0 };
-      tangents.push(tan2);
-      const n = norm(cross3(tan2, view)) ?? lastNormal;
-      lastNormal = n;
-      normals.push(n);
-    }
-    const radiusAt = (arcFrac) => this.width.value * (1 - (1 - this.taper.value) * arcFrac);
-    const a = [];
-    const b = [];
-    for (let i = 0;i < pts.length; i++) {
-      const r = radiusAt(cum[i] / total);
-      a.push(this.toLocal(add3(pts[i], mul3(normals[i], r))));
-      b.push(this.toLocal(sub3(pts[i], mul3(normals[i], r))));
-    }
-    const rings = this.ringLines.map(() => []);
-    const step3 = this.ringStep.value;
-    if (this.rings.value && step3 > 0) {
-      const K2 = Math.min(900, Math.max(2, Math.ceil((T2 - this._since) * TRAVEL_SAMPLES_PER_SEC)));
-      const times = [];
-      const travel = [0];
-      let prev = path(this._since);
-      times.push(this._since);
-      for (let k = 1;k < K2; k++) {
-        const tk = this._since + (T2 - this._since) * k / (K2 - 1);
-        const p = path(tk);
-        times.push(tk);
-        travel.push(travel[k - 1] + len(sub3(p, prev)));
-        prev = p;
-      }
-      const travelAt = (t) => {
-        if (t <= times[0])
-          return 0;
-        for (let k = 1;k < K2; k++) {
-          if (times[k] >= t) {
-            const u = (t - times[k - 1]) / (times[k] - times[k - 1] || 1);
-            return travel[k - 1] + u * (travel[k] - travel[k - 1]);
-          }
-        }
-        return travel[K2 - 1];
-      };
-      const timeAtTravel = (d) => {
-        for (let k = 1;k < K2; k++) {
-          if (travel[k] >= d) {
-            const u = (d - travel[k - 1]) / (travel[k] - travel[k - 1] || 1);
-            return times[k - 1] + u * (times[k] - times[k - 1]);
-          }
-        }
-        return times[K2 - 1];
-      };
-      const dHead = travel[K2 - 1];
-      const dTail = travelAt(t0);
-      const mMax = Math.floor(dHead / step3);
-      const mMin = Math.max(1, Math.ceil(dTail / step3));
-      for (let j = 0;j < this.ringLines.length; j++) {
-        const m = mMax - j;
-        if (m < mMin)
-          break;
-        const tau = timeAtTravel(m * step3);
-        const f = Math.min(1, Math.max(0, (T2 - tau) / span));
-        const u = f * (pts.length - 1);
-        const i = Math.min(Math.floor(u), pts.length - 2);
-        const w = u - i;
-        const center = add3(mul3(pts[i], 1 - w), mul3(pts[i + 1], w));
-        const tan2 = norm(add3(mul3(tangents[i], 1 - w), mul3(tangents[i + 1], w))) ?? tangents[i];
-        const n = norm(cross3(tan2, view)) ?? normals[i];
-        const m2 = norm(cross3(tan2, n)) ?? { x: 0, y: 1, z: 0 };
-        const arcFrac = (cum[i] + w * (cum[i + 1] - cum[i])) / total;
-        const r = radiusAt(arcFrac);
-        const ring = [];
-        for (let s = 0;s <= RING_SEGMENTS; s++) {
-          const th = s / RING_SEGMENTS * TAU;
-          ring.push(this.toLocal(add3(center, add3(mul3(n, r * Math.cos(th)), mul3(m2, r * Math.sin(th))))));
-        }
-        rings[j] = ring;
-      }
-    }
-    return { a, b, rings };
-  }
-}
-// vocabulary/MindVirus/MindVirus.ts
-var PULSE_SHARES = { open: 0.3, thrust: 0.2 };
-var PULSE_DISTANCE_SHARES = { open: 0.05, thrust: 0.55 };
-var PULSE_MIN_FOLD = 0.1;
-var pulseFold = (u, shares = PULSE_SHARES, minFold = PULSE_MIN_FOLD) => {
-  const openEnd = shares.open;
-  const holdEnd = openEnd + (shares.hold ?? 0);
-  const thrustEnd = holdEnd + shares.thrust;
-  if (u <= 0)
-    return 1;
-  if (u < openEnd)
-    return 1 + (minFold - 1) * ease("smooth", u / openEnd);
-  if (u < holdEnd)
-    return minFold;
-  if (u < thrustEnd)
-    return minFold + (1 - minFold) * ease("smooth", (u - holdEnd) / shares.thrust);
-  return 1;
-};
-var pulseDistance = (u, shares = PULSE_SHARES, distance2 = PULSE_DISTANCE_SHARES) => {
-  const openEnd = shares.open;
-  const holdShare = shares.hold ?? 0;
-  const holdEnd = openEnd + holdShare;
-  const thrustEnd = holdEnd + shares.thrust;
-  const { open, thrust } = distance2;
-  const hold = holdShare > 0 ? 0.05 : 0;
-  if (u <= 0)
-    return 0;
-  if (u >= 1)
-    return 1;
-  if (u < openEnd)
-    return open * ease("smooth", u / openEnd);
-  if (u < holdEnd)
-    return open + hold * ((u - openEnd) / holdShare);
-  if (u < thrustEnd)
-    return open + hold + (thrust - hold) * ease("smooth", (u - holdEnd) / shares.thrust);
-  return open + thrust + (1 - open - thrust) * ease("smooth", (u - thrustEnd) / (1 - thrustEnd));
-};
-var headingFor = (dir) => ({
-  h: Math.atan2(dir.x, Math.hypot(dir.y, dir.z)),
-  p: Math.atan2(-dir.y, dir.z)
-});
-var forwardFor = (h, p, b = 0) => {
-  const v = { x: Math.sin(h), y: -Math.cos(h) * Math.sin(p), z: Math.cos(h) * Math.cos(p) };
-  return {
-    x: v.x * Math.cos(b) - v.y * Math.sin(b),
-    y: v.x * Math.sin(b) + v.y * Math.cos(b),
-    z: v.z
-  };
-};
-var lerp3 = (a, b, u) => ({
-  x: a.x + (b.x - a.x) * u,
-  y: a.y + (b.y - a.y) * u,
-  z: a.z + (b.z - a.z) * u
-});
-var normDir = (v, fallback) => {
-  const l = Math.hypot(v.x, v.y, v.z);
-  return l < 0.000000001 ? fallback : { x: v.x / l, y: v.y / l, z: v.z / l };
-};
-
-class MindVirus extends Holon {
-  static sovereign = true;
-  fold = bipolar(1);
-  clock = scalar(0);
-  states = {
-    idle: state({ fold: 1 }),
-    hunting: state({ fold: 0.5 }),
-    attached: state({ fold: -1 })
-  };
-  molochEye = new MolochEye({ height: 17.3, stroke: 2, z: 2 });
-  cube = new FoldableCube({ fold: this.fold, p: -PI3 / 2, stroke: 2.5 });
-  cable = new Cable({ clock: this.clock, width: 4.8, taper: 0.1, stroke: 2 });
-  journey;
-  _segments;
-  segments() {
-    if (this._segments)
-      return this._segments;
-    const j = this.journey;
-    if (!j)
-      return [];
-    const pulses = [...j.pulses].sort((a, b) => a.start - b.start);
-    const segs = [];
-    let from = j.origin;
-    let dir = { x: 0, y: 0, z: 1 };
-    for (const p of pulses) {
-      dir = normDir({ x: p.to.x - from.x, y: p.to.y - from.y, z: p.to.z - from.z }, dir);
-      segs.push({
-        start: p.start,
-        end: p.start + p.duration,
-        from,
-        to: p.to,
-        dir,
-        headingDir: p.heading ? normDir(p.heading, dir) : dir,
-        shares: p.shares ?? PULSE_SHARES,
-        distanceShares: p.distanceShares ?? PULSE_DISTANCE_SHARES
-      });
-      from = p.to;
-    }
-    this._segments = segs;
-    return segs;
-  }
-  pathAt(time2) {
-    const segs = this.segments();
-    if (segs.length === 0)
-      return { x: this.x.value, y: this.y.value, z: this.z.value };
-    let pos = segs[0].from;
-    for (const seg of segs) {
-      if (time2 <= seg.start)
-        return pos;
-      if (time2 < seg.end) {
-        const u = (time2 - seg.start) / (seg.end - seg.start);
-        return lerp3(seg.from, seg.to, pulseDistance(u, seg.shares, seg.distanceShares));
-      }
-      pos = seg.to;
-    }
-    return pos;
-  }
-  headingAt(time2) {
-    const segs = this.segments();
-    if (segs.length === 0)
-      return forwardFor(this.h.value, this.p.value, this.b.value);
-    let dir = segs[0].headingDir;
-    for (let i = 0;i < segs.length; i++) {
-      const seg = segs[i];
-      if (time2 <= seg.start)
-        return dir;
-      if (time2 < seg.end) {
-        const u = (time2 - seg.start) / (seg.end - seg.start);
-        return normDir(lerp3(dir, seg.headingDir, ease("smooth", u)), seg.headingDir);
-      }
-      dir = seg.headingDir;
-    }
-    return dir;
-  }
-  foldAt(time2) {
-    for (const seg of this.segments()) {
-      if (time2 >= seg.start && time2 < seg.end) {
-        return pulseFold((time2 - seg.start) / (seg.end - seg.start), seg.shares);
-      }
-    }
-    return 1;
-  }
-  compose() {
-    if (!this.journey || this.journey.pulses.length === 0)
-      return;
-    this.x.follow(derive(() => this.pathAt(this.clock.value).x));
-    this.y.follow(derive(() => this.pathAt(this.clock.value).y));
-    this.z.follow(derive(() => this.pathAt(this.clock.value).z));
-    this.h.follow(derive(() => headingFor(this.headingAt(this.clock.value)).h));
-    this.p.follow(derive(() => headingFor(this.headingAt(this.clock.value)).p));
-    this.fold.follow(derive(() => this.foldAt(this.clock.value)));
-    this.cable.trail((t) => this.pathAt(t), { since: 0 });
-  }
-  thrustPulse(distance2 = 100, shares = PULSE_SHARES) {
-    const STEPS = 60;
-    const dir = forwardFor(this.h.value, this.p.value, this.b.value);
-    const x0 = this.x.value;
-    const y0 = this.y.value;
-    const z0 = this.z.value;
-    const folds = [];
-    const xs = [];
-    const ys = [];
-    const zs = [];
-    for (let k = 0;k <= STEPS; k++) {
-      const u = k / STEPS;
-      folds.push(pulseFold(u, shares));
-      const d = distance2 * pulseDistance(u, shares);
-      xs.push(x0 + dir.x * d);
-      ys.push(y0 + dir.y * d);
-      zs.push(z0 + dir.z * d);
-    }
-    return eased("linear", together(this.fold.sequence(...folds), this.x.sequence(...xs), this.y.sequence(...ys), this.z.sequence(...zs)));
-  }
-  wrap(completion2 = -1) {
-    return this.fold.to(completion2);
-  }
-}
-// src/geometry/journey.ts
-var add4 = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-var sub4 = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
-var mul4 = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
-var len2 = (a) => Math.hypot(a.x, a.y, a.z);
-var normalize4 = (v, fallback = { x: 0, y: 0, z: 1 }) => {
-  const l = len2(v);
-  return l < EPSILON2 ? fallback : mul4(v, 1 / l);
-};
-var EPSILON2 = 0.001;
-var DISTANCE_PER_THRUST = 350;
-var ARRIVAL_FACTOR = 0.25;
-var ARC_LUT_SAMPLES = 100;
-var TRAVEL_END = 0.85;
-var THRUST_END = 0.8;
-var THRUST_TRAVEL = 0.8;
-var PULSE_OPEN_TIME = 0.3;
-var PULSE_THRUST_TIME = 0.2;
-var PULSE_OPEN_DISTANCE = 0.1;
-var PULSE_THRUST_DISTANCE = 0.55;
-var PULSE_GLIDE_DISTANCE = 0.35;
-var PULSE_MIN_FOLD2 = 0.1;
-var BRICK_SETTLE_TIME = 0.3;
-var BRICK_SETTLE_DISTANCE = 0.15;
-var BRICK_FOLD_END = 0.75;
-var TRANSITION_WIDTH = 0.15;
-var SCALE_POP_END = 0.05;
-var SCALE_POP_VALUE = 0.2;
-var SCALE_CRUISE_END = 0.65;
-var SCALE_CRUISE_VALUE = 0.35;
-var SCALE_RAMP_END = 0.75;
-var SCALE_RAMP_VALUE = 0.75;
-var clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
-var smoothstep3 = (t) => t * t * (3 - 2 * t);
-var easeOut = (t) => 1 - (1 - t) * (1 - t);
-var bezierPoint = (path, t) => {
-  const u = 1 - t;
-  const { p0, p1, p2, p3 } = path;
-  return add4(add4(mul4(p0, u * u * u), mul4(p1, 3 * u * u * t)), add4(mul4(p2, 3 * u * t * t), mul4(p3, t * t * t)));
-};
-var bezierTangent = (path, t) => {
-  const u = 1 - t;
-  const { p0, p1, p2, p3 } = path;
-  return add4(add4(mul4(sub4(p1, p0), 3 * u * u), mul4(sub4(p2, p1), 6 * u * t)), mul4(sub4(p3, p2), 3 * t * t));
-};
-var buildBezierPath = (e) => {
-  const { spawn, slot } = e;
-  const direction = sub4(slot, spawn);
-  const distance2 = len2(direction);
-  if (distance2 < EPSILON2)
-    return { p0: spawn, p1: spawn, p2: slot, p3: slot };
-  const arrival = e.arrivalFactor ?? ARRIVAL_FACTOR;
-  const p1 = e.spawnDir && len2(e.spawnDir) > EPSILON2 ? add4(spawn, e.spawnDir) : add4(spawn, mul4(normalize4(direction), distance2 * 0.33));
-  const p2 = e.slotNormal && len2(e.slotNormal) > EPSILON2 ? add4(slot, mul4(e.slotNormal, distance2 * arrival)) : add4(slot, mul4({ x: -1, y: 0, z: 0 }, distance2 * arrival));
-  return { p0: spawn, p1, p2, p3: slot };
-};
-var buildArcLut = (path, samples = ARC_LUT_SAMPLES) => {
-  const positions = [];
-  for (let i = 0;i <= samples; i++)
-    positions.push(bezierPoint(path, i / samples));
-  const cumulative = [0];
-  for (let i = 1;i < positions.length; i++) {
-    cumulative.push(cumulative[i - 1] + len2(sub4(positions[i], positions[i - 1])));
-  }
-  return { path, cumulative, totalLength: cumulative[cumulative.length - 1], samples };
-};
-var arcLengthToT = (lut2, s) => {
-  if (s <= 0)
-    return 0;
-  if (s >= 1)
-    return 1;
-  const { cumulative, totalLength, samples } = lut2;
-  const target = s * totalLength;
-  let lo = 0;
-  let hi = cumulative.length - 1;
-  while (lo < hi - 1) {
-    const mid = lo + hi >> 1;
-    if (cumulative[mid] < target)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const seg = cumulative[hi] - cumulative[lo];
-  const frac = seg > 0 ? (target - cumulative[lo]) / seg : 0;
-  return (lo + frac) / samples;
-};
-var pulseCountFor = (pathLength, distancePerThrust = DISTANCE_PER_THRUST) => Math.max(1, Math.round(pathLength / distancePerThrust));
-var travelToSplinePosition = (t, numPulses) => {
-  if (t <= 0)
-    return 0;
-  if (t >= 1)
-    return 1;
-  if (t <= THRUST_END) {
-    const pulseSpan = THRUST_END / numPulses;
-    const pulseIdx = Math.min(Math.floor(t / pulseSpan), numPulses - 1);
-    const localT = (t - pulseIdx * pulseSpan) / pulseSpan;
-    const distPerPulse = THRUST_TRAVEL / numPulses;
-    const pulseBase = pulseIdx * distPerPulse;
-    if (localT <= PULSE_OPEN_TIME) {
-      return pulseBase + localT / PULSE_OPEN_TIME * PULSE_OPEN_DISTANCE * distPerPulse;
-    }
-    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
-      const progress3 = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
-      return pulseBase + (PULSE_OPEN_DISTANCE + progress3 * PULSE_THRUST_DISTANCE) * distPerPulse;
-    }
-    const progress2 = (localT - PULSE_OPEN_TIME - PULSE_THRUST_TIME) / (1 - PULSE_OPEN_TIME - PULSE_THRUST_TIME);
-    return pulseBase + (PULSE_OPEN_DISTANCE + PULSE_THRUST_DISTANCE + progress2 * PULSE_GLIDE_DISTANCE) * distPerPulse;
-  }
-  const brickT = (t - THRUST_END) / (1 - THRUST_END);
-  const remaining = 1 - THRUST_TRAVEL;
-  if (brickT <= BRICK_SETTLE_TIME) {
-    return THRUST_TRAVEL + brickT / BRICK_SETTLE_TIME * remaining * BRICK_SETTLE_DISTANCE;
-  }
-  const progress = (brickT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME);
-  return THRUST_TRAVEL + remaining * BRICK_SETTLE_DISTANCE + progress * remaining * (1 - BRICK_SETTLE_DISTANCE);
-};
-var travelToFold = (t, numPulses) => {
-  if (t <= 0)
-    return 1;
-  if (t >= 1)
-    return -1;
-  if (t <= THRUST_END) {
-    const pulseSpan = THRUST_END / numPulses;
-    const localT = t % pulseSpan / pulseSpan;
-    if (localT <= PULSE_OPEN_TIME) {
-      return 1 - localT / PULSE_OPEN_TIME * (1 - PULSE_MIN_FOLD2);
-    }
-    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
-      const progress = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
-      return PULSE_MIN_FOLD2 + progress * (1 - PULSE_MIN_FOLD2);
-    }
-    return 1;
-  }
-  const brickT = (t - THRUST_END) / (1 - THRUST_END);
-  const foldT = Math.min(brickT / BRICK_FOLD_END, 1);
-  if (foldT <= BRICK_SETTLE_TIME) {
-    return 1 - foldT / BRICK_SETTLE_TIME * (1 - PULSE_MIN_FOLD2);
-  }
-  if (foldT < 1) {
-    return PULSE_MIN_FOLD2 - (foldT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME) * (PULSE_MIN_FOLD2 + 1);
-  }
-  return -1;
-};
-var completionToTravel = (completion2) => {
-  if (completion2 <= 0)
-    return 0;
-  if (completion2 >= TRAVEL_END)
-    return 1;
-  return easeOut(completion2 / TRAVEL_END);
-};
-var completionToScale = (completion2) => {
-  if (completion2 <= 0)
-    return 0;
-  if (completion2 >= 1)
-    return 1;
-  if (completion2 <= SCALE_POP_END) {
-    return SCALE_POP_VALUE * easeOut(completion2 / SCALE_POP_END);
-  }
-  if (completion2 <= SCALE_CRUISE_END) {
-    const t2 = (completion2 - SCALE_POP_END) / (SCALE_CRUISE_END - SCALE_POP_END);
-    return SCALE_POP_VALUE + (SCALE_CRUISE_VALUE - SCALE_POP_VALUE) * t2;
-  }
-  if (completion2 <= SCALE_RAMP_END) {
-    const t2 = (completion2 - SCALE_CRUISE_END) / (SCALE_RAMP_END - SCALE_CRUISE_END);
-    return SCALE_CRUISE_VALUE + (SCALE_RAMP_VALUE - SCALE_CRUISE_VALUE) * smoothstep3(t2);
-  }
-  const t = (completion2 - SCALE_RAMP_END) / (1 - SCALE_RAMP_END);
-  return SCALE_RAMP_VALUE + (1 - SCALE_RAMP_VALUE) * easeOut(t);
-};
-var completionOf = (growth, slot, config) => {
-  const { rowCount, rowLength, rowLag } = config;
-  const width = config.transitionWidth ?? TRANSITION_WIDTH;
-  const brickWidthT = 1 / Math.max(rowLength - 1, 1);
-  const rowDelay = slot.row * rowLag * brickWidthT;
-  const totalRowLag = (rowCount - 1) * rowLag * brickWidthT;
-  const seal = config.sealAtOne ?? true ? width : 0;
-  const effectiveGrowth = growth * (1 + totalRowLag + seal);
-  const localProgress = effectiveGrowth - slot.splineT - rowDelay;
-  return smoothstep3(clamp01(localProgress / width));
-};
-var buildJourney = (endpoints, opts = {}) => {
-  const lut2 = buildArcLut(buildBezierPath(endpoints), opts.samples ?? ARC_LUT_SAMPLES);
-  return {
-    lut: lut2,
-    numPulses: pulseCountFor(lut2.totalLength, opts.distancePerThrust ?? DISTANCE_PER_THRUST)
-  };
-};
-var journeyState = (completion2, journey) => {
-  const c = clamp01(completion2);
-  const travel = completionToTravel(c);
-  const splineS = travelToSplinePosition(travel, journey.numPulses);
-  const fold = travelToFold(travel, journey.numPulses);
-  const t = arcLengthToT(journey.lut, splineS);
-  const position = bezierPoint(journey.lut.path, t);
-  const tangent = bezierTangent(journey.lut.path, t);
-  const forward = normalize4(tangent, { x: 0, y: 0, z: -1 });
-  return {
-    position,
-    heading: mul4(forward, -1),
-    fold,
-    scale: completionToScale(c),
-    splineS
-  };
-};
-
-// src/geometry/packing.ts
-var sub5 = (a, b) => ({ x: a.x - b.x, z: a.z - b.z });
-var add5 = (a, b) => ({ x: a.x + b.x, z: a.z + b.z });
-var mul5 = (a, k) => ({ x: a.x * k, z: a.z * k });
-var length4 = (a) => Math.hypot(a.x, a.z);
-var normalize5 = (v) => {
-  const l = length4(v);
-  return l < 0.000000001 ? { x: 0, z: 1 } : { x: v.x / l, z: v.z / l };
-};
-var buildFootprint = (points, closed = true) => {
-  const pts = closed && points.length > 1 ? [...points, points[0]] : [...points];
-  const cumulative = [0];
-  for (let i = 1;i < pts.length; i++) {
-    cumulative.push(cumulative[i - 1] + length4(sub5(pts[i], pts[i - 1])));
-  }
-  return { points: pts, cumulative, totalLength: cumulative[cumulative.length - 1], closed };
-};
-var MIN_TOTAL_LENGTH = 0.001;
-var sampleFootprint = (fp, t) => {
-  if (fp.totalLength < MIN_TOTAL_LENGTH) {
-    return { position: fp.points[0] ?? { x: 0, z: 0 }, tangent: { x: 0, z: 1 } };
-  }
-  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
-  const target = clamped * fp.totalLength;
-  let lo = 0;
-  let hi = fp.cumulative.length - 1;
-  while (lo < hi - 1) {
-    const mid = lo + hi >> 1;
-    if (fp.cumulative[mid] < target)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const segLen = fp.cumulative[hi] - fp.cumulative[lo];
-  const frac = segLen > 0 ? (target - fp.cumulative[lo]) / segLen : 0;
-  const a = fp.points[lo];
-  const b = fp.points[hi];
-  return {
-    position: add5(a, mul5(sub5(b, a), frac)),
-    tangent: segLen > 0 ? normalize5(sub5(b, a)) : { x: 0, z: 1 }
-  };
-};
-var normalAt = (tangent) => normalize5({ x: -tangent.z, z: tangent.x });
-var squareAt = (fp, t, brickSize) => {
-  const { position, tangent } = sampleFootprint(fp, t);
-  const normal2 = normalAt(tangent);
-  const half = brickSize / 2;
-  const ht = mul5(tangent, half);
-  const hn = mul5(normal2, half);
-  return {
-    center: position,
-    corners: [
-      sub5(sub5(position, ht), hn),
-      sub5(add5(position, ht), hn),
-      add5(add5(position, ht), hn),
-      add5(sub5(position, ht), hn)
-    ]
-  };
-};
-var projectOnto = (corners, axis) => {
-  let min2 = Infinity;
-  let max2 = -Infinity;
-  for (const c of corners) {
-    const d = c.x * axis.x + c.z * axis.z;
-    if (d < min2)
-      min2 = d;
-    if (d > max2)
-      max2 = d;
-  }
-  return { min: min2, max: max2 };
-};
-var MIN_AXIS_LENGTH = 0.0001;
-var CONTACT_SLOP = 0.01;
-var squaresOverlap = (a, b) => {
-  for (const corners of [a, b]) {
-    for (let i = 0;i < 2; i++) {
-      const edge = sub5(corners[(i + 1) % 4], corners[i]);
-      const axis = { x: -edge.z, z: edge.x };
-      const l = length4(axis);
-      if (l < MIN_AXIS_LENGTH)
-        continue;
-      const unit = mul5(axis, 1 / l);
-      const pa = projectOnto(a, unit);
-      const pb = projectOnto(b, unit);
-      if (pa.max <= pb.min + CONTACT_SLOP || pb.max <= pa.min + CONTACT_SLOP)
-        return false;
-    }
-  }
-  return true;
-};
-var MIN_ARC_RATIO = 0.3;
-var MAX_ARC_RATIO = 3;
-var BISECTION_TOLERANCE = 0.0001;
-var MAX_ITERATIONS = 50;
-var MAX_BRACKET_EXPANSIONS = 10;
-var findNextBrickT = (fp, brickSize, prevT, prevCorners) => {
-  const total = fp.totalLength;
-  let tLo = prevT + brickSize * MIN_ARC_RATIO / total;
-  let tHi = Math.min(prevT + brickSize * MAX_ARC_RATIO / total, 1);
-  if (tLo >= 1)
-    return;
-  let overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
-  if (!overlapsLo) {
-    tHi = tLo;
-    tLo = prevT + BISECTION_TOLERANCE / total;
-    overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
-    if (!overlapsLo)
-      return tHi;
-  }
-  if (squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
-    let cleared = false;
-    for (let i = 0;i < MAX_BRACKET_EXPANSIONS; i++) {
-      tHi = Math.min(tHi + brickSize / total, 1);
-      if (!squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
-        cleared = true;
-        break;
-      }
-    }
-    if (!cleared)
-      return;
-  }
-  for (let i = 0;i < MAX_ITERATIONS; i++) {
-    const tMid = (tLo + tHi) / 2;
-    if (squaresOverlap(prevCorners, squareAt(fp, tMid, brickSize).corners))
-      tLo = tMid;
-    else
-      tHi = tMid;
-    if ((tHi - tLo) * total < BISECTION_TOLERANCE)
-      break;
-  }
-  return tHi;
-};
-var WRAP_CHECK_T = 0.9;
-var packFootprint = (fp, brickSize) => {
-  if (fp.totalLength < MIN_TOTAL_LENGTH)
-    return [0];
-  const ts = [0];
-  const firstCorners = squareAt(fp, 0, brickSize).corners;
-  for (;; ) {
-    const prevT = ts[ts.length - 1];
-    const prevCorners = squareAt(fp, prevT, brickSize).corners;
-    const nextT = findNextBrickT(fp, brickSize, prevT, prevCorners);
-    if (nextT === undefined || nextT >= 1)
-      break;
-    if (fp.closed && nextT > WRAP_CHECK_T) {
-      if (squaresOverlap(squareAt(fp, nextT, brickSize).corners, firstCorners))
-        break;
-    }
-    ts.push(nextT);
-  }
-  return ts;
-};
-var packSlots = (fp, config) => {
-  const { brickSize, rowCount } = config;
-  const originOffset = config.originOffset ?? brickSize / 2;
-  const ts = packFootprint(fp, brickSize);
-  const slots = [];
-  for (let row = 0;row < rowCount; row++) {
-    for (let column = 0;column < ts.length; column++) {
-      const t = ts[column];
-      const { position, tangent } = sampleFootprint(fp, t);
-      const normal2 = normalAt(tangent);
-      slots.push({
-        t,
-        position: add5(position, mul5(normal2, originOffset)),
-        normal: normal2,
-        tangent,
-        row,
-        column
-      });
-    }
-  }
-  return { ts, slots, rowLength: ts.length, footprint: fp };
-};
-var rowHeight = (row, rowCount, spacing) => (row - (rowCount - 1) / 2) * spacing;
-var FOOTPRINT_SAMPLES = 360;
-var reflectedZ = (footprint) => {
-  const raw = footprint.closed ? footprint.points.slice(0, -1) : footprint.points;
-  return buildFootprint(raw.map((p) => ({ x: p.x, z: -p.z })), footprint.closed);
-};
-var circleFootprint = (radius, samples = FOOTPRINT_SAMPLES) => {
-  const points = [];
-  for (let i = 0;i < samples; i++) {
-    const a = i / samples * Math.PI * 2;
-    points.push({ x: Math.cos(a) * radius, z: Math.sin(a) * radius });
-  }
-  return buildFootprint(points, true);
-};
-var flowerFootprint = (config) => {
-  const { innerRadius, outerRadius, petals } = config;
-  const samples = config.samples ?? FOOTPRINT_SAMPLES;
-  const mid = (outerRadius + innerRadius) / 2;
-  const amp = (outerRadius - innerRadius) / 2;
-  const points = [];
-  for (let i = 0;i < samples; i++) {
-    const a = i / samples * Math.PI * 2;
-    const r = mid + amp * Math.cos(petals * a);
-    points.push({ x: Math.cos(a) * r, z: Math.sin(a) * r });
-  }
-  return buildFootprint(points, true);
-};
-
-// vocabulary/TheWall/TheWall.ts
-var WALL_ROW_LAG = 1.66;
-var WALL_ROW_HEIGHT = 100;
-var WALL_BRICK_SIZE = 100;
-
-class TheWall extends Holon {
-  static sovereign = true;
-  growth = scalar(0);
-  rowCount = integer(4);
-  rowHeight = length2(WALL_ROW_HEIGHT);
-  brickSize = length2(WALL_BRICK_SIZE);
-  rowLag = scalar(WALL_ROW_LAG);
-  cables = bool2(false);
-  sealAtOne = bool2(true);
-  cableDuration = scalar(500 / 30);
-  cableFps = scalar(30);
-  cableSlack = scalar(CABLE_SLACK);
-  cableWidth = scalar(2);
-  growthAt = (time2) => Math.min(Math.max(time2 / this.cableDuration.value, 0), 1);
-  spawn = { x: 0, y: 0, z: 0 };
-  spawnDirection = { x: 0, y: 500, z: 0 };
-  footprint = circleFootprint(1000);
-  tint = BLUE;
-  placements = [];
-  packing;
-  get layout() {
-    this.parts;
-    if (!this.packing)
-      throw new Error("TheWall: layout unavailable before compose");
-    return this.packing;
-  }
-  get rowLength() {
-    return this.layout.rowLength;
-  }
-  get virusCount() {
-    return this.layout.slots.length;
-  }
-  compose() {
-    const rowCount = this.rowCount.value;
-    const brickSize = this.brickSize.value;
-    const spacing = this.rowHeight.value;
-    const packing = packSlots(this.footprint, { brickSize, rowCount });
-    this.packing = packing;
-    for (const slot of packing.slots) {
-      const slotPos = {
-        x: slot.position.x,
-        y: rowHeight(slot.row, rowCount, spacing),
-        z: slot.position.z
-      };
-      const journey = buildJourney({
-        spawn: this.spawn,
-        slot: slotPos,
-        spawnDir: this.spawnDirection,
-        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z }
-      });
-      const virus = this.add(new MindVirus);
-      virus.cube.size.defaultValue = brickSize;
-      virus.cube.size.value = brickSize;
-      if (!this.cables.value)
-        virus.cable.maxRings = 0;
-      this.placements.push({ slot, journey, virus });
-      this.drive(virus, slot, journey);
-    }
-    if (this.cables.value)
-      this.unfoldCables();
-  }
-  unfoldCables() {
-    const duration = this.cableDuration.value;
-    const fps = this.cableFps.value;
-    const brickSize = this.brickSize.value;
-    const started = performance.now();
-    let bytes = 0;
-    const hits = [];
-    for (const { slot, journey, virus } of this.placements) {
-      virus.cable.maxRings = 0;
-      virus.cable.rings.value = false;
-      virus.cable.width.value = this.cableWidth.value;
-      virus.cable.clock.follow(derive(() => this.cableClock()));
-      const opts = this.tetherOptions(slot, journey, duration, fps, brickSize);
-      const hash2 = bakeHash(opts.key, fps, duration, CABLE_PARTICLES * 3);
-      const warm = this.warmed.get(hash2);
-      const stored = virus.cable.tether(this.spawn, (time2) => this.tipAt(time2, slot, journey), opts, warm);
-      if (!warm && this.warmCache) {
-        if (stored)
-          hits.push([hash2, stored]);
-      } else if (warm) {
-        this.cableCacheHits++;
-      }
-      bytes += virus.cable.bakedBytes;
-    }
-    this.cableBakeMs = performance.now() - started;
-    this.cableBakeBytes = bytes;
-    const cache2 = this.warmCache;
-    if (cache2 && hits.length > 0) {
-      (async () => {
-        for (const [hash2, track] of hits) {
-          try {
-            await cache2.put(hash2, encodeTrack(track));
-          } catch {}
-        }
-      })();
-    }
-  }
-  cableCacheHits = 0;
-  tetherOptions(slot, journey, duration, fps, brickSize) {
-    return {
-      duration,
-      bakeFps: fps,
-      slack: this.cableSlack.value,
-      anchorDir: this.spawnDirection,
-      cubeSize: brickSize,
-      key: this.cableKey(slot, journey, duration, fps, brickSize)
-    };
-  }
-  cableKey(slot, journey, duration, fps, brickSize) {
-    const SAMPLES = 64;
-    const path = [];
-    for (let i = 0;i < SAMPLES; i++) {
-      const t = i / (SAMPLES - 1) * duration;
-      const tip = this.tipAt(t, slot, journey);
-      path.push(tip.position.x, tip.position.y, tip.position.z, tip.direction.x, tip.direction.y, tip.direction.z, tip.fold, tip.scale, tip.completion, tip.travelled);
-    }
-    return {
-      holon: "TheWall.cable",
-      duration,
-      fps,
-      brickSize,
-      slack: this.cableSlack.value,
-      particles: CABLE_PARTICLES,
-      anchor: [this.spawn.x, this.spawn.y, this.spawn.z],
-      anchorDir: this.spawnDirection ? [this.spawnDirection.x, this.spawnDirection.y, this.spawnDirection.z] : null,
-      path
-    };
-  }
-  async warmCables(cache2) {
-    const duration = this.cableDuration.value;
-    const fps = this.cableFps.value;
-    const brickSize = this.brickSize.value;
-    const packing = packSlots(this.footprint, {
-      brickSize,
-      rowCount: this.rowCount.value
-    });
-    this.packing = packing;
-    const spacing = this.rowHeight.value;
-    const rowCountValue = this.rowCount.value;
-    let hits = 0;
-    for (const slot of packing.slots) {
-      const slotPos = {
-        x: slot.position.x,
-        y: rowHeight(slot.row, rowCountValue, spacing),
-        z: slot.position.z
-      };
-      const journey = buildJourney({
-        spawn: this.spawn,
-        slot: slotPos,
-        spawnDir: this.spawnDirection,
-        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z }
-      });
-      const key = this.cableKey(slot, journey, duration, fps, brickSize);
-      const hash2 = bakeHash(key, fps, duration, CABLE_PARTICLES * 3);
-      try {
-        const bytes = await cache2.get(hash2);
-        if (bytes) {
-          const track = decodeTrack(bytes, {
-            frames: Math.max(1, Math.round(duration * fps) + 1),
-            width: CABLE_PARTICLES * 3
-          });
-          if (track) {
-            this.warmed.set(hash2, track);
-            hits++;
-          }
-        }
-      } catch {}
-    }
-    this.warmCache = cache2;
-    return { hits, total: packing.slots.length };
-  }
-  warmed = new Map;
-  warmCache;
-  cableBakeMs = 0;
-  cableBakeBytes = 0;
-  cableClock() {
-    const target = this.growth.value;
-    const duration = this.cableDuration.value;
-    let lo = 0;
-    let hi = duration;
-    if (this.growthAt(hi) <= target)
-      return hi;
-    if (this.growthAt(lo) >= target)
-      return lo;
-    for (let i = 0;i < 40; i++) {
-      const mid = (lo + hi) / 2;
-      if (this.growthAt(mid) < target)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    return (lo + hi) / 2;
-  }
-  tipAt(time2, slot, journey) {
-    const growth = this.growthAt(time2);
-    const completion2 = completionOf(growth, { splineT: slot.t, row: slot.row }, {
-      rowCount: this.rowCount.value,
-      rowLength: this.packing?.rowLength ?? 1,
-      rowLag: this.rowLag.value,
-      sealAtOne: this.sealAtOne.value
-    });
-    const s = journeyState(completion2, journey);
-    const { h, p } = headingFor(s.heading);
-    return {
-      position: s.position,
-      direction: s.heading,
-      frame: {
-        vx: rotHPB({ x: 1, y: 0, z: 0 }, p, h, 0),
-        vy: rotHPB({ x: 0, y: 1, z: 0 }, p, h, 0),
-        vz: rotHPB({ x: 0, y: 0, z: 1 }, p, h, 0)
-      },
-      fold: s.fold,
-      scale: s.scale,
-      completion: completion2,
-      travelled: s.splineS * journey.lut.totalLength
-    };
-  }
-  completionAt(slot) {
-    return completionOf(this.growth.value, { splineT: slot.t, row: slot.row }, {
-      rowCount: this.rowCount.value,
-      rowLength: this.packing?.rowLength ?? 1,
-      rowLag: this.rowLag.value,
-      sealAtOne: this.sealAtOne.value
-    });
-  }
-  drive(virus, slot, journey) {
-    let cachedGrowth = NaN;
-    let cached;
-    const state2 = () => {
-      const growth = this.growth.value;
-      if (growth !== cachedGrowth || cached === undefined) {
-        cachedGrowth = growth;
-        cached = journeyState(this.completionAt(slot), journey);
-      }
-      return cached;
-    };
-    const read = (fn) => derive(() => fn(state2()));
-    virus.x.follow(read((s) => s.position.x));
-    virus.y.follow(read((s) => s.position.y));
-    virus.z.follow(read((s) => s.position.z));
-    virus.h.follow(read((s) => headingFor(s.heading).h));
-    virus.p.follow(read((s) => headingFor(s.heading).p));
-    virus.fold.follow(read((s) => s.fold));
-    virus.scale.follow(read((s) => s.scale));
-  }
-  get slots() {
-    return this.layout.slots;
-  }
-}
-// src/geometry/labyrinth.ts
-var ARC_SEGMENTS = 8;
-var CELL_WIDTH_LIMIT = 2;
-var MIN_BASE_CELLS = 3;
-var TOLERANCE_RATIO = 0.01;
-var mulberry32 = (seed) => {
-  let a = seed >>> 0;
-  return () => {
-    a = a + 1831565813 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-};
-var ringLayout = (radius, citadelRadius, targetCellSize) => {
-  const span = radius - citadelRadius;
-  const ringCount = Math.max(1, Math.round(span / targetCellSize));
-  const ringThickness = span / ringCount;
-  const baseMidRadius = citadelRadius + ringThickness / 2;
-  const baseCells = Math.max(MIN_BASE_CELLS, Math.ceil(2 * Math.PI * baseMidRadius / (CELL_WIDTH_LIMIT * ringThickness)));
-  const cellsPerRing = [baseCells];
-  for (let r = 1;r < ringCount; r++) {
-    const midRadius = citadelRadius + (r + 0.5) * ringThickness;
-    const arcPerCell = 2 * Math.PI * midRadius / cellsPerRing[r - 1];
-    cellsPerRing.push(arcPerCell > CELL_WIDTH_LIMIT * ringThickness ? cellsPerRing[r - 1] * 2 : cellsPerRing[r - 1]);
-  }
-  const radii = [];
-  for (let i = 0;i <= ringCount; i++)
-    radii.push(citadelRadius + span * i / ringCount);
-  const cellCount = cellsPerRing.reduce((a, b) => a + b, 0);
-  return { ringCount, ringThickness, cellsPerRing, radii, cellCount };
-};
-var ringOffsets = (cellsPerRing) => {
-  const offsets = [0];
-  for (const count of cellsPerRing)
-    offsets.push(offsets[offsets.length - 1] + count);
-  return offsets;
-};
-var buildAdjacency = (cellsPerRing) => {
-  const offsets = ringOffsets(cellsPerRing);
-  const id = (r, c) => offsets[r] + c;
-  const adjacency = [];
-  for (let r = 0;r < cellsPerRing.length; r++) {
-    const count = cellsPerRing[r];
-    for (let c = 0;c < count; c++) {
-      const neighbors = [];
-      neighbors.push(id(r, (c + 1) % count));
-      neighbors.push(id(r, (c - 1 + count) % count));
-      if (r > 0) {
-        const prevCount = cellsPerRing[r - 1];
-        neighbors.push(count === prevCount ? id(r - 1, c) : id(r - 1, Math.floor(c * prevCount / count)));
-      }
-      if (r < cellsPerRing.length - 1) {
-        const nextCount = cellsPerRing[r + 1];
-        if (nextCount === count) {
-          neighbors.push(id(r + 1, c));
-        } else {
-          const ratio = nextCount / count;
-          for (let k = 0;k < ratio; k++)
-            neighbors.push(id(r + 1, c * ratio + k));
-        }
-      }
-      adjacency.push(neighbors);
-    }
-  }
-  return adjacency;
-};
-var passageKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
-var carveMaze = (adjacency, random) => {
-  const passages = new Set;
-  const visited = new Array(adjacency.length).fill(false);
-  const stack2 = [0];
-  visited[0] = true;
-  while (stack2.length > 0) {
-    const current = stack2[stack2.length - 1];
-    const open = adjacency[current].filter((n) => !visited[n]);
-    if (open.length > 0) {
-      const next = open[Math.floor(random() * open.length)];
-      passages.add(passageKey(current, next));
-      visited[next] = true;
-      stack2.push(next);
-    } else {
-      stack2.pop();
-    }
-  }
-  return passages;
-};
-var arcPoints = (radius, angleStart, angleEnd) => {
-  const points = [];
-  for (let i = 0;i <= ARC_SEGMENTS; i++) {
-    const angle2 = angleStart + (angleEnd - angleStart) * i / ARC_SEGMENTS;
-    points.push({ x: radius * Math.cos(angle2), y: radius * Math.sin(angle2) });
-  }
-  return points;
-};
-var extractWallSegments = (layout, passages) => {
-  const { cellsPerRing, radii, ringCount } = layout;
-  const offsets = ringOffsets(cellsPerRing);
-  const id = (r, c) => offsets[r] + c;
-  const TWO_PI2 = 2 * Math.PI;
-  const segments = [];
-  for (let r = 0;r < ringCount; r++) {
-    const count = cellsPerRing[r];
-    const rInner = radii[r];
-    const rOuter = radii[r + 1];
-    const cellAngle = TWO_PI2 / count;
-    for (let c = 0;c < count; c++) {
-      const angleEnd = cellAngle * (c + 1);
-      const cell = id(r, c);
-      if (r < ringCount - 1) {
-        const nextCount = cellsPerRing[r + 1];
-        if (nextCount === count) {
-          if (!passages.has(passageKey(cell, id(r + 1, c)))) {
-            segments.push(arcPoints(rOuter, cellAngle * c, angleEnd));
-          }
-        } else {
-          const ratio = nextCount / count;
-          const childAngle = TWO_PI2 / nextCount;
-          for (let k = 0;k < ratio; k++) {
-            const child = c * ratio + k;
-            if (!passages.has(passageKey(cell, id(r + 1, child)))) {
-              segments.push(arcPoints(rOuter, childAngle * child, childAngle * (child + 1)));
-            }
-          }
-        }
-      }
-      if (!passages.has(passageKey(cell, id(r, (c + 1) % count)))) {
-        segments.push([
-          { x: rInner * Math.cos(angleEnd), y: rInner * Math.sin(angleEnd) },
-          { x: rOuter * Math.cos(angleEnd), y: rOuter * Math.sin(angleEnd) }
-        ]);
-      }
-    }
-  }
-  return segments;
-};
-var dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
-var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
-  const touchesCitadel = (segment) => segment.some((p) => Math.abs(Math.hypot(p.x, p.y) - citadelRadius) < tolerance);
-  const connected = new Set;
-  const remaining = new Set;
-  segments.forEach((segment, i) => {
-    if (touchesCitadel(segment))
-      connected.add(i);
-    else
-      remaining.add(i);
-  });
-  const ends = (i) => [segments[i][0], segments[i][segments[i].length - 1]];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const i of remaining) {
-      const [a0, a1] = ends(i);
-      let joined = false;
-      for (const j of connected) {
-        const [b0, b1] = ends(j);
-        if (dist(a0, b0) < tolerance || dist(a0, b1) < tolerance || dist(a1, b0) < tolerance || dist(a1, b1) < tolerance) {
-          joined = true;
-          break;
-        }
-      }
-      if (joined) {
-        connected.add(i);
-        remaining.delete(i);
-        changed = true;
-      }
-    }
-  }
-  return [...connected].sort((a, b) => a - b).map((i) => segments[i]);
-};
-var snapKey = (p, precision) => `${Math.round(p.x / precision)},${Math.round(p.y / precision)}`;
-var mergeSegmentsIntoChains = (segments, tolerance) => {
-  const endPoint = (e) => e.end === 0 ? segments[e.seg][0] : segments[e.seg][segments[e.seg].length - 1];
-  const junctions = new Map;
-  segments.forEach((_, seg) => {
-    for (const end of [0, 1]) {
-      const key = snapKey(endPoint({ seg, end }), tolerance);
-      const entries = junctions.get(key);
-      if (entries)
-        entries.push({ seg, end });
-      else
-        junctions.set(key, [{ seg, end }]);
-    }
-  });
-  const partnerOf = (e) => {
-    const entries = junctions.get(snapKey(endPoint(e), tolerance));
-    if (entries.length !== 2)
-      return;
-    const other = entries.find((o) => o.seg !== e.seg);
-    return other;
-  };
-  const visited = new Set;
-  const chains = [];
-  for (let start = 0;start < segments.length; start++) {
-    if (visited.has(start))
-      continue;
-    visited.add(start);
-    const forward = [];
-    let cursor = { seg: start, end: 1 };
-    for (;; ) {
-      const partner = partnerOf(cursor);
-      if (!partner || visited.has(partner.seg))
-        break;
-      visited.add(partner.seg);
-      forward.push({ seg: partner.seg, flip: partner.end === 1 });
-      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
-    }
-    const backward = [];
-    cursor = { seg: start, end: 0 };
-    for (;; ) {
-      const partner = partnerOf(cursor);
-      if (!partner || visited.has(partner.seg))
-        break;
-      visited.add(partner.seg);
-      backward.push({ seg: partner.seg, flip: partner.end === 0 });
-      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
-    }
-    backward.reverse();
-    const sequence = [...backward, { seg: start, flip: false }, ...forward];
-    const points = [];
-    sequence.forEach((link, i) => {
-      const raw = segments[link.seg];
-      const oriented = link.flip ? [...raw].reverse() : raw;
-      points.push(...i === 0 ? oriented : oriented.slice(1));
-    });
-    chains.push(points);
-  }
-  return chains;
-};
-var citadelPolyline = (citadelRadius, baseCells) => {
-  const count = ARC_SEGMENTS * baseCells * 2;
-  const points = [];
-  for (let i = 0;i < count; i++) {
-    const angle2 = 2 * Math.PI * i / count;
-    points.push({ x: citadelRadius * Math.cos(angle2), y: citadelRadius * Math.sin(angle2) });
-  }
-  points.push({ ...points[0] });
-  return points;
-};
-var innermostRadius = (chain) => chain.reduce((min2, p) => Math.min(min2, Math.hypot(p.x, p.y)), Infinity);
-var generateLabyrinth = (config) => {
-  const { radius, citadelRadius, targetCellSize, seed } = config;
-  const tolerance = targetCellSize * TOLERANCE_RATIO;
-  const cells = ringLayout(radius, citadelRadius, targetCellSize);
-  const adjacency = buildAdjacency(cells.cellsPerRing);
-  const passages = carveMaze(adjacency, mulberry32(seed));
-  const segments = extractWallSegments(cells, passages);
-  const connected = filterConnectedToCitadel(segments, citadelRadius, tolerance);
-  const chains = mergeSegmentsIntoChains(connected, tolerance).sort((a, b) => innermostRadius(a) - innermostRadius(b));
-  const citadel = citadelPolyline(citadelRadius, cells.cellsPerRing[0]);
-  return {
-    chains,
-    citadel,
-    cells,
-    stats: {
-      passageCount: passages.size,
-      wallSegments: segments.length,
-      connectedSegments: connected.length,
-      orphanSegments: segments.length - connected.length,
-      chainCount: chains.length
-    }
-  };
-};
-
-// vocabulary/Labyrinth/Labyrinth.ts
-var CITADEL_WINDOW = 0.25;
-var CHAINS_START = 0.15;
-
-class Labyrinth extends Stroke {
-  static sovereign = true;
-  radius = length2(650);
-  citadelRadius = length2(165);
-  cellSize = length2(40);
-  seed = integer(42);
-  tint = color2(BLUE);
-  chains = [];
-  citadel;
-  maze;
-  compose() {
-    this.maze = generateLabyrinth({
-      radius: this.radius.value,
-      citadelRadius: this.citadelRadius.value,
-      targetCellSize: this.cellSize.value,
-      seed: this.seed.value
-    });
-    this.citadel = this.add(new Circle({ radius: this.citadelRadius, tint: this.tint, stroke: this.stroke }));
-    for (const chain of this.maze.chains) {
-      this.chains.push(this.add(new Line2({
-        points: chain.map((p) => ({ x: p.x, y: p.y, z: 0 })),
-        tint: this.tint,
-        stroke: this.stroke
-      })));
-    }
-  }
-  createAnim() {
-    this.parts;
-    const windows2 = dominoWindows(this.chains.length);
-    const span = 1 - CHAINS_START;
-    const items = [
-      [this.citadel.creation.sequence(0, 1), 0, CITADEL_WINDOW],
-      ...this.chains.map((line, i) => restage(line.creation.sequence(0, 1), CHAINS_START + windows2[i][0] * span, CHAINS_START + windows2[i][1] * span))
-    ];
-    return together(...items);
-  }
-}
-// src/parts/text.ts
-var exports_text = {};
-__export(exports_text, {
-  writeWindows: () => writeWindows,
-  writePhases: () => writePhases,
-  letters: () => letters,
-  letterCount: () => letterCount,
-  Write: () => Write,
-  WRITE_REL_OVERLAP: () => WRITE_REL_OVERLAP,
-  WRITE_GLOBAL_SMOOTHING: () => WRITE_GLOBAL_SMOOTHING,
-  UnWrite: () => UnWrite,
-  Text: () => Text,
-  FILL_WINDOW: () => FILL_WINDOW,
-  DRAW_WINDOW: () => DRAW_WINDOW
-});
-var WRITE_REL_OVERLAP = 0.7;
-var WRITE_GLOBAL_SMOOTHING = 0.7;
-var DRAW_WINDOW = [0, 0.6];
-var FILL_WINDOW = [0.5, 1];
-var clamp012 = (v) => Math.min(1, Math.max(0, v));
-var writeWindows = (glyphCount) => dominoWindows(glyphCount, 1 / (glyphCount * (1 - WRITE_REL_OVERLAP) + 1), WRITE_GLOBAL_SMOOTHING);
-var writePhases = (p) => ({
-  draw: clamp012((p - DRAW_WINDOW[0]) / (DRAW_WINDOW[1] - DRAW_WINDOW[0])),
-  fill: clamp012((p - FILL_WINDOW[0]) / (FILL_WINDOW[1] - FILL_WINDOW[0]))
-});
-var letters = (content) => [...content].filter((c) => !/\s/.test(c));
-var letterCount = (content) => letters(content).length;
-var linearCreation = (param, values) => {
-  const track = {
-    param,
-    mode: "sequence",
-    values,
-    relStart: 0,
-    relStop: 1,
-    easing: "linear"
-  };
-  return { tracks: [track] };
-};
-
-class Text extends Holon {
-  content = "Text";
-  font = undefined;
-  align = "center";
-  lineHeight = undefined;
-  tracking = 0;
-  size = length2(50);
-  tint = color2(WHITE);
-  stroke = length2(5);
-  erasure = completion(0);
-  get letters() {
-    const chars = letters(this.content);
-    const windows2 = writeWindows(chars.length);
-    return chars.map((char, index) => ({ char, index, window: windows2[index] }));
-  }
-  letterProgress(index) {
-    const letter = this.letters[index];
-    if (!letter)
-      return 0;
-    const [start, stop] = letter.window;
-    return clamp012((this.creation.value - start) / Math.max(stop - start, 0.000001));
-  }
-  letterPhases(index) {
-    return writePhases(this.letterProgress(index));
-  }
-  letterErasure(index) {
-    const letter = this.letters[index];
-    if (!letter)
-      return 0;
-    const [start, stop] = letter.window;
-    return clamp012((this.erasure.value - start) / Math.max(stop - start, 0.000001));
-  }
-  letterPhasesNow(index) {
-    return writePhases(Math.min(this.letterProgress(index), 1 - this.letterErasure(index)));
-  }
-  createAnim() {
-    return linearCreation(this.creation, [0, 1]);
-  }
-  unCreateAnim() {
-    return linearCreation(this.erasure, [0, 1]);
-  }
-}
-var Write = (text) => linearCreation(text.creation, [0, 1]);
-var UnWrite = (text) => linearCreation(text.erasure, [0, 1]);
-
 // node_modules/three/build/three.tsl.js
 var exports_three_tsl = {};
 __export(exports_three_tsl, {
@@ -49500,14 +45906,14 @@ __export(exports_three_tsl, {
   subgroupAll: () => subgroupAll2,
   subgroupAdd: () => subgroupAdd2,
   subBuild: () => subBuild2,
-  sub: () => sub6,
+  sub: () => sub2,
   struct: () => struct2,
   storageTexture3D: () => storageTexture3D2,
   storageTexture: () => storageTexture2,
   storageBarrier: () => storageBarrier2,
   storage: () => storage2,
   stepElement: () => stepElement2,
-  step: () => step3,
+  step: () => step2,
   stack: () => stack2,
   sqrt: () => sqrt2,
   spritesheetUV: () => spritesheetUV2,
@@ -49516,7 +45922,7 @@ __export(exports_three_tsl, {
   specularF90: () => specularF902,
   specularColor: () => specularColor2,
   smoothstepElement: () => smoothstepElement2,
-  smoothstep: () => smoothstep4,
+  smoothstep: () => smoothstep3,
   skinning: () => skinning2,
   sinh: () => sinh2,
   sinc: () => sinc2,
@@ -49626,7 +46032,7 @@ __export(exports_three_tsl, {
   numWorkgroups: () => numWorkgroups2,
   notEqual: () => notEqual2,
   not: () => not2,
-  normalize: () => normalize6,
+  normalize: () => normalize3,
   normalWorldGeometry: () => normalWorldGeometry2,
   normalWorld: () => normalWorld2,
   normalViewGeometry: () => normalViewGeometry2,
@@ -49688,7 +46094,7 @@ __export(exports_three_tsl, {
   mx_atan2: () => mx_atan22,
   mx_add: () => mx_add2,
   mx_aastep: () => mx_aastep2,
-  mul: () => mul6,
+  mul: () => mul2,
   mrt: () => mrt2,
   morphReference: () => morphReference2,
   modelWorldMatrixInverse: () => modelWorldMatrixInverse2,
@@ -49773,7 +46179,7 @@ __export(exports_three_tsl, {
   lessThanEqual: () => lessThanEqual2,
   lessThan: () => lessThan2,
   lengthSq: () => lengthSq2,
-  length: () => length5,
+  length: () => length2,
   label: () => label2,
   js: () => js2,
   ivec4: () => ivec42,
@@ -49849,7 +46255,7 @@ __export(exports_three_tsl, {
   element: () => element2,
   dynamicBufferAttribute: () => dynamicBufferAttribute2,
   drawIndex: () => drawIndex2,
-  dot: () => dot3,
+  dot: () => dot2,
   div: () => div2,
   distance: () => distance2,
   dispersion: () => dispersion2,
@@ -49876,7 +46282,7 @@ __export(exports_three_tsl, {
   dFdx: () => dFdx2,
   cubeTextureBase: () => cubeTextureBase2,
   cubeTexture: () => cubeTexture2,
-  cross: () => cross4,
+  cross: () => cross2,
   countTrailingZeros: () => countTrailingZeros2,
   countOneBits: () => countOneBits2,
   countLeadingZeros: () => countLeadingZeros2,
@@ -49891,13 +46297,13 @@ __export(exports_three_tsl, {
   compute: () => compute2,
   colorToDirection: () => colorToDirection2,
   colorSpaceToWorking: () => colorSpaceToWorking2,
-  color: () => color3,
+  color: () => color2,
   code: () => code2,
   clipSpace: () => clipSpace2,
   clearcoatRoughness: () => clearcoatRoughness2,
   clearcoatNormalView: () => clearcoatNormalView2,
   clearcoat: () => clearcoat2,
-  clamp: () => clamp4,
+  clamp: () => clamp3,
   cineonToneMapping: () => cineonToneMapping2,
   checker: () => checker2,
   ceil: () => ceil2,
@@ -49925,7 +46331,7 @@ __export(exports_three_tsl, {
   builtin: () => builtin2,
   bufferAttribute: () => bufferAttribute2,
   buffer: () => buffer2,
-  bool: () => bool3,
+  bool: () => bool2,
   blur: () => blur2,
   blendScreen: () => blendScreen2,
   blendOverlay: () => blendOverlay2,
@@ -49979,7 +46385,7 @@ __export(exports_three_tsl, {
   agxToneMapping: () => agxToneMapping2,
   addNodeElement: () => addNodeElement2,
   addMethodChaining: () => addMethodChaining2,
-  add: () => add6,
+  add: () => add2,
   acosh: () => acosh2,
   acos: () => acos2,
   acesFilmicToneMapping: () => acesFilmicToneMapping2,
@@ -49997,7 +46403,7 @@ __export(exports_three_tsl, {
   Return: () => Return2,
   PointShadowFilter: () => PointShadowFilter2,
   PI2: () => PI22,
-  PI: () => PI5,
+  PI: () => PI3,
   PCFSoftShadowFilter: () => PCFSoftShadowFilter2,
   PCFShadowFilter: () => PCFShadowFilter2,
   OnObjectUpdate: () => OnObjectUpdate2,
@@ -50014,7 +46420,7 @@ __export(exports_three_tsl, {
   HALF_PI: () => HALF_PI2,
   Fn: () => Fn2,
   F_Schlick: () => F_Schlick2,
-  EPSILON: () => EPSILON3,
+  EPSILON: () => EPSILON2,
   Discard: () => Discard2,
   D_GGX: () => D_GGX2,
   DFGLUT: () => DFGLUT2,
@@ -50036,7 +46442,7 @@ var Continue2 = TSL.Continue;
 var DFGLUT2 = TSL.DFGLUT;
 var D_GGX2 = TSL.D_GGX;
 var Discard2 = TSL.Discard;
-var EPSILON3 = TSL.EPSILON;
+var EPSILON2 = TSL.EPSILON;
 var F_Schlick2 = TSL.F_Schlick;
 var Fn2 = TSL.Fn;
 var INFINITY2 = TSL.INFINITY;
@@ -50048,7 +46454,7 @@ var NodeType2 = TSL.NodeType;
 var NodeUpdateType2 = TSL.NodeUpdateType;
 var PCFShadowFilter2 = TSL.PCFShadowFilter;
 var PCFSoftShadowFilter2 = TSL.PCFSoftShadowFilter;
-var PI5 = TSL.PI;
+var PI3 = TSL.PI;
 var PI22 = TSL.PI2;
 var TWO_PI2 = TSL.TWO_PI;
 var HALF_PI2 = TSL.HALF_PI;
@@ -50067,7 +46473,7 @@ var abs2 = TSL.abs;
 var acesFilmicToneMapping2 = TSL.acesFilmicToneMapping;
 var acos2 = TSL.acos;
 var acosh2 = TSL.acosh;
-var add6 = TSL.add;
+var add2 = TSL.add;
 var addMethodChaining2 = TSL.addMethodChaining;
 var addNodeElement2 = TSL.addNodeElement;
 var agxToneMapping2 = TSL.agxToneMapping;
@@ -50121,7 +46527,7 @@ var blendDodge2 = TSL.blendDodge;
 var blendOverlay2 = TSL.blendOverlay;
 var blendScreen2 = TSL.blendScreen;
 var blur2 = TSL.blur;
-var bool3 = TSL.bool;
+var bool2 = TSL.bool;
 var buffer2 = TSL.buffer;
 var bufferAttribute2 = TSL.bufferAttribute;
 var bumpMap2 = TSL.bumpMap;
@@ -50149,13 +46555,13 @@ var cdl2 = TSL.cdl;
 var ceil2 = TSL.ceil;
 var checker2 = TSL.checker;
 var cineonToneMapping2 = TSL.cineonToneMapping;
-var clamp4 = TSL.clamp;
+var clamp3 = TSL.clamp;
 var clearcoat2 = TSL.clearcoat;
 var clearcoatNormalView2 = TSL.clearcoatNormalView;
 var clearcoatRoughness2 = TSL.clearcoatRoughness;
 var clipSpace2 = TSL.clipSpace;
 var code2 = TSL.code;
-var color3 = TSL.color;
+var color2 = TSL.color;
 var colorSpaceToWorking2 = TSL.colorSpaceToWorking;
 var colorToDirection2 = TSL.colorToDirection;
 var compute2 = TSL.compute;
@@ -50170,7 +46576,7 @@ var countOneBits2 = TSL.countOneBits;
 var countTrailingZeros2 = TSL.countTrailingZeros;
 var cos2 = TSL.cos;
 var cosh2 = TSL.cosh;
-var cross4 = TSL.cross;
+var cross2 = TSL.cross;
 var cubeTexture2 = TSL.cubeTexture;
 var cubeTextureBase2 = TSL.cubeTextureBase;
 var dFdx2 = TSL.dFdx;
@@ -50197,7 +46603,7 @@ var directionToFaceDirection2 = TSL.directionToFaceDirection;
 var dispersion2 = TSL.dispersion;
 var distance2 = TSL.distance;
 var div2 = TSL.div;
-var dot3 = TSL.dot;
+var dot2 = TSL.dot;
 var drawIndex2 = TSL.drawIndex;
 var dynamicBufferAttribute2 = TSL.dynamicBufferAttribute;
 var element2 = TSL.element;
@@ -50274,7 +46680,7 @@ var ivec32 = TSL.ivec3;
 var ivec42 = TSL.ivec4;
 var js2 = TSL.js;
 var label2 = TSL.label;
-var length5 = TSL.length;
+var length2 = TSL.length;
 var lengthSq2 = TSL.lengthSq;
 var lessThan2 = TSL.lessThan;
 var lessThanEqual2 = TSL.lessThanEqual;
@@ -50359,7 +46765,7 @@ var modelWorldMatrix2 = TSL.modelWorldMatrix;
 var modelWorldMatrixInverse2 = TSL.modelWorldMatrixInverse;
 var morphReference2 = TSL.morphReference;
 var mrt2 = TSL.mrt;
-var mul6 = TSL.mul;
+var mul2 = TSL.mul;
 var mx_aastep2 = TSL.mx_aastep;
 var mx_add2 = TSL.mx_add;
 var mx_atan22 = TSL.mx_atan2;
@@ -50421,7 +46827,7 @@ var normalView2 = TSL.normalView;
 var normalViewGeometry2 = TSL.normalViewGeometry;
 var normalWorld2 = TSL.normalWorld;
 var normalWorldGeometry2 = TSL.normalWorldGeometry;
-var normalize6 = TSL.normalize;
+var normalize3 = TSL.normalize;
 var not2 = TSL.not;
 var notEqual2 = TSL.notEqual;
 var numWorkgroups2 = TSL.numWorkgroups;
@@ -50535,7 +46941,7 @@ var sin2 = TSL.sin;
 var sinh2 = TSL.sinh;
 var sinc2 = TSL.sinc;
 var skinning2 = TSL.skinning;
-var smoothstep4 = TSL.smoothstep;
+var smoothstep3 = TSL.smoothstep;
 var smoothstepElement2 = TSL.smoothstepElement;
 var specularColor2 = TSL.specularColor;
 var specularF902 = TSL.specularF90;
@@ -50544,14 +46950,14 @@ var split2 = TSL.split;
 var spritesheetUV2 = TSL.spritesheetUV;
 var sqrt2 = TSL.sqrt;
 var stack2 = TSL.stack;
-var step3 = TSL.step;
+var step2 = TSL.step;
 var stepElement2 = TSL.stepElement;
 var storage2 = TSL.storage;
 var storageBarrier2 = TSL.storageBarrier;
 var storageTexture2 = TSL.storageTexture;
 var storageTexture3D2 = TSL.storageTexture3D;
 var struct2 = TSL.struct;
-var sub6 = TSL.sub;
+var sub2 = TSL.sub;
 var subgroupAdd2 = TSL.subgroupAdd;
 var subgroupAll2 = TSL.subgroupAll;
 var subgroupAnd2 = TSL.subgroupAnd;
@@ -50664,719 +47070,6 @@ var workgroupBarrier2 = TSL.workgroupBarrier;
 var workgroupId2 = TSL.workgroupId;
 var workingToColorSpace2 = TSL.workingToColorSpace;
 var xor2 = TSL.xor;
-
-// src/render/ribbon-math.ts
-var packSegments = (pts) => {
-  const count = Math.max(0, pts.length - 1);
-  const positions = new Float32Array(count * 6);
-  const distances = new Float32Array(count * 2);
-  let acc = 0;
-  for (let i = 0;i < count; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    positions[i * 6] = a.x;
-    positions[i * 6 + 1] = a.y;
-    positions[i * 6 + 2] = a.z;
-    positions[i * 6 + 3] = b.x;
-    positions[i * 6 + 4] = b.y;
-    positions[i * 6 + 5] = b.z;
-    distances[i * 2] = acc;
-    acc += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
-    distances[i * 2 + 1] = acc;
-  }
-  return { positions, distances, count, totalLength: acc };
-};
-var resamplePolyline = (pts, target, make) => {
-  if (pts.length < 2)
-    return pts.map((p) => make(p.x, p.y, p.z));
-  const perSegment = Math.max(1, Math.ceil(target / (pts.length - 1)));
-  if (perSegment <= 1)
-    return pts.map((p) => make(p.x, p.y, p.z));
-  const first = pts[0];
-  const out = [make(first.x, first.y, first.z)];
-  for (let i = 0;i + 1 < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    for (let k = 1;k <= perSegment; k++) {
-      const u = k / perSegment;
-      out.push(make(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u));
-    }
-  }
-  return out;
-};
-
-// src/render/ribbon.ts
-var TSL2 = exports_three_tsl;
-var {
-  Fn: Fn3,
-  If: If3,
-  attribute: attribute3,
-  cameraProjectionMatrix: cameraProjectionMatrix3,
-  clamp: clamp5,
-  float: float3,
-  length: length6,
-  max: max3,
-  min: min3,
-  mix: mix3,
-  modelViewMatrix: modelViewMatrix3,
-  positionGeometry: positionGeometry3,
-  screenCoordinate: screenCoordinate3,
-  screenDPR: screenDPR3,
-  screenSize: screenSize3,
-  smoothstep: smoothstep5,
-  userData: userData3,
-  varyingProperty: varyingProperty3,
-  vec2: vec23,
-  vec3: vec33,
-  vec4: vec43
-} = TSL2;
-var AA_PX = 1;
-var vStartPx = varyingProperty3("vec2", "dtRibbonStartPx");
-var vEndPx = varyingProperty3("vec2", "dtRibbonEndPx");
-var vDist = varyingProperty3("vec2", "dtRibbonDist");
-var RIBBON_KEYS = {
-  widthPx: "dtRibbonWidthPx",
-  drawn: "dtRibbonDrawn",
-  erased: "dtRibbonErased",
-  tint: "dtRibbonTint",
-  fade: "dtRibbonFade"
-};
-
-class RibbonMaterial extends NodeMaterial {
-  constructor() {
-    super();
-    this.transparent = true;
-    this.depthWrite = false;
-    this.side = DoubleSide;
-    this.blending = CustomBlending;
-    this.blendEquation = MaxEquation;
-    this.blendSrc = OneFactor;
-    this.blendDst = OneFactor;
-    this.blendEquationAlpha = MaxEquation;
-    this.blendSrcAlpha = OneFactor;
-    this.blendDstAlpha = OneFactor;
-    const widthPx = userData3(RIBBON_KEYS.widthPx, "float");
-    const drawn = userData3(RIBBON_KEYS.drawn, "float");
-    const erased = userData3(RIBBON_KEYS.erased, "float");
-    const tint = userData3(RIBBON_KEYS.tint, "color");
-    const fade = userData3(RIBBON_KEYS.fade, "float");
-    const halfWidth = () => widthPx.mul(screenDPR3).mul(0.5);
-    const pad = () => halfWidth().add(AA_PX).add(1);
-    this.vertexNode = Fn3(() => {
-      const corner = positionGeometry3.xy;
-      const start = modelViewMatrix3.mul(vec43(attribute3("instanceStart"), 1)).toVar();
-      const end = modelViewMatrix3.mul(vec43(attribute3("instanceEnd"), 1)).toVar();
-      const distStart = float3(attribute3("instanceDistanceStart")).toVar();
-      const distEnd = float3(attribute3("instanceDistanceEnd")).toVar();
-      const nearAlpha = (from, to) => {
-        const a = cameraProjectionMatrix3.element(2).element(2);
-        const b = cameraProjectionMatrix3.element(3).element(2);
-        const nearEstimate = a.greaterThan(0).select(b.negate().div(a.add(1)), b.mul(-0.5).div(a));
-        return nearEstimate.sub(from.z).div(to.z.sub(from.z));
-      };
-      const perspective = cameraProjectionMatrix3.element(2).element(3).equal(-1);
-      If3(perspective, () => {
-        If3(start.z.lessThan(0).and(end.z.greaterThan(0)), () => {
-          const alpha = nearAlpha(start, end);
-          end.assign(vec43(mix3(start.xyz, end.xyz, alpha), end.w));
-          distEnd.assign(mix3(distStart, distEnd, alpha));
-        }).ElseIf(end.z.lessThan(0).and(start.z.greaterThanEqual(0)), () => {
-          const alpha = nearAlpha(end, start);
-          start.assign(vec43(mix3(end.xyz, start.xyz, alpha), start.w));
-          distStart.assign(mix3(distEnd, distStart, alpha));
-        });
-      });
-      const clipStart = cameraProjectionMatrix3.mul(start);
-      const clipEnd = cameraProjectionMatrix3.mul(end);
-      const ndcStart = clipStart.xyz.div(clipStart.w);
-      const ndcEnd = clipEnd.xyz.div(clipEnd.w);
-      const half = screenSize3.mul(0.5);
-      const startPx = vec23(ndcStart.x.add(1).mul(half.x), float3(1).sub(ndcStart.y).mul(half.y)).toVar();
-      const endPx = vec23(ndcEnd.x.add(1).mul(half.x), float3(1).sub(ndcEnd.y).mul(half.y)).toVar();
-      vStartPx.assign(startPx);
-      vEndPx.assign(endPx);
-      vDist.assign(vec23(distStart, distEnd));
-      const delta = endPx.sub(startPx);
-      const lenPx = length6(delta);
-      const dir = lenPx.greaterThan(0.000001).select(delta.div(max3(lenPx, 0.000001)), vec23(1, 0));
-      const perp = vec23(dir.y.negate(), dir.x);
-      const p = pad();
-      const along = mix3(p.negate(), lenPx.add(p), corner.y);
-      const targetPx = startPx.add(dir.mul(along)).add(perp.mul(corner.x.mul(p)));
-      const clip = corner.y.greaterThan(0.5).select(clipEnd, clipStart).toVar();
-      const targetNdc = vec23(targetPx.x.div(half.x).sub(1), float3(1).sub(targetPx.y.div(half.y)));
-      clip.x.assign(targetNdc.x.mul(clip.w));
-      clip.y.assign(targetNdc.y.mul(clip.w));
-      return clip;
-    })();
-    this.fragmentNode = Fn3(() => {
-      const startPx = vec23(vStartPx);
-      const endPx = vec23(vEndPx);
-      const delta = endPx.sub(startPx);
-      const lenPx = length6(delta);
-      const dir = lenPx.greaterThan(0.000001).select(delta.div(max3(lenPx, 0.000001)), vec23(1, 0));
-      const rel = screenCoordinate3.xy.sub(startPx);
-      const u = rel.dot(dir);
-      const v = rel.x.mul(dir.y).sub(rel.y.mul(dir.x));
-      const distStart = vDist.x;
-      const distEnd = vDist.y;
-      const pxPerUnit = lenPx.div(max3(distEnd.sub(distStart), 0.0000001));
-      const uFront = drawn.sub(distStart).mul(pxPerUnit).toVar();
-      uFront.lessThan(0).discard();
-      const uTail = erased.sub(distStart).mul(pxPerUnit).toVar();
-      uTail.greaterThan(lenPx).discard();
-      const uBegin = max3(uTail, 0);
-      const uEnd = max3(min3(lenPx, uFront), uBegin);
-      const d = length6(vec23(u.sub(clamp5(u, uBegin, uEnd)), v));
-      const hw = halfWidth();
-      const coverage = smoothstep5(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus();
-      const a = coverage.mul(fade);
-      return vec43(vec33(tint).mul(a), a);
-    })();
-  }
-}
-var shared;
-var sharedRibbonMaterial = () => shared ??= new RibbonMaterial;
-
-class RibbonStroke {
-  mesh;
-  material;
-  geometry;
-  totalLength = 0;
-  boundsCenter = new Vector3;
-  boundsRadius = 0;
-  static SUBDIVISION = 128;
-  points = [];
-  capacity = 0;
-  allocate(segments) {
-    this.capacity = Math.max(1, segments);
-    const posBuf = new InstancedInterleavedBuffer(new Float32Array(this.capacity * 6), 6, 1);
-    this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(posBuf, 3, 0));
-    this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(posBuf, 3, 3));
-    const distBuf = new InstancedInterleavedBuffer(new Float32Array(this.capacity * 2), 2, 1);
-    this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(distBuf, 1, 0));
-    this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(distBuf, 1, 1));
-  }
-  constructor(widthPx) {
-    this.material = sharedRibbonMaterial();
-    this.geometry = new InstancedBufferGeometry;
-    this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
-    this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
-    this.allocate(1);
-    this.geometry.instanceCount = 0;
-    this.mesh = new Mesh(this.geometry, this.material);
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-    const ud = this.mesh.userData;
-    ud[RIBBON_KEYS.widthPx] = widthPx;
-    ud[RIBBON_KEYS.drawn] = 0;
-    ud[RIBBON_KEYS.erased] = 0;
-    ud[RIBBON_KEYS.tint] = new Color(1, 1, 1);
-    ud[RIBBON_KEYS.fade] = 1;
-  }
-  get drawnLength() {
-    return this.mesh.userData[RIBBON_KEYS.drawn];
-  }
-  get erasedLength() {
-    return this.mesh.userData[RIBBON_KEYS.erased];
-  }
-  setPoints(pts) {
-    this.points = resamplePolyline(pts, RibbonStroke.SUBDIVISION, (x, y, z) => new Vector3(x, y, z));
-    const packed = packSegments(this.points);
-    if (packed.count < 1) {
-      this.geometry.instanceCount = 0;
-      this.totalLength = 0;
-      this.boundsRadius = 0;
-      return;
-    }
-    this.totalLength = packed.totalLength;
-    this.computeBounds();
-    if (packed.count > this.capacity)
-      this.allocate(1 << Math.ceil(Math.log2(packed.count)));
-    const start = this.geometry.getAttribute("instanceStart");
-    start.data.array.set(packed.positions);
-    start.data.needsUpdate = true;
-    const dist2 = this.geometry.getAttribute("instanceDistanceStart");
-    dist2.data.array.set(packed.distances);
-    dist2.data.needsUpdate = true;
-    this.geometry.instanceCount = packed.count;
-  }
-  worldPoints() {
-    return this.points;
-  }
-  packViewSegments(mv, outPositions, outDistances, scratch) {
-    const pts = this.points;
-    const count = Math.max(0, pts.length - 1);
-    if (count < 1)
-      return 0;
-    scratch.copy(pts[0]).applyMatrix4(mv);
-    let { x: ax, y: ay, z: az } = scratch;
-    let acc = 0;
-    for (let i = 0;i < count; i++) {
-      scratch.copy(pts[i + 1]).applyMatrix4(mv);
-      const { x: bx, y: by, z: bz } = scratch;
-      outPositions[i * 6] = ax;
-      outPositions[i * 6 + 1] = ay;
-      outPositions[i * 6 + 2] = az;
-      outPositions[i * 6 + 3] = bx;
-      outPositions[i * 6 + 4] = by;
-      outPositions[i * 6 + 5] = bz;
-      const la = pts[i];
-      const lb = pts[i + 1];
-      outDistances[i * 2] = acc;
-      acc += Math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z);
-      outDistances[i * 2 + 1] = acc;
-      ax = bx;
-      ay = by;
-      az = bz;
-    }
-    return count;
-  }
-  computeBounds() {
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const p of this.points) {
-      if (p.x < minX)
-        minX = p.x;
-      if (p.y < minY)
-        minY = p.y;
-      if (p.z < minZ)
-        minZ = p.z;
-      if (p.x > maxX)
-        maxX = p.x;
-      if (p.y > maxY)
-        maxY = p.y;
-      if (p.z > maxZ)
-        maxZ = p.z;
-    }
-    this.boundsCenter.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-    let r2 = 0;
-    for (const p of this.points) {
-      const d2 = this.boundsCenter.distanceToSquared(p);
-      if (d2 > r2)
-        r2 = d2;
-    }
-    this.boundsRadius = Math.sqrt(r2);
-  }
-  style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
-    const ud = this.mesh.userData;
-    ud[RIBBON_KEYS.drawn] = fraction * this.totalLength;
-    ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength;
-    this.mesh.visible = fraction > erasedFraction && opacity > 0;
-    ud[RIBBON_KEYS.fade] = opacity;
-    ud[RIBBON_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
-    ud[RIBBON_KEYS.widthPx] = widthPx;
-  }
-}
-
-// src/render/ribbon-batch.ts
-var TSL3 = exports_three_tsl;
-var {
-  Fn: Fn4,
-  If: If4,
-  attribute: attribute4,
-  cameraProjectionMatrix: cameraProjectionMatrix4,
-  clamp: clamp6,
-  float: float4,
-  length: length7,
-  max: max4,
-  min: min4,
-  mix: mix4,
-  screenCoordinate: screenCoordinate4,
-  screenDPR: screenDPR4,
-  screenSize: screenSize4,
-  smoothstep: smoothstep6,
-  varyingProperty: varyingProperty4,
-  vec2: vec24,
-  vec3: vec34,
-  vec4: vec44
-} = TSL3;
-var AA_PX2 = 1;
-var vStartPx2 = varyingProperty4("vec2", "dtBatchStartPx");
-var vEndPx2 = varyingProperty4("vec2", "dtBatchEndPx");
-var vDist2 = varyingProperty4("vec2", "dtBatchDist");
-var vWidthPx = varyingProperty4("float", "dtBatchWidthPx");
-var vDrawn = varyingProperty4("float", "dtBatchDrawn");
-var vErased = varyingProperty4("float", "dtBatchErased");
-var vTint = varyingProperty4("vec3", "dtBatchTint");
-var vFade = varyingProperty4("float", "dtBatchFade");
-
-class RibbonBatchMaterial extends NodeMaterial {
-  constructor() {
-    super();
-    this.transparent = true;
-    this.depthWrite = false;
-    this.side = DoubleSide;
-    this.blending = CustomBlending;
-    this.blendEquation = MaxEquation;
-    this.blendSrc = OneFactor;
-    this.blendDst = OneFactor;
-    this.blendEquationAlpha = MaxEquation;
-    this.blendSrcAlpha = OneFactor;
-    this.blendDstAlpha = OneFactor;
-    const widthPx = float4(attribute4("instanceWidthPx"));
-    const drawn = float4(attribute4("instanceDrawn"));
-    const erased = float4(attribute4("instanceErased"));
-    const tint = vec34(attribute4("instanceTint"));
-    const fade = float4(attribute4("instanceFade"));
-    const halfWidth = (w) => w.mul(screenDPR4).mul(0.5);
-    const pad = (w) => halfWidth(w).add(AA_PX2).add(1);
-    this.vertexNode = Fn4(() => {
-      const corner = attribute4("position").xy;
-      const start = vec44(vec34(attribute4("instanceStart")), 1).toVar();
-      const end = vec44(vec34(attribute4("instanceEnd")), 1).toVar();
-      const distStart = float4(attribute4("instanceDistanceStart")).toVar();
-      const distEnd = float4(attribute4("instanceDistanceEnd")).toVar();
-      const nearAlpha = (from, to) => {
-        const a = cameraProjectionMatrix4.element(2).element(2);
-        const b = cameraProjectionMatrix4.element(3).element(2);
-        const nearEstimate = a.greaterThan(0).select(b.negate().div(a.add(1)), b.mul(-0.5).div(a));
-        return nearEstimate.sub(from.z).div(to.z.sub(from.z));
-      };
-      const perspective = cameraProjectionMatrix4.element(2).element(3).equal(-1);
-      If4(perspective, () => {
-        If4(start.z.lessThan(0).and(end.z.greaterThan(0)), () => {
-          const alpha = nearAlpha(start, end);
-          end.assign(vec44(mix4(start.xyz, end.xyz, alpha), end.w));
-          distEnd.assign(mix4(distStart, distEnd, alpha));
-        }).ElseIf(end.z.lessThan(0).and(start.z.greaterThanEqual(0)), () => {
-          const alpha = nearAlpha(end, start);
-          start.assign(vec44(mix4(end.xyz, start.xyz, alpha), start.w));
-          distStart.assign(mix4(distEnd, distStart, alpha));
-        });
-      });
-      const clipStart = cameraProjectionMatrix4.mul(start);
-      const clipEnd = cameraProjectionMatrix4.mul(end);
-      const ndcStart = clipStart.xyz.div(clipStart.w);
-      const ndcEnd = clipEnd.xyz.div(clipEnd.w);
-      const half = screenSize4.mul(0.5);
-      const startPx = vec24(ndcStart.x.add(1).mul(half.x), float4(1).sub(ndcStart.y).mul(half.y)).toVar();
-      const endPx = vec24(ndcEnd.x.add(1).mul(half.x), float4(1).sub(ndcEnd.y).mul(half.y)).toVar();
-      vStartPx2.assign(startPx);
-      vEndPx2.assign(endPx);
-      vDist2.assign(vec24(distStart, distEnd));
-      vWidthPx.assign(widthPx);
-      vDrawn.assign(drawn);
-      vErased.assign(erased);
-      vTint.assign(tint);
-      vFade.assign(fade);
-      const delta = endPx.sub(startPx);
-      const lenPx = length7(delta);
-      const dir = lenPx.greaterThan(0.000001).select(delta.div(max4(lenPx, 0.000001)), vec24(1, 0));
-      const perp = vec24(dir.y.negate(), dir.x);
-      const p = pad(widthPx);
-      const along = mix4(p.negate(), lenPx.add(p), corner.y);
-      const targetPx = startPx.add(dir.mul(along)).add(perp.mul(corner.x.mul(p)));
-      const clip = corner.y.greaterThan(0.5).select(clipEnd, clipStart).toVar();
-      const targetNdc = vec24(targetPx.x.div(half.x).sub(1), float4(1).sub(targetPx.y.div(half.y)));
-      clip.x.assign(targetNdc.x.mul(clip.w));
-      clip.y.assign(targetNdc.y.mul(clip.w));
-      return clip;
-    })();
-    this.fragmentNode = Fn4(() => {
-      const startPx = vec24(vStartPx2);
-      const endPx = vec24(vEndPx2);
-      const delta = endPx.sub(startPx);
-      const lenPx = length7(delta);
-      const dir = lenPx.greaterThan(0.000001).select(delta.div(max4(lenPx, 0.000001)), vec24(1, 0));
-      const rel = screenCoordinate4.xy.sub(startPx);
-      const u = rel.dot(dir);
-      const v = rel.x.mul(dir.y).sub(rel.y.mul(dir.x));
-      const distStart = vDist2.x;
-      const distEnd = vDist2.y;
-      const pxPerUnit = lenPx.div(max4(distEnd.sub(distStart), 0.0000001));
-      const uFront = vDrawn.sub(distStart).mul(pxPerUnit).toVar();
-      uFront.lessThan(0).discard();
-      const uTail = vErased.sub(distStart).mul(pxPerUnit).toVar();
-      uTail.greaterThan(lenPx).discard();
-      const uBegin = max4(uTail, 0);
-      const uEnd = max4(min4(lenPx, uFront), uBegin);
-      const d = length7(vec24(u.sub(clamp6(u, uBegin, uEnd)), v));
-      const hw = vWidthPx.mul(screenDPR4).mul(0.5);
-      const coverage = smoothstep6(hw.sub(AA_PX2), hw.add(AA_PX2), d).oneMinus();
-      const a = coverage.mul(vFade);
-      return vec44(vTint.mul(a), a);
-    })();
-  }
-}
-var shared2;
-var sharedRibbonBatchMaterial = () => shared2 ??= new RibbonBatchMaterial;
-var POS_STRIDE = 6;
-var DIST_STRIDE = 2;
-
-class RibbonBatch {
-  mesh;
-  material;
-  geometry;
-  capacity = 0;
-  cursor = 0;
-  posBuf;
-  distBuf;
-  widthAttr;
-  drawnAttr;
-  erasedAttr;
-  fadeAttr;
-  tintAttr;
-  constructor(initialCapacity = 256) {
-    this.material = sharedRibbonBatchMaterial();
-    this.geometry = new InstancedBufferGeometry;
-    this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
-    this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
-    this.allocate(Math.max(1, initialCapacity));
-    this.geometry.instanceCount = 0;
-    this.mesh = new Mesh(this.geometry, this.material);
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-  }
-  allocate(segments) {
-    const old = this.capacity;
-    const cap = Math.max(1, segments);
-    const pos = new Float32Array(cap * POS_STRIDE);
-    const dist2 = new Float32Array(cap * DIST_STRIDE);
-    const width = new Float32Array(cap);
-    const drawn = new Float32Array(cap);
-    const erased = new Float32Array(cap);
-    const fade = new Float32Array(cap);
-    const tint = new Float32Array(cap * 3);
-    if (old > 0) {
-      pos.set(this.posBuf.array);
-      dist2.set(this.distBuf.array);
-      width.set(this.widthAttr.array);
-      drawn.set(this.drawnAttr.array);
-      erased.set(this.erasedAttr.array);
-      fade.set(this.fadeAttr.array);
-      tint.set(this.tintAttr.array);
-    }
-    this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
-    this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
-    this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(this.posBuf, 3, 3));
-    this.distBuf = new InstancedInterleavedBuffer(dist2, DIST_STRIDE, 1);
-    this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
-    this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
-    this.widthAttr = new InstancedBufferAttribute(width, 1);
-    this.drawnAttr = new InstancedBufferAttribute(drawn, 1);
-    this.erasedAttr = new InstancedBufferAttribute(erased, 1);
-    this.fadeAttr = new InstancedBufferAttribute(fade, 1);
-    this.tintAttr = new InstancedBufferAttribute(tint, 3);
-    this.geometry.setAttribute("instanceWidthPx", this.widthAttr);
-    this.geometry.setAttribute("instanceDrawn", this.drawnAttr);
-    this.geometry.setAttribute("instanceErased", this.erasedAttr);
-    this.geometry.setAttribute("instanceFade", this.fadeAttr);
-    this.geometry.setAttribute("instanceTint", this.tintAttr);
-    this.capacity = cap;
-  }
-  reserve(maxSegments) {
-    const cap = Math.max(1, maxSegments);
-    const offset = this.cursor;
-    this.cursor += cap;
-    if (this.cursor > this.capacity) {
-      this.allocate(1 << Math.ceil(Math.log2(this.cursor)));
-    }
-    for (let i = offset;i < offset + cap; i++)
-      this.fadeAttr.array[i] = 0;
-    this.fadeAttr.needsUpdate = true;
-    if (offset + cap > this.geometry.instanceCount)
-      this.geometry.instanceCount = offset + cap;
-    this.mesh.visible = this.geometry.instanceCount > 0;
-    return { offset, maxSegments: cap, count: 0 };
-  }
-  relocate(slot, needSegments) {
-    for (let i = 0;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    this.fadeAttr.needsUpdate = true;
-    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))));
-  }
-  writeSlot(slot, positions, distances, count, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
-    if (count > slot.maxSegments)
-      slot = this.relocate(slot, count);
-    const n = Math.min(count, slot.maxSegments);
-    const posArr = this.posBuf.array;
-    const distArr = this.distBuf.array;
-    posArr.set(positions.subarray(0, n * POS_STRIDE), slot.offset * POS_STRIDE);
-    distArr.set(distances.subarray(0, n * DIST_STRIDE), slot.offset * DIST_STRIDE);
-    for (let i = 0;i < n; i++) {
-      const s = slot.offset + i;
-      this.widthAttr.array[s] = widthPx;
-      this.drawnAttr.array[s] = drawn;
-      this.erasedAttr.array[s] = erased;
-      this.tintAttr.array[s * 3] = tintR;
-      this.tintAttr.array[s * 3 + 1] = tintG;
-      this.tintAttr.array[s * 3 + 2] = tintB;
-      this.fadeAttr.array[s] = fade;
-    }
-    for (let i = n;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    slot.count = n;
-    this.markDirty();
-    return slot;
-  }
-  hideSlot(slot) {
-    if (slot.count === 0)
-      return;
-    for (let i = 0;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    slot.count = 0;
-    this.fadeAttr.needsUpdate = true;
-  }
-  markDirty() {
-    this.posBuf.needsUpdate = true;
-    this.distBuf.needsUpdate = true;
-    this.widthAttr.needsUpdate = true;
-    this.drawnAttr.needsUpdate = true;
-    this.erasedAttr.needsUpdate = true;
-    this.fadeAttr.needsUpdate = true;
-    this.tintAttr.needsUpdate = true;
-  }
-}
-
-// src/geometry/evenodd.ts
-var EPS2 = 0.000000001;
-var xAt = (e, y) => e.x0 + (e.x1 - e.x0) * (y - e.y0) / (e.y1 - e.y0);
-var evenOddTriangulation = (subpaths) => {
-  const edges = [];
-  const ys = [];
-  let z = 0;
-  let seenAny = false;
-  for (const raw of subpaths) {
-    const loop = [];
-    for (const p of raw) {
-      const last2 = loop[loop.length - 1];
-      if (last2 && Math.abs(last2.x - p.x) < EPS2 && Math.abs(last2.y - p.y) < EPS2)
-        continue;
-      loop.push(p);
-    }
-    const first = loop[0];
-    const last = loop[loop.length - 1];
-    if (first && last && loop.length > 1 && Math.abs(last.x - first.x) < EPS2 && Math.abs(last.y - first.y) < EPS2) {
-      loop.pop();
-    }
-    if (loop.length < 3)
-      continue;
-    if (!seenAny) {
-      z = loop[0].z;
-      seenAny = true;
-    }
-    for (let i = 0;i < loop.length; i++) {
-      const a = loop[i];
-      const b = loop[(i + 1) % loop.length];
-      if (Math.abs(a.y - b.y) < EPS2)
-        continue;
-      edges.push(a.y < b.y ? { y0: a.y, x0: a.x, y1: b.y, x1: b.x } : { y0: b.y, x0: b.x, y1: a.y, x1: a.x });
-      ys.push(a.y, b.y);
-    }
-  }
-  const points = [];
-  const indices = [];
-  if (edges.length === 0)
-    return { points, indices };
-  ys.sort((a, b) => a - b);
-  const lines = [];
-  for (const y of ys) {
-    const prev = lines[lines.length - 1];
-    if (prev === undefined || y - prev > EPS2)
-      lines.push(y);
-  }
-  for (let s = 0;s + 1 < lines.length; s++) {
-    const yLo = lines[s];
-    const yHi = lines[s + 1];
-    const mid = (yLo + yHi) / 2;
-    const spans = [];
-    for (const e of edges) {
-      if (e.y0 > mid || e.y1 <= mid)
-        continue;
-      spans.push({ xLo: xAt(e, yLo), xHi: xAt(e, yHi), xMid: xAt(e, mid) });
-    }
-    spans.sort((a, b) => a.xMid - b.xMid);
-    for (let i = 0;i + 1 < spans.length; i += 2) {
-      const l = spans[i];
-      const r = spans[i + 1];
-      if (r.xLo - l.xLo < EPS2 && r.xHi - l.xHi < EPS2)
-        continue;
-      const base = points.length;
-      points.push({ x: l.xLo, y: yLo, z }, { x: r.xLo, y: yLo, z }, { x: r.xHi, y: yHi, z }, { x: l.xHi, y: yHi, z });
-      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
-  }
-  return { points, indices };
-};
-
-// src/render/fill.ts
-var { userData: userData4 } = exports_three_tsl;
-var FILL_KEYS = {
-  tint: "dtFillTint",
-  fade: "dtFillFade"
-};
-var shared3;
-var sharedFillMaterial = () => {
-  if (!shared3) {
-    shared3 = new MeshBasicNodeMaterial;
-    shared3.transparent = true;
-    shared3.depthWrite = false;
-    shared3.side = DoubleSide;
-    shared3.colorNode = userData4(FILL_KEYS.tint, "color");
-    shared3.opacityNode = userData4(FILL_KEYS.fade, "float");
-  }
-  return shared3;
-};
-var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
-  const pts = [{ x: 0, y: 0, z: 0 }];
-  for (let i = 0;i <= segments; i++) {
-    const a = i / segments * Math.PI * 2;
-    pts.push({ x: Math.cos(a) * radiusX, y: Math.sin(a) * radiusY, z: 0 });
-  }
-  return pts;
-};
-
-class FillShape {
-  mesh;
-  material;
-  constructor(renderOrder) {
-    this.material = sharedFillMaterial();
-    this.mesh = new Mesh(new BufferGeometry, this.material);
-    this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = renderOrder;
-    this.mesh.visible = false;
-    this.mesh.userData[FILL_KEYS.tint] = new Color(1, 1, 1);
-    this.mesh.userData[FILL_KEYS.fade] = 1;
-  }
-  setPolygon(pts, triangles) {
-    if (pts.length < 3)
-      return;
-    const positions = new Float32Array(pts.length * 3);
-    for (let i = 0;i < pts.length; i++) {
-      positions[i * 3] = pts[i].x;
-      positions[i * 3 + 1] = pts[i].y;
-      positions[i * 3 + 2] = pts[i].z;
-    }
-    const indices = [];
-    if (triangles) {
-      indices.push(...triangles);
-    } else {
-      for (let i = 1;i < pts.length - 1; i++)
-        indices.push(0, i, i + 1);
-    }
-    const geometry = new BufferGeometry;
-    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    geometry.setIndex(indices);
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = geometry;
-  }
-  setPolygons(subpaths) {
-    const { points, indices } = evenOddTriangulation(subpaths);
-    if (indices.length === 0) {
-      const geometry = new BufferGeometry;
-      this.mesh.geometry.dispose();
-      this.mesh.geometry = geometry;
-      return;
-    }
-    this.setPolygon(points, indices);
-  }
-  style(opacity, tint) {
-    this.mesh.userData[FILL_KEYS.fade] = opacity;
-    this.mesh.userData[FILL_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
-    this.mesh.visible = opacity > 0;
-  }
-}
 
 // node_modules/three/build/three.module.js
 var alphahash_fragment = `#ifdef USE_ALPHAHASH
@@ -57576,8 +53269,8 @@ function parseTableDirectory(view) {
     const tag = view.getUint32(recordOffset);
     const checksum = view.getUint32(recordOffset + 4);
     const offset = view.getUint32(recordOffset + 8);
-    const length8 = view.getUint32(recordOffset + 12);
-    tables.set(tag, { tag, checksum, offset, length: length8 });
+    const length3 = view.getUint32(recordOffset + 12);
+    tables.set(tag, { tag, checksum, offset, length: length3 });
   }
   return tables;
 }
@@ -57736,7 +53429,7 @@ class FontMetadataExtractor {
         const encodingID = view.getUint16(recordOffset + 2);
         const languageID = view.getUint16(recordOffset + 4);
         const recordNameID = view.getUint16(recordOffset + 6);
-        const length8 = view.getUint16(recordOffset + 8);
+        const length3 = view.getUint16(recordOffset + 8);
         const offset = view.getUint16(recordOffset + 10);
         if (recordNameID !== nameID)
           continue;
@@ -57744,7 +53437,7 @@ class FontMetadataExtractor {
           continue;
         }
         const stringStart = nameOffset + stringOffset + offset;
-        const bytes = new Uint8Array(view.buffer, stringStart, length8);
+        const bytes = new Uint8Array(view.buffer, stringStart, length3);
         if (platformID === 0 || platformID === 3 && encodingID === 1) {
           let str = "";
           for (let j = 0;j < bytes.length; j += 2) {
@@ -57789,13 +53482,13 @@ class FontMetadataExtractor {
       const encodingID = view.getUint16(recordOffset + 2);
       const languageID = view.getUint16(recordOffset + 4);
       const nameID = view.getUint16(recordOffset + 6);
-      const length8 = view.getUint16(recordOffset + 8);
+      const length3 = view.getUint16(recordOffset + 8);
       const offset = view.getUint16(recordOffset + 10);
       if (platformID === 0 || platformID === 3 && languageID === 1033) {
         if (!index.has(nameID)) {
           index.set(nameID, {
             offset: nameOffset + stringOffset + offset,
-            length: length8,
+            length: length3,
             platformID,
             encodingID
           });
@@ -58306,14 +53999,14 @@ class Vec2 {
     this.y -= v.y;
     return this;
   }
-  multiply(scalar2) {
-    this.x *= scalar2;
-    this.y *= scalar2;
+  multiply(scalar) {
+    this.x *= scalar;
+    this.y *= scalar;
     return this;
   }
-  divide(scalar2) {
-    this.x /= scalar2;
-    this.y /= scalar2;
+  divide(scalar) {
+    this.x /= scalar;
+    this.y /= scalar;
     return this;
   }
   length() {
@@ -58323,9 +54016,9 @@ class Vec2 {
     return this.x * this.x + this.y * this.y;
   }
   normalize() {
-    const len3 = this.length();
-    if (len3 > 0) {
-      this.divide(len3);
+    const len = this.length();
+    if (len > 0) {
+      this.divide(len);
     }
     return this;
   }
@@ -58383,16 +54076,16 @@ class Vec3 {
     this.z -= v.z;
     return this;
   }
-  multiply(scalar2) {
-    this.x *= scalar2;
-    this.y *= scalar2;
-    this.z *= scalar2;
+  multiply(scalar) {
+    this.x *= scalar;
+    this.y *= scalar;
+    this.z *= scalar;
     return this;
   }
-  divide(scalar2) {
-    this.x /= scalar2;
-    this.y /= scalar2;
-    this.z /= scalar2;
+  divide(scalar) {
+    this.x /= scalar;
+    this.y /= scalar;
+    this.z /= scalar;
     return this;
   }
   length() {
@@ -58402,9 +54095,9 @@ class Vec3 {
     return this.x * this.x + this.y * this.y + this.z * this.z;
   }
   normalize() {
-    const len3 = this.length();
-    if (len3 > 0) {
-      this.divide(len3);
+    const len = this.length();
+    if (len > 0) {
+      this.divide(len);
     }
     return this;
   }
@@ -58442,7 +54135,7 @@ class TextShaper {
     this.cachedSpaceWidth = new Map;
     this.loadedFont = loadedFont;
   }
-  shapeLines(lineInfos, scaledLineHeight, letterSpacing, align, direction, color4, originalText) {
+  shapeLines(lineInfos, scaledLineHeight, letterSpacing, align, direction, color3, originalText) {
     perfLogger.start("TextShaper.shapeLines", {
       lineCount: lineInfos.length
     });
@@ -59287,12 +54980,12 @@ function hbjs(Module) {
       upem,
       reference_table: function(table) {
         var blob2 = exports.hb_face_reference_table(ptr, hb_tag(table));
-        var length8 = exports.hb_blob_get_length(blob2);
-        if (!length8) {
+        var length3 = exports.hb_blob_get_length(blob2);
+        if (!length3) {
           return;
         }
         var blobptr = exports.hb_blob_get_data(blob2, null);
-        var table_string = Module.HEAPU8.subarray(blobptr, blobptr + length8);
+        var table_string = Module.HEAPU8.subarray(blobptr, blobptr + length3);
         return table_string;
       },
       getAxisInfos: function() {
@@ -59488,14 +55181,14 @@ function hbjs(Module) {
         exports.hb_buffer_set_cluster_level(ptr, level);
       },
       json: function() {
-        var length8 = exports.hb_buffer_get_length(ptr);
+        var length3 = exports.hb_buffer_get_length(ptr);
         var result = [];
         var infosPtr = exports.hb_buffer_get_glyph_infos(ptr, 0);
         var infosPtr32 = infosPtr / 4;
         var positionsPtr32 = exports.hb_buffer_get_glyph_positions(ptr, 0) / 4;
-        var infos = Module.HEAPU32.subarray(infosPtr32, infosPtr32 + 5 * length8);
-        var positions = Module.HEAP32.subarray(positionsPtr32, positionsPtr32 + 5 * length8);
-        for (var i = 0;i < length8; ++i) {
+        var infos = Module.HEAPU32.subarray(infosPtr32, infosPtr32 + 5 * length3);
+        var positions = Module.HEAP32.subarray(positionsPtr32, positionsPtr32 + 5 * length3);
+        for (var i = 0;i < length3; ++i) {
           result.push({
             g: infos[i * 5 + 0],
             cl: infos[i * 5 + 2],
@@ -59641,7 +55334,7 @@ var HarfBuzzLoader = {
 var DEFAULT_MAX_TEXT_LENGTH = 1e5;
 var DEFAULT_FONT_SIZE = 72;
 
-class Text2 {
+class Text {
   static {
     this.patternCache = new Map;
   }
@@ -59681,34 +55374,34 @@ class Text2 {
   }
   constructor() {
     this.currentFontId = "";
-    if (!Text2.hbInitPromise) {
-      Text2.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
+    if (!Text.hbInitPromise) {
+      Text.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
     }
-    this.fontLoader = new FontLoader(() => Text2.hbInitPromise);
+    this.fontLoader = new FontLoader(() => Text.hbInitPromise);
   }
   static setHarfBuzzPath(path) {
     HarfBuzzLoader.setWasmPath(path);
-    Text2.hbInitPromise = null;
+    Text.hbInitPromise = null;
   }
   static setHarfBuzzBuffer(wasmBuffer2) {
     HarfBuzzLoader.setWasmBuffer(wasmBuffer2);
-    Text2.hbInitPromise = null;
+    Text.hbInitPromise = null;
   }
   static init() {
-    if (!Text2.hbInitPromise) {
-      Text2.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
+    if (!Text.hbInitPromise) {
+      Text.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
     }
-    return Text2.hbInitPromise;
+    return Text.hbInitPromise;
   }
   static async create(options) {
     if (!options.font) {
       throw new Error("Font is required. Specify options.font as a URL string or ArrayBuffer.");
     }
-    if (!Text2.hbInitPromise) {
-      Text2.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
+    if (!Text.hbInitPromise) {
+      Text.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
     }
-    const { loadedFont, fontKey } = await Text2.resolveFont(options);
-    const text = new Text2;
+    const { loadedFont, fontKey } = await Text.resolveFont(options);
+    const text = new Text;
     text.setLoadedFont(loadedFont, fontKey);
     const result = await text.createLayout(options);
     const update = async (newOptions) => {
@@ -59720,7 +55413,7 @@ class Text2 {
         }
       }
       if (newOptions.font !== undefined || newOptions.fontVariations !== undefined || newOptions.fontFeatures !== undefined) {
-        const { loadedFont: newLoadedFont, fontKey: newFontKey } = await Text2.resolveFont(mergedOptions);
+        const { loadedFont: newLoadedFont, fontKey: newFontKey } = await Text.resolveFont(mergedOptions);
         text.setLoadedFont(newLoadedFont, newFontKey);
         text.resetHelpers();
       }
@@ -59743,75 +55436,75 @@ class Text2 {
     };
   }
   static retainFont(fontKey) {
-    Text2.fontRefCounts.set(fontKey, (Text2.fontRefCounts.get(fontKey) ?? 0) + 1);
+    Text.fontRefCounts.set(fontKey, (Text.fontRefCounts.get(fontKey) ?? 0) + 1);
   }
   static releaseFont(fontKey, loadedFont) {
-    const nextCount = (Text2.fontRefCounts.get(fontKey) ?? 0) - 1;
+    const nextCount = (Text.fontRefCounts.get(fontKey) ?? 0) - 1;
     if (nextCount > 0) {
-      Text2.fontRefCounts.set(fontKey, nextCount);
+      Text.fontRefCounts.set(fontKey, nextCount);
       return;
     }
-    Text2.fontRefCounts.delete(fontKey);
-    if (!Text2.fontCache.has(fontKey)) {
+    Text.fontRefCounts.delete(fontKey);
+    if (!Text.fontCache.has(fontKey)) {
       FontLoader.destroyFont(loadedFont);
     }
   }
   static async resolveFont(options) {
-    const baseFontKey = typeof options.font === "string" ? options.font : `buffer-${Text2.generateFontContentHash(options.font)}`;
+    const baseFontKey = typeof options.font === "string" ? options.font : `buffer-${Text.generateFontContentHash(options.font)}`;
     let fontKey = baseFontKey;
     if (options.fontVariations) {
-      fontKey += `_var_${Text2.stableStringify(options.fontVariations)}`;
+      fontKey += `_var_${Text.stableStringify(options.fontVariations)}`;
     }
     if (options.fontFeatures) {
-      fontKey += `_feat_${Text2.stableStringify(options.fontFeatures)}`;
+      fontKey += `_feat_${Text.stableStringify(options.fontFeatures)}`;
     }
-    let loadedFont = Text2.fontCache.get(fontKey);
+    let loadedFont = Text.fontCache.get(fontKey);
     if (!loadedFont) {
-      let loadPromise = Text2.fontLoadPromises.get(fontKey);
+      let loadPromise = Text.fontLoadPromises.get(fontKey);
       if (!loadPromise) {
-        loadPromise = Text2.loadAndCacheFont(fontKey, options.font, options.fontVariations, options.fontFeatures).finally(() => {
-          Text2.fontLoadPromises.delete(fontKey);
+        loadPromise = Text.loadAndCacheFont(fontKey, options.font, options.fontVariations, options.fontFeatures).finally(() => {
+          Text.fontLoadPromises.delete(fontKey);
         });
-        Text2.fontLoadPromises.set(fontKey, loadPromise);
+        Text.fontLoadPromises.set(fontKey, loadPromise);
       }
       loadedFont = await loadPromise;
     }
-    Text2.retainFont(fontKey);
+    Text.retainFont(fontKey);
     return { loadedFont, fontKey };
   }
   static async loadAndCacheFont(fontKey, font, fontVariations, fontFeatures) {
-    const tempText = new Text2;
+    const tempText = new Text;
     await tempText.loadFont(font, fontVariations, fontFeatures);
     const loadedFont = tempText.getLoadedFont();
-    Text2.fontCache.set(fontKey, loadedFont);
-    Text2.trackFontCacheAdd(loadedFont);
-    Text2.enforceFontCacheMemoryLimit();
+    Text.fontCache.set(fontKey, loadedFont);
+    Text.trackFontCacheAdd(loadedFont);
+    Text.enforceFontCacheMemoryLimit();
     return loadedFont;
   }
   static trackFontCacheAdd(loadedFont) {
     const size = loadedFont._buffer?.byteLength ?? 0;
-    Text2.fontCacheMemoryBytes += size;
+    Text.fontCacheMemoryBytes += size;
   }
   static trackFontCacheRemove(fontKey) {
-    const font = Text2.fontCache.get(fontKey);
+    const font = Text.fontCache.get(fontKey);
     if (!font)
       return;
     const size = font._buffer?.byteLength ?? 0;
-    Text2.fontCacheMemoryBytes -= size;
-    if (Text2.fontCacheMemoryBytes < 0)
-      Text2.fontCacheMemoryBytes = 0;
+    Text.fontCacheMemoryBytes -= size;
+    if (Text.fontCacheMemoryBytes < 0)
+      Text.fontCacheMemoryBytes = 0;
   }
   static enforceFontCacheMemoryLimit() {
-    if (Text2.maxFontCacheMemoryBytes === Infinity)
+    if (Text.maxFontCacheMemoryBytes === Infinity)
       return;
-    while (Text2.fontCacheMemoryBytes > Text2.maxFontCacheMemoryBytes && Text2.fontCache.size > 0) {
-      const firstKey = Text2.fontCache.keys().next().value;
+    while (Text.fontCacheMemoryBytes > Text.maxFontCacheMemoryBytes && Text.fontCache.size > 0) {
+      const firstKey = Text.fontCache.keys().next().value;
       if (firstKey === undefined)
         break;
-      const font = Text2.fontCache.get(firstKey);
-      Text2.trackFontCacheRemove(firstKey);
-      Text2.fontCache.delete(firstKey);
-      if ((Text2.fontRefCounts.get(firstKey) ?? 0) <= 0 && font) {
+      const font = Text.fontCache.get(firstKey);
+      Text.trackFontCacheRemove(firstKey);
+      Text.fontCache.delete(firstKey);
+      if ((Text.fontRefCounts.get(firstKey) ?? 0) <= 0 && font) {
         FontLoader.destroyFont(font);
       }
     }
@@ -59821,9 +55514,9 @@ class Text2 {
       const view = new Uint8Array(buffer3);
       let hash3 = 2166136261;
       const samplePoints = Math.min(32, view.length);
-      const step4 = Math.floor(view.length / samplePoints);
+      const step3 = Math.floor(view.length / samplePoints);
       for (let i = 0;i < samplePoints; i++) {
-        const index = i * step4;
+        const index = i * step3;
         hash3 ^= view[index];
         hash3 = Math.imul(hash3, 16777619);
       }
@@ -59831,7 +55524,7 @@ class Text2 {
       hash3 = Math.imul(hash3, 16777619);
       return (hash3 >>> 0).toString(36);
     } else {
-      return `c${++Text2.fontIdCounter}`;
+      return `c${++Text.fontIdCounter}`;
     }
   }
   setLoadedFont(loadedFont, fontKey) {
@@ -59840,13 +55533,13 @@ class Text2 {
     }
     this.loadedFont = loadedFont;
     this.currentFontCacheKey = fontKey;
-    const contentHash = Text2.generateFontContentHash(loadedFont._buffer);
+    const contentHash = Text.generateFontContentHash(loadedFont._buffer);
     this.currentFontId = `font_${contentHash}`;
     if (loadedFont.fontVariations) {
-      this.currentFontId += `_var_${Text2.stableStringify(loadedFont.fontVariations)}`;
+      this.currentFontId += `_var_${Text.stableStringify(loadedFont.fontVariations)}`;
     }
     if (loadedFont.fontFeatures) {
-      this.currentFontId += `_feat_${Text2.stableStringify(loadedFont.fontFeatures)}`;
+      this.currentFontId += `_feat_${Text.stableStringify(loadedFont.fontFeatures)}`;
     }
   }
   releaseCurrentFont() {
@@ -59856,7 +55549,7 @@ class Text2 {
     const currentFontKey = this.currentFontCacheKey;
     try {
       if (currentFontKey) {
-        Text2.releaseFont(currentFontKey, currentFont);
+        Text.releaseFont(currentFontKey, currentFont);
       } else {
         FontLoader.destroyFont(currentFont);
       }
@@ -59873,10 +55566,10 @@ class Text2 {
     perfLogger.start("Text.loadFont", {
       fontSrc: typeof fontSrc === "string" ? fontSrc : `buffer(${fontSrc.byteLength})`
     });
-    if (!Text2.hbInitPromise) {
-      Text2.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
+    if (!Text.hbInitPromise) {
+      Text.hbInitPromise = HarfBuzzLoader.getHarfBuzz();
     }
-    await Text2.hbInitPromise;
+    await Text.hbInitPromise;
     const fontBuffer = typeof fontSrc === "string" ? await loadBinary(fontSrc) : fontSrc;
     try {
       if (this.loadedFont) {
@@ -59886,13 +55579,13 @@ class Text2 {
       if (fontFeatures) {
         this.loadedFont.fontFeatures = fontFeatures;
       }
-      const contentHash = Text2.generateFontContentHash(fontBuffer);
+      const contentHash = Text.generateFontContentHash(fontBuffer);
       this.currentFontId = `font_${contentHash}`;
       if (fontVariations) {
-        this.currentFontId += `_var_${Text2.stableStringify(fontVariations)}`;
+        this.currentFontId += `_var_${Text.stableStringify(fontVariations)}`;
       }
       if (fontFeatures) {
-        this.currentFontId += `_feat_${Text2.stableStringify(fontFeatures)}`;
+        this.currentFontId += `_feat_${Text.stableStringify(fontFeatures)}`;
       }
     } catch (error2) {
       logger.error("Failed to load font:", error2);
@@ -59937,9 +55630,9 @@ class Text2 {
       const language = options.layout?.language || "en-us";
       if (!options.layout?.hyphenationPatterns?.[language]) {
         try {
-          if (!Text2.patternCache.has(language)) {
+          if (!Text.patternCache.has(language)) {
             const pattern = await loadPattern(language, options.layout?.patternsPath);
-            Text2.patternCache.set(language, pattern);
+            Text.patternCache.set(language, pattern);
           }
           return {
             ...options,
@@ -59947,7 +55640,7 @@ class Text2 {
               ...options.layout,
               hyphenationPatterns: {
                 ...options.layout?.hyphenationPatterns,
-                [language]: Text2.patternCache.get(language)
+                [language]: Text.patternCache.get(language)
               }
             }
           };
@@ -59976,7 +55669,7 @@ class Text2 {
   }
   updateFontVariations(options) {
     if (options.fontVariations && this.loadedFont) {
-      if (Text2.stableStringify(options.fontVariations) !== Text2.stableStringify(this.loadedFont.fontVariations || {})) {
+      if (Text.stableStringify(options.fontVariations) !== Text.stableStringify(this.loadedFont.fontVariations || {})) {
         this.loadedFont.font.setVariations(options.fontVariations);
         this.loadedFont.fontVariations = options.fontVariations;
       }
@@ -60043,10 +55736,10 @@ class Text2 {
   }
   static async preloadPatterns(languages, patternsPath) {
     await Promise.all(languages.map(async (language) => {
-      if (!Text2.patternCache.has(language)) {
+      if (!Text.patternCache.has(language)) {
         try {
           const pattern = await loadPattern(language, patternsPath);
-          Text2.patternCache.set(language, pattern);
+          Text.patternCache.set(language, pattern);
         } catch (error2) {
           logger.warn(`Failed to pre-load patterns for ${language}: ${error2}`);
         }
@@ -60054,11 +55747,11 @@ class Text2 {
     }));
   }
   static registerPattern(language, pattern) {
-    Text2.patternCache.set(language, pattern);
+    Text.patternCache.set(language, pattern);
   }
   static setMaxFontCacheMemoryMB(limitMB) {
-    Text2.maxFontCacheMemoryBytes = limitMB === Infinity ? Infinity : Math.max(1, Math.floor(limitMB)) * 1024 * 1024;
-    Text2.enforceFontCacheMemoryLimit();
+    Text.maxFontCacheMemoryBytes = limitMB === Infinity ? Infinity : Math.max(1, Math.floor(limitMB)) * 1024 * 1024;
+    Text.enforceFontCacheMemoryLimit();
   }
   getLoadedFont() {
     return this.loadedFont;
@@ -60514,7 +56207,7 @@ class Z {
   I = 0;
 }
 
-class K2 {
+class K {
   next;
   i;
   h;
@@ -60550,11 +56243,11 @@ class J {
   rt;
   vertexCount = 0;
   constructor() {
-    const t2 = new X, i2 = new Q, s2 = new K2, e2 = new K2;
+    const t2 = new X, i2 = new Q, s2 = new K, e2 = new K;
     t2.next = t2.o = t2, i2.next = i2.o = i2, s2.next = s2, s2.h = e2, e2.next = e2, e2.h = s2, this.Y = t2, this.j = i2, this.Z = s2, this.rt = e2;
   }
   lt(t2) {
-    const i2 = new K2, s2 = new K2, e2 = t2.h.next;
+    const i2 = new K, s2 = new K, e2 = t2.h.next;
     return s2.next = e2, e2.h.next = i2, i2.next = t2, t2.h.next = s2, i2.h = s2, i2.C = i2, i2.O = s2, i2.u = 0, i2.N = null, s2.h = i2, s2.C = s2, s2.O = i2, s2.u = 0, s2.N = null, i2;
   }
   ot(t2, i2) {
@@ -61317,11 +57010,11 @@ class Tessellator {
     return reversed;
   }
   reverseContour(contour) {
-    const len3 = contour.length;
-    if (len3 === 0)
+    const len = contour.length;
+    if (len === 0)
       return [];
-    const isClosed = len3 >= 4 && contour[0] === contour[len3 - 2] && contour[1] === contour[len3 - 1];
-    const end = isClosed ? len3 - 2 : len3;
+    const isClosed = len >= 4 && contour[0] === contour[len - 2] && contour[1] === contour[len - 1];
+    const end = isClosed ? len - 2 : len;
     if (end === 0)
       return [];
     const reversed = new Array(end + 2);
@@ -61431,14 +57124,14 @@ class Tessellator {
   }
   signedArea(contour) {
     let area = 0;
-    const len3 = contour.length;
-    if (len3 < 6)
+    const len = contour.length;
+    if (len < 6)
       return 0;
-    for (let i2 = 0;i2 < len3; i2 += 2) {
+    for (let i2 = 0;i2 < len; i2 += 2) {
       const x1 = contour[i2];
       const y1 = contour[i2 + 1];
-      const x2 = contour[(i2 + 2) % len3];
-      const y2 = contour[(i2 + 3) % len3];
+      const x2 = contour[(i2 + 2) % len];
+      const y2 = contour[(i2 + 3) % len];
       area += x1 * y2 - x2 * y1;
     }
     return area / 2;
@@ -61939,16 +57632,16 @@ function siftUp(heap, hpos, area, i2) {
   heap[i2] = idx;
   hpos[idx] = i2;
 }
-function siftDown(heap, hpos, area, i2, len3) {
+function siftDown(heap, hpos, area, i2, len) {
   const idx = heap[i2];
   const val = area[idx];
-  const half = len3 >> 1;
+  const half = len >> 1;
   while (i2 < half) {
     let child = (i2 << 1) + 1;
     let childIdx = heap[child];
     let childVal = area[childIdx];
     const right = child + 1;
-    if (right < len3) {
+    if (right < len) {
       const rIdx = heap[right];
       const rVal = area[rIdx];
       if (rVal < childVal) {
@@ -62008,9 +57701,9 @@ function quadRec(x1, y1, x2, y2, x3, y3, level) {
         const v1y = y2 - y1;
         const v2x = x3 - x2;
         const v2y = y3 - y2;
-        const cross5 = v1x * v2y - v1y * v2x;
-        const dot4 = v1x * v2x + v1y * v2y;
-        if (dot4 > 0 && cross5 * cross5 < _tanAngSq * dot4 * dot4) {
+        const cross3 = v1x * v2y - v1y * v2x;
+        const dot3 = v1x * v2x + v1y * v2y;
+        if (dot3 > 0 && cross3 * cross3 < _tanAngSq * dot3 * dot3) {
           emit(x123, y123);
           return;
         }
@@ -62133,14 +57826,14 @@ function cubicRec(x1, y1, x2, y2, x3, y3, x4, y4, level) {
         if (_angleTol > 0) {
           const v1x = x3 - x2, v1y = y3 - y2;
           const v2x = x4 - x3, v2y = y4 - y3;
-          const cross5 = v1x * v2y - v1y * v2x;
-          const dot4 = v1x * v2x + v1y * v2y;
-          if (dot4 > 0 && cross5 * cross5 < _tanAngSq * dot4 * dot4) {
+          const cross3 = v1x * v2y - v1y * v2x;
+          const dot3 = v1x * v2x + v1y * v2y;
+          if (dot3 > 0 && cross3 * cross3 < _tanAngSq * dot3 * dot3) {
             emit(x2, y2);
             emit(x3, y3);
             return;
           }
-          if (_cuspLim > 0 && (dot4 <= 0 || cross5 * cross5 > _tanCuspSq * dot4 * dot4)) {
+          if (_cuspLim > 0 && (dot3 <= 0 || cross3 * cross3 > _tanCuspSq * dot3 * dot3)) {
             emit(x3, y3);
             return;
           }
@@ -62155,14 +57848,14 @@ function cubicRec(x1, y1, x2, y2, x3, y3, x4, y4, level) {
         if (_angleTol > 0) {
           const v1x = x2 - x1, v1y = y2 - y1;
           const v2x = x3 - x2, v2y = y3 - y2;
-          const cross5 = v1x * v2y - v1y * v2x;
-          const dot4 = v1x * v2x + v1y * v2y;
-          if (dot4 > 0 && cross5 * cross5 < _tanAngSq * dot4 * dot4) {
+          const cross3 = v1x * v2y - v1y * v2x;
+          const dot3 = v1x * v2x + v1y * v2y;
+          if (dot3 > 0 && cross3 * cross3 < _tanAngSq * dot3 * dot3) {
             emit(x2, y2);
             emit(x3, y3);
             return;
           }
-          if (_cuspLim > 0 && (dot4 <= 0 || cross5 * cross5 > _tanCuspSq * dot4 * dot4)) {
+          if (_cuspLim > 0 && (dot3 <= 0 || cross3 * cross3 > _tanCuspSq * dot3 * dot3)) {
             emit(x2, y2);
             return;
           }
@@ -63362,35 +59055,35 @@ class MeshGeometryBuilder {
       glyphAttributes: undefined
     };
   }
-  applyColorSystem(vertices, glyphInfoArray, color4, originalText, byTextMatches) {
+  applyColorSystem(vertices, glyphInfoArray, color3, originalText, byTextMatches) {
     const vertexCount = vertices.length / 3;
     const colors = new Float32Array(vertexCount * 3);
     const coloredRanges = [];
-    if (Array.isArray(color4)) {
+    if (Array.isArray(color3)) {
       for (let i2 = 0;i2 < vertexCount; i2++) {
         const baseIndex = i2 * 3;
-        colors[baseIndex] = color4[0];
-        colors[baseIndex + 1] = color4[1];
-        colors[baseIndex + 2] = color4[2];
+        colors[baseIndex] = color3[0];
+        colors[baseIndex + 1] = color3[1];
+        colors[baseIndex + 2] = color3[2];
       }
       coloredRanges.push({
         start: 0,
         end: originalText.length,
         originalText,
-        color: color4,
+        color: color3,
         bounds: [],
         glyphs: glyphInfoArray,
         lineIndices: [...new Set(glyphInfoArray.map((g2) => g2.lineIndex))]
       });
     } else {
-      const defaultColor = color4.default || [1, 1, 1];
+      const defaultColor = color3.default || [1, 1, 1];
       for (let i2 = 0;i2 < colors.length; i2 += 3) {
         colors[i2] = defaultColor[0];
         colors[i2 + 1] = defaultColor[1];
         colors[i2 + 2] = defaultColor[2];
       }
       let glyphsByTextIndex;
-      if (color4.byText && byTextMatches || color4.byCharRange) {
+      if (color3.byText && byTextMatches || color3.byCharRange) {
         glyphsByTextIndex = new Map;
         for (const glyph of glyphInfoArray) {
           const existing = glyphsByTextIndex.get(glyph.textIndex);
@@ -63401,9 +59094,9 @@ class MeshGeometryBuilder {
           }
         }
       }
-      if (color4.byText && byTextMatches && glyphsByTextIndex) {
+      if (color3.byText && byTextMatches && glyphsByTextIndex) {
         for (const match of byTextMatches) {
-          const targetColor = color4.byText[match.pattern];
+          const targetColor = color3.byText[match.pattern];
           if (!targetColor)
             continue;
           const matchGlyphs = [];
@@ -63442,8 +59135,8 @@ class MeshGeometryBuilder {
           });
         }
       }
-      if (color4.byCharRange && glyphsByTextIndex) {
-        for (const range3 of color4.byCharRange) {
+      if (color3.byCharRange && glyphsByTextIndex) {
+        for (const range3 of color3.byCharRange) {
           const rangeGlyphs = [];
           const lineGroups = new Map;
           for (let i2 = range3.start;i2 < range3.end; i2++) {
@@ -63616,34 +59309,788 @@ function buildThreeResult(layoutHandle, meshPipeline, options) {
   };
 }
 
-class Text3 {
+class Text2 {
   static {
-    this.setHarfBuzzPath = Text2.setHarfBuzzPath;
+    this.setHarfBuzzPath = Text.setHarfBuzzPath;
   }
   static {
-    this.setHarfBuzzBuffer = Text2.setHarfBuzzBuffer;
+    this.setHarfBuzzBuffer = Text.setHarfBuzzBuffer;
   }
   static {
-    this.init = Text2.init;
+    this.init = Text.init;
   }
   static {
-    this.registerPattern = Text2.registerPattern;
+    this.registerPattern = Text.registerPattern;
   }
   static {
-    this.preloadPatterns = Text2.preloadPatterns;
+    this.preloadPatterns = Text.preloadPatterns;
   }
   static {
-    this.setMaxFontCacheMemoryMB = Text2.setMaxFontCacheMemoryMB;
+    this.setMaxFontCacheMemoryMB = Text.setMaxFontCacheMemoryMB;
   }
   static {
-    this.enableWoff2 = Text2.enableWoff2;
+    this.enableWoff2 = Text.enableWoff2;
   }
   static async create(options) {
-    const layoutHandle = await Text2.create(options);
+    const layoutHandle = await Text.create(options);
     const meshPipeline = new MeshGeometryBuilder(layoutHandle.loadedFont, layoutHandle.fontId);
     return buildThreeResult(layoutHandle, meshPipeline, options);
   }
 }
+
+// src/parts/text.ts
+var exports_text = {};
+__export(exports_text, {
+  writeWindows: () => writeWindows,
+  writePhases: () => writePhases,
+  letters: () => letters,
+  letterCount: () => letterCount,
+  Write: () => Write,
+  WRITE_REL_OVERLAP: () => WRITE_REL_OVERLAP,
+  WRITE_GLOBAL_SMOOTHING: () => WRITE_GLOBAL_SMOOTHING,
+  UnWrite: () => UnWrite,
+  Text: () => Text3,
+  FILL_WINDOW: () => FILL_WINDOW,
+  DRAW_WINDOW: () => DRAW_WINDOW
+});
+
+// src/anim.ts
+var SMOOTHING = {
+  smooth: { left: 0.25, right: 0.25 },
+  linear: { left: 0, right: 0 },
+  easeIn: { left: 0.25, right: 0 },
+  easeOut: { left: 0, right: 0.25 }
+};
+var rescaled = (track, a2, b2) => ({
+  ...track,
+  relStart: a2 + (b2 - a2) * track.relStart,
+  relStop: a2 + (b2 - a2) * track.relStop
+});
+var restage = (anim, a2, b2) => ({
+  tracks: anim.tracks.map((t2) => ({
+    ...rescaled(t2, a2, b2),
+    smoothingWindow: (t2.smoothingWindow ?? t2.relStop - t2.relStart) || 1
+  }))
+});
+var windows = (items) => items.map((item) => Array.isArray(item) ? { anim: item[0], a: item[1], b: item[2] } : { anim: item, a: 0, b: 1 });
+var together = (...items) => ({
+  tracks: windows(items).flatMap(({ anim, a: a2, b: b2 }) => anim.tracks.map((t2) => rescaled(t2, a2, b2)))
+});
+var eased = (easing, ...items) => ({
+  tracks: together(...items).tracks.map((t2) => ({ ...t2, easing }))
+});
+
+// src/constants.ts
+var rgb = (r2, g2, b2) => ({
+  r: r2 / 255,
+  g: g2 / 255,
+  b: b2 / 255
+});
+var BLUE = rgb(0, 162, 255);
+var RED = rgb(255, 100, 78);
+var PURPLE = {
+  r: (BLUE.r + RED.r) / 2,
+  g: (BLUE.g + RED.g) / 2,
+  b: (BLUE.b + RED.b) / 2
+};
+var YELLOW = rgb(218, 218, 88);
+var GREEN = rgb(71, 196, 143);
+var WHITE = rgb(255, 255, 255);
+var BLACK = rgb(0, 0, 0);
+var PI5 = Math.PI;
+var TAU = 2 * Math.PI;
+var ASPECT_RATIO = 16 / 9;
+var isColor = (v2) => typeof v2 === "object" && v2 !== null && typeof v2.r === "number" && typeof v2.g === "number" && typeof v2.b === "number";
+
+// src/params.ts
+var nextParamId = 1;
+
+class Param {
+  id;
+  kind;
+  min;
+  max;
+  options;
+  asData = false;
+  defaultValue;
+  name;
+  owner;
+  #value;
+  #source;
+  #gate = 1;
+  constructor(kind, value, min3, max3, options) {
+    this.id = nextParamId++;
+    this.kind = kind;
+    this.min = min3;
+    this.max = max3;
+    this.options = options;
+    this.defaultValue = options ? this.clamp(value) : value;
+    this.#value = this.defaultValue;
+  }
+  get value() {
+    const v2 = this.#source ? this.#source.value : this.#value;
+    return this.#gate === 1 || typeof v2 !== "number" ? v2 : v2 * this.#gate;
+  }
+  get gate() {
+    return this.#gate;
+  }
+  set gate(k2) {
+    this.#gate = k2;
+  }
+  set value(v2) {
+    if (this.#source) {
+      throw new Error(`Param '${this.name ?? this.id}' follows a derived binding; animate its source instead`);
+    }
+    this.#value = v2;
+  }
+  follow(source) {
+    this.#source = source;
+  }
+  get isBound() {
+    return this.#source !== undefined;
+  }
+  clamp(v2) {
+    if (typeof v2 === "number") {
+      let out = v2;
+      if (this.min !== undefined)
+        out = Math.max(this.min, out);
+      if (this.max !== undefined)
+        out = Math.min(this.max, out);
+      if (this.kind === "integer")
+        out = Math.round(out);
+      return out;
+    }
+    if (this.options && typeof v2 === "string" && !this.options.includes(v2)) {
+      throw new Error(`Param '${this.name ?? this.id}' is a choice of ${this.options.join(" ")} — not '${v2}'`);
+    }
+    return v2;
+  }
+  to(v2, opts = {}) {
+    return animOf(this.track("to", [v2], opts));
+  }
+  by(dv, opts = {}) {
+    if (typeof this.defaultValue !== "number") {
+      throw new Error(`Param '${this.name ?? this.id}' (${this.kind}) cannot animate .by()`);
+    }
+    return animOf(this.track("by", [dv], opts));
+  }
+  sequence(...values) {
+    if (values.length < 2)
+      throw new Error("sequence() needs at least two waypoints");
+    return animOf(this.track("sequence", values, {}));
+  }
+  track(mode, values, opts) {
+    return {
+      param: this,
+      mode,
+      values,
+      relStart: 0,
+      relStop: 1,
+      easing: opts.easing ?? "smooth"
+    };
+  }
+  times(k2) {
+    return derive(() => scaleValue(this.value, k2));
+  }
+  plus(k2) {
+    const self2 = this;
+    return derive(() => {
+      if (typeof self2.value !== "number")
+        throw new Error(".plus() needs a numeric param");
+      return self2.value + k2;
+    });
+  }
+  map(fn) {
+    return derive(() => fn(this.value));
+  }
+}
+var animOf = (track) => ({ tracks: [track] });
+var scaleValue = (v2, k2) => {
+  if (typeof v2 === "number")
+    return v2 * k2;
+  if (isColor(v2))
+    return { r: v2.r * k2, g: v2.g * k2, b: v2.b * k2 };
+  throw new Error(`cannot scale a ${typeof v2} value`);
+};
+var derive = (fn) => ({
+  get value() {
+    return fn();
+  }
+});
+var isReadable = (v2) => typeof v2 === "object" && v2 !== null && ("value" in v2) && !isColor(v2);
+var scalar = (v2 = 0) => new Param("scalar", v2);
+var length3 = (v2 = 0) => new Param("length", v2, 0);
+var angle = (v2 = 0) => new Param("angle", v2);
+var bipolar = (v2 = 0) => new Param("bipolar", v2, -1, 1);
+var completion = (v2 = 0) => new Param("completion", v2, 0, 1);
+var integer = (v2 = 0) => new Param("integer", v2);
+var bool3 = (v2 = false) => new Param("bool", v2);
+var color3 = (v2) => new Param("color", v2);
+var text = (v2 = "") => new Param("text", v2);
+var choice = (v2, options) => new Param("choice", v2, undefined, undefined, options);
+var asData = (param) => {
+  param.asData = true;
+  return param;
+};
+
+class State {
+  values;
+  constructor(values) {
+    this.values = values;
+  }
+}
+var state = (values) => new State(values);
+
+// src/holon.ts
+var INTERNALS = new WeakMap;
+var internalsOf = (h2) => {
+  const found = INTERNALS.get(h2);
+  if (!found)
+    throw new Error("Holon internals missing — was the constructor bypassed?");
+  return found;
+};
+var scan = (target) => {
+  const int3 = internalsOf(target);
+  const keys = Object.keys(target);
+  if (keys.length === int3.scannedKeys)
+    return;
+  int3.scannedKeys = keys.length;
+  for (const [name, value] of Object.entries(target)) {
+    if (name === "parent" || name === "states")
+      continue;
+    if (value instanceof Param) {
+      const known = int3.params.get(name);
+      if (known === value)
+        continue;
+      if (value.asData && !known)
+        int3.dataFields.add(name);
+      if (int3.overrides.has(name)) {
+        const o2 = int3.overrides.get(name);
+        int3.overrides.delete(name);
+        if (o2 instanceof Param) {
+          target[name] = o2;
+          int3.params.set(name, o2);
+          continue;
+        }
+        if (isReadable(o2)) {
+          value.follow(o2);
+        } else {
+          value.defaultValue = value.clamp(o2);
+          value.value = value.defaultValue;
+        }
+      }
+      if (value.name === undefined) {
+        value.name = name;
+        value.owner = int3.self ?? target;
+      }
+      int3.params.set(name, value);
+    } else if (value instanceof Holon) {
+      if (!int3.parts.includes(value)) {
+        value.parent = int3.self ?? target;
+        int3.parts.push(value);
+      }
+    } else if (int3.overrides.has(name)) {
+      target[name] = int3.overrides.get(name);
+      int3.overrides.delete(name);
+    }
+  }
+};
+var complete = (self2) => {
+  const int3 = internalsOf(self2);
+  if (int3.settled)
+    return;
+  scanViaProxy(self2);
+  if (int3.overrides.size > 0) {
+    const bad = [...int3.overrides.keys()].join("', '");
+    const valid = [...int3.params.keys()].join(", ");
+    throw new Error(`${self2.constructor.name}: unknown constructor option '${bad}' (params: ${valid})`);
+  }
+  if (!int3.composed) {
+    int3.composed = true;
+    self2["compose"]();
+    scanViaProxy(self2);
+    int3.settled = true;
+  }
+};
+var scanViaProxy = (h2) => scan(h2);
+
+class Holon {
+  x = scalar(0);
+  y = scalar(0);
+  z = scalar(0);
+  h = angle(0);
+  p = angle(0);
+  b = angle(0);
+  scale = scalar(1);
+  creation = completion(1);
+  opacity = completion(1);
+  parent;
+  states = {};
+  constructor(overrides = {}) {
+    const internals = {
+      overrides: new Map(Object.entries(overrides)),
+      params: new Map,
+      parts: [],
+      dynamicParts: [],
+      scannedKeys: -1,
+      composed: false,
+      settled: false,
+      dataFields: new Set
+    };
+    INTERNALS.set(this, internals);
+    const proxy = new Proxy(this, {
+      get(target, prop, receiver) {
+        if (typeof prop === "string" && !internals.settled)
+          scan(target);
+        const value = Reflect.get(target, prop, receiver);
+        return internals.dataFields.size > 0 && value instanceof Param && internals.dataFields.has(prop) ? value.value : value;
+      },
+      set(target, prop, value, receiver) {
+        if (typeof prop === "string" && !internals.settled)
+          scan(target);
+        if (typeof prop === "string" && internals.dataFields.has(prop) && !(value instanceof Param)) {
+          const param = Reflect.get(target, prop);
+          param.value = param.clamp(value);
+          return true;
+        }
+        if (internals.settled && typeof prop === "string" && (value instanceof Param || value instanceof Holon) && !Object.prototype.hasOwnProperty.call(target, prop)) {
+          throw new Error(`${target.constructor.name}: cannot add '${prop}' after construction — ` + `the field set is final once compose() has run. Declare it as a class ` + `field, or add dynamic structure from compose() with this.add().`);
+        }
+        return Reflect.set(target, prop, value, receiver);
+      }
+    });
+    INTERNALS.set(proxy, internals);
+    internals.self = proxy;
+    return proxy;
+  }
+  compose() {}
+  createAnim() {
+    return;
+  }
+  unCreateAnim() {
+    return;
+  }
+  add(part) {
+    const int3 = internalsOf(this);
+    part.parent = int3.self ?? this;
+    int3.dynamicParts.push(part);
+    return part;
+  }
+  get params() {
+    complete(this);
+    return internalsOf(this).params;
+  }
+  get parts() {
+    complete(this);
+    const int3 = internalsOf(this);
+    return [...int3.parts, ...int3.dynamicParts];
+  }
+  *walk() {
+    yield internalsOf(this).self ?? this;
+    for (const part of this.parts)
+      yield* part.walk();
+  }
+  transitionTo(target) {
+    const params = this.params;
+    const anims = [];
+    for (const [name, value] of Object.entries(target.values)) {
+      const param = params.get(name);
+      if (!param)
+        throw new Error(`${this.constructor.name}: state targets unknown param '${name}'`);
+      anims.push(param.to(value));
+    }
+    return together(...anims);
+  }
+  get root() {
+    let node = internalsOf(this).self ?? this;
+    while (node.parent)
+      node = node.parent;
+    return node;
+  }
+}
+
+// src/parts/primitives.ts
+class Stroke extends Holon {
+  tint = color3(WHITE);
+  stroke = length3(3);
+  erasure = completion(0);
+  drawStart = completion(0);
+  drawReversed = bool3(false);
+  fillOpacity = completion(0);
+}
+var reverseOpenPolyline = (points) => [...points].reverse();
+var rephasePolyline = (points, drawStart, reversed) => {
+  if (points.length < 3)
+    return [...points];
+  const first = points[0];
+  const last = points[points.length - 1];
+  const closed = Math.abs(first.x - last.x) < 0.000000001 && Math.abs(first.y - last.y) < 0.000000001 && Math.abs(first.z - last.z) < 0.000000001;
+  if (!closed)
+    return [...points];
+  const loop = points.slice(0, -1);
+  const n2 = loop.length;
+  const dist = (a3, b3) => Math.hypot(b3.x - a3.x, b3.y - a3.y, b3.z - a3.z);
+  const seg = [];
+  let total = 0;
+  for (let i3 = 0;i3 < n2; i3++) {
+    const d2 = dist(loop[i3], loop[(i3 + 1) % n2]);
+    seg.push(d2);
+    total += d2;
+  }
+  if (total <= 0)
+    return [...loop, loop[0]];
+  const phase = (drawStart % 1 + 1) % 1;
+  let target = phase * total;
+  let i2 = 0;
+  while (i2 < n2 - 1 && target > seg[i2]) {
+    target -= seg[i2];
+    i2++;
+  }
+  let u2 = seg[i2] > 0 ? Math.min(1, target / seg[i2]) : 0;
+  const EPS = 0.000000001;
+  if (u2 >= 1 - EPS) {
+    i2 = (i2 + 1) % n2;
+    u2 = 0;
+  } else if (u2 <= EPS) {
+    u2 = 0;
+  }
+  const a2 = loop[i2];
+  const b2 = loop[(i2 + 1) % n2];
+  const startPt = u2 === 0 ? a2 : { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
+  const at2 = (k2) => loop[(k2 % n2 + n2) % n2];
+  const onVertex = u2 === 0;
+  const steps = onVertex ? n2 - 1 : n2;
+  const out = [startPt];
+  for (let k2 = 0;k2 < steps; k2++) {
+    out.push(reversed ? at2(i2 - k2 - (onVertex ? 1 : 0)) : at2(i2 + k2 + 1));
+  }
+  out.push(startPt);
+  return out;
+};
+
+class Circle extends Stroke {
+  radius = length3(100);
+}
+
+class Square extends Stroke {
+  size = length3(200);
+}
+
+class Polygon extends Stroke {
+  radius = length3(100);
+  sides = integer(6);
+  phase = angle(0);
+}
+
+class Arc extends Stroke {
+  radius = length3(100);
+  startAngle = angle(0);
+  endAngle = angle(PI5 / 2);
+}
+
+class AnnularSector extends Stroke {
+  radius = length3(200);
+  innerRadius = length3(100);
+  startAngle = angle(-PI5 / 3);
+  endAngle = angle(PI5 / 3);
+  outer = new Arc({
+    radius: this.radius,
+    startAngle: this.startAngle,
+    endAngle: this.endAngle,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  inner = new Arc({
+    radius: this.innerRadius,
+    startAngle: this.startAngle,
+    endAngle: this.endAngle,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  edgeStart = new Line2({ tint: this.tint, stroke: this.stroke });
+  edgeEnd = new Line2({ tint: this.tint, stroke: this.stroke });
+  compose() {
+    const edge = (angle2) => [
+      {
+        x: Math.cos(angle2) * this.innerRadius.value,
+        y: Math.sin(angle2) * this.innerRadius.value,
+        z: 0
+      },
+      { x: Math.cos(angle2) * this.radius.value, y: Math.sin(angle2) * this.radius.value, z: 0 }
+    ];
+    this.edgeStart.points = edge(this.startAngle.value);
+    this.edgeEnd.points = edge(this.endAngle.value);
+  }
+}
+var annularSectorPolyline = (radius, innerRadius, startAngle, endAngle, segments = 48) => {
+  const at2 = (r2, a2) => ({ x: Math.cos(a2) * r2, y: Math.sin(a2) * r2, z: 0 });
+  const pts = [];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    pts.push(at2(radius, startAngle + i2 / segments * (endAngle - startAngle)));
+  }
+  for (let i2 = 0;i2 <= segments; i2++) {
+    pts.push(at2(innerRadius, endAngle + i2 / segments * (startAngle - endAngle)));
+  }
+  pts.push(pts[0]);
+  return pts;
+};
+var annularSectorFill = (radius, innerRadius, startAngle, endAngle, segments = 48) => {
+  const points = [];
+  const indices = [];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    const a2 = startAngle + i2 / segments * (endAngle - startAngle);
+    points.push({ x: Math.cos(a2) * innerRadius, y: Math.sin(a2) * innerRadius, z: 0 });
+    points.push({ x: Math.cos(a2) * radius, y: Math.sin(a2) * radius, z: 0 });
+  }
+  for (let i2 = 0;i2 < segments; i2++) {
+    const b2 = i2 * 2;
+    indices.push(b2, b2 + 1, b2 + 3, b2, b2 + 3, b2 + 2);
+  }
+  return { points, indices };
+};
+
+class Null extends Holon {
+}
+
+class Group2 extends Null {
+  members = [];
+  compose() {
+    for (const member of this.members)
+      this.add(member);
+  }
+}
+var LINE_POINTS = Symbol("Line.points");
+
+class Line2 extends Stroke {
+  geomVersion = 0;
+  points = [];
+  [LINE_POINTS] = [];
+  arrowStart = bool3(false);
+  arrowEnd = bool3(false);
+  arrowSize = length3(720 / 700);
+  constructor(overrides = {}) {
+    super(overrides);
+    const initial = this.points;
+    Object.defineProperty(this, "points", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return this[LINE_POINTS] ?? [];
+      },
+      set(v2) {
+        this[LINE_POINTS] = v2;
+        this.geomVersion++;
+      }
+    });
+    this.points = initial;
+  }
+}
+
+class Rectangle extends Stroke {
+  width = length3(100);
+  height = length3(200);
+  rounding = completion(0);
+  filled = bool3(false);
+  tint = color3(RED);
+}
+
+class Ellipse extends Stroke {
+  radiusX = length3(100);
+  radiusY = length3(50);
+  filled = bool3(false);
+}
+var dominoWindows = (count, relDuration = 0.3, globalSmoothing = 0.5) => {
+  if (count <= 0)
+    return [];
+  const invSmoothstep = (x2) => 0.5 - Math.sin(Math.asin(1 - 2 * x2) / 3);
+  const windows2 = [];
+  for (let i2 = 0;i2 < count; i2++) {
+    const mid = invSmoothstep(1 / 2 * (1 / count) + i2 / count);
+    const dur = relDuration * (1 + globalSmoothing * Math.cos(TAU * i2 / count));
+    windows2.push([mid - dur / 2, mid + dur / 2]);
+  }
+  const shift = Math.abs(windows2[0][0]);
+  for (const w4 of windows2) {
+    w4[0] += shift;
+    w4[1] += shift;
+  }
+  const rescale = 1 + (1 - windows2[windows2.length - 1][1]);
+  for (const w4 of windows2) {
+    w4[0] = Math.min(1, Math.max(0, w4[0] * rescale));
+    w4[1] = Math.min(1, Math.max(0, w4[1] * rescale));
+  }
+  return windows2;
+};
+var rectanglePolyline = (width, height, rounding, cornerSegments = 8) => {
+  const w4 = width / 2;
+  const h2 = height / 2;
+  const r2 = Math.min(w4, h2) * Math.min(1, Math.max(0, rounding));
+  const pts = [];
+  const push = (x2, y2) => pts.push({ x: x2, y: y2, z: 0 });
+  if (r2 <= 0) {
+    push(0, -h2);
+    push(w4, -h2);
+    push(w4, h2);
+    push(-w4, h2);
+    push(-w4, -h2);
+    push(0, -h2);
+    return pts;
+  }
+  const arc = (cx, cy, a0, a1) => {
+    for (let i2 = 1;i2 <= cornerSegments; i2++) {
+      const a2 = a0 + (a1 - a0) * i2 / cornerSegments;
+      push(cx + r2 * Math.cos(a2), cy + r2 * Math.sin(a2));
+    }
+  };
+  push(0, -h2);
+  push(w4 - r2, -h2);
+  arc(w4 - r2, -h2 + r2, -PI5 / 2, 0);
+  push(w4, h2 - r2);
+  arc(w4 - r2, h2 - r2, 0, PI5 / 2);
+  push(-w4 + r2, h2);
+  arc(-w4 + r2, h2 - r2, PI5 / 2, PI5);
+  push(-w4, -h2 + r2);
+  arc(-w4 + r2, -h2 + r2, PI5, 3 * PI5 / 2);
+  push(0, -h2);
+  return pts;
+};
+
+class Cross extends Stroke {
+  size = length3(6);
+  fromCenter = bool3(true);
+  arms = [];
+  compose() {
+    const s2 = this.size.value;
+    const ends = this.fromCenter.value ? [
+      [{ x: 0, y: 0, z: 0 }, { x: 0, y: s2, z: 0 }],
+      [{ x: 0, y: 0, z: 0 }, { x: s2, y: 0, z: 0 }],
+      [{ x: 0, y: 0, z: 0 }, { x: 0, y: -s2, z: 0 }],
+      [{ x: 0, y: 0, z: 0 }, { x: -s2, y: 0, z: 0 }]
+    ] : [
+      [{ x: 0, y: -s2, z: 0 }, { x: 0, y: s2, z: 0 }],
+      [{ x: -s2, y: 0, z: 0 }, { x: s2, y: 0, z: 0 }]
+    ];
+    for (const [a2, b2] of ends) {
+      this.arms.push(this.add(new Line2({ points: [a2, b2], tint: this.tint, stroke: this.stroke })));
+    }
+  }
+}
+var dashRuns = (from, to, dash, gap) => {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = to.z - from.z;
+  const total = Math.hypot(dx, dy, dz);
+  const period = dash + gap;
+  if (total <= 0 || dash <= 0 || period <= 0)
+    return [[from, to]];
+  const at2 = (d2) => {
+    const u2 = d2 / total;
+    return { x: from.x + dx * u2, y: from.y + dy * u2, z: from.z + dz * u2 };
+  };
+  const runs = [];
+  for (let d2 = 0;d2 < total - 0.000000001; d2 += period) {
+    runs.push([at2(d2), at2(Math.min(total, d2 + dash))]);
+  }
+  return runs;
+};
+
+class DottedLine extends Stroke {
+  points = [];
+  dash = length3(2.3);
+  gap = length3(3.2);
+  dashes = [];
+  compose() {
+    for (let i2 = 0;i2 < this.points.length - 1; i2++) {
+      for (const [a2, b2] of dashRuns(this.points[i2], this.points[i2 + 1], this.dash.value, this.gap.value)) {
+        this.dashes.push(this.add(new Line2({ points: [a2, b2], tint: this.tint, stroke: this.stroke })));
+      }
+    }
+  }
+  createAnim() {
+    this.parts;
+    const n2 = this.dashes.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    return together(...this.dashes.map((d2, i2) => [d2.creation.sequence(0, 1), i2 / n2, (i2 + 1) / n2]));
+  }
+  unCreateAnim() {
+    this.parts;
+    const n2 = this.dashes.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    return together(...this.dashes.map((d2, i2) => [d2.creation.to(0), 1 - (i2 + 1) / n2, 1 - i2 / n2]));
+  }
+}
+
+// src/parts/text.ts
+var WRITE_REL_OVERLAP = 0.7;
+var WRITE_GLOBAL_SMOOTHING = 0.7;
+var DRAW_WINDOW = [0, 0.6];
+var FILL_WINDOW = [0.5, 1];
+var clamp01 = (v2) => Math.min(1, Math.max(0, v2));
+var writeWindows = (glyphCount) => dominoWindows(glyphCount, 1 / (glyphCount * (1 - WRITE_REL_OVERLAP) + 1), WRITE_GLOBAL_SMOOTHING);
+var writePhases = (p2) => ({
+  draw: clamp01((p2 - DRAW_WINDOW[0]) / (DRAW_WINDOW[1] - DRAW_WINDOW[0])),
+  fill: clamp01((p2 - FILL_WINDOW[0]) / (FILL_WINDOW[1] - FILL_WINDOW[0]))
+});
+var letters = (content) => [...content].filter((c2) => !/\s/.test(c2));
+var letterCount = (content) => letters(content).length;
+var linearCreation = (param, values) => {
+  const track = {
+    param,
+    mode: "sequence",
+    values,
+    relStart: 0,
+    relStop: 1,
+    easing: "linear"
+  };
+  return { tracks: [track] };
+};
+
+class Text3 extends Holon {
+  content = asData(text("Text"));
+  font = undefined;
+  align = "center";
+  lineHeight = undefined;
+  tracking = 0;
+  size = length3(50);
+  tint = color3(WHITE);
+  stroke = length3(5);
+  erasure = completion(0);
+  get letters() {
+    const chars = letters(this.content);
+    const windows2 = writeWindows(chars.length);
+    return chars.map((char, index) => ({ char, index, window: windows2[index] }));
+  }
+  letterProgress(index) {
+    const letter = this.letters[index];
+    if (!letter)
+      return 0;
+    const [start, stop] = letter.window;
+    return clamp01((this.creation.value - start) / Math.max(stop - start, 0.000001));
+  }
+  letterPhases(index) {
+    return writePhases(this.letterProgress(index));
+  }
+  letterErasure(index) {
+    const letter = this.letters[index];
+    if (!letter)
+      return 0;
+    const [start, stop] = letter.window;
+    return clamp01((this.erasure.value - start) / Math.max(stop - start, 0.000001));
+  }
+  letterPhasesNow(index) {
+    return writePhases(Math.min(this.letterProgress(index), 1 - this.letterErasure(index)));
+  }
+  createAnim() {
+    return linearCreation(this.creation, [0, 1]);
+  }
+  unCreateAnim() {
+    return linearCreation(this.erasure, [0, 1]);
+  }
+}
+var Write = (text2) => linearCreation(text2.creation, [0, 1]);
+var UnWrite = (text2) => linearCreation(text2.erasure, [0, 1]);
 
 // src/parts/outline.ts
 var exports_outline = {};
@@ -63743,8 +60190,8 @@ var insetLoop = (loop, amount) => {
     const b2 = loop[(i2 + 1) % n2];
     const dx = b2.x - a2.x;
     const dy = b2.y - a2.y;
-    const len3 = Math.hypot(dx, dy);
-    normals.push(len3 > 0.000000001 ? { x: -dy / len3, y: dx / len3 } : { x: 0, y: 0 });
+    const len = Math.hypot(dx, dy);
+    normals.push(len > 0.000000001 ? { x: -dy / len, y: dx / len } : { x: 0, y: 0 });
   }
   const out = [];
   for (let i2 = 0;i2 < n2; i2++) {
@@ -63753,26 +60200,80 @@ var insetLoop = (loop, amount) => {
     const b2 = normals[i2];
     let mx = a2.x + b2.x;
     let my = a2.y + b2.y;
-    const len3 = Math.hypot(mx, my);
-    if (len3 < 0.000000001) {
+    const len = Math.hypot(mx, my);
+    if (len < 0.000000001) {
       out.push({ x: p2.x, y: p2.y, z: p2.z });
       continue;
     }
-    mx /= len3;
-    my /= len3;
+    mx /= len;
+    my /= len;
     const scale2 = Math.min(1 / Math.max(mx * b2.x + my * b2.y, 0.001), MITER_CAP);
     out.push({ x: p2.x + mx * amount * scale2, y: p2.y + my * amount * scale2, z: p2.z });
   }
-  for (let i2 = 0;i2 < n2; i2++) {
-    const a0 = loop[i2];
-    const b0 = loop[(i2 + 1) % n2];
-    const a1 = out[i2];
-    const b1 = out[(i2 + 1) % n2];
-    const dot4 = (b0.x - a0.x) * (b1.x - a1.x) + (b0.y - a0.y) * (b1.y - a1.y);
-    if (dot4 < 0)
+  const pts = out.map((p2, i2) => ({ p: p2, o: loop[i2], k: i2, cut: false }));
+  const reversedAt = (i2) => {
+    const m2 = pts.length;
+    const a2 = pts[i2];
+    const b2 = pts[(i2 + 1) % m2];
+    return (b2.o.x - a2.o.x) * (b2.p.x - a2.p.x) + (b2.o.y - a2.o.y) * (b2.p.y - a2.p.y) < 0;
+  };
+  let trimmed = 0;
+  for (let i2 = 0;i2 < pts.length; ) {
+    if (!reversedAt(i2)) {
+      i2++;
+      continue;
+    }
+    trimmed++;
+    if (trimmed > n2 / 4 || pts.length <= 3)
       return loop;
+    const m2 = pts.length;
+    const j2 = (i2 + 1) % m2;
+    const corner = trimCorner(pts, i2, j2);
+    const reach = amount * MITER_CAP;
+    if (!corner || Math.hypot(corner.x - pts[i2].o.x, corner.y - pts[i2].o.y) > reach || Math.hypot(corner.x - pts[j2].o.x, corner.y - pts[j2].o.y) > reach) {
+      return loop;
+    }
+    pts[i2] = { p: corner, o: pts[i2].o, k: pts[i2].k, cut: true };
+    pts.splice(j2, 1);
+    i2 = Math.max(0, (j2 === 0 ? i2 - 1 : i2) - 1);
   }
-  return out;
+  if (trimmed === 0)
+    return out;
+  const CLEARANCE = 0.9;
+  for (const { p: p2, k: k2, cut } of pts) {
+    if (!cut)
+      continue;
+    for (let e2 = 0;e2 < n2; e2++) {
+      if (e2 === k2 || (e2 + 1) % n2 === k2)
+        continue;
+      if (segmentDistance(p2, loop[e2], loop[(e2 + 1) % n2]) < amount * CLEARANCE)
+        return loop;
+    }
+  }
+  return pts.map(({ p: p2 }) => p2);
+};
+var segmentDistance = (p2, a2, b2) => {
+  const dx = b2.x - a2.x;
+  const dy = b2.y - a2.y;
+  const len2 = dx * dx + dy * dy;
+  const t2 = len2 > 0 ? Math.max(0, Math.min(1, ((p2.x - a2.x) * dx + (p2.y - a2.y) * dy) / len2)) : 0;
+  return Math.hypot(p2.x - (a2.x + dx * t2), p2.y - (a2.y + dy * t2));
+};
+var trimCorner = (pts, i2, j2) => {
+  const m2 = pts.length;
+  const a0 = pts[(i2 - 1 + m2) % m2].p;
+  const a1 = pts[i2].p;
+  const b0 = pts[j2].p;
+  const b1 = pts[(j2 + 1) % m2].p;
+  const dax = a1.x - a0.x;
+  const day = a1.y - a0.y;
+  const dbx = b1.x - b0.x;
+  const dby = b1.y - b0.y;
+  const den = dax * dby - day * dbx;
+  if (Math.abs(den) < 0.000000000001)
+    return;
+  const s2 = ((b0.x - a0.x) * dby - (b0.y - a0.y) * dbx) / den;
+  return { x: a0.x + dax * s2, y: a0.y + day * s2, z: a1.z };
 };
 var startAtTop = (loop) => {
   if (loop.length < 2)
@@ -63799,13 +60300,319 @@ var loopArea = (loop) => {
   return sum / 2;
 };
 
+// src/render/ribbon-math.ts
+var packSegments = (pts) => {
+  const count = Math.max(0, pts.length - 1);
+  const positions = new Float32Array(count * 6);
+  const distances = new Float32Array(count * 2);
+  let acc = 0;
+  for (let i2 = 0;i2 < count; i2++) {
+    const a2 = pts[i2];
+    const b2 = pts[i2 + 1];
+    positions[i2 * 6] = a2.x;
+    positions[i2 * 6 + 1] = a2.y;
+    positions[i2 * 6 + 2] = a2.z;
+    positions[i2 * 6 + 3] = b2.x;
+    positions[i2 * 6 + 4] = b2.y;
+    positions[i2 * 6 + 5] = b2.z;
+    distances[i2 * 2] = acc;
+    acc += Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+    distances[i2 * 2 + 1] = acc;
+  }
+  return { positions, distances, count, totalLength: acc };
+};
+var resamplePolyline = (pts, target, make) => {
+  if (pts.length < 2)
+    return pts.map((p2) => make(p2.x, p2.y, p2.z));
+  const perSegment = Math.max(1, Math.ceil(target / (pts.length - 1)));
+  if (perSegment <= 1)
+    return pts.map((p2) => make(p2.x, p2.y, p2.z));
+  const first = pts[0];
+  const out = [make(first.x, first.y, first.z)];
+  for (let i2 = 0;i2 + 1 < pts.length; i2++) {
+    const a2 = pts[i2];
+    const b2 = pts[i2 + 1];
+    for (let k2 = 1;k2 <= perSegment; k2++) {
+      const u2 = k2 / perSegment;
+      out.push(make(a2.x + (b2.x - a2.x) * u2, a2.y + (b2.y - a2.y) * u2, a2.z + (b2.z - a2.z) * u2));
+    }
+  }
+  return out;
+};
+
+// src/render/ribbon.ts
+var TSL2 = exports_three_tsl;
+var {
+  Fn: Fn3,
+  If: If3,
+  attribute: attribute3,
+  cameraProjectionMatrix: cameraProjectionMatrix3,
+  clamp: clamp4,
+  float: float3,
+  length: length4,
+  max: max3,
+  min: min3,
+  mix: mix3,
+  modelViewMatrix: modelViewMatrix3,
+  positionGeometry: positionGeometry3,
+  screenCoordinate: screenCoordinate3,
+  screenDPR: screenDPR3,
+  screenSize: screenSize3,
+  smoothstep: smoothstep4,
+  userData: userData3,
+  varyingProperty: varyingProperty3,
+  vec2: vec23,
+  vec3: vec33,
+  vec4: vec43
+} = TSL2;
+var AA_PX = 1;
+var vStartPx = varyingProperty3("vec2", "dtRibbonStartPx");
+var vEndPx = varyingProperty3("vec2", "dtRibbonEndPx");
+var vDist = varyingProperty3("vec2", "dtRibbonDist");
+var RIBBON_KEYS = {
+  widthPx: "dtRibbonWidthPx",
+  drawn: "dtRibbonDrawn",
+  erased: "dtRibbonErased",
+  tint: "dtRibbonTint",
+  fade: "dtRibbonFade"
+};
+
+class RibbonMaterial extends NodeMaterial {
+  constructor() {
+    super();
+    this.transparent = true;
+    this.depthWrite = false;
+    this.side = DoubleSide;
+    this.blending = CustomBlending;
+    this.blendEquation = MaxEquation;
+    this.blendSrc = OneFactor;
+    this.blendDst = OneFactor;
+    this.blendEquationAlpha = MaxEquation;
+    this.blendSrcAlpha = OneFactor;
+    this.blendDstAlpha = OneFactor;
+    const widthPx = userData3(RIBBON_KEYS.widthPx, "float");
+    const drawn = userData3(RIBBON_KEYS.drawn, "float");
+    const erased = userData3(RIBBON_KEYS.erased, "float");
+    const tint = userData3(RIBBON_KEYS.tint, "color");
+    const fade = userData3(RIBBON_KEYS.fade, "float");
+    const halfWidth = () => widthPx.mul(screenDPR3).mul(0.5);
+    const pad = () => halfWidth().add(AA_PX).add(1);
+    this.vertexNode = Fn3(() => {
+      const corner = positionGeometry3.xy;
+      const start = modelViewMatrix3.mul(vec43(attribute3("instanceStart"), 1)).toVar();
+      const end = modelViewMatrix3.mul(vec43(attribute3("instanceEnd"), 1)).toVar();
+      const distStart = float3(attribute3("instanceDistanceStart")).toVar();
+      const distEnd = float3(attribute3("instanceDistanceEnd")).toVar();
+      const nearAlpha = (from, to) => {
+        const a2 = cameraProjectionMatrix3.element(2).element(2);
+        const b2 = cameraProjectionMatrix3.element(3).element(2);
+        const nearEstimate = a2.greaterThan(0).select(b2.negate().div(a2.add(1)), b2.mul(-0.5).div(a2));
+        return nearEstimate.sub(from.z).div(to.z.sub(from.z));
+      };
+      const perspective = cameraProjectionMatrix3.element(2).element(3).equal(-1);
+      If3(perspective, () => {
+        If3(start.z.lessThan(0).and(end.z.greaterThan(0)), () => {
+          const alpha = nearAlpha(start, end);
+          end.assign(vec43(mix3(start.xyz, end.xyz, alpha), end.w));
+          distEnd.assign(mix3(distStart, distEnd, alpha));
+        }).ElseIf(end.z.lessThan(0).and(start.z.greaterThanEqual(0)), () => {
+          const alpha = nearAlpha(end, start);
+          start.assign(vec43(mix3(end.xyz, start.xyz, alpha), start.w));
+          distStart.assign(mix3(distEnd, distStart, alpha));
+        });
+      });
+      const clipStart = cameraProjectionMatrix3.mul(start);
+      const clipEnd = cameraProjectionMatrix3.mul(end);
+      const ndcStart = clipStart.xyz.div(clipStart.w);
+      const ndcEnd = clipEnd.xyz.div(clipEnd.w);
+      const half = screenSize3.mul(0.5);
+      const startPx = vec23(ndcStart.x.add(1).mul(half.x), float3(1).sub(ndcStart.y).mul(half.y)).toVar();
+      const endPx = vec23(ndcEnd.x.add(1).mul(half.x), float3(1).sub(ndcEnd.y).mul(half.y)).toVar();
+      vStartPx.assign(startPx);
+      vEndPx.assign(endPx);
+      vDist.assign(vec23(distStart, distEnd));
+      const delta = endPx.sub(startPx);
+      const lenPx = length4(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max3(lenPx, 0.000001)), vec23(1, 0));
+      const perp = vec23(dir.y.negate(), dir.x);
+      const p2 = pad();
+      const along = mix3(p2.negate(), lenPx.add(p2), corner.y);
+      const targetPx = startPx.add(dir.mul(along)).add(perp.mul(corner.x.mul(p2)));
+      const clip = corner.y.greaterThan(0.5).select(clipEnd, clipStart).toVar();
+      const targetNdc = vec23(targetPx.x.div(half.x).sub(1), float3(1).sub(targetPx.y.div(half.y)));
+      clip.x.assign(targetNdc.x.mul(clip.w));
+      clip.y.assign(targetNdc.y.mul(clip.w));
+      return clip;
+    })();
+    this.fragmentNode = Fn3(() => {
+      const startPx = vec23(vStartPx);
+      const endPx = vec23(vEndPx);
+      const delta = endPx.sub(startPx);
+      const lenPx = length4(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max3(lenPx, 0.000001)), vec23(1, 0));
+      const rel = screenCoordinate3.xy.sub(startPx);
+      const u2 = rel.dot(dir);
+      const v2 = rel.x.mul(dir.y).sub(rel.y.mul(dir.x));
+      const distStart = vDist.x;
+      const distEnd = vDist.y;
+      const pxPerUnit = lenPx.div(max3(distEnd.sub(distStart), 0.0000001));
+      const uFront = drawn.sub(distStart).mul(pxPerUnit).toVar();
+      uFront.lessThan(0).discard();
+      const uTail = erased.sub(distStart).mul(pxPerUnit).toVar();
+      uTail.greaterThan(lenPx).discard();
+      const uBegin = max3(uTail, 0);
+      const uEnd = max3(min3(lenPx, uFront), uBegin);
+      const d2 = length4(vec23(u2.sub(clamp4(u2, uBegin, uEnd)), v2));
+      const hw = halfWidth();
+      const coverage = smoothstep4(hw.sub(AA_PX), hw.add(AA_PX), d2).oneMinus();
+      const a2 = coverage.mul(fade);
+      return vec43(vec33(tint).mul(a2), a2);
+    })();
+  }
+}
+var shared;
+var sharedRibbonMaterial = () => shared ??= new RibbonMaterial;
+
+class RibbonStroke {
+  mesh;
+  material;
+  geometry;
+  totalLength = 0;
+  boundsCenter = new Vector3;
+  boundsRadius = 0;
+  static SUBDIVISION = 128;
+  points = [];
+  capacity = 0;
+  allocate(segments) {
+    this.capacity = Math.max(1, segments);
+    const posBuf = new InstancedInterleavedBuffer(new Float32Array(this.capacity * 6), 6, 1);
+    this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(posBuf, 3, 0));
+    this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(posBuf, 3, 3));
+    const distBuf = new InstancedInterleavedBuffer(new Float32Array(this.capacity * 2), 2, 1);
+    this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(distBuf, 1, 0));
+    this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(distBuf, 1, 1));
+  }
+  constructor(widthPx) {
+    this.material = sharedRibbonMaterial();
+    this.geometry = new InstancedBufferGeometry;
+    this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
+    this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
+    this.allocate(1);
+    this.geometry.instanceCount = 0;
+    this.mesh = new Mesh(this.geometry, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    const ud = this.mesh.userData;
+    ud[RIBBON_KEYS.widthPx] = widthPx;
+    ud[RIBBON_KEYS.drawn] = 0;
+    ud[RIBBON_KEYS.erased] = 0;
+    ud[RIBBON_KEYS.tint] = new Color(1, 1, 1);
+    ud[RIBBON_KEYS.fade] = 1;
+  }
+  get drawnLength() {
+    return this.mesh.userData[RIBBON_KEYS.drawn];
+  }
+  get erasedLength() {
+    return this.mesh.userData[RIBBON_KEYS.erased];
+  }
+  setPoints(pts) {
+    this.points = resamplePolyline(pts, RibbonStroke.SUBDIVISION, (x2, y2, z2) => new Vector3(x2, y2, z2));
+    const packed = packSegments(this.points);
+    if (packed.count < 1) {
+      this.geometry.instanceCount = 0;
+      this.totalLength = 0;
+      this.boundsRadius = 0;
+      return;
+    }
+    this.totalLength = packed.totalLength;
+    this.computeBounds();
+    if (packed.count > this.capacity)
+      this.allocate(1 << Math.ceil(Math.log2(packed.count)));
+    const start = this.geometry.getAttribute("instanceStart");
+    start.data.array.set(packed.positions);
+    start.data.needsUpdate = true;
+    const dist = this.geometry.getAttribute("instanceDistanceStart");
+    dist.data.array.set(packed.distances);
+    dist.data.needsUpdate = true;
+    this.geometry.instanceCount = packed.count;
+  }
+  worldPoints() {
+    return this.points;
+  }
+  packViewSegments(mv, outPositions, outDistances, scratch) {
+    const pts = this.points;
+    const count = Math.max(0, pts.length - 1);
+    if (count < 1)
+      return 0;
+    scratch.copy(pts[0]).applyMatrix4(mv);
+    let { x: ax, y: ay, z: az } = scratch;
+    let acc = 0;
+    for (let i2 = 0;i2 < count; i2++) {
+      scratch.copy(pts[i2 + 1]).applyMatrix4(mv);
+      const { x: bx, y: by, z: bz } = scratch;
+      outPositions[i2 * 6] = ax;
+      outPositions[i2 * 6 + 1] = ay;
+      outPositions[i2 * 6 + 2] = az;
+      outPositions[i2 * 6 + 3] = bx;
+      outPositions[i2 * 6 + 4] = by;
+      outPositions[i2 * 6 + 5] = bz;
+      const la = pts[i2];
+      const lb = pts[i2 + 1];
+      outDistances[i2 * 2] = acc;
+      acc += Math.hypot(lb.x - la.x, lb.y - la.y, lb.z - la.z);
+      outDistances[i2 * 2 + 1] = acc;
+      ax = bx;
+      ay = by;
+      az = bz;
+    }
+    return count;
+  }
+  computeBounds() {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p2 of this.points) {
+      if (p2.x < minX)
+        minX = p2.x;
+      if (p2.y < minY)
+        minY = p2.y;
+      if (p2.z < minZ)
+        minZ = p2.z;
+      if (p2.x > maxX)
+        maxX = p2.x;
+      if (p2.y > maxY)
+        maxY = p2.y;
+      if (p2.z > maxZ)
+        maxZ = p2.z;
+    }
+    this.boundsCenter.set((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+    let r2 = 0;
+    for (const p2 of this.points) {
+      const d2 = this.boundsCenter.distanceToSquared(p2);
+      if (d2 > r2)
+        r2 = d2;
+    }
+    this.boundsRadius = Math.sqrt(r2);
+  }
+  style(fraction, opacity, tint, widthPx, erasedFraction = 0) {
+    const ud = this.mesh.userData;
+    ud[RIBBON_KEYS.drawn] = fraction * this.totalLength;
+    ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength;
+    this.mesh.visible = fraction > erasedFraction && opacity > 0;
+    ud[RIBBON_KEYS.fade] = opacity;
+    ud[RIBBON_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
+    ud[RIBBON_KEYS.widthPx] = widthPx;
+  }
+}
+
 // src/render/fonts.ts
 var FONT_CACHE_DIR = "refs/fonts";
 var SYSTEM_FACES = {
   HelveticaNeue: "/System/Library/Fonts/HelveticaNeue.ttc",
   "HelveticaNeue-Medium": "/System/Library/Fonts/HelveticaNeue.ttc",
   "HelveticaNeue-Bold": "/System/Library/Fonts/HelveticaNeue.ttc",
-  Helvetica: "/System/Library/Fonts/Helvetica.ttc"
+  Helvetica: "/System/Library/Fonts/Helvetica.ttc",
+  "Times-Roman": "/System/Library/Fonts/Times.ttc",
+  "Times-Italic": "/System/Library/Fonts/Times.ttc"
 };
 var cachedFontUrl = (postScriptName) => `/${FONT_CACHE_DIR}/${postScriptName}.ttf`;
 var fallbackFontUrl = (postScriptName) => postScriptName !== undefined && /mono|courier|menlo|consol/i.test(postScriptName) ? MONO_FONT_URL : DEFAULT_FONT_URL;
@@ -63819,24 +60626,24 @@ var fontChain = (postScriptName) => {
 };
 
 // src/render/text.ts
-var TSL4 = exports_three_tsl;
+var TSL3 = exports_three_tsl;
 var {
-  Fn: Fn5,
-  attribute: attribute5,
-  cameraProjectionMatrix: cameraProjectionMatrix5,
-  clamp: clamp7,
-  float: float5,
-  max: max5,
-  min: min5,
-  mix: mix5,
+  Fn: Fn4,
+  attribute: attribute4,
+  cameraProjectionMatrix: cameraProjectionMatrix4,
+  clamp: clamp5,
+  float: float4,
+  max: max4,
+  min: min4,
+  mix: mix4,
   modelViewMatrix: modelViewMatrix4,
   positionGeometry: positionGeometry4,
-  smoothstep: smoothstep7,
-  varyingProperty: varyingProperty5,
-  vec2: vec25,
-  vec3: vec35,
-  vec4: vec45
-} = TSL4;
+  smoothstep: smoothstep5,
+  varyingProperty: varyingProperty4,
+  vec2: vec24,
+  vec3: vec34,
+  vec4: vec44
+} = TSL3;
 var DEFAULT_FONT_URL = "/core/demo/fonts/Arimo-Regular.ttf";
 var MONO_FONT_URL = "/core/demo/fonts/Cousine-Regular.ttf";
 var FONT_ALIASES = {
@@ -63859,11 +60666,11 @@ var harfBuzzConfigured = false;
 var ensureHarfBuzz = () => {
   if (harfBuzzConfigured)
     return;
-  Text3.setHarfBuzzPath(harfBuzzUrl);
+  Text2.setHarfBuzzPath(harfBuzzUrl);
   harfBuzzConfigured = true;
 };
-var vWindow = varyingProperty5("vec2", "dtGlyphWindow");
-var vGlyphU = varyingProperty5("float", "dtGlyphU");
+var vWindow = varyingProperty4("vec2", "dtGlyphWindow");
+var vGlyphU = varyingProperty4("float", "dtGlyphU");
 
 class TextGlyphMaterial extends NodeMaterial {
   progress = uniform2(1);
@@ -63882,21 +60689,21 @@ class TextGlyphMaterial extends NodeMaterial {
     this.blendEquationAlpha = MaxEquation;
     this.blendSrcAlpha = OneFactor;
     this.blendDstAlpha = OneFactor;
-    this.vertexNode = Fn5(() => {
-      vWindow.assign(vec25(attribute5("glyphWindow")));
-      vGlyphU.assign(float5(attribute5("glyphU")));
-      return cameraProjectionMatrix5.mul(modelViewMatrix4.mul(vec45(positionGeometry4, 1)));
+    this.vertexNode = Fn4(() => {
+      vWindow.assign(vec24(attribute4("glyphWindow")));
+      vGlyphU.assign(float4(attribute4("glyphU")));
+      return cameraProjectionMatrix4.mul(modelViewMatrix4.mul(vec44(positionGeometry4, 1)));
     })();
-    this.fragmentNode = Fn5(() => {
-      const win = vec25(vWindow);
-      const span = max5(win.y.sub(win.x), 0.000001);
-      const pWrite = clamp7(this.progress.sub(win.x).div(span), 0, 1);
-      const pErase = clamp7(this.erasure.sub(win.x).div(span), 0, 1);
-      const p2 = min5(pWrite, pErase.oneMinus()).toVar();
-      const drawP = clamp7(p2.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]), 0, 1);
-      const fillP = clamp7(p2.sub(FILL_WINDOW[0]).div(FILL_WINDOW[1] - FILL_WINDOW[0]), 0, 1);
-      const a2 = fillP.mul(smoothstep7(0, 0.001, drawP)).mul(this.fade);
-      return vec45(vec35(this.tint).mul(a2), a2);
+    this.fragmentNode = Fn4(() => {
+      const win = vec24(vWindow);
+      const span = max4(win.y.sub(win.x), 0.000001);
+      const pWrite = clamp5(this.progress.sub(win.x).div(span), 0, 1);
+      const pErase = clamp5(this.erasure.sub(win.x).div(span), 0, 1);
+      const p2 = min4(pWrite, pErase.oneMinus()).toVar();
+      const drawP = clamp5(p2.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]), 0, 1);
+      const fillP = clamp5(p2.sub(FILL_WINDOW[0]).div(FILL_WINDOW[1] - FILL_WINDOW[0]), 0, 1);
+      const a2 = fillP.mul(smoothstep5(0, 0.001, drawP)).mul(this.fade);
+      return vec44(vec34(this.tint).mul(a2), a2);
     })();
   }
 }
@@ -63991,7 +60798,7 @@ var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   }
   return outlines;
 };
-var clamp013 = (v2) => v2 < 0 ? 0 : v2 > 1 ? 1 : v2;
+var clamp012 = (v2) => v2 < 0 ? 0 : v2 > 1 ? 1 : v2;
 var syncOutlines = (outlines, holon) => {
   const creation = holon.creation.value;
   const erasure = holon.erasure.value;
@@ -64000,11 +60807,11 @@ var syncOutlines = (outlines, holon) => {
   const width = holon.stroke.value;
   for (const { window: window2, loops } of outlines) {
     const span = Math.max(window2[1] - window2[0], 0.000001);
-    const pWrite = clamp013((creation - window2[0]) / span);
-    const pErase = clamp013((erasure - window2[0]) / span);
+    const pWrite = clamp012((creation - window2[0]) / span);
+    const pErase = clamp012((erasure - window2[0]) / span);
     const { draw } = writePhases(Math.min(pWrite, 1 - pErase));
     for (const { ribbon, from, to } of loops) {
-      const local = to > from ? clamp013((draw - from) / (to - from)) : draw > from ? 1 : 0;
+      const local = to > from ? clamp012((draw - from) / (to - from)) : draw > from ? 1 : 0;
       ribbon.style(local, opacity, tint, width);
     }
   }
@@ -64027,7 +60834,7 @@ var layoutText = async (content, fontOrChain, size, align = "center", lineHeight
   ensureHarfBuzz();
   const candidates = typeof fontOrChain === "string" ? [fontOrChain] : fontOrChain;
   const build = async (font) => {
-    const handle = await Text3.create({
+    const handle = await Text2.create({
       text: content,
       font,
       size,
@@ -64096,6 +60903,13 @@ var centreLinesInPlace = (geometry, size) => {
   position.needsUpdate = true;
   geometry.computeBoundingBox();
 };
+var layoutListeners = new Set;
+var onTextLayout = (fn) => {
+  layoutListeners.add(fn);
+  return () => {
+    layoutListeners.delete(fn);
+  };
+};
 var attachText = (holon, group) => {
   let mesh;
   let material;
@@ -64152,6 +60966,8 @@ var attachText = (holon, group) => {
       rebuildOutlines();
       handle?.dispose();
       handle = next;
+      for (const fn of layoutListeners)
+        fn();
     }).catch((err) => {
       console.error("[dreamtalk] text layout failed:", err);
     });
@@ -64192,6 +61008,3308 @@ var attachText = (holon, group) => {
     }
   };
 };
+
+// src/timeline.ts
+var C4D_SMOOTHING = 0.25;
+var c4dEaseWith = (u2, sl, sr) => {
+  if (u2 <= 0)
+    return 0;
+  if (u2 >= 1)
+    return 1;
+  const timeAt = (p3) => 3 * (1 - p3) * (1 - p3) * p3 * sl + 3 * (1 - p3) * p3 * p3 * (1 - sr) + p3 * p3 * p3;
+  let lo = 0;
+  let hi = 1;
+  for (let i2 = 0;i2 < 40; i2++) {
+    const mid = (lo + hi) / 2;
+    if (timeAt(mid) < u2)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const p2 = (lo + hi) / 2;
+  return 3 * (1 - p2) * p2 * p2 + p2 * p2 * p2;
+};
+var ease = (easing, u2) => easing === "linear" ? u2 : c4dEaseWith(u2, SMOOTHING[easing].left, SMOOTHING[easing].right);
+var smoothingFor = (easing, fraction, statedAgainst = fraction) => {
+  const base = SMOOTHING[easing];
+  const k2 = fraction > 0 ? statedAgainst / fraction : 1;
+  const cap = (v2) => Math.min(v2 * k2, 1);
+  return { left: cap(base.left), right: cap(base.right) };
+};
+var lerpValue = (a2, b2, u2) => {
+  if (typeof a2 === "number" && typeof b2 === "number")
+    return a2 + (b2 - a2) * u2;
+  if (typeof a2 === "boolean" || typeof b2 === "boolean")
+    return u2 >= 1 ? b2 : a2;
+  if (typeof a2 === "string" || typeof b2 === "string")
+    return u2 >= 1 ? b2 : a2;
+  if (isColor(a2) && isColor(b2)) {
+    return {
+      r: a2.r + (b2.r - a2.r) * u2,
+      g: a2.g + (b2.g - a2.g) * u2,
+      b: a2.b + (b2.b - a2.b) * u2
+    };
+  }
+  throw new Error("cannot interpolate between mismatched value types");
+};
+
+class Timeline {
+  duration;
+  params;
+  segments = new Map;
+  constructor(clips, minDuration = 0) {
+    const placed = [];
+    let end = 0;
+    for (const clip of clips) {
+      end = Math.max(end, clip.start + clip.duration);
+      for (const track of clip.anim.tracks) {
+        placed.push({
+          param: track.param,
+          t0: clip.start + track.relStart * clip.duration,
+          t1: clip.start + track.relStop * clip.duration,
+          mode: track.mode,
+          values: track.values,
+          easing: track.easing,
+          smoothing: smoothingFor(track.easing, track.relStop - track.relStart, track.smoothingWindow ?? track.relStop - track.relStart)
+        });
+      }
+    }
+    this.duration = Math.max(end, minDuration);
+    const byParam = new Map;
+    for (const p2 of placed) {
+      const list = byParam.get(p2.param) ?? [];
+      list.push(p2);
+      byParam.set(p2.param, list);
+    }
+    for (const [param, list] of byParam) {
+      list.sort((a2, b2) => a2.t0 - b2.t0 || a2.t1 - b2.t1);
+      const segs = [];
+      let prevEnd = param.defaultValue;
+      let first = true;
+      for (const p2 of list) {
+        let waypoints;
+        switch (p2.mode) {
+          case "to":
+            waypoints = [prevEnd, param.clamp(p2.values[0])];
+            break;
+          case "by": {
+            if (typeof prevEnd !== "number" || typeof p2.values[0] !== "number") {
+              throw new Error(`'.by()' needs numeric values on '${param.name ?? param.id}'`);
+            }
+            waypoints = [prevEnd, param.clamp(prevEnd + p2.values[0])];
+            break;
+          }
+          case "sequence":
+            waypoints = p2.values.map((v2) => param.clamp(v2));
+            break;
+        }
+        segs.push({ t0: p2.t0, t1: p2.t1, waypoints, easing: p2.easing, smoothing: p2.smoothing });
+        prevEnd = waypoints[waypoints.length - 1];
+        first = false;
+      }
+      this.segments.set(param, segs);
+    }
+    this.params = [...this.segments.keys()];
+  }
+  valueAt(param, t2) {
+    const segs = this.segments.get(param);
+    if (!segs || segs.length === 0)
+      return param.defaultValue;
+    const firstSeg = segs[0];
+    if (t2 < firstSeg.t0)
+      return firstSeg.waypoints[0];
+    let active;
+    let lastEnded;
+    for (const seg of segs) {
+      if (t2 >= seg.t0 && t2 <= seg.t1)
+        active = seg;
+      if (seg.t1 <= t2 && (!lastEnded || seg.t1 >= lastEnded.t1))
+        lastEnded = seg;
+    }
+    if (active) {
+      const span = active.t1 - active.t0;
+      const u2 = span <= 0 ? 1 : (t2 - active.t0) / span;
+      const n2 = active.waypoints.length - 1;
+      if (u2 >= 1)
+        return active.waypoints[n2];
+      const scaled = u2 * n2;
+      const i2 = Math.min(Math.floor(scaled), n2 - 1);
+      const local = active.easing === "linear" ? scaled - i2 : c4dEaseWith(scaled - i2, active.smoothing.left, active.smoothing.right);
+      return lerpValue(active.waypoints[i2], active.waypoints[i2 + 1], local);
+    }
+    if (lastEnded)
+      return lastEnded.waypoints[lastEnded.waypoints.length - 1];
+    return firstSeg.waypoints[0];
+  }
+  apply(t2) {
+    for (const param of this.params) {
+      param.value = this.valueAt(param, t2);
+    }
+  }
+}
+
+// src/narration.ts
+var WORDS_PER_MINUTE = 165;
+var PADDING_SECONDS = 0.35;
+var spokenSeconds = (text2) => {
+  const words = text2.trim().split(/\s+/).filter(Boolean).length;
+  if (words === 0)
+    return 0;
+  const base = words / WORDS_PER_MINUTE * 60;
+  const stops = (text2.match(/[.!?]/g) ?? []).length;
+  const commas = (text2.match(/[,;:—–]/g) ?? []).length;
+  return base + stops * 0.35 + commas * 0.15 + PADDING_SECONDS;
+};
+var utteranceKey = (text2, voice) => {
+  const input = `${voice}\x00${text2.trim()}`;
+  let h2 = 2166136261;
+  for (let i2 = 0;i2 < input.length; i2++) {
+    h2 ^= input.charCodeAt(i2);
+    h2 = Math.imul(h2, 16777619) >>> 0;
+  }
+  let g2 = 2166136261;
+  for (let i2 = input.length - 1;i2 >= 0; i2--) {
+    g2 ^= input.charCodeAt(i2);
+    g2 = Math.imul(g2, 16777619) >>> 0;
+  }
+  return h2.toString(16).padStart(8, "0") + g2.toString(16).padStart(8, "0");
+};
+
+class Narration {
+  lines = [];
+  add(text2, start, voice, duration) {
+    const slot = duration ?? spokenSeconds(text2);
+    this.lines.push({ text: text2.trim(), start, duration: slot, voice });
+    return slot;
+  }
+  get isEmpty() {
+    return this.lines.length === 0;
+  }
+  get spokenDuration() {
+    return this.lines.reduce((end, l2) => Math.max(end, l2.start + l2.duration), 0);
+  }
+  at(t2) {
+    return this.lines.find((l2) => t2 >= l2.start && t2 < l2.start + l2.duration);
+  }
+  overlaps() {
+    const out = [];
+    const ordered = [...this.lines].sort((a2, b2) => a2.start - b2.start);
+    for (let i2 = 1;i2 < ordered.length; i2++) {
+      const previous = ordered[i2 - 1];
+      const next = ordered[i2];
+      const by = previous.start + previous.duration - next.start;
+      if (by > 0.000001)
+        out.push({ previous, next, by });
+    }
+    return out;
+  }
+  transcript() {
+    return this.lines.map((l2) => `[${l2.start.toFixed(2)}] ${l2.text}`).join(`
+`);
+  }
+}
+
+// src/dream.ts
+var PERSPECTIVES = {
+  front: { phi: 0, theta: 0 },
+  default: { phi: PI5 / 4, theta: PI5 / 8 }
+};
+var ZOOM_REFERENCE_WIDTH = 1023;
+var orthoHalfHeight = (zoom, aspect2) => ZOOM_REFERENCE_WIDTH / (2 * zoom * aspect2);
+var DEFAULT_DISTANCE = 1000;
+var distanceForZoom = (zoom) => DEFAULT_DISTANCE / zoom;
+var CAMERA_FOCAL_MM = 36;
+var CAMERA_APERTURE_MM = 36;
+var CAMERA_FOV = 2 * Math.atan(CAMERA_APERTURE_MM / (2 * CAMERA_FOCAL_MM));
+var verticalFov = (horizontal, aspect2) => 2 * Math.atan(Math.tan(horizontal / 2) / aspect2);
+var CAMERA_FOV_VERTICAL = verticalFov(CAMERA_FOV, 16 / 9);
+
+class Observer extends Holon {
+  phi = angle(0);
+  theta = angle(0);
+  tilt = angle(0);
+  radius = scalar(1500);
+  zoom = scalar(1);
+  orthographic = bool3(false);
+  fov = angle(53.13 * Math.PI / 180);
+  baseHeight = length3(700);
+  look(perspective) {
+    const { phi, theta } = PERSPECTIVES[perspective];
+    this.phi.defaultValue = phi;
+    this.phi.value = phi;
+    this.theta.defaultValue = theta;
+    this.theta.value = theta;
+    this.radius.defaultValue = DEFAULT_DISTANCE;
+    this.radius.value = DEFAULT_DISTANCE;
+    this.fov.defaultValue = CAMERA_FOV_VERTICAL;
+    this.fov.value = CAMERA_FOV_VERTICAL;
+    return this;
+  }
+  orbit(cfg) {
+    const anims = [];
+    if (cfg.phi !== undefined)
+      anims.push(this.phi.to(cfg.phi));
+    if (cfg.theta !== undefined)
+      anims.push(this.theta.to(cfg.theta));
+    if (cfg.tilt !== undefined)
+      anims.push(this.tilt.to(cfg.tilt));
+    return anims;
+  }
+  pan(cfg) {
+    const anims = [];
+    if (cfg.x !== undefined)
+      anims.push(this.x.to(cfg.x));
+    if (cfg.y !== undefined)
+      anims.push(this.y.to(cfg.y));
+    return anims;
+  }
+  dolly(radius) {
+    return [this.radius.to(radius)];
+  }
+}
+
+class Dream {
+  observer = new Observer;
+  #cursor = 0;
+  #clips = [];
+  #backdrop;
+  #roots = [];
+  #built;
+  #narration = new Narration;
+  play(anim, runTime = 1) {
+    const clip = { anim, start: this.#cursor, duration: runTime };
+    this.#clips.push(clip);
+    this.#cursor += runTime;
+    return clip;
+  }
+  set(...anims) {
+    for (const anim of anims) {
+      this.#clips.push({ anim, start: this.#cursor, duration: 0 });
+    }
+  }
+  wait(dt2 = 1) {
+    this.#cursor += dt2;
+  }
+  say(text2, opts = {}) {
+    const duration = this.#narration.add(text2, this.#cursor, opts.voice, opts.duration);
+    if (opts.hold)
+      this.#cursor += duration;
+  }
+  get narration() {
+    this.build();
+    return this.#narration;
+  }
+  backdrop(path, opts = {}) {
+    this.#backdrop = { path, offset: opts.offset ?? 0 };
+  }
+  stage(holon) {
+    this.#roots.push(holon);
+    return holon;
+  }
+  get backdropSpec() {
+    this.build();
+    return this.#backdrop;
+  }
+  get roots() {
+    this.build();
+    const seen = new Set;
+    const roots = [];
+    const consider = (h2) => {
+      const r2 = h2.root;
+      if (!seen.has(r2) && !(r2 instanceof Observer)) {
+        seen.add(r2);
+        roots.push(r2);
+      }
+    };
+    for (const r2 of this.#roots)
+      consider(r2);
+    for (const clip of this.#clips) {
+      for (const track of clip.anim.tracks) {
+        const owner = track.param.owner;
+        if (owner instanceof Holon)
+          consider(owner);
+      }
+    }
+    return roots;
+  }
+  get clips() {
+    this.build();
+    return this.#clips;
+  }
+  build() {
+    if (!this.#built) {
+      this.unfold();
+      this.#built = new Timeline(this.#clips, this.#cursor);
+    }
+    return this.#built;
+  }
+  get duration() {
+    return this.build().duration;
+  }
+  applyAt(t2) {
+    this.build().apply(t2);
+  }
+}
+
+// src/parts/index.ts
+var exports_parts = {};
+__export(exports_parts, {
+  smoothControlPoints: () => smoothControlPoints,
+  reverseOpenPolyline: () => reverseOpenPolyline,
+  rephasePolyline: () => rephasePolyline,
+  rectanglePolyline: () => rectanglePolyline,
+  pulseFold: () => pulseFold,
+  pulseDistance: () => pulseDistance,
+  perspectiveK: () => perspectiveK,
+  hingeAngle: () => hingeAngle,
+  headingFor: () => headingFor,
+  forwardFor: () => forwardFor,
+  dominoWindows: () => dominoWindows,
+  dashRuns: () => dashRuns,
+  catmullRomResample: () => catmullRomResample,
+  annularSectorPolyline: () => annularSectorPolyline,
+  annularSectorFill: () => annularSectorFill,
+  WALL_ROW_LAG: () => WALL_ROW_LAG,
+  WALL_ROW_HEIGHT: () => WALL_ROW_HEIGHT,
+  WALL_BRICK_SIZE: () => WALL_BRICK_SIZE,
+  TheWall: () => TheWall,
+  Stroke: () => Stroke,
+  Square: () => Square,
+  Rectangle: () => Rectangle,
+  Polygon: () => Polygon,
+  PUPIL_STROKE_RATIO: () => PUPIL_STROKE_RATIO,
+  PUPIL_EDGE_RATIO: () => PUPIL_EDGE_RATIO,
+  PULSE_SHARES: () => PULSE_SHARES,
+  PULSE_MIN_FOLD: () => PULSE_MIN_FOLD,
+  PULSE_DISTANCE_SHARES: () => PULSE_DISTANCE_SHARES,
+  Null: () => Null,
+  MolochEye: () => MolochEye,
+  MindVirus: () => MindVirus,
+  Line: () => Line2,
+  Labyrinth: () => Labyrinth,
+  LENS_STROKE_RATIO: () => LENS_STROKE_RATIO,
+  LENS_RADIUS_RATIO: () => LENS_RADIUS_RATIO,
+  IRIS_FILL_RATIO: () => IRIS_FILL_RATIO,
+  Group: () => Group2,
+  FoldableCube: () => FoldableCube,
+  Eye: () => Eye,
+  Ellipse: () => Ellipse,
+  DottedLine: () => DottedLine,
+  Cylinder: () => Cylinder,
+  Cross: () => Cross,
+  Circle: () => Circle,
+  Cable: () => Cable,
+  CAMERA_DISTANCE_RATIO: () => CAMERA_DISTANCE_RATIO,
+  Axes: () => Axes,
+  Arc: () => Arc,
+  AnnularSector: () => AnnularSector
+});
+
+// src/geometry/sdf.ts
+var squareCircleCylinder = (profileWidth, profileHeight, circleRadius) => ({
+  radius: circleRadius,
+  height: profileHeight,
+  exact: profileWidth >= 2 * circleRadius
+});
+
+// vocabulary/Cylinder/Cylinder.ts
+class Cylinder extends Stroke {
+  static sovereign = true;
+  radius = length3(50);
+  height = length3(200);
+  static of(profile, circle, overrides = {}) {
+    const width = () => profile instanceof Square ? profile.size.value : profile.width.value;
+    const height = () => profile instanceof Square ? profile.size.value : profile.height.value;
+    const shape = () => squareCircleCylinder(width(), height(), circle.radius.value);
+    return new Cylinder({
+      ...overrides,
+      radius: derive(() => shape().radius),
+      height: derive(() => shape().height)
+    });
+  }
+}
+// vocabulary/Eye/Eye.ts
+var oneStroke = (strokes, retract = false) => {
+  const n2 = strokes.length;
+  if (n2 === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i2) => {
+    const values = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const shared2 = ease("smooth", k2 / STEPS) * n2;
+      const drawn = Math.min(1, Math.max(0, shared2 - i2));
+      values.push(retract ? 1 - drawn : drawn);
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class Eye extends Stroke {
+  static sovereign = true;
+  opening = completion(1);
+  lidTop = new Line2({
+    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(PI5 / 8)
+  });
+  lidBottom = new Line2({
+    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(-PI5 / 8)
+  });
+  eyeball = new Arc({
+    radius: 200,
+    startAngle: this.opening.times(-PI5 / 8),
+    endAngle: this.opening.times(PI5 / 8),
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
+  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
+  createAnim() {
+    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
+  }
+  unCreateAnim() {
+    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
+  }
+}
+// vocabulary/Axes/Axes.ts
+var cascade = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i2) => restage(line.creation.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
+};
+var consume = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i2) => restage(line.erasure.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
+};
+
+class Axes extends Stroke {
+  static sovereign = true;
+  mode = "xy";
+  xStart = scalar(-200);
+  xEnd = scalar(200);
+  yStart = scalar(-200);
+  yEnd = scalar(200);
+  zStart = scalar(-200);
+  zEnd = scalar(200);
+  gridSpacing = length3(30);
+  gridLineLength = length3(1000);
+  drawGrid = bool3(false);
+  drawTicks = bool3(false);
+  arrowEnd = bool3(true);
+  arrowSize = length3(720 / 700);
+  gridTint = color3(WHITE);
+  axisLines = [];
+  gridGroups = [];
+  tickGroups = [];
+  compose() {
+    const spacing = this.gridSpacing.value;
+    const halfGrid = this.gridLineLength.value / 2;
+    const extents = {
+      x: [this.xStart.value, this.xEnd.value],
+      y: [this.yStart.value, this.yEnd.value],
+      z: [this.zStart.value, this.zEnd.value]
+    };
+    const frames = {
+      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
+      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
+      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
+    };
+    const at2 = (v2, k2) => ({ x: v2.x * k2, y: v2.y * k2, z: v2.z * k2 });
+    const sum = (a2, b2) => ({
+      x: a2.x + b2.x,
+      y: a2.y + b2.y,
+      z: a2.z + b2.z
+    });
+    const positions = (start, end) => {
+      const out = [];
+      const negCount = Math.round(Math.abs(start) / spacing);
+      const posCount = Math.round(end / spacing);
+      for (let i2 = negCount - 1;i2 >= 1; i2--)
+        out.push(-i2 * spacing);
+      for (let i2 = 1;i2 < posCount; i2++)
+        out.push(i2 * spacing);
+      return out;
+    };
+    for (const axis of this.mode) {
+      const frame = frames[axis];
+      const extent = extents[axis];
+      if (!frame || !extent)
+        continue;
+      const [start, end] = extent;
+      this.axisLines.push(this.add(new Line2({
+        points: [at2(frame.dir, start), at2(frame.dir, end)],
+        tint: this.tint,
+        stroke: this.stroke,
+        arrowEnd: this.arrowEnd.value,
+        arrowSize: this.arrowSize
+      })));
+      if (this.drawGrid.value) {
+        const group = [];
+        for (const pos of positions(start, end)) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at2(frame.dir, pos), at2(frame.perp, -halfGrid)),
+              sum(at2(frame.dir, pos), at2(frame.perp, halfGrid))
+            ],
+            tint: this.gridTint,
+            stroke: this.stroke.times(0.5)
+          })));
+        }
+        this.gridGroups.push(group);
+      }
+      if (this.drawTicks.value) {
+        const group = [];
+        const tickHalf = 5;
+        const posCount = Math.round(end / spacing);
+        const negCount = Math.round(Math.abs(start) / spacing);
+        for (let i2 = -(negCount - 1);i2 < posCount; i2++) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, -tickHalf)),
+              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, tickHalf))
+            ],
+            tint: this.tint,
+            stroke: this.stroke
+          })));
+        }
+        this.tickGroups.push(group);
+      }
+    }
+  }
+  createAnim() {
+    this.parts;
+    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
+    const items = [
+      [together(...this.axisLines.map((l2) => l2.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([cascade(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([cascade(group), 0.3, 1]);
+    return together(...items);
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = [
+      [together(...this.axisLines.map((l2) => l2.erasure.sequence(0, 1))), 0, 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([consume(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([consume(group), 0, 0.7]);
+    return together(...items);
+  }
+}
+// vocabulary/MolochEye/MolochEye.ts
+var SIN_HALF_SPAN = 4 / 5;
+var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
+var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
+var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
+var CAMERA_DISTANCE_RATIO = 1.282;
+var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
+var K2 = perspectiveK(CAMERA_DISTANCE_RATIO);
+var LENS_STROKE_RATIO = 0.0246;
+var PUPIL_EDGE_RATIO = 1.1673;
+var PUPIL_STROKE_RATIO = 2.284;
+var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
+var onePen = (strokes) => {
+  const n2 = strokes.length;
+  if (n2 === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i2) => {
+    const values = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const shared2 = ease("smooth", k2 / STEPS) * n2;
+      values.push(Math.min(1, Math.max(0, shared2 - i2)));
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class MolochEye extends Stroke {
+  static sovereign = true;
+  height = length3(100);
+  tint = color3(BLUE);
+  lensTop = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(-LENS_CENTER_RATIO),
+    startAngle: PI5 / 2 + HALF_SPAN,
+    endAngle: PI5 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  lensBottom = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(LENS_CENTER_RATIO),
+    startAngle: -PI5 / 2 + HALF_SPAN,
+    endAngle: -PI5 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
+  irisFill = new Ellipse({
+    radiusX: this.height.times(IRIS_FILL_RATIO),
+    radiusY: this.height.times(IRIS_FILL_RATIO),
+    filled: true,
+    tint: BLACK
+  });
+  pupilBack = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO * K2),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K2)
+  });
+  pupilFront = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
+  });
+  connectors = [];
+  compose() {
+    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
+    const back = front * K2;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ];
+    for (const [sx, sy] of corners) {
+      this.connectors.push(this.add(new Line2({
+        points: [
+          { x: sx * back, y: sy * back, z: 0 },
+          { x: sx * front, y: sy * front, z: 0 }
+        ],
+        tint: this.tint,
+        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K2) / 2)
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c2) => c2.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
+  }
+}
+// vocabulary/FoldableCube/FoldableCube.ts
+class FoldableCube extends Stroke {
+  static sovereign = true;
+  size = length3(100);
+  fold = bipolar(0);
+  tint = color3(BLUE);
+  bottom = new Rectangle({
+    width: this.size,
+    height: this.size,
+    p: PI5 / 2,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
+  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
+  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
+  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
+  get foldAngle() {
+    return this.fold.value * PI5 / 2;
+  }
+  hinge(offset, angle2, axis = "p") {
+    return new Group2({
+      ...offset,
+      [axis]: derive(angle2),
+      members: [
+        new Rectangle({
+          width: this.size,
+          height: this.size,
+          p: PI5 / 2,
+          tint: this.tint,
+          stroke: this.stroke,
+          ...offset
+        })
+      ]
+    });
+  }
+  get walls() {
+    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
+  }
+}
+var hingeAngle = (fold) => fold * PI5 / 2;
+// src/parts/curves.ts
+var exports_curves = {};
+__export(exports_curves, {
+  worldPosition: () => worldPosition,
+  trimByArcLength: () => trimByArcLength,
+  rotHPB: () => rotHPB,
+  invRotHPB: () => invRotHPB,
+  catmullRom: () => catmullRom,
+  SectionPlane: () => SectionPlane,
+  SectionCurve: () => SectionCurve,
+  Connection: () => Connection
+});
+
+// src/geometry/section.ts
+var EPS = 0.000000001;
+var clamp6 = (v2, lo, hi) => Math.min(hi, Math.max(lo, v2));
+var mantlePoint = (theta, radius, y2) => ({
+  x: radius * Math.cos(theta),
+  y: y2,
+  z: radius * Math.sin(theta)
+});
+var empty = { kind: "empty", points: [], closed: false };
+var cylinderPlaneSection = (radius, height, planePoint, planeNormal, segments = 96) => {
+  const halfH = height / 2;
+  const mag = Math.hypot(planeNormal.x, planeNormal.y, planeNormal.z);
+  if (!(mag > EPS) || !(radius > EPS) || !(height > EPS))
+    return empty;
+  const flip = planeNormal.y < 0 ? -1 : 1;
+  const nx = flip * planeNormal.x / mag;
+  const ny = flip * planeNormal.y / mag;
+  const nz = flip * planeNormal.z / mag;
+  const d2 = nx * planePoint.x + ny * planePoint.y + nz * planePoint.z;
+  const rho = Math.hypot(nx, nz);
+  const alpha = Math.atan2(nz, nx);
+  if (rho < EPS) {
+    const y2 = d2 / ny;
+    if (Math.abs(y2) > halfH + EPS)
+      return empty;
+    const points2 = [];
+    for (let i2 = 0;i2 <= segments; i2++) {
+      points2.push(mantlePoint(i2 / segments * 2 * Math.PI, radius, clamp6(y2, -halfH, halfH)));
+    }
+    return { kind: "circle", points: points2, closed: true };
+  }
+  if (ny < EPS) {
+    const c2 = d2 / (radius * rho);
+    if (c2 > 1 + EPS || c2 < -1 - EPS)
+      return empty;
+    if (Math.abs(c2) > 1 - EPS) {
+      const theta = alpha + (c2 > 0 ? 0 : Math.PI);
+      return {
+        kind: "line",
+        points: [mantlePoint(theta, radius, -halfH), mantlePoint(theta, radius, halfH)],
+        closed: false
+      };
+    }
+    const u2 = Math.acos(c2);
+    const thetaA = alpha - u2;
+    const thetaB = alpha + u2;
+    const points2 = [
+      mantlePoint(thetaA, radius, -halfH),
+      mantlePoint(thetaA, radius, halfH),
+      mantlePoint(thetaB, radius, halfH),
+      mantlePoint(thetaB, radius, -halfH),
+      mantlePoint(thetaA, radius, -halfH)
+    ];
+    return { kind: "rectangle", points: points2, closed: true };
+  }
+  const cTop = (d2 - ny * halfH) / (radius * rho);
+  const cBot = (d2 + ny * halfH) / (radius * rho);
+  if (cTop > 1 - EPS || cBot < -1 + EPS)
+    return empty;
+  const clippedTop = cTop > -1;
+  const clippedBot = cBot < 1;
+  const aTop = Math.acos(clamp6(cTop, -1, 1));
+  const aBot = Math.acos(clamp6(cBot, -1, 1));
+  const yAt = (u2) => clamp6((d2 - radius * rho * Math.cos(u2)) / ny, -halfH, halfH);
+  const at2 = (u2) => mantlePoint(alpha + u2, radius, yAt(u2));
+  if (!clippedTop && !clippedBot) {
+    const points2 = [];
+    for (let i2 = 0;i2 <= segments; i2++)
+      points2.push(at2(-Math.PI + i2 / segments * 2 * Math.PI));
+    return { kind: "ellipse", points: points2, closed: true };
+  }
+  const span = aTop - aBot;
+  const arcSteps = Math.max(2, Math.round(segments * span / (2 * Math.PI)));
+  const points = [];
+  const push = (p2) => {
+    const prev = points[points.length - 1];
+    if (prev && Math.hypot(p2.x - prev.x, p2.y - prev.y, p2.z - prev.z) < 0.0000001)
+      return;
+    points.push(p2);
+  };
+  for (let i2 = 0;i2 <= arcSteps; i2++)
+    push(at2(aBot + span * i2 / arcSteps));
+  for (let i2 = arcSteps;i2 >= 0; i2--)
+    push(at2(-(aBot + span * i2 / arcSteps)));
+  points.push(points[0]);
+  return { kind: "truncated", points, closed: true };
+};
+
+// src/parts/curves.ts
+var derivePoints = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+var rotHPB = (v2, p2, h2, b2) => {
+  let { x: x2, y: y2, z: z2 } = v2;
+  let t2 = x2 * Math.cos(h2) + z2 * Math.sin(h2);
+  z2 = -x2 * Math.sin(h2) + z2 * Math.cos(h2);
+  x2 = t2;
+  t2 = y2 * Math.cos(p2) - z2 * Math.sin(p2);
+  z2 = y2 * Math.sin(p2) + z2 * Math.cos(p2);
+  y2 = t2;
+  t2 = x2 * Math.cos(b2) - y2 * Math.sin(b2);
+  y2 = x2 * Math.sin(b2) + y2 * Math.cos(b2);
+  x2 = t2;
+  return { x: x2, y: y2, z: z2 };
+};
+var invRotHPB = (v2, p2, h2, b2) => {
+  let { x: x2, y: y2, z: z2 } = v2;
+  let t2 = x2 * Math.cos(-b2) - y2 * Math.sin(-b2);
+  y2 = x2 * Math.sin(-b2) + y2 * Math.cos(-b2);
+  x2 = t2;
+  t2 = y2 * Math.cos(-p2) - z2 * Math.sin(-p2);
+  z2 = y2 * Math.sin(-p2) + z2 * Math.cos(-p2);
+  y2 = t2;
+  t2 = x2 * Math.cos(-h2) + z2 * Math.sin(-h2);
+  z2 = -x2 * Math.sin(-h2) + z2 * Math.cos(-h2);
+  x2 = t2;
+  return { x: x2, y: y2, z: z2 };
+};
+var worldPosition = (holon) => {
+  let pos = { x: holon.x.value, y: holon.y.value, z: holon.z.value };
+  for (let node = holon.parent;node; node = node.parent) {
+    const s2 = node.scale.value;
+    pos = rotHPB({ x: pos.x * s2, y: pos.y * s2, z: pos.z * s2 }, node.p.value, node.h.value, node.b.value);
+    pos = { x: pos.x + node.x.value, y: pos.y + node.y.value, z: pos.z + node.z.value };
+  }
+  return pos;
+};
+var catmullRom = (anchors, samplesPerSegment = 24) => {
+  if (anchors.length < 2)
+    return [...anchors];
+  const pts = [];
+  const P2 = (i2) => anchors[Math.min(anchors.length - 1, Math.max(0, i2))];
+  for (let seg = 0;seg < anchors.length - 1; seg++) {
+    const p0 = P2(seg - 1);
+    const p1 = P2(seg);
+    const p2 = P2(seg + 1);
+    const p3 = P2(seg + 2);
+    const last = seg === anchors.length - 2;
+    const end = last ? samplesPerSegment : samplesPerSegment - 1;
+    for (let i2 = 0;i2 <= end; i2++) {
+      const t2 = i2 / samplesPerSegment;
+      const t22 = t2 * t2;
+      const t3 = t22 * t2;
+      const co = (a2, b2, c2, d2) => 0.5 * (2 * b2 + (c2 - a2) * t2 + (2 * a2 - 5 * b2 + 4 * c2 - d2) * t22 + (3 * b2 - 3 * c2 + d2 - a2) * t3);
+      pts.push({
+        x: co(p0.x, p1.x, p2.x, p3.x),
+        y: co(p0.y, p1.y, p2.y, p3.y),
+        z: co(p0.z, p1.z, p2.z, p3.z)
+      });
+    }
+  }
+  return pts;
+};
+var trimByArcLength = (points, startFrac, endFrac) => {
+  if (points.length < 2)
+    return [...points];
+  const lens = [0];
+  for (let i2 = 1;i2 < points.length; i2++) {
+    const a2 = points[i2 - 1];
+    const b2 = points[i2];
+    lens.push(lens[i2 - 1] + Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z));
+  }
+  const total = lens[lens.length - 1];
+  if (!(total > 0))
+    return [...points];
+  const s0 = Math.max(0, Math.min(1, startFrac)) * total;
+  const s1 = (1 - Math.max(0, Math.min(1, endFrac))) * total;
+  if (!(s1 > s0))
+    return [];
+  const pointAt = (s2) => {
+    let i2 = 1;
+    while (i2 < lens.length - 1 && lens[i2] < s2)
+      i2++;
+    const a2 = points[i2 - 1];
+    const b2 = points[i2];
+    const seg = lens[i2] - lens[i2 - 1];
+    const t2 = seg > 0 ? (s2 - lens[i2 - 1]) / seg : 0;
+    return { x: a2.x + (b2.x - a2.x) * t2, y: a2.y + (b2.y - a2.y) * t2, z: a2.z + (b2.z - a2.z) * t2 };
+  };
+  const out = [pointAt(s0)];
+  for (let i2 = 0;i2 < points.length; i2++) {
+    if (lens[i2] > s0 && lens[i2] < s1)
+      out.push(points[i2]);
+  }
+  out.push(pointAt(s1));
+  return out;
+};
+var yaw = (v2, a2) => ({
+  x: v2.x * Math.cos(a2) + v2.z * Math.sin(a2),
+  y: v2.y,
+  z: -v2.x * Math.sin(a2) + v2.z * Math.cos(a2)
+});
+var pitch = (v2, a2) => ({
+  x: v2.x,
+  y: v2.y * Math.cos(a2) - v2.z * Math.sin(a2),
+  z: v2.y * Math.sin(a2) + v2.z * Math.cos(a2)
+});
+var roll = (v2, a2) => ({
+  x: v2.x * Math.cos(a2) - v2.y * Math.sin(a2),
+  y: v2.x * Math.sin(a2) + v2.y * Math.cos(a2),
+  z: v2.z
+});
+
+class SectionPlane extends Holon {
+  frozenB = angle(0);
+  get normal() {
+    let n2 = { x: 0, y: 0, z: 1 };
+    n2 = yaw(n2, this.b.value);
+    n2 = pitch(n2, this.p.value);
+    n2 = roll(n2, this.h.value);
+    return yaw(n2, this.frozenB.value);
+  }
+  get origin() {
+    return yaw({ x: this.x.value, y: this.y.value, z: this.z.value }, this.frozenB.value);
+  }
+}
+
+class SectionCurve extends Stroke {
+  radius = length3(50);
+  height = length3(200);
+  tilt = angle(PI5 / 4);
+  spin = angle(0);
+  offset = scalar(0);
+  planeFrame = "local";
+  cutter = {};
+  cutBy(plane) {
+    this.cutter.plane = plane;
+    return this;
+  }
+  line = new Line2({ tint: this.tint, stroke: this.stroke });
+  section;
+  compose() {
+    derivePoints(this.line, () => {
+      const cutter = this.cutter.plane;
+      if (cutter) {
+        const n2 = cutter.normal;
+        const o2 = cutter.origin;
+        const c2 = worldPosition(this);
+        return [this.radius.value, this.height.value, n2.x, n2.y, n2.z, o2.x, o2.y, o2.z, c2.x, c2.y, c2.z];
+      }
+      return [
+        this.radius.value,
+        this.height.value,
+        this.tilt.value,
+        this.spin.value,
+        this.offset.value,
+        this.planeFrame === "parent" ? this.p.value : 0,
+        this.planeFrame === "parent" ? this.h.value : 0,
+        this.planeFrame === "parent" ? this.b.value : 0
+      ];
+    }, () => this.refresh());
+  }
+  refresh() {
+    const cutter = this.cutter.plane;
+    if (cutter) {
+      const n2 = cutter.normal;
+      const o2 = cutter.origin;
+      const c2 = worldPosition(this);
+      const planePoint2 = { x: o2.x - c2.x, y: o2.y - c2.y, z: o2.z - c2.z };
+      this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint2, n2);
+      return this.section.points;
+    }
+    const tilt = this.tilt.value;
+    const spin = this.spin.value;
+    let normal2 = {
+      x: Math.sin(tilt) * Math.cos(spin),
+      y: Math.cos(tilt),
+      z: Math.sin(tilt) * Math.sin(spin)
+    };
+    if (this.planeFrame === "parent") {
+      normal2 = invRotHPB(normal2, this.p.value, this.h.value, this.b.value);
+    }
+    const off = this.offset.value;
+    const planePoint = { x: normal2.x * off, y: normal2.y * off, z: normal2.z * off };
+    this.section = cylinderPlaneSection(this.radius.value, this.height.value, planePoint, normal2);
+    return this.section.points;
+  }
+}
+
+class Connection extends Stroke {
+  via = [];
+  offsetStart = completion(0.1);
+  offsetEnd = completion(0.1);
+  line = new Line2({ tint: this.tint, stroke: this.stroke, arrowEnd: true });
+  anchors;
+  constructor(source, target, overrides = {}) {
+    super(overrides);
+    this.anchors = { source, target };
+  }
+  compose() {
+    derivePoints(this.line, () => {
+      const a2 = worldPosition(this.anchors.source);
+      const b2 = worldPosition(this.anchors.target);
+      return [a2.x, a2.y, a2.z, b2.x, b2.y, b2.z, this.offsetStart.value, this.offsetEnd.value];
+    }, () => this.refresh());
+  }
+  refresh() {
+    const anchors = [
+      worldPosition(this.anchors.source),
+      ...this.via,
+      worldPosition(this.anchors.target)
+    ];
+    return trimByArcLength(catmullRom(anchors), this.offsetStart.value, this.offsetEnd.value);
+  }
+}
+
+// src/bake.ts
+var bake = (sim, { fps, duration }) => {
+  if (fps <= 0)
+    throw new Error("bake: fps must be positive");
+  if (duration < 0)
+    throw new Error("bake: duration must be non-negative");
+  const width = sim.width;
+  const frames = Math.max(1, Math.round(duration * fps) + 1);
+  const dt2 = 1 / fps;
+  const data = new Float32Array(frames * width);
+  let state2 = sim.init();
+  sim.sample(state2, data, 0);
+  for (let f2 = 1;f2 < frames; f2++) {
+    state2 = sim.step(state2, f2, f2 * dt2, dt2);
+    sim.sample(state2, data, f2 * width);
+  }
+  return makeTrack(data, frames, width, fps, duration);
+};
+var makeTrack = (data, frames, width, fps, duration) => {
+  const track = {
+    data,
+    frames,
+    width,
+    fps,
+    duration,
+    sampleAt(t2, out) {
+      const dest = out ?? new Float32Array(width);
+      if (frames === 1) {
+        dest.set(data.subarray(0, width));
+        return dest;
+      }
+      const u2 = Math.min(Math.max(t2 * fps, 0), frames - 1);
+      const i2 = Math.min(Math.floor(u2), frames - 2);
+      const w4 = u2 - i2;
+      const a2 = i2 * width;
+      const b2 = a2 + width;
+      if (w4 <= 0) {
+        dest.set(data.subarray(a2, a2 + width));
+        return dest;
+      }
+      for (let k2 = 0;k2 < width; k2++) {
+        dest[k2] = data[a2 + k2] + (data[b2 + k2] - data[a2 + k2]) * w4;
+      }
+      return dest;
+    }
+  };
+  return track;
+};
+var CACHE_VERSION = 1;
+var CACHE_MAGIC = 1145782833;
+var HEADER_FLOATS = 6;
+var bakeHash = (key, fps, duration, width) => {
+  const payload = JSON.stringify([CACHE_VERSION, fps, duration, width, canonical(key)]);
+  const offsets = [2166136261, 16777619, 2654435769, 2246822507];
+  const out = [];
+  for (const offset of offsets) {
+    let h2 = offset >>> 0;
+    for (let i2 = 0;i2 < payload.length; i2++) {
+      h2 ^= payload.charCodeAt(i2) & 255;
+      h2 = Math.imul(h2, 16777619) >>> 0;
+      h2 ^= payload.charCodeAt(i2) >>> 8;
+      h2 = Math.imul(h2, 16777619) >>> 0;
+    }
+    out.push(h2.toString(16).padStart(8, "0"));
+  }
+  return out.join("");
+};
+var canonical = (value) => {
+  if (Array.isArray(value))
+    return value.map(canonical);
+  if (value && typeof value === "object") {
+    const src = value;
+    const out = {};
+    for (const k2 of Object.keys(src).sort())
+      out[k2] = canonical(src[k2]);
+    return out;
+  }
+  if (typeof value === "number" && !Number.isFinite(value))
+    return String(value);
+  return value;
+};
+var encodeTrack = (track) => {
+  const header = new Float64Array([
+    CACHE_MAGIC,
+    CACHE_VERSION,
+    track.frames,
+    track.width,
+    track.fps,
+    track.duration
+  ]);
+  const bytes = new Uint8Array(header.byteLength + track.data.byteLength);
+  bytes.set(new Uint8Array(header.buffer), 0);
+  bytes.set(new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength), header.byteLength);
+  return bytes;
+};
+var decodeTrack = (bytes, expect) => {
+  const headerBytes = HEADER_FLOATS * 8;
+  if (bytes.byteLength < headerBytes)
+    return;
+  const header = new Float64Array(bytes.slice(0, headerBytes).buffer);
+  if (header[0] !== CACHE_MAGIC || header[1] !== CACHE_VERSION)
+    return;
+  const frames = header[2];
+  const width = header[3];
+  const fps = header[4];
+  const duration = header[5];
+  if (!Number.isInteger(frames) || !Number.isInteger(width) || frames < 1 || width < 1) {
+    return;
+  }
+  if (expect && (expect.frames !== frames || expect.width !== width))
+    return;
+  if (bytes.byteLength !== headerBytes + frames * width * 4)
+    return;
+  const data = new Float32Array(bytes.slice(headerBytes).buffer);
+  return makeTrack(data, frames, width, fps, duration);
+};
+// src/geometry/xpbd.ts
+var add3 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var sub3 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var mul3 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var dot3 = (a2, b2) => a2.x * b2.x + a2.y * b2.y + a2.z * b2.z;
+var cross3 = (a2, b2) => ({
+  x: a2.y * b2.z - a2.z * b2.y,
+  y: a2.z * b2.x - a2.x * b2.z,
+  z: a2.x * b2.y - a2.y * b2.x
+});
+var length5 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var normalize4 = (a2) => {
+  const l2 = length5(a2);
+  return l2 < 0.000000001 ? undefined : mul3(a2, 1 / l2);
+};
+var CABLE_PARTICLES = 21;
+var XPBD_ITERATIONS = 6;
+var CABLE_GRAVITY = -50;
+var CABLE_DRAG = 0.15;
+var CABLE_STIFFNESS = 0.15;
+var CABLE_MAX_VELOCITY = 300;
+var CABLE_VELOCITY_SMOOTHING = 0.3;
+var CABLE_DIR_STRENGTH = 0.5;
+var CABLE_SLACK = 1.3;
+var COLLISION_THICKNESS = 15;
+var COLLISION_PUSH = 0.5;
+var DIR_CONSTRAINT_REACH = 3;
+var XPBD_ACTIVATION = 0.08;
+var COLLIDER_FADE_START = 0.15;
+var COLLIDER_FADE_END = 0.5;
+var SETTLE_START = 0.75;
+var SETTLE_STIFFNESS = 0.8;
+var SETTLE_DRAG = 0.5;
+var SETTLE_DIR_FALLOFF = 0.5;
+var straightState = (anchor, tip, particles = CABLE_PARTICLES) => {
+  const positions = [];
+  const velocities = [];
+  for (let i2 = 0;i2 < particles; i2++) {
+    const t2 = i2 / (particles - 1);
+    positions.push(add3(anchor, mul3(sub3(tip, anchor), t2)));
+    velocities.push({ x: 0, y: 0, z: 0 });
+  }
+  return { positions, velocities };
+};
+var pointFaceCollision = (point, face, push = COLLISION_PUSH, thickness3 = COLLISION_THICKNESS) => {
+  const { corners, normal: normal2 } = face;
+  const dist = dot3(sub3(point, corners[0]), normal2);
+  if (dist < -thickness3 || dist > thickness3)
+    return { point, collided: false };
+  const proj = sub3(point, mul3(normal2, dist));
+  for (let e2 = 0;e2 < 4; e2++) {
+    const a2 = corners[e2];
+    const b2 = corners[(e2 + 1) % 4];
+    if (dot3(cross3(sub3(b2, a2), sub3(proj, a2)), normal2) < 0)
+      return { point, collided: false };
+  }
+  const target = add3(proj, mul3(normal2, thickness3));
+  return { point: add3(point, mul3(sub3(target, point), push)), collided: true };
+};
+var foldableCubeFaces = (center, frame, fold, scale2, size = 100) => {
+  const angle2 = hingeAngle(fold);
+  const cos3 = Math.cos(angle2);
+  const sin3 = Math.sin(angle2);
+  const h2 = size / 2;
+  const toWorld = (p2) => add3(center, {
+    x: (frame.vx.x * p2.x + frame.vy.x * p2.y + frame.vz.x * p2.z) * scale2,
+    y: (frame.vx.y * p2.x + frame.vy.y * p2.y + frame.vz.y * p2.z) * scale2,
+    z: (frame.vx.z * p2.x + frame.vy.z * p2.y + frame.vz.z * p2.z) * scale2
+  });
+  const makeFace = (local) => {
+    const c2 = local.map(toWorld);
+    const n2 = normalize4(cross3(sub3(c2[1], c2[0]), sub3(c2[3], c2[0]))) ?? { x: 0, y: 1, z: 0 };
+    return { corners: c2, normal: n2 };
+  };
+  const faces = [];
+  faces.push(makeFace([
+    { x: -h2, y: 0, z: -h2 },
+    { x: h2, y: 0, z: -h2 },
+    { x: h2, y: 0, z: h2 },
+    { x: -h2, y: 0, z: h2 }
+  ]));
+  const wall = (out, u2) => {
+    const pivot = mul3(out, h2);
+    const far = add3(mul3(out, size * cos3), { x: 0, y: size * sin3, z: 0 });
+    return makeFace([
+      add3(pivot, mul3(u2, -h2)),
+      add3(pivot, mul3(u2, h2)),
+      add3(add3(pivot, far), mul3(u2, h2)),
+      add3(add3(pivot, far), mul3(u2, -h2))
+    ]);
+  };
+  faces.push(wall({ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 }));
+  faces.push(wall({ x: 0, y: 0, z: -1 }, { x: -1, y: 0, z: 0 }));
+  faces.push(wall({ x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }));
+  faces.push(wall({ x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
+  return faces;
+};
+var step3 = (state2, config) => {
+  const n2 = state2.positions.length;
+  if (n2 < 2)
+    return { positions: [...state2.positions], velocities: [...state2.velocities] };
+  const {
+    anchor,
+    tip,
+    dt: dt2,
+    restLength,
+    gravity = { x: 0, y: CABLE_GRAVITY, z: 0 },
+    drag = CABLE_DRAG,
+    stiffness = CABLE_STIFFNESS,
+    iterations = XPBD_ITERATIONS,
+    maxVelocity = CABLE_MAX_VELOCITY,
+    velocitySmoothing = CABLE_VELOCITY_SMOOTHING,
+    anchorDir,
+    tipDir,
+    dirStrength = CABLE_DIR_STRENGTH,
+    faces
+  } = config;
+  const clampSpeed = (v2) => {
+    const speed = length5(v2);
+    return speed > maxVelocity ? mul3(v2, maxVelocity / speed) : v2;
+  };
+  const predicted = [...state2.positions];
+  predicted[0] = anchor;
+  predicted[n2 - 1] = tip;
+  let velocities = state2.velocities;
+  if (velocitySmoothing > 0 && n2 > 2) {
+    const smoothed = [...velocities];
+    for (let i2 = 1;i2 < n2 - 1; i2++) {
+      const avg = mul3(add3(add3(velocities[i2 - 1], velocities[i2]), velocities[i2 + 1]), 1 / 3);
+      smoothed[i2] = add3(velocities[i2], mul3(sub3(avg, velocities[i2]), velocitySmoothing));
+    }
+    velocities = smoothed;
+  }
+  const dragFactor = Math.max(0, 1 - drag * dt2);
+  for (let i2 = 1;i2 < n2 - 1; i2++) {
+    const vel = clampSpeed(mul3(add3(velocities[i2], mul3(gravity, dt2)), dragFactor));
+    predicted[i2] = add3(state2.positions[i2], mul3(vel, dt2));
+  }
+  for (let pass3 = 0;pass3 < iterations; pass3++) {
+    for (let i2 = 0;i2 < n2 - 1; i2++) {
+      const delta = sub3(predicted[i2 + 1], predicted[i2]);
+      const dist = length5(delta);
+      if (dist < 0.001)
+        continue;
+      const correction = mul3(delta, 1 - restLength / dist);
+      if (i2 > 0)
+        predicted[i2] = add3(predicted[i2], mul3(correction, 0.5));
+      if (i2 < n2 - 2)
+        predicted[i2 + 1] = sub3(predicted[i2 + 1], mul3(correction, 0.5));
+    }
+    predicted[0] = anchor;
+    predicted[n2 - 1] = tip;
+    const pullEnd = (dir, base, indexOf) => {
+      const d2 = dir && length5(dir) > 0.001 ? normalize4(dir) : undefined;
+      if (!d2)
+        return;
+      for (let j2 = 1;j2 < Math.min(DIR_CONSTRAINT_REACH + 1, n2 - 1); j2++) {
+        const idx = indexOf(j2);
+        const target = add3(base, mul3(d2, j2 * restLength));
+        const weight = dirStrength * (1 - (j2 - 1) / DIR_CONSTRAINT_REACH);
+        predicted[idx] = add3(predicted[idx], mul3(sub3(target, predicted[idx]), weight));
+      }
+    };
+    pullEnd(anchorDir, anchor, (j2) => j2);
+    pullEnd(tipDir, tip, (j2) => n2 - 1 - j2);
+    for (let i2 = 1;i2 < n2 - 1; i2++) {
+      const mid = mul3(add3(predicted[i2 - 1], predicted[i2 + 1]), 0.5);
+      predicted[i2] = add3(predicted[i2], mul3(sub3(mid, predicted[i2]), stiffness));
+    }
+    if (faces && faces.length > 0) {
+      for (let i2 = 1;i2 < n2 - 1; i2++) {
+        for (const face of faces) {
+          predicted[i2] = pointFaceCollision(predicted[i2], face).point;
+        }
+      }
+    }
+  }
+  const invDt = 1 / Math.max(dt2, 0.001);
+  const newVelocities = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    newVelocities.push(clampSpeed(mul3(sub3(predicted[i2], state2.positions[i2]), invDt)));
+  }
+  return { positions: predicted, velocities: newVelocities };
+};
+var settleParams = (completion2) => {
+  if (completion2 <= SETTLE_START) {
+    return { stiffness: CABLE_STIFFNESS, drag: CABLE_DRAG, dirStrength: CABLE_DIR_STRENGTH };
+  }
+  const t2 = Math.min((completion2 - SETTLE_START) / (1 - SETTLE_START), 1);
+  return {
+    stiffness: CABLE_STIFFNESS + (SETTLE_STIFFNESS - CABLE_STIFFNESS) * t2,
+    drag: CABLE_DRAG + (SETTLE_DRAG - CABLE_DRAG) * t2,
+    dirStrength: CABLE_DIR_STRENGTH * (1 - t2 * SETTLE_DIR_FALLOFF)
+  };
+};
+var colliderScale = (completion2) => {
+  if (completion2 <= COLLIDER_FADE_START)
+    return 0;
+  if (completion2 >= COLLIDER_FADE_END)
+    return 1;
+  return (completion2 - COLLIDER_FADE_START) / (COLLIDER_FADE_END - COLLIDER_FADE_START);
+};
+
+// vocabulary/Cable/Cable.ts
+var CTRL_POINTS = 12;
+var SMOOTH_BLEND = 0.5;
+var SMOOTH_ITERATIONS = 3;
+var TUBE_SAMPLES = 48;
+var RING_SEGMENTS = 16;
+var TRAVEL_SAMPLES_PER_SEC = 120;
+var TETHER_SUBDIVISIONS = 3;
+var TETHER_TAPER_MIN = 0.3;
+var sub4 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var add4 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var mul4 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var cross4 = (a2, b2) => ({
+  x: a2.y * b2.z - a2.z * b2.y,
+  y: a2.z * b2.x - a2.x * b2.z,
+  z: a2.x * b2.y - a2.y * b2.x
+});
+var len = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var norm = (a2) => {
+  const l2 = len(a2);
+  return l2 < 0.000000001 ? undefined : mul4(a2, 1 / l2);
+};
+var smoothControlPoints = (points, smoothing = SMOOTH_BLEND, iterations = SMOOTH_ITERATIONS) => {
+  if (points.length < 3)
+    return [...points];
+  let result = [...points];
+  for (let it2 = 0;it2 < iterations; it2++) {
+    const out = [result[0]];
+    for (let i2 = 1;i2 < result.length - 1; i2++) {
+      const t2 = i2 / (result.length - 1);
+      const blend = smoothing * (0.3 + 0.7 * t2);
+      const avg = mul4(add4(add4(result[i2 - 1], result[i2]), result[i2 + 1]), 1 / 3);
+      out.push(add4(result[i2], mul4(sub4(avg, result[i2]), blend)));
+    }
+    out.push(result[result.length - 1]);
+    result = out;
+  }
+  return result;
+};
+var catmullRomResample = (ctrl, count) => {
+  if (ctrl.length < 2)
+    return [...ctrl];
+  const P2 = (i2) => ctrl[Math.min(ctrl.length - 1, Math.max(0, i2))];
+  const out = [];
+  const segments = ctrl.length - 1;
+  for (let k2 = 0;k2 < count; k2++) {
+    const u2 = k2 / (count - 1) * segments;
+    const j2 = Math.min(Math.floor(u2), segments - 1);
+    const t2 = u2 - j2;
+    const [p0, p1, p2, p3] = [P2(j2 - 1), P2(j2), P2(j2 + 1), P2(j2 + 2)];
+    const t22 = t2 * t2;
+    const t3 = t22 * t2;
+    out.push({
+      x: 0.5 * (2 * p1.x + (p2.x - p0.x) * t2 + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t22 + (3 * p1.x - p0.x - 3 * p2.x + p3.x) * t3),
+      y: 0.5 * (2 * p1.y + (p2.y - p0.y) * t2 + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t22 + (3 * p1.y - p0.y - 3 * p2.y + p3.y) * t3),
+      z: 0.5 * (2 * p1.z + (p2.z - p0.z) * t2 + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t22 + (3 * p1.z - p0.z - 3 * p2.z + p3.z) * t3)
+    });
+  }
+  return out;
+};
+
+class Cable extends Stroke {
+  static sovereign = true;
+  width = length3(2.5);
+  taper = completion(0.06);
+  ringStep = length3(30);
+  window = scalar(6);
+  clock = scalar(0);
+  rings = bool3(true);
+  tint = color3(WHITE);
+  view = { x: 0, y: 0, z: 1 };
+  maxRings = 64;
+  edgeA = new Line2({ tint: this.tint, stroke: this.stroke });
+  edgeB = new Line2({ tint: this.tint, stroke: this.stroke });
+  ringLines = [];
+  _path;
+  _since = 0;
+  _memoKey;
+  _memo;
+  _baked;
+  _bakedScratch;
+  _bakedVisible;
+  trail(source, opts = {}) {
+    this.parts;
+    this._path = typeof source === "function" ? source : (t2) => source.pathAt(t2);
+    this._since = opts.since ?? 0;
+    if (opts.window !== undefined) {
+      this.window.defaultValue = opts.window;
+      this.window.value = opts.window;
+    }
+    return this;
+  }
+  tether(anchor, tip, opts, prebaked) {
+    this.parts;
+    const sim = this.tetherSim(anchor, tip, opts);
+    if (prebaked) {
+      this.installTether(prebaked, sim.visible);
+      return;
+    }
+    const track = bake(sim.simulation, sim.bakeOptions);
+    this.installTether(track, sim.visible);
+    return track;
+  }
+  tetherSim(anchor, tip, opts) {
+    const particles = opts.particles ?? CABLE_PARTICLES;
+    const slack = opts.slack ?? CABLE_SLACK;
+    const fps = opts.bakeFps ?? 30;
+    const duration = opts.duration;
+    const cubeSize = opts.cubeSize ?? 100;
+    const anchorDir = opts.anchorDir;
+    const frames = Math.max(1, Math.round(duration * fps) + 1);
+    const dt2 = 1 / fps;
+    const visible = new Float32Array(frames);
+    for (let f2 = 0;f2 < frames; f2++)
+      visible[f2] = tip(f2 * dt2).completion;
+    const simulation = {
+      width: particles * 3,
+      init: () => straightState(anchor, tip(0).position, particles),
+      step: (state2, frame, time3, dt3) => {
+        const t2 = tip(time3);
+        if (t2.completion <= XPBD_ACTIVATION)
+          return straightState(anchor, t2.position, particles);
+        const settle = settleParams(t2.completion);
+        const cs = colliderScale(t2.completion);
+        const restLength = Math.max(t2.travelled * slack, 1) / (particles - 1);
+        const config = {
+          anchor,
+          tip: t2.position,
+          dt: dt3,
+          restLength,
+          drag: settle.drag,
+          stiffness: settle.stiffness,
+          dirStrength: settle.dirStrength,
+          anchorDir,
+          tipDir: t2.direction,
+          faces: cs > 0.01 ? foldableCubeFaces(t2.position, t2.frame, t2.fold, t2.scale * cs, cubeSize) : undefined
+        };
+        return step3(state2, config);
+      },
+      sample: (state2, out, offset) => {
+        for (let i2 = 0;i2 < particles; i2++) {
+          const p2 = state2.positions[i2];
+          out[offset + i2 * 3] = p2.x;
+          out[offset + i2 * 3 + 1] = p2.y;
+          out[offset + i2 * 3 + 2] = p2.z;
+        }
+      }
+    };
+    return { simulation, bakeOptions: { fps, duration }, visible };
+  }
+  installTether(track, visible) {
+    this._baked = track;
+    this._bakedVisible = visible;
+    this._bakedScratch = new Float32Array(track.width);
+  }
+  get bakedBytes() {
+    return this._baked?.data.byteLength ?? 0;
+  }
+  compose() {
+    const derivedLine = (line, pick) => {
+      const cable = this;
+      let lastMemo;
+      Object.defineProperty(line, "points", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          const g2 = cable.geometry();
+          if (g2 !== lastMemo) {
+            lastMemo = g2;
+            line.geomVersion++;
+          }
+          return pick(g2);
+        },
+        set(_v) {}
+      });
+    };
+    derivedLine(this.edgeA, (g2) => g2.a);
+    derivedLine(this.edgeB, (g2) => g2.b);
+    for (let i2 = 0;i2 < this.maxRings; i2++) {
+      const ring = this.add(new Line2({ tint: this.tint, stroke: this.stroke }));
+      this.ringLines.push(ring);
+      derivedLine(ring, (g2) => g2.rings[i2] ?? []);
+    }
+  }
+  geometryKey() {
+    const key = [
+      this.clock.value,
+      this.width.value,
+      this.taper.value,
+      this.ringStep.value,
+      this.window.value,
+      this.rings.value ? 1 : 0,
+      this._since
+    ];
+    for (let node = this.parent;node; node = node.parent) {
+      key.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
+    }
+    return key;
+  }
+  toLocal(v2) {
+    const chain = [];
+    for (let node = this.parent;node; node = node.parent)
+      chain.push(node);
+    let out = v2;
+    for (let i2 = chain.length - 1;i2 >= 0; i2--) {
+      const anc = chain[i2];
+      out = sub4(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
+      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
+      const s2 = anc.scale.value;
+      if (s2 !== 1)
+        out = mul4(out, 1 / s2);
+    }
+    return out;
+  }
+  geometry() {
+    const key = this.geometryKey();
+    if (this._memo && this._memoKey && key.length === this._memoKey.length && key.every((v2, i2) => v2 === this._memoKey[i2])) {
+      return this._memo;
+    }
+    this._memoKey = key;
+    this._memo = this.computeGeometry();
+    return this._memo;
+  }
+  tubeFrom(spine, empty2) {
+    if (spine.length < 2)
+      return empty2;
+    const view = this.view;
+    const a2 = [];
+    const b2 = [];
+    let lastNormal = { x: 0, y: 1, z: 0 };
+    for (let i2 = 0;i2 < spine.length; i2++) {
+      const p0 = spine[Math.max(0, i2 - 1)];
+      const p1 = spine[Math.min(spine.length - 1, i2 + 1)];
+      const tan3 = norm(sub4(p1, p0)) ?? { x: 1, y: 0, z: 0 };
+      const n2 = norm(cross4(tan3, view)) ?? lastNormal;
+      lastNormal = n2;
+      const f2 = i2 / (spine.length - 1);
+      const r2 = this.width.value * (TETHER_TAPER_MIN + (1 - TETHER_TAPER_MIN) * f2);
+      a2.push(this.toLocal(add4(spine[i2], mul4(n2, r2))));
+      b2.push(this.toLocal(sub4(spine[i2], mul4(n2, r2))));
+    }
+    return { a: a2, b: b2, rings: this.ringLines.map(() => []) };
+  }
+  tetherSpine() {
+    const track = this._baked;
+    const visible = this._bakedVisible;
+    if (!track || !visible)
+      return;
+    const T3 = this.clock.value;
+    const u2 = Math.min(Math.max(T3 * track.fps, 0), visible.length - 1);
+    const completion2 = visible[Math.round(u2)];
+    if (completion2 <= 0.02)
+      return;
+    const flat = track.sampleAt(T3, this._bakedScratch);
+    const n2 = flat.length / 3;
+    const particles = [];
+    for (let i2 = 0;i2 < n2; i2++) {
+      particles.push({ x: flat[i2 * 3], y: flat[i2 * 3 + 1], z: flat[i2 * 3 + 2] });
+    }
+    return catmullRomResample(particles, (n2 - 1) * (TETHER_SUBDIVISIONS + 1) + 1);
+  }
+  computeGeometry() {
+    const empty2 = { a: [], b: [], rings: this.ringLines.map(() => []) };
+    if (this._baked) {
+      const spine = this.tetherSpine();
+      return spine ? this.tubeFrom(spine, empty2) : empty2;
+    }
+    const path = this._path;
+    if (!path)
+      return empty2;
+    const T3 = this.clock.value;
+    const t0 = Math.max(this._since, T3 - this.window.value);
+    const span = T3 - t0;
+    if (span <= 0.0001)
+      return empty2;
+    const raw = [];
+    for (let i2 = 0;i2 < CTRL_POINTS; i2++)
+      raw.push(path(T3 - i2 / (CTRL_POINTS - 1) * span));
+    const pts = catmullRomResample(smoothControlPoints(raw), TUBE_SAMPLES);
+    const cum = [0];
+    for (let i2 = 1;i2 < pts.length; i2++)
+      cum.push(cum[i2 - 1] + len(sub4(pts[i2], pts[i2 - 1])));
+    const total = cum[cum.length - 1];
+    if (total < 0.000001)
+      return empty2;
+    const view = this.view;
+    const tangents = [];
+    const normals = [];
+    let lastNormal = { x: 0, y: 1, z: 0 };
+    for (let i2 = 0;i2 < pts.length; i2++) {
+      const p0 = pts[Math.max(0, i2 - 1)];
+      const p1 = pts[Math.min(pts.length - 1, i2 + 1)];
+      const tan3 = norm(sub4(p1, p0)) ?? { x: 1, y: 0, z: 0 };
+      tangents.push(tan3);
+      const n2 = norm(cross4(tan3, view)) ?? lastNormal;
+      lastNormal = n2;
+      normals.push(n2);
+    }
+    const radiusAt = (arcFrac) => this.width.value * (1 - (1 - this.taper.value) * arcFrac);
+    const a2 = [];
+    const b2 = [];
+    for (let i2 = 0;i2 < pts.length; i2++) {
+      const r2 = radiusAt(cum[i2] / total);
+      a2.push(this.toLocal(add4(pts[i2], mul4(normals[i2], r2))));
+      b2.push(this.toLocal(sub4(pts[i2], mul4(normals[i2], r2))));
+    }
+    const rings = this.ringLines.map(() => []);
+    const step4 = this.ringStep.value;
+    if (this.rings.value && step4 > 0) {
+      const K3 = Math.min(900, Math.max(2, Math.ceil((T3 - this._since) * TRAVEL_SAMPLES_PER_SEC)));
+      const times = [];
+      const travel = [0];
+      let prev = path(this._since);
+      times.push(this._since);
+      for (let k2 = 1;k2 < K3; k2++) {
+        const tk = this._since + (T3 - this._since) * k2 / (K3 - 1);
+        const p2 = path(tk);
+        times.push(tk);
+        travel.push(travel[k2 - 1] + len(sub4(p2, prev)));
+        prev = p2;
+      }
+      const travelAt = (t2) => {
+        if (t2 <= times[0])
+          return 0;
+        for (let k2 = 1;k2 < K3; k2++) {
+          if (times[k2] >= t2) {
+            const u2 = (t2 - times[k2 - 1]) / (times[k2] - times[k2 - 1] || 1);
+            return travel[k2 - 1] + u2 * (travel[k2] - travel[k2 - 1]);
+          }
+        }
+        return travel[K3 - 1];
+      };
+      const timeAtTravel = (d2) => {
+        for (let k2 = 1;k2 < K3; k2++) {
+          if (travel[k2] >= d2) {
+            const u2 = (d2 - travel[k2 - 1]) / (travel[k2] - travel[k2 - 1] || 1);
+            return times[k2 - 1] + u2 * (times[k2] - times[k2 - 1]);
+          }
+        }
+        return times[K3 - 1];
+      };
+      const dHead = travel[K3 - 1];
+      const dTail = travelAt(t0);
+      const mMax = Math.floor(dHead / step4);
+      const mMin = Math.max(1, Math.ceil(dTail / step4));
+      for (let j2 = 0;j2 < this.ringLines.length; j2++) {
+        const m2 = mMax - j2;
+        if (m2 < mMin)
+          break;
+        const tau = timeAtTravel(m2 * step4);
+        const f2 = Math.min(1, Math.max(0, (T3 - tau) / span));
+        const u2 = f2 * (pts.length - 1);
+        const i2 = Math.min(Math.floor(u2), pts.length - 2);
+        const w4 = u2 - i2;
+        const center = add4(mul4(pts[i2], 1 - w4), mul4(pts[i2 + 1], w4));
+        const tan3 = norm(add4(mul4(tangents[i2], 1 - w4), mul4(tangents[i2 + 1], w4))) ?? tangents[i2];
+        const n2 = norm(cross4(tan3, view)) ?? normals[i2];
+        const m22 = norm(cross4(tan3, n2)) ?? { x: 0, y: 1, z: 0 };
+        const arcFrac = (cum[i2] + w4 * (cum[i2 + 1] - cum[i2])) / total;
+        const r2 = radiusAt(arcFrac);
+        const ring = [];
+        for (let s2 = 0;s2 <= RING_SEGMENTS; s2++) {
+          const th = s2 / RING_SEGMENTS * TAU;
+          ring.push(this.toLocal(add4(center, add4(mul4(n2, r2 * Math.cos(th)), mul4(m22, r2 * Math.sin(th))))));
+        }
+        rings[j2] = ring;
+      }
+    }
+    return { a: a2, b: b2, rings };
+  }
+}
+// vocabulary/MindVirus/MindVirus.ts
+var PULSE_SHARES = { open: 0.3, thrust: 0.2 };
+var PULSE_DISTANCE_SHARES = { open: 0.05, thrust: 0.55 };
+var PULSE_MIN_FOLD = 0.1;
+var pulseFold = (u2, shares = PULSE_SHARES, minFold = PULSE_MIN_FOLD) => {
+  const openEnd = shares.open;
+  const holdEnd = openEnd + (shares.hold ?? 0);
+  const thrustEnd = holdEnd + shares.thrust;
+  if (u2 <= 0)
+    return 1;
+  if (u2 < openEnd)
+    return 1 + (minFold - 1) * ease("smooth", u2 / openEnd);
+  if (u2 < holdEnd)
+    return minFold;
+  if (u2 < thrustEnd)
+    return minFold + (1 - minFold) * ease("smooth", (u2 - holdEnd) / shares.thrust);
+  return 1;
+};
+var pulseDistance = (u2, shares = PULSE_SHARES, distance3 = PULSE_DISTANCE_SHARES) => {
+  const openEnd = shares.open;
+  const holdShare = shares.hold ?? 0;
+  const holdEnd = openEnd + holdShare;
+  const thrustEnd = holdEnd + shares.thrust;
+  const { open, thrust } = distance3;
+  const hold = holdShare > 0 ? 0.05 : 0;
+  if (u2 <= 0)
+    return 0;
+  if (u2 >= 1)
+    return 1;
+  if (u2 < openEnd)
+    return open * ease("smooth", u2 / openEnd);
+  if (u2 < holdEnd)
+    return open + hold * ((u2 - openEnd) / holdShare);
+  if (u2 < thrustEnd)
+    return open + hold + (thrust - hold) * ease("smooth", (u2 - holdEnd) / shares.thrust);
+  return open + thrust + (1 - open - thrust) * ease("smooth", (u2 - thrustEnd) / (1 - thrustEnd));
+};
+var headingFor = (dir) => ({
+  h: Math.atan2(dir.x, Math.hypot(dir.y, dir.z)),
+  p: Math.atan2(-dir.y, dir.z)
+});
+var forwardFor = (h2, p2, b2 = 0) => {
+  const v2 = { x: Math.sin(h2), y: -Math.cos(h2) * Math.sin(p2), z: Math.cos(h2) * Math.cos(p2) };
+  return {
+    x: v2.x * Math.cos(b2) - v2.y * Math.sin(b2),
+    y: v2.x * Math.sin(b2) + v2.y * Math.cos(b2),
+    z: v2.z
+  };
+};
+var lerp3 = (a2, b2, u2) => ({
+  x: a2.x + (b2.x - a2.x) * u2,
+  y: a2.y + (b2.y - a2.y) * u2,
+  z: a2.z + (b2.z - a2.z) * u2
+});
+var normDir = (v2, fallback) => {
+  const l2 = Math.hypot(v2.x, v2.y, v2.z);
+  return l2 < 0.000000001 ? fallback : { x: v2.x / l2, y: v2.y / l2, z: v2.z / l2 };
+};
+
+class MindVirus extends Holon {
+  static sovereign = true;
+  fold = bipolar(1);
+  clock = scalar(0);
+  states = {
+    idle: state({ fold: 1 }),
+    hunting: state({ fold: 0.5 }),
+    attached: state({ fold: -1 })
+  };
+  molochEye = new MolochEye({ height: 17.3, stroke: 2, z: 2 });
+  cube = new FoldableCube({ fold: this.fold, p: -PI5 / 2, stroke: 2.5 });
+  cable = new Cable({ clock: this.clock, width: 4.8, taper: 0.1, stroke: 2 });
+  journey;
+  _segments;
+  segments() {
+    if (this._segments)
+      return this._segments;
+    const j2 = this.journey;
+    if (!j2)
+      return [];
+    const pulses = [...j2.pulses].sort((a2, b2) => a2.start - b2.start);
+    const segs = [];
+    let from = j2.origin;
+    let dir = { x: 0, y: 0, z: 1 };
+    for (const p2 of pulses) {
+      dir = normDir({ x: p2.to.x - from.x, y: p2.to.y - from.y, z: p2.to.z - from.z }, dir);
+      segs.push({
+        start: p2.start,
+        end: p2.start + p2.duration,
+        from,
+        to: p2.to,
+        dir,
+        headingDir: p2.heading ? normDir(p2.heading, dir) : dir,
+        shares: p2.shares ?? PULSE_SHARES,
+        distanceShares: p2.distanceShares ?? PULSE_DISTANCE_SHARES
+      });
+      from = p2.to;
+    }
+    this._segments = segs;
+    return segs;
+  }
+  pathAt(time3) {
+    const segs = this.segments();
+    if (segs.length === 0)
+      return { x: this.x.value, y: this.y.value, z: this.z.value };
+    let pos = segs[0].from;
+    for (const seg of segs) {
+      if (time3 <= seg.start)
+        return pos;
+      if (time3 < seg.end) {
+        const u2 = (time3 - seg.start) / (seg.end - seg.start);
+        return lerp3(seg.from, seg.to, pulseDistance(u2, seg.shares, seg.distanceShares));
+      }
+      pos = seg.to;
+    }
+    return pos;
+  }
+  headingAt(time3) {
+    const segs = this.segments();
+    if (segs.length === 0)
+      return forwardFor(this.h.value, this.p.value, this.b.value);
+    let dir = segs[0].headingDir;
+    for (let i2 = 0;i2 < segs.length; i2++) {
+      const seg = segs[i2];
+      if (time3 <= seg.start)
+        return dir;
+      if (time3 < seg.end) {
+        const u2 = (time3 - seg.start) / (seg.end - seg.start);
+        return normDir(lerp3(dir, seg.headingDir, ease("smooth", u2)), seg.headingDir);
+      }
+      dir = seg.headingDir;
+    }
+    return dir;
+  }
+  foldAt(time3) {
+    for (const seg of this.segments()) {
+      if (time3 >= seg.start && time3 < seg.end) {
+        return pulseFold((time3 - seg.start) / (seg.end - seg.start), seg.shares);
+      }
+    }
+    return 1;
+  }
+  compose() {
+    if (!this.journey || this.journey.pulses.length === 0)
+      return;
+    this.x.follow(derive(() => this.pathAt(this.clock.value).x));
+    this.y.follow(derive(() => this.pathAt(this.clock.value).y));
+    this.z.follow(derive(() => this.pathAt(this.clock.value).z));
+    this.h.follow(derive(() => headingFor(this.headingAt(this.clock.value)).h));
+    this.p.follow(derive(() => headingFor(this.headingAt(this.clock.value)).p));
+    this.fold.follow(derive(() => this.foldAt(this.clock.value)));
+    this.cable.trail((t2) => this.pathAt(t2), { since: 0 });
+  }
+  thrustPulse(distance3 = 100, shares = PULSE_SHARES) {
+    const STEPS = 60;
+    const dir = forwardFor(this.h.value, this.p.value, this.b.value);
+    const x0 = this.x.value;
+    const y0 = this.y.value;
+    const z0 = this.z.value;
+    const folds = [];
+    const xs = [];
+    const ys = [];
+    const zs = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const u2 = k2 / STEPS;
+      folds.push(pulseFold(u2, shares));
+      const d2 = distance3 * pulseDistance(u2, shares);
+      xs.push(x0 + dir.x * d2);
+      ys.push(y0 + dir.y * d2);
+      zs.push(z0 + dir.z * d2);
+    }
+    return eased("linear", together(this.fold.sequence(...folds), this.x.sequence(...xs), this.y.sequence(...ys), this.z.sequence(...zs)));
+  }
+  wrap(completion2 = -1) {
+    return this.fold.to(completion2);
+  }
+}
+// src/geometry/journey.ts
+var add5 = (a2, b2) => ({ x: a2.x + b2.x, y: a2.y + b2.y, z: a2.z + b2.z });
+var sub5 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var mul5 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var len2 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var normalize5 = (v2, fallback = { x: 0, y: 0, z: 1 }) => {
+  const l2 = len2(v2);
+  return l2 < EPSILON3 ? fallback : mul5(v2, 1 / l2);
+};
+var EPSILON3 = 0.001;
+var DISTANCE_PER_THRUST = 350;
+var ARRIVAL_FACTOR = 0.25;
+var ARC_LUT_SAMPLES = 100;
+var TRAVEL_END = 0.85;
+var THRUST_END = 0.8;
+var THRUST_TRAVEL = 0.8;
+var PULSE_OPEN_TIME = 0.3;
+var PULSE_THRUST_TIME = 0.2;
+var PULSE_OPEN_DISTANCE = 0.1;
+var PULSE_THRUST_DISTANCE = 0.55;
+var PULSE_GLIDE_DISTANCE = 0.35;
+var PULSE_MIN_FOLD2 = 0.1;
+var BRICK_SETTLE_TIME = 0.3;
+var BRICK_SETTLE_DISTANCE = 0.15;
+var BRICK_FOLD_END = 0.75;
+var TRANSITION_WIDTH = 0.15;
+var SCALE_POP_END = 0.05;
+var SCALE_POP_VALUE = 0.2;
+var SCALE_CRUISE_END = 0.65;
+var SCALE_CRUISE_VALUE = 0.35;
+var SCALE_RAMP_END = 0.75;
+var SCALE_RAMP_VALUE = 0.75;
+var clamp013 = (v2) => v2 < 0 ? 0 : v2 > 1 ? 1 : v2;
+var smoothstep6 = (t2) => t2 * t2 * (3 - 2 * t2);
+var easeOut = (t2) => 1 - (1 - t2) * (1 - t2);
+var bezierPoint = (path, t2) => {
+  const u2 = 1 - t2;
+  const { p0, p1, p2, p3 } = path;
+  return add5(add5(mul5(p0, u2 * u2 * u2), mul5(p1, 3 * u2 * u2 * t2)), add5(mul5(p2, 3 * u2 * t2 * t2), mul5(p3, t2 * t2 * t2)));
+};
+var bezierTangent = (path, t2) => {
+  const u2 = 1 - t2;
+  const { p0, p1, p2, p3 } = path;
+  return add5(add5(mul5(sub5(p1, p0), 3 * u2 * u2), mul5(sub5(p2, p1), 6 * u2 * t2)), mul5(sub5(p3, p2), 3 * t2 * t2));
+};
+var buildBezierPath = (e2) => {
+  const { spawn, slot } = e2;
+  const direction = sub5(slot, spawn);
+  const distance3 = len2(direction);
+  if (distance3 < EPSILON3)
+    return { p0: spawn, p1: spawn, p2: slot, p3: slot };
+  const arrival = e2.arrivalFactor ?? ARRIVAL_FACTOR;
+  const p1 = e2.spawnDir && len2(e2.spawnDir) > EPSILON3 ? add5(spawn, e2.spawnDir) : add5(spawn, mul5(normalize5(direction), distance3 * 0.33));
+  const p2 = e2.slotNormal && len2(e2.slotNormal) > EPSILON3 ? add5(slot, mul5(e2.slotNormal, distance3 * arrival)) : add5(slot, mul5({ x: -1, y: 0, z: 0 }, distance3 * arrival));
+  return { p0: spawn, p1, p2, p3: slot };
+};
+var buildArcLut = (path, samples = ARC_LUT_SAMPLES) => {
+  const positions = [];
+  for (let i2 = 0;i2 <= samples; i2++)
+    positions.push(bezierPoint(path, i2 / samples));
+  const cumulative = [0];
+  for (let i2 = 1;i2 < positions.length; i2++) {
+    cumulative.push(cumulative[i2 - 1] + len2(sub5(positions[i2], positions[i2 - 1])));
+  }
+  return { path, cumulative, totalLength: cumulative[cumulative.length - 1], samples };
+};
+var arcLengthToT = (lut2, s2) => {
+  if (s2 <= 0)
+    return 0;
+  if (s2 >= 1)
+    return 1;
+  const { cumulative, totalLength, samples } = lut2;
+  const target = s2 * totalLength;
+  let lo = 0;
+  let hi = cumulative.length - 1;
+  while (lo < hi - 1) {
+    const mid = lo + hi >> 1;
+    if (cumulative[mid] < target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const seg = cumulative[hi] - cumulative[lo];
+  const frac = seg > 0 ? (target - cumulative[lo]) / seg : 0;
+  return (lo + frac) / samples;
+};
+var pulseCountFor = (pathLength, distancePerThrust = DISTANCE_PER_THRUST) => Math.max(1, Math.round(pathLength / distancePerThrust));
+var travelToSplinePosition = (t2, numPulses) => {
+  if (t2 <= 0)
+    return 0;
+  if (t2 >= 1)
+    return 1;
+  if (t2 <= THRUST_END) {
+    const pulseSpan = THRUST_END / numPulses;
+    const pulseIdx = Math.min(Math.floor(t2 / pulseSpan), numPulses - 1);
+    const localT = (t2 - pulseIdx * pulseSpan) / pulseSpan;
+    const distPerPulse = THRUST_TRAVEL / numPulses;
+    const pulseBase = pulseIdx * distPerPulse;
+    if (localT <= PULSE_OPEN_TIME) {
+      return pulseBase + localT / PULSE_OPEN_TIME * PULSE_OPEN_DISTANCE * distPerPulse;
+    }
+    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
+      const progress3 = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
+      return pulseBase + (PULSE_OPEN_DISTANCE + progress3 * PULSE_THRUST_DISTANCE) * distPerPulse;
+    }
+    const progress2 = (localT - PULSE_OPEN_TIME - PULSE_THRUST_TIME) / (1 - PULSE_OPEN_TIME - PULSE_THRUST_TIME);
+    return pulseBase + (PULSE_OPEN_DISTANCE + PULSE_THRUST_DISTANCE + progress2 * PULSE_GLIDE_DISTANCE) * distPerPulse;
+  }
+  const brickT = (t2 - THRUST_END) / (1 - THRUST_END);
+  const remaining = 1 - THRUST_TRAVEL;
+  if (brickT <= BRICK_SETTLE_TIME) {
+    return THRUST_TRAVEL + brickT / BRICK_SETTLE_TIME * remaining * BRICK_SETTLE_DISTANCE;
+  }
+  const progress = (brickT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME);
+  return THRUST_TRAVEL + remaining * BRICK_SETTLE_DISTANCE + progress * remaining * (1 - BRICK_SETTLE_DISTANCE);
+};
+var travelToFold = (t2, numPulses) => {
+  if (t2 <= 0)
+    return 1;
+  if (t2 >= 1)
+    return -1;
+  if (t2 <= THRUST_END) {
+    const pulseSpan = THRUST_END / numPulses;
+    const localT = t2 % pulseSpan / pulseSpan;
+    if (localT <= PULSE_OPEN_TIME) {
+      return 1 - localT / PULSE_OPEN_TIME * (1 - PULSE_MIN_FOLD2);
+    }
+    if (localT <= PULSE_OPEN_TIME + PULSE_THRUST_TIME) {
+      const progress = (localT - PULSE_OPEN_TIME) / PULSE_THRUST_TIME;
+      return PULSE_MIN_FOLD2 + progress * (1 - PULSE_MIN_FOLD2);
+    }
+    return 1;
+  }
+  const brickT = (t2 - THRUST_END) / (1 - THRUST_END);
+  const foldT = Math.min(brickT / BRICK_FOLD_END, 1);
+  if (foldT <= BRICK_SETTLE_TIME) {
+    return 1 - foldT / BRICK_SETTLE_TIME * (1 - PULSE_MIN_FOLD2);
+  }
+  if (foldT < 1) {
+    return PULSE_MIN_FOLD2 - (foldT - BRICK_SETTLE_TIME) / (1 - BRICK_SETTLE_TIME) * (PULSE_MIN_FOLD2 + 1);
+  }
+  return -1;
+};
+var completionToTravel = (completion2) => {
+  if (completion2 <= 0)
+    return 0;
+  if (completion2 >= TRAVEL_END)
+    return 1;
+  return easeOut(completion2 / TRAVEL_END);
+};
+var completionToScale = (completion2) => {
+  if (completion2 <= 0)
+    return 0;
+  if (completion2 >= 1)
+    return 1;
+  if (completion2 <= SCALE_POP_END) {
+    return SCALE_POP_VALUE * easeOut(completion2 / SCALE_POP_END);
+  }
+  if (completion2 <= SCALE_CRUISE_END) {
+    const t3 = (completion2 - SCALE_POP_END) / (SCALE_CRUISE_END - SCALE_POP_END);
+    return SCALE_POP_VALUE + (SCALE_CRUISE_VALUE - SCALE_POP_VALUE) * t3;
+  }
+  if (completion2 <= SCALE_RAMP_END) {
+    const t3 = (completion2 - SCALE_CRUISE_END) / (SCALE_RAMP_END - SCALE_CRUISE_END);
+    return SCALE_CRUISE_VALUE + (SCALE_RAMP_VALUE - SCALE_CRUISE_VALUE) * smoothstep6(t3);
+  }
+  const t2 = (completion2 - SCALE_RAMP_END) / (1 - SCALE_RAMP_END);
+  return SCALE_RAMP_VALUE + (1 - SCALE_RAMP_VALUE) * easeOut(t2);
+};
+var completionOf = (growth, slot, config) => {
+  const { rowCount, rowLength, rowLag } = config;
+  const width = config.transitionWidth ?? TRANSITION_WIDTH;
+  const brickWidthT = 1 / Math.max(rowLength - 1, 1);
+  const rowDelay = slot.row * rowLag * brickWidthT;
+  const totalRowLag = (rowCount - 1) * rowLag * brickWidthT;
+  const seal = config.sealAtOne ?? true ? width : 0;
+  const effectiveGrowth = growth * (1 + totalRowLag + seal);
+  const localProgress = effectiveGrowth - slot.splineT - rowDelay;
+  return smoothstep6(clamp013(localProgress / width));
+};
+var buildJourney = (endpoints, opts = {}) => {
+  const lut2 = buildArcLut(buildBezierPath(endpoints), opts.samples ?? ARC_LUT_SAMPLES);
+  return {
+    lut: lut2,
+    numPulses: pulseCountFor(lut2.totalLength, opts.distancePerThrust ?? DISTANCE_PER_THRUST)
+  };
+};
+var journeyState = (completion2, journey) => {
+  const c2 = clamp013(completion2);
+  const travel = completionToTravel(c2);
+  const splineS = travelToSplinePosition(travel, journey.numPulses);
+  const fold = travelToFold(travel, journey.numPulses);
+  const t2 = arcLengthToT(journey.lut, splineS);
+  const position = bezierPoint(journey.lut.path, t2);
+  const tangent = bezierTangent(journey.lut.path, t2);
+  const forward = normalize5(tangent, { x: 0, y: 0, z: -1 });
+  return {
+    position,
+    heading: mul5(forward, -1),
+    fold,
+    scale: completionToScale(c2),
+    splineS
+  };
+};
+
+// src/geometry/packing.ts
+var sub6 = (a2, b2) => ({ x: a2.x - b2.x, z: a2.z - b2.z });
+var add6 = (a2, b2) => ({ x: a2.x + b2.x, z: a2.z + b2.z });
+var mul6 = (a2, k2) => ({ x: a2.x * k2, z: a2.z * k2 });
+var length6 = (a2) => Math.hypot(a2.x, a2.z);
+var normalize6 = (v2) => {
+  const l2 = length6(v2);
+  return l2 < 0.000000001 ? { x: 0, z: 1 } : { x: v2.x / l2, z: v2.z / l2 };
+};
+var buildFootprint = (points, closed = true) => {
+  const pts = closed && points.length > 1 ? [...points, points[0]] : [...points];
+  const cumulative = [0];
+  for (let i2 = 1;i2 < pts.length; i2++) {
+    cumulative.push(cumulative[i2 - 1] + length6(sub6(pts[i2], pts[i2 - 1])));
+  }
+  return { points: pts, cumulative, totalLength: cumulative[cumulative.length - 1], closed };
+};
+var MIN_TOTAL_LENGTH = 0.001;
+var sampleFootprint = (fp, t2) => {
+  if (fp.totalLength < MIN_TOTAL_LENGTH) {
+    return { position: fp.points[0] ?? { x: 0, z: 0 }, tangent: { x: 0, z: 1 } };
+  }
+  const clamped = t2 < 0 ? 0 : t2 > 1 ? 1 : t2;
+  const target = clamped * fp.totalLength;
+  let lo = 0;
+  let hi = fp.cumulative.length - 1;
+  while (lo < hi - 1) {
+    const mid = lo + hi >> 1;
+    if (fp.cumulative[mid] < target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const segLen = fp.cumulative[hi] - fp.cumulative[lo];
+  const frac = segLen > 0 ? (target - fp.cumulative[lo]) / segLen : 0;
+  const a2 = fp.points[lo];
+  const b2 = fp.points[hi];
+  return {
+    position: add6(a2, mul6(sub6(b2, a2), frac)),
+    tangent: segLen > 0 ? normalize6(sub6(b2, a2)) : { x: 0, z: 1 }
+  };
+};
+var normalAt = (tangent) => normalize6({ x: -tangent.z, z: tangent.x });
+var squareAt = (fp, t2, brickSize) => {
+  const { position, tangent } = sampleFootprint(fp, t2);
+  const normal2 = normalAt(tangent);
+  const half = brickSize / 2;
+  const ht2 = mul6(tangent, half);
+  const hn = mul6(normal2, half);
+  return {
+    center: position,
+    corners: [
+      sub6(sub6(position, ht2), hn),
+      sub6(add6(position, ht2), hn),
+      add6(add6(position, ht2), hn),
+      add6(sub6(position, ht2), hn)
+    ]
+  };
+};
+var projectOnto = (corners, axis) => {
+  let min5 = Infinity;
+  let max5 = -Infinity;
+  for (const c2 of corners) {
+    const d2 = c2.x * axis.x + c2.z * axis.z;
+    if (d2 < min5)
+      min5 = d2;
+    if (d2 > max5)
+      max5 = d2;
+  }
+  return { min: min5, max: max5 };
+};
+var MIN_AXIS_LENGTH = 0.0001;
+var CONTACT_SLOP = 0.01;
+var squaresOverlap = (a2, b2) => {
+  for (const corners of [a2, b2]) {
+    for (let i2 = 0;i2 < 2; i2++) {
+      const edge = sub6(corners[(i2 + 1) % 4], corners[i2]);
+      const axis = { x: -edge.z, z: edge.x };
+      const l2 = length6(axis);
+      if (l2 < MIN_AXIS_LENGTH)
+        continue;
+      const unit = mul6(axis, 1 / l2);
+      const pa = projectOnto(a2, unit);
+      const pb = projectOnto(b2, unit);
+      if (pa.max <= pb.min + CONTACT_SLOP || pb.max <= pa.min + CONTACT_SLOP)
+        return false;
+    }
+  }
+  return true;
+};
+var MIN_ARC_RATIO = 0.3;
+var MAX_ARC_RATIO = 3;
+var BISECTION_TOLERANCE = 0.0001;
+var MAX_ITERATIONS = 50;
+var MAX_BRACKET_EXPANSIONS = 10;
+var findNextBrickT = (fp, brickSize, prevT, prevCorners) => {
+  const total = fp.totalLength;
+  let tLo = prevT + brickSize * MIN_ARC_RATIO / total;
+  let tHi = Math.min(prevT + brickSize * MAX_ARC_RATIO / total, 1);
+  if (tLo >= 1)
+    return;
+  let overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
+  if (!overlapsLo) {
+    tHi = tLo;
+    tLo = prevT + BISECTION_TOLERANCE / total;
+    overlapsLo = squaresOverlap(prevCorners, squareAt(fp, tLo, brickSize).corners);
+    if (!overlapsLo)
+      return tHi;
+  }
+  if (squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
+    let cleared = false;
+    for (let i2 = 0;i2 < MAX_BRACKET_EXPANSIONS; i2++) {
+      tHi = Math.min(tHi + brickSize / total, 1);
+      if (!squaresOverlap(prevCorners, squareAt(fp, tHi, brickSize).corners)) {
+        cleared = true;
+        break;
+      }
+    }
+    if (!cleared)
+      return;
+  }
+  for (let i2 = 0;i2 < MAX_ITERATIONS; i2++) {
+    const tMid = (tLo + tHi) / 2;
+    if (squaresOverlap(prevCorners, squareAt(fp, tMid, brickSize).corners))
+      tLo = tMid;
+    else
+      tHi = tMid;
+    if ((tHi - tLo) * total < BISECTION_TOLERANCE)
+      break;
+  }
+  return tHi;
+};
+var WRAP_CHECK_T = 0.9;
+var packFootprint = (fp, brickSize) => {
+  if (fp.totalLength < MIN_TOTAL_LENGTH)
+    return [0];
+  const ts = [0];
+  const firstCorners = squareAt(fp, 0, brickSize).corners;
+  for (;; ) {
+    const prevT = ts[ts.length - 1];
+    const prevCorners = squareAt(fp, prevT, brickSize).corners;
+    const nextT = findNextBrickT(fp, brickSize, prevT, prevCorners);
+    if (nextT === undefined || nextT >= 1)
+      break;
+    if (fp.closed && nextT > WRAP_CHECK_T) {
+      if (squaresOverlap(squareAt(fp, nextT, brickSize).corners, firstCorners))
+        break;
+    }
+    ts.push(nextT);
+  }
+  return ts;
+};
+var packSlots = (fp, config) => {
+  const { brickSize, rowCount } = config;
+  const originOffset = config.originOffset ?? brickSize / 2;
+  const ts = packFootprint(fp, brickSize);
+  const slots = [];
+  for (let row = 0;row < rowCount; row++) {
+    for (let column = 0;column < ts.length; column++) {
+      const t2 = ts[column];
+      const { position, tangent } = sampleFootprint(fp, t2);
+      const normal2 = normalAt(tangent);
+      slots.push({
+        t: t2,
+        position: add6(position, mul6(normal2, originOffset)),
+        normal: normal2,
+        tangent,
+        row,
+        column
+      });
+    }
+  }
+  return { ts, slots, rowLength: ts.length, footprint: fp };
+};
+var rowHeight = (row, rowCount, spacing) => (row - (rowCount - 1) / 2) * spacing;
+var FOOTPRINT_SAMPLES = 360;
+var reflectedZ = (footprint) => {
+  const raw = footprint.closed ? footprint.points.slice(0, -1) : footprint.points;
+  return buildFootprint(raw.map((p2) => ({ x: p2.x, z: -p2.z })), footprint.closed);
+};
+var circleFootprint = (radius, samples = FOOTPRINT_SAMPLES) => {
+  const points = [];
+  for (let i2 = 0;i2 < samples; i2++) {
+    const a2 = i2 / samples * Math.PI * 2;
+    points.push({ x: Math.cos(a2) * radius, z: Math.sin(a2) * radius });
+  }
+  return buildFootprint(points, true);
+};
+var flowerFootprint = (config) => {
+  const { innerRadius, outerRadius, petals } = config;
+  const samples = config.samples ?? FOOTPRINT_SAMPLES;
+  const mid = (outerRadius + innerRadius) / 2;
+  const amp = (outerRadius - innerRadius) / 2;
+  const points = [];
+  for (let i2 = 0;i2 < samples; i2++) {
+    const a2 = i2 / samples * Math.PI * 2;
+    const r2 = mid + amp * Math.cos(petals * a2);
+    points.push({ x: Math.cos(a2) * r2, z: Math.sin(a2) * r2 });
+  }
+  return buildFootprint(points, true);
+};
+
+// vocabulary/TheWall/TheWall.ts
+var WALL_ROW_LAG = 1.66;
+var WALL_ROW_HEIGHT = 100;
+var WALL_BRICK_SIZE = 100;
+
+class TheWall extends Holon {
+  static sovereign = true;
+  growth = scalar(0);
+  rowCount = integer(4);
+  rowHeight = length3(WALL_ROW_HEIGHT);
+  brickSize = length3(WALL_BRICK_SIZE);
+  rowLag = scalar(WALL_ROW_LAG);
+  cables = bool3(false);
+  sealAtOne = bool3(true);
+  cableDuration = scalar(500 / 30);
+  cableFps = scalar(30);
+  cableSlack = scalar(CABLE_SLACK);
+  cableWidth = scalar(2);
+  growthAt = (time3) => Math.min(Math.max(time3 / this.cableDuration.value, 0), 1);
+  spawn = { x: 0, y: 0, z: 0 };
+  spawnDirection = { x: 0, y: 500, z: 0 };
+  footprint = circleFootprint(1000);
+  tint = BLUE;
+  placements = [];
+  packing;
+  get layout() {
+    this.parts;
+    if (!this.packing)
+      throw new Error("TheWall: layout unavailable before compose");
+    return this.packing;
+  }
+  get rowLength() {
+    return this.layout.rowLength;
+  }
+  get virusCount() {
+    return this.layout.slots.length;
+  }
+  compose() {
+    const rowCount = this.rowCount.value;
+    const brickSize = this.brickSize.value;
+    const spacing = this.rowHeight.value;
+    const packing2 = packSlots(this.footprint, { brickSize, rowCount });
+    this.packing = packing2;
+    for (const slot of packing2.slots) {
+      const slotPos = {
+        x: slot.position.x,
+        y: rowHeight(slot.row, rowCount, spacing),
+        z: slot.position.z
+      };
+      const journey = buildJourney({
+        spawn: this.spawn,
+        slot: slotPos,
+        spawnDir: this.spawnDirection,
+        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z }
+      });
+      const virus = this.add(new MindVirus);
+      virus.cube.size.defaultValue = brickSize;
+      virus.cube.size.value = brickSize;
+      if (!this.cables.value)
+        virus.cable.maxRings = 0;
+      this.placements.push({ slot, journey, virus });
+      this.drive(virus, slot, journey);
+    }
+    if (this.cables.value)
+      this.unfoldCables();
+  }
+  unfoldCables() {
+    const duration = this.cableDuration.value;
+    const fps = this.cableFps.value;
+    const brickSize = this.brickSize.value;
+    const started = performance.now();
+    let bytes = 0;
+    const hits = [];
+    for (const { slot, journey, virus } of this.placements) {
+      virus.cable.maxRings = 0;
+      virus.cable.rings.value = false;
+      virus.cable.width.value = this.cableWidth.value;
+      virus.cable.clock.follow(derive(() => this.cableClock()));
+      const opts = this.tetherOptions(slot, journey, duration, fps, brickSize);
+      const hash3 = bakeHash(opts.key, fps, duration, CABLE_PARTICLES * 3);
+      const warm = this.warmed.get(hash3);
+      const stored = virus.cable.tether(this.spawn, (time3) => this.tipAt(time3, slot, journey), opts, warm);
+      if (!warm && this.warmCache) {
+        if (stored)
+          hits.push([hash3, stored]);
+      } else if (warm) {
+        this.cableCacheHits++;
+      }
+      bytes += virus.cable.bakedBytes;
+    }
+    this.cableBakeMs = performance.now() - started;
+    this.cableBakeBytes = bytes;
+    const cache3 = this.warmCache;
+    if (cache3 && hits.length > 0) {
+      (async () => {
+        for (const [hash3, track] of hits) {
+          try {
+            await cache3.put(hash3, encodeTrack(track));
+          } catch {}
+        }
+      })();
+    }
+  }
+  cableCacheHits = 0;
+  tetherOptions(slot, journey, duration, fps, brickSize) {
+    return {
+      duration,
+      bakeFps: fps,
+      slack: this.cableSlack.value,
+      anchorDir: this.spawnDirection,
+      cubeSize: brickSize,
+      key: this.cableKey(slot, journey, duration, fps, brickSize)
+    };
+  }
+  cableKey(slot, journey, duration, fps, brickSize) {
+    const SAMPLES = 64;
+    const path = [];
+    for (let i2 = 0;i2 < SAMPLES; i2++) {
+      const t2 = i2 / (SAMPLES - 1) * duration;
+      const tip = this.tipAt(t2, slot, journey);
+      path.push(tip.position.x, tip.position.y, tip.position.z, tip.direction.x, tip.direction.y, tip.direction.z, tip.fold, tip.scale, tip.completion, tip.travelled);
+    }
+    return {
+      holon: "TheWall.cable",
+      duration,
+      fps,
+      brickSize,
+      slack: this.cableSlack.value,
+      particles: CABLE_PARTICLES,
+      anchor: [this.spawn.x, this.spawn.y, this.spawn.z],
+      anchorDir: this.spawnDirection ? [this.spawnDirection.x, this.spawnDirection.y, this.spawnDirection.z] : null,
+      path
+    };
+  }
+  async warmCables(cache3) {
+    const duration = this.cableDuration.value;
+    const fps = this.cableFps.value;
+    const brickSize = this.brickSize.value;
+    const packing2 = packSlots(this.footprint, {
+      brickSize,
+      rowCount: this.rowCount.value
+    });
+    this.packing = packing2;
+    const spacing = this.rowHeight.value;
+    const rowCountValue = this.rowCount.value;
+    let hits = 0;
+    for (const slot of packing2.slots) {
+      const slotPos = {
+        x: slot.position.x,
+        y: rowHeight(slot.row, rowCountValue, spacing),
+        z: slot.position.z
+      };
+      const journey = buildJourney({
+        spawn: this.spawn,
+        slot: slotPos,
+        spawnDir: this.spawnDirection,
+        slotNormal: { x: slot.normal.x, y: 0, z: slot.normal.z }
+      });
+      const key = this.cableKey(slot, journey, duration, fps, brickSize);
+      const hash3 = bakeHash(key, fps, duration, CABLE_PARTICLES * 3);
+      try {
+        const bytes = await cache3.get(hash3);
+        if (bytes) {
+          const track = decodeTrack(bytes, {
+            frames: Math.max(1, Math.round(duration * fps) + 1),
+            width: CABLE_PARTICLES * 3
+          });
+          if (track) {
+            this.warmed.set(hash3, track);
+            hits++;
+          }
+        }
+      } catch {}
+    }
+    this.warmCache = cache3;
+    return { hits, total: packing2.slots.length };
+  }
+  warmed = new Map;
+  warmCache;
+  cableBakeMs = 0;
+  cableBakeBytes = 0;
+  cableClock() {
+    const target = this.growth.value;
+    const duration = this.cableDuration.value;
+    let lo = 0;
+    let hi = duration;
+    if (this.growthAt(hi) <= target)
+      return hi;
+    if (this.growthAt(lo) >= target)
+      return lo;
+    for (let i2 = 0;i2 < 40; i2++) {
+      const mid = (lo + hi) / 2;
+      if (this.growthAt(mid) < target)
+        lo = mid;
+      else
+        hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+  tipAt(time3, slot, journey) {
+    const growth = this.growthAt(time3);
+    const completion2 = completionOf(growth, { splineT: slot.t, row: slot.row }, {
+      rowCount: this.rowCount.value,
+      rowLength: this.packing?.rowLength ?? 1,
+      rowLag: this.rowLag.value,
+      sealAtOne: this.sealAtOne.value
+    });
+    const s2 = journeyState(completion2, journey);
+    const { h: h2, p: p2 } = headingFor(s2.heading);
+    return {
+      position: s2.position,
+      direction: s2.heading,
+      frame: {
+        vx: rotHPB({ x: 1, y: 0, z: 0 }, p2, h2, 0),
+        vy: rotHPB({ x: 0, y: 1, z: 0 }, p2, h2, 0),
+        vz: rotHPB({ x: 0, y: 0, z: 1 }, p2, h2, 0)
+      },
+      fold: s2.fold,
+      scale: s2.scale,
+      completion: completion2,
+      travelled: s2.splineS * journey.lut.totalLength
+    };
+  }
+  completionAt(slot) {
+    return completionOf(this.growth.value, { splineT: slot.t, row: slot.row }, {
+      rowCount: this.rowCount.value,
+      rowLength: this.packing?.rowLength ?? 1,
+      rowLag: this.rowLag.value,
+      sealAtOne: this.sealAtOne.value
+    });
+  }
+  drive(virus, slot, journey) {
+    let cachedGrowth = NaN;
+    let cached;
+    const state2 = () => {
+      const growth = this.growth.value;
+      if (growth !== cachedGrowth || cached === undefined) {
+        cachedGrowth = growth;
+        cached = journeyState(this.completionAt(slot), journey);
+      }
+      return cached;
+    };
+    const read = (fn) => derive(() => fn(state2()));
+    virus.x.follow(read((s2) => s2.position.x));
+    virus.y.follow(read((s2) => s2.position.y));
+    virus.z.follow(read((s2) => s2.position.z));
+    virus.h.follow(read((s2) => headingFor(s2.heading).h));
+    virus.p.follow(read((s2) => headingFor(s2.heading).p));
+    virus.fold.follow(read((s2) => s2.fold));
+    virus.scale.follow(read((s2) => s2.scale));
+  }
+  get slots() {
+    return this.layout.slots;
+  }
+}
+// src/geometry/labyrinth.ts
+var ARC_SEGMENTS = 8;
+var CELL_WIDTH_LIMIT = 2;
+var MIN_BASE_CELLS = 3;
+var TOLERANCE_RATIO = 0.01;
+var mulberry32 = (seed) => {
+  let a2 = seed >>> 0;
+  return () => {
+    a2 = a2 + 1831565813 | 0;
+    let t2 = Math.imul(a2 ^ a2 >>> 15, 1 | a2);
+    t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2;
+    return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
+  };
+};
+var ringLayout = (radius, citadelRadius, targetCellSize) => {
+  const span = radius - citadelRadius;
+  const ringCount = Math.max(1, Math.round(span / targetCellSize));
+  const ringThickness = span / ringCount;
+  const baseMidRadius = citadelRadius + ringThickness / 2;
+  const baseCells = Math.max(MIN_BASE_CELLS, Math.ceil(2 * Math.PI * baseMidRadius / (CELL_WIDTH_LIMIT * ringThickness)));
+  const cellsPerRing = [baseCells];
+  for (let r2 = 1;r2 < ringCount; r2++) {
+    const midRadius = citadelRadius + (r2 + 0.5) * ringThickness;
+    const arcPerCell = 2 * Math.PI * midRadius / cellsPerRing[r2 - 1];
+    cellsPerRing.push(arcPerCell > CELL_WIDTH_LIMIT * ringThickness ? cellsPerRing[r2 - 1] * 2 : cellsPerRing[r2 - 1]);
+  }
+  const radii = [];
+  for (let i2 = 0;i2 <= ringCount; i2++)
+    radii.push(citadelRadius + span * i2 / ringCount);
+  const cellCount = cellsPerRing.reduce((a2, b2) => a2 + b2, 0);
+  return { ringCount, ringThickness, cellsPerRing, radii, cellCount };
+};
+var ringOffsets = (cellsPerRing) => {
+  const offsets = [0];
+  for (const count of cellsPerRing)
+    offsets.push(offsets[offsets.length - 1] + count);
+  return offsets;
+};
+var buildAdjacency = (cellsPerRing) => {
+  const offsets = ringOffsets(cellsPerRing);
+  const id = (r2, c2) => offsets[r2] + c2;
+  const adjacency = [];
+  for (let r2 = 0;r2 < cellsPerRing.length; r2++) {
+    const count = cellsPerRing[r2];
+    for (let c2 = 0;c2 < count; c2++) {
+      const neighbors = [];
+      neighbors.push(id(r2, (c2 + 1) % count));
+      neighbors.push(id(r2, (c2 - 1 + count) % count));
+      if (r2 > 0) {
+        const prevCount = cellsPerRing[r2 - 1];
+        neighbors.push(count === prevCount ? id(r2 - 1, c2) : id(r2 - 1, Math.floor(c2 * prevCount / count)));
+      }
+      if (r2 < cellsPerRing.length - 1) {
+        const nextCount = cellsPerRing[r2 + 1];
+        if (nextCount === count) {
+          neighbors.push(id(r2 + 1, c2));
+        } else {
+          const ratio = nextCount / count;
+          for (let k2 = 0;k2 < ratio; k2++)
+            neighbors.push(id(r2 + 1, c2 * ratio + k2));
+        }
+      }
+      adjacency.push(neighbors);
+    }
+  }
+  return adjacency;
+};
+var passageKey = (a2, b2) => a2 < b2 ? `${a2}|${b2}` : `${b2}|${a2}`;
+var carveMaze = (adjacency, random) => {
+  const passages = new Set;
+  const visited = new Array(adjacency.length).fill(false);
+  const stack3 = [0];
+  visited[0] = true;
+  while (stack3.length > 0) {
+    const current = stack3[stack3.length - 1];
+    const open = adjacency[current].filter((n2) => !visited[n2]);
+    if (open.length > 0) {
+      const next = open[Math.floor(random() * open.length)];
+      passages.add(passageKey(current, next));
+      visited[next] = true;
+      stack3.push(next);
+    } else {
+      stack3.pop();
+    }
+  }
+  return passages;
+};
+var arcPoints = (radius, angleStart, angleEnd) => {
+  const points = [];
+  for (let i2 = 0;i2 <= ARC_SEGMENTS; i2++) {
+    const angle2 = angleStart + (angleEnd - angleStart) * i2 / ARC_SEGMENTS;
+    points.push({ x: radius * Math.cos(angle2), y: radius * Math.sin(angle2) });
+  }
+  return points;
+};
+var extractWallSegments = (layout, passages) => {
+  const { cellsPerRing, radii, ringCount } = layout;
+  const offsets = ringOffsets(cellsPerRing);
+  const id = (r2, c2) => offsets[r2] + c2;
+  const TWO_PI3 = 2 * Math.PI;
+  const segments = [];
+  for (let r2 = 0;r2 < ringCount; r2++) {
+    const count = cellsPerRing[r2];
+    const rInner = radii[r2];
+    const rOuter = radii[r2 + 1];
+    const cellAngle = TWO_PI3 / count;
+    for (let c2 = 0;c2 < count; c2++) {
+      const angleEnd = cellAngle * (c2 + 1);
+      const cell = id(r2, c2);
+      if (r2 < ringCount - 1) {
+        const nextCount = cellsPerRing[r2 + 1];
+        if (nextCount === count) {
+          if (!passages.has(passageKey(cell, id(r2 + 1, c2)))) {
+            segments.push(arcPoints(rOuter, cellAngle * c2, angleEnd));
+          }
+        } else {
+          const ratio = nextCount / count;
+          const childAngle = TWO_PI3 / nextCount;
+          for (let k2 = 0;k2 < ratio; k2++) {
+            const child = c2 * ratio + k2;
+            if (!passages.has(passageKey(cell, id(r2 + 1, child)))) {
+              segments.push(arcPoints(rOuter, childAngle * child, childAngle * (child + 1)));
+            }
+          }
+        }
+      }
+      if (!passages.has(passageKey(cell, id(r2, (c2 + 1) % count)))) {
+        segments.push([
+          { x: rInner * Math.cos(angleEnd), y: rInner * Math.sin(angleEnd) },
+          { x: rOuter * Math.cos(angleEnd), y: rOuter * Math.sin(angleEnd) }
+        ]);
+      }
+    }
+  }
+  return segments;
+};
+var dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y);
+var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
+  const touchesCitadel = (segment) => segment.some((p2) => Math.abs(Math.hypot(p2.x, p2.y) - citadelRadius) < tolerance);
+  const connected = new Set;
+  const remaining = new Set;
+  segments.forEach((segment, i2) => {
+    if (touchesCitadel(segment))
+      connected.add(i2);
+    else
+      remaining.add(i2);
+  });
+  const ends = (i2) => [segments[i2][0], segments[i2][segments[i2].length - 1]];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const i2 of remaining) {
+      const [a0, a1] = ends(i2);
+      let joined = false;
+      for (const j2 of connected) {
+        const [b0, b1] = ends(j2);
+        if (dist(a0, b0) < tolerance || dist(a0, b1) < tolerance || dist(a1, b0) < tolerance || dist(a1, b1) < tolerance) {
+          joined = true;
+          break;
+        }
+      }
+      if (joined) {
+        connected.add(i2);
+        remaining.delete(i2);
+        changed = true;
+      }
+    }
+  }
+  return [...connected].sort((a2, b2) => a2 - b2).map((i2) => segments[i2]);
+};
+var snapKey = (p2, precision) => `${Math.round(p2.x / precision)},${Math.round(p2.y / precision)}`;
+var mergeSegmentsIntoChains = (segments, tolerance) => {
+  const endPoint = (e2) => e2.end === 0 ? segments[e2.seg][0] : segments[e2.seg][segments[e2.seg].length - 1];
+  const junctions = new Map;
+  segments.forEach((_2, seg) => {
+    for (const end of [0, 1]) {
+      const key = snapKey(endPoint({ seg, end }), tolerance);
+      const entries = junctions.get(key);
+      if (entries)
+        entries.push({ seg, end });
+      else
+        junctions.set(key, [{ seg, end }]);
+    }
+  });
+  const partnerOf = (e2) => {
+    const entries = junctions.get(snapKey(endPoint(e2), tolerance));
+    if (entries.length !== 2)
+      return;
+    const other = entries.find((o2) => o2.seg !== e2.seg);
+    return other;
+  };
+  const visited = new Set;
+  const chains = [];
+  for (let start = 0;start < segments.length; start++) {
+    if (visited.has(start))
+      continue;
+    visited.add(start);
+    const forward = [];
+    let cursor = { seg: start, end: 1 };
+    for (;; ) {
+      const partner = partnerOf(cursor);
+      if (!partner || visited.has(partner.seg))
+        break;
+      visited.add(partner.seg);
+      forward.push({ seg: partner.seg, flip: partner.end === 1 });
+      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
+    }
+    const backward = [];
+    cursor = { seg: start, end: 0 };
+    for (;; ) {
+      const partner = partnerOf(cursor);
+      if (!partner || visited.has(partner.seg))
+        break;
+      visited.add(partner.seg);
+      backward.push({ seg: partner.seg, flip: partner.end === 0 });
+      cursor = { seg: partner.seg, end: partner.end === 0 ? 1 : 0 };
+    }
+    backward.reverse();
+    const sequence = [...backward, { seg: start, flip: false }, ...forward];
+    const points = [];
+    sequence.forEach((link, i2) => {
+      const raw = segments[link.seg];
+      const oriented = link.flip ? [...raw].reverse() : raw;
+      points.push(...i2 === 0 ? oriented : oriented.slice(1));
+    });
+    chains.push(points);
+  }
+  return chains;
+};
+var citadelPolyline = (citadelRadius, baseCells) => {
+  const count = ARC_SEGMENTS * baseCells * 2;
+  const points = [];
+  for (let i2 = 0;i2 < count; i2++) {
+    const angle2 = 2 * Math.PI * i2 / count;
+    points.push({ x: citadelRadius * Math.cos(angle2), y: citadelRadius * Math.sin(angle2) });
+  }
+  points.push({ ...points[0] });
+  return points;
+};
+var innermostRadius = (chain) => chain.reduce((min5, p2) => Math.min(min5, Math.hypot(p2.x, p2.y)), Infinity);
+var generateLabyrinth = (config) => {
+  const { radius, citadelRadius, targetCellSize, seed } = config;
+  const tolerance = targetCellSize * TOLERANCE_RATIO;
+  const cells = ringLayout(radius, citadelRadius, targetCellSize);
+  const adjacency = buildAdjacency(cells.cellsPerRing);
+  const passages = carveMaze(adjacency, mulberry32(seed));
+  const segments = extractWallSegments(cells, passages);
+  const connected = filterConnectedToCitadel(segments, citadelRadius, tolerance);
+  const chains = mergeSegmentsIntoChains(connected, tolerance).sort((a2, b2) => innermostRadius(a2) - innermostRadius(b2));
+  const citadel = citadelPolyline(citadelRadius, cells.cellsPerRing[0]);
+  return {
+    chains,
+    citadel,
+    cells,
+    stats: {
+      passageCount: passages.size,
+      wallSegments: segments.length,
+      connectedSegments: connected.length,
+      orphanSegments: segments.length - connected.length,
+      chainCount: chains.length
+    }
+  };
+};
+
+// vocabulary/Labyrinth/Labyrinth.ts
+var CITADEL_WINDOW = 0.25;
+var CHAINS_START = 0.15;
+
+class Labyrinth extends Stroke {
+  static sovereign = true;
+  radius = length3(650);
+  citadelRadius = length3(165);
+  cellSize = length3(40);
+  seed = integer(42);
+  tint = color3(BLUE);
+  chains = [];
+  citadel;
+  maze;
+  compose() {
+    this.maze = generateLabyrinth({
+      radius: this.radius.value,
+      citadelRadius: this.citadelRadius.value,
+      targetCellSize: this.cellSize.value,
+      seed: this.seed.value
+    });
+    this.citadel = this.add(new Circle({ radius: this.citadelRadius, tint: this.tint, stroke: this.stroke }));
+    for (const chain of this.maze.chains) {
+      this.chains.push(this.add(new Line2({
+        points: chain.map((p2) => ({ x: p2.x, y: p2.y, z: 0 })),
+        tint: this.tint,
+        stroke: this.stroke
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    const windows2 = dominoWindows(this.chains.length);
+    const span = 1 - CHAINS_START;
+    const items = [
+      [this.citadel.creation.sequence(0, 1), 0, CITADEL_WINDOW],
+      ...this.chains.map((line, i2) => restage(line.creation.sequence(0, 1), CHAINS_START + windows2[i2][0] * span, CHAINS_START + windows2[i2][1] * span))
+    ];
+    return together(...items);
+  }
+}
+// src/render/ribbon-batch.ts
+var TSL4 = exports_three_tsl;
+var {
+  Fn: Fn5,
+  If: If4,
+  attribute: attribute5,
+  cameraProjectionMatrix: cameraProjectionMatrix5,
+  clamp: clamp7,
+  float: float5,
+  length: length7,
+  max: max5,
+  min: min5,
+  mix: mix5,
+  screenCoordinate: screenCoordinate4,
+  screenDPR: screenDPR4,
+  screenSize: screenSize4,
+  smoothstep: smoothstep7,
+  varyingProperty: varyingProperty5,
+  vec2: vec25,
+  vec3: vec35,
+  vec4: vec45
+} = TSL4;
+var AA_PX2 = 1;
+var vStartPx2 = varyingProperty5("vec2", "dtBatchStartPx");
+var vEndPx2 = varyingProperty5("vec2", "dtBatchEndPx");
+var vDist2 = varyingProperty5("vec2", "dtBatchDist");
+var vWidthPx = varyingProperty5("float", "dtBatchWidthPx");
+var vDrawn = varyingProperty5("float", "dtBatchDrawn");
+var vErased = varyingProperty5("float", "dtBatchErased");
+var vTint = varyingProperty5("vec3", "dtBatchTint");
+var vFade = varyingProperty5("float", "dtBatchFade");
+
+class RibbonBatchMaterial extends NodeMaterial {
+  constructor() {
+    super();
+    this.transparent = true;
+    this.depthWrite = false;
+    this.side = DoubleSide;
+    this.blending = CustomBlending;
+    this.blendEquation = MaxEquation;
+    this.blendSrc = OneFactor;
+    this.blendDst = OneFactor;
+    this.blendEquationAlpha = MaxEquation;
+    this.blendSrcAlpha = OneFactor;
+    this.blendDstAlpha = OneFactor;
+    const widthPx = float5(attribute5("instanceWidthPx"));
+    const drawn = float5(attribute5("instanceDrawn"));
+    const erased = float5(attribute5("instanceErased"));
+    const tint = vec35(attribute5("instanceTint"));
+    const fade = float5(attribute5("instanceFade"));
+    const halfWidth = (w4) => w4.mul(screenDPR4).mul(0.5);
+    const pad = (w4) => halfWidth(w4).add(AA_PX2).add(1);
+    this.vertexNode = Fn5(() => {
+      const corner = attribute5("position").xy;
+      const start = vec45(vec35(attribute5("instanceStart")), 1).toVar();
+      const end = vec45(vec35(attribute5("instanceEnd")), 1).toVar();
+      const distStart = float5(attribute5("instanceDistanceStart")).toVar();
+      const distEnd = float5(attribute5("instanceDistanceEnd")).toVar();
+      const nearAlpha = (from, to) => {
+        const a2 = cameraProjectionMatrix5.element(2).element(2);
+        const b2 = cameraProjectionMatrix5.element(3).element(2);
+        const nearEstimate = a2.greaterThan(0).select(b2.negate().div(a2.add(1)), b2.mul(-0.5).div(a2));
+        return nearEstimate.sub(from.z).div(to.z.sub(from.z));
+      };
+      const perspective = cameraProjectionMatrix5.element(2).element(3).equal(-1);
+      If4(perspective, () => {
+        If4(start.z.lessThan(0).and(end.z.greaterThan(0)), () => {
+          const alpha = nearAlpha(start, end);
+          end.assign(vec45(mix5(start.xyz, end.xyz, alpha), end.w));
+          distEnd.assign(mix5(distStart, distEnd, alpha));
+        }).ElseIf(end.z.lessThan(0).and(start.z.greaterThanEqual(0)), () => {
+          const alpha = nearAlpha(end, start);
+          start.assign(vec45(mix5(end.xyz, start.xyz, alpha), start.w));
+          distStart.assign(mix5(distEnd, distStart, alpha));
+        });
+      });
+      const clipStart = cameraProjectionMatrix5.mul(start);
+      const clipEnd = cameraProjectionMatrix5.mul(end);
+      const ndcStart = clipStart.xyz.div(clipStart.w);
+      const ndcEnd = clipEnd.xyz.div(clipEnd.w);
+      const half = screenSize4.mul(0.5);
+      const startPx = vec25(ndcStart.x.add(1).mul(half.x), float5(1).sub(ndcStart.y).mul(half.y)).toVar();
+      const endPx = vec25(ndcEnd.x.add(1).mul(half.x), float5(1).sub(ndcEnd.y).mul(half.y)).toVar();
+      vStartPx2.assign(startPx);
+      vEndPx2.assign(endPx);
+      vDist2.assign(vec25(distStart, distEnd));
+      vWidthPx.assign(widthPx);
+      vDrawn.assign(drawn);
+      vErased.assign(erased);
+      vTint.assign(tint);
+      vFade.assign(fade);
+      const delta = endPx.sub(startPx);
+      const lenPx = length7(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max5(lenPx, 0.000001)), vec25(1, 0));
+      const perp = vec25(dir.y.negate(), dir.x);
+      const p2 = pad(widthPx);
+      const along = mix5(p2.negate(), lenPx.add(p2), corner.y);
+      const targetPx = startPx.add(dir.mul(along)).add(perp.mul(corner.x.mul(p2)));
+      const clip = corner.y.greaterThan(0.5).select(clipEnd, clipStart).toVar();
+      const targetNdc = vec25(targetPx.x.div(half.x).sub(1), float5(1).sub(targetPx.y.div(half.y)));
+      clip.x.assign(targetNdc.x.mul(clip.w));
+      clip.y.assign(targetNdc.y.mul(clip.w));
+      return clip;
+    })();
+    this.fragmentNode = Fn5(() => {
+      const startPx = vec25(vStartPx2);
+      const endPx = vec25(vEndPx2);
+      const delta = endPx.sub(startPx);
+      const lenPx = length7(delta);
+      const dir = lenPx.greaterThan(0.000001).select(delta.div(max5(lenPx, 0.000001)), vec25(1, 0));
+      const rel = screenCoordinate4.xy.sub(startPx);
+      const u2 = rel.dot(dir);
+      const v2 = rel.x.mul(dir.y).sub(rel.y.mul(dir.x));
+      const distStart = vDist2.x;
+      const distEnd = vDist2.y;
+      const pxPerUnit = lenPx.div(max5(distEnd.sub(distStart), 0.0000001));
+      const uFront = vDrawn.sub(distStart).mul(pxPerUnit).toVar();
+      uFront.lessThan(0).discard();
+      const uTail = vErased.sub(distStart).mul(pxPerUnit).toVar();
+      uTail.greaterThan(lenPx).discard();
+      const uBegin = max5(uTail, 0);
+      const uEnd = max5(min5(lenPx, uFront), uBegin);
+      const d2 = length7(vec25(u2.sub(clamp7(u2, uBegin, uEnd)), v2));
+      const hw = vWidthPx.mul(screenDPR4).mul(0.5);
+      const coverage = smoothstep7(hw.sub(AA_PX2), hw.add(AA_PX2), d2).oneMinus();
+      const a2 = coverage.mul(vFade);
+      return vec45(vTint.mul(a2), a2);
+    })();
+  }
+}
+var shared2;
+var sharedRibbonBatchMaterial = () => shared2 ??= new RibbonBatchMaterial;
+var POS_STRIDE = 6;
+var DIST_STRIDE = 2;
+
+class RibbonBatch {
+  mesh;
+  material;
+  geometry;
+  capacity = 0;
+  cursor = 0;
+  posBuf;
+  distBuf;
+  widthAttr;
+  drawnAttr;
+  erasedAttr;
+  fadeAttr;
+  tintAttr;
+  constructor(initialCapacity = 256) {
+    this.material = sharedRibbonBatchMaterial();
+    this.geometry = new InstancedBufferGeometry;
+    this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
+    this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
+    this.allocate(Math.max(1, initialCapacity));
+    this.geometry.instanceCount = 0;
+    this.mesh = new Mesh(this.geometry, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+  allocate(segments) {
+    const old = this.capacity;
+    const cap = Math.max(1, segments);
+    const pos = new Float32Array(cap * POS_STRIDE);
+    const dist2 = new Float32Array(cap * DIST_STRIDE);
+    const width = new Float32Array(cap);
+    const drawn = new Float32Array(cap);
+    const erased = new Float32Array(cap);
+    const fade = new Float32Array(cap);
+    const tint = new Float32Array(cap * 3);
+    if (old > 0) {
+      pos.set(this.posBuf.array);
+      dist2.set(this.distBuf.array);
+      width.set(this.widthAttr.array);
+      drawn.set(this.drawnAttr.array);
+      erased.set(this.erasedAttr.array);
+      fade.set(this.fadeAttr.array);
+      tint.set(this.tintAttr.array);
+    }
+    this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
+    this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
+    this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(this.posBuf, 3, 3));
+    this.distBuf = new InstancedInterleavedBuffer(dist2, DIST_STRIDE, 1);
+    this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
+    this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
+    this.widthAttr = new InstancedBufferAttribute(width, 1);
+    this.drawnAttr = new InstancedBufferAttribute(drawn, 1);
+    this.erasedAttr = new InstancedBufferAttribute(erased, 1);
+    this.fadeAttr = new InstancedBufferAttribute(fade, 1);
+    this.tintAttr = new InstancedBufferAttribute(tint, 3);
+    this.geometry.setAttribute("instanceWidthPx", this.widthAttr);
+    this.geometry.setAttribute("instanceDrawn", this.drawnAttr);
+    this.geometry.setAttribute("instanceErased", this.erasedAttr);
+    this.geometry.setAttribute("instanceFade", this.fadeAttr);
+    this.geometry.setAttribute("instanceTint", this.tintAttr);
+    this.capacity = cap;
+  }
+  reserve(maxSegments) {
+    const cap = Math.max(1, maxSegments);
+    const offset = this.cursor;
+    this.cursor += cap;
+    if (this.cursor > this.capacity) {
+      this.allocate(1 << Math.ceil(Math.log2(this.cursor)));
+    }
+    for (let i2 = offset;i2 < offset + cap; i2++)
+      this.fadeAttr.array[i2] = 0;
+    this.fadeAttr.needsUpdate = true;
+    if (offset + cap > this.geometry.instanceCount)
+      this.geometry.instanceCount = offset + cap;
+    this.mesh.visible = this.geometry.instanceCount > 0;
+    return { offset, maxSegments: cap, count: 0 };
+  }
+  relocate(slot, needSegments) {
+    for (let i2 = 0;i2 < slot.maxSegments; i2++)
+      this.fadeAttr.array[slot.offset + i2] = 0;
+    this.fadeAttr.needsUpdate = true;
+    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))));
+  }
+  writeSlot(slot, positions, distances, count, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
+    if (count > slot.maxSegments)
+      slot = this.relocate(slot, count);
+    const n2 = Math.min(count, slot.maxSegments);
+    const posArr = this.posBuf.array;
+    const distArr = this.distBuf.array;
+    posArr.set(positions.subarray(0, n2 * POS_STRIDE), slot.offset * POS_STRIDE);
+    distArr.set(distances.subarray(0, n2 * DIST_STRIDE), slot.offset * DIST_STRIDE);
+    for (let i2 = 0;i2 < n2; i2++) {
+      const s2 = slot.offset + i2;
+      this.widthAttr.array[s2] = widthPx;
+      this.drawnAttr.array[s2] = drawn;
+      this.erasedAttr.array[s2] = erased;
+      this.tintAttr.array[s2 * 3] = tintR;
+      this.tintAttr.array[s2 * 3 + 1] = tintG;
+      this.tintAttr.array[s2 * 3 + 2] = tintB;
+      this.fadeAttr.array[s2] = fade;
+    }
+    for (let i2 = n2;i2 < slot.maxSegments; i2++)
+      this.fadeAttr.array[slot.offset + i2] = 0;
+    slot.count = n2;
+    this.markDirty();
+    return slot;
+  }
+  hideSlot(slot) {
+    if (slot.count === 0)
+      return;
+    for (let i2 = 0;i2 < slot.maxSegments; i2++)
+      this.fadeAttr.array[slot.offset + i2] = 0;
+    slot.count = 0;
+    this.fadeAttr.needsUpdate = true;
+  }
+  markDirty() {
+    this.posBuf.needsUpdate = true;
+    this.distBuf.needsUpdate = true;
+    this.widthAttr.needsUpdate = true;
+    this.drawnAttr.needsUpdate = true;
+    this.erasedAttr.needsUpdate = true;
+    this.fadeAttr.needsUpdate = true;
+    this.tintAttr.needsUpdate = true;
+  }
+}
+
+// src/geometry/evenodd.ts
+var EPS2 = 0.000000001;
+var xAt = (e2, y2) => e2.x0 + (e2.x1 - e2.x0) * (y2 - e2.y0) / (e2.y1 - e2.y0);
+var evenOddTriangulation = (subpaths) => {
+  const edges = [];
+  const ys = [];
+  let z2 = 0;
+  let seenAny = false;
+  for (const raw of subpaths) {
+    const loop = [];
+    for (const p2 of raw) {
+      const last2 = loop[loop.length - 1];
+      if (last2 && Math.abs(last2.x - p2.x) < EPS2 && Math.abs(last2.y - p2.y) < EPS2)
+        continue;
+      loop.push(p2);
+    }
+    const first = loop[0];
+    const last = loop[loop.length - 1];
+    if (first && last && loop.length > 1 && Math.abs(last.x - first.x) < EPS2 && Math.abs(last.y - first.y) < EPS2) {
+      loop.pop();
+    }
+    if (loop.length < 3)
+      continue;
+    if (!seenAny) {
+      z2 = loop[0].z;
+      seenAny = true;
+    }
+    for (let i2 = 0;i2 < loop.length; i2++) {
+      const a2 = loop[i2];
+      const b2 = loop[(i2 + 1) % loop.length];
+      if (Math.abs(a2.y - b2.y) < EPS2)
+        continue;
+      edges.push(a2.y < b2.y ? { y0: a2.y, x0: a2.x, y1: b2.y, x1: b2.x } : { y0: b2.y, x0: b2.x, y1: a2.y, x1: a2.x });
+      ys.push(a2.y, b2.y);
+    }
+  }
+  const points = [];
+  const indices = [];
+  if (edges.length === 0)
+    return { points, indices };
+  ys.sort((a2, b2) => a2 - b2);
+  const lines = [];
+  for (const y2 of ys) {
+    const prev = lines[lines.length - 1];
+    if (prev === undefined || y2 - prev > EPS2)
+      lines.push(y2);
+  }
+  for (let s2 = 0;s2 + 1 < lines.length; s2++) {
+    const yLo = lines[s2];
+    const yHi = lines[s2 + 1];
+    const mid = (yLo + yHi) / 2;
+    const spans = [];
+    for (const e2 of edges) {
+      if (e2.y0 > mid || e2.y1 <= mid)
+        continue;
+      spans.push({ xLo: xAt(e2, yLo), xHi: xAt(e2, yHi), xMid: xAt(e2, mid) });
+    }
+    spans.sort((a2, b2) => a2.xMid - b2.xMid);
+    for (let i2 = 0;i2 + 1 < spans.length; i2 += 2) {
+      const l2 = spans[i2];
+      const r2 = spans[i2 + 1];
+      if (r2.xLo - l2.xLo < EPS2 && r2.xHi - l2.xHi < EPS2)
+        continue;
+      const base = points.length;
+      points.push({ x: l2.xLo, y: yLo, z: z2 }, { x: r2.xLo, y: yLo, z: z2 }, { x: r2.xHi, y: yHi, z: z2 }, { x: l2.xHi, y: yHi, z: z2 });
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  return { points, indices };
+};
+
+// src/render/fill.ts
+var { userData: userData4 } = exports_three_tsl;
+var FILL_KEYS = {
+  tint: "dtFillTint",
+  fade: "dtFillFade"
+};
+var shared3;
+var sharedFillMaterial = () => {
+  if (!shared3) {
+    shared3 = new MeshBasicNodeMaterial;
+    shared3.transparent = true;
+    shared3.depthWrite = false;
+    shared3.side = DoubleSide;
+    shared3.colorNode = userData4(FILL_KEYS.tint, "color");
+    shared3.opacityNode = userData4(FILL_KEYS.fade, "float");
+  }
+  return shared3;
+};
+var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
+  const pts = [{ x: 0, y: 0, z: 0 }];
+  for (let i2 = 0;i2 <= segments; i2++) {
+    const a2 = i2 / segments * Math.PI * 2;
+    pts.push({ x: Math.cos(a2) * radiusX, y: Math.sin(a2) * radiusY, z: 0 });
+  }
+  return pts;
+};
+
+class FillShape {
+  mesh;
+  material;
+  constructor(renderOrder) {
+    this.material = sharedFillMaterial();
+    this.mesh = new Mesh(new BufferGeometry, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = renderOrder;
+    this.mesh.visible = false;
+    this.mesh.userData[FILL_KEYS.tint] = new Color(1, 1, 1);
+    this.mesh.userData[FILL_KEYS.fade] = 1;
+  }
+  setPolygon(pts, triangles) {
+    if (pts.length < 3)
+      return;
+    const positions = new Float32Array(pts.length * 3);
+    for (let i2 = 0;i2 < pts.length; i2++) {
+      positions[i2 * 3] = pts[i2].x;
+      positions[i2 * 3 + 1] = pts[i2].y;
+      positions[i2 * 3 + 2] = pts[i2].z;
+    }
+    const indices = [];
+    if (triangles) {
+      indices.push(...triangles);
+    } else {
+      for (let i2 = 1;i2 < pts.length - 1; i2++)
+        indices.push(0, i2, i2 + 1);
+    }
+    const geometry = new BufferGeometry;
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geometry;
+  }
+  setPolygons(subpaths) {
+    const { points, indices } = evenOddTriangulation(subpaths);
+    if (indices.length === 0) {
+      const geometry = new BufferGeometry;
+      this.mesh.geometry.dispose();
+      this.mesh.geometry = geometry;
+      return;
+    }
+    this.setPolygon(points, indices);
+  }
+  style(opacity, tint) {
+    this.mesh.userData[FILL_KEYS.fade] = opacity;
+    this.mesh.userData[FILL_KEYS.tint].setRGB(tint.r, tint.g, tint.b);
+    this.mesh.visible = opacity > 0;
+  }
+}
 
 // src/render/silhouette.ts
 var silhouetteAngles = (camX, camZ, radius) => {
@@ -64310,6 +64428,14 @@ var screenArcRemap = (points, totalWorld, view) => {
 // src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var CYLINDER_ROTATION_SEGMENTS = 64;
+var styleOf = (holon) => ({
+  creation: holon.creation,
+  opacity: holon.opacity,
+  tint: holon.tint,
+  stroke: holon.stroke,
+  erasure: holon.erasure,
+  fillOpacity: holon.fillOpacity
+});
 var basePolyline = (holon) => {
   if (holon instanceof Circle) {
     const pts = [];
@@ -64643,9 +64769,15 @@ class ThreeHost {
   }
   attach(holon, parent) {
     const group = new Group;
+    group.matrixAutoUpdate = false;
     parent.add(group);
-    this.groups.push({ holon, group });
-    if (holon instanceof Text) {
+    this.groups.push({
+      holon,
+      group,
+      transform: [holon.x, holon.y, holon.z, holon.p, holon.h, holon.b, holon.scale],
+      applied: new Float64Array(7).fill(Number.NaN)
+    });
+    if (holon instanceof Text3) {
       this.texts.push({ binding: attachText(holon, group), group });
     } else if (holon instanceof Cylinder) {
       const width = holon.stroke.value;
@@ -64671,12 +64803,12 @@ class ThreeHost {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.nextFillOrder++);
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
@@ -64684,7 +64816,7 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygons(loops);
         group.add(fill.mesh);
-        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon) });
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) });
         for (const part of holon.parts)
           this.washedByAncestor.add(part);
       }
@@ -64693,14 +64825,14 @@ class ThreeHost {
         const fill = new FillShape(this.nextFillOrder++);
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
-        this.washes.push({ holon, fill, sig: freshSig(holon) });
+        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
       }
       const pts = polyline(holon);
       if (pts || holon instanceof Line2) {
         const ribbon = new RibbonStroke(holon.stroke.value);
         ribbon.mesh.renderOrder = this.nextFillOrder++;
         ribbon.setPoints(pts ?? []);
-        strokeBinding = { holon, ribbon, sig: freshSig(holon), group };
+        strokeBinding = { holon, ribbon, sig: freshSig(holon), group, look: styleOf(holon) };
         if (this.useInstancedRibbons) {
           group.add(ribbon.mesh);
           ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER);
@@ -64743,15 +64875,46 @@ class ThreeHost {
     this.dream.applyAt(t2);
     this.beforeSync?.();
     this.sync();
-    await this.renderer.render(this.scene, this.camera);
+    const settled = this.matricesSettled;
+    if (settled)
+      this.scene.matrixWorldAutoUpdate = false;
+    try {
+      await this.renderer.render(this.scene, this.camera);
+    } finally {
+      if (settled)
+        this.scene.matrixWorldAutoUpdate = true;
+    }
+  }
+  matricesSettled = false;
+  settleScene() {
+    this.scene.updateMatrixWorld(true);
+    this.matricesSettled = true;
   }
   frameT = Number.NaN;
   sync() {
-    for (const { holon, group } of this.groups) {
-      group.position.set(holon.x.value, holon.y.value, holon.z.value);
-      group.rotation.set(holon.p.value, holon.h.value, holon.b.value, "ZXY");
-      const s2 = holon.scale.value;
+    this.matricesSettled = false;
+    for (const { group, transform: tr, applied: last } of this.groups) {
+      const x2 = tr[0].value;
+      const y2 = tr[1].value;
+      const z2 = tr[2].value;
+      const p2 = tr[3].value;
+      const h2 = tr[4].value;
+      const b2 = tr[5].value;
+      const s2 = tr[6].value;
+      if (Object.is(x2, last[0]) && Object.is(y2, last[1]) && Object.is(z2, last[2]) && Object.is(p2, last[3]) && Object.is(h2, last[4]) && Object.is(b2, last[5]) && Object.is(s2, last[6])) {
+        continue;
+      }
+      last[0] = x2;
+      last[1] = y2;
+      last[2] = z2;
+      last[3] = p2;
+      last[4] = h2;
+      last[5] = b2;
+      last[6] = s2;
+      group.position.set(x2, y2, z2);
+      group.rotation.set(p2, h2, b2, "ZXY");
       group.scale.set(s2, s2, s2);
+      group.updateMatrix();
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding;
@@ -64761,14 +64924,24 @@ class ThreeHost {
           ribbon.setPoints(pts ?? []);
       }
       const lift = this.highlightOf(holon);
-      ribbon.style(this.screenArc(binding, holon.creation.value), holon.opacity.value, liftTint(holon.tint.value, lift), holon.stroke.value * (1 + 2 * lift), this.screenArc(binding, holon.erasure.value));
+      const { look } = binding;
+      const creation = look.creation.value;
+      const opacity = look.opacity.value;
+      const tint = look.tint.value;
+      const width = look.stroke.value;
+      const erasure = look.erasure.value;
+      const creationMid = !(creation <= 0) && !(creation >= 1);
+      const erasureMid = !(erasure <= 0) && !(erasure >= 1);
+      const measured = creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined;
+      ribbon.style(creationMid ? this.arcFrom(measured, creation) : creation <= 0 ? 0 : 1, opacity, liftTint(tint, lift), width * (1 + 2 * lift), erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1);
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding;
       if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
-      fill.style(holon.creation.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      const { look } = binding;
+      fill.style(look.creation.value * look.opacity.value, liftTint(look.tint.value, this.highlightOf(holon)));
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding;
@@ -64777,18 +64950,18 @@ class ThreeHost {
         if (washed)
           fill.setPolygon(washed.points, washed.triangles);
       }
-      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding;
       if (drawingSigChanged(holon, binding.sig)) {
         fill.setPolygons(drawingSubpaths(holon) ?? []);
       }
-      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)));
+      fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
     if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatch !== undefined) {
-      this.scene.updateMatrixWorld(true);
+      this.settleScene();
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
       for (const binding of this.arrows)
@@ -64796,6 +64969,8 @@ class ThreeHost {
       for (const { binding, group } of this.texts) {
         binding.sync(1 / this.unitsPerPixelAt(group, new Vector3));
       }
+      if (this.texts.length > 0)
+        this.matricesSettled = false;
     }
     this.cullOffscreen();
     this.packRibbonBatch();
@@ -64853,7 +65028,8 @@ class ThreeHost {
       return;
     }
     this.culledOffscreen = 0;
-    this.scene.updateMatrixWorld(true);
+    if (!this.matricesSettled)
+      this.settleScene();
     this.cullFrustum.setFromProjectionMatrix(this.cullVP);
     const heightPx = this.renderer.domElement.height || 720;
     const cam = this.camera;
@@ -65295,7 +65471,9 @@ class ThreeHost {
       return 0;
     if (fraction >= 1)
       return 1;
-    const measured = this.measureScreenArc(binding.ribbon);
+    return this.arcFrom(this.measureScreenArc(binding.ribbon), fraction);
+  }
+  arcFrom(measured, fraction) {
     if (!measured)
       return fraction;
     return Math.max(0, Math.min(1, measured.remap.worldAt(fraction) / measured.totalWorld));
@@ -65308,13 +65486,15 @@ class ThreeHost {
     const height = this.renderer.domElement.height || 720;
     const matrix = ribbon.mesh.matrixWorld;
     const projected = [];
-    const v2 = new Vector3;
+    let v2 = this.arcPoint;
+    let previous = this.arcPrevious;
     let world = 0;
-    let previous;
+    let first = true;
     for (const local of pts) {
       v2.copy(local).applyMatrix4(matrix);
-      if (previous)
+      if (!first)
         world += v2.distanceTo(previous);
+      first = false;
       const screen2 = this.toScreen(v2, width, height);
       projected.push({
         x: screen2?.x ?? 0,
@@ -65322,7 +65502,9 @@ class ThreeHost {
         world,
         onCamera: screen2 !== undefined
       });
-      previous = v2.clone();
+      const swap = previous;
+      previous = v2;
+      v2 = swap;
     }
     if (world <= 0)
       return;
@@ -65334,8 +65516,11 @@ class ThreeHost {
   screenLength(ribbon) {
     return this.measureScreenArc(ribbon)?.remap.screenLength ?? 0;
   }
+  arcPoint = new Vector3;
+  arcPrevious = new Vector3;
+  ndcScratch = new Vector3;
   toScreen(world, width, height) {
-    const ndc = world.clone().project(this.camera);
+    const ndc = this.ndcScratch.copy(world).project(this.camera);
     if (!Number.isFinite(ndc.x) || !Number.isFinite(ndc.y))
       return;
     if (this.camera instanceof PerspectiveCamera && ndc.z > 1)
@@ -65744,7 +65929,7 @@ class StrokeCalibrationDream extends Dream {
       const x2 = COLUMN_X[i2];
       this.stage(__dt(new Circle({ radius: 100, x: x2, y: 480, creation }), "core/demo/StrokeCalibration.ts:826:874"));
       this.stage(__dt(new Square({ size: 200, x: x2, y: 160, creation }), "core/demo/StrokeCalibration.ts:893:939"));
-      this.stage(__dt(new Arc({ radius: 100, startAngle: PI3 / 2, endAngle: 2 * PI3, x: x2, y: -180, creation }), "core/demo/StrokeCalibration.ts:958:1042"));
+      this.stage(__dt(new Arc({ radius: 100, startAngle: PI5 / 2, endAngle: 2 * PI5, x: x2, y: -180, creation }), "core/demo/StrokeCalibration.ts:958:1042"));
     });
     __dt(this.play(Create(this.drawing), 10), "core/demo/StrokeCalibration.ts:1055:1090");
   }
@@ -65765,7 +65950,7 @@ class VocabShowcaseDream extends Dream {
     drawGrid: true,
     gridTint: BLUE
   }), "core/demo/VocabShowcase.ts:919:1104");
-  blueEye = __dt(new Eye({ tint: BLUE, x: 300, y: -40, h: PI3, scale: 0.3 }), "core/demo/VocabShowcase.ts:1117:1175");
+  blueEye = __dt(new Eye({ tint: BLUE, x: 300, y: -40, h: PI5, scale: 0.3 }), "core/demo/VocabShowcase.ts:1117:1175");
   redEye = __dt(new Eye({ tint: RED, x: -300, y: -40, scale: 0.3 }), "core/demo/VocabShowcase.ts:1187:1238");
   rectangle = __dt(new Rectangle({ width: 100, height: 200 }), "core/demo/VocabShowcase.ts:1253:1295");
   unfold() {
@@ -65807,11 +65992,11 @@ class CameraCalDream extends Dream {
   cylinder = __dt(new Cylinder({
     radius: 50,
     height: 200,
-    p: PI3 / 2,
+    p: PI5 / 2,
     stroke: STROKE_MAIN
   }), "core/demo/video01/CameraCal.ts:2306:2398");
-  circler = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:3075:3146");
-  rectangler = __dt(new Eye({ scale: 0.3, z: 300, h: PI3 / 2, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:3311:3385");
+  circler = __dt(new Eye({ scale: 0.3, x: 300, b: PI5, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:3075:3146");
+  rectangler = __dt(new Eye({ scale: 0.3, z: 300, h: PI5 / 2, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/CameraCal.ts:3311:3385");
   unfold() {
     this.observer.look("default");
     this.stage(this.cylinder);
@@ -65825,7 +66010,7 @@ class CameraCalCylinderDream extends Dream {
   cylinder = __dt(new Cylinder({
     radius: 50,
     height: 200,
-    p: PI3 / 2,
+    p: PI5 / 2,
     stroke: STROKE_MAIN
   }), "core/demo/video01/CameraCal.ts:3901:3993");
   unfold() {
@@ -65838,7 +66023,7 @@ class CameraCalCylinderDream extends Dream {
 class CameraCalGridDream extends Dream {
   planeCircler = __dt(new Axes({
     mode: "xy",
-    h: PI3,
+    h: PI5,
     drawGrid: true,
     drawTicks: false,
     gridTint: BLUE,
@@ -65853,7 +66038,7 @@ class CameraCalGridDream extends Dream {
   }), "core/demo/video01/CameraCal.ts:5053:5356");
   planeRectangler = __dt(new Axes({
     mode: "xy",
-    h: PI3 / 2,
+    h: PI5 / 2,
     drawGrid: true,
     drawTicks: false,
     gridTint: RED,
@@ -65894,14 +66079,14 @@ class S01Dream extends Dream {
     width: 200,
     height: 100,
     tint: RED,
-    h: PI3 / 2,
+    h: PI5 / 2,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S01.ts:5813:5921");
-  circler = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S01.ts:6114:6185");
-  rectangler = __dt(new Eye({ scale: 0.3, z: 300, h: PI3 / 2, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/S01.ts:6489:6563");
+  circler = __dt(new Eye({ scale: 0.3, x: 300, b: PI5, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S01.ts:6114:6185");
+  rectangler = __dt(new Eye({ scale: 0.3, z: 300, h: PI5 / 2, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/S01.ts:6489:6563");
   planeCircler = __dt(new Axes({
     mode: "xy",
-    h: PI3,
+    h: PI5,
     drawGrid: true,
     drawTicks: false,
     gridTint: BLUE,
@@ -65916,7 +66101,7 @@ class S01Dream extends Dream {
   }), "core/demo/video01/S01.ts:6858:7568");
   planeRectangler = __dt(new Axes({
     mode: "xy",
-    h: PI3 / 2,
+    h: PI5 / 2,
     drawGrid: true,
     drawTicks: false,
     gridTint: RED,
@@ -65933,7 +66118,7 @@ class S01Dream extends Dream {
     this.observer.look("default");
     this.wait(START_OFFSET);
     __dt(this.play(Create(this.cylinder), 3), "core/demo/video01/S01.ts:8137:8172");
-    __dt(this.play(this.cylinder.p.to(PI3 / 2), 3), "core/demo/video01/S01.ts:8177:8217");
+    __dt(this.play(this.cylinder.p.to(PI5 / 2), 3), "core/demo/video01/S01.ts:8177:8217");
     __dt(this.play(together(Create(this.circler), Create(this.rectangler)), 5), "core/demo/video01/S01.ts:8222:8291");
     this.wait(1);
     __dt(this.play(Create(this.planeCircler), 3), "core/demo/video01/S01.ts:8313:8352");
@@ -65984,8 +66169,8 @@ var byArcLength = (curve, samples = 512) => {
 };
 
 class EllipticalRail extends Holon {
-  radiusX = length2(400);
-  radiusY = length2(260);
+  radiusX = length3(400);
+  radiusY = length3(260);
   bank = angle(0);
   point(s2) {
     const rx = this.radiusX.value;
@@ -66074,7 +66259,7 @@ class Empiricism extends Holon {
         tint: WHITE,
         stroke: STROKE_GRID
       }), "core/demo/video01/S02.ts:8916:9114")));
-      this.marks.push(this.add(__dt(new Cross({ size: 6, x: ex, y: ey, b: PI3 / 4, tint: WHITE, stroke: STROKE_GRID }), "core/demo/video01/S02.ts:9175:9256")));
+      this.marks.push(this.add(__dt(new Cross({ size: 6, x: ex, y: ey, b: PI5 / 4, tint: WHITE, stroke: STROKE_GRID }), "core/demo/video01/S02.ts:9175:9256")));
     }
   }
 }
@@ -66085,9 +66270,9 @@ class RectangleMathematics extends Holon {
   compose() {
     const corners = [
       [-100, -50, 0],
-      [100, -50, PI3 / 2],
-      [100, 50, PI3],
-      [-100, 50, -PI3 / 2]
+      [100, -50, PI5 / 2],
+      [100, 50, PI5],
+      [-100, 50, -PI5 / 2]
     ];
     for (const [x2, y2, b2] of corners) {
       this.angles.push(this.add(__dt(new Arc({
@@ -66096,7 +66281,7 @@ class RectangleMathematics extends Holon {
         y: y2,
         b: b2,
         startAngle: 0,
-        endAngle: PI3 / 2,
+        endAngle: PI5 / 2,
         tint: WHITE,
         stroke: STROKE_MAIN
       }), "core/demo/video01/S02.ts:10123:10329")));
@@ -66147,10 +66332,10 @@ class S02Dream extends Dream {
     stroke: STROKE_GRID
   }), "core/demo/video01/S02.ts:12820:12981");
   circler = __dt(new Eye({ scale: 0.3, x: -400, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S02.ts:13145:13210");
-  rectangler = __dt(new Eye({ scale: 0.3, x: 400, b: PI3, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/S02.ts:13361:13431");
+  rectangler = __dt(new Eye({ scale: 0.3, x: 400, b: PI5, tint: RED, stroke: STROKE_MAIN }), "core/demo/video01/S02.ts:13361:13431");
   cylinderer = __dt(new Eye({ scale: 0.3, x: -400, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/video01/S02.ts:13908:13974");
-  circleEmpiricism = __dt(new Empiricism({ x: -100, b: PI3, sign: 1, onArc: true }), "core/demo/video01/S02.ts:14287:14343");
-  rectangleEmpiricism = __dt(new Empiricism({ x: 100, b: PI3, sign: -1, onArc: false }), "core/demo/video01/S02.ts:14497:14554");
+  circleEmpiricism = __dt(new Empiricism({ x: -100, b: PI5, sign: 1, onArc: true }), "core/demo/video01/S02.ts:14287:14343");
+  rectangleEmpiricism = __dt(new Empiricism({ x: 100, b: PI5, sign: -1, onArc: false }), "core/demo/video01/S02.ts:14497:14554");
   circleAxes = __dt(new Axes({
     mode: "xy",
     xStart: -60,
@@ -66195,9 +66380,9 @@ class S02Dream extends Dream {
     tint: WHITE,
     stroke: STROKE_GRID
   }), "core/demo/video01/S02.ts:15652:15853");
-  sinText = __dt(new Text({ content: "sin", size: 7.5, x: -158, y: CONTACT, tint: WHITE, stroke: 0 }), "core/demo/video01/S02.ts:16001:16085");
-  cosText = __dt(new Text({ content: "cos", size: 7.5, x: -150 + CONTACT, y: -8, tint: WHITE, stroke: 0 }), "core/demo/video01/S02.ts:16098:16187");
-  rectangleMath = __dt(new RectangleMathematics({ x: 150, b: PI3 / 2 }), "core/demo/video01/S02.ts:16562:16609");
+  sinText = __dt(new Text3({ content: "sin", size: 7.5, x: -158, y: CONTACT, tint: WHITE, stroke: 0 }), "core/demo/video01/S02.ts:16001:16085");
+  cosText = __dt(new Text3({ content: "cos", size: 7.5, x: -150 + CONTACT, y: -8, tint: WHITE, stroke: 0 }), "core/demo/video01/S02.ts:16098:16187");
+  rectangleMath = __dt(new RectangleMathematics({ x: 150, b: PI5 / 2 }), "core/demo/video01/S02.ts:16562:16609");
   rail = __dt(new EllipticalRail({ radiusX: 400, radiusY: 260 }), "core/demo/video01/S02.ts:17233:17283");
   unfold() {
     this.observer.orthographic.value = true;
@@ -66281,7 +66466,7 @@ class S03Dream extends Dream {
     opacity: 0,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S03.ts:6709:6830");
-  plane = __dt(new SectionPlane({ b: PI3 / 2, frozenB: PI3 / 4, x: 1 }), "core/demo/video01/S03.ts:6986:7040");
+  plane = __dt(new SectionPlane({ b: PI5 / 2, frozenB: PI5 / 4, x: 1 }), "core/demo/video01/S03.ts:6986:7040");
   cylinder = __dt(new Cylinder({
     radius: 50,
     height: 200,
@@ -66330,7 +66515,7 @@ class S03Dream extends Dream {
     this.wait(2);
     __dt(this.play(together(FadeIn(this.roundedRectangle), FadeIn(this.corneredCircle), this.roundedRectangle.x.to(0), this.corneredCircle.x.to(0), this.becomeRounded(this.roundedRectangle), this.becomeRounded(this.corneredCircle), this.roundedRectangle.tint.to(PURPLE), this.corneredCircle.tint.to(PURPLE)), 2), "core/demo/video01/S03.ts:9954:10348");
     __dt(this.play(together([together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 1 / 2], this.roundedRectangle.x.by(-150), this.corneredCircle.x.by(-150), [together(FadeIn(this.cylinder), FadeIn(this.section)), 1 / 2, 1]), 2), "core/demo/video01/S03.ts:10353:10637");
-    __dt(this.play(together(this.plane.h.by(2 * PI3), this.plane.x.by(200)), 3), "core/demo/video01/S03.ts:10642:10711");
+    __dt(this.play(together(this.plane.h.by(2 * PI5), this.plane.x.by(200)), 3), "core/demo/video01/S03.ts:10642:10711");
     __dt(this.play(together(FadeOut(this.cylinder), FadeOut(this.section), FadeOut(this.roundedRectangle), FadeOut(this.corneredCircle)), 1), "core/demo/video01/S03.ts:10716:10907");
   }
 }
@@ -66395,7 +66580,7 @@ class S06Dream extends Dream {
     mode: "xy",
     x: -5000,
     z: 5000,
-    p: -PI3 / 2,
+    p: -PI5 / 2,
     scale: 5 / 2,
     xStart: 0,
     xEnd: 4000,
@@ -66409,17 +66594,17 @@ class S06Dream extends Dream {
     stroke: STROKE_MAIN
   }), "core/demo/video01/S06.ts:5201:6192");
   cylinder = __dt(new Cylinder({
-    p: PI3 / 2,
+    p: PI5 / 2,
     scale: CYLINDER_SCALE,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S06.ts:8602:8688");
   section = __dt(new SectionCurve({
-    p: PI3 / 2,
+    p: PI5 / 2,
     scale: CYLINDER_SCALE,
     radius: 50,
     height: 200,
     planeFrame: "parent",
-    tilt: PI3,
+    tilt: PI5,
     spin: 0,
     offset: -1 / CYLINDER_SCALE,
     tint: RED,
@@ -66470,8 +66655,8 @@ class S10Dream extends Dream {
     radius: 50,
     height: 200,
     y: 100,
-    b: -PI3 / 2,
-    p: -PI3 / 4,
+    b: -PI5 / 2,
+    p: -PI5 / 4,
     scale: 1 / 2,
     tint: WHITE,
     stroke: STROKE_MAIN
@@ -66496,7 +66681,7 @@ class S10Dream extends Dream {
     tint: WHITE,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S10.ts:6820:7034");
-  caption = __dt(new Text({
+  caption = __dt(new Text3({
     content: "dialectical thinking",
     size: 30,
     y: -150,
@@ -66547,15 +66732,15 @@ class S09Dream extends Dream {
     radius: 50,
     height: 200,
     y: 25,
-    b: -PI3 / 2,
-    p: -PI3 / 4,
+    b: -PI5 / 2,
+    p: -PI5 / 4,
     tint: WHITE,
     stroke: STROKE_MAIN,
     drawStart: 0
   }), "core/demo/video01/S09.ts:7205:7359");
-  thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7433:7503");
-  antithesis = __dt(new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7519:7593");
-  synthesis = __dt(new Text({ content: "syn-thesis", size: 30, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7608:7673");
+  thesis = __dt(new Text3({ content: "thesis", size: 30, x: -200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7433:7503");
+  antithesis = __dt(new Text3({ content: "anti-thesis", size: 30, x: 200, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7519:7593");
+  synthesis = __dt(new Text3({ content: "syn-thesis", size: 30, y: -120, stroke: 0 }), "core/demo/video01/S09.ts:7608:7673");
   unfold() {
     this.observer.look("front");
     this.set(...this.observer.dolly(distanceForZoom(CAMERA_ZOOM)));
@@ -66565,8 +66750,8 @@ class S09Dream extends Dream {
     __dt(this.play(together(Create(this.circle), Create(this.thesis)), 1), "core/demo/video01/S09.ts:7873:7937");
     this.wait(3 / 2);
     __dt(this.play(together(Create(this.rectangle), Create(this.antithesis)), 1), "core/demo/video01/S09.ts:7963:8034");
-    __dt(this.play(together([together(this.circle.x.to(0), this.circle.y.to(25), this.circle.h.to(-PI3 / 4)), 1 / 4, 1], [
-      together(this.rectangle.x.to(0), this.rectangle.y.to(25), this.rectangle.b.to(PI3 / 2), this.rectangle.p.to(PI3 / 4)),
+    __dt(this.play(together([together(this.circle.x.to(0), this.circle.y.to(25), this.circle.h.to(-PI5 / 4)), 1 / 4, 1], [
+      together(this.rectangle.x.to(0), this.rectangle.y.to(25), this.rectangle.b.to(PI5 / 2), this.rectangle.p.to(PI5 / 4)),
       1 / 4,
       1
     ], [together(UnCreate(this.thesis), UnCreate(this.antithesis)), 1 / 3, 1]), 3), "core/demo/video01/S09.ts:8039:8508");
@@ -66583,7 +66768,7 @@ if (false)
 var START_OFFSET8 = -1.67;
 
 class S07Dream extends Dream {
-  word = __dt(new Text({ content: "trans-perspectival", size: 50, tint: WHITE, stroke: 0 }), "core/demo/video01/S07.ts:4499:4576");
+  word = __dt(new Text3({ content: "trans-perspectival", size: 50, tint: WHITE, stroke: 0 }), "core/demo/video01/S07.ts:4499:4576");
   unfold() {
     this.observer.orthographic.value = true;
     this.observer.orthographic.defaultValue = true;
@@ -66601,20 +66786,20 @@ if (false)
 var START_OFFSET9 = -2.11;
 
 class S08Dream extends Dream {
-  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:10454:10527");
+  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI5 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:10454:10527");
   circle = __dt(new Circle({ radius: 50, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:10680:10739");
   rectangle = __dt(new Rectangle({
     width: 200,
     height: 100,
     tint: RED,
-    h: PI3 / 2,
+    h: PI5 / 2,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S08.ts:11057:11165");
-  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI3, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:11911:11982");
+  eye = __dt(new Eye({ scale: 0.3, x: 300, b: PI5, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/video01/S08.ts:11911:11982");
   creature = __dt(new Group2({ members: [this.eye] }), "core/demo/video01/S08.ts:11996:12030");
   planeCircler = __dt(new Axes({
     mode: "xy",
-    h: PI3,
+    h: PI5,
     drawGrid: true,
     drawTicks: false,
     gridTint: BLUE,
@@ -66629,7 +66814,7 @@ class S08Dream extends Dream {
   }), "core/demo/video01/S08.ts:12317:12947");
   planeRectangler = __dt(new Axes({
     mode: "xy",
-    h: PI3 / 2,
+    h: PI5 / 2,
     drawGrid: true,
     drawTicks: false,
     gridTint: RED,
@@ -66649,10 +66834,10 @@ class S08Dream extends Dream {
     this.wait(1);
     __dt(this.play(Create(this.creature), 1), "core/demo/video01/S08.ts:14127:14162");
     __dt(this.play(together(Create(this.planeCircler), Create(this.planeRectangler), [together(FadeIn(this.rectangle), FadeIn(this.circle)), 1 / 2, 1]), 3), "core/demo/video01/S08.ts:14167:14365");
-    __dt(this.play(this.creature.h.by(-PI3 / 2), 2), "core/demo/video01/S08.ts:14370:14411");
+    __dt(this.play(this.creature.h.by(-PI5 / 2), 2), "core/demo/video01/S08.ts:14370:14411");
     __dt(this.play(this.eye.tint.to(RED), 2), "core/demo/video01/S08.ts:14416:14451");
     __dt(this.play(together(UnCreate(this.planeCircler), UnCreate(this.planeRectangler)), 2), "core/demo/video01/S08.ts:14456:14539");
-    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI3), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:14544:14783");
+    __dt(this.play(together(FadeIn(this.cylinder), this.creature.h.by(4 * PI5), [together(FadeOut(this.circle), FadeOut(this.rectangle)), 0, 2 / 3], [this.eye.tint.to(WHITE), 0, 1 / 4]), 7), "core/demo/video01/S08.ts:14544:14783");
     __dt(this.play(together(FadeOut(this.cylinder), UnCreate(this.creature)), 2), "core/demo/video01/S08.ts:14788:14859");
   }
 }
@@ -66676,20 +66861,20 @@ class S05Dream extends Dream {
     height: 200,
     tint: RED,
     x: -300,
-    h: PI3 / 2,
-    p: PI3 / 2,
+    h: PI5 / 2,
+    p: PI5 / 2,
     drawStart: 1 / 12,
     drawReversed: true,
     stroke: STROKE_MAIN
   }), "core/demo/video01/S05.ts:6859:7042");
-  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI3 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S05.ts:7271:7344");
+  cylinder = __dt(new Cylinder({ radius: 50, height: 200, p: PI5 / 2, stroke: STROKE_MAIN }), "core/demo/video01/S05.ts:7271:7344");
   axes = __dt(new Axes({
     mode: "xz",
     xStart: 0,
     xEnd: 300,
     zStart: 0,
     zEnd: 300,
-    h: PI3,
+    h: PI5,
     drawTicks: false,
     drawGrid: false,
     arrowEnd: true,
@@ -66712,6 +66897,7 @@ if (false)
   ;
 
 // src/transitions.ts
+var crossfade = (duration) => ({ kind: "crossfade", duration });
 var magicMove = (duration) => ({ kind: "magicMove", duration });
 var BUILD_FRACTION = 0.4;
 var smooth = (u2) => c4dEaseWith(u2, C4D_SMOOTHING, C4D_SMOOTHING);
@@ -66911,10 +67097,10 @@ class DreamSong extends Dream {
       const chapter = this.#chapters[i2];
       const live = chapter === active || chapter === fromChapter;
       for (const holon of holons[i2]) {
-        if (!live) {
-          holon.opacity.value = 0;
-        } else if (!driven.has(holon.opacity)) {
-          holon.opacity.value = holon.opacity.defaultValue;
+        const opacity = holon.opacity;
+        opacity.gate = live ? 1 : 0;
+        if (live && !opacity.isBound && !driven.has(opacity)) {
+          opacity.value = opacity.defaultValue;
         }
       }
     }
@@ -66922,16 +67108,16 @@ class DreamSong extends Dream {
       const u2 = (t2 - window2.start) / (window2.end - window2.start);
       if (window2.kind === "crossfade") {
         for (const holon of holons[window2.from])
-          holon.opacity.value *= 1 - u2;
+          holon.opacity.gate *= 1 - u2;
         for (const holon of holons[window2.into])
-          holon.opacity.value *= u2;
+          holon.opacity.gate *= u2;
       } else {
         const out = buildOut(u2);
         const into = buildIn(u2);
         for (const holon of window2.outs)
-          holon.opacity.value *= out;
+          holon.opacity.gate *= out;
         for (const holon of window2.ins)
-          holon.opacity.value *= into;
+          holon.opacity.gate *= into;
       }
     }
     const mirror = this.observer.params;
@@ -66989,7 +67175,7 @@ class CurvesShowcaseDream extends Dream {
     p: 0.35,
     b: 0.25,
     tilt: 1.2,
-    spin: PI3 / 2,
+    spin: PI5 / 2,
     tint: BLUE
   }), "core/demo/CurvesShowcase.ts:1864:2467");
   thesis = __dt(new Circle({ x: -420, y: -120, radius: 46, tint: BLUE }), "core/demo/CurvesShowcase.ts:2554:2610");
@@ -67022,7 +67208,7 @@ class CurvesShowcaseDream extends Dream {
     __dt(this.play(this.section.tilt.to(0.001), 2), "core/demo/CurvesShowcase.ts:4417:4458");
     __dt(this.play(this.section.tilt.to(1.2), 2), "core/demo/CurvesShowcase.ts:4463:4502");
     this.wait(0.3);
-    __dt(this.play(together(...this.observer.orbit({ phi: PI3 / 2.4 })), 3), "core/demo/CurvesShowcase.ts:4590:4655");
+    __dt(this.play(together(...this.observer.orbit({ phi: PI5 / 2.4 })), 3), "core/demo/CurvesShowcase.ts:4590:4655");
     this.wait(0.6);
   }
 }
@@ -67156,9 +67342,9 @@ class TheWallDream extends Dream {
     observer.radius.value = 3000;
     observer.y.defaultValue = 100;
     observer.y.value = 100;
-    observer.theta.defaultValue = PI3 / 2;
-    observer.theta.value = PI3 / 2;
-    __dt(this.play(eased("linear", this.wall.growth.to(1), ...observer.orbit({ phi: -PI3, theta: 0 })), WALL_DURATION), "core/demo/wall/TheWall.ts:3722:3849");
+    observer.theta.defaultValue = PI5 / 2;
+    observer.theta.value = PI5 / 2;
+    __dt(this.play(eased("linear", this.wall.growth.to(1), ...observer.orbit({ phi: -PI5, theta: 0 })), WALL_DURATION), "core/demo/wall/TheWall.ts:3722:3849");
   }
 }
 if (false)
@@ -67178,8 +67364,8 @@ class FlowerDream extends Dream {
     const observer = this.observer;
     observer.radius.defaultValue = 3000;
     observer.radius.value = 3000;
-    observer.theta.defaultValue = PI3 / 3;
-    observer.theta.value = PI3 / 3;
+    observer.theta.defaultValue = PI5 / 3;
+    observer.theta.value = PI5 / 3;
     __dt(this.play(eased("linear", this.wall.growth.to(1)), FLOWER_DURATION), "core/demo/wall/Flower.ts:1816:1883");
   }
 }
@@ -67188,11 +67374,11 @@ if (false)
 
 // demo/TextShowcase.ts
 class TextShowcaseDream extends Dream {
-  transPerspectival = __dt(new Text({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
-  thesis = __dt(new Text({ content: "thesis", size: 30, x: -200, y: -120, tint: BLUE }), "core/demo/TextShowcase.ts:1245:1316");
-  antithesis = __dt(new Text({ content: "anti-thesis", size: 30, x: 200, y: -120, tint: RED }), "core/demo/TextShowcase.ts:1332:1406");
-  synthesis = __dt(new Text({ content: "syn-thesis", size: 30, y: -120 }), "core/demo/TextShowcase.ts:1421:1475");
-  caption = __dt(new Text({ content: "dialectical thinking", size: 30, y: -150 }), "core/demo/TextShowcase.ts:1488:1552");
+  transPerspectival = __dt(new Text3({ content: "trans-perspectival", size: 50 }), "core/demo/TextShowcase.ts:1180:1233");
+  thesis = __dt(new Text3({ content: "thesis", size: 30, x: -200, y: -120, tint: BLUE }), "core/demo/TextShowcase.ts:1245:1316");
+  antithesis = __dt(new Text3({ content: "anti-thesis", size: 30, x: 200, y: -120, tint: RED }), "core/demo/TextShowcase.ts:1332:1406");
+  synthesis = __dt(new Text3({ content: "syn-thesis", size: 30, y: -120 }), "core/demo/TextShowcase.ts:1421:1475");
+  caption = __dt(new Text3({ content: "dialectical thinking", size: 30, y: -150 }), "core/demo/TextShowcase.ts:1488:1552");
   unfold() {
     this.set(...this.observer.dolly(560));
     __dt(this.play(Write(this.transPerspectival), 2), "core/demo/TextShowcase.ts:1672:1715");
@@ -67256,7 +67442,7 @@ if (false)
 class FoldableCubeDream extends Dream {
   cube = __dt(new FoldableCube({ size: 220, fold: 1 }), "core/demo/vocabulary/FoldableCube.ts:630:670");
   unfold() {
-    this.set(...this.observer.orbit({ phi: PI3 / 5, theta: PI3 / 7 }), ...this.observer.dolly(900));
+    this.set(...this.observer.orbit({ phi: PI5 / 5, theta: PI5 / 7 }), ...this.observer.dolly(900));
     __dt(this.play(Create(this.cube), 2), "core/demo/vocabulary/FoldableCube.ts:806:837");
     this.wait(0.4);
     __dt(this.play(this.cube.fold.to(0.1), 1), "core/demo/vocabulary/FoldableCube.ts:861:897");
@@ -67310,8 +67496,8 @@ var arcLength = (points) => {
 };
 
 class Sketch extends Stroke {
-  height = length2(400);
-  tint = color2(WHITE);
+  height = length3(400);
+  tint = color3(WHITE);
   data = EMPTY;
   strokes = [];
   compose() {
@@ -67438,18 +67624,45 @@ var projectLatLon = (lonDeg, latDeg, radius, spin, tilt) => {
   return { x: x2 * radius, y: y2 * radius, z: z2 };
 };
 var clampedRing = (ring, radius, spin, tilt) => {
-  const out = [];
+  const pts = [];
   for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
-    const p2 = projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt);
+    pts.push(projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt));
+  }
+  const n2 = pts.length;
+  const first = pts.findIndex((p2) => p2.z >= 0);
+  if (first < 0)
+    return [];
+  if (pts.every((p2) => p2.z >= 0))
+    return pts.map((p2) => ({ x: p2.x, y: p2.y }));
+  const crossing = (a2, b2) => {
+    const t2 = a2.z / (a2.z - b2.z);
+    return Math.atan2(a2.y + (b2.y - a2.y) * t2, a2.x + (b2.x - a2.x) * t2);
+  };
+  const STEP = 4 * Math.PI / 180;
+  const out = [];
+  for (let k2 = 0;k2 < n2; k2++) {
+    const i2 = (first + k2) % n2;
+    const p2 = pts[i2];
     if (p2.z >= 0) {
       out.push({ x: p2.x, y: p2.y });
-    } else {
-      const len3 = Math.hypot(p2.x, p2.y);
-      if (len3 < 0.000000001)
-        out.push({ x: 0, y: p2.y >= 0 ? radius : -radius });
-      else
-        out.push({ x: p2.x / len3 * radius, y: p2.y / len3 * radius });
+      continue;
     }
+    let j2 = i2;
+    while (pts[(j2 + 1) % n2].z < 0)
+      j2 = (j2 + 1) % n2;
+    const enter = crossing(pts[(i2 - 1 + n2) % n2], p2);
+    const leave = crossing(pts[(j2 + 1) % n2], pts[j2]);
+    let d2 = leave - enter;
+    while (d2 > Math.PI)
+      d2 -= 2 * Math.PI;
+    while (d2 <= -Math.PI)
+      d2 += 2 * Math.PI;
+    const steps = Math.max(1, Math.ceil(Math.abs(d2) / STEP));
+    for (let s2 = 0;s2 <= steps; s2++) {
+      const a2 = enter + d2 * s2 / steps;
+      out.push({ x: Math.cos(a2) * radius, y: Math.sin(a2) * radius });
+    }
+    k2 += (j2 - i2 + n2) % n2;
   }
   return out;
 };
@@ -67514,21 +67727,21 @@ var DARK_LAND = rgb(51, 51, 51);
 
 class Globe extends Null {
   static sovereign = true;
-  radius = length2(200);
+  radius = length3(200);
   continents = "fill";
   spin = scalar(0);
   tilt = angle(0.12);
-  land = color2(DARK_LAND);
+  land = color3(DARK_LAND);
   landOpacity = completion(1);
-  coastStroke = length2(3);
-  limbStroke = length2(0);
-  limbTint = color2(rgb(136, 136, 136));
-  oceanTint = color2(rgb(17, 17, 17));
+  coastStroke = length3(3);
+  limbStroke = length3(0);
+  limbTint = color3(rgb(136, 136, 136));
+  oceanTint = color3(rgb(17, 17, 17));
   oceanOpacity = completion(0);
-  graticule = bool2(false);
-  graticuleTint = color2(rgb(85, 85, 85));
-  meridians = length2(12);
-  parallels = length2(6);
+  graticule = bool3(false);
+  graticuleTint = color3(rgb(85, 85, 85));
+  meridians = length3(12);
+  parallels = length3(6);
   ocean;
   limb;
   landHolon;
@@ -67557,7 +67770,7 @@ class Globe extends Null {
       const line = new Line2({ tint: this.land, stroke: scalar(0) });
       deriveRing(line, this, () => {
         const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value);
-        return closeLoop2(pts);
+        return closeLoop2(pts) ?? hiddenLoop(this.radius.value);
       });
       parentAdd(parent, line);
     }
@@ -67614,9 +67827,15 @@ class Globe extends Null {
     return out;
   }
 }
+var hiddenLoop = (radius) => [
+  { x: 0, y: -radius, z: 0 },
+  { x: 0.001, y: -radius, z: 0 },
+  { x: 0, y: -radius + 0.001, z: 0 },
+  { x: 0, y: -radius, z: 0 }
+];
 var closeLoop2 = (pts) => {
   if (pts.length < 3)
-    return [];
+    return;
   const out = pts.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
   const a2 = out[0];
   const b2 = out[out.length - 1];
@@ -67742,6 +67961,22 @@ var SMARK = {
   square: 0.25,
   band: 0.08
 };
+var SMARK_PEN = 1.5;
+var sCentreline = (R3, samples = 40) => {
+  const k2 = SMARK.offset * R3;
+  const c2 = k2 * Math.SQRT1_2;
+  const q = Math.PI / 4;
+  const out = [];
+  for (let i2 = 0;i2 <= samples; i2++) {
+    const a2 = q + Math.PI * i2 / samples;
+    out.push({ x: c2 + k2 * Math.cos(a2), y: c2 + k2 * Math.sin(a2), z: 0 });
+  }
+  for (let i2 = 1;i2 <= samples; i2++) {
+    const a2 = q - Math.PI * i2 / samples;
+    out.push({ x: -c2 + k2 * Math.cos(a2), y: -c2 + k2 * Math.sin(a2), z: 0 });
+  }
+  return out;
+};
 var sBandOutline = (R3, samples = 40) => {
   const k2 = SMARK.offset * R3;
   const w4 = SMARK.band * R3 / 2;
@@ -67766,16 +68001,18 @@ var sBandOutline = (R3, samples = 40) => {
 
 class SMark extends Null {
   static sovereign = true;
-  radius = length2(100);
-  tint = color2(MARK_RED);
+  radius = length3(100);
+  tint = color3(MARK_RED);
   band;
+  spine;
   dot;
   square;
   compose() {
     const R3 = this.radius.value;
     const k2 = SMARK.offset * R3 * Math.SQRT1_2;
     this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }));
-    this.band.add(new Line2({ points: sBandOutline(R3), tint: this.tint, stroke: 1 }));
+    this.band.add(new Line2({ points: sBandOutline(R3), tint: this.tint, stroke: 0, opacity: 0 }));
+    this.spine = this.add(new Line2({ points: sCentreline(R3), tint: this.tint, stroke: SMARK_PEN }));
     this.dot = this.add(new Circle({ x: k2, y: k2, radius: SMARK.dot * R3, tint: this.tint, stroke: 0, fillOpacity: 1 }));
     const a2 = SMARK.square * R3 / 2;
     this.square = this.add(new Line2({
@@ -67793,7 +68030,7 @@ class SMark extends Null {
   }
   createAnim() {
     this.parts;
-    return together(restage(together(...this.band.parts.map((p2) => p2.creation.sequence(0, 1))), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
+    return together(restage(this.spine.creation.sequence(0, 1), 0, 0.6), restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8), restage(this.dot.opacity.sequence(0, 1), 0.7, 1), restage(this.square.opacity.sequence(0, 1), 0.7, 1));
   }
 }
 
@@ -67807,20 +68044,20 @@ var RUN_SLOTS = 2;
 
 class Regenaissance extends Null {
   static sovereign = true;
-  radius = length2(390);
+  radius = length3(390);
   latticeSpin = scalar(0.3);
   latticePitch = angle(0.45);
   earthSpin = scalar(-0.37);
   earthTilt = angle(1.05);
-  ringTint = color2(REGEN_GOLD);
-  ringStroke = length2(3);
-  latticeTint = color2(WHITE);
-  latticeStroke = length2(1.4);
+  ringTint = color3(REGEN_GOLD);
+  ringStroke = length3(3);
+  latticeTint = color3(WHITE);
+  latticeStroke = length3(1.4);
   backOpacity = completion(0.4);
-  landTint = color2(WHITE);
-  mark = bool2(true);
-  markTint = color2(MARK_RED);
-  eyeTint = color2(WHITE);
+  landTint = color3(WHITE);
+  mark = bool3(true);
+  markTint = color3(MARK_RED);
+  eyeTint = color3(WHITE);
   outer;
   topCircle;
   bottomCircle;
@@ -67977,7 +68214,7 @@ if (false)
 // demo/origins/KinshipGraph.ts
 var RING_RADIUS = 200;
 var NODE_RADIUS = 20;
-var NODE_ANGLES = Array.from({ length: 6 }, (_2, i2) => (i2 + 1) * 2 * PI3 / 6 + PI3 / 2 + PI3 / 6);
+var NODE_ANGLES = Array.from({ length: 6 }, (_2, i2) => (i2 + 1) * 2 * PI5 / 6 + PI5 / 2 + PI5 / 6);
 var EDGE_INDICES = {
   left: [7, 11, 13, 17, 37, 38],
   right: [21, 22, 27, 28, 33, 34],
@@ -68087,7 +68324,7 @@ class Scene01Dream extends Dream {
     stroke: STROKE_MAIN
   }), "core/demo/origins/Scene01.ts:10644:10769");
   circle = __dt(new Circle({ radius: 50, x: -200, tint: BLUE, fillOpacity: 1, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:10781:10865");
-  cylinder = __dt(new Cylinder({ b: -PI3 / 2, y: 100, p: -PI3 / 4, scale: 1 / 2, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11059:11142");
+  cylinder = __dt(new Cylinder({ b: -PI5 / 2, y: 100, p: -PI5 / 4, scale: 1 / 2, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:11059:11142");
   separator = __dt(new DottedLine({
     points: [
       { x: 0, y: 400, z: 0 },
@@ -68117,7 +68354,7 @@ class Scene01Dream extends Dream {
     members: [this.rectangle, this.circle, this.cylinder, this.separator, this.tension]
   }), "core/demo/origins/Scene01.ts:12283:12388");
   eyeLeft = __dt(new Eye({ tint: BLUE, scale: 1 / 3, x: -175, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:12580:12647");
-  eyeRight = __dt(new Eye({ tint: RED, scale: 1 / 3, x: 175, b: PI3, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:12661:12733");
+  eyeRight = __dt(new Eye({ tint: RED, scale: 1 / 3, x: 175, b: PI5, stroke: STROKE_MAIN }), "core/demo/origins/Scene01.ts:12661:12733");
   sightTargetLeftLow = __dt(new Group2({ x: 200, y: -125 }), "core/demo/origins/Scene01.ts:12765:12795");
   sightTargetLeftHigh = __dt(new Group2({ x: 200, y: 125 }), "core/demo/origins/Scene01.ts:12828:12857");
   sightTargetRightLow = __dt(new Group2({ x: -200, y: -125 }), "core/demo/origins/Scene01.ts:12890:12921");
@@ -68192,7 +68429,7 @@ class Scene01Dream extends Dream {
     __dt(this.play(this.shapes.x.by(-250), 1), "core/demo/origins/Scene01.ts:24688:24724");
     __dt(this.play(together(Create(this.eyeLeft), Create(this.eyeRight)), 2), "core/demo/origins/Scene01.ts:24729:24796");
     this.wait(1);
-    __dt(this.play(together(this.viewLeft.b.to(PI3 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI3 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:25089:25364");
+    __dt(this.play(together(this.viewLeft.b.to(PI5 / 2), this.viewLeft.x.by(-50), this.viewRight.b.to(-PI5 / 2), this.viewRight.x.by(50), ChangeColor(this.eyeLeft, WHITE), ChangeColor(this.eyeRight, WHITE)), 2), "core/demo/origins/Scene01.ts:25089:25364");
     __dt(this.play(together(Create(this.sightLeft), Create(this.sightRight)), 2), "core/demo/origins/Scene01.ts:25369:25440");
     this.wait(2);
     __dt(this.play(together(UnCreate(this.eyeLeft), UnCreate(this.eyeRight), Erase(this.sightLeft), Erase(this.sightRight)), 1), "core/demo/origins/Scene01.ts:25462:25640");
@@ -68212,8 +68449,8 @@ class Slice extends Holon {
   anchorX = 50;
   segmentTint = WHITE;
   segment = __dt(new AnnularSector({
-    startAngle: -PI3 / 3,
-    endAngle: PI3 / 3,
+    startAngle: -PI5 / 3,
+    endAngle: PI5 / 3,
     stroke: STROKE_MAIN
   }), "core/demo/origins/Scene02.ts:8098:8312");
   anchor = __dt(new Null, "core/demo/origins/Scene02.ts:8396:8406");
@@ -68226,7 +68463,7 @@ class Slice extends Holon {
     this.anchor.x.value = this.anchorX;
   }
 }
-var SLICE_HEADINGS = [PI3 / 2, 2 * PI3 / 3 + PI3 / 2, 4 * PI3 / 3 + PI3 / 2];
+var SLICE_HEADINGS = [PI5 / 2, 2 * PI5 / 3 + PI5 / 2, 4 * PI5 / 3 + PI5 / 2];
 
 class Scene02Dream extends Dream {
   slice1 = __dt(new Slice({ b: SLICE_HEADINGS[0] }), "core/demo/origins/Scene02.ts:9069:9104");
@@ -68402,7 +68639,7 @@ var ASSET_HEIGHT = {
   stethoscope: 400.532
 };
 var ICON_SCALE = 0.5;
-var GEAR_SMALL_BANK = PI3 / 12;
+var GEAR_SMALL_BANK = PI5 / 12;
 var GROUPS = [
   { name: "law", icon: "justice", gear: "gearBig", scale: 0.5, x: 80, y: -85, bank: 0 },
   { name: "economy", icon: "factory", gear: "gearBig", scale: 0.5, x: -80, y: 85, bank: 0 },
@@ -68455,8 +68692,8 @@ class Gearing extends Stroke {
   gearData = ASSET_DATA.gearBig;
   gearHeight = ASSET_HEIGHT.gearBig;
   gearBank = 0;
-  tint = color2(WHITE);
-  gearTint = color2(WHITE);
+  tint = color3(WHITE);
+  gearTint = color3(WHITE);
   icon = new Sketch({ data: this.iconData, tint: this.tint, stroke: this.stroke });
   gear = new Sketch({ data: this.gearData, tint: this.gearTint, stroke: this.stroke });
   compose() {
@@ -68473,8 +68710,8 @@ class Gearing extends Stroke {
 
 class System extends Stroke {
   static sovereign = true;
-  tint = color2(WHITE);
-  gearTint = color2(WHITE);
+  tint = color3(WHITE);
+  gearTint = color3(WHITE);
   law = this.gearing("law");
   economy = this.gearing("economy");
   finance = this.gearing("finance");
@@ -68560,8 +68797,8 @@ if (false)
   ;
 
 // vocabulary/Logo/Logo.ts
-var ANGLE_LINES = PI3 * 2 / 5;
-var ANGLE_OFFSET = -PI3 / 2;
+var ANGLE_LINES = PI5 * 2 / 5;
+var ANGLE_OFFSET = -PI5 / 2;
 var SMALL_CIRCLE_RATIO = 0.61;
 var SMALL_CIRCLE_GAP = 6;
 var FOCAL_RATIO = 0.11;
@@ -68576,10 +68813,10 @@ var proportions = (radius) => {
 
 class Logo extends Stroke {
   static sovereign = true;
-  radius = length2(200);
-  tint = color2(BLUE);
-  smallTint = color2(RED);
-  lineTint = color2(WHITE);
+  radius = length3(200);
+  tint = color3(BLUE);
+  smallTint = color3(RED);
+  lineTint = color3(WHITE);
   get geometry() {
     return proportions(this.radius.value);
   }
@@ -68624,7 +68861,7 @@ var START_OFFSET16 = 0.45;
 
 class Scene05Dream extends Dream {
   logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene05.ts:7035:7087");
-  name = __dt(new Text({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene05.ts:7333:7395");
+  name = __dt(new Text3({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene05.ts:7333:7395");
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
@@ -68661,9 +68898,9 @@ class Scene06Dream extends Dream {
     stroke: STROKE_MAIN
   }), "core/demo/origins/Scene06.ts:13429:13533");
   cylinder = __dt(new Cylinder({
-    b: -PI3 / 2,
+    b: -PI5 / 2,
     y: 100,
-    p: -PI3 / 4,
+    p: -PI5 / 4,
     scale: 3 / 4,
     tint: WHITE,
     stroke: STROKE_MAIN
@@ -68706,7 +68943,7 @@ class Scene06Dream extends Dream {
   }), "core/demo/origins/Scene06.ts:17835:18048");
   edges = __dt(new Group2({
     members: NODE_XS.map((_2, i2) => {
-      const angle2 = PI3 / 6 * (i2 - 1);
+      const angle2 = PI5 / 6 * (i2 - 1);
       const anchors2 = [
         { x: 85 * Math.sin(angle2), y: 85 * Math.cos(angle2), z: 0 }
       ];
@@ -68730,7 +68967,7 @@ class Scene06Dream extends Dream {
   repoHexagon = repo(__dt(new Polygon({ sides: 6, radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:20943:21013"), 150);
   repoCircle = repo(__dt(new Circle({ radius: 25, tint: BLUE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21040:21099"), 300);
   repoRectangle = repo(__dt(new Rectangle({ width: 30, height: 60, tint: RED, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21196:21268"), 120, -100);
-  repoCylinder = repo(__dt(new Cylinder({ b: -PI3 * 3 / 4, p: -PI3 / 4, scale: 1 / 3, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21320:21414"), 0, 100);
+  repoCylinder = repo(__dt(new Cylinder({ b: -PI5 * 3 / 4, p: -PI5 / 4, scale: 1 / 3, tint: WHITE, stroke: STROKE_MAIN }), "core/demo/origins/Scene06.ts:21320:21414"), 0, 100);
   arrowTriangleSquare = link2(this.repoTriangle, this.repoSquare);
   arrowSquarePentagon = link2(this.repoSquare, this.repoPentagon);
   arrowPentagonHexagon = link2(this.repoPentagon, this.repoHexagon);
@@ -68847,7 +69084,7 @@ class Scene06Dream extends Dream {
     __dt(this.play(Create(this.repoTension), 1), "core/demo/origins/Scene06.ts:37301:37339");
     __dt(this.play(Create(this.repoCylinder), 2), "core/demo/origins/Scene06.ts:37344:37383");
     this.wait(1);
-    __dt(this.play(together(restage(this.dialecticalThinking.opacity.to(1), 0.99, 1), [UnCreate(this.repoCylinder.members[1]), 0, 1 / 2], [UnCreate(this.repoCircle.members[1]), 0, 1 / 2], [UnCreate(this.repoRectangle.members[1]), 0, 1 / 2], Morph(this.closingMorphs.members[0], this.repoCircle.members[0], this.circle), Morph(this.closingMorphs.members[1], this.repoRectangle.members[0], this.rectangle), this.repoCylinder.members[0].scale.to(3 / 4), this.repoCylinder.members[0].b.to(-PI3 / 2), this.repoCylinder.members[0].p.to(-PI3 / 4), this.repoCylinder.members[0].y.to(15), this.repoCylinder.members[0].z.to(-100)), 3), "core/demo/origins/Scene06.ts:37760:39042");
+    __dt(this.play(together(restage(this.dialecticalThinking.opacity.to(1), 0.99, 1), [UnCreate(this.repoCylinder.members[1]), 0, 1 / 2], [UnCreate(this.repoCircle.members[1]), 0, 1 / 2], [UnCreate(this.repoRectangle.members[1]), 0, 1 / 2], Morph(this.closingMorphs.members[0], this.repoCircle.members[0], this.circle), Morph(this.closingMorphs.members[1], this.repoRectangle.members[0], this.rectangle), this.repoCylinder.members[0].scale.to(3 / 4), this.repoCylinder.members[0].b.to(-PI5 / 2), this.repoCylinder.members[0].p.to(-PI5 / 4), this.repoCylinder.members[0].y.to(15), this.repoCylinder.members[0].z.to(-100)), 3), "core/demo/origins/Scene06.ts:37760:39042");
     this.wait(3.2);
     __dt(this.play(together(UnDraw(this.repoCylinder.members[0]), UnDraw(this.dialecticalThinking)), 0.8), "core/demo/origins/Scene06.ts:40040:40192");
   }
@@ -68908,8 +69145,8 @@ var CODE_TOP = 116.4;
 var CODE_SIZE = 14.796;
 
 class Scene07Dream extends Dream {
-  code = __dt(new Text({ content: "code", x: -200, y: -15, size: 50, tint: BLUE }), "core/demo/origins/Scene07.ts:24652:24720");
-  idea = __dt(new Text({ content: "idea", x: 200, y: -15, size: 50, tint: RED }), "core/demo/origins/Scene07.ts:24730:24796");
+  code = __dt(new Text3({ content: "code", x: -200, y: -15, size: 50, tint: BLUE }), "core/demo/origins/Scene07.ts:24652:24720");
+  idea = __dt(new Text3({ content: "idea", x: 200, y: -15, size: 50, tint: RED }), "core/demo/origins/Scene07.ts:24730:24796");
   frameCode = __dt(new Rectangle({
     width: 300,
     height: 300,
@@ -68927,8 +69164,8 @@ class Scene07Dream extends Dream {
     stroke: STROKE_MAIN
   }), "core/demo/origins/Scene07.ts:25200:25325");
   frames = __dt(new Group2({ members: [this.frameCode, this.frameIdea] }), "core/demo/origins/Scene07.ts:25337:25393");
-  codeLines = CODE_LINES.map(({ text, col, row }) => __dt(new Text({
-    content: text,
+  codeLines = CODE_LINES.map(({ text: text2, col, row }) => __dt(new Text3({
+    content: text2,
     font: "mono",
     align: "left",
     x: COL0_LEFT + ADVANCE * col,
@@ -68990,7 +69227,7 @@ class Scene07Dream extends Dream {
     __dt(this.play(Create(this.arrow), 2 / 3), "core/demo/origins/Scene07.ts:35366:35402");
     __dt(this.play(Create(this.cylinder), 2), "core/demo/origins/Scene07.ts:35407:35442");
     __dt(this.play(this.arrow.y.by(-32), 2 / 3), "core/demo/origins/Scene07.ts:35630:35668");
-    __dt(this.play(together(this.cylinder.b.by(PI3 / 3), this.cylinder.p.by(PI3 / 4)), 2), "core/demo/origins/Scene07.ts:35816:35894");
+    __dt(this.play(together(this.cylinder.b.by(PI5 / 3), this.cylinder.p.by(PI5 / 4)), 2), "core/demo/origins/Scene07.ts:35816:35894");
     __dt(this.play(this.arrow.y.by(-52), 2 / 3), "core/demo/origins/Scene07.ts:35899:35937");
     __dt(this.play(UnCreate(this.cylinder), 2), "core/demo/origins/Scene07.ts:35942:35979");
     __dt(this.play(together(Erase(this.arrow), ...this.codeLines.map((line) => line.opacity.to(0))), 1), "core/demo/origins/Scene07.ts:35984:36097");
@@ -69105,28 +69342,28 @@ var SPOKE_TRIM = 0.2;
 
 class Scene08Dream extends Dream {
   logo = __dt(new Logo({ y: -150, scale: 1 / 4, stroke: STROKE_MAIN }), "core/demo/origins/Scene08.ts:12595:12651");
-  p2pEducation = __dt(new Text({
+  p2pEducation = __dt(new Text3({
     content: `p2p education
 system`,
     x: -300,
     y: 50,
     size: LABEL_SIZE
   }), "core/demo/origins/Scene08.ts:12875:12974");
-  senseMaking = __dt(new Text({
+  senseMaking = __dt(new Text3({
     content: `sense-making
 platform`,
     x: -100,
     y: 150,
     size: LABEL_SIZE
   }), "core/demo/origins/Scene08.ts:12991:13092");
-  cultureWar = __dt(new Text({
+  cultureWar = __dt(new Text3({
     content: `de-escalate
 culture war`,
     x: 300,
     y: 50,
     size: LABEL_SIZE
   }), "core/demo/origins/Scene08.ts:13108:13209");
-  ideaIncubator = __dt(new Text({
+  ideaIncubator = __dt(new Text3({
     content: `idea
 incubator`,
     x: 100,
@@ -69497,7 +69734,7 @@ var LEAD_IN = 0.85;
 
 class Scene12Dream extends Dream {
   logo = __dt(new Logo({ y: 50, scale: 0.6, stroke: STROKE_MAIN }), "core/demo/origins/Scene12.ts:6814:6866");
-  name = __dt(new Text({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene12.ts:6948:7010");
+  name = __dt(new Text3({ content: "Project Liminality", y: -160, size: 50 }), "core/demo/origins/Scene12.ts:6948:7010");
   unfold() {
     this.observer.look("front");
     this.wait(LEAD_IN);
@@ -69675,15 +69912,15 @@ var flattenElements = (elements, tolerance) => {
 };
 var HELVETICA_CAP_HEIGHT = 0.714;
 var HELVETICA_DESCENT = 0.212;
-var textBaseline = (text, lineCount = 1) => {
-  const size = text.fontSize;
+var textBaseline = (text2, lineCount = 1) => {
+  const size = text2.fontSize;
   const cap = size * HELVETICA_CAP_HEIGHT;
   const descent = size * HELVETICA_DESCENT;
-  const lineHeight = size * (text.lineSpacing > 0 ? text.lineSpacing : 1);
-  const top = text.frame.position.y + text.padding.top;
-  const bottom = text.frame.position.y + text.frame.size.height - text.padding.bottom;
+  const lineHeight = size * (text2.lineSpacing > 0 ? text2.lineSpacing : 1);
+  const top = text2.frame.position.y + text2.padding.top;
+  const bottom = text2.frame.position.y + text2.frame.size.height - text2.padding.bottom;
   const capBlock = (lineCount - 1) * lineHeight + cap;
-  switch (text.verticalAlign) {
+  switch (text2.verticalAlign) {
     case "bottom":
       return bottom - descent - (lineCount - 1) * lineHeight;
     case "middle":
@@ -69692,10 +69929,10 @@ var textBaseline = (text, lineCount = 1) => {
       return top + (lineHeight - cap - descent) / 2 + cap;
   }
 };
-var textAnchorX = (text) => {
-  const left = text.frame.position.x + text.padding.left;
-  const right = text.frame.position.x + text.frame.size.width - text.padding.right;
-  switch (text.align) {
+var textAnchorX = (text2) => {
+  const left = text2.frame.position.x + text2.padding.left;
+  const right = text2.frame.position.x + text2.frame.size.width - text2.padding.right;
+  switch (text2.align) {
     case "center":
       return (left + right) / 2;
     case "right":
@@ -69929,10 +70166,10 @@ var lineDecoration = (identifier, tip, towards, size) => {
 class Connection2 extends Holon {
   points = [];
   decorations = [];
-  dash = length2(0);
-  period = length2(0);
-  tint = color2(WHITE);
-  stroke = length2(1);
+  dash = length3(0);
+  period = length3(0);
+  tint = color3(WHITE);
+  stroke = length3(1);
   opacity = completion(1);
   dashes = [];
   arrows = [];
@@ -70089,8 +70326,8 @@ var derivePoints3 = (line, sourceKey, compute3) => {
 
 class GlidingConnection extends Holon {
   completion = completion(0);
-  tint = color2(WHITE);
-  stroke = length2(1);
+  tint = color3(WHITE);
+  stroke = length3(1);
   opacity = completion(1);
   dashes = [];
   worldScale = 1;
@@ -70377,9 +70614,9 @@ var hexToColor = (hex) => {
 
 class SlideFill extends Stroke {
   loops = [];
-  tint = color2(WHITE);
+  tint = color3(WHITE);
   fillOpacity = completion(1);
-  inset = length2(0);
+  inset = length3(0);
   compose() {
     for (const points of this.loops) {
       this.add(new Line2({
@@ -70456,17 +70693,17 @@ var arcLength2 = (points) => {
 };
 
 class Slide extends Holon {
-  height = length2(562.4987439260904);
+  height = length3(562.4987439260904);
   data = EMPTY2;
   opacity = completion(1);
-  tint = color2(WHITE);
+  tint = color3(WHITE);
   overrideTint = false;
   strokes = [];
   labels = [];
   groups = [];
   groupById = new Map;
   connections = [];
-  headSize = length2(9.66);
+  headSize = length3(9.66);
   byId = new Map;
   compose() {
     const scale2 = slideToWorld(this.height.value);
@@ -70483,9 +70720,9 @@ class Slide extends Holon {
         this.byId.set(shape.id, parts);
       this.strokes.push(...parts);
     }
-    for (const text of this.data.texts) {
-      const label3 = this.composeText(text, scale2);
-      this.byId.set(text.id, [label3]);
+    for (const text2 of this.data.texts) {
+      const label3 = this.composeText(text2, scale2);
+      this.byId.set(text2.id, [label3]);
       this.labels.push(label3);
     }
     for (const group of this.data.groups) {
@@ -70529,10 +70766,10 @@ class Slide extends Holon {
         outline
       });
     }
-    for (const text of this.data.texts) {
-      const f2 = text.frame;
-      out.set(text.id, {
-        id: text.id,
+    for (const text2 of this.data.texts) {
+      const f2 = text2.frame;
+      out.set(text2.id, {
+        id: text2.id,
         box: { x: f2.position.x, y: f2.position.y, w: f2.size.width, h: f2.size.height },
         outline: []
       });
@@ -70702,19 +70939,19 @@ class Slide extends Holon {
     }
     return out;
   }
-  composeText(text, scale2) {
-    const lines = text.content.split(`
+  composeText(text2, scale2) {
+    const lines = text2.content.split(`
 `).length;
-    const world2 = slidePointToWorld({ x: textAnchorX(text), y: textBaseline(text, lines) }, scale2);
-    return this.add(new Text({
-      content: text.content,
-      size: text.fontSize * scale2,
-      align: text.align === "center" ? "center" : "left",
-      font: text.fontName,
-      lineHeight: text.lineSpacing > 0 ? text.lineSpacing : undefined,
-      tracking: text.tracking ?? 0,
-      tint: this.overrideTint ? this.tint.value : { r: text.color.r, g: text.color.g, b: text.color.b },
-      opacity: text.opacity,
+    const world2 = slidePointToWorld({ x: textAnchorX(text2), y: textBaseline(text2, lines) }, scale2);
+    return this.add(new Text3({
+      content: text2.content,
+      size: text2.fontSize * scale2,
+      align: text2.align === "center" ? "center" : "left",
+      font: text2.fontName,
+      lineHeight: text2.lineSpacing > 0 ? text2.lineSpacing : undefined,
+      tracking: text2.tracking ?? 0,
+      tint: this.overrideTint ? this.tint.value : { r: text2.color.r, g: text2.color.g, b: text2.color.b },
+      opacity: text2.opacity,
       x: world2.x,
       y: world2.y,
       creation: 1
@@ -97353,7 +97590,7 @@ var shapeClass = (shape) => {
   const aspect2 = box && box.w > 0.000000001 && box.h > 0.000000001 ? Math.round(2 * Math.log2(box.w / box.h)) : 0;
   return `s|${shape.icon ?? ""}|${shape.subpaths.length}|${aspect2}|${parts.join(" ")}`;
 };
-var textClass = (text) => `t|${text.content}|${text.fontSize.toFixed(2)}|${text.fontName}`;
+var textClass = (text2) => `t|${text2.content}|${text2.fontSize.toFixed(2)}|${text2.fontName}`;
 var matchablesOf = (page) => {
   const out = [];
   let order = 0;
@@ -97365,11 +97602,11 @@ var matchablesOf = (page) => {
       continue;
     out.push({ id: shape.id, key: shapeClass(shape), box, isText: false, order: order++ });
   }
-  for (const text of page.data.texts) {
-    const f2 = text.frame;
+  for (const text2 of page.data.texts) {
+    const f2 = text2.frame;
     out.push({
-      id: text.id,
-      key: textClass(text),
+      id: text2.id,
+      key: textClass(text2),
       box: { x: f2.position.x, y: f2.position.y, w: f2.size.width, h: f2.size.height },
       isText: true,
       order: order++
@@ -98445,7 +98682,7 @@ class ProjectLiminalityDream extends Dream {
   labels = DECK59_LABELS.map((l2) => {
     const scale2 = slideToWorld(SLIDE_FRAME_HEIGHT);
     const world2 = slidePointToWorld({ x: l2.x, y: l2.y }, scale2);
-    return __dt(new Text({
+    return __dt(new Text3({
       content: l2.content,
       size: l2.size * scale2,
       align: "center",
@@ -98569,9 +98806,9 @@ var SPINE = 0.42;
 var REACH = 0.2;
 
 class Figure extends Stroke {
-  tint = color2(RED);
+  tint = color3(RED);
   static sovereign = true;
-  height = length2(120);
+  height = length3(120);
   head;
   spine;
   armLeft;
@@ -98621,7 +98858,7 @@ class Figure extends Stroke {
 // demo/agentarena/Arena.ts
 class Arena extends Stroke {
   static sovereign = true;
-  radius = length2(200);
+  radius = length3(200);
   boundary;
   compose() {
     this.boundary = this.add(__dt(new Circle({ radius: this.radius, tint: BLUE, stroke: this.stroke }), "core/demo/agentarena/Arena.ts:1002:1070"));
@@ -98633,7 +98870,7 @@ var JITTER = [1, 0.72, 0.93, 0.64, 1.05, 0.8, 0.88, 0.7];
 
 class Ensoulment extends Stroke {
   static sovereign = true;
-  radius = length2(150);
+  radius = length3(150);
   rays = integer(14);
   knot;
   spokes = [];
@@ -98669,14 +98906,14 @@ class Pairing extends Null {
   inhabitantLabel;
   compose() {
     const { container, inhabitant, names } = build(this.kind);
-    this.containerLabel = __dt(new Text({
+    this.containerLabel = __dt(new Text3({
       content: names[0],
       size: LABEL,
       tint: BLUE,
       x: -330,
       y: 70
     }), "core/demo/agentarena/Pairing.ts:1848:1955");
-    this.inhabitantLabel = __dt(new Text({
+    this.inhabitantLabel = __dt(new Text3({
       content: names[1],
       size: LABEL,
       tint: RED,
@@ -98767,8 +99004,8 @@ var EQUATION = 40;
 class AgentArenaDream extends Dream {
   arena = __dt(new Arena({ radius: 210 }), "core/demo/agentarena/AgentArena.ts:3843:3869");
   agent = __dt(new Figure({ height: 210 }), "core/demo/agentarena/AgentArena.ts:3880:3907");
-  arenaLabel = __dt(new Text({ content: "arena", size: LABEL2, tint: BLUE, y: 255 }), "core/demo/agentarena/AgentArena.ts:3923:3986");
-  agentLabel = __dt(new Text({ content: "agent", size: LABEL2, tint: RED, y: -110 }), "core/demo/agentarena/AgentArena.ts:4002:4065");
+  arenaLabel = __dt(new Text3({ content: "arena", size: LABEL2, tint: BLUE, y: 255 }), "core/demo/agentarena/AgentArena.ts:3923:3986");
+  agentLabel = __dt(new Text3({ content: "agent", size: LABEL2, tint: RED, y: -110 }), "core/demo/agentarena/AgentArena.ts:4002:4065");
   primitive = __dt(new Group2({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] }), "core/demo/agentarena/AgentArena.ts:4080:4162");
   choice = __dt(new Line2({
     points: [
@@ -98778,7 +99015,7 @@ class AgentArenaDream extends Dream {
     tint: RED,
     arrowEnd: true
   }), "core/demo/agentarena/AgentArena.ts:4470:4603");
-  choiceLabel = __dt(new Text({ content: "CHOICE", size: LABEL2, tint: RED, x: 165, y: 10 }), "core/demo/agentarena/AgentArena.ts:4620:4690");
+  choiceLabel = __dt(new Text3({ content: "CHOICE", size: LABEL2, tint: RED, x: 165, y: 10 }), "core/demo/agentarena/AgentArena.ts:4620:4690");
   agency = __dt(new Group2({ members: [this.choice, this.choiceLabel] }), "core/demo/agentarena/AgentArena.ts:4702:4757");
   textPair = __dt(new Pairing({ kind: "text", x: -230, y: 230 }), "core/demo/agentarena/AgentArena.ts:5038:5084");
   guiPair = __dt(new Pairing({ kind: "gui", x: -230, y: 0 }), "core/demo/agentarena/AgentArena.ts:5097:5140");
@@ -98792,7 +99029,7 @@ class AgentArenaDream extends Dream {
     tint: WHITE,
     arrowEnd: true
   }), "core/demo/agentarena/AgentArena.ts:5431:5569");
-  patternLabel = __dt(new Text({
+  patternLabel = __dt(new Text3({
     content: "one continuous pattern",
     size: LABEL2,
     tint: WHITE,
@@ -98801,8 +99038,8 @@ class AgentArenaDream extends Dream {
   }), "core/demo/agentarena/AgentArena.ts:5587:5697");
   pattern = __dt(new Group2({ members: [this.patternArrow, this.patternLabel] }), "core/demo/agentarena/AgentArena.ts:5710:5772");
   soul = __dt(new Ensoulment({ rays: 14, radius: 150 }), "core/demo/agentarena/AgentArena.ts:6059:6100");
-  eq1 = __dt(new Text({ content: "selection = attention = animation", size: EQUATION, tint: WHITE, y: -290 }), "core/demo/agentarena/AgentArena.ts:6109:6205");
-  eq2 = __dt(new Text({ content: "selection = soul extension", size: EQUATION, tint: RED, y: -290 }), "core/demo/agentarena/AgentArena.ts:6214:6301");
+  eq1 = __dt(new Text3({ content: "selection = attention = animation", size: EQUATION, tint: WHITE, y: -290 }), "core/demo/agentarena/AgentArena.ts:6109:6205");
+  eq2 = __dt(new Text3({ content: "selection = soul extension", size: EQUATION, tint: RED, y: -290 }), "core/demo/agentarena/AgentArena.ts:6214:6301");
   physicalArena = __dt(new Arena({ radius: 330, x: -260 }), "core/demo/agentarena/AgentArena.ts:6544:6579");
   human = __dt(new Figure({ height: 150, x: -510, y: -40 }), "core/demo/agentarena/AgentArena.ts:6590:6634");
   humanSoul = __dt(new Ensoulment({ rays: 12, radius: 78, x: -510, y: -30 }), "core/demo/agentarena/AgentArena.ts:6649:6706");
@@ -98830,7 +99067,7 @@ class AgentArenaDream extends Dream {
     ],
     tint: RED
   }), "core/demo/agentarena/AgentArena.ts:7384:7499");
-  inputLabel = __dt(new Text({ content: "input", size: LABEL2, tint: WHITE, x: 10, y: -55 }), "core/demo/agentarena/AgentArena.ts:7515:7586");
+  inputLabel = __dt(new Text3({ content: "input", size: LABEL2, tint: WHITE, x: 10, y: -55 }), "core/demo/agentarena/AgentArena.ts:7515:7586");
   recursion = __dt(new Group2({
     members: [
       this.physicalArena,
@@ -98845,17 +99082,17 @@ class AgentArenaDream extends Dream {
       this.inputLabel
     ]
   }), "core/demo/agentarena/AgentArena.ts:7601:7852");
-  ifaceIn = __dt(new Text({ content: `camera
+  ifaceIn = __dt(new Text3({ content: `camera
 mic
 keyboard`, size: LABEL2, tint: BLUE, x: 250, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:7991:8093");
-  ifaceOut = __dt(new Text({ content: `screen
+  ifaceOut = __dt(new Text3({ content: `screen
 speaker
 motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" }), "core/demo/agentarena/AgentArena.ts:8107:8209");
-  ifaceTitle = __dt(new Text({ content: "interface", size: LABEL2, tint: WHITE, x: 400, y: 250 }), "core/demo/agentarena/AgentArena.ts:8225:8301");
+  ifaceTitle = __dt(new Text3({ content: "interface", size: LABEL2, tint: WHITE, x: 400, y: 250 }), "core/demo/agentarena/AgentArena.ts:8225:8301");
   iface = __dt(new Group2({ members: [this.ifaceTitle, this.ifaceIn, this.ifaceOut] }), "core/demo/agentarena/AgentArena.ts:8312:8382");
-  macos = __dt(new Text({ content: "macOS already = infinite game engine", size: EQUATION, tint: WHITE, y: 90 }), "core/demo/agentarena/AgentArena.ts:8469:8566");
-  dreamos = __dt(new Text({ content: "DreamOS", size: 130, tint: RED, y: -60 }), "core/demo/agentarena/AgentArena.ts:8579:8641");
-  explicit = __dt(new Text({ content: "makes it explicit", size: EQUATION, tint: WHITE, y: -190 }), "core/demo/agentarena/AgentArena.ts:8655:8735");
+  macos = __dt(new Text3({ content: "macOS already = infinite game engine", size: EQUATION, tint: WHITE, y: 90 }), "core/demo/agentarena/AgentArena.ts:8469:8566");
+  dreamos = __dt(new Text3({ content: "DreamOS", size: 130, tint: RED, y: -60 }), "core/demo/agentarena/AgentArena.ts:8579:8641");
+  explicit = __dt(new Text3({ content: "makes it explicit", size: EQUATION, tint: WHITE, y: -190 }), "core/demo/agentarena/AgentArena.ts:8655:8735");
   stageRoot = __dt(new Null, "core/demo/agentarena/AgentArena.ts:8759:8769");
   unfold() {
     this.observer.look("front");
@@ -98909,20 +99146,40 @@ motor`, size: LABEL2, tint: RED, x: 520, y: 120, align: "left" }), "core/demo/ag
 // demo/creatormode/Calculator.ts
 var CELL = 120;
 var GAP2 = 34;
+var RULES = {
+  "+": (a2, b2) => a2 + b2,
+  "−": (a2, b2) => a2 - b2,
+  "×": (a2, b2) => a2 * b2,
+  "÷": (a2, b2) => a2 / b2
+};
+var compute3 = (a2, op, b2) => {
+  const rule = RULES[op];
+  const r2 = rule ? rule(Number(a2), Number(b2)) : NaN;
+  if (!Number.isFinite(r2))
+    return "—";
+  return String(Math.round(r2 * 1e6) / 1e6).replace("-", "−");
+};
 
 class Calculator extends Null {
   static sovereign = true;
-  frame = __dt(new Rectangle({ width: 520, height: 400, rounding: 0.12, tint: WHITE }), "core/demo/creatormode/Calculator.ts:1982:2053");
-  slotA = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: -(CELL + GAP2), y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:2143:2241");
-  valueA = __dt(new Text({ content: "3", size: 64, tint: WHITE, x: -(CELL + GAP2), y: 90 }), "core/demo/creatormode/Calculator.ts:2253:2327");
-  slotB = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: CELL + GAP2, y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:2338:2433");
-  valueB = __dt(new Text({ content: "5", size: 64, tint: WHITE, x: CELL + GAP2, y: 90 }), "core/demo/creatormode/Calculator.ts:2445:2516");
-  opButton = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:3023:3103");
-  opPlus = __dt(new Text({ content: "+", size: 64, tint: WHITE, y: 90 }), "core/demo/creatormode/Calculator.ts:3115:3171");
-  opTimes = __dt(new Text({ content: "×", size: 64, tint: WHITE, y: 90, opacity: 0 }), "core/demo/creatormode/Calculator.ts:3184:3252");
-  outSlot = __dt(new Rectangle({ width: CELL * 3 + GAP2 * 2, height: CELL, rounding: 0.18, y: -90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:3344:3439");
-  out8 = __dt(new Text({ content: "8", size: 72, tint: WHITE, y: -90, opacity: 0 }), "core/demo/creatormode/Calculator.ts:3595:3664");
-  out15 = __dt(new Text({ content: "15", size: 72, tint: WHITE, y: -90, opacity: 0 }), "core/demo/creatormode/Calculator.ts:3675:3745");
+  inputA = text("3");
+  inputB = text("5");
+  op = choice("+", Object.keys(RULES));
+  frame = __dt(new Rectangle({ width: 520, height: 400, rounding: 0.12, tint: WHITE }), "core/demo/creatormode/Calculator.ts:3371:3442");
+  slotA = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: -(CELL + GAP2), y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:3604:3702");
+  valueA = __dt(new Text3({ content: this.inputA, size: 64, tint: WHITE, x: -(CELL + GAP2), y: 90 }), "core/demo/creatormode/Calculator.ts:3714:3796");
+  slotB = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, x: CELL + GAP2, y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:3807:3902");
+  valueB = __dt(new Text3({ content: this.inputB, size: 64, tint: WHITE, x: CELL + GAP2, y: 90 }), "core/demo/creatormode/Calculator.ts:3914:3993");
+  opButton = __dt(new Rectangle({ width: CELL, height: CELL, rounding: 0.18, y: 90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:4295:4375");
+  opGlyph = __dt(new Text3({ content: this.op, size: 64, tint: WHITE, y: 90 }), "core/demo/creatormode/Calculator.ts:4388:4448");
+  outSlot = __dt(new Rectangle({ width: CELL * 3 + GAP2 * 2, height: CELL, rounding: 0.18, y: -90, tint: WHITE }), "core/demo/creatormode/Calculator.ts:4540:4635");
+  out = __dt(new Text3({
+    content: derive(() => compute3(this.inputA.value, this.op.value, this.inputB.value)),
+    size: 72,
+    tint: WHITE,
+    y: -90,
+    opacity: 0
+  }), "core/demo/creatormode/Calculator.ts:4721:4884");
   all = __dt(new Group2({
     members: [
       this.frame,
@@ -98931,13 +99188,11 @@ class Calculator extends Null {
       this.slotB,
       this.valueB,
       this.opButton,
-      this.opPlus,
-      this.opTimes,
+      this.opGlyph,
       this.outSlot,
-      this.out8,
-      this.out15
+      this.out
     ]
-  }), "core/demo/creatormode/Calculator.ts:3808:4053");
+  }), "core/demo/creatormode/Calculator.ts:4947:5154");
 }
 
 // demo/creatormode/GoldenDot.ts
@@ -98945,7 +99200,7 @@ var GOLD = rgb(255, 199, 84);
 
 class GoldenDot extends Stroke {
   static sovereign = true;
-  radius = length2(14);
+  radius = length3(14);
   glow = completion(1);
   core;
   halo;
@@ -98975,7 +99230,7 @@ var LABEL3 = 34;
 var OP = { x: 0, y: 90 };
 
 class CreatorModeDream extends Dream {
-  app = __dt(new Calculator, "core/demo/creatormode/CreatorMode.ts:4239:4255");
+  app = __dt(new Calculator, "core/demo/creatormode/CreatorMode.ts:4302:4318");
   cursor = __dt(new Line2({
     points: [
       { x: 0, y: 0, z: 0 },
@@ -98987,60 +99242,60 @@ class CreatorModeDream extends Dream {
     stroke: 6,
     x: 250,
     y: -30
-  }), "core/demo/creatormode/CreatorMode.ts:4474:4882");
-  dot = __dt(new GoldenDot({ radius: 14, x: 250, y: -30, scale: 0, glow: 0 }), "core/demo/creatormode/CreatorMode.ts:4964:5028");
-  glowA = __dt(new Rectangle({ width: 140, height: 140, rounding: 0.18, x: -154, y: 90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5427:5536");
-  glowOut = __dt(new Rectangle({ width: 412, height: 140, rounding: 0.18, y: -90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5549:5650");
-  glowOp = __dt(new Rectangle({ width: 140, height: 140, rounding: 0.18, y: 90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5662:5762");
-  gameMode = __dt(new Text({ content: "game mode — play within the rules", size: LABEL3, tint: WHITE, y: -290 }), "core/demo/creatormode/CreatorMode.ts:5917:6010");
-  creatorMode = __dt(new Text({ content: "creator mode — play with the rules", size: LABEL3, tint: GOLD, y: -290 }), "core/demo/creatormode/CreatorMode.ts:6027:6120");
-  root = __dt(new Null, "core/demo/creatormode/CreatorMode.ts:6139:6149");
+  }), "core/demo/creatormode/CreatorMode.ts:4537:4945");
+  dot = __dt(new GoldenDot({ radius: 14, x: 250, y: -30, scale: 0, glow: 0 }), "core/demo/creatormode/CreatorMode.ts:5027:5091");
+  glowA = __dt(new Rectangle({ width: 140, height: 140, rounding: 0.18, x: -154, y: 90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5490:5599");
+  glowOut = __dt(new Rectangle({ width: 412, height: 140, rounding: 0.18, y: -90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5612:5713");
+  glowOp = __dt(new Rectangle({ width: 140, height: 140, rounding: 0.18, y: 90, tint: GOLD, stroke: 4, opacity: 0 }), "core/demo/creatormode/CreatorMode.ts:5725:5825");
+  gameMode = __dt(new Text3({ content: "game mode — play within the rules", size: LABEL3, tint: WHITE, y: -290 }), "core/demo/creatormode/CreatorMode.ts:5980:6073");
+  creatorMode = __dt(new Text3({ content: "creator mode — play with the rules", size: LABEL3, tint: GOLD, y: -290 }), "core/demo/creatormode/CreatorMode.ts:6090:6183");
+  root = __dt(new Null, "core/demo/creatormode/CreatorMode.ts:6202:6212");
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(3 / 4));
     this.stage(this.root);
     this.say("Here is a calculator. An arena, with rules.", { hold: true });
-    __dt(this.play(Create(this.app.frame), 1.2), "core/demo/creatormode/CreatorMode.ts:6559:6597");
-    __dt(this.play(together(Create(this.app.slotA), [Write(this.app.valueA), 0.35, 1], [Create(this.app.slotB), 0.15, 1], [Write(this.app.valueB), 0.5, 1], [Create(this.app.opButton), 0.3, 1], [Write(this.app.opPlus), 0.6, 1], [Create(this.app.outSlot), 0.45, 1]), 2.4), "core/demo/creatormode/CreatorMode.ts:6602:6946");
+    __dt(this.play(Create(this.app.frame), 1.2), "core/demo/creatormode/CreatorMode.ts:6622:6660");
+    __dt(this.play(together(Create(this.app.slotA), [Write(this.app.valueA), 0.35, 1], [Create(this.app.slotB), 0.15, 1], [Write(this.app.valueB), 0.5, 1], [Create(this.app.opButton), 0.3, 1], [Write(this.app.opGlyph), 0.6, 1], [Create(this.app.outSlot), 0.45, 1]), 2.4), "core/demo/creatormode/CreatorMode.ts:6665:7010");
     this.say("And here is you, in it. The cursor is your avatar.", { hold: true });
-    __dt(this.play(together(Create(this.cursor), [Write(this.gameMode), 0.3, 1]), 1.4), "core/demo/creatormode/CreatorMode.ts:7034:7111");
+    __dt(this.play(together(Create(this.cursor), [Write(this.gameMode), 0.3, 1]), 1.4), "core/demo/creatormode/CreatorMode.ts:7098:7175");
     this.wait(0.6);
     this.say("You click the plus, and the rule fires. Three and five make eight.", { hold: true });
-    __dt(this.play(together(this.cursor.x.to(OP.x - 6), this.cursor.y.to(OP.y + 20)), 1.2), "core/demo/creatormode/CreatorMode.ts:7368:7449");
+    __dt(this.play(together(this.cursor.x.to(OP.x - 6), this.cursor.y.to(OP.y + 20)), 1.2), "core/demo/creatormode/CreatorMode.ts:7432:7513");
     this.wait(0.3);
-    __dt(this.play(this.cursor.scale.to(0.88), 0.14), "core/demo/creatormode/CreatorMode.ts:7473:7516");
-    __dt(this.play(this.cursor.scale.to(1), 0.14), "core/demo/creatormode/CreatorMode.ts:7521:7561");
-    __dt(this.play(FadeIn(this.app.out8), 0.5), "core/demo/creatormode/CreatorMode.ts:7566:7603");
+    __dt(this.play(this.cursor.scale.to(0.88), 0.14), "core/demo/creatormode/CreatorMode.ts:7537:7580");
+    __dt(this.play(this.cursor.scale.to(1), 0.14), "core/demo/creatormode/CreatorMode.ts:7585:7625");
+    __dt(this.play(FadeIn(this.app.out), 0.5), "core/demo/creatormode/CreatorMode.ts:7630:7666");
     this.wait(1.4);
     this.say("Now press the key.", { hold: true });
-    __dt(this.play(FadeOut(this.gameMode), 0.5), "core/demo/creatormode/CreatorMode.ts:7970:8008");
+    __dt(this.play(FadeOut(this.gameMode), 0.5), "core/demo/creatormode/CreatorMode.ts:8033:8071");
     this.say("Your agency leaves the arrow, and becomes a light.", { hold: true });
-    __dt(this.play(together(this.cursor.scale.to(0), this.cursor.opacity.to(0), [this.dot.scale.to(1), 0.25, 1], [this.dot.glow.to(1), 0.3, 1], [Write(this.creatorMode), 0.45, 1]), 1.6), "core/demo/creatormode/CreatorMode.ts:8096:8340");
+    __dt(this.play(together(this.cursor.scale.to(0), this.cursor.opacity.to(0), [this.dot.scale.to(1), 0.25, 1], [this.dot.glow.to(1), 0.3, 1], [Write(this.creatorMode), 0.45, 1]), 1.6), "core/demo/creatormode/CreatorMode.ts:8159:8403");
     this.wait(0.8);
     this.say("Whatever it attends to, glows. Attention is what makes a thing editable.", { hold: true });
-    __dt(this.play(together(this.dot.x.to(-154), this.dot.y.to(20), [this.glowA.opacity.to(1), 0.45, 1]), 1.1), "core/demo/creatormode/CreatorMode.ts:8689:8842");
+    __dt(this.play(together(this.dot.x.to(-154), this.dot.y.to(20), [this.glowA.opacity.to(1), 0.45, 1]), 1.1), "core/demo/creatormode/CreatorMode.ts:8752:8905");
     this.wait(0.5);
-    __dt(this.play(together(this.glowA.opacity.to(0), this.dot.x.to(0), this.dot.y.to(-158), [this.glowOut.opacity.to(1), 0.45, 1]), 1.2), "core/demo/creatormode/CreatorMode.ts:8866:9054");
+    __dt(this.play(together(this.glowA.opacity.to(0), this.dot.x.to(0), this.dot.y.to(-158), [this.glowOut.opacity.to(1), 0.45, 1]), 1.2), "core/demo/creatormode/CreatorMode.ts:8929:9117");
     this.wait(0.5);
     this.say("Click the plus again. Nothing computes.", { hold: true });
-    __dt(this.play(together(this.glowOut.opacity.to(0), this.dot.x.to(OP.x), this.dot.y.to(OP.y - 70), [this.glowOp.opacity.to(1), 0.45, 1]), 1.2), "core/demo/creatormode/CreatorMode.ts:9338:9535");
+    __dt(this.play(together(this.glowOut.opacity.to(0), this.dot.x.to(OP.x), this.dot.y.to(OP.y - 70), [this.glowOp.opacity.to(1), 0.45, 1]), 1.2), "core/demo/creatormode/CreatorMode.ts:9401:9598");
     this.say("The same gesture. A different world. The button is selected, not fired.", { hold: true });
-    __dt(this.play(this.dot.glow.to(0.5), 0.22), "core/demo/creatormode/CreatorMode.ts:9778:9816");
-    __dt(this.play(together(this.dot.glow.to(1), this.glowOp.stroke.to(9)), 0.3), "core/demo/creatormode/CreatorMode.ts:9821:9892");
+    __dt(this.play(this.dot.glow.to(0.5), 0.22), "core/demo/creatormode/CreatorMode.ts:9841:9879");
+    __dt(this.play(together(this.dot.glow.to(1), this.glowOp.stroke.to(9)), 0.3), "core/demo/creatormode/CreatorMode.ts:9884:9955");
     this.wait(1.2);
     this.say("So change the rule. Let plus become times.", { hold: true });
-    __dt(this.play(together(FadeOut(this.app.opPlus), [FadeIn(this.app.opTimes), 0.4, 1]), 1.4), "core/demo/creatormode/CreatorMode.ts:10214:10344");
+    __dt(this.play(together(this.app.opGlyph.opacity.sequence(1, 0, 1), [this.app.op.to("×"), 0.45, 0.5], [this.app.out.opacity.to(0), 0, 0.4]), 1.4), "core/demo/creatormode/CreatorMode.ts:10461:10653");
     this.wait(0.5);
     this.say("And the answer recomputes itself. Fifteen. The behaviour changed, not the picture.", { hold: true });
-    __dt(this.play(together(FadeOut(this.app.out8), [FadeIn(this.app.out15), 0.45, 1]), 1.2), "core/demo/creatormode/CreatorMode.ts:10483:10566");
+    __dt(this.play(this.app.out.opacity.to(1), 1.2), "core/demo/creatormode/CreatorMode.ts:10792:10834");
     this.wait(1.6);
     this.say("Then the light comes home, and you are playing again.", { hold: true });
-    __dt(this.play(FadeOut(this.creatorMode), 0.5), "core/demo/creatormode/CreatorMode.ts:10891:10932");
-    __dt(this.play(together(this.dot.x.to(250), this.dot.y.to(-30), [this.dot.glow.to(0), 0.5, 1], [this.dot.scale.to(0), 0.6, 1], [this.cursor.x.to(250), 0, 0.55], [this.cursor.y.to(-30), 0, 0.55], [this.cursor.opacity.to(1), 0.6, 1], [this.cursor.scale.to(1), 0.6, 1], this.glowOp.opacity.to(0)), 1.8), "core/demo/creatormode/CreatorMode.ts:10937:11331");
-    __dt(this.play(Write(this.gameMode), 1), "core/demo/creatormode/CreatorMode.ts:11336:11370");
+    __dt(this.play(FadeOut(this.creatorMode), 0.5), "core/demo/creatormode/CreatorMode.ts:11159:11200");
+    __dt(this.play(together(this.dot.x.to(250), this.dot.y.to(-30), [this.dot.glow.to(0), 0.5, 1], [this.dot.scale.to(0), 0.6, 1], [this.cursor.x.to(250), 0, 0.55], [this.cursor.y.to(-30), 0, 0.55], [this.cursor.opacity.to(1), 0.6, 1], [this.cursor.scale.to(1), 0.6, 1], this.glowOp.opacity.to(0)), 1.8), "core/demo/creatormode/CreatorMode.ts:11205:11599");
+    __dt(this.play(Write(this.gameMode), 1), "core/demo/creatormode/CreatorMode.ts:11604:11638");
     this.say("Same calculator. Different rules. That is creator mode.", { hold: true });
     this.wait(2);
-    __dt(this.play(together(FadeOut(this.app.all), FadeOut(this.cursor), FadeOut(this.gameMode)), 1.2), "core/demo/creatormode/CreatorMode.ts:11480:11573");
+    __dt(this.play(together(FadeOut(this.app.all), FadeOut(this.cursor), FadeOut(this.gameMode)), 1.2), "core/demo/creatormode/CreatorMode.ts:11748:11841");
   }
 }
 
@@ -99160,14 +99415,14 @@ class FourierTrace extends Null {
   static sovereign = true;
   path = [];
   terms = integer(80);
-  tolerance = length2(0);
+  tolerance = length3(0);
   turn = completion(0);
-  minRadius = length2(1.2);
-  machineTint = color2({ r: 0.45, g: 0.45, b: 0.5 });
-  inkTint = color2(WHITE);
-  showMachine = bool2(true);
+  minRadius = length3(1.2);
+  machineTint = color3({ r: 0.45, g: 0.45, b: 0.5 });
+  inkTint = color3(WHITE);
+  showMachine = bool3(true);
   inkSamples = integer(1400);
-  stroke = length2(3);
+  stroke = length3(3);
   epicycles = [];
   rings;
   ink;
@@ -99237,7 +99492,7 @@ class FourierTrace extends Null {
     return this.epicycles.length;
   }
 }
-var derivePolyline = (line, sourceKey, compute3) => {
+var derivePolyline = (line, sourceKey, compute4) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -99247,7 +99502,7 @@ var derivePolyline = (line, sourceKey, compute3) => {
       const next = sourceKey();
       if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
         key = next;
-        memo = compute3();
+        memo = compute4();
         line.geomVersion++;
       }
       return memo;
@@ -99302,16 +99557,20 @@ class Quote extends Null {
   lines = [];
   attribution = "";
   voice = undefined;
+  font = undefined;
+  attributionFont = undefined;
+  attributionPlacement = "indent";
+  attributionScale = length3(0.85);
   spoken() {
     return this.lines.join(" ");
   }
   writing = completion(0);
   crediting = completion(0);
-  size = length2(46);
-  lineHeight = length2(1.45);
-  tint = color2(WHITE);
-  attributionTint = color2({ r: 0.62, g: 0.62, b: 0.66 });
-  blockWidth = length2(0);
+  size = length3(46);
+  lineHeight = length3(1.45);
+  tint = color3(WHITE);
+  attributionTint = color3({ r: 0.62, g: 0.62, b: 0.66 });
+  blockWidth = length3(0);
   lineTexts = [];
   credit;
   block;
@@ -99326,10 +99585,11 @@ class Quote extends Null {
     this.lineTexts = this.lines.map((content, i2) => {
       const span = 1 / (1 + (n2 - 1) * LAG);
       const start = i2 * LAG * span;
-      return new Text({
+      return new Text3({
         content,
         size: this.size,
         tint: this.tint,
+        font: this.font,
         align: "left",
         x: left,
         y: top - i2 * step4,
@@ -99338,13 +99598,16 @@ class Quote extends Null {
     });
     const members = [...this.lineTexts];
     if (this.attribution) {
-      this.credit = new Text({
-        content: this.attribution.startsWith("–") ? this.attribution : `– ${this.attribution}`,
-        size: this.size.times(0.85),
+      const content = this.attribution.startsWith("–") ? this.attribution : `– ${this.attribution}`;
+      const creditSize = size * this.attributionScale.value;
+      this.credit = new Text3({
+        content,
+        size: this.size.times(this.attributionScale.value),
         tint: this.attributionTint,
+        font: this.attributionFont ?? this.font,
         align: "left",
         y: top - n2 * step4 - size * 0.35,
-        x: left + size * 1.2,
+        x: this.attributionPlacement === "right" ? left + width - content.length * creditSize * 0.42 : left + size * 1.2,
         creation: this.crediting
       });
       members.push(this.credit);
@@ -99475,7 +99738,7 @@ var HERO_RED = rgb(224, 80, 64);
 var DOT_WHITE = rgb(255, 255, 255);
 var CORE_RADIUS = 150;
 var HALO_INNER = 135;
-var HALO_OUTER = 245;
+var HALO_OUTER = 260;
 var HALO_COUNT = 1300;
 var CLARITY_RADIUS = 58;
 var HERO_RING_RADIUS = 198;
@@ -99508,21 +99771,21 @@ class ClarityFieldDream extends Dream {
     super();
     const core = hexPack([disc(CORE_RADIUS)], { spacing: 8 }).map((c2) => {
       const d2 = Math.hypot(c2.x, c2.y) / CORE_RADIUS;
-      return this.ringlet(c2, 8, RED_CORE, 0.2 * (1 - 0.45 * d2 * d2), 1);
+      return this.ringlet(c2, 8, RED_CORE, 0.14 * (1 - 0.45 * d2 * d2), 1);
     });
     const halo = Array.from({ length: HALO_COUNT }, (_2, i2) => {
       const a2 = hashUnit(i2, 0, 31) * Math.PI * 2;
       const u2 = hashUnit(i2, 1, 31);
       const r2 = HALO_INNER + (HALO_OUTER - HALO_INNER) * u2 * u2;
-      const size = 1.6 + 3.6 * hashUnit(i2, 2, 31);
+      const size = 1.3 + 3.2 * hashUnit(i2, 2, 31);
       const out = (r2 - HALO_INNER) / (HALO_OUTER - HALO_INNER);
-      return this.ringlet({ x: Math.cos(a2) * r2, y: Math.sin(a2) * r2 }, size, mix6(RED_CORE, RIM_GREY, clamp015(0.3 + out * 2.5)), 0.38 * (1 - out) + 0.06, 0.8);
+      return this.ringlet({ x: Math.cos(a2) * r2, y: Math.sin(a2) * r2 }, size, mix6(RED_CORE, RIM_GREY, clamp015(0.6 + out * 2.5)), 0.17 * (1 - out) + 0.03, 0.8);
     });
-    this.field = __dt(new Group2({ members: [...core, ...halo] }), "core/demo/web3/ClarityField.ts:6864:6906");
-    const dots = hexPack([disc(HERO_RING_RADIUS - 4)], { spacing: 10 }).map((c2) => {
+    this.field = __dt(new Group2({ members: [...core, ...halo] }), "core/demo/web3/ClarityField.ts:6865:6907");
+    const dots = hexPack([disc(HERO_RING_RADIUS - 4)], { spacing: 8 }).map((c2) => {
       const d2 = Math.hypot(c2.x, c2.y);
       return __dt(new Circle({
-        radius: 1.7,
+        radius: 1.25,
         x: c2.x,
         y: c2.y,
         tint: DOT_WHITE,
@@ -99530,17 +99793,17 @@ class ClarityFieldDream extends Dream {
         stroke: 0.8,
         opacity: this.discReading((on, rNow, e2) => {
           const inside = clamp015((rNow - 5 - d2) / 6);
-          return on * inside * (1 - 0.45 * e2);
+          return on * inside * (1 - e2) ** 1.5;
         })
-      }), "core/demo/web3/ClarityField.ts:7277:7585");
+      }), "core/demo/web3/ClarityField.ts:7277:7586");
     });
-    this.inner = __dt(new Group2({ members: dots }), "core/demo/web3/ClarityField.ts:7610:7638");
+    this.inner = __dt(new Group2({ members: dots }), "core/demo/web3/ClarityField.ts:7611:7639");
     this.ring = __dt(new Circle({
       radius: this.expand.creation.map((e2) => this.discRadius(e2)),
-      tint: this.expand.creation.map((e2) => mix6(CLARITY_BLUE, HERO_RED, smooth2(e2 * 1.3))),
+      tint: this.expand.creation.map((e2) => mix6(CLARITY_BLUE, HERO_RED, smooth2((e2 - 0.45) / 0.55))),
       stroke: 3,
       opacity: this.discReading((on) => on)
-    }), "core/demo/web3/ClarityField.ts:7655:7894");
+    }), "core/demo/web3/ClarityField.ts:7656:7905");
   }
   discRadius(e2) {
     return CLARITY_RADIUS + (HERO_RING_RADIUS - CLARITY_RADIUS) * smooth2(e2);
@@ -99563,10 +99826,10 @@ class ClarityFieldDream extends Dream {
       opacity: this.burst.creation.map((b2) => {
         const k2 = clamp015(b2 * 1.6);
         const dim = 1 - 0.3 * clamp015(this.clarity.creation.value) - 0.45 * clamp015(this.veil.creation.value);
-        const fade = 1 - smooth2(this.expand.creation.value * 1.25);
+        const fade = 1 - smooth2((this.expand.creation.value - 0.2) / 0.8);
         return rest * k2 * dim * fade;
       })
-    }), "core/demo/web3/ClarityField.ts:8934:9416");
+    }), "core/demo/web3/ClarityField.ts:8945:9434");
   }
   stageField() {
     this.observer.look("front");
@@ -99579,10 +99842,10 @@ class ClarityFieldDream extends Dream {
   unfold() {
     this.stageField();
     this.say("The word bursts into complexity.");
-    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/ClarityField.ts:9795:9859");
+    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/ClarityField.ts:9813:9877");
     this.wait(2.5);
     this.say("And inside the complexity, clarity.", { hold: true });
-    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/ClarityField.ts:9991:10034");
+    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/ClarityField.ts:10009:10052");
     this.wait(3);
   }
 }
@@ -99611,7 +99874,7 @@ class ClosingDream extends Dream {
     tint: LOGO_WHITE,
     stroke: 3.4
   }), "core/demo/web3/Closing.ts:4094:4324");
-  title = __dt(new Text({
+  title = __dt(new Text3({
     content: "Project Liminality",
     size: 62,
     tint: LOGO_WHITE,
@@ -99649,13 +99912,13 @@ class PortraitCardDream extends Dream {
     stroke: 1,
     opacity: 0
   }), "core/demo/web3/PortraitCard.ts:3156:3262");
-  label = __dt(new Text({
+  label = __dt(new Text3({
     content: "portrait",
     size: 34,
     tint: PLACEHOLDER_GREY,
     opacity: 0
   }), "core/demo/web3/PortraitCard.ts:3274:3372");
-  note = __dt(new Text({
+  note = __dt(new Text3({
     content: "media/David.png — awaiting David's word",
     size: 22,
     tint: PLACEHOLDER_GREY,
@@ -99685,13 +99948,13 @@ class Plot extends Null {
   fn = (x2) => x2;
   domain = [-1, 1];
   range = [0, 10];
-  width = length2(760);
-  height = length2(460);
+  width = length3(760);
+  height = length3(460);
   reveal = completion(0);
   samples = integer(900);
-  stroke = length2(3);
-  curveTint = color2(WHITE);
-  axisTint = color2({ r: 0.45, g: 0.45, b: 0.5 });
+  stroke = length3(3);
+  curveTint = color3(WHITE);
+  axisTint = color3({ r: 0.45, g: 0.45, b: 0.5 });
   showAxes = true;
   curve;
   axes;
@@ -99750,7 +100013,7 @@ class Plot extends Null {
     this.axes = this.add(new Group2({ members: [xAxis, yAxis] }));
   }
 }
-var derivePolyline2 = (line, sourceKey, compute3) => {
+var derivePolyline2 = (line, sourceKey, compute4) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -99760,7 +100023,7 @@ var derivePolyline2 = (line, sourceKey, compute3) => {
       const next = sourceKey();
       if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
         key = next;
-        memo = compute3();
+        memo = compute4();
         line.geomVersion++;
       }
       return memo;
@@ -99770,7 +100033,7 @@ var derivePolyline2 = (line, sourceKey, compute3) => {
 };
 
 // vocabulary/RightTriangle/RightTriangle.ts
-var derivePolyline3 = (line, sourceKey, compute3) => {
+var derivePolyline3 = (line, sourceKey, compute4) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -99780,7 +100043,7 @@ var derivePolyline3 = (line, sourceKey, compute3) => {
       const next = sourceKey();
       if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
         key = next;
-        memo = compute3();
+        memo = compute4();
         line.geomVersion++;
       }
       return memo;
@@ -99792,11 +100055,11 @@ var derivePolyline3 = (line, sourceKey, compute3) => {
 class RightTriangle extends Null {
   static sovereign = true;
   foot = { x: 0, y: 0 };
-  base = length2(200);
-  rise = length2(120);
-  stroke = length2(3);
-  legTint = color2({ r: 0.5, g: 0.5, b: 0.55 });
-  hypotenuseTint = color2(WHITE);
+  base = length3(200);
+  rise = length3(120);
+  stroke = length3(3);
+  legTint = color3({ r: 0.5, g: 0.5, b: 0.55 });
+  hypotenuseTint = color3(WHITE);
   baseLine;
   riseLine;
   hypotenuse;
@@ -99866,9 +100129,9 @@ class InfinitePatienceDream extends Dream {
   }), "core/demo/patience/InfinitePatience.ts:5015:5150");
   waiting = __dt(new Figure({ height: 84, tint: BLUE, creation: 0 }), "core/demo/patience/InfinitePatience.ts:5219:5270");
   arriving = __dt(new Figure({ height: 84, tint: BLUE, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5284:5334");
-  xLabel = __dt(new Text({ content: "time", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5347:5433");
-  yLabel = __dt(new Text({ content: "joy", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5445:5530");
-  instant = __dt(new Text({ content: "the holy instant", size: 30, tint: RED, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5543:5617");
+  xLabel = __dt(new Text3({ content: "time", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5347:5433");
+  yLabel = __dt(new Text3({ content: "joy", size: 26, tint: { r: 0.5, g: 0.5, b: 0.55 }, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5445:5530");
+  instant = __dt(new Text3({ content: "the holy instant", size: 30, tint: RED, opacity: 0 }), "core/demo/patience/InfinitePatience.ts:5543:5617");
   root = __dt(new Null, "core/demo/patience/InfinitePatience.ts:5636:5646");
   constructor() {
     super();
@@ -99941,15 +100204,15 @@ class InfinitePatienceDream extends Dream {
 class FlowerText extends Null {
   static sovereign = true;
   mask = [];
-  circleRadius = length2(9);
-  spacing = length2(11);
-  margin = length2(0);
+  circleRadius = length3(9);
+  spacing = length3(11);
+  margin = length3(0);
   settle = completion(0);
-  scatterDistance = length2(220);
-  scatterMin = length2(20);
+  scatterDistance = length3(220);
+  scatterMin = length3(20);
   seed = integer(1);
-  tint = color2(RED);
-  stroke = length2(2);
+  tint = color3(RED);
+  stroke = length3(2);
   circleOpacity = completion(0.9);
   centres = [];
   circles = [];
@@ -100745,19 +101008,19 @@ class VitruvianManDream extends Dream {
     y: CIRCLE_Y,
     tint: RED,
     stroke: 3
-  }), "core/demo/web3/VitruvianMan.ts:3963:4049");
+  }), "core/demo/web3/VitruvianMan.ts:4012:4098");
   square = __dt(new Square({
     size: SQUARE_SIZE,
     y: SQUARE_Y,
     tint: BLUE,
     stroke: 3
-  }), "core/demo/web3/VitruvianMan.ts:4069:4157");
+  }), "core/demo/web3/VitruvianMan.ts:4118:4206");
   tracer = __dt(new FourierTrace({
     path: rollToHead(VITRUVIAN_PATH, START_AT_HEAD),
     terms: TERMS,
     stroke: 3
-  }), "core/demo/web3/VitruvianMan.ts:4224:4333");
-  root = __dt(new Null, "core/demo/web3/VitruvianMan.ts:4352:4362");
+  }), "core/demo/web3/VitruvianMan.ts:4273:4382");
+  root = __dt(new Null, "core/demo/web3/VitruvianMan.ts:4401:4411");
   unfold() {
     this.observer.look("front");
     this.set(this.observer.zoom.to(0.75));
@@ -100765,9 +101028,9 @@ class VitruvianManDream extends Dream {
     this.stage(this.circle);
     this.stage(this.square);
     this.stage(this.tracer);
-    __dt(this.play(together(Create(this.circle), Create(this.square)), 2.4), "core/demo/web3/VitruvianMan.ts:4610:4676");
+    __dt(this.play(together(Create(this.circle), Create(this.square)), 2.4), "core/demo/web3/VitruvianMan.ts:4659:4725");
     this.wait(0.4);
-    __dt(this.play(this.tracer.turn.to(1, { easing: "linear" }), 13.5), "core/demo/web3/VitruvianMan.ts:4770:4831");
+    __dt(this.play(this.tracer.turn.to(1, { easing: "linear" }), 13.5), "core/demo/web3/VitruvianMan.ts:4819:4880");
     this.wait(1.5);
   }
 }
@@ -101093,13 +101356,13 @@ var project = (solid, radius, yaw2, pitch2) => {
 class Platonic extends Null {
   static sovereign = true;
   solid = "icosahedron";
-  radius = length2(120);
+  radius = length3(120);
   spin = scalar(0);
   pitch = angle(0.42);
-  edgeTint = color2(WHITE);
-  edgeStroke = length2(1.4);
-  nodeTint = color2(WHITE);
-  nodeRadius = length2(4);
+  edgeTint = color3(WHITE);
+  edgeStroke = length3(1.4);
+  nodeTint = color3(WHITE);
+  nodeRadius = length3(4);
   edges;
   nodes;
   compose() {
@@ -101168,7 +101431,7 @@ var nodeAt = (i2) => {
   return { x: Math.cos(a2) * r2, y: Math.sin(a2) * r2 };
 };
 var meshEdges = (positions) => {
-  const degree = __dt(new Array(positions.length), "core/demo/web3/NodeNetwork.ts:4417:4444").fill(0);
+  const degree = __dt(new Array(positions.length), "core/demo/web3/NodeNetwork.ts:4458:4485").fill(0);
   const edges = [];
   const candidates = [];
   for (let i2 = 0;i2 < positions.length; i2++) {
@@ -101192,17 +101455,17 @@ var QUAD = 250;
 var QUAD_Y = 150;
 
 class NodeNetworkDream extends Dream {
-  gather = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5679:5704");
-  connect = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5775:5800");
-  crystallise = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5885:5910");
+  gather = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5720:5745");
+  connect = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5816:5841");
+  crystallise = __dt(new Null({ creation: 0 }), "core/demo/web3/NodeNetwork.ts:5926:5951");
   positions = Array.from({ length: NODE_COUNT }, (_2, i2) => nodeAt(i2));
   edgeList = meshEdges(this.positions);
   cloud;
   mesh;
-  octa = __dt(new Platonic({ solid: "octahedron", radius: 78, x: -QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6155:6237");
-  icosa = __dt(new Platonic({ solid: "icosahedron", radius: 82, x: QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6248:6330");
-  tetra = __dt(new Platonic({ solid: "tetrahedron", radius: 82, x: -QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6341:6425");
-  cube = __dt(new Platonic({ solid: "cube", radius: 74, x: QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6435:6511");
+  octa = __dt(new Platonic({ solid: "octahedron", radius: 78, x: -QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6196:6278");
+  icosa = __dt(new Platonic({ solid: "icosahedron", radius: 82, x: QUAD, y: QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6289:6371");
+  tetra = __dt(new Platonic({ solid: "tetrahedron", radius: 82, x: -QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6382:6466");
+  cube = __dt(new Platonic({ solid: "cube", radius: 74, x: QUAD, y: -QUAD_Y, opacity: 0 }), "core/demo/web3/NodeNetwork.ts:6476:6552");
   constructor() {
     super();
     const dots = this.positions.map((p2) => __dt(new Circle({
@@ -101213,8 +101476,8 @@ class NodeNetworkDream extends Dream {
       fillOpacity: 1,
       stroke: 0,
       opacity: this.cloudOpacity
-    }), "core/demo/web3/NodeNetwork.ts:6839:7029"));
-    this.cloud = __dt(new Group2({ members: dots }), "core/demo/web3/NodeNetwork.ts:7054:7082");
+    }), "core/demo/web3/NodeNetwork.ts:6880:7070"));
+    this.cloud = __dt(new Group2({ members: dots }), "core/demo/web3/NodeNetwork.ts:7095:7123");
     const n2 = this.edgeList.length;
     const lines = this.edgeList.map(([i2, j2], e2) => {
       const a2 = this.positions[i2];
@@ -101228,9 +101491,9 @@ class NodeNetworkDream extends Dream {
         stroke: 1,
         creation: this.connect.creation.map((c2) => Math.max(0, Math.min(1, (c2 - e2 / n2) / (1.4 / n2)))),
         opacity: this.meshOpacity
-      }), "core/demo/web3/NodeNetwork.ts:7601:7988");
+      }), "core/demo/web3/NodeNetwork.ts:7642:8029");
     });
-    this.mesh = __dt(new Group2({ members: lines }), "core/demo/web3/NodeNetwork.ts:8012:8041");
+    this.mesh = __dt(new Group2({ members: lines }), "core/demo/web3/NodeNetwork.ts:8053:8082");
   }
   get cloudOpacity() {
     return this.gather.creation.map((g2) => Math.max(0, Math.min(1, g2)) * (1 - this.crystallise.creation.value));
@@ -101249,13 +101512,13 @@ class NodeNetworkDream extends Dream {
     for (const c2 of this.crystals)
       this.stage(c2);
     this.say("The field collapses to a cluster of nodes.");
-    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/NodeNetwork.ts:8886:8926");
+    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/NodeNetwork.ts:8927:8967");
     this.wait(1);
     this.say("The nodes connect — one dense, decentralised graph.");
-    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 4), "core/demo/web3/NodeNetwork.ts:9097:9160");
+    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 4), "core/demo/web3/NodeNetwork.ts:9138:9201");
     this.wait(0.5);
     this.say("And it resolves into the four crystals, each a whole.", { hold: true });
-    __dt(this.play(together(this.crystallise.creation.to(1), ...this.crystals.map((c2) => c2.opacity.to(1)), ...this.crystals.map((c2) => c2.spin.to(TAU * 0.55, { easing: "linear" }))), 5), "core/demo/web3/NodeNetwork.ts:9350:9701");
+    __dt(this.play(together(this.crystallise.creation.to(1), ...this.crystals.map((c2) => FadeIn(c2)), ...this.crystals.map((c2) => c2.spin.to(TAU * 0.55, { easing: "linear" }))), 5), "core/demo/web3/NodeNetwork.ts:9391:9952");
     this.wait(1);
   }
 }
@@ -101330,9 +101593,9 @@ var arcEndpoints = (i2) => {
 };
 
 class LightSpreadDream extends Dream {
-  spin = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11074:11099");
-  ignite = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11174:11199");
-  spread = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11266:11291");
+  spin = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11088:11113");
+  ignite = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11188:11213");
+  spread = __dt(new Null({ creation: 0 }), "core/demo/web3/LightSpread.ts:11280:11305");
   fill = __dt(new Globe({
     radius: GLOBE_R,
     continents: "fill",
@@ -101340,7 +101603,7 @@ class LightSpreadDream extends Dream {
     tilt: TILT,
     spin: SPIN_START,
     landOpacity: 0
-  }), "core/demo/web3/LightSpread.ts:11460:11596");
+  }), "core/demo/web3/LightSpread.ts:11474:11610");
   outline = __dt(new Globe({
     radius: GLOBE_R,
     continents: "outline",
@@ -101350,17 +101613,17 @@ class LightSpreadDream extends Dream {
     limbTint: rgb(68, 68, 68),
     tilt: TILT,
     spin: SPIN_START
-  }), "core/demo/web3/LightSpread.ts:11808:12005");
+  }), "core/demo/web3/LightSpread.ts:11822:12019");
   hotspot;
   arcs;
-  root = __dt(new Null, "core/demo/web3/LightSpread.ts:12058:12068");
+  root = __dt(new Null, "core/demo/web3/LightSpread.ts:12072:12082");
   constructor() {
     super();
     const hotAt = () => {
       const p2 = projectLatLon(HOTSPOT_LON, HOTSPOT_LAT, GLOBE_R, this.spinValue, TILT);
       return { x: p2.x, y: p2.y, front: p2.z >= 0 ? 1 : 0 };
     };
-    const core = __dt(new Circle({ radius: GLOBE_R * 0.16, tint: WHITE, stroke: 0, fillOpacity: 1 }), "core/demo/web3/LightSpread.ts:12706:12784");
+    const core = __dt(new Circle({ radius: GLOBE_R * 0.16, tint: WHITE, stroke: 0, fillOpacity: 1 }), "core/demo/web3/LightSpread.ts:12720:12798");
     bindTo(core, this, () => {
       const h2 = hotAt();
       return { x: h2.x, y: h2.y };
@@ -101369,7 +101632,7 @@ class LightSpreadDream extends Dream {
     const rings = [];
     for (let r2 = 0;r2 < RIPPLE_RINGS; r2++) {
       const frac = (r2 + 1) / RIPPLE_RINGS;
-      const ring = __dt(new Circle({ radius: GLOBE_R * RIPPLE_REACH * frac, tint: WHITE, stroke: 1.6 }), "core/demo/web3/LightSpread.ts:13089:13168");
+      const ring = __dt(new Circle({ radius: GLOBE_R * RIPPLE_REACH * frac, tint: WHITE, stroke: 1.6 }), "core/demo/web3/LightSpread.ts:13103:13182");
       bindTo(ring, this, () => {
         const h2 = hotAt();
         return { x: h2.x, y: h2.y };
@@ -101377,18 +101640,18 @@ class LightSpreadDream extends Dream {
       ring.opacity.follow(this.ignite.creation.map((g2) => this.bloom(g2) * clamp016((g2 - frac * 0.35) / 0.3) * 0.7));
       rings.push(ring);
     }
-    this.hotspot = __dt(new Group2({ members: [...rings, core] }), "core/demo/web3/LightSpread.ts:13527:13567");
+    this.hotspot = __dt(new Group2({ members: [...rings, core] }), "core/demo/web3/LightSpread.ts:13541:13581");
     const n2 = ARC_COUNT;
     const lines = [];
     for (let i2 = 0;i2 < n2; i2++) {
       const ep = arcEndpoints(i2);
-      const line = __dt(new Line2({ tint: WHITE, stroke: 1.3 }), "core/demo/web3/LightSpread.ts:14105:14143");
+      const line = __dt(new Line2({ tint: WHITE, stroke: 1.3 }), "core/demo/web3/LightSpread.ts:14119:14157");
       deriveArc(line, this, () => raisedArc(ep.aLon, ep.aLat, ep.bLon, ep.bLat, this.spinValue));
       line.creation.follow(this.spread.creation.map((c2) => clamp016((c2 - i2 / n2) / (2 / n2))));
       line.opacity.follow(this.spread.creation.map((c2) => clamp016(c2 * 3)));
       lines.push(line);
     }
-    this.arcs = __dt(new Group2({ members: lines }), "core/demo/web3/LightSpread.ts:14519:14548");
+    this.arcs = __dt(new Group2({ members: lines }), "core/demo/web3/LightSpread.ts:14533:14562");
   }
   get spinValue() {
     return this.spin.creation.map((c2) => SPIN_START + (SPIN_END - SPIN_START) * c2).value;
@@ -101408,20 +101671,20 @@ class LightSpreadDream extends Dream {
     this.stage(this.hotspot);
     this.stage(this.arcs);
     this.say("The world turns.");
-    __dt(this.play(together(this.spin.creation.to(0.45, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.45, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:15494:15697");
+    __dt(this.play(together(this.spin.creation.to(0.45, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.45, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:15508:15711");
     this.say("A single insight lights up — and floods the world.");
-    __dt(this.play(together(this.ignite.creation.to(1), this.fill.landOpacity.to(1), this.spin.creation.to(0.7, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.7, { easing: "linear" })), 3), "core/demo/web3/LightSpread.ts:15851:16125");
+    __dt(this.play(together(this.ignite.creation.to(1), this.fill.landOpacity.to(1), this.spin.creation.to(0.7, { easing: "linear" }), this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.7, { easing: "linear" })), 3), "core/demo/web3/LightSpread.ts:15865:16139");
     this.say("And it travels the world, connection by connection.", { hold: true });
-    __dt(this.play(together(this.spread.creation.to(1, { easing: "linear" }), this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:16289:16512");
+    __dt(this.play(together(this.spread.creation.to(1, { easing: "linear" }), this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" })), 4), "core/demo/web3/LightSpread.ts:16303:16526");
     this.wait(1);
   }
 }
-var bindTo = (circle, dream, compute3) => {
+var bindTo = (circle, dream, compute4) => {
   const spinSrc = dream.spin.creation;
-  circle.x.follow(spinSrc.map(() => compute3().x));
-  circle.y.follow(spinSrc.map(() => compute3().y));
+  circle.x.follow(spinSrc.map(() => compute4().x));
+  circle.y.follow(spinSrc.map(() => compute4().y));
 };
-var deriveArc = (line, dream, compute3) => {
+var deriveArc = (line, dream, compute4) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -101431,7 +101694,7 @@ var deriveArc = (line, dream, compute3) => {
       const next = dream.spinValue;
       if (key === undefined || next !== key) {
         key = next;
-        memo = compute3();
+        memo = compute4();
         line.geomVersion++;
       }
       return memo;
@@ -101652,22 +101915,22 @@ class YinYangDream extends Dream {
   }
   unfold() {
     this.observer.look("front");
-    this.set(this.observer.zoom.to(1));
+    this.set(this.observer.zoom.to(0.82));
     this.stage(this.outer);
     this.stage(this.divider);
     this.stage(this.blueNode);
     this.stage(this.redNode);
     this.say("Two worlds, one circle.");
-    __dt(this.play(together(this.birth.creation.to(1), this.outer.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.08, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.08, { easing: "linear" })), 3), "core/demo/web3/YinYang.ts:23122:23401");
+    __dt(this.play(together(this.birth.creation.to(1), this.outer.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.08, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.08, { easing: "linear" })), 3), "core/demo/web3/YinYang.ts:23349:23628");
     this.say("The line between them — centralised, and decentralised.");
-    __dt(this.play(together(this.divide.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.16, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.16, { easing: "linear" })), 4), "core/demo/web3/YinYang.ts:23620:23865");
+    __dt(this.play(together(this.divide.creation.to(1, { easing: "linear" }), this.blueGlobe.spin.to(TAU * 0.16, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.16, { easing: "linear" })), 4), "core/demo/web3/YinYang.ts:23847:24092");
     this.wait(0.5);
     this.say("And they turn, each becoming the other.", { hold: true });
-    __dt(this.play(together(this.orbit.creation.to(1, { easing: "smooth" }), this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.32, { easing: "linear" })), 6), "core/demo/web3/YinYang.ts:24105:24349");
+    __dt(this.play(together(this.orbit.creation.to(1, { easing: "smooth" }), this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }), this.redGlobe.spin.to(0.5 + TAU * 0.32, { easing: "linear" })), 6), "core/demo/web3/YinYang.ts:24332:24576");
     this.wait(1);
   }
 }
-var deriveRot = (line, dream, compute3) => {
+var deriveRot = (line, dream, compute4) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -101683,7 +101946,7 @@ var deriveRot = (line, dream, compute3) => {
       ];
       if (!key || next.some((v2, i2) => v2 !== key[i2])) {
         key = next;
-        memo = compute3();
+        memo = compute4();
         line.geomVersion++;
       }
       return memo;
@@ -101692,12 +101955,323 @@ var deriveRot = (line, dream, compute3) => {
   });
 };
 
+// demo/web3/Shot01Globe.ts
+class Shot01GlobeDream extends Dream {
+  globe = __dt(new Globe({
+    radius: 203,
+    continents: "fill",
+    land: rgb(51, 51, 51),
+    limbStroke: 1.5,
+    limbTint: rgb(85, 85, 85),
+    tilt: 0.12,
+    spin: -1.95
+  }), "core/demo/web3/Shot01Globe.ts:1194:1375");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.globe);
+    __dt(this.play(together(this.globe.spin.to(-1.8, { easing: "linear" }), [this.globe.land.to(rgb(220, 220, 220), { easing: "smooth" }), 0.2, 0.8], [this.globe.limbTint.to(rgb(240, 240, 240)), 0.3, 0.8]), 4.5), "core/demo/web3/Shot01Globe.ts:1558:1818");
+  }
+}
+
+// demo/web3/Shot06Web3Word.ts
+var RISE_FROM = -300;
+
+class Shot06Web3WordDream extends FlowerTextDemoDream {
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.word);
+    this.set(this.word.y.to(RISE_FROM));
+    __dt(this.play(together([this.word.y.to(0, { easing: "easeOut" }), 0, 0.4], [this.word.settle.to(1, { easing: "easeOut" }), 0.02, 0.6]), 4.75), "core/demo/web3/Shot06Web3Word.ts:1301:1482");
+    this.wait(9.5);
+  }
+}
+
+// demo/web3/Shot09Quote.ts
+var VITALIK_LINES = [
+  '"If the thing technically runs on 50,000 computers',
+  "but only 42 people know how it works,",
+  `your decentralization-index is not 50,000 — it's 42."`
+];
+
+class Shot09QuoteDream extends ClarityFieldDream {
+  quote = __dt(new Quote({
+    lines: VITALIK_LINES,
+    attribution: "Vitalik Buterin",
+    voice: "VitalikButerin",
+    size: 33,
+    lineHeight: 1.75,
+    attributionPlacement: "right",
+    attributionScale: 1.05,
+    font: "Times-Roman",
+    attributionFont: "Times-Italic",
+    attributionTint: { r: 0.95, g: 0.95, b: 0.95 },
+    blockWidth: 690
+  }), "core/demo/web3/Shot09Quote.ts:1537:2092");
+  unfold() {
+    this.stageField();
+    this.stage(this.quote);
+    this.set(this.burst.creation.to(1), this.clarity.creation.to(1));
+    __dt(this.play(this.veil.creation.to(1), 1.5), "core/demo/web3/Shot09Quote.ts:2363:2403");
+    this.wait(0.25);
+    __dt(this.play(this.quote.writing.to(1, { easing: "linear" }), 7.5), "core/demo/web3/Shot09Quote.ts:2499:2561");
+    this.wait(0.5);
+    __dt(this.play(this.quote.crediting.to(1), 0.75), "core/demo/web3/Shot09Quote.ts:2585:2628");
+    this.wait(2);
+    __dt(this.play(FadeOut(this.quote), 0.75), "core/demo/web3/Shot09Quote.ts:2714:2750");
+    this.wait(0.25);
+    __dt(this.play(this.veil.creation.to(0), 1), "core/demo/web3/Shot09Quote.ts:2775:2813");
+    this.wait(2.75);
+  }
+}
+
+// demo/web3/Shot12Vitruvian.ts
+var LAP = 4.5;
+
+class Shot12VitruvianDream extends Dream {
+  circle = __dt(new Circle({ radius: CIRCLE_R, y: CIRCLE_Y, tint: RED, stroke: 2, opacity: 0 }), "core/demo/web3/Shot12Vitruvian.ts:2316:2395");
+  square = __dt(new Square({ size: SQUARE_SIZE, y: SQUARE_Y, tint: BLUE, stroke: 2, opacity: 0 }), "core/demo/web3/Shot12Vitruvian.ts:2407:2488");
+  figure = __dt(new FourierTrace({
+    path: VITRUVIAN_PATH,
+    terms: TERMS,
+    stroke: 3,
+    turn: 1,
+    showMachine: false
+  }), "core/demo/web3/Shot12Vitruvian.ts:2544:2663");
+  pen = __dt(new FourierTrace({ path: VITRUVIAN_PATH, terms: TERMS, stroke: 3 }), "core/demo/web3/Shot12Vitruvian.ts:2704:2771");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(0.75));
+    this.stage(this.circle);
+    this.stage(this.square);
+    this.stage(this.figure);
+    this.stage(this.pen);
+    for (const h2 of this.figure.walk())
+      this.set(h2.opacity.to(0));
+    for (const h2 of this.pen.walk())
+      this.set(h2.opacity.to(0));
+    const machine = [...this.pen.rings.walk()].filter((h2) => h2 !== this.pen.rings);
+    __dt(this.play(together(this.circle.opacity.to(0.45), this.square.opacity.to(0.4), this.figure.ink.opacity.to(0.35), [this.pen.ink.opacity.to(1), 0.4, 1], [together(...machine.map((h2) => h2.opacity.to(0.6))), 0.4, 1]), 1), "core/demo/web3/Shot12Vitruvian.ts:3336:3621");
+    this.wait(-0.5);
+    __dt(this.play(together(this.pen.turn.to(1, { easing: "linear" }), [this.figure.ink.opacity.to(1, { easing: "linear" }), 0.6, 1]), LAP), "core/demo/web3/Shot12Vitruvian.ts:3717:3891");
+    for (let lap = 0;lap < 2; lap++) {
+      this.set(this.pen.turn.to(0));
+      __dt(this.play(this.pen.turn.to(1, { easing: "linear" }), LAP), "core/demo/web3/Shot12Vitruvian.ts:4010:4067");
+    }
+  }
+}
+
+// demo/web3/Shot14Callback.ts
+class Shot14CallbackDream extends ClarityFieldDream {
+  unfold() {
+    this.stageField();
+    this.set(this.burst.creation.to(1), this.clarity.creation.to(1));
+    this.wait(6.5);
+    __dt(this.play(this.expand.creation.to(1, { easing: "linear" }), 5), "core/demo/web3/Shot14Callback.ts:1385:1447");
+  }
+}
+
+// demo/web3/Shot15Hero.ts
+var GLOBE_R2 = 83;
+var RING_R = HERO_RING_RADIUS;
+var LATTICE_R = RING_R / 3;
+var HERO_RED2 = rgb(224, 80, 64);
+var LATTICE_RED = rgb(176, 64, 52);
+var BLOOM_RINGS = 18;
+var disc3 = (radius, segments = 64) => [
+  Array.from({ length: segments }, (_2, i2) => {
+    const a2 = i2 / segments * TAU;
+    return { x: Math.cos(a2) * radius, y: Math.sin(a2) * radius };
+  })
+];
+
+class Shot15HeroDream extends Dream {
+  globe = __dt(new Globe({
+    radius: GLOBE_R2,
+    continents: "fill",
+    land: WHITE,
+    tilt: 0.1,
+    spin: 0.15,
+    landOpacity: 0,
+    oceanTint: rgb(0, 0, 0)
+  }), "core/demo/web3/Shot15Hero.ts:2347:2505");
+  ring = __dt(new Circle({ radius: RING_R, tint: HERO_RED2, stroke: 3 }), "core/demo/web3/Shot15Hero.ts:2516:2573");
+  lattice = __dt(new Group2({
+    members: hexPack(disc3(RING_R - LATTICE_R * 0.9), { spacing: LATTICE_R }).map((c2) => __dt(new Circle({ radius: LATTICE_R, x: c2.x, y: c2.y, tint: LATTICE_RED, stroke: 1.1, opacity: 0 }), "core/demo/web3/Shot15Hero.ts:2702:2795"))
+  }), "core/demo/web3/Shot15Hero.ts:2587:2808");
+  bloom = __dt(new Group2({
+    members: Array.from({ length: BLOOM_RINGS }, (_2, i2) => __dt(new Circle({ radius: GLOBE_R2 * (1.02 + i2 * 0.04), tint: WHITE, stroke: 4, opacity: 0 }), "core/demo/web3/Shot15Hero.ts:2897:2984"))
+  }), "core/demo/web3/Shot15Hero.ts:2820:2997");
+  rays = __dt(new Group2({
+    members: Array.from({ length: 12 }, (_2, i2) => {
+      const a2 = i2 / 12 * TAU;
+      const reach = i2 % 3 === 0 ? 248 : 232;
+      return __dt(new Line2({
+        points: [
+          { x: Math.cos(a2) * GLOBE_R2 * 1.1, y: Math.sin(a2) * GLOBE_R2 * 1.1, z: 0 },
+          { x: Math.cos(a2) * reach, y: Math.sin(a2) * reach, z: 0 }
+        ],
+        tint: WHITE,
+        stroke: 1.2,
+        opacity: 0
+      }), "core/demo/web3/Shot15Hero.ts:3160:3422");
+    })
+  }), "core/demo/web3/Shot15Hero.ts:3008:3435");
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.bloom);
+    this.stage(this.lattice);
+    this.stage(this.rays);
+    this.stage(this.globe);
+    this.stage(this.ring);
+    const bloomLevels = this.bloom.members.map((h2, i2) => h2.opacity.to(0.5 * (1 - i2 / BLOOM_RINGS) ** 2.2));
+    __dt(this.play(together(this.globe.landOpacity.to(1), this.globe.oceanOpacity.to(1), together(...bloomLevels), together(...this.lattice.members.map((h2) => h2.opacity.to(0.55))), [together(...this.rays.members.map((h2) => h2.opacity.to(0.85))), 0.2, 1], this.globe.spin.to(0.1, { easing: "linear" })), 1.25), "core/demo/web3/Shot15Hero.ts:3848:4222");
+    __dt(this.play(this.globe.spin.to(-0.25, { easing: "linear" }), 14.75), "core/demo/web3/Shot15Hero.ts:4276:4341");
+  }
+}
+
+// demo/web3/Web3Song.ts
+class Web2Shot extends Web2DisintegratingDream {
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.lattice);
+    this.wait(0.5);
+    __dt(this.play(this.assemble.creation.to(1), 1), "core/demo/web3/Web3Song.ts:4671:4713");
+    this.wait(3);
+    __dt(this.play(this.collapse.creation.to(1, { easing: "easeIn" }), 6), "core/demo/web3/Web3Song.ts:4735:4799");
+  }
+}
+
+class ClarityShot extends ClarityFieldDream {
+  unfold() {
+    this.stageField();
+    __dt(this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5), "core/demo/web3/Web3Song.ts:4980:5044");
+    this.wait(2.5);
+    __dt(this.play(this.clarity.creation.to(1), 1.5), "core/demo/web3/Web3Song.ts:5068:5111");
+    this.wait(10);
+  }
+}
+
+class NodeShot extends NodeNetworkDream {
+  unfold() {
+    const crystals = [this.octa, this.icosa, this.tetra, this.cube];
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.stage(this.mesh);
+    this.stage(this.cloud);
+    for (const c2 of crystals)
+      this.stage(c2);
+    __dt(this.play(this.gather.creation.to(1), 3), "core/demo/web3/Web3Song.ts:5521:5561");
+    this.wait(4.75);
+    __dt(this.play(this.connect.creation.to(1, { easing: "linear" }), 3), "core/demo/web3/Web3Song.ts:5586:5649");
+    this.wait(0.25);
+    __dt(this.play(together([this.crystallise.creation.to(1), 0, 0.6], [together(...crystals.map((c2) => FadeIn(c2))), 0, 0.6], ...crystals.map((c2) => c2.spin.to(TAU * 0.5, { easing: "linear" }))), 4.75), "core/demo/web3/Web3Song.ts:5674:5917");
+  }
+}
+
+class LightShot extends LightSpreadDream {
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    this.outline.spin.follow(this.fill.spin.map((s2) => s2));
+    for (const h2 of [this.fill, this.outline, this.hotspot, this.arcs])
+      this.stage(h2);
+    __dt(this.play(together(this.spin.creation.to(1, { easing: "linear" }), this.fill.spin.to(SPIN_END, { easing: "linear" }), [this.ignite.creation.to(1), 4.5 / 12, 7 / 12], [this.fill.landOpacity.to(1), 4.5 / 12, 7 / 12], [this.spread.creation.to(1, { easing: "linear" }), 7 / 12, 1]), 12), "core/demo/web3/Web3Song.ts:6582:6932");
+    this.wait(2);
+  }
+}
+
+class PortraitShot extends PortraitCardDream {
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    for (const h2 of [this.plate, this.ring, this.label, this.note])
+      this.stage(h2);
+    __dt(this.play(together(Create(this.ring), [FadeIn(this.plate), 0.2, 1]), 1), "core/demo/web3/Web3Song.ts:7251:7322");
+    __dt(this.play(together(FadeIn(this.label), [FadeIn(this.note), 0.3, 1]), 1), "core/demo/web3/Web3Song.ts:7327:7398");
+    this.wait(9.5);
+    __dt(this.play(together(FadeOut(this.ring), FadeOut(this.plate), FadeOut(this.label), FadeOut(this.note)), 0.75), "core/demo/web3/Web3Song.ts:7422:7548");
+  }
+}
+
+class ClosingShot extends ClosingDream {
+  constructor() {
+    super();
+    this.title.font = "Times-Roman";
+  }
+  unfold() {
+    this.observer.look("front");
+    this.set(this.observer.zoom.to(1));
+    __dt(this.play(Create(this.blue), 1.25), "core/demo/web3/Web3Song.ts:8112:8146");
+    __dt(this.play(Create(this.mark), 1), "core/demo/web3/Web3Song.ts:8151:8182");
+    __dt(this.play(Create(this.red), 1.5), "core/demo/web3/Web3Song.ts:8187:8219");
+    this.wait(1);
+    __dt(this.play(Write(this.title), 1.5), "core/demo/web3/Web3Song.ts:8241:8274");
+    this.wait(6);
+  }
+}
+var WEB3_VOICEOVER = [
+  [3.94, 6.3, "As most of us can feel by now, we are living through an unprecedented period in human history."],
+  [11.01, 7.9, "Never before have our collective challenges seemed more daunting, and our dreams of a more beautiful world seemed more within reach."],
+  [20.27, 9.2, "As the era of centralization is coming to an end, with our top-down control structures slowly but surely disintegrating under their own weight,"],
+  [29.47, 4.03, "A new culture has emerged around the idea of Web3,"],
+  [33.51, 5.8, "seeking to direct this enormous potential towards a more beautiful and decentralized future."],
+  [40.41, 12.2, "However, as of now, the understanding of how these decentralized technologies this collective genius is creating actually work remains centralized to a comparably small class of developers,"],
+  [52.95, 6.9, "constituting one of the most crucial remaining bottlenecks for building a more resilient and decentralized future."],
+  [60.47, 2, "Vitalik put it best:"],
+  [63.28, 7.93, `"If the thing technically runs on 50,000 computers but only 42 people know how it works, your decentralization-index is not 50,000 — it's 42."`, "VitalikButerin"],
+  [73.3, 2.7, "So, how do we address this issue?"],
+  [77.62, 5.7, "The by far most effective means for spreading the light of understanding are visual metaphors."],
+  [83.97, 2.9, "Symbols that help people connect the dots"],
+  [87.5, 3.95, "and perceive the clarity behind the complexity."],
+  [93.36, 8.87, "A visual way of communicating ideas, much more fundamental than the many different languages spoken around the world today."],
+  [102.36, 2.6, "A universal language"],
+  [105.71, 1.75, "for a universal movement,"],
+  [107.48, 10.96, "not limited by superficial differences in location or cultural background, but united by the greater cause of serving all of mankind."],
+  [118.45, 16.89, "By upgrading our capacity to communicate these profound ideas with clarity, we can effectively widen the circle of understanding and thus unleash this movement's full potential in bringing about the more beautiful world our hearts know is possible."],
+  [136.27, 20.18, "If you are holding a piece of this puzzle that has the potential to change the world but as of now is not being widely understood as such, I would love to help you communicate your unique innovation to this space so it can naturally attract the minds and resources that will help you make it a reality."]
+];
+var DAVID_VOICE = "David";
+
+class Web3Dream extends DreamSong {
+  constructor() {
+    super([
+      { scene: Shot01GlobeDream, span: 4.5 },
+      [{ scene: YinYangDream, span: 18 }, crossfade(0.5)],
+      [{ scene: Web2Shot, span: 10.25 }, crossfade(0.5)],
+      [{ scene: Shot06Web3WordDream, span: 16 }, crossfade(1)],
+      [{ scene: ClarityShot, span: 16.5 }, crossfade(1.75)],
+      { scene: Shot09QuoteDream, span: 17.25 },
+      { scene: NodeShot, span: 15.75 },
+      [{ scene: Shot12VitruvianDream, span: 13.25 }, crossfade(0.75)],
+      [{ scene: LightShot, span: 13.75 }, crossfade(1)],
+      [{ scene: Shot14CallbackDream, span: 11.5 }, crossfade(1.25)],
+      { scene: Shot15HeroDream, span: 16 },
+      [{ scene: PortraitShot, span: 13.75 }, crossfade(1)],
+      { scene: ClosingShot, span: 12.25 }
+    ]);
+  }
+  unfold() {
+    let cursor = 0;
+    for (const [start, duration, text2, voice] of WEB3_VOICEOVER) {
+      this.wait(start - cursor);
+      cursor = start;
+      this.say(text2, { voice: voice ?? DAVID_VOICE, duration });
+    }
+    this.wait(-cursor);
+    super.unfold();
+  }
+}
+
 // ../holons/Circle/Circle.ts
-class Circle3 extends Circle {
+class Circle4 extends Circle {
 }
 
 class CircleDream extends Dream {
-  circle = new Circle3({ radius: 250, tint: BLUE, stroke: 4 });
+  circle = new Circle4({ radius: 250, tint: BLUE, stroke: 4 });
   unfold() {
     this.set(...this.observer.dolly(750));
     this.play(Create(this.circle), 2.5);
@@ -101724,12 +102298,12 @@ if (false)
 
 // ../holons/Cylinder/Cylinder.ts
 class Cylinder3 extends Cylinder {
-  radius = length2(50);
-  height = length2(200);
+  radius = length3(50);
+  height = length3(200);
 }
 
 class CylinderDream extends Dream {
-  circle = new Circle3({ radius: 100, tint: BLUE, x: -220 });
+  circle = new Circle4({ radius: 100, tint: BLUE, x: -220 });
   square = new Square3({ size: 200, tint: RED, x: 220 });
   cylinder = new Cylinder3({ radius: 100, height: 200 });
   unfold() {
@@ -101738,11 +102312,32 @@ class CylinderDream extends Dream {
     this.wait(0.3);
     this.play(Create(this.square), 2);
     this.wait(0.5);
-    this.play(together(this.circle.x.to(0), this.circle.y.to(100), this.circle.p.to(PI3 / 2), this.circle.tint.to(WHITE), this.square.x.to(0), this.square.tint.to(WHITE)), 2.5);
+    this.play(together(this.circle.x.to(0), this.circle.y.to(100), this.circle.p.to(PI5 / 2), this.circle.tint.to(WHITE), this.square.x.to(0), this.square.tint.to(WHITE)), 2.5);
     this.wait(0.3);
     this.play(together(Create(this.cylinder), [together(FadeOut(this.circle), FadeOut(this.square)), 0.4, 1]), 2.5);
-    this.play(together(...this.observer.orbit({ phi: 0.9, theta: 0.35 }), ...this.observer.dolly(600), this.cylinder.p.to(PI3 / 2)), 4);
+    this.play(together(...this.observer.orbit({ phi: 0.9, theta: 0.35 }), ...this.observer.dolly(600), this.cylinder.p.to(PI5 / 2)), 4);
     this.wait(1.5);
+  }
+}
+if (false)
+  ;
+
+// demo/SquareCircle.ts
+class SquareCircleDream extends Dream {
+  square = __dt(new Square({ size: 200, tint: RED, x: -340 }), "core/demo/SquareCircle.ts:701:746");
+  circle = __dt(new Circle({ radius: 100, tint: BLUE, x: -40 }), "core/demo/SquareCircle.ts:758:805");
+  cylinder = Cylinder.of(this.square, this.circle, { x: 300 });
+  unfold() {
+    this.set(...this.observer.orbit({ phi: 0.3, theta: 0.3 }), ...this.observer.dolly(950));
+    __dt(this.play(together(Create(this.square), Create(this.circle)), 2), "core/demo/SquareCircle.ts:979:1043");
+    __dt(this.play(Create(this.cylinder), 2), "core/demo/SquareCircle.ts:1048:1083");
+    this.wait(0.5);
+    __dt(this.play(this.square.size.to(320), 2), "core/demo/SquareCircle.ts:1107:1145");
+    this.wait(0.5);
+    __dt(this.play(this.circle.radius.to(55), 2), "core/demo/SquareCircle.ts:1169:1208");
+    this.wait(0.5);
+    __dt(this.play(together(this.square.size.to(200), this.circle.radius.to(100)), 2), "core/demo/SquareCircle.ts:1232:1308");
+    this.wait(1);
   }
 }
 if (false)
@@ -101751,6 +102346,7 @@ if (false)
 // demo/scenes.ts
 var scenes = {
   founding: CylinderDream,
+  squarecircle: SquareCircleDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,
@@ -101828,6 +102424,13 @@ var scenes = {
   nodenet: NodeNetworkDream,
   lightspread: LightSpreadDream,
   yinyang: YinYangDream,
+  web3: Web3Dream,
+  web3s01: Shot01GlobeDream,
+  web3s06: Shot06Web3WordDream,
+  web3s09: Shot09QuoteDream,
+  web3s12: Shot12VitruvianDream,
+  web3s14: Shot14CallbackDream,
+  web3s15: Shot15HeroDream,
   regenaissance: RegenaissanceDream
 };
 var defaultScene = "founding";
@@ -101950,15 +102553,18 @@ var buildMindVirus = (p2) => {
   mv.cable.ringStep.value = mv.cable.ringStep.value * s2;
   return mv;
 };
-var TEXT_CAP_EM = 1466 / 2048;
+var TEXT_CAP_EM = 1409 / 2048;
+var TEXT_ASCENDER_EM = 1484 / 2048;
+var textBandEm = (content) => !/[\p{Lu}\p{Nd}]/u.test(content) && /[bdfhklß]/.test(content) ? TEXT_ASCENDER_EM : TEXT_CAP_EM;
 var TEXT_LINE_STEP_EM = 1.2;
 var TEXT_ADVANCE_EM = 0.55;
 var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
 `);
 var buildText = (p2) => {
   const cap = Math.max(1, num(p2, "size", 60));
-  const em = cap / TEXT_CAP_EM;
   const lines = textLines(p2);
+  const em = cap / textBandEm(lines.join(`
+`));
   const step4 = em * TEXT_LINE_STEP_EM;
   const down = cap / 2 - (lines.length - 1) * step4 / 2;
   const r2 = num(p2, "rotation", 0);
@@ -101966,7 +102572,7 @@ var buildText = (p2) => {
   const cy = num(p2, "cy", 0);
   const ax = cx - Math.sin(r2) * down;
   const ay = cy + Math.cos(r2) * down;
-  return new Text({
+  return new Text3({
     content: lines.join(`
 `),
     size: em,
@@ -101979,8 +102585,9 @@ var buildText = (p2) => {
 };
 var textFootprint = (p2) => {
   const cap = Math.max(1, num(p2, "size", 60));
-  const em = cap / TEXT_CAP_EM;
   const lines = textLines(p2);
+  const em = cap / textBandEm(lines.join(`
+`));
   const longest = Math.max(1, ...lines.map((l2) => l2.length));
   return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM };
 };
@@ -102166,12 +102773,12 @@ var VOCABULARY = [
       cy: {
         type: "number",
         role: "y",
-        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block"
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals — or, if no capital was written, of the tall letters (d, l, k) — ignoring descenders like g, y, p; for several lines, the middle of the whole block"
       },
       size: {
         type: "number",
         role: "length",
-        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below"
+        description: "cap height: baseline to the top of the CAPITALS as written (D, T, H…); if no capital was written, to the top of the tall letters (d, l, k) instead. Page units — NOT the full bbox height when descenders hang below"
       },
       rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` }
     },
@@ -102555,12 +103162,12 @@ var drawPaths = (ctx, paths, size, color4) => {
 };
 var drawMonogram = (ctx, name, size, color4) => {
   const capitals = name.match(/[A-Z]/g);
-  const text = capitals && capitals.length > 1 ? capitals.slice(0, 2).join("") : name.slice(0, 2);
+  const text2 = capitals && capitals.length > 1 ? capitals.slice(0, 2).join("") : name.slice(0, 2);
   ctx.fillStyle = color4;
-  ctx.font = `600 ${Math.round(size * (text.length > 1 ? 0.5 : 0.62))}px -apple-system, "SF Pro", Inter, sans-serif`;
+  ctx.font = `600 ${Math.round(size * (text2.length > 1 ? 0.5 : 0.62))}px -apple-system, "SF Pro", Inter, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, size / 2, size / 2 + size * 0.04);
+  ctx.fillText(text2, size / 2, size / 2 + size * 0.04);
 };
 var cache3 = new Map;
 var signatureOf = (holon) => {
@@ -102627,7 +103234,7 @@ var collectTile = (holon, depth3 = 0) => {
   if (holon.opacity.value < 0.04)
     return [];
   const out = [];
-  if (holon instanceof Text) {
+  if (holon instanceof Text3) {
     if (inkAlive(holon)) {
       const size = holon.size.value;
       const marker = [
@@ -102694,8 +103301,8 @@ var drawTile = (ctx, paths, w4, h2, win) => {
   ctx.lineWidth = 1;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  for (const { path, color: color4, text } of paths) {
-    if (text !== undefined) {
+  for (const { path, color: color4, text: text2 } of paths) {
+    if (text2 !== undefined) {
       const a2 = px(path[0]);
       const b2 = px(path[1]);
       const size = Math.max(3, Math.hypot(b2.x - a2.x, b2.y - a2.y));
@@ -102703,7 +103310,7 @@ var drawTile = (ctx, paths, w4, h2, win) => {
       ctx.font = `${size}px -apple-system, "SF Pro", Inter, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(text, a2.x, a2.y);
+      ctx.fillText(text2, a2.x, a2.y);
       continue;
     }
     if (path.length < 2)
@@ -103646,8 +104253,8 @@ var numericField = (param, opts) => {
     }
   };
 };
-var parseEntry = (text) => {
-  const trimmed = text.trim().replace(/\s+/g, "");
+var parseEntry = (text2) => {
+  const trimmed = text2.trim().replace(/\s+/g, "");
   if (trimmed === "")
     return;
   const plain = Number(trimmed);
@@ -103728,6 +104335,8 @@ var formatValue = (v2) => {
     return "";
   if (typeof v2 === "boolean")
     return v2 ? "true" : "false";
+  if (typeof v2 === "string")
+    return v2;
   return Math.abs(v2) >= 10 ? v2.toFixed(0) : v2.toFixed(2);
 };
 var buildParamRow = (name, param, hooks) => {
@@ -103789,6 +104398,43 @@ var buildParamRow = (name, param, hooks) => {
     }
     el.appendChild(field.el);
     return { el, param, field, slider };
+  }
+  if (typeof param.value === "string") {
+    if (!hooks.committable) {
+      el.classList.add("liveonly");
+      el.title = "live only — not written to code";
+    }
+    let input;
+    if (param.options) {
+      const menu = document.createElement("select");
+      for (const option of param.options) {
+        const o2 = document.createElement("option");
+        o2.value = option;
+        o2.textContent = option;
+        menu.appendChild(o2);
+      }
+      menu.value = param.value;
+      menu.addEventListener("change", () => {
+        hooks.onInput(param, name, menu.value);
+        hooks.onCommit(param, name, menu.value);
+      }, { signal: hooks.signal });
+      input = menu;
+    } else {
+      const field = document.createElement("input");
+      field.type = "text";
+      field.value = param.value;
+      field.spellcheck = false;
+      field.addEventListener("input", () => hooks.onInput(param, name, field.value), {
+        signal: hooks.signal
+      });
+      field.addEventListener("change", () => hooks.onCommit(param, name, field.value), {
+        signal: hooks.signal
+      });
+      input = field;
+    }
+    input.className = "strval";
+    el.appendChild(input);
+    return { el, param, input };
   }
   const val = document.createElement("div");
   val.className = "val";
@@ -103882,13 +104528,13 @@ var mountComments = (host, ctx, signal) => {
     } catch {}
   };
   const send = async () => {
-    const text = input.value.trim();
-    if (!text)
+    const text2 = input.value.trim();
+    if (!text2)
       return;
     const payload = {
       path: selectionKey,
       pathLabel: ctx.label(),
-      text,
+      text: text2,
       t: ctx.currentT(),
       scene: ctx.scene,
       bounds: ctx.bounds() ?? null
@@ -103909,7 +104555,7 @@ var mountComments = (host, ctx, signal) => {
       }
     } catch {
       if (!input.value)
-        input.value = text;
+        input.value = text2;
       attach.disabled = input.value.trim().length === 0;
     }
   };
@@ -104239,7 +104885,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render63 = (cached, span) => {
+  const render64 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -104282,7 +104928,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render63(current2);
+        render64(current2);
       return;
     }
     (async () => {
@@ -104292,7 +104938,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render63(cached, {
+      const mark = render64(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -104308,7 +104954,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render63(cached);
+    render64(cached);
   };
   return {
     show: show2,
@@ -104496,10 +105142,10 @@ var mountTimeline = (container, ruler, clips, duration, opts) => {
     }
     const fraction = clip.duration / span;
     if (fraction > 0.14) {
-      const text = document.createElement("span");
-      text.className = "cliplabel";
-      text.textContent = row.label;
-      face.appendChild(text);
+      const text2 = document.createElement("span");
+      text2.className = "cliplabel";
+      text2.textContent = row.label;
+      face.appendChild(text2);
     }
     if (fraction > 0.05) {
       const secs = document.createElement("span");
@@ -105293,8 +105939,8 @@ var SCENE_FILES = {
 var sceneFileFor = (key) => SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts";
 var undoStack = window.__dtUndo ??= new UndoStack;
 var historyNote;
-var setPendingNote = (text) => {
-  window.__dtNote = text;
+var setPendingNote = (text2) => {
+  window.__dtNote = text2;
 };
 var ensureWs = () => {
   const existing = window.__dtWs;
@@ -105528,7 +106174,10 @@ var boot = async (resume) => {
     });
   };
   const buildRow = (holon, anchor2, name, param) => {
-    const target = anchor2;
+    const owner = param.owner instanceof Holon && param.owner !== holon ? param.owner : undefined;
+    const target = owner ? anchorOf(owner) : anchor2;
+    const commitTo = owner ?? holon;
+    const commitName = owner ? param.name ?? name : name;
     let pending;
     const built = buildParamRow(name, param, {
       committable: target !== undefined,
@@ -105548,7 +106197,7 @@ var boot = async (resume) => {
         if (pending !== undefined)
           clearTimeout(pending);
         pending = setTimeout(() => {
-          commitOverride(holon, target, n2, value);
+          commitOverride(commitTo, target, owner ? commitName : n2, value);
         }, 300);
       }
     });
@@ -105561,6 +106210,7 @@ var boot = async (resume) => {
       field: built.field,
       val: built.val,
       swatch: built.swatch,
+      input: built.input,
       el: built.el
     });
     return built.el;
@@ -105679,9 +106329,14 @@ var boot = async (resume) => {
     }
   };
   const syncPanel = () => {
-    for (const { param, slider, field, val, swatch } of rows) {
+    for (const { param, slider, field, val, swatch, input } of rows) {
       const v2 = param.value;
-      if (isColor(v2)) {
+      if (typeof v2 === "string") {
+        if (input && document.activeElement !== input && input.value !== v2)
+          input.value = v2;
+        if (val)
+          val.textContent = formatValue(v2);
+      } else if (isColor(v2)) {
         if (swatch)
           swatch.style.background = `rgb(${v2.r * 255 | 0},${v2.g * 255 | 0},${v2.b * 255 | 0})`;
       } else if (typeof v2 === "number") {
@@ -105926,8 +106581,8 @@ var boot = async (resume) => {
   };
   const nameChip = $2("namechip");
   let chipTimer;
-  const showNote = (text) => {
-    nameChip.textContent = text;
+  const showNote = (text2) => {
+    nameChip.textContent = text2;
     nameChip.classList.add("shown");
     if (chipTimer !== undefined)
       clearTimeout(chipTimer);
@@ -106449,6 +107104,22 @@ var boot = async (resume) => {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+  let relaidOut = false;
+  const stopLayoutWatch = onTextLayout(() => {
+    if (relaidOut || playing)
+      return;
+    relaidOut = true;
+    requestAnimationFrame(() => {
+      relaidOut = false;
+      if (!alive || playing)
+        return;
+      host.renderFrame(current2).then(() => {
+        syncPanel();
+        paintMarquee();
+      });
+    });
+  });
+  ac.signal.addEventListener("abort", stopLayoutWatch);
   window.__dtRemount = () => {
     window.__dtRemount = undefined;
     const held = selection.current;

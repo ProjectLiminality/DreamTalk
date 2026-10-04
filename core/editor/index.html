@@ -222,6 +222,16 @@
     .num.typing .numinput { background: #0d1a24; border-color: var(--blue);
       color: var(--bright); cursor: text; user-select: text; }
     .numinput:focus { outline: none; }
+    /* A string param (Text content, a chosen rule): the numeric field's
+       quiet look, left-aligned because words read from the left. */
+    .strval { width: 100%; background: transparent; border: 1px solid transparent;
+      border-radius: 4px; color: var(--text); font: 11px/1 var(--mono); padding: 4px 6px; }
+    .strval:hover { background: var(--panel-2); border-color: var(--line); }
+    .strval:focus { outline: none; background: #0d1a24; border-color: var(--blue); color: var(--bright); }
+    select.strval { cursor: pointer; }
+    select.strval option { background: var(--panel-2); color: var(--text); }
+    .param.diverged .strval { color: var(--red); }
+    .param.live:not(.diverged) .strval { color: var(--blue); }
     /* Live value diverged from the file — cleared by the reload round-trip */
     .param.diverged label { color: var(--red); }
     .param.diverged input[type=range] { accent-color: var(--red); }

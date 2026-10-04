@@ -36,6 +36,7 @@
  * window.__dt (setT / setBackdrop / play / pause / select / pick / fly).
  */
 
+import { onTextLayout } from "../src/render/text"
 import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
 import { Param, type ParamValue } from "../src/params"
@@ -549,6 +550,8 @@ const boot = async (resume?: Transport) => {
     field?: NumericFieldHandle
     val?: HTMLElement
     swatch?: HTMLElement
+    /** A string param's menu or text field. */
+    input?: HTMLInputElement | HTMLSelectElement
     /** The row element, so a cleared override can un-mark it. */
     el?: HTMLDivElement
   }
@@ -561,7 +564,7 @@ const boot = async (resume?: Transport) => {
   interface Drag {
     row: HTMLDivElement
     param: Param<ParamValue>
-    before: number
+    before: ParamValue
     reverted: boolean
   }
   let drag: Drag | null = null
@@ -570,7 +573,7 @@ const boot = async (resume?: Transport) => {
     holon: Holon,
     anchor: SourceAnchor,
     name: string,
-    value: number,
+    value: number | string,
   ) => {
     const res = await fetch(`/api/source?file=${encodeURIComponent(anchor.file)}`)
     const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
@@ -599,7 +602,16 @@ const boot = async (resume?: Transport) => {
     name: string,
     param: Param<ParamValue>,
   ): HTMLDivElement => {
-    const target = anchor
+    // A param this holon SHARES with another (`new Text({ content: calc.op })`)
+    // is declared on its owner, so the edit is written there — on the owner's
+    // construction, under the owner's name for it. Selecting the calculator's
+    // `+` and picking `×` writes `new Calculator({ op: "×" })`, not a literal
+    // into the glyph that merely says what the operator is.
+    const owner =
+      param.owner instanceof Holon && param.owner !== holon ? (param.owner as Holon) : undefined
+    const target = owner ? anchorOf(owner) : anchor
+    const commitTo = owner ?? holon
+    const commitName = owner ? (param.name ?? name) : name
     let pending: ReturnType<typeof setTimeout> | undefined
 
     const built = buildParamRow(name, param, {
@@ -609,7 +621,7 @@ const boot = async (resume?: Transport) => {
         // No pause(): the live layer survives a frame, so a tweak takes
         // effect WHILE PLAYING — until the playhead moves past it.
         if (drag?.param !== p)
-          drag = { row: built.el, param: p, before: p.value as number, reverted: false }
+          drag = { row: built.el, param: p, before: p.value, reverted: false }
         overrides.set(p, value)
         built.el.classList.add(target ? "diverged" : "live")
         void host.renderFrame(current).then(() => syncPanel())
@@ -620,7 +632,7 @@ const boot = async (resume?: Transport) => {
         if (d?.reverted || !target) return
         if (pending !== undefined) clearTimeout(pending)
         pending = setTimeout(() => {
-          void commitOverride(holon, target, n, value)
+          void commitOverride(commitTo, target, owner ? commitName : n, value)
         }, 300)
       },
     })
@@ -634,6 +646,7 @@ const boot = async (resume?: Transport) => {
       field: built.field,
       val: built.val,
       swatch: built.swatch,
+      input: built.input,
       el: built.el,
     })
     return built.el
@@ -807,9 +820,13 @@ const boot = async (resume?: Transport) => {
   }
 
   const syncPanel = () => {
-    for (const { param, slider, field, val, swatch } of rows) {
+    for (const { param, slider, field, val, swatch, input } of rows) {
       const v = param.value
-      if (isColor(v)) {
+      if (typeof v === "string") {
+        // Never under the hand: a field being typed into keeps its text.
+        if (input && document.activeElement !== input && input.value !== v) input.value = v
+        if (val) val.textContent = formatValue(v)
+      } else if (isColor(v)) {
         if (swatch)
           swatch.style.background = `rgb(${v.r * 255 | 0},${v.g * 255 | 0},${v.b * 255 | 0})`
       } else if (typeof v === "number") {
@@ -1914,6 +1931,25 @@ const boot = async (resume?: Transport) => {
     requestAnimationFrame(loop)
   }
   requestAnimationFrame(loop)
+
+  // A changed string (an inspector pick, a scrub or jump across a rule
+  // change) re-lays its Text out asynchronously, and a paused editor draws
+  // nothing on its own — so when a layout lands, draw the held frame again.
+  // One repaint per animation frame however many texts land together.
+  let relaidOut = false
+  const stopLayoutWatch = onTextLayout(() => {
+    if (relaidOut || playing) return
+    relaidOut = true
+    requestAnimationFrame(() => {
+      relaidOut = false
+      if (!alive || playing) return
+      void host.renderFrame(current).then(() => {
+        syncPanel()
+        paintMarquee()
+      })
+    })
+  })
+  ac.signal.addEventListener("abort", stopLayoutWatch)
 
   // Code → UI closes here: tear down, hand transport to the fresh module,
   // re-import the rebuilt bundle cache-busted.

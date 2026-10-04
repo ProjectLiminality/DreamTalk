@@ -113,6 +113,7 @@ export const sliderRange = (p: Param<ParamValue>): [number, number, number] => {
 export const formatValue = (v: ParamValue): string => {
   if (isColor(v)) return ""
   if (typeof v === "boolean") return v ? "true" : "false"
+  if (typeof v === "string") return v
   return Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2)
 }
 
@@ -133,13 +134,15 @@ export interface BuiltRow {
   slider?: HTMLInputElement
   val?: HTMLElement
   swatch?: HTMLElement
+  /** A string param's control — a choice's menu, or a text's field. */
+  input?: HTMLInputElement | HTMLSelectElement
 }
 
 export interface RowHooks {
-  /** The value moved (drag/type): write it live and mark divergence. */
-  onInput: (param: Param<ParamValue>, name: string, value: number) => void
+  /** The value moved (drag/type/pick): write it live and mark divergence. */
+  onInput: (param: Param<ParamValue>, name: string, value: number | string) => void
   /** The gesture ended: commit it to code, if this row is committable. */
-  onCommit: (param: Param<ParamValue>, name: string, value: number) => void
+  onCommit: (param: Param<ParamValue>, name: string, value: number | string) => void
   /** Whether this holon's construction site is anchored — i.e. committable. */
   committable: boolean
   signal: AbortSignal
@@ -156,6 +159,8 @@ export interface RowHooks {
  *   bipolar      exact number still has to be typeable
  *   everything   the numeric field alone; a slider over [-600, 600]
  *   else numeric was never able to say 250.0, which is the whole point
+ *   choice       a menu of exactly its options — picking IS committing
+ *   text         a text field; typing is live, Enter/blur commits
  *   bool         a checkbox-flavoured toggle, read-only for now
  */
 export const buildParamRow = (name: string, param: Param<ParamValue>, hooks: RowHooks): BuiltRow => {
@@ -229,6 +234,49 @@ export const buildParamRow = (name: string, param: Param<ParamValue>, hooks: Row
     }
     el.appendChild(field.el)
     return { el, param, field, slider }
+  }
+
+  if (typeof param.value === "string") {
+    if (!hooks.committable) {
+      el.classList.add("liveonly")
+      el.title = "live only — not written to code"
+    }
+    let input: HTMLInputElement | HTMLSelectElement
+    if (param.options) {
+      const menu = document.createElement("select")
+      for (const option of param.options) {
+        const o = document.createElement("option")
+        o.value = option
+        o.textContent = option
+        menu.appendChild(o)
+      }
+      menu.value = param.value
+      // One pick is one whole gesture: live, then committed.
+      menu.addEventListener(
+        "change",
+        () => {
+          hooks.onInput(param, name, menu.value)
+          hooks.onCommit(param, name, menu.value)
+        },
+        { signal: hooks.signal },
+      )
+      input = menu
+    } else {
+      const field = document.createElement("input")
+      field.type = "text"
+      field.value = param.value
+      field.spellcheck = false
+      field.addEventListener("input", () => hooks.onInput(param, name, field.value), {
+        signal: hooks.signal,
+      })
+      field.addEventListener("change", () => hooks.onCommit(param, name, field.value), {
+        signal: hooks.signal,
+      })
+      input = field
+    }
+    input.className = "strval"
+    el.appendChild(input)
+    return { el, param, input }
   }
 
   // Booleans and anything else: shown, read, not yet editable. One child
