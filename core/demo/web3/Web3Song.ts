@@ -158,7 +158,7 @@ class YinYangShot extends YinYangDream {
 // --- the retimed set-pieces ---------------------------------------------
 
 /**
- * Shots 4–5: fades in whole at 22–23, holds, collapses 26–32. Its window
+ * Shots 4–5: fades in whole at 21.75–23, holds, collapses from 25.25. Its window
  * opens at 19.75, under the dive's fade (DIVE_FADE): its camera RETRACES
  * the dive, so the crossfade's single camera keeps travelling inward
  * instead of pulling back out, and resets to the front in the black at 21.5.
@@ -176,10 +176,14 @@ class Web2Shot extends Web2DisintegratingDream {
       this.play(this.observer.radius.to(diveRadius(t), { easing: "linear" }), (21.5 - DIVE_FADE_START) / steps)
     }
     this.set(this.observer.zoom.to(1), this.observer.radius.to(DEFAULT_DISTANCE))
-    this.wait(0.5)
-    this.play(this.assemble.creation.to(1), 1)
-    this.wait(3)
-    this.play(this.collapse.creation.to(1, { easing: "easeIn" }), 6)
+    // The lattice fades in whole, 21.75–23.0; the base starts to give at
+    // 25.25 and the release front climbs at a near-constant pace (0.1 of
+    // the height by 26, 0.33 by 28, 0.65 by 31) — linear, and it would
+    // finish at 37, long after the cut.
+    this.wait(0.25)
+    this.play(this.assemble.creation.to(1, { easing: "linear" }), 1.25)
+    this.wait(2.25)
+    this.play(this.collapse.creation.to(1, { easing: "linear" }), 11.8)
   }
 }
 

@@ -107,8 +107,10 @@
  *   6. Frame measurements exclude the demo HUD timecode (bottom-left).
  *
  * ONE PARAM PER BEAT
- *   birth   — the two globes brighten in and the big circle draws on (4–7s).
- *   divide  — the S-curve draws in and both nodes' decoration blooms (7–11s).
+ *   birth   — shot 1's globe divides in two and the halves draw apart into
+ *             their lobes while the circle widens (4.0–6.05; THE BIRTH).
+ *   divide  — the S-curve draws in and both nodes' decoration blooms
+ *             (5.75–7.0); the figure then holds until the spin.
  *   orbit   — the whole figure spins and the lobes trade sizes (11–21.5s).
  *
  * Every part is a pure function of these three numbers (birth/divide/orbit)
@@ -155,8 +157,40 @@ const BLUE_RING_PER_LOBE = 0.547
 const RED_RING_PER_LOBE = 0.577
 const BLUE_GLOBE_OF_RING = 0.46
 const RED_GLOBE_OF_RING = 0.415
-/** The globes' size before birth has brought them in. */
-const GLOBE_SMALL = 15
+/**
+ * THE BIRTH, measured at 30fps (2026-10-04). The film's yin-yang does not
+ * draw on: shot 1's globe SHRINKS and divides into the two, and the outer
+ * circle is its limb, pushed outward as the globe draws in. In pixels at
+ * 1280w, against song time (this chapter opens at 4.0):
+ *
+ *   globe radius   258.5 → 35, 3.0 → 5.95, C4D tangents 0.35 / 0.35
+ *   separation     0 → the lobe centres, 3.35 → 6.05, tangents 0.2 / 0.4
+ *   outer circle   259 → 280, 3.0 → 6.0, smooth
+ *
+ * `birth` is this chapter's share of that (4.0 → 6.05), read through the
+ * three curves; at 0 the two globes lie one on the other at the size shot
+ * 1 hands over, at 1 they sit in their lobes at the size the spin starts
+ * from.
+ */
+const BIRTH_SPAN = 2.05
+
+/**
+ * The globes' faces: [song time, centre longitude °E], read off the frames
+ * at full resolution. The two globes show the SAME face throughout (they
+ * are one globe, divided) and it drifts steadily west — India as they part,
+ * Africa by 6–7s, South America at 11, the Pacific at 14, Australia by 17,
+ * Asia at 20. The centre longitude is −spin.
+ */
+const FACES: readonly (readonly [number, number])[] = [
+  [4, 100], [4.5, 85], [5, 60], [5.5, 45], [6, 25], [7, 10], [8, -5], [9, -20],
+  [10, -35], [11, -55], [12, -80], [13, -110], [14, -140], [15, -160], [16, -195],
+  [17, -220], [18, -230], [19, -245], [20, -255], [21.5, -265],
+]
+/** Pixels per scene unit at this figure's framing: OUTER_R draws at 280. */
+const PX = 280 / OUTER_R
+const globePx = (tl: number) => 258.5 - 223.5 * c4dEaseWith((tl + 1) / 2.95, 0.35, 0.35)
+const separation = (tl: number) => c4dEaseWith((tl + 0.65) / 2.7, 0.2, 0.4)
+const outerPx = (tl: number) => 259 + 21 * c4dEaseWith((tl + 1) / 3, 0.25, 0.25)
 
 /** Blue-node lightning glyphs, red-node light rays, blue field-line spirals. */
 const BOLT_COUNT = 8
@@ -307,7 +341,7 @@ const ray = (a: number, r0: number, r1: number): { x: number; y: number; z: numb
 ]
 
 export class YinYangDream extends Dream {
-  /** Beat 1: the two globes brighten in and the big circle draws on. */
+  /** Beat 1: the one globe divides into two and the circle widens. */
   birth = new Null({ creation: 0 })
   /** Beat 2: the S-curve draws in and both nodes' decoration blooms. */
   divide = new Null({ creation: 0 })
@@ -319,24 +353,27 @@ export class YinYangDream extends Dream {
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
   blueGlobe = new Globe({
-    radius: GLOBE_SMALL,
+    radius: 33,
     continents: "fill",
     land: WHITE,
     oceanTint: rgb(0, 0, 0),
+    oceanOpacity: 1,
     tilt: 0.12,
     spin: 0,
   })
   redGlobe = new Globe({
-    radius: GLOBE_SMALL,
+    radius: 33,
     continents: "fill",
     land: WHITE,
     oceanTint: rgb(0, 0, 0),
+    oceanOpacity: 1,
     tilt: 0.12,
     spin: 0.5,
   })
 
-  /** The big outer circle — the yin-yang's boundary. Draws on over `birth`. */
-  outer = new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2, creation: 0 })
+  /** The big outer circle — the yin-yang's boundary: shot 1's limb, pushed
+   *  outward over `birth`. */
+  outer = new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2 })
 
   /** The S-curve divider. Draws on over `divide`. */
   divider!: Line
@@ -358,6 +395,7 @@ export class YinYangDream extends Dream {
       return sCurve(this.split()).map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: 0 }))
     })
     this.divider.creation.follow(this.divide.creation.map((c) => clamp01(c)))
+    this.outer.radius.follow(this.birth.creation.map(() => outerPx(this.birthTime()) / PX))
 
     // The two nodes. Each is a Group carrying its globe + decoration; the whole
     // Group's screen position is bound to its lobe (rotating with `orbit`), and
@@ -384,7 +422,7 @@ export class YinYangDream extends Dream {
    *  rides the turn, as far from the centre as the red lobe is wide. */
   private blueCentre(): { x: number; y: number } {
     const a = Math.PI + this.turn
-    const d = (1 - this.split()) * OUTER_R
+    const d = (1 - this.split()) * OUTER_R * separation(this.birthTime())
     return { x: Math.cos(a) * d, y: Math.sin(a) * d }
   }
 
@@ -392,7 +430,7 @@ export class YinYangDream extends Dream {
    *  out as the blue lobe is wide. Starts RIGHT (angle 0). */
   private redCentre(): { x: number; y: number } {
     const a = this.turn
-    const d = this.split() * OUTER_R
+    const d = this.split() * OUTER_R * separation(this.birthTime())
     return { x: Math.cos(a) * d, y: Math.sin(a) * d }
   }
 
@@ -405,13 +443,16 @@ export class YinYangDream extends Dream {
     return 1 - this.split()
   }
 
-  /** A node's ring radius for a lobe share: the lobe's dot, scaled with it,
-   *  rising in from a small globe over `birth` (the frames open on two equal
-   *  globes, f_00005). */
-  private ringR(share: number, perLobe: number, globeOfRing: number): number {
-    const full = share * OUTER_R * perLobe
-    const small = GLOBE_SMALL / globeOfRing
-    return small + (full - small) * clamp01(this.birth.creation.value)
+  /** This chapter's time into the birth (0 → BIRTH_SPAN). */
+  private birthTime(): number {
+    return clamp01(this.birth.creation.value) * BIRTH_SPAN
+  }
+
+  /** A node's ring radius for a lobe share: the lobe's dot, scaled with it —
+   *  and, through the birth, with the one globe the two are dividing from. */
+  private ringR(share: number, perLobe: number): number {
+    const k = globePx(this.birthTime()) / globePx(BIRTH_SPAN)
+    return share * OUTER_R * perLobe * k
   }
 
   // -- node construction ----------------------------------------------------
@@ -424,14 +465,12 @@ export class YinYangDream extends Dream {
    */
   private buildBlueNode(): Group {
     const orbitSrc = this.orbit.creation
-    const ring = () => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE, BLUE_GLOBE_OF_RING)
+    const ring = () => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE)
     const gr = () => ring() * BLUE_GLOBE_OF_RING
 
     // The globe rides the node's size; its land and black sea come in on
     // `birth` (Globe has no single opacity — it composes its own strokes).
     this.blueGlobe.radius.follow(orbitSrc.map(() => gr()))
-    this.blueGlobe.landOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
-    this.blueGlobe.oceanOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
 
     const members: Stroke[] = []
 
@@ -492,12 +531,10 @@ export class YinYangDream extends Dream {
    */
   private buildRedNode(): Group {
     const orbitSrc = this.orbit.creation
-    const ring = () => this.ringR(this.redScale01(), RED_RING_PER_LOBE, RED_GLOBE_OF_RING)
+    const ring = () => this.ringR(this.redScale01(), RED_RING_PER_LOBE)
     const gr = () => ring() * RED_GLOBE_OF_RING
 
     this.redGlobe.radius.follow(orbitSrc.map(() => gr()))
-    this.redGlobe.landOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
-    this.redGlobe.oceanOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
 
     // The bloom: concentric rings of falling opacity from the limb out, not
     // a filled disc — the globe's black sea is drawn over its inner edge.
@@ -565,29 +602,41 @@ export class YinYangDream extends Dream {
     this.stage(this.blueNode)
     this.stage(this.redNode)
 
-    // Beat 1 — BIRTH: two globes brighten in, the big circle draws on (4–7s).
-    this.say("Two worlds, one circle.")
-    this.play(
-      together(
-        this.birth.creation.to(1),
-        this.outer.creation.to(1, { easing: "linear" }),
-        this.blueGlobe.spin.to(TAU * 0.08, { easing: "linear" }),
-        this.redGlobe.spin.to(0.5 + TAU * 0.08, { easing: "linear" }),
-      ),
-      3,
-    )
+    // The globes' faces, scored first across the whole chapter and then the
+    // cursor returns to 0. Both globes turn together, westward, on the
+    // measured keys (FACES).
+    let at = 0
+    for (const [t, lon] of FACES) {
+      const local = t - 4
+      const spin = (-lon * Math.PI) / 180
+      if (local <= 0) {
+        this.set(this.blueGlobe.spin.to(spin), this.redGlobe.spin.to(spin))
+        continue
+      }
+      this.play(
+        together(
+          this.blueGlobe.spin.to(spin, { easing: "linear" }),
+          this.redGlobe.spin.to(spin, { easing: "linear" }),
+        ),
+        local - at,
+      )
+      at = local
+    }
+    this.wait(-at)
 
-    // Beat 2 — DIVISION: the S-curve draws in, both nodes' decoration blooms
-    // (7–11s). The two nodes settle equal, one per lobe.
+    // Beat 1 — BIRTH: the one globe divides into two, which draw apart into
+    // their lobes as the circle around them widens (4.0–6.05). Linear
+    // progress; the measured curves live in the readings.
+    this.say("Two worlds, one circle.")
+    this.play(this.birth.creation.to(1, { easing: "linear" }), BIRTH_SPAN)
+
+    // Beat 2 — DIVISION: the S-curve draws in and both nodes' decoration
+    // blooms, overlapping the birth's last moments (5.75–7.0). Then the
+    // figure holds until the spin.
+    this.wait(-0.3)
     this.say("The line between them — centralised, and decentralised.")
-    this.play(
-      together(
-        this.divide.creation.to(1, { easing: "linear" }),
-        this.blueGlobe.spin.to(TAU * 0.16, { easing: "linear" }),
-        this.redGlobe.spin.to(0.5 + TAU * 0.16, { easing: "linear" }),
-      ),
-      4,
-    )
+    this.play(this.divide.creation.to(1, { easing: "linear" }), 1.25)
+    this.wait(4)
 
     // Beat 3 — ORBIT: the figure spins up and the lobes trade sizes
     // (11–21.5s) — the eternal exchange of the two principles. Linear
@@ -596,13 +645,7 @@ export class YinYangDream extends Dream {
     // before it: the film's turn begins at 11.0 on the dot.
     this.say("And they turn, each becoming the other.")
     this.play(
-      together(
-        this.orbit.creation.to(1, { easing: "linear" }),
-        this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }),
-        // The red globe turns faster than the blue: it shows South America
-        // at 11s and Asia and Australia by 19s (refs at full resolution).
-        this.redGlobe.spin.to(0.5 + TAU * 0.78, { easing: "linear" }),
-      ),
+      this.orbit.creation.to(1, { easing: "linear" }),
       10.5,
     )
   }

@@ -74,7 +74,7 @@
 import { Dream } from "../../src/index"
 import { Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { hashUnit } from "../../src/geometry/flower"
-import { rgb, type Color } from "../../src/constants"
+import { type Color } from "../../src/constants"
 
 // ── Colour ──────────────────────────────────────────────────────────
 // Lifted from the measured #2f6fd6 (see header) so thin ink reads as blue,
@@ -86,8 +86,21 @@ import { rgb, type Color } from "../../src/constants"
  * renders near-black (this scene's original symptom). Lifted to the bright
  * core the reference actually reads as.
  */
-const LATTICE_BLUE: Color = rgb(0x3d, 0x8f, 0xe8)
-const FALLEN_GREY: Color = rgb(0x7a, 0x7a, 0x84)
+/**
+ * Re-measured at full resolution (2026-10-04): the ink's bright core is
+ * ~(28,118,183) on screen and the fallen cells cool to ~(101,128,146). The
+ * host treats a tint as linear light and encodes it for display, so the
+ * screen colours are handed over decoded (`seen`) and land as sampled.
+ */
+const seen = (r: number, g: number, b: number): Color => {
+  const decode = (v: number) => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return { r: decode(r), g: decode(g), b: decode(b) }
+}
+const LATTICE_BLUE: Color = seen(30, 130, 205)
+const FALLEN_GREY: Color = seen(105, 130, 150)
 
 // ── Lattice geometry ────────────────────────────────────────────────
 // One big equilateral triangle, apex up, subdivided into ROWS of small
@@ -105,10 +118,14 @@ const ROWS = 41
 // The big triangle's size in scene units. Base width reads frame-filling at
 // zoom 1; height is the equilateral √3/2 · base. Base sits a touch below the
 // origin so the apex is not crowded at the top of frame.
-const BASE_WIDTH = 560
+// Re-measured at 1280w (24s): base 340–939px, apex at y 80, base at y 601 —
+// 468 × 405 scene units at 1.28px each, the base 188 units below centre.
+const BASE_WIDTH = 468
 const TRI_HEIGHT = BASE_WIDTH * (Math.sqrt(3) / 2)
-const BASE_Y = -TRI_HEIGHT / 2 - 6
+const BASE_Y = -188
 const APEX_Y = BASE_Y + TRI_HEIGHT
+/** Where fallen cells collect: ~100px under the base. */
+const FLOOR_Y = BASE_Y - 80
 
 const CELL_SIDE = BASE_WIDTH / ROWS
 const ROW_STEP = CELL_SIDE * (Math.sqrt(3) / 2)
@@ -279,10 +296,12 @@ export class Web2DisintegratingDream extends Dream {
     // are hashed on the cell index — same seed, same fall, every frame.
     const drift = (hashUnit(cell.index, 0, 7) - 0.5) * 2 // −1..1
     const spin = (hashUnit(cell.index, 1, 7) - 0.5) * 2 // −1..1
-    // A fully-fallen cell drops well below the base and scatters sideways.
-    const fallDistance = TRI_HEIGHT * 0.55 + hashUnit(cell.index, 3, 7) * 120
-    const scatterX = drift * CELL_SIDE * 3.2
-    const tumble = spin * Math.PI * 2.4
+    // A fully-fallen cell settles near the bottom of frame (the frames' loose
+    // cells collect ~100px under the base and fade there), drifting a little
+    // sideways and outward; it stays upright, barely turning.
+    const fallDistance = cell.cy - (FLOOR_Y + hashUnit(cell.index, 3, 7) * 40)
+    const scatterX = drift * CELL_SIDE * 1.5 + cell.cx * 0.12
+    const tumble = spin * Math.PI * 0.15
 
     const line = new Line({
       tint: this.collapse.creation.map(() => {
@@ -296,10 +315,13 @@ export class Web2DisintegratingDream extends Dream {
       stroke: 1.6,
       // Assemble draws the lattice on; once fallen, the cell fades out near
       // the end of its fall so it does not pile up as ink at the bottom.
+      // The frames fade the whole lattice in at once (21.75–23s), and a
+      // released DOWN-triangle is gone almost at once — only the up-cells
+      // fall.
       opacity: this.assemble.creation.map((a) => {
-        const on = smooth((a - rowFrac * 0.5) / 0.5) // apex-first draw-on
+        const on = smooth(a)
         const f = fallAt()
-        const fade = 1 - smooth((f - 0.65) / 0.35)
+        const fade = cell.up ? 1 - smooth((f - 0.65) / 0.35) : 1 - smooth(f / 0.25)
         return Math.max(0, Math.min(1, on)) * fade
       }),
       // Position: at rest the cell sits at its centroid; as it falls it drops

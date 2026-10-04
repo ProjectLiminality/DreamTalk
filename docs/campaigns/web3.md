@@ -311,15 +311,20 @@ filled globe fades over decoration.
 side by side (reference frames taken on the exact second). What still
 visibly differs, in order:
 
-- 0–4 (globe): the original fades up from black under a C4D terminator
-  light; ours is evenly lit from the first frame. At 4s the original's
-  globe is already parting into two; ours is one globe until the cut.
-- 5–8 (yin-yang birth/division): the original's outer circle is whole by
-  5s and the nodes are decorated by ~6–7s; ours draws the circle over
-  4–7s and decorates ~1s later. (From 8s through the dive it matches.)
-- 22–31 (Web2): the original's triangle is a darker, smaller blue lattice
-  that fades in; ours is lighter blue and larger. The collapse timing
-  matches.
+- ~~0–4 (globe)~~ DONE: it fades up out of black on the measured keys,
+  a warm seam meridian sweeps in from the right limb to the centre over a
+  frosted far half, and from 3.0s the globe shrinks while its limb is
+  pushed outward as the yin-yang's circle (Shot01Globe.ts).
+- ~~5–8 (yin-yang birth/division)~~ DONE: the one globe divides into two
+  that draw apart into their lobes (4.0–6.05, measured curves), the circle
+  is never drawn on — it widens — and the S-curve and decoration come in
+  5.75–7.0. The globes' faces follow the frames throughout (one face for
+  both, drifting west: India → Africa → the Pacific → Asia).
+- ~~22–31 (Web2)~~ DONE: re-measured size and place (468 units wide, base
+  188 below centre), the frame's blue, a whole-lattice fade-in 21.75–23,
+  down-cells vanishing on release, upright cells settling ~100px under the
+  base, and the release front climbing linearly from 25.25. Ours still
+  reads a little brighter and its fallen cloud a little narrower.
 - 31–45 (Web3 word): ours is pinkish and larger — the host's linear-tint
   question (David's call) — and a different face.
 - 45–47: the original floods the whole frame with the red hex field
