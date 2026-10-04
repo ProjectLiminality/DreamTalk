@@ -225,6 +225,26 @@ static void test_json(void) {
     };
     for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(parse(bad[i], &o) == -1, "bad[%zu] accepted: %s", i, bad[i]);
 
+    /* Fills with counters: rings are contour point counts. */
+    CHECK(parse("{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9,0,9,3,3,3,6,6,6,6,3],\"grey\":0,\"rings\":[4,4]}]}", &o) == 0,
+          "fill with rings");
+    CHECK(P[0].nrings == 2 && P[0].rings >= 0 && N[P[0].rings] == 4 && N[P[0].rings + 1] == 4, "rings parsed");
+    CHECK(parse("{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9]}]}", &o) == 0 && P[0].rings < 0, "no rings: one contour");
+    const char *badrings[] = {
+        "{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9,0,9],\"rings\":[3]}]}",     /* doesn't add up */
+        "{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9,0,9],\"rings\":[2.5,1.5]}]}", /* not whole */
+        "{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9,0,9],\"rings\":[5,-1]}]}",   /* negative */
+        "{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[0,0,9,0,9,9,0,9],\"rings\":[]}]}",       /* empty */
+    };
+    for (size_t i = 0; i < sizeof badrings / sizeof *badrings; i++) CHECK(parse(badrings[i], &o) == -1, "badrings[%zu] accepted", i);
+    {
+        /* drawn through dl_draw: the counter stays white */
+        blank();
+        parse("{\"op\":\"put\",\"id\":\"t\",\"prims\":[{\"k\":\"fill\",\"pts\":[500,500,600,500,600,600,500,600,530,530,530,570,570,570,570,530],\"grey\":0,\"rings\":[4,4]}]}", &o);
+        dl_draw(&cv, &P[0], N);
+        CHECK(is_ink(510, 550) && !is_ink(550, 550), "dl_draw honours the counter");
+    }
+
     /* Too many numbers or primitives for the pools: reported, never written past. */
     float small[5] = {0, 0, 0, 0, -1};
     const char *many = "{\"op\":\"put\",\"id\":\"a\",\"prims\":[{\"k\":\"line\",\"pts\":[1,2,3,4,5,6]}]}";
@@ -273,12 +293,29 @@ static void test_polygon(void) {
     float in[] = {120, 120, 180, 120, 180, 180, 120, 180};
     ink_polygon(&cv, in, 4, 255);
     CHECK(!is_ink(150, 150) && is_ink(110, 110), "white fill knocks out");
-    /* Even-odd: a star's pentagon centre stays empty. */
+    /* Nonzero (the font's rule): a self-crossing star is solid at its centre. */
     blank();
     float st[10];
     for (int k = 0; k < 5; k++) st[2 * k] = 700 + 200 * cosf(k * 4 * (float)M_PI / 5 - (float)M_PI / 2), st[2 * k + 1] = 900 + 200 * sinf(k * 4 * (float)M_PI / 5 - (float)M_PI / 2);
     ink_polygon(&cv, st, 5, 0);
-    CHECK(!is_ink(700, 900) && is_ink(700, 730), "even-odd star");
+    CHECK(is_ink(700, 900) && is_ink(700, 730), "nonzero star");
+
+    /* A glyph: an outside and a counter wound against it — the hole of an `o`. */
+    blank();
+    float o[] = {/* outer, clockwise on the page */ 100, 1300, 300, 1300, 300, 1500, 100, 1500,
+                 /* counter, the other way */ 150, 1350, 150, 1450, 250, 1450, 250, 1350};
+    int rings[] = {4, 4};
+    ink_rect d2 = ink_polygon_rings(&cv, o, 8, rings, 2, 0);
+    CHECK(is_ink(120, 1400) && is_ink(200, 1320) && !is_ink(200, 1400), "counter is a hole");
+    CHECK(d2.x0 == 100 && d2.y0 == 1300 && d2.x1 == 300 && d2.y1 == 1500, "glyph dirty %d,%d,%d,%d", R(d2));
+    /* Two contours wound the same way overlap solid, as a composite glyph does. */
+    blank();
+    float two[] = {100, 1600, 300, 1600, 300, 1700, 100, 1700, 200, 1650, 400, 1650, 400, 1750, 200, 1750};
+    ink_polygon_rings(&cv, two, 8, rings, 2, 0);
+    CHECK(is_ink(250, 1675) && is_ink(150, 1620) && is_ink(350, 1720), "same-wound overlap stays solid");
+    /* Counts that don't add up draw nothing rather than garbage. */
+    int bad[] = {4, 3};
+    CHECK(ink_rect_is_empty(ink_polygon_rings(&cv, two, 8, bad, 2, 0)), "mismatched rings draw nothing");
 }
 
 static void test_polyline(void) {

@@ -177,15 +177,33 @@ ink_rect ink_polyline(ink_canvas *c, const float *pts, int n, const float *w, fl
 #undef RAD
 }
 
-static int cmp_float(const void *a, const void *b) {
-    float x = *(const float *)a, y = *(const float *)b;
+/* One crossing of a scanline: where, and which way the edge runs (+1 down, -1 up). */
+typedef struct {
+    float x;
+    int dir;
+} crossing;
+
+static int cmp_crossing(const void *a, const void *b) {
+    float x = ((const crossing *)a)->x, y = ((const crossing *)b)->x;
     return x < y ? -1 : x > y;
 }
 
 ink_rect ink_polygon(ink_canvas *c, const float *pts, int n, uint8_t grey) {
+    return ink_polygon_rings(c, pts, n, NULL, 0, grey);
+}
+
+ink_rect ink_polygon_rings(ink_canvas *c, const float *pts, int n, const int *rings, int nrings, uint8_t grey) {
     if (n < 3) return ink_rect_empty();
+    int one = n;
+    if (!rings || nrings <= 0) rings = &one, nrings = 1;
+    int total = 0;
+    for (int r = 0; r < nrings; r++) {
+        if (rings[r] < 0) return ink_rect_empty();
+        total += rings[r];
+    }
+    if (total != n) return ink_rect_empty();
     float minx = pts[0], maxx = pts[0], miny = pts[1], maxy = pts[1];
-    for (int i = 1; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         if (!isfinite(pts[2 * i]) || !isfinite(pts[2 * i + 1])) return ink_rect_empty();
         minx = fminf(minx, pts[2 * i]), maxx = fmaxf(maxx, pts[2 * i]);
         miny = fminf(miny, pts[2 * i + 1]), maxy = fmaxf(maxy, pts[2 * i + 1]);
@@ -195,26 +213,37 @@ ink_rect ink_polygon(ink_canvas *c, const float *pts, int n, uint8_t grey) {
     ink_rect box = {(int)floorf(fmaxf(minx, (float)area.x0)), (int)floorf(fmaxf(miny, (float)area.y0)),
                     (int)ceilf(fminf(maxx, (float)area.x1)), (int)ceilf(fminf(maxy, (float)area.y1))};
     box = ink_rect_intersect(box, area);
-    float stack[256];
-    float *xs = n <= 256 ? stack : malloc(sizeof(float) * (size_t)n);
+    crossing stack[256];
+    crossing *xs = n <= 256 ? stack : malloc(sizeof(crossing) * (size_t)n);
     if (!xs) return ink_rect_empty();
     uint16_t color = ink_rgb565_from_grey(grey);
     ink_rect dirty = ink_rect_empty();
     for (int y = box.y0; y < box.y1; y++) {
         float py = (float)y + 0.5f;
         int m = 0;
-        for (int i = 0, j = n - 1; i < n; j = i++) {
-            float yi = pts[2 * i + 1], yj = pts[2 * j + 1];
-            if ((yi > py) == (yj > py)) continue;
-            xs[m++] = pts[2 * j] + (py - yj) * (pts[2 * i] - pts[2 * j]) / (yi - yj);
+        /* every edge of every ring (each ring closes on itself) */
+        for (int r = 0, base = 0; r < nrings; base += rings[r++]) {
+            for (int k = 0; k < rings[r]; k++) {
+                int i = base + k, j = base + (k + rings[r] - 1) % rings[r];
+                float yi = pts[2 * i + 1], yj = pts[2 * j + 1];
+                if ((yi > py) == (yj > py)) continue;
+                xs[m].x = pts[2 * j] + (py - yj) * (pts[2 * i] - pts[2 * j]) / (yi - yj);
+                xs[m++].dir = yi > yj ? 1 : -1;
+            }
         }
         if (m < 2) continue;
-        qsort(xs, (size_t)m, sizeof(float), cmp_float);
+        qsort(xs, (size_t)m, sizeof(crossing), cmp_crossing);
         uint16_t *row = c->px + (size_t)y * c->w;
-        for (int k = 0; k + 1 < m; k += 2) {
+        /* nonzero winding: inside wherever the running sum isn't zero —
+         * the font's own rule, so a counter wound against its outside is a
+         * hole and overlapping contours stay solid */
+        int wind = 0;
+        for (int k = 0; k + 1 < m; k++) {
+            wind += xs[k].dir;
+            if (!wind) continue;
             /* pixel centres inside [xs[k], xs[k+1]) */
-            int xa = imax(area.x0, (int)ceilf(xs[k] - 0.5f));
-            int xb = imin(area.x1, (int)ceilf(xs[k + 1] - 0.5f));
+            int xa = imax(area.x0, (int)ceilf(xs[k].x - 0.5f));
+            int xb = imin(area.x1, (int)ceilf(xs[k + 1].x - 0.5f));
             if (xa >= xb) continue;
             for (int x = xa; x < xb; x++) row[x] = color;
             ink_rect span = {xa, y, xb, y + 1};
@@ -381,9 +410,10 @@ typedef struct {
 /* {"k":"line","pts":[…],"w":3|[…],"grey":0,"dash":[on,off]} */
 static int parse_prim(cur *c, dl_prim *p, pool *pl) {
     char kind[8] = "";
-    int pts_at = -1, pts_n = 0, w_at = -1, w_n = 0;
+    int pts_at = -1, pts_n = 0, w_at = -1, w_n = 0, r_at = -1, r_n = 0;
     memset(p, 0, sizeof *p);
     p->w = -1;
+    p->rings = -1;
     p->wconst = 3.0f;
     if (!eat(c, '{')) return -1;
     if (!eat(c, '}')) {
@@ -410,6 +440,10 @@ static int parse_prim(cur *c, dl_prim *p, pool *pl) {
                 double v;
                 if (parse_number(c, &v)) return -1;
                 p->grey = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            } else if (!strcmp(key, "rings")) {
+                int before = pl->n;
+                if (collect_numbers(c, pl->nums, pl->cap, &pl->n, &pl->overflow, 0)) return -1;
+                r_at = before, r_n = pl->n - before;
             } else if (!strcmp(key, "dash")) {
                 float tmp[8];
                 int n = 0, of = 0;
@@ -429,6 +463,17 @@ static int parse_prim(cur *c, dl_prim *p, pool *pl) {
     if (pts_at < 0 || pts_n < 2 || pts_n % 2) return -1;
     p->pts = pts_at, p->npts = pts_n / 2;
     if (p->kind == DLP_FILL && p->npts < 3) return -1;
+    if (p->kind == DLP_FILL && r_at >= 0 && !pl->overflow) {
+        /* contour point counts: whole, positive, and adding up to the points */
+        int sum = 0;
+        for (int i = 0; i < r_n; i++) {
+            float v = pl->nums[r_at + i];
+            if (!(v >= 1.0f) || v != floorf(v) || v > (float)p->npts) return -1;
+            sum += (int)v;
+        }
+        if (r_n == 0 || sum != p->npts) return -1;
+        p->rings = r_at, p->nrings = r_n;
+    }
     if (w_at >= 0) {
         if (w_n == p->npts) p->w = w_at;
         else if (w_n > 0 && !pl->overflow) p->wconst = pl->nums[w_at]; /* mismatched: the first width for all */
@@ -524,7 +569,16 @@ ink_rect dl_bounds(const dl_prim *prims, int nprims, const float *nums) {
 }
 
 ink_rect dl_draw(ink_canvas *c, const dl_prim *p, const float *nums) {
-    if (p->kind == DLP_FILL) return ink_polygon(c, nums + p->pts, p->npts, p->grey);
+    if (p->kind == DLP_FILL) {
+        if (p->rings < 0) return ink_polygon(c, nums + p->pts, p->npts, p->grey);
+        int stack[64];
+        int *rings = p->nrings <= 64 ? stack : malloc(sizeof(int) * (size_t)p->nrings);
+        if (!rings) return ink_rect_empty();
+        for (int i = 0; i < p->nrings; i++) rings[i] = (int)nums[p->rings + i];
+        ink_rect d = ink_polygon_rings(c, nums + p->pts, p->npts, rings, p->nrings, p->grey);
+        if (rings != stack) free(rings);
+        return d;
+    }
     return ink_polyline(c, nums + p->pts, p->npts, p->w >= 0 ? nums + p->w : NULL, p->wconst, p->grey, p->dash_on,
                         p->dash_off, 1);
 }

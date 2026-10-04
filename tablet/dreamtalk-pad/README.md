@@ -25,9 +25,12 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
 - **The page** (`core/sketch/mirror.ts`) flattens every placed symbol
   through the page's own camera. It walks the same holon tree as ThreeHost,
   uses the same transforms and the host's own `polyline`, so a symbol lands
-  on the pixels the Mac draws. The page also sends ink with its pressure
-  widths, the selection frame, handles and ✦ chip, the lasso and the options
-  ring. It sends at most 10 batches a second, and only when something
+  on the pixels the Mac draws. Text arrives as its letterforms: each glyph
+  is one fill with its counters (`rings`, filled by the nonzero rule, as the
+  font is drawn). The outlines come from the same HarfBuzz layout and glyph
+  contours the Mac's glyph mesh is tessellated from (`core/sketch/glyphs.ts`).
+  The page also sends ink with its pressure widths, the selection frame,
+  handles and ✦ chip, the lasso and the options ring. It sends at most 10 batches a second, and only when something
   changed.
 - **The pad** keeps the items by id. At each flush it repaints only the
   rectangle that changed: it clears that rectangle to white, then redraws
@@ -42,7 +45,8 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
 ## Verified on the Mac
 
 - `./build.sh test` runs the drawing core and the op parser (clip, fills,
-  dashes, greys, bounds). 296 checks.
+  glyph counters and overlaps under nonzero winding, `rings`, dashes, greys,
+  bounds). 308 checks.
 - `./build.sh` builds the tablet binary, a static armv7 ELF.
 - `./build.sh e2e` runs the **real ARM binary** in emulated armv7 Linux,
   against `test/fake-qtfb.c`. That file stands in for AppLoad's qtfb, the
@@ -63,17 +67,18 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
   the real whiteboard page with a fixture board, makes a selection, takes
   what `/ws/display` relays and runs the ARM pad on it. It then compares
   the pad's page with headless Chrome's screenshot of the same page
-  (`.cache/mirror-e2e/{mac,pad,overlay}.png`). Last run: 96.2% of the pad's
-  ink lies on the Mac's, and 99.8% of the Mac's ink lies on the pad's,
-  within 3 px. The rest is the Mac's translucent selection halo, which
-  e-ink leaves out.
-- `cd core && bun test test/sketch-mirror.test.ts` checks flattening,
-  items, diffs, the store, a real WebSocket relay and the bridge's argv.
-
-## Not mirrored yet
-
-Text glyphs. They are triangulated meshes behind HarfBuzz, not line
-geometry.
+  (`.cache/mirror-e2e/{mac,pad,overlay}.png`). The board has every
+  vocabulary symbol, ink, a selection and two text symbols (a word, and a
+  turned two-line block with counters). Last run: 97.0% of the pad's ink
+  lies on the Mac's, and 99.9% of the Mac's ink lies on the pad's, within
+  3 px. The rest is the Mac's translucent selection halo, which e-ink leaves
+  out, and a rim of about 2 px around most of the Mac's letters (its Write
+  trace sits outside the letterform there, not inside).
+- `cd core && bun test test/sketch-mirror.test.ts test/sketch-mirror-text.test.ts`
+  checks flattening, items, diffs, the store, a real WebSocket relay and the
+  bridge's argv. For text it checks: the outline's ink box equals three-text's
+  mesh, counters are wound against their outside, lines are centred, a text
+  turns with its words, and a text is pending until its layout lands.
 
 ## On the device
 

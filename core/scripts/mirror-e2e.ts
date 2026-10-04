@@ -56,6 +56,8 @@ const symbols: PlacedSymbol[] = [
   sym("s-cube", "cube", { cx: 1000, cy: 760, size: 220, h: 0.6, p: 0.4 }),
   sym("s-eye", "eye", { cx: 330, cy: 1260, size: 300, rotation: 0 }),
   sym("s-figure", "figure", { cx: 1180, cy: 1240, height: 360 }),
+  sym("s-word", "text", { content: "DreamTalk", cx: 400, cy: 1760, size: 70 }),
+  sym("s-lines", "text", { content: "oea gob\nBagel 8", cx: 1130, cy: 520, size: 38, rotation: 0.2 }),
   sym("s-virus", "mindVirus", { x: 760, y: 1200, size: 140, heading: 0, fold: 0.8, cable: [[520, 1340], [600, 1300], [640, 1240], [690, 1210]] }),
 ]
 const boardText = serializeBoard({ strokes, symbols })
@@ -116,7 +118,9 @@ try {
   }, { timeout: 60000 })
   await page.evaluate((f) => (eval(f) as () => S)().select(["ink-sel", "s-figure"]), `(${sketch})`)
   await page.waitForFunction(() => (window as unknown as { __sketch: { symbolsReady: () => boolean } }).__sketch.symbolsReady(), { timeout: 60000 })
-  await page.evaluate(() => new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 400)))
+  // Text lays out asynchronously on both sides (the glyph mesh; the outlines
+  // the page sends once they land) — give both a moment.
+  await page.evaluate(() => new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 1500)))
   const macPng = `${outDir}/mac.png` as `${string}.png`
   await (await page.$("#page"))!.screenshot({ path: macPng })
 

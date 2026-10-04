@@ -208,8 +208,12 @@ export interface InstructResponse {
  *          one number or one per point (ink pressure); `grey` 0 = black …
  *          255 = white, default 0; `dash` [on, off] lengths along the line.
  *          Lines only ever DARKEN what is under them.
- *   fill   `pts` a closed polygon (even-odd); `grey` is painted, not
- *          darkened — a black-in-the-dark-theme disk knocks out to white.
+ *   fill   `pts` a closed polygon; `grey` is painted, not darkened — a
+ *          black-in-the-dark-theme disk knocks out to white. `rings`, when
+ *          present, splits `pts` into several closed contours (point counts,
+ *          in order) filled as ONE shape by the nonzero winding rule — a
+ *          glyph with its counters, the hole of an `o` wound against its
+ *          outside, exactly as the font draws it.
  *
  * An ITEM is what a diff talks about: an id, a stacking order `z` (lower is
  * drawn first; ties by arrival), its primitives in drawing order, and hints
@@ -235,7 +239,7 @@ export interface InstructResponse {
  */
 export type DisplayPrim =
   | { k: "line"; pts: number[]; w: number | number[]; grey?: number; dash?: [number, number] }
-  | { k: "fill"; pts: number[]; grey: number }
+  | { k: "fill"; pts: number[]; grey: number; rings?: number[] }
 
 export interface DisplayItem {
   id: string

@@ -74,6 +74,7 @@ class Param {
   owner;
   #value;
   #source;
+  #gate = 1;
   constructor(kind, value, min, max) {
     this.id = nextParamId++;
     this.kind = kind;
@@ -83,7 +84,14 @@ class Param {
     this.max = max;
   }
   get value() {
-    return this.#source ? this.#source.value : this.#value;
+    const v = this.#source ? this.#source.value : this.#value;
+    return this.#gate === 1 || typeof v !== "number" ? v : v * this.#gate;
+  }
+  get gate() {
+    return this.#gate;
+  }
+  set gate(k) {
+    this.#gate = k;
   }
   set value(v) {
     if (this.#source) {
@@ -63899,7 +63907,9 @@ var SYSTEM_FACES = {
   HelveticaNeue: "/System/Library/Fonts/HelveticaNeue.ttc",
   "HelveticaNeue-Medium": "/System/Library/Fonts/HelveticaNeue.ttc",
   "HelveticaNeue-Bold": "/System/Library/Fonts/HelveticaNeue.ttc",
-  Helvetica: "/System/Library/Fonts/Helvetica.ttc"
+  Helvetica: "/System/Library/Fonts/Helvetica.ttc",
+  "Times-Roman": "/System/Library/Fonts/Times.ttc",
+  "Times-Italic": "/System/Library/Fonts/Times.ttc"
 };
 var cachedFontUrl = (postScriptName) => `/${FONT_CACHE_DIR}/${postScriptName}.ttf`;
 var fallbackFontUrl = (postScriptName) => postScriptName !== undefined && /mono|courier|menlo|consol/i.test(postScriptName) ? MONO_FONT_URL : DEFAULT_FONT_URL;
@@ -64737,8 +64747,14 @@ class ThreeHost {
   }
   attach(holon, parent) {
     const group = new Group2;
+    group.matrixAutoUpdate = false;
     parent.add(group);
-    this.groups.push({ holon, group });
+    this.groups.push({
+      holon,
+      group,
+      transform: [holon.x, holon.y, holon.z, holon.p, holon.h, holon.b, holon.scale],
+      applied: new Float64Array(7).fill(Number.NaN)
+    });
     if (holon instanceof Text) {
       this.texts.push({ binding: attachText(holon, group), group });
     } else if (holon instanceof Cylinder) {
@@ -64841,11 +64857,28 @@ class ThreeHost {
   }
   frameT = Number.NaN;
   sync() {
-    for (const { holon, group } of this.groups) {
-      group.position.set(holon.x.value, holon.y.value, holon.z.value);
-      group.rotation.set(holon.p.value, holon.h.value, holon.b.value, "ZXY");
-      const s2 = holon.scale.value;
+    for (const { group, transform: tr, applied: last } of this.groups) {
+      const x2 = tr[0].value;
+      const y2 = tr[1].value;
+      const z2 = tr[2].value;
+      const p2 = tr[3].value;
+      const h2 = tr[4].value;
+      const b2 = tr[5].value;
+      const s2 = tr[6].value;
+      if (Object.is(x2, last[0]) && Object.is(y2, last[1]) && Object.is(z2, last[2]) && Object.is(p2, last[3]) && Object.is(h2, last[4]) && Object.is(b2, last[5]) && Object.is(s2, last[6])) {
+        continue;
+      }
+      last[0] = x2;
+      last[1] = y2;
+      last[2] = z2;
+      last[3] = p2;
+      last[4] = h2;
+      last[5] = b2;
+      last[6] = s2;
+      group.position.set(x2, y2, z2);
+      group.rotation.set(p2, h2, b2, "ZXY");
       group.scale.set(s2, s2, s2);
+      group.updateMatrix();
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding;
@@ -65528,18 +65561,45 @@ var projectLatLon = (lonDeg, latDeg, radius, spin, tilt) => {
   return { x: x2 * radius, y: y2 * radius, z: z2 };
 };
 var clampedRing = (ring, radius, spin, tilt) => {
-  const out = [];
+  const pts = [];
   for (let i2 = 0;i2 + 1 < ring.length; i2 += 2) {
-    const p2 = projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt);
+    pts.push(projectLatLon(ring[i2], ring[i2 + 1], radius, spin, tilt));
+  }
+  const n2 = pts.length;
+  const first = pts.findIndex((p2) => p2.z >= 0);
+  if (first < 0)
+    return [];
+  if (pts.every((p2) => p2.z >= 0))
+    return pts.map((p2) => ({ x: p2.x, y: p2.y }));
+  const crossing = (a2, b2) => {
+    const t2 = a2.z / (a2.z - b2.z);
+    return Math.atan2(a2.y + (b2.y - a2.y) * t2, a2.x + (b2.x - a2.x) * t2);
+  };
+  const STEP = 4 * Math.PI / 180;
+  const out = [];
+  for (let k2 = 0;k2 < n2; k2++) {
+    const i2 = (first + k2) % n2;
+    const p2 = pts[i2];
     if (p2.z >= 0) {
       out.push({ x: p2.x, y: p2.y });
-    } else {
-      const len3 = Math.hypot(p2.x, p2.y);
-      if (len3 < 0.000000001)
-        out.push({ x: 0, y: p2.y >= 0 ? radius : -radius });
-      else
-        out.push({ x: p2.x / len3 * radius, y: p2.y / len3 * radius });
+      continue;
     }
+    let j2 = i2;
+    while (pts[(j2 + 1) % n2].z < 0)
+      j2 = (j2 + 1) % n2;
+    const enter = crossing(pts[(i2 - 1 + n2) % n2], p2);
+    const leave = crossing(pts[(j2 + 1) % n2], pts[j2]);
+    let d2 = leave - enter;
+    while (d2 > Math.PI)
+      d2 -= 2 * Math.PI;
+    while (d2 <= -Math.PI)
+      d2 += 2 * Math.PI;
+    const steps = Math.max(1, Math.ceil(Math.abs(d2) / STEP));
+    for (let s2 = 0;s2 <= steps; s2++) {
+      const a2 = enter + d2 * s2 / steps;
+      out.push({ x: Math.cos(a2) * radius, y: Math.sin(a2) * radius });
+    }
+    k2 += (j2 - i2 + n2) % n2;
   }
   return out;
 };
@@ -65647,7 +65707,7 @@ class Globe extends Null {
       const line = new Line({ tint: this.land, stroke: scalar(0) });
       deriveRing(line, this, () => {
         const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value);
-        return closeLoop2(pts);
+        return closeLoop2(pts) ?? hiddenLoop(this.radius.value);
       });
       parentAdd(parent, line);
     }
@@ -65704,9 +65764,15 @@ class Globe extends Null {
     return out;
   }
 }
+var hiddenLoop = (radius) => [
+  { x: 0, y: -radius, z: 0 },
+  { x: 0.001, y: -radius, z: 0 },
+  { x: 0, y: -radius + 0.001, z: 0 },
+  { x: 0, y: -radius, z: 0 }
+];
 var closeLoop2 = (pts) => {
   if (pts.length < 3)
-    return [];
+    return;
   const out = pts.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }));
   const a2 = out[0];
   const b2 = out[out.length - 1];
@@ -68767,6 +68833,176 @@ var distillGlyph = (c2, r4) => {
   };
 };
 
+// sketch/glyphs.ts
+var fontSource = (url) => url;
+var harfBuzzReady = false;
+var ensureHarfBuzz2 = () => {
+  if (harfBuzzReady)
+    return;
+  Text2.setHarfBuzzPath(DEFAULT_HARFBUZZ_URL);
+  harfBuzzReady = true;
+};
+var keyOf = (t2) => `${t2.content} ${t2.font ?? ""} ${t2.align} ${t2.size.value} ${t2.lineHeight ?? ""} ${t2.tracking}`;
+var cache3 = new Map;
+var pending = new Map;
+var listeners = new Set;
+var onGlyphs = (cb) => {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+};
+var textOutline = (t2) => {
+  const key = keyOf(t2);
+  const hit = cache3.get(key);
+  if (hit)
+    return hit;
+  if (!pending.has(key)) {
+    const job = layout(t2).then((rings) => {
+      if (cache3.size > 128)
+        cache3.clear();
+      cache3.set(key, rings);
+    }).catch((err) => {
+      console.warn("[mirror] text outline failed:", err);
+      cache3.set(key, []);
+    }).finally(() => {
+      pending.delete(key);
+      for (const cb of listeners)
+        cb();
+    });
+    pending.set(key, job);
+  }
+  return;
+};
+var QUAD_STEPS = 8;
+var CUBIC_STEPS = 12;
+var layout = async (t2) => {
+  ensureHarfBuzz2();
+  let last;
+  for (const url of fontCandidates(t2.font)) {
+    try {
+      return await layoutWith(t2, await fontSource(url));
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last;
+};
+var layoutWith = async (t2, font) => {
+  const handle = await Text2.create({
+    text: t2.content,
+    font,
+    size: t2.size.value,
+    depth: 0,
+    perGlyphAttributes: true,
+    removeOverlaps: true,
+    ...t2.lineHeight === undefined ? {} : { lineHeight: t2.lineHeight },
+    ...t2.tracking === 0 ? {} : { letterSpacing: t2.tracking },
+    layout: { align: "center" }
+  });
+  try {
+    const font2 = handle.loadedFont;
+    const draw = getSharedDrawCallbackHandler(font2);
+    let rings = [];
+    let cur = [];
+    let at2 = { x: 0, y: 0 };
+    const close = () => {
+      if (cur.length > 2)
+        rings.push(cur);
+      cur = [];
+    };
+    const collector = {
+      setPosition() {},
+      updatePosition() {},
+      onMoveTo(x2, y2) {
+        close();
+        at2 = { x: x2, y: y2 };
+        cur = [at2];
+      },
+      onLineTo(x2, y2) {
+        at2 = { x: x2, y: y2 };
+        cur.push(at2);
+      },
+      onQuadTo(cx, cy, x2, y2) {
+        const p0 = at2;
+        for (let i2 = 1;i2 <= QUAD_STEPS; i2++) {
+          const u2 = i2 / QUAD_STEPS;
+          const a2 = (1 - u2) * (1 - u2);
+          const b2 = 2 * u2 * (1 - u2);
+          const c2 = u2 * u2;
+          cur.push({ x: a2 * p0.x + b2 * cx + c2 * x2, y: a2 * p0.y + b2 * cy + c2 * y2 });
+        }
+        at2 = { x: x2, y: y2 };
+      },
+      onCubicTo(c1x, c1y, c2x, c2y, x2, y2) {
+        const p0 = at2;
+        for (let i2 = 1;i2 <= CUBIC_STEPS; i2++) {
+          const u2 = i2 / CUBIC_STEPS;
+          const v2 = 1 - u2;
+          const a2 = v2 * v2 * v2;
+          const b2 = 3 * u2 * v2 * v2;
+          const c2 = 3 * u2 * u2 * v2;
+          const d2 = u2 * u2 * u2;
+          cur.push({ x: a2 * p0.x + b2 * c1x + c2 * c2x + d2 * x2, y: a2 * p0.y + b2 * c1y + c2 * c2y + d2 * y2 });
+        }
+        at2 = { x: x2, y: y2 };
+      },
+      onClosePath: close
+    };
+    draw.createDrawFuncs(font2, collector);
+    const scale2 = handle.layoutData.pixelsPerFontUnit;
+    const glyphs = [];
+    for (const line of handle.clustersByLine) {
+      for (const cluster of line) {
+        for (const g2 of cluster.glyphs) {
+          draw.setCollector(collector);
+          rings = [];
+          cur = [];
+          font2.module.exports.hb_font_draw_glyph(font2.font.ptr, g2.g, draw.getDrawFuncsPtr(), 0);
+          close();
+          if (!rings.length)
+            continue;
+          const px = cluster.position.x + (g2.x ?? 0);
+          const py = cluster.position.y + (g2.y ?? 0);
+          glyphs.push({ line: g2.lineIndex, rings: rings.map((r4) => r4.map((p2) => ({ x: (p2.x + px) * scale2, y: (p2.y + py) * scale2 }))) });
+        }
+      }
+    }
+    anchor(glyphs, t2.align, t2.content.includes(`
+`));
+    return glyphs.map((g2) => g2.rings);
+  } finally {
+    handle.dispose();
+  }
+};
+var xRange = (rings) => {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const r4 of rings)
+    for (const p2 of r4)
+      lo = Math.min(lo, p2.x), hi = Math.max(hi, p2.x);
+  return [lo, hi];
+};
+var shiftX = (rings, dx) => {
+  for (const r4 of rings)
+    for (const p2 of r4)
+      p2.x += dx;
+};
+var anchor = (glyphs, align, multiLine) => {
+  if (align === "center" && multiLine) {
+    const lines = new Map;
+    for (const g2 of glyphs)
+      lines.set(g2.line, [...lines.get(g2.line) ?? [], ...g2.rings]);
+    for (const rings of lines.values()) {
+      const [lo2, hi2] = xRange(rings);
+      shiftX(rings, -(lo2 + hi2) / 2);
+    }
+  }
+  const all3 = glyphs.flatMap((g2) => g2.rings);
+  if (!all3.length)
+    return;
+  const [lo, hi] = xRange(all3);
+  shiftX(all3, -(align === "left" ? lo : (lo + hi) / 2));
+};
+
 // sketch/mirror.ts
 var r1 = (v2) => Math.round(v2 * 10) / 10;
 var flat = (pts) => {
@@ -68884,7 +69120,7 @@ var visibleRun = (pts, from, to) => {
   out.push(at2(b2));
   return out;
 };
-var flattenHolon = (root, project) => {
+var flattenHolon = (root, project, note = { pending: false }) => {
   const prims = [];
   const local = new Matrix4;
   const quat = new Quaternion;
@@ -68921,6 +69157,18 @@ var flattenHolon = (root, project) => {
         }
       }
     }
+    if (h2 instanceof Text && h2.opacity.value > 0 && h2.creation.value > 0 && h2.erasure.value < 1) {
+      const grey = lineGrey(h2.tint.value);
+      const glyphs = grey === undefined ? [] : textOutline(h2);
+      if (!glyphs)
+        note.pending = true;
+      for (const rings of glyphs ?? []) {
+        const pts = [];
+        for (const r4 of rings)
+          pts.push(...toPage(world, r4.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }))));
+        prims.push({ k: "fill", pts: flat(pts), grey: grey ?? 0, rings: rings.map((r4) => r4.length) });
+      }
+    }
     for (const part of h2.parts)
       visit(part, world);
   };
@@ -68942,16 +69190,19 @@ var flattenSymbol = (s2) => {
   if (hit)
     return hit;
   let prims = [];
+  const note = { pending: false };
   try {
     const holon = buildSymbol({ id: "mirror", symbol: s2.symbol, params: s2.params, fromStrokes: [] });
     const dream = new FlatDream(holon);
     dream.applyAt(dream.duration);
     const project = pageProjector(dream);
     for (const r4 of dream.roots)
-      prims.push(...flattenHolon(r4, project));
+      prims.push(...flattenHolon(r4, project, note));
   } catch {
     prims = [];
   }
+  if (note.pending)
+    return prims;
   if (symbolCache.size > 256)
     symbolCache.clear();
   symbolCache.set(key, prims);
@@ -69092,6 +69343,7 @@ class Mirror {
   constructor(view, url) {
     this.view = view;
     this.url = url;
+    onGlyphs(() => this.changed());
   }
   start() {
     let ws;
@@ -69250,7 +69502,7 @@ var keys = { alt: false, shift: false };
 var TOOLBAR_H = looking ? 0 : 44;
 var scale2 = 1;
 var dpr = window.devicePixelRatio || 1;
-var layout = () => {
+var layout2 = () => {
   const availW = window.innerWidth - 32;
   const availH = window.innerHeight - TOOLBAR_H - 24;
   scale2 = Math.min(availW / PAGE_W, availH / PAGE_H);
@@ -69432,9 +69684,9 @@ var liftCss = (xf) => {
 };
 var tumbleFrame = null;
 var tumblePreview = (m2) => {
-  const pending = tumbleFrame !== null;
+  const pending2 = tumbleFrame !== null;
   tumbleFrame = m2;
-  if (pending)
+  if (pending2)
     return;
   const host = liftedLayer.host;
   requestAnimationFrame(() => {
@@ -70612,7 +70864,7 @@ importsEl.title = VOCABULARY.map((e2) => `${e2.name} — ${e2.description}`).joi
 `);
 window.addEventListener("resize", () => {
   closeRing();
-  layout();
+  layout2();
   drawInk();
   syncSymbols();
 });
@@ -70701,7 +70953,7 @@ var voice = installVoice({
   busy: () => !!thinking || mode !== "idle",
   closeRing
 });
-layout();
+layout2();
 applyTheme();
 renderTablet();
 if (looking) {

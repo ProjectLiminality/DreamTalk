@@ -64,8 +64,14 @@ ink_rect ink_segment(ink_canvas *c, float x0, float y0, float r0, float x1, floa
 ink_rect ink_polyline(ink_canvas *c, const float *pts, int n, const float *w, float wconst, uint8_t grey,
                       float dash_on, float dash_off, int aa);
 
-/* Fill a polygon (n points, even-odd rule) with grey — painted, not darkened. */
+/* Fill a polygon (n points, nonzero winding) with grey — painted, not darkened. */
 ink_rect ink_polygon(ink_canvas *c, const float *pts, int n, uint8_t grey);
+/*
+ * Several closed contours filled as one shape, nonzero winding: `rings`
+ * holds each contour's point count, in order, summing to n (a glyph: its
+ * outline and its counters). rings NULL is one contour of n points.
+ */
+ink_rect ink_polygon_rings(ink_canvas *c, const float *pts, int n, const int *rings, int nrings, uint8_t grey);
 
 /* Pen pressure (qtfb's d, 0..100) to a radius between wmin/2 and wmax/2. */
 float ink_pressure_radius(int d, float wmin, float wmax);
@@ -94,6 +100,8 @@ typedef struct {
     int w;         /* offset of npts per-point widths in nums, or -1 */
     float wconst;  /* the width when w < 0 */
     float dash_on, dash_off; /* dash_on <= 0: solid */
+    int rings;     /* fills: offset of nrings contour point counts in nums, or -1 */
+    int nrings;
 } dl_prim;
 
 typedef struct {

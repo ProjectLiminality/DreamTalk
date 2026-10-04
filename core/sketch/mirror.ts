@@ -16,8 +16,10 @@
  * point through the same camera, so a flat symbol lands on exactly its page
  * coordinates and a tumbled cube shows the perspective the Mac shows.
  * Filled shapes (FoldableCube's occluding faces, the Eye's iris) become
- * fills, painted in the host's attach order. Text glyphs are triangulated
- * meshes, not line geometry, and are not mirrored yet.
+ * fills, painted in the host's attach order. Text is its letterforms:
+ * each glyph one fill with its counters (glyphs.ts — the same HarfBuzz
+ * layout and contours the Mac's mesh is tessellated from), sent once the
+ * layout has landed.
  *
  * Pure until `Mirror`, which owns the socket: the builders run under bun test.
  */
@@ -42,6 +44,8 @@ import {
 } from "./protocol"
 import { boxOfPoints, type Box, type Pt } from "./state"
 import { buildSymbol, framePage } from "./vocabulary"
+import { onGlyphs, textOutline } from "./glyphs"
+import { Text } from "../src/parts/text"
 import { xfPoint, type Xf } from "./xform"
 
 // --- Small geometry ---------------------------------------------------------------
@@ -187,8 +191,14 @@ const visibleRun = (pts: readonly Pt[], from: number, to: number): Pt[] => {
 /**
  * A holon tree (already sampled) → primitives on the page, in the host's
  * attach order: a node's fill or wash, then its outline, then its parts.
+ * A Text whose layout hasn't landed yet sets `note.pending` (and draws
+ * nothing — on the Mac, too, the mesh appears when its layout lands).
  */
-export const flattenHolon = (root: Holon, project: (v: THREE.Vector3) => Pt): DisplayPrim[] => {
+export const flattenHolon = (
+  root: Holon,
+  project: (v: THREE.Vector3) => Pt,
+  note: { pending: boolean } = { pending: false },
+): DisplayPrim[] => {
   const prims: DisplayPrim[] = []
   const local = new THREE.Matrix4()
   const quat = new THREE.Quaternion()
@@ -237,6 +247,18 @@ export const flattenHolon = (root: Holon, project: (v: THREE.Vector3) => Pt): Di
         }
       }
     }
+    if (h instanceof Text && h.opacity.value > 0 && h.creation.value > 0 && h.erasure.value < 1) {
+      // render/text.ts shows the mesh under exactly this condition.
+      // Letters are ink: black on e-ink whenever they read on the dark page.
+      const grey = lineGrey(h.tint.value)
+      const glyphs = grey === undefined ? [] : textOutline(h)
+      if (!glyphs) note.pending = true
+      for (const rings of glyphs ?? []) {
+        const pts: Pt[] = []
+        for (const r of rings) pts.push(...toPage(world, r.map((p) => ({ x: p.x, y: p.y, z: 0 }))))
+        prims.push({ k: "fill", pts: flat(pts), grey: grey ?? 0, rings: rings.map((r) => r.length) })
+      }
+    }
     for (const part of h.parts) visit(part, world)
   }
   visit(root, new THREE.Matrix4())
@@ -260,6 +282,7 @@ export const flattenSymbol = (s: Pick<PlacedSymbol, "symbol" | "params">): Displ
   const hit = symbolCache.get(key)
   if (hit) return hit
   let prims: DisplayPrim[] = []
+  const note = { pending: false }
   try {
     const holon = buildSymbol({ id: "mirror", symbol: s.symbol, params: s.params, fromStrokes: [] })
     const dream = new FlatDream(holon)
@@ -267,10 +290,12 @@ export const flattenSymbol = (s: Pick<PlacedSymbol, "symbol" | "params">): Displ
     // Create, a MindVirus journey on its own clock).
     dream.applyAt(dream.duration)
     const project = pageProjector(dream)
-    for (const r of dream.roots) prims.push(...flattenHolon(r, project))
+    for (const r of dream.roots) prims.push(...flattenHolon(r, project, note))
   } catch {
     prims = []
   }
+  // Letters still being laid out: answer without them, and ask again next time.
+  if (note.pending) return prims
   if (symbolCache.size > 256) symbolCache.clear()
   symbolCache.set(key, prims)
   return prims
@@ -467,7 +492,10 @@ export class Mirror {
   constructor(
     private readonly view: () => MirrorView,
     private readonly url: string,
-  ) {}
+  ) {
+    // A text's letters land after its layout: send them when they do.
+    onGlyphs(() => this.changed())
+  }
 
   start(): void {
     let ws: WebSocket
