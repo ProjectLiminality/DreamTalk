@@ -28,7 +28,7 @@ import * as THREE from "three/webgpu"
 import type { Color } from "../src/constants"
 import { Dream } from "../src/dream"
 import type { Holon } from "../src/holon"
-import { Circle, Ellipse, Rectangle, Stroke, rectanglePolyline } from "../src/parts/primitives"
+import { Circle, Ellipse, Line, Rectangle, Stroke, rectanglePolyline } from "../src/parts/primitives"
 import { polyline } from "../src/render/three-host"
 import { DisplayDiff, encodeItem, type EncodedItem } from "./display"
 import { distillGlyph } from "./distill"
@@ -207,6 +207,8 @@ export const flattenHolon = (
   const toPage = (m: THREE.Matrix4, pts: readonly { x: number; y: number; z: number }[]): Pt[] =>
     pts.map((p) => project(tmpV.set(p.x, p.y, p.z).applyMatrix4(m)))
 
+  const washedByAncestor = new Set<Holon>()
+  const washedTints = new Map<string, number>()
   const visit = (h: Holon, parent: THREE.Matrix4) => {
     pos.set(h.x.value, h.y.value, h.z.value)
     quat.setFromEuler(STRAIGHT_ON.set(h.p.value, h.h.value, h.b.value, "ZXY"))
@@ -229,17 +231,39 @@ export const flattenHolon = (
       } else {
         // The wash (Stroke.fillOpacity) of the shapes the host washes.
         const wash = h.fillOpacity.value * h.opacity.value
-        if (wash > 0.05 && (h instanceof Circle || h instanceof Ellipse || h instanceof Rectangle)) {
+        const washGrey = Math.round(255 - (255 - inverseGrey(h.tint.value)) * Math.min(1, wash))
+        // A DRAWING (closed Line parts, e.g. the S-mark's band) washes once
+        // across all its subpaths, its parts never on their own — the host's
+        // drawingSubpaths. A Line that closes on itself is its own interior.
+        const loops = wash > 0.05 ? drawingLoops(h) : undefined
+        if (loops) {
+          for (const part of h.parts) washedByAncestor.add(part)
+          if (washGrey < 245) {
+            const rings = loops.map((l) => toPage(world, l))
+            prims.push({ k: "fill", pts: flat(rings.flat()), grey: washGrey, rings: rings.map((r) => r.length) })
+            if (wash >= 0.99) washedTints.set(tintKey(h.tint.value), washGrey)
+          }
+        } else if (wash > 0.05 && !washedByAncestor.has(h) && washGrey < 245) {
           const outline =
             h instanceof Circle
               ? ellipseOutline(h.radius.value, h.radius.value)
               : h instanceof Ellipse
                 ? ellipseOutline(h.radiusX.value, h.radiusY.value)
-                : rectanglePolyline(h.width.value, h.height.value, h.rounding.value)
-          const grey = Math.round(255 - (255 - inverseGrey(h.tint.value)) * Math.min(1, wash))
-          if (grey < 245) prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey })
+                : h instanceof Rectangle
+                  ? rectanglePolyline(h.width.value, h.height.value, h.rounding.value)
+                  : h instanceof Line && closesOnItself(h.points)
+                    ? h.points
+                    : undefined
+          if (outline) {
+            prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: washGrey })
+            if (wash >= 0.99) washedTints.set(tintKey(h.tint.value), washGrey)
+          }
         }
-        const grey = lineGrey(h.tint.value)
+        // A line in the tint of a shape already washed SOLID in this symbol
+        // is that shape's own pen (the S-mark's spine, a disk's rim): it
+        // takes the wash's grey, or the e-ink would stripe a solid mark in
+        // black. A partial wash lends nothing: a pale interior's rim stays ink.
+        const grey = washedTints.get(tintKey(h.tint.value)) ?? lineGrey(h.tint.value)
         const pts = grey === undefined ? undefined : polyline(h)
         if (pts && pts.length >= 2) {
           const run = visibleRun(toPage(world, pts), h.erasure.value, h.creation.value)
@@ -263,6 +287,28 @@ export const flattenHolon = (
   }
   visit(root, new THREE.Matrix4())
   return prims
+}
+
+const tintKey = (c: Color): string => `${c.r} ${c.g} ${c.b}`
+
+type P3 = { x: number; y: number; z: number }
+
+const closesOnItself = (pts: readonly P3[]): boolean => {
+  if (pts.length < 4) return false
+  const a = pts[0]!
+  const b = pts[pts.length - 1]!
+  return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) < 1e-6
+}
+
+/** A drawing's closed subpaths (render/three-host.ts drawingSubpaths), or undefined. */
+const drawingLoops = (h: Holon): P3[][] | undefined => {
+  if (h.parts.length < 1) return undefined
+  const loops: P3[][] = []
+  for (const part of h.parts) {
+    if (!(part instanceof Line) || !closesOnItself(part.points)) return undefined
+    loops.push(part.points.slice())
+  }
+  return loops
 }
 
 const ellipseOutline = (rx: number, ry: number, n = 64) => {

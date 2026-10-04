@@ -33,7 +33,16 @@
  *
  * The S is a solid BAND (a filled outline), not a pixel-width stroke: the
  * mark is a shape of its own proportions, so its weight must scale with it.
- * Create draws the outline, then floods it; the dot and square bloom last.
+ * Its outline carries no pen of its own — a stroke along the band's edges
+ * adds a constant screen weight to both sides, which at a few pixels tall
+ * doubled the band and swelled the S into a blob. The PEN runs the band's
+ * CENTRELINE instead (sCentreline: the same two semicircles, radius 0.38·R),
+ * at a fixed weight (SMARK_PEN) inside the band: where the band is wider it
+ * vanishes into it, and where the mark is drawn so small that the true band
+ * would thin below a pixel the pen holds the S at that weight — the honest
+ * minimum, since the S IS one stroke, two semicircles drawn tip to tip.
+ * Create runs that pen tip to tip, then floods the band; the dot and square
+ * bloom last.
  */
 
 import { Circle, Line, Null, Stroke, type Vec3Like } from "../../src/parts/primitives"
@@ -53,6 +62,28 @@ export const SMARK = {
 } as const
 
 /** The S band's closed outline, radius `R`, holon frame (y up). */
+/** The pen's weight on the centreline: the S's thinnest, in screen px (Stroke). */
+export const SMARK_PEN = 1.5
+
+/** The S's centreline, tip → centre → tip: two semicircles of radius
+ *  0.38·R about ±D, kissing at the centre. Holon frame (y up). */
+export const sCentreline = (R: number, samples = 40): Vec3Like[] => {
+  const k = SMARK.offset * R
+  const c = k * Math.SQRT1_2
+  const q = Math.PI / 4
+  const out: Vec3Like[] = []
+  // Upper bowl CCW about D from the tip to the centre, lower bowl CW about Q on to the other tip.
+  for (let i = 0; i <= samples; i++) {
+    const a = q + (Math.PI * i) / samples
+    out.push({ x: c + k * Math.cos(a), y: c + k * Math.sin(a), z: 0 })
+  }
+  for (let i = 1; i <= samples; i++) {
+    const a = q - (Math.PI * i) / samples
+    out.push({ x: -c + k * Math.cos(a), y: -c + k * Math.sin(a), z: 0 })
+  }
+  return out
+}
+
 export const sBandOutline = (R: number, samples = 40): Vec3Like[] => {
   const k = SMARK.offset * R
   const w = (SMARK.band * R) / 2
@@ -91,6 +122,8 @@ export class SMark extends Null {
   tint = color(MARK_RED)
 
   band!: Stroke
+  /** The pen along the S's centreline (sCentreline), SMARK_PEN wide. */
+  spine!: Line
   dot!: Circle
   square!: Line
 
@@ -100,11 +133,14 @@ export class SMark extends Null {
     // The band is a DRAWING — a Stroke whose child is one closed Line —
     // because that is the wash the host triangulates properly (a concave
     // loop; a lone Line's wash is a centroid fan, right only for convex
-    // shapes). The square is convex, so its own Line's fan is exact.
+    // shapes). The square is convex, so its own Line's fan is exact. The
+    // outline is the wash's edge only — never inked (even a stroke-0 line
+    // draws a hairline); the pen is the spine.
     this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }))
     ;(this.band as unknown as { add(h: Line): Line }).add(
-      new Line({ points: sBandOutline(R), tint: this.tint, stroke: 1 }),
+      new Line({ points: sBandOutline(R), tint: this.tint, stroke: 0, opacity: 0 }),
     )
+    this.spine = this.add(new Line({ points: sCentreline(R), tint: this.tint, stroke: SMARK_PEN }))
     this.dot = this.add(
       new Circle({ x: k, y: k, radius: SMARK.dot * R, tint: this.tint, stroke: 0, fillOpacity: 1 }),
     )
@@ -130,7 +166,7 @@ export class SMark extends Null {
   override createAnim(): Anim {
     void this.parts // compose() is lazy: the parts exist once it has run
     return together(
-      restage(together(...this.band.parts.map((p) => p.creation.sequence(0, 1))), 0, 0.6),
+      restage(this.spine.creation.sequence(0, 1), 0, 0.6),
       restage(this.band.fillOpacity.sequence(0, 1), 0.45, 0.8),
       restage(this.dot.opacity.sequence(0, 1), 0.7, 1),
       restage(this.square.opacity.sequence(0, 1), 0.7, 1),

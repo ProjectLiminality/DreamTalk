@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { GREAT_CIRCLE_NORMALS, greatCircleHalves, outsideDisc } from "../vocabulary/Regenaissance/lattice"
 import { REGEN, Regenaissance, vesicaOutline } from "../vocabulary/Regenaissance/Regenaissance"
-import { SMARK, SMark, sBandOutline } from "../vocabulary/Regenaissance/SMark"
+import { SMARK, SMARK_PEN, SMark, sBandOutline, sCentreline } from "../vocabulary/Regenaissance/SMark"
 import { buildSymbol } from "../sketch/vocabulary"
+import { flattenSymbol } from "../sketch/mirror"
 
 describe("Regenaissance", () => {
   test("the lattice is the icosahedron's 15 great circles, each a unit circle split at the limb", () => {
@@ -47,6 +48,43 @@ describe("Regenaissance", () => {
     // The upper tip's centreline point sits at 2k along the diagonal = 0.76·R.
     const tip = { x: (o[0]!.x + o[o.length - 2]!.x) / 2, y: (o[0]!.y + o[o.length - 2]!.y) / 2 }
     expect(Math.hypot(tip.x, tip.y)).toBeCloseTo(76, 6)
+  })
+
+  test("the pen runs the S's centreline: tip → centre → tip on the two semicircles", () => {
+    const c = sCentreline(100)
+    const k = SMARK.offset * 100
+    const d = k * Math.SQRT1_2
+    for (const p of c) {
+      const onD = Math.abs(Math.hypot(p.x - d, p.y - d) - k) < 1e-6
+      const onQ = Math.abs(Math.hypot(p.x + d, p.y + d) - k) < 1e-6
+      expect(onD || onQ).toBe(true)
+    }
+    expect(Math.hypot(c[0]!.x - 2 * d, c[0]!.y - 2 * d)).toBeLessThan(1e-9)
+    expect(Math.hypot(c[c.length - 1]!.x + 2 * d, c[c.length - 1]!.y + 2 * d)).toBeLessThan(1e-9)
+    expect(c.some((p) => Math.hypot(p.x, p.y) < 1e-9)).toBe(true)
+  })
+
+  test("no pen on the band's edges (a constant weight that swelled small marks); a fixed one on its spine", () => {
+    const mark = new SMark({ radius: 10 })
+    void mark.parts
+    const [edge] = mark.band.parts
+    expect(edge!.opacity.value).toBe(0)
+    expect(mark.band.fillOpacity.value).toBe(1)
+    expect(mark.spine.stroke.value).toBe(SMARK_PEN)
+    // the pen is a screen weight: it does not grow with the mark
+    const big = new SMark({ radius: 400 })
+    void big.parts
+    expect(big.spine.stroke.value).toBe(SMARK_PEN)
+  })
+
+  test("on the tablet the mark is ONE solid grey: band filled, its spine and the dot's rim in the band's grey", () => {
+    const prims = flattenSymbol({ symbol: "sMark", params: { cx: 300, cy: 300, size: 200 } })
+    const fills = prims.filter((p) => p.k === "fill")
+    // band, dot and square each a fill
+    expect(fills.length).toBe(3)
+    const greys = new Set(prims.map((p) => p.grey ?? 0))
+    expect(greys.size).toBe(1)
+    expect([...greys][0]).toBeGreaterThan(0)
   })
 
   test("the holon composes from one radius and its proportions", () => {
