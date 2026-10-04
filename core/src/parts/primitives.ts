@@ -464,11 +464,16 @@ export class Null extends Holon {}
  *
  * `members` are adopted through the same dynamic-part path `compose()`
  * uses, so they parent, walk, and animate exactly like declared fields.
+ * They are adopted at construction, not at compose: the Group IS their
+ * parent from the moment it exists, so a whole that also holds a member
+ * as a field — Calculator's `all`, every Slide group — never registers
+ * it a second time, however lazily that whole is first walked.
  */
 export class Group extends Null {
   members: Holon[] = []
 
-  protected override compose(): void {
+  constructor(overrides: Overrides = {}) {
+    super(overrides)
     for (const member of this.members) this.add(member)
   }
 }

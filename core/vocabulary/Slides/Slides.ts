@@ -388,11 +388,11 @@ export class Slide extends Holon {
    * holon at x = y = 0, so each member's own origin IS the canvas
    * centre, and scaling all 42 of deck 17's members individually is
    * exactly the one transform about one centre that the footage shows.
-   * `buildTargets`' flattening is therefore right for a scale too, and
-   * routing a group scale through the adopting `Group` holon instead is
-   * WRONG — that holon's three.Group has no children (its members are
-   * already the Slide's own parts, attached under the Slide), so it
-   * scales nothing at all.
+   * `buildTargets`' flattening is therefore right for a scale too.
+   * (Routing it through the adopting `Group` would now give the same
+   * picture — the Group is its members' one parent and sits at the
+   * canvas centre — but it once scaled nothing: members were attached
+   * under the Slide as well, and the Slide's copies stayed put.)
    */
   groupById = new Map<string, Group>()
   /**
@@ -481,8 +481,9 @@ export class Slide extends Holon {
     // its `SlideFill` first and its outline second, and adopting only the
     // first re-parented the fill while leaving the stroke behind.
     //
-    // That matters because `Group.compose` calls `add` on each member,
-    // which MOVES it to the end of this holon's part list, and the host
+    // That matters because a Group adopts each member with `add`, which
+    // MOVES it out of this holon's part list and under the Group (one
+    // parent per holon — holon.ts), at the Group's place, and the host
     // hands out render order by attach sequence (three-host.ts's
     // `nextFillOrder`: "attach order IS composite order"). Groups are
     // built after the whole shape loop, so an adopted fill jumped past

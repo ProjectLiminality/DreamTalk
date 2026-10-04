@@ -103,7 +103,10 @@ const scan = (target: Holon): void => {
       }
       int.params.set(name, value as Param<ParamValue>)
     } else if (value instanceof Holon) {
-      if (!int.parts.includes(value)) {
+      // One parent per holon: a field claims only a holon nobody owns yet.
+      // One already adopted — a Group's member, this whole's own add() —
+      // is a reference here, not a second registration (see add()).
+      if (value.parent === undefined) {
         value.parent = int.self ?? target
         int.parts.push(value)
       }
@@ -251,9 +254,22 @@ export class Holon {
     return undefined
   }
 
-  /** Register a dynamically composed part. */
+  /**
+   * Register a dynamically composed part — an adoption, so it MOVES the
+   * part: a holon has exactly one parent, and whatever whole held it
+   * before (a field scan, an earlier Group) lets it go. Held twice, it was
+   * walked twice and the host drew it twice — once beyond the reach of
+   * its adopter's transform (test/oneparent.test.ts).
+   */
   protected add<T extends Holon>(part: T): T {
     const int = internalsOf(this)
+    if (part.parent) {
+      const prev = internalsOf(part.parent)
+      for (const list of [prev.parts, prev.dynamicParts]) {
+        const i = list.indexOf(part)
+        if (i >= 0) list.splice(i, 1)
+      }
+    }
     part.parent = int.self ?? this
     int.dynamicParts.push(part)
     return part
