@@ -40,13 +40,10 @@
  *    going in rather than pulling back; it resets to the front in the black.
  *  - The two PUSHES (105.3–108.05, 144.25–146.8): `slide()` (src/song.ts)
  *    carries the outgoing scene up and off the top while the next rises from
- *    below, butted edge to edge, nothing fading, on the film's own push
- *    curve (PUSH). The portrait arrives whole — ring and plate already
- *    there, as the frames have them — and its words come after it lands.
- *
- * What still differs: during the first push the original dims both
- * pictures to about half brightness mid-way (the second does not); the
- * slide fades nothing.
+ *    below, butted edge to edge, on the film's own push curve (PUSH); the
+ *    first also dissolves through it (PUSH1_DISSOLVE). The portrait
+ *    arrives whole — ring and plate already there, as the frames have
+ *    them — and its words come after it lands.
  *
  * RETIMED, NOT REBUILT. Six set-pieces were scored standalone at their own
  * pace, which the final render does not keep. Each is subclassed below with
@@ -126,6 +123,16 @@ const diveRadius = (t: number) =>
  * started. RMS under 1% of a frame-height on each.
  */
 const PUSH = { left: 0.4, right: 0.45 }
+
+/**
+ * The first push also DISSOLVES: split at the seam, the Vitruvian's
+ * brightest line and the globe's sum to one all the way through — one
+ * fading out as the other fades in, 105.5–107.6 on a 0.35/0.35 curve
+ * (RMS 1%, measured as screen brightness), so both stand at about half
+ * as they pass. The second push
+ * keeps full brightness throughout.
+ */
+const PUSH1_DISSOLVE = { start: 0.2, end: 2.3, smoothing: { left: 0.35, right: 0.35 }, screen: true }
 
 /** Shots 2–3, and the dive out of them (the dim is the crossfade into Web2,
  *  which opens at 21.0). */
@@ -320,7 +327,7 @@ export class Web3Dream extends DreamSong {
       { scene: Shot09QuoteDream, span: 17.25 }, //          61.50 –  78.75
       { scene: NodeShot, span: 15.75 }, //                  78.75 –  94.50
       [{ scene: Shot12VitruvianDream, span: 14.3 }, crossfade(0.75)], // 93.75 – 108.05
-      [{ scene: LightShot, span: 14.45 }, slide(2.75, PUSH)], // 105.30 – 119.75 (push up)
+      [{ scene: LightShot, span: 14.45 }, slide(2.75, PUSH, PUSH1_DISSOLVE)], // 105.30 – 119.75 (push up)
       [{ scene: Shot14CallbackDream, span: 11.5 }, crossfade(1.25)], // 118.50 – 130.00
       { scene: Shot15HeroDream, span: 16.8 }, //            130.00 – 146.80
       [{ scene: PortraitShot, span: 14.5 }, slide(2.55, PUSH)], // 144.25 – 158.75 (push up)

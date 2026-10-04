@@ -42,7 +42,7 @@
  *  - `slide(d)`: Keynote's Push — A's and B's ROOT holons are carried
  *    up one frame-height together (A from rest to the top edge, B from
  *    below the bottom edge to rest), eased C4D-smooth unless the slide
- *    states its own tangents; nothing fades.
+ *    states its own tangents; nothing fades unless it states a dissolve.
  *    The frame-height is each chapter's own, at its observer's distance,
  *    so the two pictures stay butted edge to edge. A root whose `y` is
  *    a derived binding cannot be carried and stays put (say so in the
@@ -78,6 +78,7 @@ import type { Param, ParamValue } from "./params"
 import {
   buildIn,
   buildOut,
+  dissolveAt,
   easeOf,
   lerpParamValue,
   matchRoots,
@@ -350,6 +351,12 @@ export class DreamSong extends Dream {
         const into = buildIn(u)
         for (const holon of window.outs) holon.opacity.gate *= out
         for (const holon of window.ins) holon.opacity.gate *= into
+      } else if (window.kind === "slide") {
+        const d = dissolveAt(this.#chapters[window.into]!.transition, t - window.start)
+        if (d !== undefined) {
+          for (const holon of holons[window.from]!) holon.opacity.gate *= d.from
+          for (const holon of holons[window.into]!) holon.opacity.gate *= d.into
+        }
       }
     }
 

@@ -119,7 +119,8 @@
 import { Dream } from "../../src/index"
 import { Circle, Group, Line, Null } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
-import { WHITE, RED, BLUE, TAU, rgb, type Color } from "../../src/constants"
+import { WHITE, TAU, rgb, type Color } from "../../src/constants"
+import { hexPack } from "../../src/geometry/flower"
 import { c4dEaseWith } from "../../src/timeline"
 import { Globe } from "../../vocabulary/Globe/Globe"
 
@@ -136,33 +137,56 @@ const SPIN_EASE = 0.18
 /** How far the blue lobe's share swings from half: 0.5 ± 0.375. */
 const SWAP = 0.375
 
-/** A node's globe radius per unit of its lobe's radius. The ring (globe ×
- *  HALO_RATIO) is then 0.56 of the lobe, as measured at every size. */
-const GLOBE_PER_LOBE = 0.32
+/**
+ * The two nodes, measured at full resolution (14.4s blue at its largest,
+ * 19.0s red at its largest; ring radii fitted per frame 10–21.5s):
+ *
+ *   ring / lobe radius   blue 0.547   red 0.577   — at every size
+ *   globe / ring         blue 0.46    red 0.415
+ *
+ * The red node is the hero's construction (Shot15Hero) at its own scale: a
+ * black-sea globe sitting IN a white bloom, a flower of life of circles a
+ * third of the ring, twelve rays to 1.25× the ring (the axes) and 1.17×
+ * (the rest). The blue node's lattice is not circles but a triangular grid
+ * of straight lines, four to a family, 0.42 of the ring apart, laid only in
+ * the band between the globe and the ring.
+ */
+const BLUE_RING_PER_LOBE = 0.547
+const RED_RING_PER_LOBE = 0.577
+const BLUE_GLOBE_OF_RING = 0.46
+const RED_GLOBE_OF_RING = 0.415
 /** The globes' size before birth has brought them in. */
 const GLOBE_SMALL = 15
 
-/** A node's decoration reach, as a multiple of its globe radius — the flower
- *  ring sits ~2.4× the globe out (f_00009: blue lattice ~125px around a ~52px
- *  globe). */
-/**
- * The halo's diameter as a multiple of the globe's. Measured against f_00009,
- * where the globe fills about half the red ring — so ~2, not the 2.45 that
- * left the globe looking lost inside its own decoration.
- */
-const HALO_RATIO = 1.75
-
-/** Blue-node lightning glyphs, and red-node light rays. */
+/** Blue-node lightning glyphs, red-node light rays, blue field-line spirals. */
 const BOLT_COUNT = 8
-const RAY_COUNT = 14
-/** Blue-node field-line spirals. */
+const RAY_COUNT = 12
 const FIELD_COUNT = 8
+/** The blue grid's line spacing, as a fraction of the ring's radius. */
+const GRID_SPACING = 0.42
+/** Concentric rings make the red bloom; enough that they read as one glow
+ *  (Shot15Hero's recipe). */
+const BLOOM_RINGS = 18
 
-/** The blue lattice / lightning / field-line colours, sampled by eye from the
- *  frames. `BLUE` and `RED` are the house palette; the flower rings run a touch
- *  dimmer so the globe reads as the bright centre. */
-const BLUE_LATTICE: Color = rgb(0x2f, 0x7f, 0xd6)
-const RED_FIELD: Color = rgb(0xc0, 0x38, 0x2f)
+/**
+ * A colour as the frames SHOW it. The host treats a tint as linear light and
+ * encodes it for the screen (0x14 0x95 0xee drew as 79 201 247), so a
+ * sampled screen colour is handed over decoded, and lands as sampled.
+ */
+const seen = (r: number, g: number, b: number): Color => {
+  const decode = (v: number) => {
+    const c = v / 255
+    return 255 * (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+  }
+  return rgb(decode(r), decode(g), decode(b))
+}
+
+/** Colours sampled from the full-resolution frames (14.4s, 19.0s). */
+const BLUE_RING = seen(2, 148, 246)
+const BLUE_LATTICE = seen(40, 120, 190)
+const RED_FIELD = seen(212, 76, 60)
+const RED_RING = seen(250, 86, 65)
+const LATTICE_RED = seen(150, 60, 52)
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
@@ -190,17 +214,37 @@ const sCurve = (split: number, segments = 48): { x: number; y: number; z: number
   return pts
 }
 
-/** A ring of small flower-of-life circle centres at the given radius — a
- *  hexagonal rosette, the flower packing's simplest closed form (a central ring
- *  of six plus the inner overlaps read as the lattice at this scale). Returns
- *  unit-space offsets to be scaled per node. */
-const flowerRing = (count: number, radius: number): { x: number; y: number }[] => {
-  const out: { x: number; y: number }[] = []
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * TAU
-    out.push({ x: Math.cos(a) * radius, y: Math.sin(a) * radius })
-  }
-  return out
+/** The red flower of life: circle centres hex-packed inside a unit ring,
+ *  each circle a third of the ring (Shot15Hero's lattice). Unit space. */
+const LATTICE_UNIT = 1 / 3
+const FLOWER_UNIT = hexPack(
+  [Array.from({ length: 64 }, (_, i) => {
+    const a = (i / 64) * TAU
+    return { x: Math.cos(a) * (1 - LATTICE_UNIT * 0.9), y: Math.sin(a) * (1 - LATTICE_UNIT * 0.9) }
+  })],
+  { spacing: LATTICE_UNIT },
+)
+
+/**
+ * One grid line's two pieces inside the band r0 < |p| < r1: the line runs
+ * along angle `phi`, offset `c` from the centre. A line that clears the
+ * inner circle is split at its middle so every line is two pieces.
+ */
+const gridPieces = (
+  phi: number,
+  c: number,
+  r0: number,
+  r1: number,
+): [{ x: number; y: number; z: number }[], { x: number; y: number; z: number }[]] => {
+  const dx = Math.cos(phi)
+  const dy = Math.sin(phi)
+  const at = (s: number) => ({ x: -dy * c + dx * s, y: dx * c + dy * s, z: 0 })
+  const so = Math.sqrt(Math.max(r1 * r1 - c * c, 0))
+  const si = Math.abs(c) < r0 ? Math.sqrt(r0 * r0 - c * c) : 0
+  return [
+    [at(-so), at(-si)],
+    [at(si), at(so)],
+  ]
 }
 
 /** A lightning-bolt glyph as a short zig-zag polyline, pointing radially outward
@@ -259,8 +303,22 @@ export class YinYangDream extends Dream {
    *  slowly. The blue node's globe faces Africa/Europe (spin 0); the red node's a
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
-  blueGlobe = new Globe({ radius: GLOBE_SMALL, continents: "fill", land: WHITE, tilt: 0.12, spin: 0 })
-  redGlobe = new Globe({ radius: GLOBE_SMALL, continents: "fill", land: WHITE, tilt: 0.12, spin: 0.5 })
+  blueGlobe = new Globe({
+    radius: GLOBE_SMALL,
+    continents: "fill",
+    land: WHITE,
+    oceanTint: rgb(0, 0, 0),
+    tilt: 0.12,
+    spin: 0,
+  })
+  redGlobe = new Globe({
+    radius: GLOBE_SMALL,
+    continents: "fill",
+    land: WHITE,
+    oceanTint: rgb(0, 0, 0),
+    tilt: 0.12,
+    spin: 0.5,
+  })
 
   /** The big outer circle — the yin-yang's boundary. Draws on over `birth`. */
   outer = new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2, creation: 0 })
@@ -332,77 +390,71 @@ export class YinYangDream extends Dream {
     return 1 - this.split()
   }
 
-  /** A globe radius for a lobe share: the lobe's dot, scaled with it, rising
-   *  in from small over `birth` (the frames open on two equal globes, f_00005). */
-  private globeR(share: number): number {
-    const full = share * OUTER_R * GLOBE_PER_LOBE
-    return GLOBE_SMALL + (full - GLOBE_SMALL) * clamp01(this.birth.creation.value)
+  /** A node's ring radius for a lobe share: the lobe's dot, scaled with it,
+   *  rising in from a small globe over `birth` (the frames open on two equal
+   *  globes, f_00005). */
+  private ringR(share: number, perLobe: number, globeOfRing: number): number {
+    const full = share * OUTER_R * perLobe
+    const small = GLOBE_SMALL / globeOfRing
+    return small + (full - small) * clamp01(this.birth.creation.value)
   }
 
   // -- node construction ----------------------------------------------------
 
   /**
-   * The BLUE / Web2 node: globe, blue flower-of-life lattice ring, a ring of
-   * white lightning bolts, and red field-line spirals. Every primitive's
-   * geometry follows `blueScale01`; the Group position follows `blueCentre`.
+   * The BLUE / Web2 node: a black-sea globe, a triangular grid in the band
+   * around it, the blue ring, a ring of white lightning bolts, and red
+   * field-line spirals. Every primitive's geometry follows the blue lobe's
+   * share; the Group position follows `blueCentre`.
    */
   private buildBlueNode(): Group {
     const orbitSrc = this.orbit.creation
-    const scale = () => this.blueScale01()
-    const gr = () => this.globeR(scale())
+    const ring = () => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE, BLUE_GLOBE_OF_RING)
+    const gr = () => ring() * BLUE_GLOBE_OF_RING
 
-    // The globe rides the node's size, and its land floods in on `birth` (Globe
-    // has no single opacity — it composes its own strokes — so `landOpacity` is
-    // the fade-in of the continents).
+    // The globe rides the node's size; its land and black sea come in on
+    // `birth` (Globe has no single opacity — it composes its own strokes).
     this.blueGlobe.radius.follow(orbitSrc.map(() => gr()))
     this.blueGlobe.landOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
+    this.blueGlobe.oceanOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
 
     const members: (Circle | Line)[] = []
 
-    // Flower-of-life lattice: overlapping circles in a hex rosette. A central
-    // ring of six plus one at centre, each drawn as a thin blue circle whose
-    // radius and offset ride the node scale.
-    const latticeUnit = flowerRing(6, 1) // unit offsets
-    for (let i = 0; i < latticeUnit.length; i++) {
-      const u = latticeUnit[i]!
-      const c = new Circle({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5))
-      c.x.follow(orbitSrc.map(() => u.x * gr() * HALO_RATIO * 0.5))
-      c.y.follow(orbitSrc.map(() => u.y * gr() * HALO_RATIO * 0.5))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.85))
-      members.push(c)
-    }
-    // Central lattice circle.
-    {
-      const c = new Circle({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.85))
-      members.push(c)
+    // The grid: three families of four lines, 60° apart, only in the band.
+    for (let f = 0; f < 3; f++) {
+      const phi = (f * Math.PI) / 3
+      for (let k = 0; k < 4; k++) {
+        const c = (k - 1.5) * GRID_SPACING
+        for (const piece of [0, 1] as const) {
+          const line = new Line({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 })
+          deriveRot(line, this, () => gridPieces(phi, c * ring(), gr(), ring())[piece])
+          line.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.85))
+          members.push(line)
+        }
+      }
     }
     // The bounding blue ring.
     {
-      const ring = new Circle({ tint: BLUE, stroke: 2.4, opacity: 0 })
-      ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO))
-      ring.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
-      members.push(ring)
+      const c = new Circle({ tint: BLUE_RING, stroke: 2.4, opacity: 0 })
+      c.radius.follow(orbitSrc.map(() => ring()))
+      c.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
+      members.push(c)
     }
 
-    // Lightning bolts, a ring of them between the globe and the flower.
+    // Lightning bolts in the band, one on each axis and diagonal.
     for (let i = 0; i < BOLT_COUNT; i++) {
-      const a = (i / BOLT_COUNT) * TAU + Math.PI / BOLT_COUNT
+      const a = (i / BOLT_COUNT) * TAU
       const line = new Line({ tint: WHITE, stroke: 1.6, opacity: 0 })
-      deriveRot(line, this, () => bolt(a, gr() * 1.15, gr() * HALO_RATIO * 0.78))
+      deriveRot(line, this, () => bolt(a, ring() * 0.57, ring() * 0.78))
       line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
       members.push(line)
     }
 
-    // Red field-line spirals sweeping outward past the flower.
+    // Red field-line spirals sweeping outward past the ring.
     for (let i = 0; i < FIELD_COUNT; i++) {
       const a0 = (i / FIELD_COUNT) * TAU
       const line = new Line({ tint: RED_FIELD, stroke: 1.4, opacity: 0 })
-      deriveRot(line, this, () =>
-        fieldLine(a0, gr() * HALO_RATIO * 0.9, gr() * HALO_RATIO * 1.6, TAU * 0.16),
-      )
+      deriveRot(line, this, () => fieldLine(a0, ring() * 0.9, ring() * 1.6, TAU * 0.16))
       line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.2) / 0.8) * 0.8))
       members.push(line)
     }
@@ -414,74 +466,61 @@ export class YinYangDream extends Dream {
   }
 
   /**
-   * The RED / Web3 node: globe with a bright glow, red flower-of-life lattice, a
-   * bold red ring, and long white light rays. Same binding pattern; follows
-   * `redScale01` and `redCentre`.
+   * The RED / Web3 node — the hero's construction at the lobe's scale: a
+   * black-sea globe IN a white bloom, a red flower of life, the red ring,
+   * twelve white rays. Follows the red lobe's share and `redCentre`.
    */
   private buildRedNode(): Group {
     const orbitSrc = this.orbit.creation
-    const scale = () => this.redScale01()
-    const gr = () => this.globeR(scale())
+    const ring = () => this.ringR(this.redScale01(), RED_RING_PER_LOBE, RED_GLOBE_OF_RING)
+    const gr = () => ring() * RED_GLOBE_OF_RING
 
     this.redGlobe.radius.follow(orbitSrc.map(() => gr()))
     this.redGlobe.landOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
+    this.redGlobe.oceanOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
 
-    // The white bloom around the red node.
-    //
-    // A filled disc behind the globe was the obvious construction and it was
-    // wrong: the globe's ocean is not opaque, so the disc showed THROUGH the
-    // sphere as a flat grey wash over the continents rather than as light
-    // around it. Drawn instead as a few concentric rings of falling opacity —
-    // a halo that surrounds the globe without ever being behind it, which is
-    // what the frames actually show (the land stays bright white, the bloom
-    // sits outside the limb).
-    const glowRings: Circle[] = []
-    for (let i = 0; i < 4; i++) {
-      const spread = 1.04 + i * 0.1
-      const ring = new Circle({ tint: WHITE, stroke: 3 - i * 0.5, opacity: 0 })
-      ring.radius.follow(orbitSrc.map(() => gr() * spread))
-      ring.opacity.follow(this.divide.creation.map((d) => clamp01(d) * (0.4 - i * 0.08)))
-      glowRings.push(ring)
+    // The bloom: concentric rings of falling opacity from the limb out, not
+    // a filled disc — the globe's black sea is drawn over its inner edge.
+    // Spaced a touch wider than the hero's: its whiteness at 0.5/0.6/0.7/0.8
+    // of the ring reads 146/92/25/0 against the frame's 150/80/27/0.
+    const bloom: Circle[] = []
+    for (let i = 0; i < BLOOM_RINGS; i++) {
+      const c = new Circle({ tint: WHITE, stroke: 4, opacity: 0 })
+      c.radius.follow(orbitSrc.map(() => gr() * (1.02 + i * 0.045)))
+      const level = 0.5 * (1 - i / BLOOM_RINGS) ** 2.2
+      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * level))
+      bloom.push(c)
     }
 
-    const members: (Circle | Line)[] = []
-
-    // Red flower-of-life lattice.
-    const latticeUnit = flowerRing(6, 1)
-    for (const u of latticeUnit) {
-      const c = new Circle({ tint: RED_FIELD, stroke: 1, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5))
-      c.x.follow(orbitSrc.map(() => u.x * gr() * HALO_RATIO * 0.5))
-      c.y.follow(orbitSrc.map(() => u.y * gr() * HALO_RATIO * 0.5))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.7))
-      members.push(c)
-    }
-    {
-      const c = new Circle({ tint: RED_FIELD, stroke: 1, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO * 0.5))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.7))
-      members.push(c)
+    // The flower of life inside the ring.
+    const lattice: Circle[] = []
+    for (const u of FLOWER_UNIT) {
+      const c = new Circle({ tint: LATTICE_RED, stroke: 1.1, opacity: 0 })
+      c.radius.follow(orbitSrc.map(() => ring() * LATTICE_UNIT))
+      c.x.follow(orbitSrc.map(() => u.x * ring()))
+      c.y.follow(orbitSrc.map(() => u.y * ring()))
+      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.55))
+      lattice.push(c)
     }
 
-    // The bold red ring.
-    {
-      const ring = new Circle({ tint: RED, stroke: 3, opacity: 0 })
-      ring.radius.follow(orbitSrc.map(() => gr() * HALO_RATIO))
-      ring.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
-      members.push(ring)
-    }
-
-    // Long white light rays.
+    // Twelve rays from the limb, the four on the axes reaching further.
+    const rays: Line[] = []
     for (let i = 0; i < RAY_COUNT; i++) {
       const a = (i / RAY_COUNT) * TAU
-      const line = new Line({ tint: WHITE, stroke: 1, opacity: 0 })
-      deriveRot(line, this, () => ray(a, gr() * 1.1, gr() * HALO_RATIO * 1.45))
+      const reach = i % 3 === 0 ? 1.25 : 1.17
+      const line = new Line({ tint: WHITE, stroke: 1.2, opacity: 0 })
+      deriveRot(line, this, () => ray(a, gr() * 1.1, ring() * reach))
       line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.2) / 0.8) * 0.85))
-      members.push(line)
+      rays.push(line)
     }
 
-    // Glow first (behind), then the globe, then the decoration on top.
-    const group = new Group({ members: [...glowRings, this.redGlobe, ...members] })
+    // The red ring, on top.
+    const redRing = new Circle({ tint: RED_RING, stroke: 3, opacity: 0 })
+    redRing.radius.follow(orbitSrc.map(() => ring()))
+    redRing.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
+
+    // Bloom behind, then the lattice, rays, globe and ring (Shot15Hero's order).
+    const group = new Group({ members: [...bloom, ...lattice, ...rays, this.redGlobe, redRing] })
     group.x.follow(orbitSrc.map(() => this.redCentre().x))
     group.y.follow(orbitSrc.map(() => this.redCentre().y))
     return group

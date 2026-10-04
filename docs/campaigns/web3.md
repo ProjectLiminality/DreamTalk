@@ -274,9 +274,25 @@ the reference frame by frame. The "dive" is a dolly straight in on the
 figure's CENTRE (19.6–21.5, distance to 0.15 on an ease-in), not an aim at
 the blue node: the node swells and swings across in front of the camera.
 The two vertical pushes are each ~2.6s Keynote curves (tangents 0.4 / 0.45,
-105.3–108.05 and 144.25–146.8), now `slide(d, PUSH)`. Remaining difference:
-mid-way through the first push the original dims both pictures to about
-half; ours fades nothing.
+105.3–108.05 and 144.25–146.8), now `slide(d, PUSH)`. The first also
+dissolves — the two pictures' screen brightness sums to one, 105.5–107.6
+on a 0.35/0.35 curve — stated as `slide(…, { …, screen: true })`; within
+0.02 of the reference throughout.
+
+**The nodes, at full resolution.** The red node is the hero's construction
+(black-sea globe IN a white bloom, flower of life, twelve rays); the blue
+node's lattice is a triangular grid of straight lines in the band between
+globe and ring. Globe/ring 0.46 (blue), 0.415 (red); ring/lobe 0.547 /
+0.577. The host treats a tint as LINEAR light and encodes it for display
+(0x1495ee drew as 79 201 247), so YinYang hands its sampled screen colours
+over decoded (`seen()`); the rings now land within a few levels of the
+frames. Every other scene's sampled tints draw lighter than sampled for
+the same reason — an engine-wide question, not settled here.
+
+Still different: the dive's fade to black starts at ~20.25 in the original
+(screen brightness 0.92 at 20.5, 0.72 at 20.9, 0.37 at 21.3) and ours only
+at 21.0 (the 0.5s crossfade); the bolts are drawn as zig-zag strokes where
+the original has filled glyphs.
 
 **Not reproduced, stated rather than faked:** the C4D terminator light in
 shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch

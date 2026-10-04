@@ -37,7 +37,32 @@ export interface Transition {
    * measured push is not C4D-smooth. Absent: `smooth`.
    */
   smoothing?: { left: number; right: number }
+  /** slide only — a dissolve laid over the push (see `Dissolve`). */
+  dissolve?: Dissolve
 }
+
+/**
+ * A dissolve under a push: from `start` to `end` seconds into the window
+ * the outgoing picture fades out as the incoming one fades in, on C4D
+ * tangents (`smoothing`, default smooth) — so mid-way both stand at about
+ * half. Before `start` A is whole and B unseen; after `end`, the reverse.
+ */
+export interface Dissolve {
+  start: number
+  end: number
+  smoothing?: { left: number; right: number }
+  /**
+   * The curve is SCREEN brightness — what a fade read off a video measures —
+   * not opacity. The host blends in linear light and encodes for display,
+   * so half opacity shows at ~0.74; a screen curve is decoded to the
+   * opacity that shows it.
+   */
+  screen?: boolean
+}
+
+/** sRGB decode: the linear light a display value stands for. */
+const decodeScreen = (v: number): number =>
+  v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
 
 /** The default boundary: B starts exactly when A ends. */
 export const cut: Transition = { kind: "cut", duration: 0 }
@@ -60,10 +85,32 @@ export const magicMove = (duration: number): Transition => ({ kind: "magicMove",
  * C4D-smooth — one frame-height of travel. `up` (the default) means the
  * pictures move UP: A leaves through the top, B rises from below.
  * Nothing fades; both chapters are fully shown for the whole window.
- * `smoothing` states the push's tangents when the film's differ.
+ * `smoothing` states the push's tangents when the film's differ;
+ * `dissolve` lays a cross-dissolve over the push.
  */
-export const slide = (duration: number, smoothing?: { left: number; right: number }): Transition =>
-  smoothing ? { kind: "slide", duration, smoothing } : { kind: "slide", duration }
+export const slide = (
+  duration: number,
+  smoothing?: { left: number; right: number },
+  dissolve?: Dissolve,
+): Transition => ({
+  kind: "slide",
+  duration,
+  ...(smoothing ? { smoothing } : {}),
+  ...(dissolve ? { dissolve } : {}),
+})
+
+/** A slide's dissolve, `s` seconds into its window, as the two pictures'
+ *  opacity factors. Undefined when the slide does not dissolve. */
+export const dissolveAt = (
+  transition: Transition | undefined,
+  s: number,
+): { from: number; into: number } | undefined => {
+  const d = transition?.dissolve
+  if (!d) return undefined
+  const sm = d.smoothing ?? { left: C4D_SMOOTHING, right: C4D_SMOOTHING }
+  const u = c4dEaseWith((s - d.start) / (d.end - d.start), sm.left, sm.right)
+  return d.screen ? { from: decodeScreen(1 - u), into: decodeScreen(u) } : { from: 1 - u, into: u }
+}
 
 /** The window progress → eased progress a transition samples with. */
 export const easeOf = (transition: Transition | undefined): ((u: number) => number) => {

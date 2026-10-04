@@ -74,6 +74,36 @@ describe("slide", () => {
     expect(b.dot.y.value).toBeCloseTo(12.5 - (1 - e) * 900, 2)
   })
 
+  test("a dissolving push fades A out and B in on its own curve, and only inside it", () => {
+    const dissolve = { start: 0.2, end: 0.8, smoothing: { left: 0.35, right: 0.35 } }
+    const s = new DreamSong([SceneA, [SceneB, slide(1, undefined, dissolve)]])
+    const a = s.chapters[0]!.dream as SceneA
+    const b = s.chapters[1]!.dream as SceneB
+    s.applyAt(1.1) // before the dissolve: A whole, B unseen
+    expect(a.dot.opacity.value).toBe(1)
+    expect(b.dot.opacity.value).toBe(0)
+    s.applyAt(1.5) // its midpoint: half and half
+    expect(a.dot.opacity.value).toBeCloseTo(0.5, 6)
+    expect(b.dot.opacity.value).toBeCloseTo(0.5, 6)
+    s.applyAt(1.35)
+    const d = c4dEaseWith(0.25, 0.35, 0.35)
+    expect(b.dot.opacity.value).toBeCloseTo(d, 6)
+    expect(a.dot.opacity.value).toBeCloseTo(1 - d, 6)
+    s.applyAt(2.5) // past the window: B whole
+    expect(b.dot.opacity.value).toBe(1)
+  })
+
+  test("a screen-measured dissolve is decoded to the opacity that shows it", () => {
+    const dissolve = { start: 0, end: 1, smoothing: { left: 0, right: 0 }, screen: true }
+    const s = new DreamSong([SceneA, [SceneB, slide(1, undefined, dissolve)]])
+    const a = s.chapters[0]!.dream as SceneA
+    const b = s.chapters[1]!.dream as SceneB
+    s.applyAt(1.5) // half brightness on screen = linear ((0.5 + 0.055) / 1.055)^2.4
+    const half = ((0.5 + 0.055) / 1.055) ** 2.4
+    expect(a.dot.opacity.value).toBeCloseTo(half, 6)
+    expect(b.dot.opacity.value).toBeCloseTo(half, 6)
+  })
+
   test("nothing fades: both pictures are whole for the whole window", () => {
     const { s, a, b } = song()
     for (const t of [1, 1.25, 1.5, 1.75]) {
