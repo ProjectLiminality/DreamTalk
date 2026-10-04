@@ -518,3 +518,26 @@ Text re-insets whenever its pixels-per-unit moves by more than an absolute
 would change the inset by ≤ ~0.01 px during camera moves (sub-pixel, but
 not byte-identical) and remove nearly all of it. A TASTE-level call for
 David/lead, not taken here.
+
+## Web3 CPU re-profiled (2026-10-04, after I-2/I-3) — the next lever is dormant chapters
+
+t=40, ~58 ms a frame CPU: matrix-settle walk ~12 ms (I-2 skips the
+multiplies, three still visits all ~42k nodes per settle), Line dirty-check
+~8.7, Param/derived getters ~8, sync() ~4.8, proxy reads ~3.5, render-list
+projection ~2.7.
+
+**93–99.5% of it is chapters nobody can see.** A DreamSong keeps all 13
+chapters in the scene, and hides the inactive ones only through their
+leaves' opacity gate — so sync(), every settle and the render-list walk
+visit them all, every frame:
+
+| t | live holons | dormant holons |
+|---|---|---|
+| 10 | 154 | 16,100 |
+| 40 | 1,082 | 15,172 |
+| 100 | 160 | 16,094 |
+| 138 | 75 | 16,179 |
+
+| # | Optimization | Lever | Expected | Risk |
+|---|---|---|---|---|
+| I-4 | Dormant chapters: the song names its live roots; the host skips the others' strokes/fills in sync() and hides their root groups (the render walk then skips them) | Web3 ~58 ms CPU | → single-digit ms | MEDIUM — screenArc reads the PREVIOUS frame's matrices by design, so a chapter woken after being skipped would meter its pen fronts from stale ones on its first live frame. Exact options: keep the cheap half (group transforms + settle) running for dormant chapters, or re-sync a waking chapter at the previous frame's t. Needs a design call before building. |
