@@ -12,6 +12,8 @@ import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
 import { CreatorMode, isCreatorToggle } from "../editor/creator"
 import { mountCreatorPanel } from "./creatorpanel"
+import { resolvePlace } from "../editor/dreamnodes"
+import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -64,8 +66,13 @@ const warmBakes = async (dream: object): Promise<void> => {
 }
 
 const main = async () => {
-  const sceneName = new URLSearchParams(location.search).get("scene") ?? defaultScene
-  const DreamCtor = scenes[sceneName] ?? scenes[defaultScene]!
+  const query = new URLSearchParams(location.search)
+  const requested = query.get("scene") ?? defaultScene
+  const sceneName = scenes[requested] ? requested : defaultScene
+  // `path` walks down the holarchy from the scene (demo/explorer.ts): the
+  // page IS the DreamNode at its end — window ≡ folder ≡ DreamNode.
+  const place = resolvePlace(scenes, sceneName, query.get("path")?.split("/").filter(Boolean) ?? [])
+  const DreamCtor = place.Dream
   const dream = new DreamCtor()
   await warmBakes(dream)
   // Optimization A: ribbon instancing, AUTO by default — the host counts the
@@ -76,6 +83,7 @@ const main = async () => {
   const q = new URLSearchParams(location.search).get("instanced")
   const useInstancedRibbons = q === "1" ? true : q === "0" ? false : "auto"
   const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons })
+  if (place.alone) await frameAlone(host, dream, canvas)
   const duration = dream.duration
 
   // Narration, if the scene has any and the daemon has the audio. A scene
@@ -83,10 +91,12 @@ const main = async () => {
   // silently — see src/render/narrator.ts.
   const narrator = new Narrator(dream.narration, httpVoiceCache())
 
+  // `?t=` starts the song there (the explorer's way back up; the editor's link).
+  const startT = Math.max(0, Number(query.get("t")) || 0) % (duration || 1)
   let playing = true
-  let t0 = performance.now()
+  let t0 = performance.now() - startT * 1000
   /** The t on screen — where creator mode freezes the world, and resumes it. */
-  let current = 0
+  let current = startT
 
   const frame = async (now: number) => {
     if (playing) {
@@ -153,8 +163,47 @@ const main = async () => {
     creator.select(holon)
     panel.render(holon)
   })
+
+  // --- The Dream Explorer (demo/explorer.ts) -------------------------------
+  //
+  // `~`: the scene holds still and disassembles into its DreamNodes; a
+  // click enters one. Holds the song exactly as creator mode does.
+  let resumeOnHome = false
+  const explorer = mountExplorer({
+    host,
+    dream,
+    canvas,
+    name: place.name,
+    sceneKey: sceneName,
+    path: place.crumbs.slice(1).map((c) => c.name),
+    crumbs: place.crumbs,
+    at: query.get("at") ?? undefined,
+    signal: ac.signal,
+    hold: () => {
+      if (creator.on) creator.toggle(false)
+      resumeOnHome = playing
+      playing = false
+      narrator.update(Number.NaN, false)
+      readout.textContent = `t = ${current.toFixed(2)}s (dream explorer)`
+      return current
+    },
+    release: () => {
+      if (resumeOnHome) {
+        t0 = performance.now() - current * 1000
+        playing = true
+      }
+    },
+  })
+  ;(window as unknown as Record<string, unknown>).__dtExplorer = explorer
+  if (query.get("explore") === "1") explorer.toggle(true)
+
   document.addEventListener("keydown", (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    if (isExplorerToggle(e) || (e.code === "Escape" && explorer.on)) {
+      e.preventDefault()
+      explorer.toggle(e.code === "Escape" ? false : undefined)
+      return
+    }
     if (isCreatorToggle(e) || (e.code === "Escape" && creator.on)) {
       e.preventDefault()
       creator.toggle(e.code === "Escape" ? false : undefined)
