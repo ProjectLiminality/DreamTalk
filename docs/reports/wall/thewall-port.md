@@ -581,3 +581,20 @@ config without `sealAtOne: false`, so the now-default `sealAtOne: true`
 returns 1.0. The fix is one word in the test's config — the *behaviour*
 is correct and deliberate; the test simply predates the default. Owner
 of `journey.test.ts` should apply it.
+
+## Re-measured 2026-10-04 — the benchmark holds; the gauntlet had been silent
+
+The wall gauntlet had scored nothing since 9bdf659 (its freshness guard was
+pasted inside the embedded Python crop, so every crop failed; fixed in the
+I-1 commit), and a fresh all-frames run read 0.6986 — which looked like a
+fall from 0.933. It is not. `bun scripts/wall-gauntlet.ts <out> --step 3`
+reproduces this report's own table: all 26 scored **0.7141** (was 0.714);
+launched 20 **0.928** at **0.86 px** chamfer_ref (was 0.933 / 0.86); the
+two pinned frames exact (f0037 0.9605, f0043 0.9842). 0.6986 was the
+all-frames mean at `--step 4`, i.e. with the pre-roll in.
+
+The remaining 0.005 is not code: a worktree of 9637daa (the commit that
+recorded 0.933), scored by today's gauntlet and today's unchanged
+overlay.py, gives 0.9278 — identical to HEAD on every frame. Same scene
+code, same scorer, so the shift is the rendering environment (browser /
+GPU stack) since September. No regression hid behind the silent gauntlet.
