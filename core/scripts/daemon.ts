@@ -11,6 +11,8 @@
  *   - GET/PUT /api/voice/<key>.mp3 → synthesized narration (scripts/say.ts),
  *     same deal: the browser borrows the disk, and a miss is silence
  *   - GET /api/face/<Name> → a holon's DreamTalk face png, for tooltips
+ *   - GET /api/where?name=<Class> → the .ts file that declares it (where.ts),
+ *     for the Dream Explorer's labels
  *   - WS  {type:"op"} → semantic ops applied via ts-morph (scripts/ops.ts),
  *     written atomically, echo-suppressed at the watcher, one queue
  *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
@@ -37,6 +39,7 @@ import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
 import { recognize } from "./recognize"
+import { whereIs } from "./where"
 import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { displayHub } from "../sketch/display"
@@ -700,6 +703,8 @@ const server = Bun.serve<SocketData>({
     if (url.pathname.startsWith("/api/board/"))
       return boardResponse(req, repoRoot, decodeURIComponent(url.pathname.slice("/api/board/".length)))
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
+    if (url.pathname === "/api/where")
+      return Response.json({ file: await whereIs(repoRoot, url.searchParams.get("name") ?? "") })
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
     if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
     if (url.pathname === "/api/comments") return getCommentsResponse(url.searchParams.get("scene"))
