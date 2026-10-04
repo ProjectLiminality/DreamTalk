@@ -604,6 +604,12 @@ ruling (translation + the three deleted labels from footage).
 - [x] **Perf I-3** — allocation-free parametric dirty-check (captured
       Params, in-place compare; same frames regenerate). Web3 80/66/60 →
       65/57/50 ms.
+- [x] **Layered dissolves (group opacity)** — a DreamSong crossfade /
+      dissolve fades each chapter as ONE flattened picture (offscreen
+      layer, added by weight); Web3's dive no longer shows the lattice
+      through the globe's sea. Every other frame/scene unchanged.
+- [ ] **Text contour inset cost** — re-run every frame of a camera move,
+      ~1.5 s/frame in Web3's transitions; exact fix noted in ROADMAP.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

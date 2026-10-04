@@ -50,6 +50,7 @@ import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
 import { screenArcRemap, type ProjectedPoint } from "./screen-arc"
+import { LayerCompositor } from "./layers"
 
 const STROKE_SEGMENTS = 128
 
@@ -1124,11 +1125,48 @@ export class ThreeHost {
     const settled = this.matricesSettled
     if (settled) this.scene.matrixWorldAutoUpdate = false
     try {
-      await this.renderer.render(this.scene, this.camera)
+      const layers = this.fadingLayers()
+      if (layers) await (this.compositor ??= new LayerCompositor(4)).render(this.renderer, this.scene, this.camera, layers)
+      else await this.renderer.render(this.scene, this.camera)
     } finally {
       if (settled) this.scene.matrixWorldAutoUpdate = true
     }
   }
+
+  /** Composites fading wholes as single pictures (layers.ts). */
+  private compositor?: LayerCompositor
+
+  /**
+   * The wholes fading as ONE picture this frame — a DreamSong's crossfade
+   * or dissolve (song.ts `layerFades`) — as the top-level objects to
+   * composite and their weights; undefined when nothing fades strictly
+   * below full, which is every frame of every scene outside such a window
+   * (the ordinary single pass, unchanged). A batched host mixes chapters
+   * inside one draw and cannot isolate them, so it renders unlayered
+   * (no batched song has a dissolve today: Web3's runs are too short to
+   * batch).
+   */
+  private fadingLayers(): { objects: THREE.Object3D[]; weight: number }[] | undefined {
+    const fades = (this.dream as { layerFades?: readonly { roots: readonly Holon[]; opacity: number }[] })
+      .layerFades
+    if (!fades || !fades.some((f) => f.opacity < 1) || this.ribbonBatches.length > 0) return undefined
+    if (!this.rootGroups) {
+      this.rootGroups = new Map()
+      for (const { holon, group } of this.groups) if (group.parent === this.scene) this.rootGroups.set(holon, group)
+    }
+    const roots = this.rootGroups
+    return fades
+      .filter((f) => f.opacity < 1)
+      .map((f) => ({
+        objects: f.roots.flatMap((r) => {
+          const g = roots.get(r)
+          return g ? [g] : []
+        }),
+        weight: f.opacity,
+      }))
+  }
+
+  private rootGroups?: Map<Holon, THREE.Object3D>
 
   /**
    * True from a full scene settle until anything could move a node again
@@ -2598,6 +2636,7 @@ export class ThreeHost {
   dispose(): void {
     for (const { binding } of this.texts) binding.dispose()
     this.texts.length = 0
+    this.compositor?.dispose()
     this.renderer.dispose()
   }
 }

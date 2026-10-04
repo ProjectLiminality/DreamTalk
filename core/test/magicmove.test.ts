@@ -338,13 +338,14 @@ describe("build out / build in", () => {
 })
 
 describe("crossfade, the simple sibling", () => {
-  test("every holon of A ramps down and every holon of B ramps up, linearly", () => {
+  test("A fades down and B up linearly — each as ONE picture, its holons whole", () => {
     const { s, a, b } = song(crossfade(1))
     s.applyAt(1.25)
-    expect(a.dot.opacity.value).toBeCloseTo(0.75, 10)
-    expect(a.blob.opacity.value).toBeCloseTo(0.75, 10)
-    expect(b.dot.opacity.value).toBeCloseTo(0.25, 10)
-    expect(b.spark.opacity.value).toBeCloseTo(0.25, 10)
+    const weight = (i: number) =>
+      s.layerFades.find((l) => l.roots === s.chapters[i]!.dream.roots)?.opacity
+    expect(weight(0)).toBeCloseTo(0.75, 10)
+    expect(weight(1)).toBeCloseTo(0.25, 10)
+    for (const h of [a.dot, a.blob, b.dot, b.spark]) expect(h.opacity.value).toBe(1)
   })
 
   test("a crossfade does NOT glide — each chapter keeps its own transform", () => {

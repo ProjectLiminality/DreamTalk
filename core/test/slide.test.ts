@@ -11,8 +11,17 @@ import { describe, expect, test } from "bun:test"
 import { Dream } from "../src/dream"
 import { DreamSong } from "../src/song"
 import { Group, Circle } from "../src/parts/primitives"
-import { crossfade, slide, smooth } from "../src/transitions"
+import { crossfade, crossfadeAt, slide, smooth } from "../src/transitions"
 import { c4dEaseWith } from "../src/timeline"
+
+/**
+ * A chapter's dissolve weight at the last sample: a crossfade or dissolve
+ * fades each chapter as ONE picture (song.ts layerFades), so the weight
+ * lives on the chapter's layer, not on its leaves; undefined when the
+ * chapter is not fading as a layer.
+ */
+const weightOf = (s: DreamSong, i: number): number | undefined =>
+  s.layerFades.find((l) => l.roots === s.chapters[i]!.dream.roots)?.opacity
 
 /**
  * A frames 500 units tall (radius 500 at the default 53.13° vertical fov:
@@ -80,16 +89,20 @@ describe("slide", () => {
     const a = s.chapters[0]!.dream as SceneA
     const b = s.chapters[1]!.dream as SceneB
     s.applyAt(1.1) // before the dissolve: A whole, B unseen
-    expect(a.dot.opacity.value).toBe(1)
-    expect(b.dot.opacity.value).toBe(0)
+    expect(weightOf(s, 0)).toBe(1)
+    expect(weightOf(s, 1)).toBe(0)
     s.applyAt(1.5) // its midpoint: half and half
-    expect(a.dot.opacity.value).toBeCloseTo(0.5, 6)
-    expect(b.dot.opacity.value).toBeCloseTo(0.5, 6)
+    expect(weightOf(s, 0)).toBeCloseTo(0.5, 6)
+    expect(weightOf(s, 1)).toBeCloseTo(0.5, 6)
+    // …each picture whole within itself: its leaves are not faded one by one
+    expect(a.dot.opacity.value).toBe(1)
+    expect(b.dot.opacity.value).toBe(1)
     s.applyAt(1.35)
     const d = c4dEaseWith(0.25, 0.35, 0.35)
-    expect(b.dot.opacity.value).toBeCloseTo(d, 6)
-    expect(a.dot.opacity.value).toBeCloseTo(1 - d, 6)
-    s.applyAt(2.5) // past the window: B whole
+    expect(weightOf(s, 1)).toBeCloseTo(d, 6)
+    expect(weightOf(s, 0)).toBeCloseTo(1 - d, 6)
+    s.applyAt(2.5) // past the window: B whole, no layers
+    expect(s.layerFades).toEqual([])
     expect(b.dot.opacity.value).toBe(1)
   })
 
@@ -100,8 +113,9 @@ describe("slide", () => {
     const b = s.chapters[1]!.dream as SceneB
     s.applyAt(1.5) // half brightness on screen = linear ((0.5 + 0.055) / 1.055)^2.4
     const half = ((0.5 + 0.055) / 1.055) ** 2.4
-    expect(a.dot.opacity.value).toBeCloseTo(half, 6)
-    expect(b.dot.opacity.value).toBeCloseTo(half, 6)
+    expect(weightOf(s, 0)).toBeCloseTo(half, 6)
+    expect(weightOf(s, 1)).toBeCloseTo(half, 6)
+    expect([a.dot.opacity.value, b.dot.opacity.value]).toEqual([1, 1])
   })
 
   test("nothing fades: both pictures are whole for the whole window", () => {
@@ -137,18 +151,18 @@ describe("slide", () => {
   test("a crossfade with its own curve fades on it; without one it stays linear", () => {
     const plain = new DreamSong([SceneA, [SceneB, crossfade(1)]])
     plain.applyAt(1.25)
-    expect((plain.chapters[0]!.dream as SceneA).dot.opacity.value).toBeCloseTo(0.75, 6)
+    expect(weightOf(plain, 0)).toBeCloseTo(0.75, 6)
     const fade = { smoothing: { left: 0.85, right: 0 }, screen: true }
     expect(crossfade(1, fade)).toEqual({ kind: "crossfade", duration: 1, fade })
     const s = new DreamSong([SceneA, [SceneB, crossfade(1, fade)]])
     s.applyAt(1.25)
     const e = c4dEaseWith(0.25, 0.85, 0)
     const decode = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
-    expect((s.chapters[0]!.dream as SceneA).dot.opacity.value).toBeCloseTo(decode(1 - e), 6)
-    expect((s.chapters[1]!.dream as SceneB).dot.opacity.value).toBeCloseTo(decode(e), 6)
+    expect(weightOf(s, 0)).toBeCloseTo(decode(1 - e), 6)
+    expect(weightOf(s, 1)).toBeCloseTo(decode(e), 6)
   })
 
-  test("holons sharing ONE opacity param are ramped once, not once each", () => {
+  test("holons sharing ONE opacity param stay whole through a crossfade — the layer fades", () => {
     class Shared extends Dream {
       shared = new Circle()
       many = Array.from({ length: 50 }, () => new Circle({ opacity: this.shared.opacity }))
@@ -161,6 +175,20 @@ describe("slide", () => {
     const a = s.chapters[0]!.dream as Shared
     expect(a.many[0]!.opacity).toBe(a.many[1]!.opacity) // truly one param
     s.applyAt(1.5) // window 1–2, midpoint
-    expect(a.many[0]!.opacity.value).toBeCloseTo(0.5, 6)
+    // Leaf ramps once took a shared word to 0.97^1000; there are none now:
+    // the chapter fades as one picture.
+    expect(a.many[0]!.opacity.value).toBe(1)
+    expect(weightOf(s, 0)).toBeCloseTo(0.5, 6)
+  })
+
+  test("a dip-through-black crossfade: A gone by the dip, B only after it", () => {
+    const fade = { dip: 0.4, smoothing: { left: 0, right: 0 }, inSmoothing: { left: 0, right: 0 } }
+    const t = crossfade(1, fade)
+    const early = crossfadeAt(t, 0.2) // A halfway out, B not yet
+    expect(early.from).toBeCloseTo(0.5, 6)
+    expect(early.into).toBe(0)
+    const late = crossfadeAt(t, 0.7) // A gone, B halfway in
+    expect(late.from).toBe(0)
+    expect(late.into).toBeCloseTo(0.5, 6)
   })
 })

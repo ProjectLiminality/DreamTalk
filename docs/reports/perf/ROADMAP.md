@@ -442,3 +442,52 @@ I-3 does not touch the GPU path, so the residue is submission timing on a
 **Where Web3 now stands.** 89/78/71 ms before I-2 → 65/57/50 after I-3
 (GPU-complete, this machine), still CPU-bound: sync loops, proxy reads on
 the remaining paths, render-list build. Next lever if wanted: re-profile.
+
+## Layered dissolves (2026-10-04) — a picture fades as one
+
+**The defect.** Opacity is per leaf, and a DreamSong's crossfade /
+dissolve multiplied its ramp into every leaf's opacity gate. Half-faded
+leaf by leaf, a translucent fill shows whatever the same picture drew
+beneath it: in Web3's dive the globe's black sea let the red lattice
+through (`dissolve-layers-dive.png`, top row before, bottom after, at
+t = 20.0 / 20.5 / 20.9 / 21.3).
+
+**The fix — what film does.** A dissolve flattens each picture, then mixes
+the flat pictures by weight: A·a + B·b. `DreamSong.layerFades` reports the
+fading chapters (roots + weight) instead of ramping leaves; Magic Move
+still builds individual holons out and in. The host (`fadingLayers`,
+src/render/layers.ts `LayerCompositor`) renders everything else as an
+ordinary pass, then each fading layer alone at full strength into a
+half-float, 4×-sampled target cleared to transparent black, and ADDS it in
+scaled by its weight (one quad). Weight-0 layers are hidden. Frames with no
+layer strictly between 0 and 1 take the ordinary single pass, unchanged.
+The sum is what the song's own measurements describe ("the Vitruvian's
+brightest line and the globe's sum to one"). A batched host mixes chapters
+in one draw and renders unlayered; no batched song has a dissolve today.
+
+**Gates.** The compositor reproduces an ordinary frame: one layer of a
+whole scene at weight 0.999999 vs the direct render — max |Δ| 1/255, no
+pixel above 2, identical ink (orientation, colour space and AA all right);
+at 0.5 the peak white is 188 = sRGB(linear 0.5), as per-leaf fades render.
+state-gate: the default 16 + p02k identical (s01's documented floor);
+Web3, on frozen worktrees at e2aa6aa (the web3 agent was saving shots
+mid-run), identical 28/28 — its gate marks all lie outside transition
+windows, so nothing leaks out of them. Five song tests moved from "each
+leaf ramps" to "each chapter's layer carries the weight, its leaves stay
+whole". 1,817 tests green.
+
+**Cost.** Outside windows nothing changes. Inside them the extra passes
+add ~1–2%: 1,469 → 1,476 ms at t=20.5. Those ~1.5 s frames are a separate,
+pre-existing defect found here — see the next item.
+
+## Found: Text contours re-inset every frame of a camera move (~1.5 s/frame)
+
+CPU profile of Web3 inside the dive (30 frames, 44.8 s): `segmentDistance`
+17.2 s, `fits` 14.6 s, `boundaryLoops` 4.5 s, `buildOutlines` 2.1 s. Text
+rebuilds its contour insets whenever its pixels-per-unit moves
+(render/text.ts), which is every frame while the camera dollies, and the
+text-weight fix's `insetLoopDeepest` checks fit against every edge of the
+glyph, inside a 12-step bisection. Exact remedies, no visual change: cache
+`boundaryLoops` per glyph geometry, and answer `fits`' "is any edge within
+r" through a uniform grid of segments (cell ≥ r, so a 3×3 lookup is
+exhaustive) instead of all pairs.

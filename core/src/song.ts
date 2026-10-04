@@ -149,6 +149,12 @@ const frameHeight = (observer: Observer): number => {
 const liftsOf = (dream: Dream): Param<number>[] =>
   dream.roots.filter((r) => !r.y.isBound).map((r) => r.y)
 
+/** One chapter fading as a single picture: its roots and its weight. */
+export interface LayerFade {
+  roots: readonly Holon[]
+  opacity: number
+}
+
 export class DreamSong extends Dream {
   readonly #specs: readonly ChapterSpec[]
   #chapters: Chapter[] = []
@@ -158,6 +164,23 @@ export class DreamSong extends Dream {
   #driven?: Set<Param<ParamValue>>
   /** Resolved transition windows (chapter order — disjoint), cached. */
   #windows?: TransitionWindow[]
+  /** This frame's fading chapters, as whole layers (see `layerFades`). */
+  #layers: LayerFade[] = []
+
+  /**
+   * The chapters fading at the sampled t, each as ONE picture: its roots
+   * and the weight the host composites it with. A crossfade or dissolve is
+   * a film dissolve — each picture is flattened first, then the two are
+   * mixed by weight — so a chapter's own members never show through each
+   * other mid-fade (Web3's dive: the globe's sea, half-faded on its own,
+   * let the lattice behind it through). The host renders each layer
+   * offscreen and adds it in (three-host.ts renderLayered); empty outside
+   * a crossfade/dissolve window. Magic Move is not a dissolve: it builds
+   * individual holons out and in, and keeps doing so per holon.
+   */
+  get layerFades(): readonly LayerFade[] {
+    return this.#layers
+  }
 
   constructor(chapters: readonly ChapterSpec[]) {
     super()
@@ -346,23 +369,27 @@ export class DreamSong extends Dream {
     // (FlowerText's thousand ringlets carry the word's single
     // circleOpacity), and ramping it once per sharer took a crossfaded
     // word to 0.97^1000 in a frame.
+    this.#layers = []
     if (window) {
       const u = (t - window.start) / (window.end - window.start)
       const ramp = (hs: readonly Holon[], k: number) => {
         for (const opacity of new Set(hs.map((h) => h.opacity))) opacity.gate *= k
       }
+      // A dissolve fades each chapter as one layer, not leaf by leaf.
+      const layer = (i: number, opacity: number) =>
+        this.#layers.push({ roots: this.#chapters[i]!.dream.roots, opacity })
       if (window.kind === "crossfade") {
         const f = crossfadeAt(this.#chapters[window.into]!.transition, u)
-        ramp(holons[window.from]!, f.from)
-        ramp(holons[window.into]!, f.into)
+        layer(window.from, f.from)
+        layer(window.into, f.into)
       } else if (window.kind === "magicMove") {
         ramp(window.outs, buildOut(u))
         ramp(window.ins, buildIn(u))
       } else if (window.kind === "slide") {
         const d = dissolveAt(this.#chapters[window.into]!.transition, t - window.start)
         if (d !== undefined) {
-          ramp(holons[window.from]!, d.from)
-          ramp(holons[window.into]!, d.into)
+          layer(window.from, d.from)
+          layer(window.into, d.into)
         }
       }
     }
