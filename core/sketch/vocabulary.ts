@@ -650,6 +650,7 @@ export const DEFAULT_IMPORTS: readonly string[] = [
   "text",
   "regenaissance",
   "sMark",
+  "cylinder",
 ]
 
 /** A hand-written entry, else the catalogue's generic one (catalogue.ts). */

@@ -65388,6 +65388,7 @@ class ThreeHost {
     }
     for (const batch3 of host.ribbonBatches)
       host.scene.add(batch3.mesh);
+    host.freezeStaticMatrices();
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
@@ -65528,8 +65529,30 @@ class ThreeHost {
     }
   }
   matricesSettled = false;
+  freezeStaticMatrices() {
+    const freeze = (o2) => {
+      o2.matrixAutoUpdate = false;
+      o2.matrixWorldNeedsUpdate = true;
+    };
+    this.scene.matrixAutoUpdate = false;
+    this.scene.matrixWorldNeedsUpdate = true;
+    for (const { ribbon } of this.strokes)
+      freeze(ribbon.mesh);
+    for (const { fill } of this.fills)
+      freeze(fill.mesh);
+    for (const { fill } of this.washes)
+      freeze(fill.mesh);
+    for (const { fill } of this.drawingWashes)
+      freeze(fill.mesh);
+    for (const { fill } of this.arrows)
+      freeze(fill.mesh);
+    for (const c2 of this.cylinders) {
+      for (const r2 of [c2.farCap, c2.nearBack, c2.nearFront, c2.lineA, c2.lineB])
+        freeze(r2.mesh);
+    }
+  }
   settleScene() {
-    this.scene.updateMatrixWorld(true);
+    this.scene.updateMatrixWorld();
     this.matricesSettled = true;
   }
   frameT = Number.NaN;
@@ -68285,7 +68308,8 @@ var DEFAULT_IMPORTS = [
   "figure",
   "text",
   "regenaissance",
-  "sMark"
+  "sMark",
+  "cylinder"
 ];
 var vocabById = (id) => BY_ID.get(id) ?? genericById(id);
 var buildSymbol = (s2) => {
@@ -71487,7 +71511,7 @@ var ripe = (s2, now) => isSearch(s2) && now - s2.endedAt >= PAUSE_MS;
 // sketch/speculate.ts
 var IDLE_MS = 300;
 var inkKey = (req) => {
-  const parts = [[...req.vocabulary ?? []].sort().join(",")];
+  const parts = [`${req.backend ?? "auto"}:${[...req.vocabulary ?? []].sort().join(",")}`];
   for (const s2 of [...req.strokes].sort((a2, b2) => a2.id < b2.id ? -1 : 1)) {
     const a2 = s2.points[0], b2 = s2.points[s2.points.length - 1];
     parts.push(`${s2.id}:${s2.points.length}:${a2 ? `${Math.round(a2.x)},${Math.round(a2.y)}` : ""}:${b2 ? `${Math.round(b2.x)},${Math.round(b2.y)}` : ""}`);
@@ -71562,7 +71586,7 @@ class Speculator {
       return;
     this.flight?.ctrl.abort();
     const ctrl = new AbortController;
-    const promise = this.opts.ask(this.opts.build(t2.strokes, t2.vocabulary), ctrl.signal);
+    const promise = this.opts.ask(this.opts.build(t2.strokes, t2.vocabulary, t2.backend), ctrl.signal);
     const flight = { key, ctrl, promise };
     this.flight = flight;
     promise.then((res) => {
@@ -71599,6 +71623,74 @@ class Speculator {
     this.flight = undefined;
   }
 }
+
+// sketch/magic.ts
+var KEY = "dreamtalk.magic";
+var COMPARE = "compare";
+var DEFAULT_OPTIONS = [
+  { id: "auto", label: "auto", available: true, fast: false },
+  { id: "geometry", label: "geometry", available: true, fast: true },
+  { id: "groq", label: "groq", available: false, fast: true },
+  { id: "clef", label: "clef", available: false, fast: true },
+  { id: "haiku", label: "haiku", available: false, fast: true },
+  { id: "opus", label: "opus", available: true, fast: false }
+];
+var read = () => {
+  try {
+    return localStorage.getItem(KEY) ?? "auto";
+  } catch {
+    return "auto";
+  }
+};
+var current = read();
+var currentEyes = () => current === COMPARE ? "auto" : current;
+var installMagic = (anchor2, onChange) => {
+  let options = DEFAULT_OPTIONS;
+  const el = document.createElement("select");
+  el.id = "magic";
+  el.title = "magic: which eyes ✦ reads with (Shift+✦ compares them all)";
+  el.style.cssText = "margin-left:6px;font:inherit;font-size:12px;background:transparent;color:inherit;border:1px solid rgba(127,127,127,.4);border-radius:6px;padding:2px 4px;opacity:.85";
+  anchor2.after(el);
+  const render = () => {
+    el.innerHTML = "";
+    for (const o2 of [...options, { id: COMPARE, label: "compare all", available: true, fast: false }]) {
+      const opt = document.createElement("option");
+      opt.value = o2.id;
+      opt.disabled = !o2.available;
+      opt.textContent = o2.available ? o2.id === COMPARE ? o2.label : `magic: ${o2.label}` : `${o2.label} — add key`;
+      if (!o2.available && "needs" in o2 && o2.needs)
+        opt.title = `add ${o2.needs} to core/.env`;
+      el.appendChild(opt);
+    }
+    if (current !== COMPARE && !options.some((o2) => o2.id === current && o2.available))
+      current = "auto";
+    el.value = current;
+  };
+  el.addEventListener("change", () => {
+    current = el.value;
+    try {
+      localStorage.setItem(KEY, current);
+    } catch {}
+    el.blur();
+    onChange();
+  });
+  render();
+  return {
+    choice: () => current,
+    setOptions(eyes) {
+      if (eyes.length)
+        options = [...eyes];
+      render();
+      onChange();
+    },
+    fast: () => current !== COMPARE && !!options.find((o2) => o2.id === current)?.fast
+  };
+};
+var viaLine = (res, ms, ahead = false) => {
+  const who = (res.backend ?? "").split(":")[0] || "?";
+  const fit = res.fit !== undefined ? ` · fit ${res.fit.toFixed(3)}` : "";
+  return `${who} · ${ahead ? "read ahead" : `${Math.round(ms)} ms`}${fit}`;
+};
 
 // sketch/main.ts
 var pageEl = document.getElementById("page");
@@ -72233,22 +72325,28 @@ var afterChange = (fresh) => {
 };
 var speculation = new Speculator({
   ask: (req, signal) => httpRecognize(req, { signal, speculative: true }),
-  build: (strokes, vocabulary) => ({ ...renderCrop(strokes), strokes, vocabulary }),
+  build: (strokes, vocabulary, backend) => ({ ...renderCrop(strokes), strokes, vocabulary, backend }),
   isIdle: () => mode === "idle" && !thinking,
   onReady: () => updateButtons()
 });
-fetch("/api/recognize/config").then((r4) => r4.json()).then((c2) => speculation.enabled = !!c2.speculate).catch(() => {});
+var magic = installMagic(btn("transform"), () => {
+  speculation.enabled = magic.fast();
+  updateButtons();
+});
+fetch("/api/recognize/config").then((r4) => r4.json()).then((c2) => magic.setOptions(c2.eyes ?? [])).catch(() => {});
 var readAheadTarget = () => {
   const sel = selectedStrokes();
   const strokes = sel.length > 0 ? sel : likelySelection(history.state.strokes);
-  return { strokes, vocabulary: importsOf(history.state) };
+  return { strokes, vocabulary: importsOf(history.state), backend: currentEyes() };
 };
+var lastVia;
+var lastCompare;
 var updateButtons = () => {
   btn("undo").disabled = !history.canUndo;
   btn("redo").disabled = !history.canRedo;
   btn("transform").disabled = !!thinking || selectedStrokes().length === 0;
   speculation.poke(readAheadTarget);
-  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state) });
+  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state), backend: currentEyes() });
   btn("transform").style.boxShadow = ready ? "0 0 0 2px rgba(120, 200, 140, 0.7)" : "";
 };
 var setSelection = (ids) => {
@@ -72370,6 +72468,28 @@ var httpRecognize = async (req, ahead = {}) => {
   return body;
 };
 var recognize = httpRecognize;
+var compareAll = async (req) => {
+  const res = await fetch("/api/recognize/compare", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req)
+  });
+  const body = await res.json();
+  const candidates = [];
+  const failed = [];
+  for (const r4 of body.results ?? []) {
+    const top = r4.response.candidates[0];
+    if (!top) {
+      failed.push(r4.backend);
+      continue;
+    }
+    const fit = r4.response.fit !== undefined ? ` · ${r4.response.fit.toFixed(3)}` : "";
+    candidates.push({ ...top, confidence: 0.5, via: r4.backend, label: `${r4.backend} ${r4.ms} ms${fit}` });
+  }
+  if (failed.length)
+    console.info("[compare] no reading from", failed.join(", "));
+  return { response: { candidates, error: body.error ?? (candidates.length ? undefined : "no reader answered") }, id: body.id };
+};
 var distill = () => {
   if (thinking)
     return;
@@ -72439,7 +72559,8 @@ var setLiveDistill = (on) => {
     localStorage.setItem(LIVE_KEY, on ? "1" : "0");
   } catch {}
 };
-var transform = async () => {
+var transform = async (compare = false) => {
+  compare ||= magic.choice() === COMPARE;
   if (thinking)
     return;
   const strokes = selectedStrokes();
@@ -72453,7 +72574,7 @@ var transform = async () => {
     return;
   }
   const ids = strokes.map((k2) => k2.id);
-  if (!ring && last && sameIds(last.ids, ids) && last.response.candidates.length > 1) {
+  if (!compare && !ring && last && sameIds(last.ids, ids) && last.response.candidates.length > 1) {
     openRing(last);
     return;
   }
@@ -72466,8 +72587,17 @@ var transform = async () => {
   let response;
   try {
     const vocabulary = importsOf(history.state);
-    const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary }) : undefined;
-    response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary });
+    const backend = currentEyes();
+    const t0 = performance.now();
+    lastVia = lastCompare = undefined;
+    if (compare) {
+      say("comparing every reader…");
+      ({ response, id: lastCompare } = await compareAll({ ...renderCrop(strokes), strokes, vocabulary }));
+    } else {
+      const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary, backend }) : undefined;
+      response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary, backend });
+      lastVia = viaLine(response, performance.now() - t0, !!ahead?.candidates.length);
+    }
   } catch (err) {
     response = { candidates: [], error: err.message || "recognizer unreachable" };
   }
@@ -72507,7 +72637,14 @@ var choose = (ids, c2) => {
   selection = new Set;
   commit({ kind: "replace", ids, symbol }, symbol.id);
   const name = vocabById(c2.symbol)?.name ?? c2.symbol;
-  flash(`${name}${c2.why ? ` — ${c2.why}` : ""}`, 3500);
+  flash(c2.via ? `${name} — ${c2.label ?? c2.via}` : `${name}${c2.why ? ` — ${c2.why}` : ""}${lastVia ? ` · ${lastVia}` : ""}`, 3500);
+  if (c2.via && lastCompare)
+    fetch("/api/recognize/compare/pick", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: lastCompare, backend: c2.via, symbol: c2.symbol })
+    }).catch(() => {});
+  lastVia = undefined;
 };
 var CHIP_CSS = 112;
 var openRing = (from) => {
@@ -72536,7 +72673,7 @@ var openRing = (from) => {
     const name = vocabById(candidate.symbol)?.name ?? candidate.symbol;
     el.innerHTML = `<div class="thumb"></div><div class="label"><b></b><span></span></div>`;
     el.querySelector("b").textContent = name;
-    el.querySelector("span").textContent = `${Math.round((candidate.confidence ?? 0) * 100)}%`;
+    el.querySelector("span").textContent = candidate.label ?? `${Math.round((candidate.confidence ?? 0) * 100)}%`;
     el.style.animationDelay = `${i2 * 40}ms`;
     ringEl.appendChild(el);
     return { candidate, x: x2, y: y2, el };
@@ -73118,7 +73255,7 @@ window.addEventListener("keydown", (e2) => {
   }
 });
 window.addEventListener("keyup", noteKeys);
-btn("transform").addEventListener("click", () => void transform());
+btn("transform").addEventListener("click", (e2) => void transform(e2.shiftKey));
 btn("undo").addEventListener("click", undo);
 btn("redo").addEventListener("click", redo);
 btn("theme").addEventListener("click", () => {
