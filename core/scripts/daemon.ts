@@ -16,7 +16,9 @@
  *   - WS  {type:"op"} → semantic ops applied via ts-morph (scripts/ops.ts),
  *     written atomically, echo-suppressed at the watcher, one queue
  *   - POST /api/recognize → the sketchpad's recognizer (scripts/recognize.ts):
- *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts)
+ *     a RecognizeRequest in, a RecognizeResponse out (sketch/protocol.ts);
+ *     `x-speculative: 1` asks ahead of ✦ (remembered for it), and
+ *     GET /api/recognize/config says whether asking ahead is worth it
  *   - POST /api/instruct → the whiteboard's voice instructions
  *     (scripts/instruct.ts): an InstructRequest in, edit ops out
  *   - WS  /ws/pen → pen-event relay: whatever one client sends, every OTHER
@@ -40,7 +42,7 @@ import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
 import { appendComment, isValidScene, parseCommentInput, readComments, setResolved } from "./comments"
-import { recognize } from "./recognize"
+import { recognizeConfig, recognizeMemo } from "./recognize"
 import { whereIs } from "./where"
 import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
@@ -667,7 +669,8 @@ const recognizeResponse = async (req: Request): Promise<Response> => {
   if (typeof body?.png !== "string" || !body.crop || !Array.isArray(body.strokes)) {
     return Response.json({ candidates: [], error: "need png, crop, strokes" }, { status: 400 })
   }
-  return Response.json(await recognize(body))
+  // `x-speculative: 1` — asked ahead of ✦ while the pen rests; remembered for ✦.
+  return Response.json(await recognizeMemo(body, { speculative: req.headers.get("x-speculative") === "1" }))
 }
 
 const instructResponse = async (req: Request): Promise<Response> => {
@@ -719,6 +722,7 @@ const server = Bun.serve<SocketData>({
         : new Response("upgrade failed", { status: 400 })
     }
     if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
+    if (url.pathname === "/api/recognize/config") return Response.json(recognizeConfig())
     if (url.pathname === "/api/instruct" && req.method === "POST") return instructResponse(req)
     if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
     if (url.pathname === "/api/catalogue") return catalogueResponse(repoRoot)

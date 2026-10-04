@@ -599,6 +599,9 @@ export interface FitOptions {
   maxEvals?: number
   /** Only these params are tuned (default: every tunable one). */
   only?: readonly string[]
+  /** A time budget: a symbol slow to flatten (a MindVirus with its cable,
+   *  ~2.5 ms) gets as many evaluations as fit in it, at least 30. */
+  maxMs?: number
 }
 
 export interface FitResult {
@@ -663,7 +666,7 @@ export const fitSymbol = (
     }
     return PRIOR * s
   }
-  const budget = opts.maxEvals ?? 200
+  let budget = opts.maxEvals ?? 200
   const history: number[] = []
   let evals = 0
   let best = Infinity
@@ -687,7 +690,9 @@ export const fitSymbol = (
     return at(cs.f <= nm.f ? cs.x : nm.x)
   }
 
+  const t0 = performance.now()
   const initial = scoreParams(ink, symbol, base)
+  const evalMs = performance.now() - t0
   // A param the drawing doesn't show (a cylinder's turn about its own axis) is not tuned.
   for (let i = dims.length - 1; i >= 0; i--) {
     const d = dims[i]!
@@ -696,6 +701,8 @@ export const fitSymbol = (
     if (Math.abs(moved.total - initial.total) < 1e-9) dims.splice(i, 1)
   }
   const verdict = templateFor(symbol, base)?.t.verdict ?? "none"
+  // Only the exact path costs a real flattening per evaluation; the time budget binds there.
+  if (opts.maxMs !== undefined && verdict === "none") budget = Math.min(budget, Math.max(30, Math.floor(opts.maxMs / Math.max(evalMs, 1e-3))))
   const shapeDims = dims.filter((d) => d.role === "yaw" || d.role === "pitch" || d.role === "free")
   const poseDims = dims.filter((d) => !shapeDims.includes(d))
   if (verdict === "none" || poseDims.length === 0) {
@@ -756,7 +763,7 @@ export const refineResponse = (
   const fits: FitResult[] = []
   const candidates = res.candidates.map((c) => {
     if (c.symbol === "text") return c // letters fit by their words, not their ink
-    const fit = fitSymbol(ink, c, opts)
+    const fit = fitSymbol(ink, c, { maxMs: 150, ...opts })
     fits.push(fit)
     return fit.score.total < fit.initial.total ? { ...c, params: fit.params } : c
   })

@@ -202,17 +202,78 @@ probabilities can feed the options ring directly.
 4. Groq's Qwen-VL is the alternative if Clef disappoints (needs a Groq
    key). Haiku 4.5 needs an Anthropic API key.
 
-## 5. Next steps (in order)
+## 5. Built: the fast pipeline (David's direction, 2026-10-04)
 
-1. **Hook `instantReading` before `/api/recognize`.** The daemon or main.ts
-   calls `instantReading(strokes, imports)`. If it answers, place the symbol
-   at once. If not, call the model and pass its response through
-   `refineResponse(strokes, res)`. Pure functions, no new endpoints.
-2. **Add a Clef-flash recognizer** next to recognize.ts: a Choice over the
-   imported ids, then `fitSymbol` from `bboxStart`. The model never has to
-   produce a number. Measure its real latency from the Mac before
-   switching over.
-3. **Trace the MindVirus cable from the ink** (the distilled stroke leaving
-   the body), so the creature's body is fitted on the fast path too.
-4. **Flatten the cylinder in mirror.ts**, from the same analytic outline, so
-   the tablet shows placed cylinders.
+David's call: keep the current behaviour (an LLM reads the scribble with
+the same prompt, vocabulary and notes), just much faster. The model is now
+pluggable, and Groq is the primary backend.
+
+    pen rests 300 ms ─▶ read ahead (speculate.ts, fast backends only)
+         first look:   Groq qwen/qwen3.8-27b, JSON schema, reasoning off  (~0.45 s est.)
+         fit:          fit.ts tunes every candidate onto the ink           (20–120 ms)
+         fit > 0.03 ─▶ second look: Groq sees its reading in red over the ink, once
+         still poor ─▶ escalate: Claude (Anthropic API; the CLI only when ✦ was pressed)
+    ✦ pressed ─▶ the reading already here (remembered by ink): ~0 ms
+
+- **`core/scripts/backends.ts`** has three backends behind one question.
+  - **Groq**: plain REST, a strict JSON schema, `reasoning_effort: "none"`.
+  - **Anthropic**: the official SDK, default `claude-haiku-4-5`, the image as
+    a base64 block, `output_config.format`.
+  - **CLI**: `claude -p`, unchanged.
+  - The chain holds every backend whose key is set (`RECOGNIZE_BACKENDS`
+    sets the order). The CLI is always last. If a backend fails, the next
+    one gets the question.
+  - With **no keys** the CLI runs alone and everything works exactly as
+    before. Measured: 5.6 s for a circle, fit 0.010.
+- **`recognize.ts`**:
+  - One prompt; the API backends see the image inline.
+  - One strict schema: params come back as a list of name/value entries, so
+    a single schema covers every symbol.
+  - Each answer is staged (look, fit, second look, escalate). It reports
+    `backend`, `fit` and the per-stage `stages` timings, and the daemon logs
+    them.
+  - `recognizeMemo` remembers readings by ink, so a reading asked ahead is
+    the answer when ✦ is pressed. `instruct.ts` uses the same chain.
+- **`overlay.ts`**: a self-contained PNG rasteriser for the second-look
+  image (ink in black, the reading in red).
+- **`sketch/speculate.ts` + 3 small hooks in main.ts**:
+  - It reads the selection, or failing that the burst just drawn.
+  - It waits for 300 ms of idle and keeps at most one reading in flight; new
+    ink aborts it.
+  - It is on only when `GET /api/recognize/config` reports a fast backend,
+    so the CLI is never called speculatively.
+  - When the reading is already there, the ✦ button glows faintly.
+- **Measured with a mocked Groq** (a 450 ms network and model, answers ±15 %
+  off), reading ahead:
+
+  | symbol | total | fit |
+  |---|---|---|
+  | circle | 0.49 s (0.69 s on the first call) | 0.010 |
+  | cylinder | 0.47–0.58 s | 0.004 |
+  | cube | 0.50 s | 0.024 |
+  | MindVirus | 0.57 s | 0.016 (exact path, now held to a 150 ms budget) |
+
+  **✦ afterwards: 0.0–0.1 ms.** The real Groq latency is unmeasured until
+  David adds his key.
+
+### For David to try it
+
+1. Put `GROQ_API_KEY=gsk_…` in `core/.env` (gitignored by `core/.gitignore`).
+   Optionally add `ANTHROPIC_API_KEY=…` as the second backend.
+2. Rebuild the page and restart the daemon: `cd core && bun run studio`.
+   That rebuilds `sketch/dist`, which carries the speculation hooks.
+3. The daemon log prints `[recognize] … groq qwen/qwen3.8-27b 4xx ms → fit … ms`
+   for every reading. These are the real numbers.
+
+Switches: `RECOGNIZE_BACKENDS`, `GROQ_MODEL`, `ANTHROPIC_MODEL`,
+`RECOGNIZE_FIT=0`, `RECOGNIZE_ESCALATE=0`, `RECOGNIZE_GEOMETRY_FIRST=1` (fit.ts
+answers clear flat shapes with no model).
+
+## 6. Still open
+
+- **The real Groq latency**, and whether Qwen's first look is good enough
+  that the second look rarely runs. One session with David's key settles
+  both.
+- **Trace the MindVirus cable from the ink**, so its body takes the fast
+  shortcut path (today ~2.5 ms per evaluation).
+- **Flatten the cylinder in mirror.ts** from the same analytic outline.

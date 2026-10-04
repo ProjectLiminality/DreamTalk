@@ -3,10 +3,10 @@
  * nothing) and SAYS what should happen to it; Claude looks at the page and
  * answers with edits.
  *
- *   instruct(req) → writes the page PNG under .cache/sketch/, spawns the
- *   Claude CLI headless exactly as the recognizer does (recognize.ts: lean
- *   session, Read only, no project instructions), and parses its answer
- *   into an InstructResponse — a list of EditOps plus one line for David.
+ *   instruct(req) → asks the recognizer's backends (backends.ts: Groq or the
+ *   Anthropic API when a key is set, else the Claude CLI's lean session
+ *   exactly as before), and parses the answer into an InstructResponse —
+ *   a list of EditOps plus one line for David.
  *
  * The prompt hands the model the same three views recognize.ts does, for
  * the same reason (each covers the others' blind spot) — now of the WHOLE
@@ -27,19 +27,17 @@
  * command (state.ts editCommand).
  */
 
-import { mkdir } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import type { EditOp, InkStroke, InstructRequest, InstructResponse, PlacedSymbol } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
 import { vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
+import { askChain, backendChain } from "./backends"
 import { describeShelf } from "./catalogue"
-import { bbox, cliResultText, coerceParam, fitCircle, MODEL, pngSize, stripFences, subsample, vocabBlock } from "./recognize"
+import { bbox, coerceParam, fitCircle, pngSize, stripFences, subsample, vocabBlock } from "./recognize"
 
 const TIMEOUT_MS = 120_000
 /** Points per stroke in the scene listing — the image carries the rest. */
 const STROKE_POINTS = 16
 const repoRoot = new URL("../../", import.meta.url).pathname
-const cacheDir = `${repoRoot}.cache/sketch`
 
 // --- The prompt ---------------------------------------------------------------
 
@@ -68,7 +66,7 @@ const inkLine = (k: InkStroke, tag: string, selected: boolean): string => {
 
 export const buildInstructPrompt = (
   req: InstructRequest,
-  imagePath: string,
+  imagePath: string | undefined,
   img: { w: number; h: number } | undefined,
   entries: VocabEntry[],
 ): string => {
@@ -80,7 +78,8 @@ export const buildInstructPrompt = (
   const subject = sel.size
     ? `SELECTED: ${[...sel].map(tag).join(", ")}. "this", "it", "these", "them" mean exactly these items. Act on them unless the instruction plainly names something else.`
     : `NOTHING is selected: the instruction is about the whole scene. Items are named by what they are ("the circle", "the cube on the left"); new things go where they make sense.`
-  return `Read the image ${imagePath} — the whole whiteboard page, ${PAGE_W}×${PAGE_H} page units, origin top-left, y DOWN${scale}. Each item carries a small grey TAG: S1, S2 … placed symbols; K1, K2 … raw ink strokes (scribbles not yet made into symbols). Selected items are drawn BLUE inside a blue frame.
+  const see = imagePath ? `Read the image ${imagePath}` : "Look at the attached image"
+  return `${see} — the whole whiteboard page, ${PAGE_W}×${PAGE_H} page units, origin top-left, y DOWN${scale}. Each item carries a small grey TAG: S1, S2 … placed symbols; K1, K2 … raw ink strokes (scribbles not yet made into symbols). Selected items are drawn BLUE inside a blue frame.
 
 THE INSTRUCTION (speech-to-text — expect mishearings and homophones: "mind virus" = mindVirus, "flour of life" = flowerOfLife, "cue" = cube):
 "${req.transcript.replace(/"/g, "'")}"
@@ -243,49 +242,26 @@ export async function instruct(req: InstructRequest): Promise<InstructResponse> 
     await describeShelf(repoRoot)
     const entries = wanted.map(vocabById).filter((e): e is VocabEntry => !!e)
     const b64 = req.png.replace(/^data:image\/png;base64,/, "")
-    const bytes = Uint8Array.from(Buffer.from(b64, "base64"))
-    await mkdir(cacheDir, { recursive: true })
-    const imagePath = `${cacheDir}/page-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-    await Bun.write(imagePath, bytes)
-
-    const prompt = buildInstructPrompt(req, imagePath, pngSize(bytes), entries)
-    // The recognizer's lean session: Read only, no MCP, no settings/CLAUDE.md.
-    const proc = Bun.spawn(
-      [
-        "claude", "-p",
-        "--model", MODEL,
-        "--tools", "Read",
-        "--allowedTools", "Read",
-        "--strict-mcp-config",
-        "--setting-sources", "",
-        "--no-session-persistence",
-        "--system-prompt", SYSTEM,
-        "--output-format", "json",
-        prompt,
-      ],
-      { cwd: tmpdir(), stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-    )
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      proc.kill()
-    }, TIMEOUT_MS)
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ])
-    clearTimeout(timer)
-    if (timedOut) return { ops: [], reply: "", error: `timed out after ${TIMEOUT_MS / 1000}s` }
-    if (code !== 0 && !stdout.trim()) return { ops: [], reply: "", error: `claude exited ${code}: ${stderr.slice(0, 300)}` }
-    const meta: { turns?: number; cost?: number } = {}
-    const res = parseInstructReply(cliResultText(stdout, meta), {
+    const size = pngSize(Uint8Array.from(Buffer.from(b64, "base64")))
+    // The recognizer's backends (backends.ts): fast eyes when a key is set,
+    // else the CLI's lean session exactly as before.
+    const { reply, failures } = await askChain(backendChain(), {
+      system: SYSTEM,
+      pngs: [b64],
+      tag: "page",
+      timeoutMs: TIMEOUT_MS,
+      maxTokens: 4096,
+      prompt: (paths) => buildInstructPrompt(req, paths?.[0], size, entries),
+    })
+    if (!reply) return { ops: [], reply: "", error: failures.join("; ") || "no backend answered" }
+    const meta = reply
+    const res = parseInstructReply(reply.text, {
       labels: req.labels ?? {},
       board: req.board,
       allowed: entries.map((e) => e.id),
     })
     console.log(
-      `[instruct] ${((performance.now() - started) / 1000).toFixed(1)}s · ${meta.turns ?? "?"} turns · $${meta.cost?.toFixed(3) ?? "?"} · "${req.transcript}" → ` +
+      `[instruct] ${((performance.now() - started) / 1000).toFixed(1)}s · ${meta.backend}:${meta.model}${meta.turns ? ` · ${meta.turns} turns` : ""}${meta.cost !== undefined ? ` · $${meta.cost.toFixed(3)}` : ""} · "${req.transcript}" → ` +
         (res.ops.map((o) => o.op).join(", ") || res.error || "no ops") + (res.reply ? ` — ${res.reply}` : ""),
     )
     return res

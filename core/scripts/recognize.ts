@@ -2,9 +2,16 @@
  * recognize.ts — the sketchpad's eyes: a scribble's PIXELS, looked at by
  * Claude against the scene's imported vocabulary (sketch/vocabulary.ts).
  *
- *   recognize(req) → writes the crop PNG under .cache/sketch/, spawns the
- *   Claude CLI headless (`claude -p`, the subscription — there is no API
- *   key on this machine), and parses its answer into a RecognizeResponse.
+ *   recognize(req) → asks the configured vision backend (scripts/backends.ts:
+ *   Groq, the Anthropic API, or — with no keys, as always — the Claude CLI
+ *   headless on the subscription), parses its answer into a
+ *   RecognizeResponse, and hands it to the FITTER (sketch/fit.ts), which
+ *   tunes every candidate's params until the symbol lies on the ink.
+ *
+ * When the fit stays poor the reading gets a SECOND LOOK: the same fast
+ * model sees the ink with its own reading drawn over it in red
+ * (overlay.ts) and corrects it; still poor, Claude takes the hard case.
+ * Every answer says which stages ran and how long each took.
  *
  * The prompt hands the model three things at once, because each covers
  * the others' blind spot:
@@ -23,19 +30,22 @@
  * coercion — exported for the tests.
  */
 
-import { mkdir } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse } from "../sketch/protocol"
+import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse, RecognizeStage } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
+import { instantReading, refineResponse, symbolOutline, type FitResult } from "../sketch/fit"
+import { inkKey } from "../sketch/speculate"
 import { readPoints, vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
+import { askChain, backendChain, CLI_MODEL, cliResultText, isFast, loadEnv, type Backend, type VisionReply } from "./backends"
 import { describeShelf } from "./catalogue"
+import { overlayPng } from "./overlay"
 
-export const MODEL = "claude-opus-5-5"
+export { cliResultText }
+/** The CLI's model (backends.ts) — instruct.ts and the logs name it. */
+export const MODEL = CLI_MODEL
 const TIMEOUT_MS = 90_000
 /** Points per stroke handed to the model (evenly subsampled, ends kept). */
 const MAX_STROKE_POINTS = 40
 const repoRoot = new URL("../../", import.meta.url).pathname
-const cacheDir = `${repoRoot}.cache/sketch`
 
 // --- The prompt ---------------------------------------------------------------
 
@@ -124,11 +134,18 @@ export const pngSize = (bytes: Uint8Array): { w: number; h: number } | undefined
   return { w: dv.getUint32(16), h: dv.getUint32(20) }
 }
 
+/**
+ * The prompt. `imagePath` is for the CLI, which Reads the image from disk;
+ * without one the image is attached inline. `reply: "schema"` describes the
+ * reply the API backends are held to (readingSchema: params as a list,
+ * which a strict JSON schema can state for every symbol at once).
+ */
 export const buildPrompt = (
   req: RecognizeRequest,
-  imagePath: string,
+  imagePath: string | undefined,
   img: { w: number; h: number } | undefined,
   entries: VocabEntry[],
+  reply: "object" | "schema" = "object",
 ): string => {
   const { crop } = req
   const strokes = req.strokes
@@ -138,7 +155,8 @@ export const buildPrompt = (
   const mapping = img
     ? `The image is ${img.w}×${img.h} px and shows the page rectangle x ${Math.round(crop.x)}..${Math.round(crop.x + crop.w)}, y ${Math.round(crop.y)}..${Math.round(crop.y + crop.h)}: page x = ${Math.round(crop.x)} + px·${(crop.w / img.w).toFixed(4)}, page y = ${Math.round(crop.y)} + py·${(crop.h / img.h).toFixed(4)}.`
     : `The image shows the page rectangle x ${Math.round(crop.x)}..${Math.round(crop.x + crop.w)}, y ${Math.round(crop.y)}..${Math.round(crop.y + crop.h)}.`
-  return `Read the image ${imagePath} — a hand-drawn scribble selected on a ${PAGE_W}×${PAGE_H} page (origin top-left, y DOWN).
+  const see = imagePath ? `Read the image ${imagePath}` : "Look at the attached image"
+  return `${see} — a hand-drawn scribble selected on a ${PAGE_W}×${PAGE_H} page (origin top-left, y DOWN).
 
 ${mapping}
 
@@ -156,9 +174,64 @@ HOW TO READ IT
 4. If nothing in the vocabulary fits at all, return an empty candidates list and say why in "notes".
 5. Fill EVERY param of the chosen symbol. "points" params are arrays of [x, y] page points.
 
-Reply with ONLY this JSON (no prose, no code fence):
-{"candidates":[{"symbol":"<id>","params":{...},"confidence":<0..1>,"why":"<one short line>"}],"notes":"<comments read, or empty>"}`
+${reply === "schema" ? SCHEMA_REPLY : OBJECT_REPLY}`
 }
+const OBJECT_REPLY = `Reply with ONLY this JSON (no prose, no code fence):
+{"candidates":[{"symbol":"<id>","params":{...},"confidence":<0..1>,"why":"<one short line>"}],"notes":"<comments read, or empty>"}`
+
+const SCHEMA_REPLY = `Reply with ONLY this JSON:
+{"candidates":[{"symbol":"<id>","params":[{"name":"<param>","number":<number or null>,"text":<string or null>,"points":[{"x":<x>,"y":<y>},…]}],"confidence":<0..1>,"why":"<one short line>"}],"notes":"<comments read, or empty>"}
+"params" lists EVERY param of the chosen symbol once: numbers in "number", strings and enum options in "text", point paths in "points" (an empty list for every param that is not a path).`
+
+/**
+ * The reply as a strict JSON schema (Groq json_schema strict, Anthropic
+ * output_config.format): every object closed, every field required, params
+ * as a list of name/value entries — one schema for every symbol.
+ */
+export const readingSchema = (ids: readonly string[]): Record<string, unknown> => {
+  const nullable = (type: string) => ({ anyOf: [{ type }, { type: "null" }] })
+  const closed = (properties: Record<string, unknown>) => ({
+    type: "object",
+    additionalProperties: false,
+    required: Object.keys(properties),
+    properties,
+  })
+  return closed({
+    candidates: {
+      type: "array",
+      items: closed({
+        symbol: { type: "string", enum: [...ids] },
+        params: {
+          type: "array",
+          items: closed({
+            name: { type: "string" },
+            number: nullable("number"),
+            text: nullable("string"),
+            points: { type: "array", items: closed({ x: { type: "number" }, y: { type: "number" } }) },
+          }),
+        },
+        confidence: { type: "number" },
+        why: { type: "string" },
+      }),
+    },
+    notes: { type: "string" },
+  })
+}
+
+/** Params as the schema's list → the object every other reader expects. */
+const paramsFromList = (list: unknown[]): Record<string, unknown> => {
+  const out: Record<string, unknown> = {}
+  for (const e of list) {
+    if (!e || typeof e !== "object") continue
+    const { name, number, text, points } = e as { name?: unknown; number?: unknown; text?: unknown; points?: unknown }
+    if (typeof name !== "string") continue
+    if (Array.isArray(points) && points.length > 0) out[name] = points
+    else if (typeof number === "number") out[name] = number
+    else if (typeof text === "string") out[name] = text
+  }
+  return out
+}
+
 
 // --- The reply ------------------------------------------------------------------
 
@@ -214,7 +287,7 @@ export const parseRecognizeReply = (text: string, allowed?: readonly string[]): 
     const entry = typeof symbol === "string" ? vocabById(symbol) : undefined
     if (!entry || (allowed && !allowed.includes(entry.id))) continue
     const out: Record<string, unknown> = {}
-    const given = params && typeof params === "object" ? (params as Record<string, unknown>) : {}
+    const given = Array.isArray(params) ? paramsFromList(params) : params && typeof params === "object" ? (params as Record<string, unknown>) : {}
     for (const [k, v] of Object.entries(given)) {
       const cv = coerceParam(entry, k, v)
       if (cv !== undefined) out[k] = cv
@@ -236,80 +309,192 @@ export const parseRecognizeReply = (text: string, allowed?: readonly string[]): 
   return res
 }
 
-/** The CLI's --output-format json: an array of events (or one object);
- *  the `result` event's `.result` is the model's text. */
-export const cliResultText = (stdout: string, meta?: { turns?: number; cost?: number }): string => {
-  const parsed = JSON.parse(stdout) as unknown
-  const events = Array.isArray(parsed) ? parsed : [parsed]
-  const result = events.find((e) => (e as { type?: string })?.type === "result") as
-    | { result?: unknown; is_error?: boolean; num_turns?: number; total_cost_usd?: number }
-    | undefined
-  if (!result) throw new Error("no result event in CLI output")
-  if (meta) {
-    meta.turns = result.num_turns
-    meta.cost = result.total_cost_usd
-  }
-  if (result.is_error) throw new Error(`CLI error: ${String(result.result).slice(0, 300)}`)
-  return String(result.result ?? "")
-}
-
 // --- The call ---------------------------------------------------------------------
 
-export async function recognize(req: RecognizeRequest): Promise<RecognizeResponse> {
+export interface RecognizeOptions {
+  /** The backends to ask (default: backends.ts backendChain()). */
+  chain?: Backend[]
+  /** Asked ahead of ✦ (the pen paused): fast backends only, never the CLI. */
+  speculative?: boolean
+}
+
+/** A fit worse than this (fit.ts score) earns the reading a second look: the right
+ *  symbol lies within ~0.025 of hand-drawn ink, a wrong one 0.03 and up (fit.ts bench). */
+export const POOR_FIT = 0.03
+
+const on = (v: string | undefined, dflt: boolean) => (v === undefined ? dflt : !/^(0|false|off|no)$/i.test(v))
+
+/** The fit of a response's top candidate, from refineResponse's fits. */
+const topFit = (res: RecognizeResponse, fits: FitResult[]): number | undefined => {
+  const top = res.candidates[0]
+  return top ? fits.find((f) => f.symbol === top.symbol)?.score.total : undefined
+}
+
+const SECOND_LOOK = (c: Candidate) => `
+
+SECOND LOOK. The SECOND attached image is the same crop with your earlier reading drawn in RED over the ink (black): ${c.symbol} ${JSON.stringify(c.params)}. If the red does not lie on the black — the wrong symbol, or the right one misplaced, mis-sized or mis-turned — correct it. Same rules, same reply.`
+
+/**
+ * One reading, staged:
+ *
+ *   0. GEOMETRY (opt-in, RECOGNIZE_GEOMETRY_FIRST=1) — fit.ts instantReading;
+ *      a clear circle needs no model at all.
+ *   1. FIRST LOOK — down the backend chain (fast first, the CLI last).
+ *   2. FIT — every candidate tuned onto the ink (RECOGNIZE_FIT=0 to skip).
+ *   3. SECOND LOOK — a poor fit (> POOR_FIT) is shown back to the same fast
+ *      model as an overlay, once, to correct.
+ *   4. ESCALATE — still poor: Claude (the API; the CLI too, but never
+ *      ahead of ✦). RECOGNIZE_ESCALATE=0 turns 3–4 off.
+ */
+export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = {}): Promise<RecognizeResponse> {
   const started = performance.now()
+  const stages: RecognizeStage[] = []
+  const timed = (name: string, t0: number, note?: string) =>
+    stages.push({ name, ms: Math.round(performance.now() - t0), ...(note ? { note } : {}) })
+  const done = (res: RecognizeResponse): RecognizeResponse => {
+    res.stages = stages
+    console.log(
+      `[recognize] ${((performance.now() - started) / 1000).toFixed(2)}s${opts.speculative ? " (ahead)" : ""} · ` +
+        stages.map((s) => `${s.name} ${s.ms}ms${s.note ? ` (${s.note})` : ""}`).join(" → ") +
+        " → " +
+        (res.candidates.map((c) => `${c.symbol} ${c.confidence}`).join(", ") || res.error || "nothing") +
+        (res.fit !== undefined ? ` · fit ${res.fit.toFixed(3)}` : ""),
+    )
+    return res
+  }
   try {
+    loadEnv()
     const wanted = req.vocabulary ?? DEFAULT_IMPORTS
     // A symbol imported from the shelf is described in its own words.
     await describeShelf(repoRoot)
     const entries = wanted.map(vocabById).filter((e): e is VocabEntry => !!e)
     if (entries.length === 0) return { candidates: [], error: "no known symbols in the imported vocabulary" }
-    const b64 = req.png.replace(/^data:image\/png;base64,/, "")
-    const bytes = Uint8Array.from(Buffer.from(b64, "base64"))
-    await mkdir(cacheDir, { recursive: true })
-    const imagePath = `${cacheDir}/scribble-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-    await Bun.write(imagePath, bytes)
+    const ids = entries.map((e) => e.id)
+    const full = opts.chain ?? backendChain()
+    const chain = opts.speculative ? full.filter(isFast) : full
+    if (chain.length === 0) return done({ candidates: [], error: "no fast backend to ask ahead" })
+    const png = req.png.replace(/^data:image\/png;base64,/, "")
+    const img = pngSize(Uint8Array.from(Buffer.from(png, "base64")))
+    const fitting = on(process.env.RECOGNIZE_FIT, true)
+    const escalate = on(process.env.RECOGNIZE_ESCALATE, true)
 
-    const prompt = buildPrompt(req, imagePath, pngSize(bytes), entries)
-    // Lean session: Read only, no MCP servers, no settings/CLAUDE.md, run
-    // from outside the repo so no project instructions load.
-    const proc = Bun.spawn(
-      [
-        "claude", "-p",
-        "--model", MODEL,
-        "--tools", "Read",
-        "--allowedTools", "Read",
-        "--strict-mcp-config",
-        "--setting-sources", "",
-        "--no-session-persistence",
-        "--system-prompt", SYSTEM,
-        "--output-format", "json",
-        prompt,
-      ],
-      { cwd: tmpdir(), stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-    )
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      proc.kill()
-    }, TIMEOUT_MS)
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ])
-    clearTimeout(timer)
-    if (timedOut) return { candidates: [], error: `recognizer timed out after ${TIMEOUT_MS / 1000}s` }
-    if (code !== 0 && !stdout.trim()) {
-      return { candidates: [], error: `claude exited ${code}: ${stderr.slice(0, 300)}` }
+    // 0. Geometry first (opt-in).
+    if (on(process.env.RECOGNIZE_GEOMETRY_FIRST, false)) {
+      const t0 = performance.now()
+      const instant = instantReading(req.strokes, ids)
+      timed("geometry", t0, instant ? "clear" : "unclear")
+      if (instant) return done({ ...instant.response, fit: instant.fits[0]?.score.total, backend: "geometry" })
     }
-    const meta: { turns?: number; cost?: number } = {}
-    const res = parseRecognizeReply(cliResultText(stdout, meta), entries.map((e) => e.id))
-    console.log(
-      `[recognize] ${((performance.now() - started) / 1000).toFixed(1)}s · ${meta.turns ?? "?"} turns · $${meta.cost?.toFixed(3) ?? "?"} → ` +
-        (res.candidates.map((c) => `${c.symbol} ${c.confidence}`).join(", ") || res.error || "nothing"),
-    )
-    return res
+
+    const parses = (r: VisionReply) => !parseRecognizeReply(r.text, ids).error?.startsWith("unparseable")
+    const ask = (backends: readonly Backend[], pngs: string[], extra = "") =>
+      askChain(
+        backends,
+        {
+          system: SYSTEM,
+          pngs,
+          tag: "scribble",
+          timeoutMs: TIMEOUT_MS,
+          schema: readingSchema(ids),
+          // The CLI reads the image from disk and answers in the object form, as always.
+          prompt: (paths) => (paths ? buildPrompt(req, paths[0], img, entries) : buildPrompt(req, undefined, img, entries, "schema") + extra),
+        },
+        parses,
+      )
+    const refine = (res: RecognizeResponse): { res: RecognizeResponse; fit?: number } => {
+      if (!fitting || res.candidates.length === 0) return { res }
+      const t0 = performance.now()
+      const { response, fits } = refineResponse(req.strokes, res)
+      const fit = topFit(response, fits)
+      timed("fit", t0, fit !== undefined ? fit.toFixed(3) : undefined)
+      return { res: response, fit }
+    }
+
+    // 1. The first look.
+    let t0 = performance.now()
+    const first = await ask(chain, [png])
+    if (!first.reply) return done({ candidates: [], error: first.failures.join("; ") || "no backend answered" })
+    const eyes = first.reply
+    timed(`${eyes.backend} ${eyes.model}`, t0, first.failures.length ? `after ${first.failures.join("; ")}` : undefined)
+    // 2. The fit.
+    let { res, fit } = refine(parseRecognizeReply(eyes.text, ids))
+    let backend = `${eyes.backend}:${eyes.model}`
+
+    // 3. A second look by the same fast eyes, at their reading over the ink.
+    const top = res.candidates[0]
+    if (escalate && top && fit !== undefined && fit > POOR_FIT && eyes.backend !== "cli") {
+      t0 = performance.now()
+      const overlay = overlayPng(req.strokes, symbolOutline(top.symbol, top.params), req.crop)
+      const second = await ask(chain.filter((b) => b.name === eyes.backend), [png, overlay], SECOND_LOOK(top))
+      timed("second look", t0, second.reply ? undefined : second.failures.join("; "))
+      if (second.reply) {
+        const again = refine(parseRecognizeReply(second.reply.text, ids))
+        if (again.res.candidates.length > 0 && (again.fit === undefined || again.fit < fit)) ({ res, fit } = again)
+      }
+    }
+
+    // 4. Still poor: Claude takes the hard case.
+    if (escalate && fit !== undefined && fit > POOR_FIT) {
+      const claude = full.filter(
+        (b) => b.name !== eyes.backend && (b.name === "anthropic" || (b.name === "cli" && !opts.speculative)),
+      )[0]
+      if (claude) {
+        t0 = performance.now()
+        const hard = await ask([claude], [png])
+        timed(`escalate ${claude.name}`, t0, hard.reply ? undefined : hard.failures.join("; "))
+        if (hard.reply) {
+          const again = refine(parseRecognizeReply(hard.reply.text, ids))
+          if (again.res.candidates.length > 0 && (again.fit === undefined || again.fit < fit)) {
+            ;({ res, fit } = again)
+            backend = `${hard.reply.backend}:${hard.reply.model}`
+          }
+        }
+      }
+    }
+    return done({ ...res, ...(fit !== undefined ? { fit } : {}), backend })
   } catch (err) {
-    return { candidates: [], error: String((err as Error)?.message ?? err) }
+    return done({ candidates: [], error: String((err as Error)?.message ?? err) })
   }
+}
+
+// --- Asked once, answered twice: the reading of an ink set, remembered ---------------
+
+/** The ink + imports a reading is of (speculate.ts inkKey — the page keys its own by it too). */
+export const readingKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary">): string => Bun.hash(inkKey(req)).toString(36)
+
+const MEMO_SIZE = 32
+const memo = new Map<string, Promise<RecognizeResponse>>()
+
+/**
+ * recognize(), remembered by readingKey: a reading asked ahead of ✦ (the
+ * pen paused) IS the answer when ✦ asks about the same ink — at once if it
+ * is done, the rest of the wait if it is still running. An empty reading is
+ * not remembered, so ✦ asks again properly (with the CLI, if it must).
+ */
+export const recognizeMemo = (req: RecognizeRequest, opts: RecognizeOptions = {}): Promise<RecognizeResponse> => {
+  const key = readingKey(req)
+  const hit = memo.get(key)
+  if (hit) {
+    const t0 = performance.now()
+    return hit.then((r) => {
+      if (!opts.speculative && r.candidates.length === 0) {
+        if (memo.get(key) === hit) memo.delete(key)
+        return recognizeMemo(req, opts)
+      }
+      return { ...r, stages: [...(r.stages ?? []), { name: "remembered", ms: Math.round(performance.now() - t0) }] }
+    })
+  }
+  const p = recognize(req, opts)
+  memo.set(key, p)
+  while (memo.size > MEMO_SIZE) memo.delete(memo.keys().next().value!)
+  void p.then((r) => {
+    if (r.candidates.length === 0 && memo.get(key) === p) memo.delete(key)
+  })
+  return p
+}
+
+/** What the page asks before it reads ahead: is there a fast backend at all? */
+export const recognizeConfig = (): { backends: string[]; speculate: boolean } => {
+  const chain = backendChain()
+  return { backends: chain.map((b) => `${b.name}:${b.model}`), speculate: chain.some(isFast) }
 }

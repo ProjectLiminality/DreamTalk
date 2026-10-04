@@ -51818,7 +51818,7 @@ class RibbonBatch {
     arr.fill(row, offset, offset + n);
     this.markDirty(offset, offset + n);
   }
-  writeStroke(slot, stroke, mv, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
+  writeStroke(slot, stroke, mv, widthPx, drawn, erased, tintR, tintG, tintB, fade, drawSegments) {
     const count = stroke.count;
     if (count > slot.maxSegments) {
       this.pointRun(slot.offset, slot.maxSegments, 0);
@@ -51834,12 +51834,14 @@ class RibbonBatch {
       for (let i = 0;i < n * DIST_STRIDE; i++)
         distArr[slot.offset * DIST_STRIDE + i] = stroke.distances[i];
       this.markDirty(slot.offset, slot.offset + n);
-      if (slot.count !== n || slot.points === undefined) {
-        this.pointRun(slot.offset, n, slot.row);
-        this.pointRun(slot.offset + n, slot.maxSegments - n, 0);
-      }
       slot.points = stroke.points;
       slot.count = n;
+    }
+    const draw = Math.min(drawSegments ?? slot.count, slot.count);
+    if (slot.pointed !== draw) {
+      this.pointRun(slot.offset, draw, slot.row);
+      this.pointRun(slot.offset + draw, slot.maxSegments - draw, 0);
+      slot.pointed = draw;
     }
     const t = this.shared.array;
     const base = slot.row * TABLE_VEC4 * 4;
@@ -65619,6 +65621,9 @@ class ThreeHost {
     if (this.ribbonBatches.length === 0)
       return;
     const viewInverse = this.camera.matrixWorldInverse;
+    const dots = this.batchDots;
+    for (const set of dots.values())
+      set.clear();
     for (const binding of this.strokes) {
       const { ribbon, group, slot, batch: batch3 } = binding;
       if (!slot || !batch3)
@@ -65629,15 +65634,29 @@ class ThreeHost {
         batch3.hideStroke(slot);
         continue;
       }
-      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld);
       const ud = ribbon.mesh.userData;
       const tint = ud[RIBBON_KEYS.tint];
+      const w4 = group.matrixWorld.elements;
+      let drawSegments;
+      if (w4[0] === 0 && w4[1] === 0 && w4[2] === 0 && w4[4] === 0 && w4[5] === 0 && w4[6] === 0 && w4[8] === 0 && w4[9] === 0 && w4[10] === 0) {
+        const key = `${w4[12]},${w4[13]},${w4[14]},${ud[RIBBON_KEYS.widthPx]},${tint.r},${tint.g},${tint.b},${ud[RIBBON_KEYS.fade]}`;
+        let seen = dots.get(batch3);
+        if (!seen)
+          dots.set(batch3, seen = new Set);
+        if (seen.has(key)) {
+          batch3.hideStroke(slot);
+          continue;
+        }
+        seen.add(key);
+        drawSegments = 1;
+      }
+      this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld);
       binding.slot = batch3.writeStroke(slot, {
         points: ribbon.worldPoints(),
         positions: geometry.getAttribute("instanceStart").data.array,
         distances: geometry.getAttribute("instanceDistanceStart").data.array,
         count
-      }, this.batchMv, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
+      }, this.batchMv, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade], drawSegments);
     }
     for (const batch3 of this.ribbonBatches)
       batch3.flush();
@@ -65680,6 +65699,7 @@ class ThreeHost {
     return this.nextFillOrder++;
   }
   batchMv = new Matrix4;
+  batchDots = new Map;
   cullOffscreen() {
     if (!this.cullEnabled || this.strokes.length === 0) {
       this.culledOffscreen = 0;
@@ -71464,6 +71484,122 @@ var nextSearch = (cur, pass3) => {
 };
 var ripe = (s2, now) => isSearch(s2) && now - s2.endedAt >= PAUSE_MS;
 
+// sketch/speculate.ts
+var IDLE_MS = 300;
+var inkKey = (req) => {
+  const parts = [[...req.vocabulary ?? []].sort().join(",")];
+  for (const s2 of [...req.strokes].sort((a2, b2) => a2.id < b2.id ? -1 : 1)) {
+    const a2 = s2.points[0], b2 = s2.points[s2.points.length - 1];
+    parts.push(`${s2.id}:${s2.points.length}:${a2 ? `${Math.round(a2.x)},${Math.round(a2.y)}` : ""}:${b2 ? `${Math.round(b2.x)},${Math.round(b2.y)}` : ""}`);
+  }
+  return parts.join("|");
+};
+var boxOf = (k2) => {
+  if (k2.points.length === 0)
+    return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p2 of k2.points) {
+    x0 = Math.min(x0, p2.x);
+    y0 = Math.min(y0, p2.y);
+    x1 = Math.max(x1, p2.x);
+    y1 = Math.max(y1, p2.y);
+  }
+  return { x0, y0, x1, y1 };
+};
+var gapBetween = (a2, b2) => Math.hypot(Math.max(0, a2.x0 - b2.x1, b2.x0 - a2.x1), Math.max(0, a2.y0 - b2.y1, b2.y0 - a2.y1));
+var likelySelection = (strokes, minGap = 40, max6 = 120) => {
+  const out = [];
+  let cluster;
+  for (let i2 = strokes.length - 1;i2 >= 0 && out.length < max6; i2--) {
+    const b2 = boxOf(strokes[i2]);
+    if (!b2)
+      continue;
+    if (cluster) {
+      const reach = Math.max(minGap, Math.hypot(cluster.x1 - cluster.x0, cluster.y1 - cluster.y0) / 3);
+      if (gapBetween(b2, cluster) > reach)
+        break;
+    }
+    out.push(strokes[i2]);
+    cluster = cluster ? { x0: Math.min(cluster.x0, b2.x0), y0: Math.min(cluster.y0, b2.y0), x1: Math.max(cluster.x1, b2.x1), y1: Math.max(cluster.y1, b2.y1) } : b2;
+  }
+  return out.reverse();
+};
+var KEEP = 8;
+
+class Speculator {
+  opts;
+  enabled = false;
+  timer;
+  flight;
+  done = new Map;
+  target;
+  timers;
+  constructor(opts) {
+    this.opts = opts;
+    this.timers = opts.timers ?? { set: (f2, ms) => setTimeout(f2, ms), clear: (h2) => clearTimeout(h2) };
+  }
+  poke(target) {
+    if (!this.enabled)
+      return;
+    this.target = target;
+    if (this.timer !== undefined)
+      this.timers.clear(this.timer);
+    this.timer = this.timers.set(() => this.fire(), this.opts.idleMs ?? IDLE_MS);
+  }
+  fire() {
+    this.timer = undefined;
+    if (!this.enabled || !this.target)
+      return;
+    if (this.opts.isIdle && !this.opts.isIdle()) {
+      this.timer = this.timers.set(() => this.fire(), this.opts.idleMs ?? IDLE_MS);
+      return;
+    }
+    const t2 = this.target();
+    if (!t2 || t2.strokes.length === 0 || t2.vocabulary.length === 0)
+      return;
+    const key = inkKey(t2);
+    if (this.done.has(key) || this.flight?.key === key)
+      return;
+    this.flight?.ctrl.abort();
+    const ctrl = new AbortController;
+    const promise = this.opts.ask(this.opts.build(t2.strokes, t2.vocabulary), ctrl.signal);
+    const flight = { key, ctrl, promise };
+    this.flight = flight;
+    promise.then((res) => {
+      if (this.flight === flight)
+        this.flight = undefined;
+      if (res.candidates.length === 0)
+        return;
+      this.done.set(key, res);
+      while (this.done.size > KEEP)
+        this.done.delete(this.done.keys().next().value);
+      this.opts.onReady?.();
+    }, () => {
+      if (this.flight === flight)
+        this.flight = undefined;
+    });
+  }
+  answer(req) {
+    const key = inkKey(req);
+    const hit = this.done.get(key);
+    if (hit)
+      return Promise.resolve(hit);
+    if (this.flight?.key === key)
+      return this.flight.promise.catch(() => ({ candidates: [], error: "reading ahead failed" }));
+    return;
+  }
+  ready(req) {
+    return this.done.has(inkKey(req));
+  }
+  cancel() {
+    if (this.timer !== undefined)
+      this.timers.clear(this.timer);
+    this.timer = undefined;
+    this.flight?.ctrl.abort();
+    this.flight = undefined;
+  }
+}
+
 // sketch/main.ts
 var pageEl = document.getElementById("page");
 var ink = document.getElementById("ink");
@@ -72095,10 +72231,25 @@ var afterChange = (fresh) => {
   drawInk();
   syncSymbols(fresh);
 };
+var speculation = new Speculator({
+  ask: (req, signal) => httpRecognize(req, { signal, speculative: true }),
+  build: (strokes, vocabulary) => ({ ...renderCrop(strokes), strokes, vocabulary }),
+  isIdle: () => mode === "idle" && !thinking,
+  onReady: () => updateButtons()
+});
+fetch("/api/recognize/config").then((r4) => r4.json()).then((c2) => speculation.enabled = !!c2.speculate).catch(() => {});
+var readAheadTarget = () => {
+  const sel = selectedStrokes();
+  const strokes = sel.length > 0 ? sel : likelySelection(history.state.strokes);
+  return { strokes, vocabulary: importsOf(history.state) };
+};
 var updateButtons = () => {
   btn("undo").disabled = !history.canUndo;
   btn("redo").disabled = !history.canRedo;
   btn("transform").disabled = !!thinking || selectedStrokes().length === 0;
+  speculation.poke(readAheadTarget);
+  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state) });
+  btn("transform").style.boxShadow = ready ? "0 0 0 2px rgba(120, 200, 140, 0.7)" : "";
 };
 var setSelection = (ids) => {
   selection = pruneSelection(history.state, ids);
@@ -72200,11 +72351,12 @@ var renderCrop = (strokes) => {
     drawStroke(g2, s2.points, Math.max(k2, 0.5), "#000");
   return { png: c2.toDataURL("image/png").split(",")[1], crop };
 };
-var httpRecognize = async (req) => {
+var httpRecognize = async (req, ahead = {}) => {
   const res = await fetch("/api/recognize", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(req)
+    headers: { "content-type": "application/json", ...ahead.speculative ? { "x-speculative": "1" } : {} },
+    body: JSON.stringify(req),
+    signal: ahead.signal
   });
   const text2 = await res.text();
   let body;
@@ -72313,8 +72465,9 @@ var transform = async () => {
   drawInk();
   let response;
   try {
-    const { png, crop } = renderCrop(strokes);
-    response = await recognize({ png, crop, strokes, vocabulary: importsOf(history.state) });
+    const vocabulary = importsOf(history.state);
+    const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary }) : undefined;
+    response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary });
   } catch (err) {
     response = { candidates: [], error: err.message || "recognizer unreachable" };
   }

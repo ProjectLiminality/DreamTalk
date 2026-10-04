@@ -151,6 +151,19 @@ export interface RecognizeResponse {
   /** Anything the model read as a COMMENT (handwritten words, arrows) rather than shape. */
   notes?: string
   error?: string
+  /** Which eyes read it ("groq:qwen/…", "cli:claude-opus-5-5", "geometry"). */
+  backend?: string
+  /** How well the top reading lies on the ink after fitting (sketch/fit.ts score; ~0.01 = on it). */
+  fit?: number
+  /** What ran, in order, and how long each took — the latency ledger. */
+  stages?: RecognizeStage[]
+}
+
+/** One step of a reading: the model's look, the fit, a second look, … */
+export interface RecognizeStage {
+  name: string
+  ms: number
+  note?: string
 }
 
 // --- Voice instructions (scripts/instruct.ts, sketch/voice.ts) -------------------

@@ -3,3 +3,7 @@ demo/dist/
 # The first cut's selection-anchored comments (still read, never written).
 # Comments now live beside their scene as <scene>.comments.jsonl — tracked.
 .comments/
+
+# API keys (scripts/backends.ts reads them) — never committed.
+.env
+.env.*

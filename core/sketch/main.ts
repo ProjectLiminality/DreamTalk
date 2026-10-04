@@ -63,6 +63,7 @@ import { installVoice } from "./voice"
 import { Mirror, type MirrorView } from "./mirror"
 import { distillGlyph, distillStrokes } from "./distill"
 import { PAUSE_MS, nextSearch, ripe, type Search } from "./livedistill"
+import { likelySelection, Speculator } from "./speculate"
 import {
   IDENTITY,
   SIM_IDENTITY,
@@ -899,10 +900,33 @@ const afterChange = (fresh?: string) => {
   void syncSymbols(fresh)
 }
 
+/** Reading ahead (speculate.ts): while the pen rests, ask about the ink ✦
+ *  would be pressed on — the selection, else the burst just drawn. On only
+ *  when the daemon has a fast backend. */
+const speculation = new Speculator({
+  ask: (req, signal) => httpRecognize(req, { signal, speculative: true }),
+  build: (strokes, vocabulary) => ({ ...renderCrop(strokes), strokes, vocabulary }),
+  isIdle: () => mode === "idle" && !thinking,
+  onReady: () => updateButtons(),
+})
+void fetch("/api/recognize/config")
+  .then((r) => r.json() as Promise<{ speculate?: boolean }>)
+  .then((c) => (speculation.enabled = !!c.speculate))
+  .catch(() => {})
+const readAheadTarget = () => {
+  const sel = selectedStrokes()
+  const strokes = sel.length > 0 ? sel : likelySelection(history.state.strokes)
+  return { strokes, vocabulary: importsOf(history.state) }
+}
+
 const updateButtons = () => {
   btn("undo").disabled = !history.canUndo
   btn("redo").disabled = !history.canRedo
   btn("transform").disabled = !!thinking || selectedStrokes().length === 0
+  speculation.poke(readAheadTarget)
+  // ✦ glows faintly when its reading is already here.
+  const ready = speculation.enabled && speculation.ready({ strokes: selectedStrokes(), vocabulary: importsOf(history.state) })
+  btn("transform").style.boxShadow = ready ? "0 0 0 2px rgba(120, 200, 140, 0.7)" : ""
 }
 
 const setSelection = (ids: Iterable<string>) => {
@@ -1019,11 +1043,15 @@ export const renderCrop = (strokes: readonly InkStroke[]): { png: string; crop: 
 
 type Recognizer = (req: RecognizeRequest) => Promise<RecognizeResponse>
 
-const httpRecognize: Recognizer = async (req) => {
+const httpRecognize = async (
+  req: RecognizeRequest,
+  ahead: { signal?: AbortSignal; speculative?: boolean } = {},
+): Promise<RecognizeResponse> => {
   const res = await fetch("/api/recognize", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(ahead.speculative ? { "x-speculative": "1" } : {}) },
     body: JSON.stringify(req),
+    signal: ahead.signal,
   })
   const text = await res.text()
   let body: RecognizeResponse
@@ -1145,8 +1173,10 @@ const transform = async (): Promise<void> => {
   drawInk()
   let response: RecognizeResponse
   try {
-    const { png, crop } = renderCrop(strokes)
-    response = await recognize({ png, crop, strokes, vocabulary: importsOf(history.state) })
+    const vocabulary = importsOf(history.state)
+    // Read ahead already (speculate.ts)? Then that is the answer — unless it found nothing.
+    const ahead = recognize === httpRecognize ? await speculation.answer({ strokes, vocabulary }) : undefined
+    response = ahead?.candidates.length ? ahead : await recognize({ ...renderCrop(strokes), strokes, vocabulary })
   } catch (err) {
     response = { candidates: [], error: (err as Error).message || "recognizer unreachable" }
   }
