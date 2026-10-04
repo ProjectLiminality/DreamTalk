@@ -565,4 +565,32 @@ ruling (translation + the three deleted labels from footage).
       `/demo/?scene=raycaster`. MISSING, recorded: the collision audio
       "ping" — the framework has narration clips but no effect-driven
       audio track to drive; and emitter-normal / 3D casting ("later").
-- [ ] Node-graph visualisation (ONTOLOGY 2026-09-17).
+- [x] **Text weight, one rule** (lead-assigned) — S&T `clipping="inside"`
+      means a written letter is never fatter than its letterform. Each
+      contour now insets as deep as it can without folding OR crossing its
+      sibling contours (`insetLoopDeepest`), and draws its pen at the
+      matching share, so its edge lands on the outline; full-depth
+      contours unchanged byte-for-byte. Fixes the calculator's bold "1"
+      beside a thin "5", and the bold, blobby straddle on every Text whose
+      stems are narrower than its pen (Web3 Quote / web3s09 / the text
+      showcase / creator-mode caption / agentarena / patience now render
+      at the face's true weight — a deliberate visual change: if a scene
+      wants bold, that is a bold FACE, not pen overdraw). Known
+      approximation: one depth per contour, set by its narrowest place,
+      so such a contour's draw-phase pen is thinner than S&T's clipped pen
+      in its wider parts; the settled letter is exact.
+- [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
+      2026-09-16/17 fixes the principle (object-level relationships only —
+      "circle and square feed into Morph" — internal param wiring folded
+      away; abilities are sibling agents of the scene) and itself calls
+      it "the next thread to explore". Missing before a build: (1) WHERE
+      it lives — an editor panel, a viewport overlay, or a Dream-Explorer
+      mode (OPEN-THREADS "Creator mode") — and its look/interaction, which
+      are TASTE calls (Keynote vibe) in editor/ territory; (2) the DATA it
+      would draw has no uniform source: each ability keeps its inputs as
+      private references (MorphShape's ends, GeometrySketch's shape,
+      RayCaster's emitter/colliders) and `Cylinder.of` hides its profile
+      and circle inside derive() closures, so "who feeds whom" cannot be
+      read off a scene today. A small, well-defined first step once David
+      picks (1): a declared `inputs(): Holon[]` contract on holons that
+      consume other holons (the four above), which any view then reads.

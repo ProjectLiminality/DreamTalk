@@ -82,7 +82,7 @@ import {
   FILL_WINDOW,
   type TextAlign,
 } from "../parts/text"
-import { boundaryLoops, closeLoop, insetLoop } from "../parts/outline"
+import { boundaryLoops, closeLoop, insetLoopDeepest } from "../parts/outline"
 import type { Vec3Like } from "../parts/index"
 import { RibbonStroke } from "./ribbon"
 import { fontChain } from "./fonts"
@@ -417,6 +417,13 @@ interface GlyphOutline {
     /** This loop's slice of the letter's draw phase, by arc length. */
     from: number
     to: number
+    /**
+     * The share of the pen this contour draws with: 1 where it took the
+     * full half-pen inset, less where its stems are narrower than the pen
+     * and it could only go `share` of the way in (insetLoopDeepest) — the
+     * pen narrows to match, so its outer edge stays on the outline.
+     */
+    share: number
   }[]
 }
 
@@ -471,11 +478,10 @@ const buildOutlines = (
     // encode blur, so pulling the hard edge a further pixel in only
     // thins the stems.
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 1e-6)
-    const loops = boundaryLoops(
-      positions,
-      indices,
-      (t) => glyphIndex.getX(indices[t * 3]!) === g,
-    ).map((loop) => insetLoop(loop, inset))
+    const rings = boundaryLoops(positions, indices, (t) => glyphIndex.getX(indices[t * 3]!) === g)
+    // Each contour against its siblings too: a counter and its outline
+    // share the stem between them, and neither inset may cross it.
+    const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop)))
     // NOTE (open): where along its contour the 2021 pen STARTED is not
     // recoverable here. C4D began each stroke at its spline's first
     // point — the font's own contour start — and three-text hands over
@@ -488,16 +494,18 @@ const buildOutlines = (
     // `s` of f0578, which the reference draws from its top RIGHT
     // (0.98 -> 0.91). It is a guess either way, so the guess is not
     // taken. The real fix is glyph contours from the shaper.
-    const lengths = loops.map(loopLength)
+    const lengths = loops.map(({ loop }) => loopLength(loop))
     const total = lengths.reduce((a, b) => a + b, 0)
     let walked = 0
     const built: GlyphOutline["loops"] = []
     for (let i = 0; i < loops.length; i++) {
       const ribbon = new RibbonStroke(strokePx)
-      ribbon.setPoints(closeLoop(loops[i]!).map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+      const { loop, depth } = loops[i]!
+      ribbon.setPoints(closeLoop(loop).map((p) => new THREE.Vector3(p.x, p.y, p.z)))
       const from = total > 0 ? walked / total : 0
       walked += lengths[i]!
-      built.push({ ribbon, from, to: total > 0 ? walked / total : 1 })
+      const share = depth === inset ? 1 : depth / inset
+      built.push({ ribbon, from, to: total > 0 ? walked / total : 1, share })
     }
     outlines.push({ window: windows[g] ?? [0, 1], loops: built })
   }
@@ -529,9 +537,9 @@ const syncOutlines = (outlines: readonly GlyphOutline[], holon: Text): void => {
     const pWrite = clamp01((creation - window[0]) / span)
     const pErase = clamp01((erasure - window[0]) / span)
     const { draw } = writePhases(Math.min(pWrite, 1 - pErase))
-    for (const { ribbon, from, to } of loops) {
+    for (const { ribbon, from, to, share } of loops) {
       const local = to > from ? clamp01((draw - from) / (to - from)) : draw > from ? 1 : 0
-      ribbon.style(local, opacity, tint, width)
+      ribbon.style(local, opacity, tint, share === 1 ? width : width * share)
     }
   }
 }

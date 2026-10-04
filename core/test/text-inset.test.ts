@@ -12,7 +12,7 @@
 
 import { beforeAll, describe, expect, test } from "bun:test"
 import { Text as ThreeText } from "three-text"
-import { boundaryLoops, insetLoop, type Loop } from "../src/parts/outline"
+import { boundaryLoops, insetLoop, insetLoopDeepest, type Loop } from "../src/parts/outline"
 
 const core = new URL("../", import.meta.url).pathname
 
@@ -142,5 +142,36 @@ describe("insetLoop — a short edge beside a corner is trimmed, not a fold", ()
     const corner = inset.reduce((best, p) => (p.x - p.y > best.x - best.y ? p : best))
     expect(corner.x).toBeCloseTo(9, 1)
     expect(corner.y).toBeCloseTo(1, 1)
+  })
+})
+
+describe("insetLoopDeepest — never fatter than the letterform", () => {
+  test("where the full half-pen fits, it IS insetLoop (unchanged)", () => {
+    for (const loops of glyphs) {
+      for (const loop of loops) {
+        const deep = insetLoopDeepest(loop, 1)
+        expect(deep.depth).toBe(1)
+        expect(deep.loop).toEqual(insetLoop(loop, 1))
+      }
+    }
+  })
+
+  test("a stem narrower than the pen goes as deep as it can, and the pen narrows to match", () => {
+    // Inset 3 folds the `l`, `T` and `k` stems (half-stem ~2.4). Each
+    // contour instead takes the deepest inset that does not fold; drawn
+    // with a pen of twice that depth, its edge still lands on the outline.
+    for (const [k, loops] of glyphs.entries()) {
+      for (const loop of loops) {
+        const { loop: inset, depth } = insetLoopDeepest(loop, 3)
+        expect(depth).toBeGreaterThan(0)
+        expect(depth).toBeLessThanOrEqual(3)
+        if (depth === 3) continue
+        // Its narrowest place sets the depth (the `r` arm's junction: ~0.8).
+        expect({ letter: [...TEXT][k], partial: depth > 0.5 }).toEqual({ letter: [...TEXT][k], partial: true })
+        const distances = inset.map((p) => distanceTo(p, loop)).sort((a, b) => a - b)
+        expect(distances[Math.floor(distances.length / 2)]!).toBeCloseTo(depth, 1)
+        for (const p of inset) expect(insideGlyph(p, loops)).toBe(true)
+      }
+    }
   })
 })

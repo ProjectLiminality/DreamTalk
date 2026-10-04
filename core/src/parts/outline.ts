@@ -290,6 +290,93 @@ export const insetLoop = (loop: Loop, amount: number): Loop => {
   return pts.map(({ p }) => p)
 }
 
+/**
+ * The deepest inset a loop takes without folding, up to `amount`, and
+ * the inset loop at that depth.
+ *
+ * Sketch & Toon's `clipping = "inside"` shows only the part of the pen
+ * that falls inside the letter, so a written letter is NEVER fatter than
+ * its letterform: where a stem is narrower than the pen, the clipped pen
+ * simply fills the stem. The geometric version of that: pull the contour
+ * in as far as it will go (the full half-pen when it can — exactly
+ * `insetLoop` — else the deepest depth that still does not fold), and
+ * have the caller draw that contour's pen at TWICE that depth, so its
+ * outer edge lands on the outline either way. Refusing a contour outright
+ * and letting the full pen straddle the outline instead made exactly the
+ * letters with thin stems bolder than their neighbours (the creator-mode
+ * calculator: a bold `1` beside a thin `5`).
+ */
+export const insetLoopDeepest = (
+  loop: Loop,
+  amount: number,
+  others: readonly Loop[] = [],
+): { loop: Loop; depth: number } => {
+  if (amount <= 0) return { loop, depth: 0 }
+  // A depth FITS when the inset curve keeps that distance from the
+  // outline — the pen of twice the depth then stays inside. Not folding
+  // is not enough: a stem's two sides can cross past its centreline with
+  // no edge reversing, and the pen would poke out the far side. A small
+  // tail (2%) may sit closer: the miter-capped needle corners, by design.
+  const outer = loopArea(loop) > 0 // interior on the left: inside the ring
+  const within = (p: Vec3Like): boolean => {
+    let inside = false
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+      const a = loop[i]!
+      const b = loop[j]!
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+        inside = !inside
+      }
+    }
+    return inside
+  }
+  // `strictOwn` off: the contour's own folding is left to insetLoop's
+  // guards, as it always was (the full-depth path — a contour accepted
+  // there before is accepted unchanged); on: the bisection, choosing a
+  // depth itself, also holds the contour clear of its own outline.
+  const fits = (inset: Loop, depth: number, strictOwn: boolean): boolean => {
+    if (inset === loop) return false
+    let close = 0
+    for (const p of inset) {
+      // Every point on the filled side: inside an outline, outside a
+      // counter. A capped miter at a needle tip can flip across.
+      if (strictOwn && within(p) !== outer) return false
+      // Clear of the glyph's OTHER contours too: a bowl narrower than the
+      // pen lets the outline's inset cross its counter's, and the pen
+      // would paint inside the hole.
+      let own = Infinity
+      for (let e = 0; strictOwn && e < loop.length && own >= depth * 0.95; e++) {
+        own = Math.min(own, segmentDistance(p, loop[e]!, loop[(e + 1) % loop.length]!))
+      }
+      let other = Infinity
+      for (const ring of others) {
+        for (let e = 0; e < ring.length && other >= depth * 0.95; e++) {
+          other = Math.min(other, segmentDistance(p, ring[e]!, ring[(e + 1) % ring.length]!))
+        }
+      }
+      if ((own < depth * 0.95 || other < depth * 0.95) && ++close > inset.length * 0.02) return false
+    }
+    return true
+  }
+  const full = insetLoop(loop, amount)
+  if (fits(full, amount, false)) return { loop: full, depth: amount }
+  // Bisect for the deepest depth that fits (12 halvings: within 1/4096
+  // of the half-pen — far below a pixel).
+  let lo = 0
+  let hi = amount
+  let best: Loop = loop
+  for (let k = 0; k < 12; k++) {
+    const mid = (lo + hi) / 2
+    const inset = insetLoop(loop, mid)
+    if (fits(inset, mid, true)) {
+      lo = mid
+      best = inset
+    } else {
+      hi = mid
+    }
+  }
+  return lo > 0 ? { loop: best, depth: lo } : { loop, depth: 0 }
+}
+
 /** Distance from p to the segment a–b (in the plane). */
 const segmentDistance = (p: Vec3Like, a: Vec3Like, b: Vec3Like): number => {
   const dx = b.x - a.x
