@@ -382,11 +382,56 @@ and what each one can read beyond geometry: words, labels, notes. David's
 own sketches, through compare mode and the summary, will decide which reader
 wins.
 
-## 8. Still open
+## 8. Auto, rebuilt from David's live session (2026-10-04)
 
-- **Clef and Haiku**, once their keys exist:
-  `WHICH=clef,haiku bun scripts/bench-recognize.ts`.
-- **David's real sketches**: compare mode, then `bun scripts/compare-summary.ts`.
+David's verdict after trying the readers on real sketches: Clef is very fast
+and very good at recognising shapes, Groq is much better with writing, and
+Groq sometimes misses shapes that Clef sees. So auto is now
+(`core/scripts/route.ts`, pure, tested):
+
+    Clef chooses + fitter places ─┬─ sure (top ≥ 0.5), fit ≤ 0.03, runner-up < 0.6×top → replace
+                                  ├─ runner-up ≥ 0.6×top                                 → options ring
+                                  └─ text · none · unplaceable · unsure · poor fit · error → Groq
+    Groq agrees → the better fit replaces · disagrees → ring with both · nothing → Clef's picks as a ring
+
+- **Geometry and Opus are out of auto**, but still available on the switch.
+  `claude -p` runs in auto only when no fast reader has a key.
+- **Read-ahead** fetches Clef first, and Groq only when Clef's answer
+  routes to it.
+- **Ring chips in auto** are labelled with their reader (`clef 0.43`,
+  `groq · 0.018`).
+
+**What David's real session shows.** No comparisons are logged yet, so
+`compare.jsonl` doesn't exist. The thresholds come from the daemon log
+instead: 67 Clef readings and 25 Groq readings.
+
+- **Clef:** median 545 ms, p90 906 ms. It answered `none` 25 times and
+  `text` 7 times; its shape picks were Regenaissance 10, MindVirus 9,
+  circle 4, S-mark 4, globe 3, and a few others.
+  - Picks that then fitted well had a top probability of 0.59–0.96.
+  - The poor fits (0.038–0.047) came at 0.40–0.45.
+  - The genuine ties were globe against Regenaissance, at 0.43/0.43 and
+    0.46/0.41.
+- **Groq:** median 1050 ms. It returned **nothing** in 20 of 25 readings.
+  Those were probably the same sketches Clef called `none`; I can't tell
+  from the log. Writing (`text`) worked: 0.95.
+
+**Live check of auto** on the synthetic set, using David's Clef key: 12/12
+right, and every one settled by Clef alone.
+
+| sketch | median ms | fit |
+|---|---|---|
+| circle | 691 | 0.010 |
+| cylinder | 412 | 0.004 |
+| cube | 577 | 0.018 |
+| MindVirus | 791 | 0.014 |
+
+## 9. Still open
+
+- **Compare on David's real sketches**, so the thresholds get tuned on
+  picks rather than on log heuristics: `bun scripts/compare-summary.ts`.
+- **Why Groq returns nothing so often.** Look at the inputs behind those
+  20/25 empty readings.
 - **The MindVirus body still takes the exact path** (~2.5 ms per
   evaluation, held to 150 ms), because its absolute cable breaks the pose
   shortcut.

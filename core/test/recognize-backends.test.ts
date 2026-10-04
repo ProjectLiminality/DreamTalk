@@ -212,7 +212,7 @@ describe("the reading, staged", () => {
   })
 
   test("look → fit: the fast model's rough numbers are tuned onto the ink", async () => {
-    const res = await recognize(request(), { chain: [scripted("groq", [reply("circle", { cx: 625, cy: 480, r: 140 })])] })
+    const res = await recognize(request(), { chain: [scripted("groq", [reply("circle", { cx: 625, cy: 480, r: 140 })])], decision: null })
     expect(res.candidates[0]!.symbol).toBe("circle")
     expect(Math.abs(Number(res.candidates[0]!.params.r) - 120)).toBeLessThan(10)
     expect(res.fit!).toBeLessThan(POOR_FIT)
@@ -223,7 +223,7 @@ describe("the reading, staged", () => {
   test("a poor fit gets a second look, with the overlay as a second image", async () => {
     const seen: VisionAsk[] = []
     const groq = scripted("groq", [reply("square", { cx: 600, cy: 500, size: 60, rotation: 0.7 }), reply("circle", { cx: 600, cy: 500, r: 120 })], seen)
-    const res = await recognize(request(), { chain: [groq] })
+    const res = await recognize(request(), { chain: [groq], decision: null })
     expect(seen).toHaveLength(2)
     expect(seen[1]!.pngs).toHaveLength(2)
     expect(seen[1]!.prompt()).toContain("SECOND LOOK")
@@ -235,10 +235,10 @@ describe("the reading, staged", () => {
     const bad = () => scripted("groq", [reply("square", { cx: 600, cy: 500, size: 40, rotation: 0.7 }), reply("square", { cx: 600, cy: 500, size: 40, rotation: 0.7 })])
     const cliSeen: VisionAsk[] = []
     const cli = scripted("cli", [JSON.stringify({ candidates: [{ symbol: "circle", params: { cx: 600, cy: 500, r: 120 }, confidence: 0.9, why: "" }], notes: "" })], cliSeen)
-    const ahead = await recognize(request(), { chain: [bad(), cli], speculative: true })
+    const ahead = await recognize(request(), { chain: [bad(), cli], speculative: true, decision: null })
     expect(cliSeen).toHaveLength(0)
     expect(ahead.candidates[0]!.symbol).toBe("square")
-    const asked = await recognize(request(), { chain: [bad(), cli] })
+    const asked = await recognize(request(), { chain: [bad(), cli], decision: null })
     expect(cliSeen).toHaveLength(1)
     // The CLI still reads from disk, in the object form, as always.
     expect(cliSeen[0]!.prompt(["/tmp/x.png"])).toContain("Read the image /tmp/x.png")
@@ -250,8 +250,8 @@ describe("the reading, staged", () => {
     const seen: VisionAsk[] = []
     const groq = scripted("groq", [reply("circle", { cx: 600, cy: 500, r: 121 })], seen)
     const req = request(["circle", "triangle"])
-    const first = await recognizeMemo(req, { chain: [groq], speculative: true })
-    const second = await recognizeMemo({ ...req, png: "different-render" }, { chain: [groq] })
+    const first = await recognizeMemo(req, { chain: [groq], speculative: true, decision: null })
+    const second = await recognizeMemo({ ...req, png: "different-render" }, { chain: [groq], decision: null })
     expect(seen).toHaveLength(1)
     expect(second.candidates).toEqual(first.candidates)
     expect(second.stages!.at(-1)!.name).toBe("remembered")
@@ -259,7 +259,7 @@ describe("the reading, staged", () => {
 
   test("ahead of ✦ with only the CLI: nothing is asked", async () => {
     const seen: VisionAsk[] = []
-    const res = await recognize(request(), { chain: [scripted("cli", ["{}"], seen)], speculative: true })
+    const res = await recognize(request(), { chain: [scripted("cli", ["{}"], seen)], speculative: true, decision: null })
     expect(seen).toHaveLength(0)
     expect(res.error).toContain("no fast backend")
   })
@@ -324,12 +324,13 @@ describe("Clef (a decision model)", () => {
     expect(String(err)).not.toContain("cf_secret")
   })
 
-  test("Clef goes first when it has credentials and no keyed reader is ordered before it", () => {
+  test("Clef goes first when it has credentials (unless a keyed reader is ordered before it)", () => {
     const cf = { CLOUDFLARE_ACCOUNT_ID: "a", CLOUDFLARE_API_TOKEN: "t" }
     expect(decisionFirst({})).toBeUndefined()
     expect(decisionFirst(cf)?.name).toBe("clef")
-    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g" })).toBeUndefined()
-    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g", RECOGNIZE_BACKENDS: "clef,groq,cli" })?.name).toBe("clef")
+    // Auto (route.ts): Clef sees first, Groq reads after it.
+    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g" })?.name).toBe("clef")
+    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g", RECOGNIZE_BACKENDS: "groq,clef,cli" })).toBeUndefined()
   })
 
   const deciding = (choice: string, probabilities: Record<string, number>): DecisionBackend => ({

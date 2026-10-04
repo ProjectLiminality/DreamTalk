@@ -30,7 +30,8 @@
  *
  *   GROQ_API_KEY, ANTHROPIC_API_KEY      the keys
  *   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN   Clef's
- *   RECOGNIZE_BACKENDS                    e.g. "anthropic,cli" (default groq,clef,anthropic,cli)
+ *   RECOGNIZE_BACKENDS                    e.g. "anthropic,cli" (default clef,groq,anthropic,cli —
+ *                                         auto, scripts/route.ts: Clef sees, Groq reads)
  *   CLEF_MODEL                            default @cf/cloudflare/clef-flash
  *   GROQ_MODEL                            default qwen/qwen3.8-27b
  *   ANTHROPIC_MODEL                       default claude-haiku-4-5
@@ -335,7 +336,7 @@ export const clefBackend = (opts: { accountId: string; apiToken: string; model?:
 
 /** The order the backends are tried in. */
 const orderOf = (env: Record<string, string | undefined>): string[] =>
-  (env.RECOGNIZE_BACKENDS ?? "groq,clef,anthropic,cli")
+  (env.RECOGNIZE_BACKENDS ?? "clef,groq,anthropic,cli")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)

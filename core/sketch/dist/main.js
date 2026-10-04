@@ -853,6 +853,8 @@ class Stroke extends Holon {
   drawStart = completion(0);
   drawReversed = bool(false);
   fillOpacity = completion(0);
+  fillFalloff = completion(0);
+  fillFalloffRadius = length(0);
 }
 var rephasePolyline = (points, drawStart, reversed) => {
   if (points.length < 3)
@@ -51959,10 +51961,12 @@ var evenOddTriangulation = (subpaths) => {
 };
 
 // src/render/fill.ts
-var { userData: userData4 } = exports_three_tsl;
+var { userData: userData4, positionLocal: positionLocal3, smoothstep: smoothstep7, float: float5, max: max5 } = exports_three_tsl;
 var FILL_KEYS = {
   tint: "dtFillTint",
-  fade: "dtFillFade"
+  fade: "dtFillFade",
+  falloff: "dtFillFalloff",
+  radius: "dtFillFalloffRadius"
 };
 var shared2;
 var sharedFillMaterial = () => {
@@ -51975,6 +51979,22 @@ var sharedFillMaterial = () => {
     shared2.opacityNode = userData4(FILL_KEYS.fade, "float");
   }
   return shared2;
+};
+var sharedGradient;
+var sharedGradientFillMaterial = () => {
+  if (!sharedGradient) {
+    const m = new MeshBasicNodeMaterial;
+    m.transparent = true;
+    m.depthWrite = false;
+    m.side = DoubleSide;
+    const r = positionLocal3.xy.length();
+    const radius = max5(userData4(FILL_KEYS.radius, "float"), float5(0.000001));
+    const light = float5(1).sub(userData4(FILL_KEYS.falloff, "float").mul(smoothstep7(0, radius, r)));
+    m.colorNode = userData4(FILL_KEYS.tint, "color").mul(light);
+    m.opacityNode = userData4(FILL_KEYS.fade, "float");
+    sharedGradient = m;
+  }
+  return sharedGradient;
 };
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
@@ -51997,6 +52017,16 @@ class FillShape {
     this.mesh.userData[FILL_KEYS.tint] = new Color(1, 1, 1);
     this.mesh.userData[FILL_KEYS.fade] = 1;
   }
+  extent = 0;
+  useGradient() {
+    this.mesh.material = sharedGradientFillMaterial();
+    this.mesh.userData[FILL_KEYS.falloff] = 0;
+    this.mesh.userData[FILL_KEYS.radius] = 0;
+  }
+  setGradient(falloff, radius) {
+    this.mesh.userData[FILL_KEYS.falloff] = falloff;
+    this.mesh.userData[FILL_KEYS.radius] = radius > 0 ? radius : this.extent;
+  }
   setPolygon(pts, triangles) {
     if (pts.length < 3)
       return;
@@ -52018,6 +52048,10 @@ class FillShape {
     geometry.setIndex(indices);
     this.mesh.geometry.dispose();
     this.mesh.geometry = geometry;
+    let extent = 0;
+    for (const p of pts)
+      extent = Math.max(extent, Math.hypot(p.x, p.y));
+    this.extent = extent;
   }
   setPolygons(subpaths) {
     const { points, indices } = evenOddTriangulation(subpaths);
@@ -64476,21 +64510,12 @@ var insetLoopDeepest = (loop, amount, others = []) => {
     for (const p2 of inset) {
       if (strictOwn && within(p2) !== outer)
         return false;
-      let own = Infinity;
-      for (let e2 = 0;strictOwn && e2 < loop.length && own >= depth3 * 0.95; e2++) {
-        own = Math.min(own, segmentDistance(p2, loop[e2], loop[(e2 + 1) % loop.length]));
-      }
-      let other = Infinity;
-      for (const ring of others) {
-        for (let e2 = 0;e2 < ring.length && other >= depth3 * 0.95; e2++) {
-          other = Math.min(other, segmentDistance(p2, ring[e2], ring[(e2 + 1) % ring.length]));
-        }
-      }
-      if ((own < depth3 * 0.95 || other < depth3 * 0.95) && ++close > inset.length * 0.02)
+      if (grid.near(p2, depth3 * 0.95, strictOwn) && ++close > inset.length * 0.02)
         return false;
     }
     return true;
   };
+  const grid = new SegmentGrid(loop, others, amount);
   const full = insetLoop(loop, amount);
   if (fits(full, amount, false))
     return { loop: full, depth: amount };
@@ -64509,6 +64534,65 @@ var insetLoopDeepest = (loop, amount, others = []) => {
   }
   return lo > 0 ? { loop: best, depth: lo } : { loop, depth: 0 };
 };
+
+class SegmentGrid {
+  cell;
+  cells = new Map;
+  a = [];
+  b = [];
+  own = [];
+  constructor(loop, others, cell) {
+    this.cell = cell;
+    const add7 = (ring, own) => {
+      for (let e2 = 0;e2 < ring.length; e2++) {
+        const a2 = ring[e2];
+        const b2 = ring[(e2 + 1) % ring.length];
+        const id = this.a.length;
+        this.a.push(a2);
+        this.b.push(b2);
+        this.own.push(own);
+        const x0 = Math.floor(Math.min(a2.x, b2.x) / cell);
+        const x1 = Math.floor(Math.max(a2.x, b2.x) / cell);
+        const y0 = Math.floor(Math.min(a2.y, b2.y) / cell);
+        const y1 = Math.floor(Math.max(a2.y, b2.y) / cell);
+        for (let x2 = x0;x2 <= x1; x2++) {
+          for (let y2 = y0;y2 <= y1; y2++) {
+            const key = this.key(x2, y2);
+            const list = this.cells.get(key);
+            if (list)
+              list.push(id);
+            else
+              this.cells.set(key, [id]);
+          }
+        }
+      }
+    };
+    add7(loop, true);
+    for (const ring of others)
+      add7(ring, false);
+  }
+  key(x2, y2) {
+    return (x2 + 32768) * 65536 + (y2 + 32768);
+  }
+  near(p2, r2, withOwn) {
+    const cx = Math.floor(p2.x / this.cell);
+    const cy = Math.floor(p2.y / this.cell);
+    for (let x2 = cx - 1;x2 <= cx + 1; x2++) {
+      for (let y2 = cy - 1;y2 <= cy + 1; y2++) {
+        const list = this.cells.get(this.key(x2, y2));
+        if (!list)
+          continue;
+        for (const id of list) {
+          if (!withOwn && this.own[id])
+            continue;
+          if (segmentDistance(p2, this.a[id], this.b[id]) < r2)
+            return true;
+        }
+      }
+    }
+    return false;
+  }
+}
 var segmentDistance = (p2, a2, b2) => {
   const dx = b2.x - a2.x;
   const dy = b2.y - a2.y;
@@ -64571,13 +64655,13 @@ var {
   attribute: attribute5,
   cameraProjectionMatrix: cameraProjectionMatrix5,
   clamp: clamp7,
-  float: float5,
-  max: max5,
+  float: float6,
+  max: max6,
   min: min5,
   mix: mix5,
   modelViewMatrix: modelViewMatrix4,
   positionGeometry: positionGeometry4,
-  smoothstep: smoothstep7,
+  smoothstep: smoothstep8,
   varyingProperty: varyingProperty5,
   vec2: vec25,
   vec3: vec35,
@@ -64630,18 +64714,18 @@ class TextGlyphMaterial extends NodeMaterial {
     this.blendDstAlpha = OneFactor;
     this.vertexNode = Fn5(() => {
       vWindow.assign(vec25(attribute5("glyphWindow")));
-      vGlyphU.assign(float5(attribute5("glyphU")));
+      vGlyphU.assign(float6(attribute5("glyphU")));
       return cameraProjectionMatrix5.mul(modelViewMatrix4.mul(vec45(positionGeometry4, 1)));
     })();
     this.fragmentNode = Fn5(() => {
       const win = vec25(vWindow);
-      const span = max5(win.y.sub(win.x), 0.000001);
+      const span = max6(win.y.sub(win.x), 0.000001);
       const pWrite = clamp7(this.progress.sub(win.x).div(span), 0, 1);
       const pErase = clamp7(this.erasure.sub(win.x).div(span), 0, 1);
       const p2 = min5(pWrite, pErase.oneMinus()).toVar();
       const drawP = clamp7(p2.sub(DRAW_WINDOW[0]).div(DRAW_WINDOW[1] - DRAW_WINDOW[0]), 0, 1);
       const fillP = clamp7(p2.sub(FILL_WINDOW[0]).div(FILL_WINDOW[1] - FILL_WINDOW[0]), 0, 1);
-      const a2 = fillP.mul(smoothstep7(0, 0.001, drawP)).mul(this.fade);
+      const a2 = fillP.mul(smoothstep8(0, 0.001, drawP)).mul(this.fade);
       return vec45(vec35(this.tint).mul(a2), a2);
     })();
   }
@@ -64701,6 +64785,20 @@ var loopLength = (loop) => {
   }
   return total;
 };
+var ringCache = new WeakMap;
+var glyphRings = (position, positions, indices, glyphIndex, g2) => {
+  let entry = ringCache.get(position);
+  if (!entry || entry.version !== position.version) {
+    entry = { version: position.version, rings: new Map };
+    ringCache.set(position, entry);
+  }
+  let rings = entry.rings.get(g2);
+  if (!rings) {
+    rings = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2);
+    entry.rings.set(g2, rings);
+  }
+  return rings;
+};
 var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   const position = geometry.getAttribute("position");
   const glyphIndex = geometry.getAttribute("glyphIndex");
@@ -64721,7 +64819,7 @@ var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   const outlines = [];
   for (let g2 = 0;g2 < glyphCount; g2++) {
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 0.000001);
-    const rings = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2);
+    const rings = glyphRings(position, positions, indices, glyphIndex, g2);
     const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r2) => r2 !== loop)));
     const lengths = loops.map(({ loop }) => loopLength(loop));
     const total = lengths.reduce((a2, b2) => a2 + b2, 0);
@@ -65059,6 +65157,87 @@ var screenArcRemap = (points, totalWorld, view) => {
   };
 };
 
+// src/render/layers.ts
+var TSL5 = exports_three_tsl;
+var { Fn: Fn6, texture: texture3, uniform: uniform3, uv: uv3, vec4: vec46 } = TSL5;
+
+class LayerCompositor {
+  target;
+  weight = uniform3(1);
+  quad;
+  constructor(samples) {
+    this.target = new RenderTarget(1, 1, { type: HalfFloatType, samples });
+    const material = new NodeMaterial;
+    material.transparent = true;
+    material.depthTest = false;
+    material.depthWrite = false;
+    material.blending = CustomBlending;
+    material.blendEquation = AddEquation;
+    material.blendSrc = OneFactor;
+    material.blendDst = OneFactor;
+    material.blendEquationAlpha = AddEquation;
+    material.blendSrcAlpha = OneFactor;
+    material.blendDstAlpha = OneFactor;
+    const picture = texture3(this.target.texture, uv3());
+    material.fragmentNode = Fn6(() => vec46(picture.rgb.mul(this.weight), picture.a.mul(this.weight)))();
+    this.quad = new QuadMesh(material);
+  }
+  async render(renderer, scene, camera, layers) {
+    const all3 = layers.flatMap((l2) => l2.objects);
+    const was = all3.map((o2) => o2.visible);
+    try {
+      for (const o2 of all3)
+        o2.visible = false;
+      await renderer.render(scene, camera);
+      const size = renderer.getDrawingBufferSize(new Vector2);
+      if (this.target.width !== size.x || this.target.height !== size.y) {
+        this.target.setSize(size.x, size.y);
+      }
+      const background = scene.background;
+      const clear = renderer.getClearColor(new Color);
+      const clearAlpha = renderer.getClearAlpha();
+      const autoClear = renderer.autoClear;
+      const others = scene.children.filter((c2) => c2.visible);
+      try {
+        scene.background = null;
+        for (const layer of layers) {
+          if (!(layer.weight > 0))
+            continue;
+          for (const c2 of others)
+            c2.visible = false;
+          for (const o2 of layer.objects)
+            o2.visible = true;
+          renderer.setRenderTarget(this.target);
+          renderer.setClearColor(0, 0);
+          renderer.autoClear = true;
+          await renderer.render(scene, camera);
+          for (const o2 of layer.objects)
+            o2.visible = false;
+          for (const c2 of others)
+            c2.visible = true;
+          renderer.setRenderTarget(null);
+          renderer.autoClear = false;
+          this.weight.value = layer.weight;
+          this.quad.render(renderer);
+        }
+      } finally {
+        scene.background = background;
+        renderer.setRenderTarget(null);
+        renderer.setClearColor(clear, clearAlpha);
+        renderer.autoClear = autoClear;
+        for (const c2 of others)
+          c2.visible = true;
+      }
+    } finally {
+      all3.forEach((o2, i2) => o2.visible = was[i2]);
+    }
+  }
+  dispose() {
+    this.target.dispose();
+    this.quad.material.dispose();
+  }
+}
+
 // src/render/three-host.ts
 var STROKE_SEGMENTS = 128;
 var CYLINDER_ROTATION_SEGMENTS = 64;
@@ -65068,7 +65247,9 @@ var styleOf = (holon) => ({
   tint: holon.tint,
   stroke: holon.stroke,
   erasure: holon.erasure,
-  fillOpacity: holon.fillOpacity
+  fillOpacity: holon.fillOpacity,
+  fillFalloff: holon.fillFalloff,
+  fillFalloffRadius: holon.fillFalloffRadius
 });
 var basePolyline = (holon) => {
   if (holon instanceof Circle) {
@@ -65426,6 +65607,19 @@ class ThreeHost {
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
+  lightsRadially(holon, fill) {
+    const f2 = holon.fillFalloff;
+    let uses = f2.value > 0 || f2.isBound;
+    for (const clip of this.dream.clips) {
+      for (const track of clip.anim.tracks) {
+        if (track.param === f2)
+          uses = true;
+      }
+    }
+    if (uses)
+      fill.useGradient();
+    return uses;
+  }
   washesFillOpacity(holon) {
     if (holon.fillOpacity.value > 0)
       return true;
@@ -65475,12 +65669,12 @@ class ThreeHost {
       const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
-      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) });
     } else if (holon instanceof Stroke) {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
@@ -65488,7 +65682,7 @@ class ThreeHost {
         const fill = new FillShape(this.claimFillOrder());
         fill.setPolygons(loops);
         group.add(fill.mesh);
-        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) });
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) });
         for (const part of holon.parts)
           this.washedByAncestor.add(part);
       }
@@ -65497,7 +65691,7 @@ class ThreeHost {
         const fill = new FillShape(this.claimFillOrder());
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
-        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
+        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) });
       }
       const pts = polyline(holon);
       if (pts || holon instanceof Line) {
@@ -65556,12 +65750,37 @@ class ThreeHost {
     if (settled)
       this.scene.matrixWorldAutoUpdate = false;
     try {
-      await this.renderer.render(this.scene, this.camera);
+      const layers = this.fadingLayers();
+      if (layers)
+        await (this.compositor ??= new LayerCompositor(4)).render(this.renderer, this.scene, this.camera, layers);
+      else
+        await this.renderer.render(this.scene, this.camera);
     } finally {
       if (settled)
         this.scene.matrixWorldAutoUpdate = true;
     }
   }
+  compositor;
+  fadingLayers() {
+    const fades = this.dream.layerFades;
+    if (!fades || !fades.some((f2) => f2.opacity < 1) || this.ribbonBatches.length > 0)
+      return;
+    if (!this.rootGroups) {
+      this.rootGroups = new Map;
+      for (const { holon, group } of this.groups)
+        if (group.parent === this.scene)
+          this.rootGroups.set(holon, group);
+    }
+    const roots = this.rootGroups;
+    return fades.filter((f2) => f2.opacity < 1).map((f2) => ({
+      objects: f2.roots.flatMap((r2) => {
+        const g2 = roots.get(r2);
+        return g2 ? [g2] : [];
+      }),
+      weight: f2.opacity
+    }));
+  }
+  rootGroups;
   matricesSettled = false;
   freezeStaticMatrices() {
     const freeze = (o2) => {
@@ -65641,6 +65860,8 @@ class ThreeHost {
       }
       const { look } = binding;
       fill.style(look.creation.value * look.opacity.value, liftTint(look.tint.value, this.highlightOf(holon)));
+      if (binding.gradient)
+        fill.setGradient(look.fillFalloff.value, look.fillFalloffRadius.value);
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding;
@@ -65650,6 +65871,8 @@ class ThreeHost {
           fill.setPolygon(washed.points, washed.triangles);
       }
       fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
+      if (binding.gradient)
+        fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value);
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding;
@@ -65657,6 +65880,8 @@ class ThreeHost {
         fill.setPolygons(drawingSubpaths(holon) ?? []);
       }
       fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
+      if (binding.gradient)
+        fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value);
     }
     this.syncCamera();
     if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatches.length > 0) {
@@ -66272,6 +66497,7 @@ class ThreeHost {
     for (const { binding } of this.texts)
       binding.dispose();
     this.texts.length = 0;
+    this.compositor?.dispose();
     this.renderer.dispose();
   }
 }
@@ -67756,8 +67982,8 @@ var measured = (g2, p2, holon) => {
   }
   return extents.get(key) ?? undefined;
 };
-var ownSpec = (name, kind, value, min6, max6) => {
-  const range3 = min6 !== undefined && max6 !== undefined ? `, ${min6}..${max6}` : "";
+var ownSpec = (name, kind, value, min6, max7) => {
+  const range3 = min6 !== undefined && max7 !== undefined ? `, ${min6}..${max7}` : "";
   const r2 = Math.round(value * 1000) / 1000;
   return {
     type: "number",
@@ -71633,10 +71859,10 @@ var boxOf = (k2) => {
   return { x0, y0, x1, y1 };
 };
 var gapBetween = (a2, b2) => Math.hypot(Math.max(0, a2.x0 - b2.x1, b2.x0 - a2.x1), Math.max(0, a2.y0 - b2.y1, b2.y0 - a2.y1));
-var likelySelection = (strokes, minGap = 40, max6 = 120) => {
+var likelySelection = (strokes, minGap = 40, max7 = 120) => {
   const out = [];
   let cluster;
-  for (let i2 = strokes.length - 1;i2 >= 0 && out.length < max6; i2--) {
+  for (let i2 = strokes.length - 1;i2 >= 0 && out.length < max7; i2--) {
     const b2 = boxOf(strokes[i2]);
     if (!b2)
       continue;

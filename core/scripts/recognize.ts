@@ -53,6 +53,7 @@ import {
 } from "./backends"
 import { describeShelf } from "./catalogue"
 import { overlayPng } from "./overlay"
+import { merge, ring, routeClef, single, type ClefRoute, type Reading } from "./route"
 
 export { cliResultText }
 /** The CLI's model (backends.ts) — instruct.ts and the logs name it. */
@@ -427,7 +428,9 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
       if (!eyes) return done({ candidates: [], error: needs ? `${eyesId}: add ${needs} to core/.env` : `unknown reader '${eyesId}'` })
       opts = { ...opts, chain: eyes.chain, decision: eyes.decision }
     }
-    const full = opts.chain ?? backendChain()
+    // AUTO (route.ts): Clef first, then the fast readers; the CLI only when
+    // there is no fast reader at all (no keys: what there always was).
+    const full = opts.chain ?? autoChain()
     const chain = opts.speculative ? full.filter(isFast) : full
     const clef = opts.decision === undefined ? decisionFirst() : (opts.decision ?? undefined)
     if (chain.length === 0 && !clef) return done({ candidates: [], error: "no fast backend to ask ahead" })
@@ -482,44 +485,55 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
       return { res: again.res, fit: again.fit ?? fit, backend: `${hard.reply.backend}:${hard.reply.model}` }
     }
 
-    // 1a. A decision model (Clef): it only CHOOSES; the fitter supplies every number.
+    // 1a. A decision model (Clef) first: it only CHOOSES; the fitter supplies
+    // every number; route.ts decides whether that settles it.
+    let clefReading: Reading | undefined
     if (clef) {
       const t0 = performance.now()
+      let route: ClefRoute = { to: "groq", reason: "Clef failed" }
       try {
         const d = await clef.choose({ state: clefState(req), pngs: [png], choice: symbolChoice(entries), timeoutMs: 20_000 })
-        timed(`clef ${clef.model}`, t0, `${d.choice} ${d.confidence.toFixed(2)}`)
-        const picked = Object.entries(d.probabilities)
-          .filter(([id, p]) => id !== NONE && (id === d.choice || p >= 0.25))
-          .sort((a, b) => b[1] - a[1])
+        const ranked = Object.entries(d.probabilities).sort((x, y) => y[1] - x[1])
+        timed(`clef ${clef.model}`, t0, `${d.choice} ${(ranked[0]?.[1] ?? 0).toFixed(2)}`)
+        const picked = ranked
+          .filter(([id, p]) => id !== NONE && (id === d.choice || p >= 0.2))
           .slice(0, 3)
           .map(([id, p]) => ({ entry: vocabById(id), p }))
-        // A choice the geometry can't place alone (words, a cable to trace) goes on to a reading model.
-        if (d.choice !== NONE && picked.length > 0 && picked.every((c) => c.entry && raceable(c.entry))) {
+        const placeable = d.choice !== NONE && picked.length > 0 && picked.every((c) => c.entry && raceable(c.entry))
+        let fit: number | undefined
+        if (placeable) {
           const t1 = performance.now()
           const candidates: Candidate[] = []
-          let fit: number | undefined
           for (const { entry, p } of picked) {
             const best = raceVocabulary(req.strokes, [entry!.id])[0]
             if (!best) continue
-            fit ??= best.score.total
+            if (candidates.length === 0) fit = best.score.total
             candidates.push({ symbol: entry!.id, params: best.params, confidence: Math.round(p * 100) / 100, why: `Clef ${p.toFixed(2)} · fit ${best.score.total.toFixed(3)}` })
           }
           timed("fit", t1, fit?.toFixed(3))
-          if (candidates.length > 0 && fit !== undefined) {
-            const hard = await hardCase({ candidates }, fit, "clef")
-            return done({ ...hard.res, fit: hard.fit, backend: hard.backend ?? `clef:${clef.model}` })
-          }
+          if (candidates.length > 0) clefReading = { via: "clef", candidates, fit }
         }
+        route = routeClef({ choice: d.choice, top: ranked[0]?.[1] ?? 0, second: ranked[1]?.[1] ?? 0, placed: !!clefReading, fit })
       } catch (err) {
         timed("clef", t0, String((err as Error)?.message ?? err).slice(0, 120))
       }
-      if (chain.length === 0) return done({ candidates: [], error: "Clef could not place it, and no fast reading model to ask ahead" })
+      const backend = `clef:${clef.model}`
+      if (route.to === "replace") return done(single(clefReading!.candidates[0]!, { fit: clefReading!.fit, backend }))
+      if (route.to === "ring") return done(ring(clefReading!.candidates.map((c) => ({ ...c, via: "clef", label: `clef ${c.confidence.toFixed(2)}` })), { fit: clefReading!.fit, backend }))
+      stages[stages.length - 1]!.note = `${stages[stages.length - 1]!.note ?? ""} → groq: ${route.reason}`.trim()
+      if (chain.length === 0)
+        return done(clefReading ? merge(clefReading, { via: "groq", candidates: [] }) : { candidates: [], error: `Clef: ${route.reason}, and no reader to ask next` })
     }
 
     // 1. The first look.
     let t0 = performance.now()
     const first = await ask(chain, [png])
-    if (!first.reply) return done({ candidates: [], error: first.failures.join("; ") || "no backend answered" })
+    if (!first.reply) {
+      const error = first.failures.join("; ") || "no backend answered"
+      // Clef's picks still stand when the reader after it failed.
+      if (clefReading) return done({ ...merge(clefReading, { via: "groq", candidates: [] }), backend: `clef:${clef!.model}`, notes: error })
+      return done({ candidates: [], error })
+    }
     const eyes = first.reply
     timed(`${eyes.backend} ${eyes.model}`, t0, first.failures.length ? `after ${first.failures.join("; ")}` : undefined)
     // 2. The fit.
@@ -545,6 +559,11 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
       ;({ res, fit } = hard)
       if (hard.backend) backend = hard.backend
     }
+    // Clef looked first (auto): the two readings are weighed together (route.ts merge).
+    if (clef) {
+      const merged = merge(clefReading, { via: eyes.backend, candidates: res.candidates, fit, notes: res.notes })
+      return done({ ...merged, backend: merged.candidates.length > 1 ? `clef+${backend}` : backend })
+    }
     return done({ ...res, ...(fit !== undefined ? { fit } : {}), backend })
   } catch (err) {
     return done({ candidates: [], error: String((err as Error)?.message ?? err) })
@@ -552,6 +571,13 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
 }
 
 // --- Asked once, answered twice: the reading of an ink set, remembered ---------------
+
+/** Auto's readers: every keyed fast one, in order; the CLI only when there are none (and no Clef). */
+const autoChain = (): Backend[] => {
+  const all = backendChain()
+  const fast = all.filter(isFast)
+  return fast.length > 0 || decisionFirst() ? fast : all
+}
 
 /** The ink + imports a reading is of (speculate.ts inkKey — the page keys its own by it too). */
 export const readingKey = (req: Pick<RecognizeRequest, "strokes" | "vocabulary" | "backend">): string => Bun.hash(inkKey(req)).toString(36)
