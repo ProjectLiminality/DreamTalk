@@ -855,6 +855,7 @@ export class ThreeHost {
     // stroke has claimed its slot.
     // Each batch already sits at its own run's renderOrder (see attach).
     for (const batch of host.ribbonBatches) host.scene.add(batch.mesh)
+    host.freezeStaticMatrices()
     // Glyph layout is asynchronous (three-text loads HarfBuzz and the
     // font on first use), so a host carrying Text is not frame-ready the
     // moment it mounts. Awaiting every binding here is what makes a
@@ -1089,9 +1090,40 @@ export class ThreeHost {
    */
   private matricesSettled = false
 
-  /** scene.updateMatrixWorld(true), recorded as the frame's settle. */
+  /**
+   * Perf I-2 — the host's own meshes (ribbons, fills, washes, arrowheads,
+   * cylinder contours) sit at the identity inside their holon's group
+   * forever: the only transform writers in the frame path are the group
+   * loop and the camera. Left auto-updating, each recomposed its matrix
+   * and flagged itself dirty on every settle, and the auto-updating scene
+   * root forced the whole tree (Web3: ~19 ms a frame over ~35k nodes). So
+   * they — and the scene root — stop auto-updating, each flagged once so
+   * the first settle computes its world matrix, and the settle is no
+   * longer forced: a subtree is recomputed exactly when its group's
+   * matrix moved (sync() calls group.updateMatrix(), which flags it), from
+   * the same inputs as before, so every matrixWorld is the same float.
+   * Meshes built later (Text's contour rebuild) keep auto-updating.
+   */
+  private freezeStaticMatrices(): void {
+    const freeze = (o: THREE.Object3D) => {
+      o.matrixAutoUpdate = false
+      o.matrixWorldNeedsUpdate = true
+    }
+    this.scene.matrixAutoUpdate = false
+    this.scene.matrixWorldNeedsUpdate = true
+    for (const { ribbon } of this.strokes) freeze(ribbon.mesh)
+    for (const { fill } of this.fills) freeze(fill.mesh)
+    for (const { fill } of this.washes) freeze(fill.mesh)
+    for (const { fill } of this.drawingWashes) freeze(fill.mesh)
+    for (const { fill } of this.arrows) freeze(fill.mesh)
+    for (const c of this.cylinders) {
+      for (const r of [c.farCap, c.nearBack, c.nearFront, c.lineA, c.lineB]) freeze(r.mesh)
+    }
+  }
+
+  /** The frame's settle — not forced: only moved subtrees recompute (I-2). */
   private settleScene(): void {
-    this.scene.updateMatrixWorld(true)
+    this.scene.updateMatrixWorld()
     this.matricesSettled = true
   }
 

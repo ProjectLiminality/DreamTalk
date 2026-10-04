@@ -598,6 +598,9 @@ ruling (translation + the three deleted labels from footage).
 - [x] **Perf I-1** — strokes scaled to exactly nothing draw one dot per
       (centre, width, tint, fade) per batch: byte-exact (PNG gate, wall
       gauntlet). TheWall GPU-complete 265→43 ms at t=0.5, 167→64 at 8.33.
+- [x] **Perf I-2** — host meshes + scene root stop auto-updating; non-
+      forced settle. Matrices identical (state gate, 18 scenes). Web3
+      80/77/73 → 71/59/57 ms.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

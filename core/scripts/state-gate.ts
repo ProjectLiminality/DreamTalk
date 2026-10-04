@@ -58,7 +58,7 @@ const out: Record<string, unknown[]> = {}
 for (const scene of scenes) {
   const page = await browser.newPage()
   await page.setViewport({ width: 1280, height: 720 })
-  await page.goto(`http://localhost:${PORT}/demo/?scene=${scene}`, { waitUntil: "networkidle0", timeout: 180000 })
+  await page.goto(`http://localhost:${PORT}/demo/?scene=${scene}`, { waitUntil: "domcontentloaded", timeout: 180000 })
   await page.waitForFunction("window.__dt && (window.__dt.ready === true || window.__dt.error)", { timeout: 180000 })
   const frames = await page.evaluate(async () => {
     ;(window as any).__dt.pause?.()

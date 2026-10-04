@@ -328,7 +328,7 @@ washes, ~35k scene nodes), self time:
 | # | Optimization | Lever | Expected | Risk |
 |---|---|---|---|---|
 | I-1 | Hide stacked degenerate strokes, one dot per identical (centre, width, tint, fade) — exact under MAX | TheWall GPU (above) | t=0.5 ~265→~25 ms; t=8.33 ~half | **DONE 2026-10-04** — see "I-1 result" |
-| I-2 | Ribbon/fill meshes `matrixAutoUpdate=false` (identity) and a non-forced settle, so only moved subtrees recompute | Web3/pl02 matrix settle ~19 ms | −10…−15 ms on Web3 | LOW (state gate: matrices must hash identical) |
+| I-2 | Ribbon/fill meshes `matrixAutoUpdate=false` (identity) and a non-forced settle, so only moved subtrees recompute | Web3/pl02 matrix settle ~19 ms | −10…−15 ms on Web3 | **DONE 2026-10-04** — see "I-2 result" |
 | I-3 | Allocation-free parametric dirty-check (cached shape Params + scalar compare, like E/F did for transforms/style) | Web3 shapeKey ~9.6 ms | −6…−8 ms | LOW (state gate) |
 
 Measuring kit (scratchpad/engine): GPU-complete probe with runtime
@@ -378,3 +378,34 @@ settles now that the page streams audio — they wait for the ready flag.
 And the wall gauntlet's freshness guard (9bdf659) had been pasted INSIDE
 its embedded Python crop script, so every crop failed and nothing was
 scored; it is back at top level.
+
+## I-2 result (2026-10-04) — only moved subtrees settle
+
+The host's own meshes (ribbons, fills, washes, drawing washes, arrowheads,
+cylinder contours) and the scene root stop auto-updating; each is flagged
+once so the first settle computes it, and the host's frame settle is no
+longer forced (`freezeStaticMatrices`, `settleScene`). A subtree is then
+recomputed exactly when its group moved — sync() calls group.updateMatrix(),
+which flags it — from the same inputs, so every matrixWorld is the same
+float. Text's contour meshes, rebuilt later, keep auto-updating; the pick /
+bounds helpers keep their own forced settles.
+
+**Gate.** state-gate on 18 scenes (the default 16 + web3 + p02k): matrices
+(`hm`) identical on all 18; 17 identical outright. Web3's uniform hash
+differs in TRAVERSAL ORDER only: a direct dump of every ribbon's uniforms
+(17,971) and every material's (6,483) at the gate's first frame is
+identical as a multiset; its four async Text glyph meshes are created at a
+different moment (layout resolves on a frame timer), so their object ids
+and child order differ — MAX-blended, order-free. 1,810 tests green.
+
+**Win, GPU-complete wall ms** (before = cd3bea7, a fresh worktree):
+
+| scene | before | after |
+|---|---|---|
+| web3 (t 40 / 100 / 138) | 80 / 77 / 73 | **71 / 59 / 57** |
+| thewall (t 0.5 / 8.33) | 47 / 78 | 45 / 71 |
+| p02k (t 5 / 20) | 15.0 / 15.6 | 13.9 / 14.8 |
+| pl02 (t 60 / 300) | 64 / 76 | 62 / 72 (boot 31.4 → 29.1 s) |
+
+Also: state-gate.ts waits for the ready flag instead of `networkidle0`
+(the page streams audio now — same fix as the two gauntlets).
