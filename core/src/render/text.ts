@@ -454,7 +454,37 @@ const loopLength = (loop: readonly Vec3Like[]): number => {
  * each time was a third of that cost. Keyed by the position attribute and
  * its version, so a relayout or any write to the positions misses.
  */
-const ringCache = new WeakMap<THREE.BufferAttribute, { version: number; rings: Map<number, Vec3Like[][]> }>()
+const ringCache = new WeakMap<
+  THREE.BufferAttribute,
+  {
+    version: number
+    rings: Map<number, Vec3Like[][]>
+    /** Inset results per "glyph|inset" — see glyphInsets. */
+    insets: Map<string, { loop: Vec3Like[]; depth: number }[]>
+  }
+>()
+
+/**
+ * One glyph's inset contours at one inset depth, cached per layout: a
+ * pure function of the rings and the depth. With the projection scale
+ * quantized (insetBucket), a scrub back to a scale already seen costs only
+ * the ribbon rebuild.
+ */
+const glyphInsets = (
+  position: THREE.BufferAttribute,
+  g: number,
+  rings: Vec3Like[][],
+  inset: number,
+): { loop: Vec3Like[]; depth: number }[] => {
+  const entry = ringCache.get(position)!
+  const key = `${g}|${inset}`
+  let found = entry.insets.get(key)
+  if (!found) {
+    found = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop)))
+    entry.insets.set(key, found)
+  }
+  return found
+}
 const glyphRings = (
   position: THREE.BufferAttribute,
   positions: ArrayLike<number>,
@@ -464,7 +494,7 @@ const glyphRings = (
 ): Vec3Like[][] => {
   let entry = ringCache.get(position)
   if (!entry || entry.version !== position.version) {
-    entry = { version: position.version, rings: new Map() }
+    entry = { version: position.version, rings: new Map(), insets: new Map() }
     ringCache.set(position, entry)
   }
   let rings = entry.rings.get(g)
@@ -474,6 +504,21 @@ const glyphRings = (
   }
   return rings
 }
+
+/**
+ * The projection scale a Text insets its contours at, QUANTIZED onto a
+ * fixed log grid of 0.5% steps — a pure function of the frame (lead,
+ * 2026-10-04). The inset is half a pen in pixels over this scale, so a
+ * bucket moves it by at most ~0.25% of half a pen (≤ ~0.01 px), while a
+ * dolly re-insets once per bucket instead of every frame; and because the
+ * bucket depends on this frame alone — not on the last frame that
+ * re-inset — the same t draws the same pixels whatever was played or
+ * scrubbed before it.
+ */
+const INSET_STEP = Math.log(1.005)
+const insetBucketOf = (pixelsPerUnit: number): number =>
+  Math.round(Math.log(Math.max(pixelsPerUnit, 1e-6)) / INSET_STEP)
+const insetScaleOf = (bucket: number): number => Math.exp(bucket * INSET_STEP)
 
 const buildOutlines = (
   geometry: THREE.BufferGeometry,
@@ -509,7 +554,7 @@ const buildOutlines = (
     const rings = glyphRings(position, positions, indices, glyphIndex, g)
     // Each contour against its siblings too: a counter and its outline
     // share the stem between them, and neither inset may cross it.
-    const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop)))
+    const loops = glyphInsets(position, g, rings, inset)
     // NOTE (open): where along its contour the 2021 pen STARTED is not
     // recoverable here. C4D began each stroke at its spline's first
     // point — the font's own contour start — and three-text hands over
@@ -788,7 +833,8 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
   let material: TextGlyphMaterial | undefined
   let handle: TextHandle | undefined
   let outlines: GlyphOutline[] = []
-  let insetScale = DEFAULT_PIXELS_PER_UNIT
+  let insetBucket = insetBucketOf(DEFAULT_PIXELS_PER_UNIT)
+  let insetScale = insetScaleOf(insetBucket)
   let currentKey = ""
   let layoutToken = 0
   let disposed = false
@@ -898,8 +944,10 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
       // The inset depends on the projection, so a camera move (or a
       // resize) rebuilds the contours — a few hundred points repacked,
       // and only when the number actually changes.
-      if (mesh && Math.abs(pixelsPerUnit - insetScale) > 1e-4) {
-        insetScale = pixelsPerUnit
+      const bucket = insetBucketOf(pixelsPerUnit)
+      if (mesh && bucket !== insetBucket) {
+        insetBucket = bucket
+        insetScale = insetScaleOf(bucket)
         rebuildOutlines()
       }
       if (!mesh || !material) return
