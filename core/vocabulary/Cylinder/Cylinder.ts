@@ -1,5 +1,7 @@
-import { length } from "../../src/params"
-import { Stroke } from "../../src/parts/primitives"
+import { derive, length } from "../../src/params"
+import { Circle, Rectangle, Square, Stroke } from "../../src/parts/primitives"
+import type { Overrides } from "../../src/holon"
+import { squareCircleCylinder } from "../../src/geometry/sdf"
 
 /**
  * A cylinder along local +Y — the star of the 2021 vocabulary. Defaults
@@ -18,4 +20,30 @@ export class Cylinder extends Stroke {
   static sovereign = true
   radius = length(50)
   height = length(200)
+
+  /**
+   * The cylinder a square (or rectangle) and a circle are both partial
+   * views of — their intersection (geometry/sdf.ts): the profile pushed
+   * back through depth, the circle pushed up through height. Its radius
+   * and height are DERIVED readings of the parts, not copies, so the
+   * cylinder follows whatever they become: grow the circle, or swap the
+   * rectangle for a square, and it is still exactly their intersection
+   * (ONTOLOGY.md 2026-09-16, "the test of elegance"). To change it,
+   * change them.
+   *
+   * The intersection is a cylinder only while the profile spans the
+   * circle (width ≥ 2·radius); a narrower profile would shave flats off
+   * the mantle, which no cylinder draws — `squareCircleCylinder(...).exact`
+   * says which side of that line a pair is on.
+   */
+  static of(profile: Square | Rectangle, circle: Circle, overrides: Overrides = {}): Cylinder {
+    const width = () => (profile instanceof Square ? profile.size.value : profile.width.value)
+    const height = () => (profile instanceof Square ? profile.size.value : profile.height.value)
+    const shape = () => squareCircleCylinder(width(), height(), circle.radius.value)
+    return new Cylinder({
+      ...overrides,
+      radius: derive(() => shape().radius),
+      height: derive(() => shape().height),
+    })
+  }
 }

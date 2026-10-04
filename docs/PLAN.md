@@ -542,5 +542,12 @@ ruling (translation + the three deleted labels from footage).
       identity proven by the new scripts/state-gate.ts (16 scenes × 28
       frames). Next measured levers G (batch pack, ~30 ms) and H (Cable
       tube, ~20 ms) recorded in the roadmap, not built.
-- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): SDF square∩circle
-      cylinder · GeometrySketch · RayCaster · node-graph visualisation.
+- [x] **SDF square∩circle cylinder** — `Cylinder.of(profile, circle)`:
+      radius/height DERIVED from the parts via build-time CSG
+      (src/geometry/sdf.ts; sign-exact equality with the cylinder proven
+      while width ≥ 2r, the shaved case detected). `/demo/?scene=
+      squarecircle` shows the cascade. NOT done, deliberately: rewiring
+      video01 to it (rectangle→square, red/blue swap) — the gauntlet-scored
+      reproduction is the published canon; that switch is David's call.
+- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): GeometrySketch ·
+      RayCaster · node-graph visualisation.
