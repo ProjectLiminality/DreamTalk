@@ -39,6 +39,14 @@
  *    the observer always matches itself: the camera glides between the
  *    scenes' perspectives.
  *
+ *  - `slide(d)`: Keynote's Push — A's and B's ROOT holons are carried
+ *    up one frame-height together (A from rest to the top edge, B from
+ *    below the bottom edge to rest), eased C4D-smooth; nothing fades.
+ *    The frame-height is each chapter's own, at its observer's distance,
+ *    so the two pictures stay butted edge to edge. A root whose `y` is
+ *    a derived binding cannot be carried and stays put (say so in the
+ *    song if it matters).
+ *
  *  Every window write is recomputed from t alone each sample (glided
  *  params are restored — driven ones by apply(t), undriven ones to their
  *  declared default — whenever t is outside the window), so scrubbing
@@ -63,7 +71,7 @@
  *    rigs instead.
  */
 
-import { Dream, type DreamClass } from "./dream"
+import { Dream, orthoHalfHeight, type DreamClass, type Observer } from "./dream"
 import type { Holon } from "./holon"
 import type { Param, ParamValue } from "./params"
 import {
@@ -104,7 +112,7 @@ export interface Chapter {
 
 /** One resolved overlap window between two adjacent chapters. */
 interface TransitionWindow {
-  kind: "crossfade" | "magicMove"
+  kind: "crossfade" | "magicMove" | "slide"
   start: number
   end: number
   /** Chapter indices: `from` fades/builds out, `into` fades/builds in. */
@@ -116,7 +124,26 @@ interface TransitionWindow {
   outs: Holon[]
   /** magicMove only — subtree holons of unmatched `into` roots. */
   ins: Holon[]
+  /** slide only — the carried roots' `y` params, per side. */
+  lifts: { from: Param<number>[]; into: Param<number>[] }
 }
+
+/**
+ * The world height a chapter's camera frames at its focus — what one
+ * frame of slide travel is. Perspective frames 2·r·tan(fov/2) at distance
+ * r = radius/zoom (three-host syncCamera); orthographic, its half-height
+ * twice. Scenes are composed for 16:9 (three-host aspect()).
+ */
+const frameHeight = (observer: Observer): number => {
+  const zoom = observer.zoom.value || 1
+  return observer.orthographic.value
+    ? 2 * orthoHalfHeight(zoom, 16 / 9)
+    : 2 * (observer.radius.value / zoom) * Math.tan(observer.fov.value / 2)
+}
+
+/** A chapter's carriable roots: true roots (not a Group's late-gathered member), y unbound. */
+const liftsOf = (dream: Dream): Param<number>[] =>
+  dream.roots.filter((r) => r.parent === undefined && !r.y.isBound).map((r) => r.y)
 
 export class DreamSong extends Dream {
   readonly #specs: readonly ChapterSpec[]
@@ -227,6 +254,7 @@ export class DreamSong extends Dream {
           pairs: [],
           outs: [],
           ins: [],
+          lifts: { from: [], into: [] },
         }
         if (transition.kind === "magicMove") {
           const a = this.#chapters[i - 1]!
@@ -234,6 +262,11 @@ export class DreamSong extends Dream {
           window.pairs = match.pairs.flatMap(([ra, rb]) => matchedParams(ra, rb))
           window.outs = match.outs.flatMap((root) => [...root.walk()])
           window.ins = match.ins.flatMap((root) => [...root.walk()])
+        }
+        if (transition.kind === "slide") {
+          // The holon trees above have composed every Group, so a member
+          // the scene also listed as a root now knows its whole.
+          window.lifts = { from: liftsOf(this.#chapters[i - 1]!.dream), into: liftsOf(ch.dream) }
         }
         this.#windows.push(window)
       }
@@ -259,11 +292,12 @@ export class DreamSong extends Dream {
     // driven ones by apply(t) above, undriven ones to their declared
     // default (a previous sample inside the window wrote them).
     for (const w of windows) {
-      if (w === window || w.kind !== "magicMove") continue
+      if (w === window) continue
       for (const { a, b } of w.pairs) {
         if (!driven.has(a)) a.value = a.defaultValue
         if (!driven.has(b)) b.value = b.defaultValue
       }
+      for (const y of [...w.lifts.from, ...w.lifts.into]) if (!driven.has(y as Param<ParamValue>)) y.value = y.defaultValue
     }
     if (window && window.kind === "magicMove") {
       const e = smooth((t - window.start) / (window.end - window.start))
@@ -274,6 +308,15 @@ export class DreamSong extends Dream {
         a.value = v
         b.value = v
       }
+    }
+
+    if (window && window.kind === "slide") {
+      const e = smooth((t - window.start) / (window.end - window.start))
+      const lift = (ys: Param<number>[], dy: number) => {
+        for (const y of ys) y.value = (driven.has(y as Param<ParamValue>) ? y.value : y.defaultValue) + dy
+      }
+      lift(window.lifts.from, e * frameHeight(this.#chapters[window.from]!.dream.observer))
+      lift(window.lifts.into, (e - 1) * frameHeight(this.#chapters[window.into]!.dream.observer))
     }
 
     // Visibility: the live chapters show (their driven opacity already
@@ -301,7 +344,7 @@ export class DreamSong extends Dream {
       if (window.kind === "crossfade") {
         for (const holon of holons[window.from]!) holon.opacity.gate *= 1 - u
         for (const holon of holons[window.into]!) holon.opacity.gate *= u
-      } else {
+      } else if (window.kind === "magicMove") {
         const out = buildOut(u)
         const into = buildIn(u)
         for (const holon of window.outs) holon.opacity.gate *= out
@@ -315,7 +358,7 @@ export class DreamSong extends Dream {
     const mirror = this.observer.params
     if (window) {
       const u = (t - window.start) / (window.end - window.start)
-      const e = window.kind === "magicMove" ? smooth(u) : u
+      const e = window.kind === "crossfade" ? u : smooth(u)
       const aObs = this.#chapters[window.from]!.dream.observer.params
       const bObs = this.#chapters[window.into]!.dream.observer.params
       for (const [name, target] of mirror) {

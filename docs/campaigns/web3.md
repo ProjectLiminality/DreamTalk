@@ -264,9 +264,18 @@ reading — this contradicts the "Who reads the quote" section above; the
 quote keeps its current voice, and the choice stays David's) and
 `14_I_would_love` (an alternate of 13's last sentence).
 
-**Not reproduced, stated rather than faked:** the zoom into the blue node at
-~21s and the slide-wipes at 106s and 145s (crossfades instead — a slide
-needs both chapters' cameras to move as one); the C4D terminator light in
+**The moves between shots (2026-10-04).** The dive into the blue node
+(20.25–21.5) is the yin-yang chapter's camera zooming in on geometric keys
+read off the 4fps frames, dimmed to black by the crossfade into Web2 (whose
+camera starts where the dive ends, so the crossfade never pulls back out).
+The two vertical pushes (106–107, 144.5–146) are a new DreamSong transition,
+`slide(d)` (src/song.ts): both chapters' roots carried up one frame-height
+together, nothing fading — no renderer change was needed. Remaining
+differences: the original's yin-yang still spins fast into the dive (ours
+ends its turn at 18.5 and dives at the node where it rests), and its pushes
+start a touch quicker than C4D-smooth.
+
+**Not reproduced, stated rather than faked:** the C4D terminator light in
 shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch
 composites every stroke above every fill — a host property); Text renders
 heavier than Manim's hairline serif; LightSpread's arcs stay closer to the

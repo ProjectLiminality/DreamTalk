@@ -29,7 +29,7 @@ import type { Param, ParamValue } from "./params"
  * chapters are live.
  */
 export interface Transition {
-  kind: "cut" | "crossfade" | "magicMove"
+  kind: "cut" | "crossfade" | "magicMove" | "slide"
   /** Overlap in seconds — how long before A's end B's offset begins. */
   duration: number
 }
@@ -48,6 +48,15 @@ export const crossfade = (duration: number): Transition => ({ kind: "crossfade",
  * itself, so the camera glides between the scenes' perspectives.
  */
 export const magicMove = (duration: number): Transition => ({ kind: "magicMove", duration })
+
+/**
+ * Keynote's Push: the outgoing scene slides off one edge as the incoming
+ * one slides in from the opposite edge, the two rigidly together, eased
+ * C4D-smooth — one frame-height of travel. `up` (the default) means the
+ * pictures move UP: A leaves through the top, B rises from below.
+ * Nothing fades; both chapters are fully shown for the whole window.
+ */
+export const slide = (duration: number): Transition => ({ kind: "slide", duration })
 
 /** The fraction of a magic-move window the build-out/in ramps occupy. */
 export const BUILD_FRACTION = 0.4
