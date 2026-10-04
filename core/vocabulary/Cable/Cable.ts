@@ -80,7 +80,6 @@
 import { Holon } from "../../src/holon"
 import { bool, color, completion, length, scalar } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
-import { invRotHPB } from "../../src/parts/curves"
 import { TAU, WHITE } from "../../src/constants"
 import { bake, type BakedTrack, type Simulation } from "../../src/bake"
 import {
@@ -160,6 +159,21 @@ const TETHER_TAPER_MIN = 0.3
 // -- dumb vec3 helpers (module-local; not worth a Param in sight) -----------
 
 const sub = (a: Vec3Like, b: Vec3Like): Vec3Like => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z })
+
+/** One ancestor of a cable, inverted — see Cable.localFrame. */
+interface LocalStep {
+  x: number
+  y: number
+  z: number
+  cb: number
+  sb: number
+  cp: number
+  sp: number
+  ch: number
+  sh: number
+  inv: number
+  scaled: boolean
+}
 const add = (a: Vec3Like, b: Vec3Like): Vec3Like => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z })
 const mul = (a: Vec3Like, k: number): Vec3Like => ({ x: a.x * k, y: a.y * k, z: a.z * k })
 const cross = (a: Vec3Like, b: Vec3Like): Vec3Like => ({
@@ -465,20 +479,74 @@ export class Cable extends Stroke {
     return key
   }
 
-  /** World → the cable's parent frame, down the ancestor chain in the
-   *  host's own transform order (translate → rotate → scale, inverted). */
-  private toLocal(v: Vec3Like): Vec3Like {
+  /**
+   * The ancestor chain, root first, read ONCE per geometry computation
+   * (perf H): each ancestor's translation, the six cos/sin `invRotHPB`
+   * would take of −b, −p, −h, and 1/scale. The chain is constant within a
+   * computation, but toLocal ran ~120 times per tether per frame — 236
+   * tethers re-walking the chain and re-taking every sine at every point.
+   */
+  private _frame?: LocalStep[]
+
+  private localFrame(): LocalStep[] {
     const chain: Holon[] = []
     for (let node: Holon | undefined = this.parent; node; node = node.parent) chain.push(node)
-    let out = v
+    const steps: LocalStep[] = []
     for (let i = chain.length - 1; i >= 0; i--) {
       const anc = chain[i]!
-      out = sub(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value })
-      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value)
+      const p = anc.p.value
+      const h = anc.h.value
+      const b = anc.b.value
       const s = anc.scale.value
-      if (s !== 1) out = mul(out, 1 / s)
+      steps.push({
+        x: anc.x.value,
+        y: anc.y.value,
+        z: anc.z.value,
+        cb: Math.cos(-b),
+        sb: Math.sin(-b),
+        cp: Math.cos(-p),
+        sp: Math.sin(-p),
+        ch: Math.cos(-h),
+        sh: Math.sin(-h),
+        inv: s !== 1 ? 1 / s : 1,
+        scaled: s !== 1,
+      })
     }
-    return out
+    return steps
+  }
+
+  /** World → the cable's parent frame, down the ancestor chain in the
+   *  host's own transform order (translate → rotate → scale, inverted).
+   *  The arithmetic is invRotHPB's, operation for operation, with its
+   *  sines read from the frame — the same floats, without re-taking them. */
+  private toLocal(v: Vec3Like): Vec3Like {
+    const steps = this._frame ?? this.localFrame()
+    let x = v.x
+    let y = v.y
+    let z = v.z
+    for (const k of steps) {
+      x = x - k.x
+      y = y - k.y
+      z = z - k.z
+      // Rz(-b)
+      let t = x * k.cb - y * k.sb
+      y = x * k.sb + y * k.cb
+      x = t
+      // Rx(-p)
+      t = y * k.cp - z * k.sp
+      z = y * k.sp + z * k.cp
+      y = t
+      // Ry(-h)
+      t = x * k.ch + z * k.sh
+      z = -x * k.sh + z * k.ch
+      x = t
+      if (k.scaled) {
+        x = x * k.inv
+        y = y * k.inv
+        z = z * k.inv
+      }
+    }
+    return { x, y, z }
   }
 
   private geometry(): CableGeometry {
@@ -487,7 +555,12 @@ export class Cable extends Stroke {
       return this._memo
     }
     this._memoKey = key
-    this._memo = this.computeGeometry()
+    this._frame = this.localFrame()
+    try {
+      this._memo = this.computeGeometry()
+    } finally {
+      this._frame = undefined
+    }
     return this._memo
   }
 

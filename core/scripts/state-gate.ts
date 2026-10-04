@@ -7,7 +7,8 @@
  * the GPU will receive: each node's matrixWorld, visibility, layer mask and
  * renderOrder; every mesh's userData uniforms and numeric material
  * uniforms; the used range of every geometry buffer (the ribbon batch as
- * an order-free multiset of its LIVE instances — hidden slots are MAX-blend
+ * an order-free multiset of its LIVE instances — each its table row plus
+ * its local segment — since hidden and abandoned slots are MAX-blend
  * no-ops whose stale contents depend on history); and the camera. Equal
  * hashes before and after a change mean equal GPU input, so equal pixels —
  * without the cross-process noise MAX-blended pixels carry.
@@ -75,7 +76,24 @@ for (const scene of scenes) {
         hv = hashNums([o.visible ? 1 : 0, o.layers.mask, o.renderOrder], hv)
         for (const k of Object.keys(o.userData).sort()) { const v = o.userData[k]; hu = typeof v === "number" ? hashNums([v], hu) : v && v.isColor ? hashNums([v.r, v.g, v.b], hu) : hu }
         const g = o.geometry
-        if (g && g.attributes.instanceFade && g.attributes.instanceStart) {
+        if (g && g.attributes.instanceStroke && host.ribbonBatch) {
+          // the ribbon batch, table layout (opt G): an instance is live when
+          // its stroke's row has fade ≠ 0; hash each live instance as its
+          // row (f32 modelView + style) plus its local endpoints/distances,
+          // as an order-free multiset — abandoned runs keep stale history
+          const t = host.ribbonBatch.tableArray, rows = g.attributes.instanceStroke.array
+          const pos = g.attributes.instanceStart.data.array, dist = g.attributes.instanceDistanceStart.data.array
+          let sum = 0, live = 0
+          for (let i = 0; i < g.instanceCount; i++) {
+            const r = rows[i] * 24
+            if (t[r + 19] === 0) continue
+            live++
+            let hi = hashNums(t.subarray(r, r + 23), 0x811c9dc5)
+            hi = hashNums([pos[i*6], pos[i*6+1], pos[i*6+2], pos[i*6+3], pos[i*6+4], pos[i*6+5], dist[i*2], dist[i*2+1]], hi)
+            sum = (sum + hi) >>> 0
+          }
+          hg = hashNums([sum, live], hg)
+        } else if (g && g.attributes.instanceFade && g.attributes.instanceStart) {
           // the ribbon batch: hidden slots (fade 0) are MAX-blend no-ops whose
           // stale positions depend on history — hash only live instances
           const fade = g.attributes.instanceFade.array, n = Math.min(g.instanceCount, fade.length)

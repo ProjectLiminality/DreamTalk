@@ -139,7 +139,7 @@ run, also present baseline-vs-baseline). tsc clean, 1617 tests green.
 | # | Optimization | Lever | Impact | Risk |
 |---|---|---|---|---|
 | G | Batch pack without the per-frame CPU bake: per-stroke modelView in a small storage/instance buffer, `mv · local` on the GPU (instancing-design Option 2), or re-bake only strokes whose group moved when the camera is still | `packRibbonBatch` ~25–37 ms on TheWall | the largest remaining frame cost | **DONE 2026-10-04** — see "G result" below |
-| H | Cable's view-dependent tube (`toLocal`/`tubeFrom`) per frame | ~20 ms on TheWall, grows with t | vocabulary-level, Cable only | MEDIUM — Cable is scored by the wall gauntlet |
+| H | Cable's view-dependent tube (`toLocal`/`tubeFrom`) per frame | ~20 ms on TheWall, grows with t | vocabulary-level, Cable only | **DONE 2026-10-04** — see "H result" |
 
 ## G result (2026-10-04) — the per-stroke table
 
@@ -187,3 +187,18 @@ segment count rises (425k → 500k) — not fill-rate, not plain vertex count.
 Measuring tip: any perf claim from here on must await GPU completion;
 `scratchpad`-style probes that time `renderer.render` alone measure
 submission only.
+
+## H result (2026-10-04) — the tether's frame, read once
+
+The tube is not view-dependent (`view` is a build-time constant); it
+recomputes each frame because the tether's clock moves. The waste was
+structural: `toLocal` re-walked the ancestor chain and re-took the sine
+and cosine of every ancestor's h/p/b for EVERY point (~120 per tether,
+236 tethers). `Cable.localFrame()` now reads the chain once per geometry
+computation (translation, the six cos/sin of −b/−p/−h, 1/scale) and
+`toLocal` applies invRotHPB's arithmetic operation for operation from it
+— the same floats. Byte-identity: state-gate (now table-aware for the
+batch) on thewall, mindvirus, cable, labyrinth, molocheye, video01 —
+identical apart from the first-frame noise floor, which differs equally
+between two runs of the SAME code. GPU-complete TheWall frames:
+265/239/189/126 → 264/228/164/84 ms at t = 0.5/3.33/8.33/15.8.

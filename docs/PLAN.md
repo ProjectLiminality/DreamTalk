@@ -587,6 +587,9 @@ ruling (translation + the three deleted labels from footage).
       completion TheWall is 130–260 ms/frame under oracle, A and G alike —
       the old fps claims timed submission only. New item I: attribute that
       GPU time (timestamp queries) before anything else.
+- [x] **Perf H — Cable's tether frame read once per computation**
+      (vocabulary/Cable/Cable.ts): same floats, byte-identical (state
+      gate); TheWall GPU-complete frames up to −42 ms (t=15.8: 126→84).
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded
