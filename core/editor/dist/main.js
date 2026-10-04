@@ -61428,313 +61428,6 @@ class Cylinder extends Stroke {
     });
   }
 }
-// vocabulary/Eye/Eye.ts
-var oneStroke = (strokes, retract = false) => {
-  const n2 = strokes.length;
-  if (n2 === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i2) => {
-    const values = [];
-    for (let k2 = 0;k2 <= STEPS; k2++) {
-      const shared2 = ease("smooth", k2 / STEPS) * n2;
-      const drawn = Math.min(1, Math.max(0, shared2 - i2));
-      values.push(retract ? 1 - drawn : drawn);
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class Eye extends Stroke {
-  static sovereign = true;
-  opening = completion(1);
-  lidTop = new Line2({
-    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(PI5 / 8)
-  });
-  lidBottom = new Line2({
-    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(-PI5 / 8)
-  });
-  eyeball = new Arc({
-    radius: 200,
-    startAngle: this.opening.times(-PI5 / 8),
-    endAngle: this.opening.times(PI5 / 8),
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
-  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
-  createAnim() {
-    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
-  }
-  unCreateAnim() {
-    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
-  }
-}
-// vocabulary/Axes/Axes.ts
-var cascade = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i2) => restage(line.creation.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
-};
-var consume = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i2) => restage(line.erasure.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
-};
-
-class Axes extends Stroke {
-  static sovereign = true;
-  mode = "xy";
-  xStart = scalar(-200);
-  xEnd = scalar(200);
-  yStart = scalar(-200);
-  yEnd = scalar(200);
-  zStart = scalar(-200);
-  zEnd = scalar(200);
-  gridSpacing = length3(30);
-  gridLineLength = length3(1000);
-  drawGrid = bool3(false);
-  drawTicks = bool3(false);
-  arrowEnd = bool3(true);
-  arrowSize = length3(720 / 700);
-  gridTint = color3(WHITE);
-  axisLines = [];
-  gridGroups = [];
-  tickGroups = [];
-  compose() {
-    const spacing = this.gridSpacing.value;
-    const halfGrid = this.gridLineLength.value / 2;
-    const extents = {
-      x: [this.xStart.value, this.xEnd.value],
-      y: [this.yStart.value, this.yEnd.value],
-      z: [this.zStart.value, this.zEnd.value]
-    };
-    const frames = {
-      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
-      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
-      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
-    };
-    const at2 = (v2, k2) => ({ x: v2.x * k2, y: v2.y * k2, z: v2.z * k2 });
-    const sum = (a2, b2) => ({
-      x: a2.x + b2.x,
-      y: a2.y + b2.y,
-      z: a2.z + b2.z
-    });
-    const positions = (start, end) => {
-      const out = [];
-      const negCount = Math.round(Math.abs(start) / spacing);
-      const posCount = Math.round(end / spacing);
-      for (let i2 = negCount - 1;i2 >= 1; i2--)
-        out.push(-i2 * spacing);
-      for (let i2 = 1;i2 < posCount; i2++)
-        out.push(i2 * spacing);
-      return out;
-    };
-    for (const axis of this.mode) {
-      const frame = frames[axis];
-      const extent = extents[axis];
-      if (!frame || !extent)
-        continue;
-      const [start, end] = extent;
-      this.axisLines.push(this.add(new Line2({
-        points: [at2(frame.dir, start), at2(frame.dir, end)],
-        tint: this.tint,
-        stroke: this.stroke,
-        arrowEnd: this.arrowEnd.value,
-        arrowSize: this.arrowSize
-      })));
-      if (this.drawGrid.value) {
-        const group = [];
-        for (const pos of positions(start, end)) {
-          group.push(this.add(new Line2({
-            points: [
-              sum(at2(frame.dir, pos), at2(frame.perp, -halfGrid)),
-              sum(at2(frame.dir, pos), at2(frame.perp, halfGrid))
-            ],
-            tint: this.gridTint,
-            stroke: this.stroke.times(0.5)
-          })));
-        }
-        this.gridGroups.push(group);
-      }
-      if (this.drawTicks.value) {
-        const group = [];
-        const tickHalf = 5;
-        const posCount = Math.round(end / spacing);
-        const negCount = Math.round(Math.abs(start) / spacing);
-        for (let i2 = -(negCount - 1);i2 < posCount; i2++) {
-          group.push(this.add(new Line2({
-            points: [
-              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, -tickHalf)),
-              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, tickHalf))
-            ],
-            tint: this.tint,
-            stroke: this.stroke
-          })));
-        }
-        this.tickGroups.push(group);
-      }
-    }
-  }
-  createAnim() {
-    this.parts;
-    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
-    const items = [
-      [together(...this.axisLines.map((l2) => l2.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([cascade(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([cascade(group), 0.3, 1]);
-    return together(...items);
-  }
-  unCreateAnim() {
-    this.parts;
-    const items = [
-      [together(...this.axisLines.map((l2) => l2.erasure.sequence(0, 1))), 0, 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([consume(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([consume(group), 0, 0.7]);
-    return together(...items);
-  }
-}
-// vocabulary/MolochEye/MolochEye.ts
-var SIN_HALF_SPAN = 4 / 5;
-var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
-var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
-var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
-var CAMERA_DISTANCE_RATIO = 1.282;
-var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
-var K2 = perspectiveK(CAMERA_DISTANCE_RATIO);
-var LENS_STROKE_RATIO = 0.0246;
-var PUPIL_EDGE_RATIO = 1.1673;
-var PUPIL_STROKE_RATIO = 2.284;
-var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
-var onePen = (strokes) => {
-  const n2 = strokes.length;
-  if (n2 === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i2) => {
-    const values = [];
-    for (let k2 = 0;k2 <= STEPS; k2++) {
-      const shared2 = ease("smooth", k2 / STEPS) * n2;
-      values.push(Math.min(1, Math.max(0, shared2 - i2)));
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class MolochEye extends Stroke {
-  static sovereign = true;
-  height = length3(100);
-  tint = color3(BLUE);
-  lensTop = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(-LENS_CENTER_RATIO),
-    startAngle: PI5 / 2 + HALF_SPAN,
-    endAngle: PI5 / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  lensBottom = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(LENS_CENTER_RATIO),
-    startAngle: -PI5 / 2 + HALF_SPAN,
-    endAngle: -PI5 / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
-  irisFill = new Ellipse({
-    radiusX: this.height.times(IRIS_FILL_RATIO),
-    radiusY: this.height.times(IRIS_FILL_RATIO),
-    filled: true,
-    tint: BLACK
-  });
-  pupilBack = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO * K2),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K2)
-  });
-  pupilFront = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
-  });
-  connectors = [];
-  compose() {
-    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
-    const back = front * K2;
-    const corners = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1]
-    ];
-    for (const [sx, sy] of corners) {
-      this.connectors.push(this.add(new Line2({
-        points: [
-          { x: sx * back, y: sy * back, z: 0 },
-          { x: sx * front, y: sy * front, z: 0 }
-        ],
-        tint: this.tint,
-        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K2) / 2)
-      })));
-    }
-  }
-  createAnim() {
-    this.parts;
-    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c2) => c2.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
-  }
-}
-// vocabulary/FoldableCube/FoldableCube.ts
-class FoldableCube extends Stroke {
-  static sovereign = true;
-  size = length3(100);
-  fold = bipolar(0);
-  tint = color3(BLUE);
-  bottom = new Rectangle({
-    width: this.size,
-    height: this.size,
-    p: PI5 / 2,
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
-  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
-  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
-  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
-  get foldAngle() {
-    return this.fold.value * PI5 / 2;
-  }
-  hinge(offset, angle2, axis = "p") {
-    return new Group2({
-      ...offset,
-      [axis]: derive(angle2),
-      members: [
-        new Rectangle({
-          width: this.size,
-          height: this.size,
-          p: PI5 / 2,
-          tint: this.tint,
-          stroke: this.stroke,
-          ...offset
-        })
-      ]
-    });
-  }
-  get walls() {
-    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
-  }
-}
-var hingeAngle = (fold) => fold * PI5 / 2;
 // src/parts/curves.ts
 var exports_curves = {};
 __export(exports_curves, {
@@ -62069,6 +61762,652 @@ class Connection extends Stroke {
   }
 }
 
+// src/geometry/morph.ts
+var MORPH_SAMPLES = 128;
+var dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+var arcLengths = (points) => {
+  const out = [0];
+  for (let i2 = 1;i2 < points.length; i2++)
+    out.push(out[i2 - 1] + dist(points[i2 - 1], points[i2]));
+  return out;
+};
+var pointAtArcLength = (points, s2) => {
+  if (points.length === 0)
+    return { x: 0, y: 0, z: 0 };
+  if (points.length === 1)
+    return points[0];
+  const cum = arcLengths(points);
+  const total = cum[cum.length - 1];
+  if (total <= 0)
+    return points[0];
+  const target = Math.min(1, Math.max(0, s2)) * total;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = lo + hi >> 1;
+    if (cum[mid] <= target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const span = cum[hi] - cum[lo];
+  const u2 = span > 0 ? (target - cum[lo]) / span : 0;
+  const a2 = points[lo];
+  const b2 = points[hi];
+  return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
+};
+var resampleUniform = (points, count = MORPH_SAMPLES) => {
+  if (count < 2)
+    return points.length ? [points[0]] : [];
+  if (points.length === 0)
+    return [];
+  const out = [];
+  for (let i2 = 0;i2 < count; i2++)
+    out.push(pointAtArcLength(points, i2 / (count - 1)));
+  return out;
+};
+var morphedPolyline = (source, target, u2, count = MORPH_SAMPLES) => {
+  const t2 = Math.min(1, Math.max(0, u2));
+  const a2 = resampleUniform(source, count);
+  const b2 = resampleUniform(target, count);
+  const n2 = Math.min(a2.length, b2.length);
+  const out = [];
+  for (let i2 = 0;i2 < n2; i2++) {
+    const p2 = a2[i2];
+    const q = b2[i2];
+    out.push({
+      x: p2.x + (q.x - p2.x) * t2,
+      y: p2.y + (q.y - p2.y) * t2,
+      z: p2.z + (q.z - p2.z) * t2
+    });
+  }
+  return out;
+};
+var outlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const ring = (rx, ry) => {
+    const pts = [];
+    for (let i2 = 0;i2 <= segments; i2++) {
+      const a2 = i2 / segments * Math.PI * 2;
+      pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
+    }
+    return pts;
+  };
+  let base;
+  if (holon instanceof Circle)
+    base = ring(holon.radius.value, holon.radius.value);
+  else if (holon instanceof Ellipse)
+    base = ring(holon.radiusX.value, holon.radiusY.value);
+  else if (holon instanceof Square) {
+    const s2 = holon.size.value / 2;
+    base = [
+      { x: -s2, y: -s2, z: 0 },
+      { x: s2, y: -s2, z: 0 },
+      { x: s2, y: s2, z: 0 },
+      { x: -s2, y: s2, z: 0 },
+      { x: -s2, y: -s2, z: 0 }
+    ];
+  } else if (holon instanceof Polygon) {
+    const n2 = holon.sides.value;
+    const pts = [];
+    for (let i2 = 0;i2 <= n2; i2++) {
+      const a2 = i2 / n2 * Math.PI * 2 + holon.phase.value;
+      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
+    }
+    base = pts;
+  } else if (holon instanceof Rectangle) {
+    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
+  } else if (holon instanceof Line2) {
+    base = holon.points.length >= 2 ? [...holon.points] : undefined;
+  }
+  if (!base)
+    return;
+  const phase = holon.drawStart.value;
+  const reversed = holon.drawReversed.value;
+  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
+};
+var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const local = outlineOf(holon, segments);
+  if (!local)
+    return;
+  const chain = [];
+  for (let node = holon;node; node = node.parent)
+    chain.push(node);
+  return local.map((p2) => {
+    let out = p2;
+    for (const node of chain) {
+      const s2 = node.scale.value;
+      out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
+      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+    }
+    return out;
+  });
+};
+
+// src/geometry/rays.ts
+var fanAngles = (first, last, steps) => {
+  const n2 = Math.max(0, Math.floor(steps));
+  if (n2 === 0)
+    return [];
+  if (n2 === 1)
+    return [(first + last) / 2];
+  const span = last - first;
+  const fullTurn = Math.abs(Math.abs(span) - 2 * Math.PI) < 0.000000001;
+  const out = [];
+  for (let i2 = 0;i2 < n2; i2++)
+    out.push(first + span * i2 / (fullTurn ? n2 : n2 - 1));
+  return out;
+};
+var castRay = (origin, angle2, polylines, reach) => {
+  const dx = Math.cos(angle2);
+  const dy = Math.sin(angle2);
+  let best = Infinity;
+  for (const line of polylines) {
+    for (let i2 = 0;i2 + 1 < line.length; i2++) {
+      const a2 = line[i2];
+      const b2 = line[i2 + 1];
+      const ex = b2.x - a2.x;
+      const ey = b2.y - a2.y;
+      const den = dx * ey - dy * ex;
+      if (Math.abs(den) < 0.000000000001)
+        continue;
+      const ax = a2.x - origin.x;
+      const ay = a2.y - origin.y;
+      const t2 = (ax * ey - ay * ex) / den;
+      const u2 = (ax * dy - ay * dx) / den;
+      if (t2 > 0.000000001 && u2 >= 0 && u2 <= 1 && t2 < best)
+        best = t2;
+    }
+  }
+  if (!(best <= reach))
+    return;
+  return { distance: best, point: { x: origin.x + dx * best, y: origin.y + dy * best } };
+};
+var shockwave = (s2) => {
+  if (!(s2 > 0) || s2 >= 1)
+    return { radius: s2 >= 1 ? 1 : 0, strength: 0 };
+  return { radius: 1 - (1 - s2) * (1 - s2), strength: 1 - s2 };
+};
+
+// vocabulary/Eye/RayCaster.ts
+var toWorld = (holon, local) => {
+  let out = local;
+  for (let node = holon;node; node = node.parent) {
+    const s2 = node.scale.value;
+    out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
+    out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+  }
+  return out;
+};
+var outlineReading = (shape) => {
+  const out = [];
+  if (shape instanceof Circle)
+    out.push(shape.radius.value);
+  else if (shape instanceof Ellipse)
+    out.push(shape.radiusX.value, shape.radiusY.value);
+  else if (shape instanceof Square)
+    out.push(shape.size.value);
+  else if (shape instanceof Polygon)
+    out.push(shape.radius.value, shape.sides.value, shape.phase.value);
+  else if (shape instanceof Rectangle)
+    out.push(shape.width.value, shape.height.value, shape.rounding.value);
+  else if (shape instanceof Line2)
+    for (const p2 of shape.points)
+      out.push(p2.x, p2.y, p2.z);
+  for (let node = shape;node; node = node.parent) {
+    out.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
+  }
+  return out;
+};
+var derivePoints2 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class RayCaster extends Stroke {
+  static sovereign = true;
+  first = angle(0);
+  last = angle(2 * Math.PI);
+  steps = integer(12);
+  reach = length3(600);
+  cast = completion(0);
+  mark = length3(10);
+  shock = length3(60);
+  shockSpan = scalar(0.3);
+  hitTint = color3(RED);
+  emitter;
+  colliders;
+  hitsKey;
+  hitsMemo = [];
+  constructor(emitter, colliders, overrides = {}) {
+    super(overrides);
+    for (const c2 of colliders) {
+      if (!worldOutlineOf(c2, 8)) {
+        throw new Error(`RayCaster: ${c2.constructor.name} cannot be a collider — a ray stops on an OUTLINE, and ` + `this has none of its own (a composite draws through its sub-strokes: pass those ` + `instead; an empty Line needs its points first). Colliders are: Circle, Ellipse, ` + `Square, Polygon, Rectangle, or a Line of two or more points.`);
+      }
+    }
+    this.emitter = emitter;
+    this.colliders = [...colliders];
+  }
+  origin() {
+    return toWorld(this.emitter, { x: 0, y: 0, z: 0 });
+  }
+  hits() {
+    const o2 = this.origin();
+    const key = [
+      o2.x,
+      o2.y,
+      o2.z,
+      this.first.value,
+      this.last.value,
+      this.steps.value,
+      this.reach.value,
+      ...this.colliders.flatMap(outlineReading)
+    ];
+    const k2 = this.hitsKey;
+    if (!k2 || k2.length !== key.length || key.some((v2, i2) => v2 !== k2[i2])) {
+      this.hitsKey = key;
+      const outlines = this.colliders.map((c2) => worldOutlineOf(c2) ?? []);
+      this.hitsMemo = fanAngles(this.first.value, this.last.value, this.steps.value).map((a2) => ({
+        angle: a2,
+        hit: castRay(o2, a2, outlines, this.reach.value)
+      }));
+    }
+    return this.hitsMemo;
+  }
+  front() {
+    return this.cast.value * this.reach.value;
+  }
+  compose() {
+    const count = Math.max(0, Math.floor(this.steps.value));
+    const look = { stroke: this.stroke, opacity: this.opacity };
+    const key = () => [
+      this.cast.value,
+      this.mark.value,
+      this.shockSpan.value,
+      ...this.hits().flatMap((h2) => [h2.angle, h2.hit?.point.x ?? -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, h2.hit?.point.y ?? -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000])
+    ];
+    for (let i2 = 0;i2 < count; i2++) {
+      const ray = this.add(new Line2({ tint: this.tint, ...look }));
+      derivePoints2(ray, key, () => {
+        const h2 = this.hits()[i2];
+        const front = this.front();
+        if (!h2 || front <= 0)
+          return [];
+        const o2 = this.origin();
+        const d2 = Math.min(front, h2.hit?.distance ?? this.reach.value);
+        return [o2, { x: o2.x + Math.cos(h2.angle) * d2, y: o2.y + Math.sin(h2.angle) * d2, z: o2.z }];
+      });
+      for (const tilt of [1, -1]) {
+        const stroke = this.add(new Line2({ tint: this.hitTint, ...look }));
+        derivePoints2(stroke, key, () => {
+          const hit = this.hits()[i2]?.hit;
+          if (!hit || this.front() < hit.distance)
+            return [];
+          const m2 = this.mark.value / Math.SQRT2;
+          const z2 = this.origin().z;
+          return [
+            { x: hit.point.x - m2, y: hit.point.y - m2 * tilt, z: z2 },
+            { x: hit.point.x + m2, y: hit.point.y + m2 * tilt, z: z2 }
+          ];
+        });
+      }
+      const wave = () => {
+        const hit = this.hits()[i2]?.hit;
+        if (!hit)
+          return { radius: 0, strength: 0 };
+        const span = Math.max(this.shockSpan.value * this.reach.value, 0.000000001);
+        return shockwave((this.front() - hit.distance) / span);
+      };
+      this.add(new Circle({
+        tint: this.hitTint,
+        stroke: this.stroke,
+        x: derive(() => this.hits()[i2]?.hit?.point.x ?? 0),
+        y: derive(() => this.hits()[i2]?.hit?.point.y ?? 0),
+        z: derive(() => this.origin().z),
+        radius: derive(() => Math.max(wave().radius * this.shock.value, 0.001)),
+        opacity: derive(() => wave().strength * this.opacity.value)
+      }));
+    }
+  }
+}
+var Cast = (caster) => caster.cast.to(1);
+
+// vocabulary/Eye/Eye.ts
+var oneStroke = (strokes, retract = false) => {
+  const n2 = strokes.length;
+  if (n2 === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i2) => {
+    const values = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const shared2 = ease("smooth", k2 / STEPS) * n2;
+      const drawn = Math.min(1, Math.max(0, shared2 - i2));
+      values.push(retract ? 1 - drawn : drawn);
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class Eye extends Stroke {
+  static sovereign = true;
+  opening = completion(1);
+  lidTop = new Line2({
+    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(PI5 / 8)
+  });
+  lidBottom = new Line2({
+    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(-PI5 / 8)
+  });
+  eyeball = new Arc({
+    radius: 200,
+    startAngle: this.opening.times(-PI5 / 8),
+    endAngle: this.opening.times(PI5 / 8),
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
+  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
+  createAnim() {
+    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
+  }
+  unCreateAnim() {
+    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
+  }
+  rayCast(colliders, overrides = {}) {
+    const gaze = () => {
+      const o2 = toWorld(this, { x: 0, y: 0, z: 0 });
+      const ahead = toWorld(this, { x: 1, y: 0, z: 0 });
+      return Math.atan2(ahead.y - o2.y, ahead.x - o2.x);
+    };
+    const half = () => PI5 / 8 * this.opening.value;
+    const caster = new RayCaster(this, colliders, {
+      first: derive(() => gaze() + half()),
+      last: derive(() => gaze() - half()),
+      steps: 3,
+      ...overrides
+    });
+    return { caster, anim: Cast(caster) };
+  }
+}
+// vocabulary/Axes/Axes.ts
+var cascade = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i2) => restage(line.creation.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
+};
+var consume = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i2) => restage(line.erasure.sequence(0, 1), windows2[i2][0], windows2[i2][1])));
+};
+
+class Axes extends Stroke {
+  static sovereign = true;
+  mode = "xy";
+  xStart = scalar(-200);
+  xEnd = scalar(200);
+  yStart = scalar(-200);
+  yEnd = scalar(200);
+  zStart = scalar(-200);
+  zEnd = scalar(200);
+  gridSpacing = length3(30);
+  gridLineLength = length3(1000);
+  drawGrid = bool3(false);
+  drawTicks = bool3(false);
+  arrowEnd = bool3(true);
+  arrowSize = length3(720 / 700);
+  gridTint = color3(WHITE);
+  axisLines = [];
+  gridGroups = [];
+  tickGroups = [];
+  compose() {
+    const spacing = this.gridSpacing.value;
+    const halfGrid = this.gridLineLength.value / 2;
+    const extents = {
+      x: [this.xStart.value, this.xEnd.value],
+      y: [this.yStart.value, this.yEnd.value],
+      z: [this.zStart.value, this.zEnd.value]
+    };
+    const frames = {
+      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
+      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
+      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
+    };
+    const at2 = (v2, k2) => ({ x: v2.x * k2, y: v2.y * k2, z: v2.z * k2 });
+    const sum = (a2, b2) => ({
+      x: a2.x + b2.x,
+      y: a2.y + b2.y,
+      z: a2.z + b2.z
+    });
+    const positions = (start, end) => {
+      const out = [];
+      const negCount = Math.round(Math.abs(start) / spacing);
+      const posCount = Math.round(end / spacing);
+      for (let i2 = negCount - 1;i2 >= 1; i2--)
+        out.push(-i2 * spacing);
+      for (let i2 = 1;i2 < posCount; i2++)
+        out.push(i2 * spacing);
+      return out;
+    };
+    for (const axis of this.mode) {
+      const frame = frames[axis];
+      const extent = extents[axis];
+      if (!frame || !extent)
+        continue;
+      const [start, end] = extent;
+      this.axisLines.push(this.add(new Line2({
+        points: [at2(frame.dir, start), at2(frame.dir, end)],
+        tint: this.tint,
+        stroke: this.stroke,
+        arrowEnd: this.arrowEnd.value,
+        arrowSize: this.arrowSize
+      })));
+      if (this.drawGrid.value) {
+        const group = [];
+        for (const pos of positions(start, end)) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at2(frame.dir, pos), at2(frame.perp, -halfGrid)),
+              sum(at2(frame.dir, pos), at2(frame.perp, halfGrid))
+            ],
+            tint: this.gridTint,
+            stroke: this.stroke.times(0.5)
+          })));
+        }
+        this.gridGroups.push(group);
+      }
+      if (this.drawTicks.value) {
+        const group = [];
+        const tickHalf = 5;
+        const posCount = Math.round(end / spacing);
+        const negCount = Math.round(Math.abs(start) / spacing);
+        for (let i2 = -(negCount - 1);i2 < posCount; i2++) {
+          group.push(this.add(new Line2({
+            points: [
+              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, -tickHalf)),
+              sum(at2(frame.dir, i2 * spacing), at2(frame.perp, tickHalf))
+            ],
+            tint: this.tint,
+            stroke: this.stroke
+          })));
+        }
+        this.tickGroups.push(group);
+      }
+    }
+  }
+  createAnim() {
+    this.parts;
+    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
+    const items = [
+      [together(...this.axisLines.map((l2) => l2.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([cascade(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([cascade(group), 0.3, 1]);
+    return together(...items);
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = [
+      [together(...this.axisLines.map((l2) => l2.erasure.sequence(0, 1))), 0, 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([consume(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([consume(group), 0, 0.7]);
+    return together(...items);
+  }
+}
+// vocabulary/MolochEye/MolochEye.ts
+var SIN_HALF_SPAN = 4 / 5;
+var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
+var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
+var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
+var CAMERA_DISTANCE_RATIO = 1.282;
+var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
+var K2 = perspectiveK(CAMERA_DISTANCE_RATIO);
+var LENS_STROKE_RATIO = 0.0246;
+var PUPIL_EDGE_RATIO = 1.1673;
+var PUPIL_STROKE_RATIO = 2.284;
+var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
+var onePen = (strokes) => {
+  const n2 = strokes.length;
+  if (n2 === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i2) => {
+    const values = [];
+    for (let k2 = 0;k2 <= STEPS; k2++) {
+      const shared2 = ease("smooth", k2 / STEPS) * n2;
+      values.push(Math.min(1, Math.max(0, shared2 - i2)));
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class MolochEye extends Stroke {
+  static sovereign = true;
+  height = length3(100);
+  tint = color3(BLUE);
+  lensTop = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(-LENS_CENTER_RATIO),
+    startAngle: PI5 / 2 + HALF_SPAN,
+    endAngle: PI5 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  lensBottom = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(LENS_CENTER_RATIO),
+    startAngle: -PI5 / 2 + HALF_SPAN,
+    endAngle: -PI5 / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
+  irisFill = new Ellipse({
+    radiusX: this.height.times(IRIS_FILL_RATIO),
+    radiusY: this.height.times(IRIS_FILL_RATIO),
+    filled: true,
+    tint: BLACK
+  });
+  pupilBack = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO * K2),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K2)
+  });
+  pupilFront = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
+  });
+  connectors = [];
+  compose() {
+    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
+    const back = front * K2;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ];
+    for (const [sx, sy] of corners) {
+      this.connectors.push(this.add(new Line2({
+        points: [
+          { x: sx * back, y: sy * back, z: 0 },
+          { x: sx * front, y: sy * front, z: 0 }
+        ],
+        tint: this.tint,
+        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K2) / 2)
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c2) => c2.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
+  }
+}
+// vocabulary/FoldableCube/FoldableCube.ts
+class FoldableCube extends Stroke {
+  static sovereign = true;
+  size = length3(100);
+  fold = bipolar(0);
+  tint = color3(BLUE);
+  bottom = new Rectangle({
+    width: this.size,
+    height: this.size,
+    p: PI5 / 2,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
+  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
+  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
+  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
+  get foldAngle() {
+    return this.fold.value * PI5 / 2;
+  }
+  hinge(offset, angle2, axis = "p") {
+    return new Group2({
+      ...offset,
+      [axis]: derive(angle2),
+      members: [
+        new Rectangle({
+          width: this.size,
+          height: this.size,
+          p: PI5 / 2,
+          tint: this.tint,
+          stroke: this.stroke,
+          ...offset
+        })
+      ]
+    });
+  }
+  get walls() {
+    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
+  }
+}
+var hingeAngle = (fold) => fold * PI5 / 2;
 // src/bake.ts
 var bake = (sim, { fps, duration }) => {
   if (fps <= 0)
@@ -62231,10 +62570,10 @@ var straightState = (anchor, tip, particles = CABLE_PARTICLES) => {
 };
 var pointFaceCollision = (point, face, push = COLLISION_PUSH, thickness3 = COLLISION_THICKNESS) => {
   const { corners, normal: normal2 } = face;
-  const dist = dot3(sub3(point, corners[0]), normal2);
-  if (dist < -thickness3 || dist > thickness3)
+  const dist2 = dot3(sub3(point, corners[0]), normal2);
+  if (dist2 < -thickness3 || dist2 > thickness3)
     return { point, collided: false };
-  const proj = sub3(point, mul3(normal2, dist));
+  const proj = sub3(point, mul3(normal2, dist2));
   for (let e2 = 0;e2 < 4; e2++) {
     const a2 = corners[e2];
     const b2 = corners[(e2 + 1) % 4];
@@ -62249,13 +62588,13 @@ var foldableCubeFaces = (center, frame, fold, scale2, size = 100) => {
   const cos3 = Math.cos(angle2);
   const sin3 = Math.sin(angle2);
   const h2 = size / 2;
-  const toWorld = (p2) => add3(center, {
+  const toWorld2 = (p2) => add3(center, {
     x: (frame.vx.x * p2.x + frame.vy.x * p2.y + frame.vz.x * p2.z) * scale2,
     y: (frame.vx.y * p2.x + frame.vy.y * p2.y + frame.vz.y * p2.z) * scale2,
     z: (frame.vx.z * p2.x + frame.vy.z * p2.y + frame.vz.z * p2.z) * scale2
   });
   const makeFace = (local) => {
-    const c2 = local.map(toWorld);
+    const c2 = local.map(toWorld2);
     const n2 = normalize4(cross3(sub3(c2[1], c2[0]), sub3(c2[3], c2[0]))) ?? { x: 0, y: 1, z: 0 };
     return { corners: c2, normal: n2 };
   };
@@ -62326,10 +62665,10 @@ var step3 = (state2, config) => {
   for (let pass3 = 0;pass3 < iterations; pass3++) {
     for (let i2 = 0;i2 < n2 - 1; i2++) {
       const delta = sub3(predicted[i2 + 1], predicted[i2]);
-      const dist = length5(delta);
-      if (dist < 0.001)
+      const dist2 = length5(delta);
+      if (dist2 < 0.001)
         continue;
-      const correction = mul3(delta, 1 - restLength / dist);
+      const correction = mul3(delta, 1 - restLength / dist2);
       if (i2 > 0)
         predicted[i2] = add3(predicted[i2], mul3(correction, 0.5));
       if (i2 < n2 - 2)
@@ -63733,7 +64072,7 @@ var extractWallSegments = (layout, passages) => {
   }
   return segments;
 };
-var dist = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y);
+var dist2 = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y);
 var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
   const touchesCitadel = (segment) => segment.some((p2) => Math.abs(Math.hypot(p2.x, p2.y) - citadelRadius) < tolerance);
   const connected = new Set;
@@ -63753,7 +64092,7 @@ var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
       let joined = false;
       for (const j2 of connected) {
         const [b0, b1] = ends(j2);
-        if (dist(a0, b0) < tolerance || dist(a0, b1) < tolerance || dist(a1, b0) < tolerance || dist(a1, b1) < tolerance) {
+        if (dist2(a0, b0) < tolerance || dist2(a0, b1) < tolerance || dist2(a1, b0) < tolerance || dist2(a1, b1) < tolerance) {
           joined = true;
           break;
         }
@@ -64065,7 +64404,7 @@ class RibbonBatch {
     const old = this.capacity;
     const cap = Math.max(1, segments);
     const pos = new Float32Array(cap * POS_STRIDE);
-    const dist2 = new Float32Array(cap * DIST_STRIDE);
+    const dist3 = new Float32Array(cap * DIST_STRIDE);
     const width = new Float32Array(cap);
     const drawn = new Float32Array(cap);
     const erased = new Float32Array(cap);
@@ -64073,7 +64412,7 @@ class RibbonBatch {
     const tint = new Float32Array(cap * 3);
     if (old > 0) {
       pos.set(this.posBuf.array);
-      dist2.set(this.distBuf.array);
+      dist3.set(this.distBuf.array);
       width.set(this.widthAttr.array);
       drawn.set(this.drawnAttr.array);
       erased.set(this.erasedAttr.array);
@@ -64083,7 +64422,7 @@ class RibbonBatch {
     this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
     this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
     this.geometry.setAttribute("instanceEnd", new InterleavedBufferAttribute(this.posBuf, 3, 3));
-    this.distBuf = new InstancedInterleavedBuffer(dist2, DIST_STRIDE, 1);
+    this.distBuf = new InstancedInterleavedBuffer(dist3, DIST_STRIDE, 1);
     this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
     this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
     this.widthAttr = new InstancedBufferAttribute(width, 1);
@@ -65353,11 +65692,11 @@ class ThreeHost {
     if (count < 1)
       return Infinity;
     const start = ribbon.geometry.getAttribute("instanceStart");
-    const dist2 = ribbon.geometry.getAttribute("instanceDistanceStart");
-    if (!start || !dist2)
+    const dist3 = ribbon.geometry.getAttribute("instanceDistanceStart");
+    if (!start || !dist3)
       return Infinity;
     const positions = start.data.array;
-    const distances = dist2.data.array;
+    const distances = dist3.data.array;
     const drawn = ribbon.drawnLength;
     const erased = ribbon.erasedLength;
     const matrix = ribbon.mesh.matrixWorld;
@@ -65567,129 +65906,8 @@ var __dt = (value, anchor) => {
   return value;
 };
 var anchorOf = (value) => anchors.get(value);
-// src/geometry/morph.ts
-var MORPH_SAMPLES = 128;
-var dist2 = (a2, b2) => Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
-var arcLengths = (points) => {
-  const out = [0];
-  for (let i2 = 1;i2 < points.length; i2++)
-    out.push(out[i2 - 1] + dist2(points[i2 - 1], points[i2]));
-  return out;
-};
-var pointAtArcLength = (points, s2) => {
-  if (points.length === 0)
-    return { x: 0, y: 0, z: 0 };
-  if (points.length === 1)
-    return points[0];
-  const cum = arcLengths(points);
-  const total = cum[cum.length - 1];
-  if (total <= 0)
-    return points[0];
-  const target = Math.min(1, Math.max(0, s2)) * total;
-  let lo = 0;
-  let hi = cum.length - 1;
-  while (hi - lo > 1) {
-    const mid = lo + hi >> 1;
-    if (cum[mid] <= target)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const span = cum[hi] - cum[lo];
-  const u2 = span > 0 ? (target - cum[lo]) / span : 0;
-  const a2 = points[lo];
-  const b2 = points[hi];
-  return { x: a2.x + (b2.x - a2.x) * u2, y: a2.y + (b2.y - a2.y) * u2, z: a2.z + (b2.z - a2.z) * u2 };
-};
-var resampleUniform = (points, count = MORPH_SAMPLES) => {
-  if (count < 2)
-    return points.length ? [points[0]] : [];
-  if (points.length === 0)
-    return [];
-  const out = [];
-  for (let i2 = 0;i2 < count; i2++)
-    out.push(pointAtArcLength(points, i2 / (count - 1)));
-  return out;
-};
-var morphedPolyline = (source, target, u2, count = MORPH_SAMPLES) => {
-  const t2 = Math.min(1, Math.max(0, u2));
-  const a2 = resampleUniform(source, count);
-  const b2 = resampleUniform(target, count);
-  const n2 = Math.min(a2.length, b2.length);
-  const out = [];
-  for (let i2 = 0;i2 < n2; i2++) {
-    const p2 = a2[i2];
-    const q = b2[i2];
-    out.push({
-      x: p2.x + (q.x - p2.x) * t2,
-      y: p2.y + (q.y - p2.y) * t2,
-      z: p2.z + (q.z - p2.z) * t2
-    });
-  }
-  return out;
-};
-var outlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const ring = (rx, ry) => {
-    const pts = [];
-    for (let i2 = 0;i2 <= segments; i2++) {
-      const a2 = i2 / segments * Math.PI * 2;
-      pts.push({ x: Math.cos(a2) * rx, y: Math.sin(a2) * ry, z: 0 });
-    }
-    return pts;
-  };
-  let base;
-  if (holon instanceof Circle)
-    base = ring(holon.radius.value, holon.radius.value);
-  else if (holon instanceof Ellipse)
-    base = ring(holon.radiusX.value, holon.radiusY.value);
-  else if (holon instanceof Square) {
-    const s2 = holon.size.value / 2;
-    base = [
-      { x: -s2, y: -s2, z: 0 },
-      { x: s2, y: -s2, z: 0 },
-      { x: s2, y: s2, z: 0 },
-      { x: -s2, y: s2, z: 0 },
-      { x: -s2, y: -s2, z: 0 }
-    ];
-  } else if (holon instanceof Polygon) {
-    const n2 = holon.sides.value;
-    const pts = [];
-    for (let i2 = 0;i2 <= n2; i2++) {
-      const a2 = i2 / n2 * Math.PI * 2 + holon.phase.value;
-      pts.push({ x: Math.cos(a2) * holon.radius.value, y: Math.sin(a2) * holon.radius.value, z: 0 });
-    }
-    base = pts;
-  } else if (holon instanceof Rectangle) {
-    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
-  } else if (holon instanceof Line2) {
-    base = holon.points.length >= 2 ? [...holon.points] : undefined;
-  }
-  if (!base)
-    return;
-  const phase = holon.drawStart.value;
-  const reversed = holon.drawReversed.value;
-  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
-};
-var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const local = outlineOf(holon, segments);
-  if (!local)
-    return;
-  const chain = [];
-  for (let node = holon;node; node = node.parent)
-    chain.push(node);
-  return local.map((p2) => {
-    let out = p2;
-    for (const node of chain) {
-      const s2 = node.scale.value;
-      out = rotHPB({ x: out.x * s2, y: out.y * s2, z: out.z * s2 }, node.p.value, node.h.value, node.b.value);
-      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
-    }
-    return out;
-  });
-};
-
 // vocabulary/Morph/Morph.ts
-var derivePoints2 = (line, sourceKey, compute3) => {
+var derivePoints3 = (line, sourceKey, compute3) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -65757,7 +65975,7 @@ class MorphShape extends Stroke {
     this.ends = { source, target };
   }
   compose() {
-    derivePoints2(this.line, () => {
+    derivePoints3(this.line, () => {
       const a2 = worldPosition(this.ends.source);
       const b2 = worldPosition(this.ends.target);
       return [
@@ -70203,7 +70421,7 @@ class Connection2 extends Holon {
       if (shaft.length >= 2) {
         const tip = centroid(finished);
         const atEnd = dist3(tip, shaft[shaft.length - 1]) <= dist3(tip, shaft[0]);
-        derivePoints3(line, () => [this.headFront.value], () => {
+        derivePoints4(line, () => [this.headFront.value], () => {
           const u2 = this.headFront.value;
           if (!atEnd || u2 >= 1)
             return finished;
@@ -70306,7 +70524,7 @@ var maxDashes = (spec, steps = 8) => {
     return 0;
   return Math.ceil(longest / spec.period) + 1;
 };
-var derivePoints3 = (line, sourceKey, compute3) => {
+var derivePoints4 = (line, sourceKey, compute3) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -70355,7 +70573,7 @@ class GlidingConnection extends Holon {
         stroke: this.stroke,
         opacity: this.opacity
       }));
-      derivePoints3(line, () => [this.completion.value], () => {
+      derivePoints4(line, () => [this.completion.value], () => {
         const run = this.runsNow()[i2];
         if (!run)
           return [];
@@ -70850,7 +71068,7 @@ class Slide extends Holon {
       return { x: w4.x, y: w4.y, z: 0 };
     });
     const decorations = [];
-    const toWorld = (p2) => {
+    const toWorld2 = (p2) => {
       const w4 = slidePointToWorld(p2, scale2);
       return { x: w4.x, y: w4.y, z: 0 };
     };
@@ -70859,7 +71077,7 @@ class Slide extends Holon {
         return;
       const outline = lineDecoration(end.identifier, tip, prev, this.headSize.value);
       if (outline.length >= 2)
-        decorations.push(outline.map(toWorld));
+        decorations.push(outline.map(toWorld2));
     };
     if (path.points.length >= 2) {
       const n2 = path.points.length;
@@ -102343,10 +102561,278 @@ class SquareCircleDream extends Dream {
 if (false)
   ;
 
+// src/geometry/angles.ts
+var SHARP_TURN = 20 * Math.PI / 180;
+var RIGHT_ANGLE_TOLERANCE = 1 * Math.PI / 180;
+var MARK_ROOM = 0.35;
+var sub7 = (a2, b2) => ({ x: a2.x - b2.x, y: a2.y - b2.y, z: a2.z - b2.z });
+var dot4 = (a2, b2) => a2.x * b2.x + a2.y * b2.y + a2.z * b2.z;
+var cross5 = (a2, b2) => ({
+  x: a2.y * b2.z - a2.z * b2.y,
+  y: a2.z * b2.x - a2.x * b2.z,
+  z: a2.x * b2.y - a2.y * b2.x
+});
+var len3 = (a2) => Math.hypot(a2.x, a2.y, a2.z);
+var scale2 = (a2, k2) => ({ x: a2.x * k2, y: a2.y * k2, z: a2.z * k2 });
+var norm3 = (a2) => {
+  const l2 = len3(a2);
+  return l2 > 0 ? scale2(a2, 1 / l2) : { x: 0, y: 0, z: 0 };
+};
+var newellNormal = (pts) => {
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  for (let i2 = 0;i2 < pts.length; i2++) {
+    const a2 = pts[i2];
+    const b2 = pts[(i2 + 1) % pts.length];
+    nx += (a2.y - b2.y) * (a2.z + b2.z);
+    ny += (a2.z - b2.z) * (a2.x + b2.x);
+    nz += (a2.x - b2.x) * (a2.y + b2.y);
+  }
+  return norm3({ x: nx, y: ny, z: nz });
+};
+var cornersOf = (points, opts = {}) => {
+  if (points.length < 3)
+    return [];
+  let extent = 0;
+  for (const p2 of points)
+    extent = Math.max(extent, Math.abs(p2.x), Math.abs(p2.y), Math.abs(p2.z));
+  const eps = Math.max(extent, 1) * 0.000000001;
+  const pts = [];
+  for (const p2 of points) {
+    const last2 = pts[pts.length - 1];
+    if (!last2 || len3(sub7(p2, last2)) > eps)
+      pts.push(p2);
+  }
+  const returns = pts.length > 2 && len3(sub7(pts[0], pts[pts.length - 1])) <= eps;
+  const closed = opts.closed ?? returns;
+  if (returns)
+    pts.pop();
+  const n2 = pts.length;
+  if (n2 < 3)
+    return [];
+  const minTurn = opts.minTurn ?? SHARP_TURN;
+  const plane = closed ? newellNormal(pts) : undefined;
+  if (plane && len3(plane) === 0)
+    return [];
+  const corners = [];
+  const first = closed ? 0 : 1;
+  const last = closed ? n2 - 1 : n2 - 2;
+  for (let i2 = first;i2 <= last; i2++) {
+    const at2 = pts[i2];
+    const prev = pts[(i2 - 1 + n2) % n2];
+    const next = pts[(i2 + 1) % n2];
+    const toPrev = sub7(prev, at2);
+    const toNext = sub7(next, at2);
+    const u2 = norm3(toPrev);
+    const v2 = norm3(toNext);
+    const small = Math.acos(Math.max(-1, Math.min(1, dot4(u2, v2))));
+    if (Math.PI - small < minTurn)
+      continue;
+    const normal2 = plane ?? norm3(cross5(u2, v2));
+    if (len3(normal2) === 0)
+      continue;
+    let interior = small;
+    if (plane) {
+      const turnsLeft = dot4(cross5(scale2(toPrev, -1), toNext), plane) >= 0;
+      if (!turnsLeft)
+        interior = 2 * Math.PI - small;
+    }
+    let w4 = norm3(cross5(normal2, u2));
+    const landed = {
+      x: Math.cos(interior) * u2.x + Math.sin(interior) * w4.x,
+      y: Math.cos(interior) * u2.y + Math.sin(interior) * w4.y,
+      z: Math.cos(interior) * u2.z + Math.sin(interior) * w4.z
+    };
+    if (dot4(landed, v2) < 1 - 0.000001)
+      w4 = scale2(w4, -1);
+    corners.push({
+      at: at2,
+      u: u2,
+      v: v2,
+      w: w4,
+      interior,
+      right: Math.abs(interior - Math.PI / 2) < RIGHT_ANGLE_TOLERANCE,
+      reach: Math.min(len3(toPrev), len3(toNext))
+    });
+  }
+  return corners;
+};
+var angleMark = (corner, size, segments = 32) => {
+  const s2 = Math.min(size, corner.reach * MARK_ROOM);
+  const { at: at2, u: u2, v: v2, w: w4 } = corner;
+  const along = (d2, k2) => ({
+    x: at2.x + d2.x * k2,
+    y: at2.y + d2.y * k2,
+    z: at2.z + d2.z * k2
+  });
+  if (corner.right) {
+    const a2 = along(u2, s2);
+    return [a2, { x: a2.x + v2.x * s2, y: a2.y + v2.y * s2, z: a2.z + v2.z * s2 }, along(v2, s2)];
+  }
+  const steps = Math.max(4, Math.ceil(segments * corner.interior / Math.PI));
+  const out = [];
+  for (let k2 = 0;k2 <= steps; k2++) {
+    const phi = corner.interior * k2 / steps;
+    const c2 = Math.cos(phi);
+    const sn = Math.sin(phi);
+    out.push({
+      x: at2.x + (u2.x * c2 + w4.x * sn) * s2,
+      y: at2.y + (u2.y * c2 + w4.y * sn) * s2,
+      z: at2.z + (u2.z * c2 + w4.z * sn) * s2
+    });
+  }
+  return out;
+};
+
+// vocabulary/GeometrySketch/GeometrySketch.ts
+var SAMPLES = 128;
+var outlineReading2 = (shape) => {
+  const out = [];
+  if (shape instanceof Circle)
+    out.push(shape.radius.value);
+  else if (shape instanceof Ellipse)
+    out.push(shape.radiusX.value, shape.radiusY.value);
+  else if (shape instanceof Square)
+    out.push(shape.size.value);
+  else if (shape instanceof Polygon)
+    out.push(shape.radius.value, shape.sides.value, shape.phase.value);
+  else if (shape instanceof Rectangle)
+    out.push(shape.width.value, shape.height.value, shape.rounding.value);
+  else if (shape instanceof Line2)
+    for (const p2 of shape.points)
+      out.push(p2.x, p2.y, p2.z);
+  for (let node = shape;node; node = node.parent) {
+    out.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
+  }
+  return out;
+};
+var SKETCHABLE = "Sketchable shapes are: Circle, Ellipse, Square, Polygon, Rectangle, or a Line of two or more points";
+var isSketchable = (holon) => holon instanceof Stroke && outlineOf(holon, 8) !== undefined;
+var assertSketchable = (holon) => {
+  if (isSketchable(holon))
+    return;
+  const name = holon.constructor.name;
+  const composite = !(holon instanceof Line2) && holon.parts.length > 0;
+  throw new Error(`GeometrySketch: cannot sketch ${name} — the sketch reads the angles of ONE outline, and ` + (composite ? `${name} has no outline of its own: it draws itself through ${holon.parts.length} ` + `sub-strokes. That is a category error rather than a missing feature — sketch its ` + `pieces individually. ` : `${name} has no outline to read yet (an empty or single-point Line has no ink). Give ` + `it its points first. `) + `${SKETCHABLE}.`);
+};
+var derivePoints5 = (line, sourceKey, compute4) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute4();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class GeometrySketch extends Stroke {
+  static sovereign = true;
+  size = length3(24);
+  shape;
+  marksKey;
+  marksMemo = [];
+  constructor(shape, overrides = {}) {
+    super(overrides);
+    assertSketchable(shape);
+    this.shape = shape;
+  }
+  compose() {
+    const count = this.marks().length;
+    for (let i2 = 0;i2 < count; i2++) {
+      const mark = this.add(new Line2({ tint: this.tint, stroke: this.stroke, opacity: this.opacity }));
+      derivePoints5(mark, () => [this.size.value, ...outlineReading2(this.shape)], () => this.marks()[i2] ?? []);
+    }
+  }
+  marks() {
+    const key = [this.size.value, ...outlineReading2(this.shape)];
+    const k2 = this.marksKey;
+    if (!k2 || k2.length !== key.length || key.some((v2, i2) => v2 !== k2[i2])) {
+      this.marksKey = key;
+      const outline = worldOutlineOf(this.shape, SAMPLES) ?? [];
+      this.marksMemo = cornersOf(outline, { minTurn: SHARP_TURN }).map((c2) => angleMark(c2, this.size.value));
+    }
+    return this.marksMemo;
+  }
+}
+Object.defineProperty(Stroke.prototype, "sketchGeometry", {
+  configurable: true,
+  writable: true,
+  enumerable: false,
+  value: function sketchGeometry(overrides = {}) {
+    const sketch = new GeometrySketch(this, overrides);
+    return { sketch, anim: Create(sketch) };
+  }
+});
+
+// demo/GeometrySketchDemo.ts
+var notch = [
+  { x: -70, y: -70, z: 0 },
+  { x: 70, y: -70, z: 0 },
+  { x: 70, y: 0, z: 0 },
+  { x: 0, y: 0, z: 0 },
+  { x: 0, y: 70, z: 0 },
+  { x: -70, y: 70, z: 0 },
+  { x: -70, y: -70, z: 0 }
+];
+
+class GeometrySketchDemoDream extends Dream {
+  square = __dt(new Square({ size: 160, x: -480 }), "core/demo/GeometrySketchDemo.ts:1121:1155");
+  triangle = __dt(new Polygon({ sides: 3, radius: 95, x: -240, y: -10 }), "core/demo/GeometrySketchDemo.ts:1169:1223");
+  pentagon = __dt(new Polygon({ sides: 5, radius: 85, x: 0 }), "core/demo/GeometrySketchDemo.ts:1237:1280");
+  custom = __dt(new Line2({ points: notch, x: 240 }), "core/demo/GeometrySketchDemo.ts:1292:1327");
+  circle = __dt(new Circle({ radius: 80, x: 480 }), "core/demo/GeometrySketchDemo.ts:1339:1373");
+  squareMarks = __dt(new GeometrySketch(this.square, { tint: BLUE }), "core/demo/GeometrySketchDemo.ts:1391:1438");
+  triangleMarks = __dt(new GeometrySketch(this.triangle, { tint: BLUE }), "core/demo/GeometrySketchDemo.ts:1457:1506");
+  pentagonMarks = __dt(new GeometrySketch(this.pentagon, { tint: BLUE }), "core/demo/GeometrySketchDemo.ts:1525:1574");
+  customMarks = __dt(new GeometrySketch(this.custom, { tint: BLUE }), "core/demo/GeometrySketchDemo.ts:1591:1638");
+  circleMarks = __dt(new GeometrySketch(this.circle, { tint: BLUE }), "core/demo/GeometrySketchDemo.ts:1655:1702");
+  unfold() {
+    this.set(...this.observer.dolly(1250));
+    __dt(this.play(together(Create(this.square), Create(this.triangle), Create(this.pentagon), Create(this.custom), Create(this.circle)), 2), "core/demo/GeometrySketchDemo.ts:1764:1963");
+    __dt(this.play(together(Create(this.squareMarks), Create(this.triangleMarks), Create(this.pentagonMarks), Create(this.customMarks), Create(this.circleMarks)), 1.5), "core/demo/GeometrySketchDemo.ts:1968:2194");
+    this.wait(0.5);
+    __dt(this.play(together(this.square.p.to(PI5 / 3), this.pentagon.radius.to(110)), 2.5), "core/demo/GeometrySketchDemo.ts:2218:2298");
+    this.wait(1);
+  }
+}
+if (false)
+  ;
+
+// demo/RayCasterDemo.ts
+class RayCasterDemoDream extends Dream {
+  eye = __dt(new Eye({ x: -560, scale: 0.35, tint: BLUE }), "core/demo/RayCasterDemo.ts:804:849");
+  circle = __dt(new Circle({ radius: 90, x: -120 }), "core/demo/RayCasterDemo.ts:861:896");
+  looking = this.eye.rayCast([this.circle], { reach: 700 });
+  caster = this.looking.caster;
+  centre = __dt(new Null({ x: 380 }), "core/demo/RayCasterDemo.ts:1000:1020");
+  room = __dt(new Square({ size: 260, x: 380 }), "core/demo/RayCasterDemo.ts:1030:1063");
+  burst = __dt(new RayCaster(this.centre, [this.room], { steps: 16, reach: 400 }), "core/demo/RayCasterDemo.ts:1074:1140");
+  unfold() {
+    this.set(...this.observer.dolly(1250));
+    __dt(this.play(together(Create(this.eye), Create(this.circle), Create(this.room)), 2), "core/demo/RayCasterDemo.ts:1202:1282");
+    __dt(this.play(together(this.looking.anim, Cast(this.burst)), 3), "core/demo/RayCasterDemo.ts:1287:1346");
+    this.wait(1);
+  }
+}
+if (false)
+  ;
+
 // demo/scenes.ts
 var scenes = {
   founding: CylinderDream,
   squarecircle: SquareCircleDream,
+  geometrysketch: GeometrySketchDemoDream,
+  raycaster: RayCasterDemoDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,
@@ -102927,6 +103413,18 @@ var loadBoards = async () => {
   return out;
 };
 
+// editor/classname.ts
+var names = new Map;
+for (const namespace of [exports_parts, exports_curves, exports_text, exports_paths, exports_outline]) {
+  for (const [exported, value] of Object.entries(namespace)) {
+    if (typeof value === "function" && value.prototype instanceof Holon) {
+      if (!names.has(value))
+        names.set(value, exported);
+    }
+  }
+}
+var classNameOf = (holon) => names.get(holon.constructor) ?? holon.constructor.name;
+
 // editor/selection.ts
 class Selection {
   #current = null;
@@ -102959,7 +103457,7 @@ var pathOf = (roots, holon) => {
   for (let root = 0;root < roots.length; root++) {
     const indices = descend(roots[root], holon, []);
     if (indices)
-      return { root, indices, className: holon.constructor.name };
+      return { root, indices, className: classNameOf(holon) };
   }
   return;
 };
@@ -102984,20 +103482,8 @@ var resolvePath = (roots, path) => {
       return null;
     node = next;
   }
-  return node.constructor.name === path.className ? node : null;
+  return classNameOf(node) === path.className ? node : null;
 };
-
-// editor/classname.ts
-var names = new Map;
-for (const namespace of [exports_parts, exports_curves, exports_text, exports_paths, exports_outline]) {
-  for (const [exported, value] of Object.entries(namespace)) {
-    if (typeof value === "function" && value.prototype instanceof Holon) {
-      if (!names.has(value))
-        names.set(value, exported);
-    }
-  }
-}
-var classNameOf = (holon) => names.get(holon.constructor) ?? holon.constructor.name;
 
 // editor/thumbnails.ts
 var THUMB_SIZE = 18;
@@ -103135,12 +103621,12 @@ var drawPaths = (ctx, paths, size, color4) => {
   const margin = size * 0.12;
   const box = size - margin * 2;
   const span = Math.max(maxX - minX, maxY - minY, 0.000001);
-  const scale2 = box / span;
-  const offX = margin + (box - (maxX - minX) * scale2) / 2;
-  const offY = margin + (box - (maxY - minY) * scale2) / 2;
+  const scale3 = box / span;
+  const offX = margin + (box - (maxX - minX) * scale3) / 2;
+  const offY = margin + (box - (maxY - minY) * scale3) / 2;
   const px = (p2) => ({
-    x: offX + (p2.x - minX) * scale2,
-    y: size - (offY + (p2.y - minY) * scale2)
+    x: offX + (p2.x - minX) * scale3,
+    y: size - (offY + (p2.y - minY) * scale3)
   });
   ctx.strokeStyle = color4;
   ctx.lineWidth = Math.max(1, size / 16);
@@ -103269,11 +103755,11 @@ var cameraWindow = (dream, aspect2) => {
   return { cx: obs.x.value, cy: obs.y.value, w: h2 * aspect2, h: h2 };
 };
 var drawTile = (ctx, paths, w4, h2, win) => {
-  let scale2;
+  let scale3;
   let cx;
   let cy;
   if (win) {
-    scale2 = h2 / win.h;
+    scale3 = h2 / win.h;
     cx = win.cx;
     cy = win.cy;
   } else {
@@ -103293,11 +103779,11 @@ var drawTile = (ctx, paths, w4, h2, win) => {
     if (!Number.isFinite(minX))
       return;
     const span = Math.max(maxX - minX, (maxY - minY) * (w4 / h2), 0.000001);
-    scale2 = w4 * 0.8 / span;
+    scale3 = w4 * 0.8 / span;
     cx = (minX + maxX) / 2;
     cy = (minY + maxY) / 2;
   }
-  const px = (p2) => ({ x: w4 / 2 + (p2.x - cx) * scale2, y: h2 / 2 - (p2.y - cy) * scale2 });
+  const px = (p2) => ({ x: w4 / 2 + (p2.x - cx) * scale3, y: h2 / 2 - (p2.y - cy) * scale3 });
   ctx.lineWidth = 1;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
@@ -103838,12 +104324,12 @@ class Marquee {
 // editor/manipulate.ts
 var v3 = (x2, y2, z2) => ({ x: x2, y: y2, z: z2 });
 var add7 = (a2, b2) => v3(a2.x + b2.x, a2.y + b2.y, a2.z + b2.z);
-var sub7 = (a2, b2) => v3(a2.x - b2.x, a2.y - b2.y, a2.z - b2.z);
-var scale2 = (a2, k2) => v3(a2.x * k2, a2.y * k2, a2.z * k2);
-var dot4 = (a2, b2) => a2.x * b2.x + a2.y * b2.y + a2.z * b2.z;
+var sub8 = (a2, b2) => v3(a2.x - b2.x, a2.y - b2.y, a2.z - b2.z);
+var scale3 = (a2, k2) => v3(a2.x * k2, a2.y * k2, a2.z * k2);
+var dot5 = (a2, b2) => a2.x * b2.x + a2.y * b2.y + a2.z * b2.z;
 var normalize7 = (a2) => {
-  const len3 = Math.hypot(a2.x, a2.y, a2.z);
-  return len3 > 0.000000000001 ? scale2(a2, 1 / len3) : v3(0, 0, 0);
+  const len4 = Math.hypot(a2.x, a2.y, a2.z);
+  return len4 > 0.000000000001 ? scale3(a2, 1 / len4) : v3(0, 0, 0);
 };
 var cameraFrameOf = (camera) => {
   const e2 = camera.matrixWorld.elements;
@@ -103861,21 +104347,21 @@ var cameraFrameOf = (camera) => {
 };
 var pointerRay = (frame, ndc) => {
   if (frame.orthographic) {
-    const origin = add7(frame.position, add7(scale2(frame.right, ndc.x * frame.halfWidth), scale2(frame.up, ndc.y * frame.halfHeight)));
+    const origin = add7(frame.position, add7(scale3(frame.right, ndc.x * frame.halfWidth), scale3(frame.up, ndc.y * frame.halfHeight)));
     return { origin, dir: frame.forward };
   }
   const tanHalf = Math.tan(frame.fovY / 2);
-  const dir = normalize7(add7(frame.forward, add7(scale2(frame.right, ndc.x * tanHalf * frame.aspect), scale2(frame.up, ndc.y * tanHalf))));
+  const dir = normalize7(add7(frame.forward, add7(scale3(frame.right, ndc.x * tanHalf * frame.aspect), scale3(frame.up, ndc.y * tanHalf))));
   return { origin: frame.position, dir };
 };
 var intersectPlane = (ray2, point, normal2) => {
-  const denom = dot4(ray2.dir, normal2);
+  const denom = dot5(ray2.dir, normal2);
   if (Math.abs(denom) < 0.000000001)
     return;
-  const s2 = dot4(sub7(point, ray2.origin), normal2) / denom;
+  const s2 = dot5(sub8(point, ray2.origin), normal2) / denom;
   if (s2 < 0)
     return;
-  return add7(ray2.origin, scale2(ray2.dir, s2));
+  return add7(ray2.origin, scale3(ray2.dir, s2));
 };
 var invertUpper3x3 = (elements) => {
   const a2 = elements[0], b2 = elements[4], c2 = elements[8];
@@ -103930,7 +104416,7 @@ class MoveGesture {
     const hit = intersectPlane(pointerRay(frame, ndc), this.#planePoint, this.#normal);
     if (!hit)
       return;
-    const local = applyMat3(this.#toParent, sub7(hit, this.#from));
+    const local = applyMat3(this.#toParent, sub8(hit, this.#from));
     let [dx, dy] = [local.x, local.y];
     if (constrain)
       [dx, dy] = constrainDominant(dx, dy);
@@ -103961,9 +104447,9 @@ class AxisGesture {
     const axisLen = Math.hypot(worldAxis.x, worldAxis.y, worldAxis.z);
     if (axisLen < 0.000000001)
       return;
-    const axisDir = scale2(worldAxis, 1 / axisLen);
-    const along = dot4(frame.forward, axisDir);
-    const normal2 = normalize7(sub7(frame.forward, scale2(axisDir, along)));
+    const axisDir = scale3(worldAxis, 1 / axisLen);
+    const along = dot5(frame.forward, axisDir);
+    const normal2 = normalize7(sub8(frame.forward, scale3(axisDir, along)));
     if (Math.hypot(normal2.x, normal2.y, normal2.z) < 0.000001)
       return;
     const from = intersectPlane(pointerRay(frame, grab), origin, normal2);
@@ -103975,7 +104461,7 @@ class AxisGesture {
     const hit = intersectPlane(pointerRay(frame, ndc), this.#planePoint, this.#normal);
     if (!hit)
       return;
-    const sweep = dot4(sub7(hit, this.#from), this.#axisDir);
+    const sweep = dot5(sub8(hit, this.#from), this.#axisDir);
     return this.base + sweep * this.#perUnit;
   }
 }
@@ -104002,11 +104488,11 @@ var distanceToSegment = (p2, a2, b2) => {
 };
 var handleGeometry = (origin, screenAxes) => {
   const tip = (d2) => {
-    const len3 = Math.hypot(d2.x, d2.y);
-    if (len3 < 0.000001)
+    const len4 = Math.hypot(d2.x, d2.y);
+    if (len4 < 0.000001)
       return { x: origin.x + MIN_ARM, y: origin.y };
-    const armLen = Math.max(MIN_ARM, Math.min(ARM, len3));
-    return { x: origin.x + d2.x / len3 * armLen, y: origin.y + d2.y / len3 * armLen };
+    const armLen = Math.max(MIN_ARM, Math.min(ARM, len4));
+    return { x: origin.x + d2.x / len4 * armLen, y: origin.y + d2.y / len4 * armLen };
   };
   return {
     origin,
@@ -104885,7 +105371,7 @@ var mountCodeView = (panel, body, title) => {
       return;
     }
   };
-  const render64 = (cached, span) => {
+  const render66 = (cached, span) => {
     body.textContent = "";
     const src = cached.text;
     const tokens = tokenize(src);
@@ -104928,7 +105414,7 @@ var mountCodeView = (panel, body, title) => {
     if (!anchor) {
       const current2 = shownFile ? files.get(shownFile) : undefined;
       if (current2)
-        render64(current2);
+        render66(current2);
       return;
     }
     (async () => {
@@ -104938,7 +105424,7 @@ var mountCodeView = (panel, body, title) => {
       shownFile = anchor.file;
       title.textContent = anchor.file.split("/").pop() ?? anchor.file;
       title.title = anchor.file;
-      const mark = render64(cached, {
+      const mark = render66(cached, {
         start: cached.toIndex(anchor.start),
         end: cached.toIndex(anchor.end)
       });
@@ -104954,7 +105440,7 @@ var mountCodeView = (panel, body, title) => {
     shownFile = file;
     title.textContent = file.split("/").pop() ?? file;
     title.title = file;
-    render64(cached);
+    render66(cached);
   };
   return {
     show: show2,
@@ -106265,8 +106751,8 @@ var boot = async (resume) => {
     const el = parentWorld.elements;
     const axisScreen = [0, 1, 2].map((i2) => {
       const a2 = worldAxisOf(el, i2);
-      const len3 = Math.hypot(a2.x, a2.y, a2.z) || 1;
-      const step4 = 60 / len3;
+      const len4 = Math.hypot(a2.x, a2.y, a2.z) || 1;
+      const step4 = 60 / len4;
       const tip = toScreen(origin.x + a2.x * step4, origin.y + a2.y * step4, origin.z + a2.z * step4);
       return { x: tip.x - o2.x, y: tip.y - o2.y };
     });

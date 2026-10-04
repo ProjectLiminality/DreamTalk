@@ -5,6 +5,7 @@
 
 import * as THREE from "three/webgpu"
 import { ThreeHost } from "../src/render/three-host"
+import { onTextLayout } from "../src/render/text"
 import { scenes, defaultScene } from "./scenes"
 import { httpBakeCache } from "../src/bakecache"
 import { httpVoiceCache } from "../src/voice"
@@ -98,6 +99,14 @@ const main = async () => {
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
+
+  // A held frame (creator mode, or the harness's setT) draws nothing on its
+  // own, so a Text whose string changed would keep its old glyphs until
+  // something rendered again. Redraw the held t when a layout lands —
+  // which is what makes a random-access setT across a rule change exact.
+  onTextLayout(() => {
+    if (!playing) void host.renderFrame(current)
+  })
 
   // --- Creator mode (editor/creator.ts) ------------------------------------
   //

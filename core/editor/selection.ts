@@ -13,6 +13,7 @@
  */
 
 import type { Holon } from "../src/holon"
+import { classNameOf } from "./classname"
 
 export type SelectionListener = (selection: Holon | null) => void
 
@@ -71,7 +72,10 @@ export const pathOf = (
 ): SelectionPath | undefined => {
   for (let root = 0; root < roots.length; root++) {
     const indices = descend(roots[root]!, holon, [])
-    if (indices) return { root, indices, className: holon.constructor.name }
+    // The vocabulary name, not constructor.name: a path crosses bundles
+    // (the player's "open in editor ↗"), and Bun renames classes per
+    // bundle — the editor's Text is `Text3`, the player's is `Text`.
+    if (indices) return { root, indices, className: classNameOf(holon) }
   }
   return undefined
 }
@@ -94,5 +98,5 @@ const resolvePath = (roots: readonly Holon[], path: SelectionPath): Holon | null
     if (!next) return null
     node = next
   }
-  return node.constructor.name === path.className ? node : null
+  return classNameOf(node) === path.className ? node : null
 }
