@@ -27,7 +27,8 @@ import { mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
-import { readPoints, vocabById, VOCABULARY, type VocabEntry } from "../sketch/vocabulary"
+import { readPoints, vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
+import { describeShelf } from "./catalogue"
 
 export const MODEL = "claude-opus-5-5"
 const TIMEOUT_MS = 90_000
@@ -257,7 +258,9 @@ export const cliResultText = (stdout: string, meta?: { turns?: number; cost?: nu
 export async function recognize(req: RecognizeRequest): Promise<RecognizeResponse> {
   const started = performance.now()
   try {
-    const wanted = req.vocabulary?.length ? req.vocabulary : VOCABULARY.map((e) => e.id)
+    const wanted = req.vocabulary ?? DEFAULT_IMPORTS
+    // A symbol imported from the shelf is described in its own words.
+    await describeShelf(repoRoot)
     const entries = wanted.map(vocabById).filter((e): e is VocabEntry => !!e)
     if (entries.length === 0) return { candidates: [], error: "no known symbols in the imported vocabulary" }
     const b64 = req.png.replace(/^data:image\/png;base64,/, "")

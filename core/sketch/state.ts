@@ -19,6 +19,9 @@ import { xfPoint, type Xf } from "./xform"
 export interface SketchState {
   strokes: InkStroke[]
   symbols: PlacedSymbol[]
+  /** The vocabulary this board imports (ids); absent = the defaults
+   *  (vocabulary.ts DEFAULT_IMPORTS). Read it through catalogue.ts importsOf. */
+  vocabulary?: string[]
 }
 
 export const emptyState = (): SketchState => ({ strokes: [], symbols: [] })
@@ -46,10 +49,24 @@ export type Command =
    * `selected` is what was selected when it was said, restored on undo.
    */
   | { kind: "edit"; steps: Command[]; selected: string[] }
+  /** Clear the page's ink and symbols; its imports stay. */
   | { kind: "clear" }
+  /** Set what the board imports — the catalogue's toggle, one undo step. */
+  | { kind: "imports"; vocabulary: string[] }
 
-/** Apply a command to a page, returning a NEW page (inputs untouched). */
+/**
+ * Apply a command to a page, returning a NEW page (inputs untouched). The
+ * imports ride along every command but their own: a board's vocabulary is
+ * the scene's, not the ink's, and outlives a clear.
+ */
 export const apply = (s: SketchState, cmd: Command): SketchState => {
+  if (cmd.kind === "imports") return { ...s, vocabulary: [...cmd.vocabulary] }
+  const next = applyPage(s, cmd)
+  // An `edit` carries its own steps' imports; every other page command keeps the board's.
+  return next.vocabulary || !s.vocabulary ? next : { ...next, vocabulary: s.vocabulary }
+}
+
+const applyPage = (s: SketchState, cmd: Exclude<Command, { kind: "imports" }>): SketchState => {
   switch (cmd.kind) {
     case "addStroke":
       return { strokes: [...s.strokes, cmd.stroke], symbols: s.symbols }

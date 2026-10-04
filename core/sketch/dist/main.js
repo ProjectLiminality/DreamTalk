@@ -243,7 +243,7 @@ var scan = (target) => {
       }
       int.params.set(name, value);
     } else if (value instanceof Holon) {
-      if (!int.parts.includes(value)) {
+      if (value.parent === undefined) {
         value.parent = int.self ?? target;
         int.parts.push(value);
       }
@@ -330,6 +330,14 @@ class Holon {
   }
   add(part) {
     const int = internalsOf(this);
+    if (part.parent) {
+      const prev = internalsOf(part.parent);
+      for (const list of [prev.parts, prev.dynamicParts]) {
+        const i = list.indexOf(part);
+        if (i >= 0)
+          list.splice(i, 1);
+      }
+    }
     part.parent = int.self ?? this;
     int.dynamicParts.push(part);
     return part;
@@ -551,6 +559,109 @@ class Narration {
   }
 }
 
+// src/sound.ts
+var isSounding = (h) => typeof h?.soundCues === "function";
+var PENTATONIC = [0, 2, 4, 7, 9, 12];
+var pentatonicPitch = (u) => {
+  const semis = Math.max(0, Math.min(1, u)) * 12;
+  let best = PENTATONIC[0];
+  for (const s of PENTATONIC)
+    if (Math.abs(s - semis) < Math.abs(best - semis))
+      best = s;
+  return 2 ** (best / 12);
+};
+var MERGE_SECONDS = 0.03;
+var CUE_STEP = 1 / 120;
+var CUE_EPSILON = 0.00001;
+var gatherCues = (cues, applyAt, duration, step = CUE_STEP) => {
+  if (cues.length === 0 || !(duration > 0))
+    return [];
+  const out = [];
+  applyAt(0);
+  let was = cues.map((c) => c.sounded());
+  let prevT = 0;
+  const n = Math.ceil(duration / step);
+  for (let k = 1;k <= n; k++) {
+    const t = Math.min(k * step, duration);
+    applyAt(t);
+    const now = cues.map((c) => c.sounded());
+    for (let i = 0;i < cues.length; i++) {
+      if (was[i] || !now[i])
+        continue;
+      const cue = cues[i];
+      let lo = prevT;
+      let hi = t;
+      while (hi - lo > CUE_EPSILON) {
+        const mid = (lo + hi) / 2;
+        applyAt(mid);
+        if (cue.sounded())
+          hi = mid;
+        else
+          lo = mid;
+      }
+      applyAt(hi);
+      const v = cue.voice?.() ?? {};
+      out.push({ time: hi, kind: cue.kind, pitch: v.pitch ?? 1, gain: v.gain ?? 1 });
+      applyAt(t);
+    }
+    was = now;
+    prevT = t;
+  }
+  return out;
+};
+var creationChimes = (clips) => {
+  const out = [];
+  for (const clip of clips) {
+    if (clip.duration <= 0)
+      continue;
+    const done = new Map;
+    for (const track of clip.anim.tracks) {
+      const owner = track.param.owner;
+      if (!(owner instanceof Holon) || track.param !== owner.creation)
+        continue;
+      if (track.mode === "by" || track.values[track.values.length - 1] !== 1)
+        continue;
+      const end = clip.start + track.relStop * clip.duration;
+      const root = owner.root;
+      done.set(root, Math.max(done.get(root) ?? -Infinity, end));
+    }
+    for (const time of done.values())
+      out.push({ time, kind: "chime", pitch: 1, gain: 1 });
+  }
+  return out;
+};
+
+class Soundtrack {
+  events;
+  constructor(events) {
+    const sorted = [...events].filter((e) => Number.isFinite(e.time) && e.time >= 0).sort((a, b) => a.time - b.time || a.kind.localeCompare(b.kind) || a.pitch - b.pitch);
+    const merged = [];
+    for (const e of sorted) {
+      let twin = -1;
+      for (let i = merged.length - 1;i >= 0 && e.time - merged[i].time < MERGE_SECONDS; i--) {
+        if (merged[i].kind === e.kind && merged[i].pitch === e.pitch)
+          twin = i;
+      }
+      if (twin >= 0) {
+        const m = merged[twin];
+        merged[twin] = { ...m, gain: Math.min(1, m.gain + e.gain * 0.25) };
+      } else
+        merged.push(e);
+    }
+    this.events = merged;
+  }
+  get isEmpty() {
+    return this.events.length === 0;
+  }
+  between(t0, t1) {
+    return this.events.filter((e) => e.time > t0 && e.time <= t1);
+  }
+  transcript() {
+    return this.events.map((e) => `[${e.time.toFixed(3)}] ${e.kind} ×${e.pitch.toFixed(3)} @${e.gain.toFixed(2)}`).join(`
+`);
+  }
+}
+
 // src/dream.ts
 var PERSPECTIVES = {
   front: { phi: 0, theta: 0 },
@@ -615,8 +726,12 @@ class Dream {
   #clips = [];
   #backdrop;
   #roots = [];
+  #rootsMemo;
   #built;
   #narration = new Narration;
+  #sounds = [];
+  #chimes = false;
+  #soundtrack;
   play(anim, runTime = 1) {
     const clip = { anim, start: this.#cursor, duration: runTime };
     this.#clips.push(clip);
@@ -640,11 +755,34 @@ class Dream {
     this.build();
     return this.#narration;
   }
+  sound(kind, voice = {}) {
+    this.#sounds.push({ time: this.#cursor, kind, pitch: voice.pitch ?? 1, gain: voice.gain ?? 1 });
+  }
+  chimes(on = true) {
+    this.#chimes = on;
+  }
+  get soundtrack() {
+    const timeline = this.build();
+    if (this.#soundtrack)
+      return this.#soundtrack;
+    const cues = this.roots.flatMap((r) => [...r.walk()].flatMap((h) => isSounding(h) ? h.soundCues() : []));
+    const events = [...this.#sounds];
+    if (this.#chimes)
+      events.push(...creationChimes(this.#clips));
+    if (cues.length > 0) {
+      const saved = timeline.params.map((p) => p.value);
+      events.push(...gatherCues(cues, (t) => timeline.apply(t), timeline.duration));
+      timeline.params.forEach((p, i) => p.value = saved[i]);
+    }
+    this.#soundtrack = new Soundtrack(events);
+    return this.#soundtrack;
+  }
   backdrop(path, opts = {}) {
     this.#backdrop = { path, offset: opts.offset ?? 0 };
   }
   stage(holon) {
     this.#roots.push(holon);
+    this.#rootsMemo = undefined;
     return holon;
   }
   get backdropSpec() {
@@ -653,24 +791,39 @@ class Dream {
   }
   get roots() {
     this.build();
+    if (this.#rootsMemo)
+      return this.#rootsMemo;
+    const touched = [...this.#roots];
+    for (const clip of this.#clips) {
+      for (const track of clip.anim.tracks) {
+        const owner = track.param.owner;
+        if (owner instanceof Holon)
+          touched.push(owner);
+      }
+    }
+    const composed = new Set;
+    for (let grew = true;grew; ) {
+      grew = false;
+      for (const h of touched) {
+        const r = h.root;
+        if (composed.has(r))
+          continue;
+        composed.add(r);
+        for (const _ of r.walk())
+          ;
+        grew = true;
+      }
+    }
     const seen = new Set;
     const roots = [];
-    const consider = (h) => {
+    for (const h of touched) {
       const r = h.root;
       if (!seen.has(r) && !(r instanceof Observer)) {
         seen.add(r);
         roots.push(r);
       }
-    };
-    for (const r of this.#roots)
-      consider(r);
-    for (const clip of this.#clips) {
-      for (const track of clip.anim.tracks) {
-        const owner = track.param.owner;
-        if (owner instanceof Holon)
-          consider(owner);
-      }
     }
+    this.#rootsMemo = roots;
     return roots;
   }
   get clips() {
@@ -824,7 +977,8 @@ class Null extends Holon {
 
 class Group extends Null {
   members = [];
-  compose() {
+  constructor(overrides = {}) {
+    super(overrides);
     for (const member of this.members)
       this.add(member);
   }
@@ -1603,6 +1757,21 @@ class RayCaster extends Stroke {
   }
   front() {
     return this.cast.value * this.reach.value;
+  }
+  soundCues() {
+    const count = Math.max(0, Math.floor(this.steps.value));
+    const gain = Math.min(1, 1.6 / Math.sqrt(Math.max(count, 1)));
+    return Array.from({ length: count }, (_, i) => ({
+      kind: "ping",
+      sounded: () => {
+        const hit = this.hits()[i]?.hit;
+        return !!hit && this.cast.value > 0 && this.front() >= hit.distance;
+      },
+      voice: () => {
+        const d = this.hits()[i]?.hit?.distance ?? this.reach.value;
+        return { pitch: pentatonicPitch(1 - d / Math.max(this.reach.value, 0.000000001)), gain };
+      }
+    }));
   }
   compose() {
     const count = Math.max(0, Math.floor(this.steps.value));
@@ -2499,20 +2668,59 @@ class Cable extends Stroke {
     }
     return key;
   }
-  toLocal(v) {
+  _frame;
+  localFrame() {
     const chain = [];
     for (let node = this.parent;node; node = node.parent)
       chain.push(node);
-    let out = v;
+    const steps = [];
     for (let i = chain.length - 1;i >= 0; i--) {
       const anc = chain[i];
-      out = sub2(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
-      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
+      const p = anc.p.value;
+      const h = anc.h.value;
+      const b = anc.b.value;
       const s = anc.scale.value;
-      if (s !== 1)
-        out = mul2(out, 1 / s);
+      steps.push({
+        x: anc.x.value,
+        y: anc.y.value,
+        z: anc.z.value,
+        cb: Math.cos(-b),
+        sb: Math.sin(-b),
+        cp: Math.cos(-p),
+        sp: Math.sin(-p),
+        ch: Math.cos(-h),
+        sh: Math.sin(-h),
+        inv: s !== 1 ? 1 / s : 1,
+        scaled: s !== 1
+      });
     }
-    return out;
+    return steps;
+  }
+  toLocal(v) {
+    const steps = this._frame ?? this.localFrame();
+    let x = v.x;
+    let y = v.y;
+    let z = v.z;
+    for (const k of steps) {
+      x = x - k.x;
+      y = y - k.y;
+      z = z - k.z;
+      let t = x * k.cb - y * k.sb;
+      y = x * k.sb + y * k.cb;
+      x = t;
+      t = y * k.cp - z * k.sp;
+      z = y * k.sp + z * k.cp;
+      y = t;
+      t = x * k.ch + z * k.sh;
+      z = -x * k.sh + z * k.ch;
+      x = t;
+      if (k.scaled) {
+        x = x * k.inv;
+        y = y * k.inv;
+        z = z * k.inv;
+      }
+    }
+    return { x, y, z };
   }
   geometry() {
     const key = this.geometryKey();
@@ -2520,7 +2728,12 @@ class Cable extends Stroke {
       return this._memo;
     }
     this._memoKey = key;
-    this._memo = this.computeGeometry();
+    this._frame = this.localFrame();
+    try {
+      this._memo = this.computeGeometry();
+    } finally {
+      this._frame = undefined;
+    }
     return this._memo;
   }
   tubeFrom(spine, empty2) {
@@ -51368,6 +51581,9 @@ var {
   Fn: Fn4,
   If: If4,
   attribute: attribute4,
+  int: int3,
+  mat4: mat43,
+  storage: storage3,
   cameraProjectionMatrix: cameraProjectionMatrix4,
   clamp: clamp6,
   float: float4,
@@ -51395,8 +51611,10 @@ var vTint = varyingProperty4("vec3", "dtBatchTint");
 var vFade = varyingProperty4("float", "dtBatchFade");
 
 class RibbonBatchMaterial extends NodeMaterial {
-  constructor() {
+  table;
+  constructor(table) {
     super();
+    this.table = table;
     this.transparent = true;
     this.depthWrite = false;
     this.side = DoubleSide;
@@ -51407,17 +51625,21 @@ class RibbonBatchMaterial extends NodeMaterial {
     this.blendEquationAlpha = MaxEquation;
     this.blendSrcAlpha = OneFactor;
     this.blendDstAlpha = OneFactor;
-    const widthPx = float4(attribute4("instanceWidthPx"));
-    const drawn = float4(attribute4("instanceDrawn"));
-    const erased = float4(attribute4("instanceErased"));
-    const tint = vec34(attribute4("instanceTint"));
-    const fade = float4(attribute4("instanceFade"));
+    const rows = storage3(table, "vec4", table.count).toReadOnly();
+    const row = int3(attribute4("instanceStroke")).mul(TABLE_VEC4);
+    const mv = mat43(rows.element(row), rows.element(row.add(1)), rows.element(row.add(2)), rows.element(row.add(3)));
+    const style = rows.element(row.add(4));
+    const widthPx = style.x;
+    const drawn = style.y;
+    const erased = style.z;
+    const fade = style.w;
+    const tint = rows.element(row.add(5)).xyz;
     const halfWidth = (w) => w.mul(screenDPR4).mul(0.5);
     const pad = (w) => halfWidth(w).add(AA_PX2).add(1);
     this.vertexNode = Fn4(() => {
       const corner = attribute4("position").xy;
-      const start = vec44(vec34(attribute4("instanceStart")), 1).toVar();
-      const end = vec44(vec34(attribute4("instanceEnd")), 1).toVar();
+      const start = mv.mul(vec44(attribute4("instanceStart"), 1)).toVar();
+      const end = mv.mul(vec44(attribute4("instanceEnd"), 1)).toVar();
       const distStart = float4(attribute4("instanceDistanceStart")).toVar();
       const distEnd = float4(attribute4("instanceDistanceEnd")).toVar();
       const nearAlpha = (from, to) => {
@@ -51492,53 +51714,75 @@ class RibbonBatchMaterial extends NodeMaterial {
     })();
   }
 }
-var shared2;
-var sharedRibbonBatchMaterial = () => shared2 ??= new RibbonBatchMaterial;
+var TABLE_VEC4 = 6;
 var POS_STRIDE = 6;
 var DIST_STRIDE = 2;
 
+class BatchTable {
+  attr;
+  material;
+  rows = 1;
+  meshes = [];
+  constructor(initialRows = 64) {
+    this.attr = new StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4);
+    this.material = new RibbonBatchMaterial(this.attr);
+  }
+  get array() {
+    return this.attr.array;
+  }
+  adopt(mesh) {
+    this.meshes.push(mesh);
+    mesh.material = this.material;
+  }
+  reserveRow() {
+    const row = this.rows++;
+    if (this.rows * TABLE_VEC4 > this.attr.count) {
+      const next = new Float32Array((1 << Math.ceil(Math.log2(this.rows))) * TABLE_VEC4 * 4);
+      next.set(this.attr.array);
+      this.attr = new StorageBufferAttribute(next, 4);
+      this.material.dispose();
+      this.material = new RibbonBatchMaterial(this.attr);
+      for (const mesh of this.meshes)
+        mesh.material = this.material;
+    }
+    return row;
+  }
+}
+
 class RibbonBatch {
   mesh;
-  material;
   geometry;
+  shared;
   capacity = 0;
   cursor = 0;
   posBuf;
   distBuf;
-  widthAttr;
-  drawnAttr;
-  erasedAttr;
-  fadeAttr;
-  tintAttr;
-  constructor(initialCapacity = 256) {
-    this.material = sharedRibbonBatchMaterial();
+  strokeAttr;
+  dirtyLo = Infinity;
+  dirtyHi = -Infinity;
+  constructor(initialCapacity = 256, shared2 = new BatchTable) {
     this.geometry = new InstancedBufferGeometry;
     this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
     this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
     this.allocate(Math.max(1, initialCapacity));
     this.geometry.instanceCount = 0;
-    this.mesh = new Mesh(this.geometry, this.material);
+    this.shared = shared2;
+    this.mesh = new Mesh(this.geometry, shared2.material);
+    shared2.adopt(this.mesh);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
+    this.mesh.userData.dtBatch = this;
   }
   allocate(segments) {
     const old = this.capacity;
     const cap = Math.max(1, segments);
     const pos = new Float32Array(cap * POS_STRIDE);
     const dist3 = new Float32Array(cap * DIST_STRIDE);
-    const width = new Float32Array(cap);
-    const drawn = new Float32Array(cap);
-    const erased = new Float32Array(cap);
-    const fade = new Float32Array(cap);
-    const tint = new Float32Array(cap * 3);
+    const stroke = new Float32Array(cap);
     if (old > 0) {
       pos.set(this.posBuf.array);
       dist3.set(this.distBuf.array);
-      width.set(this.widthAttr.array);
-      drawn.set(this.drawnAttr.array);
-      erased.set(this.erasedAttr.array);
-      fade.set(this.fadeAttr.array);
-      tint.set(this.tintAttr.array);
+      stroke.set(this.strokeAttr.array);
     }
     this.posBuf = new InstancedInterleavedBuffer(pos, POS_STRIDE, 1);
     this.geometry.setAttribute("instanceStart", new InterleavedBufferAttribute(this.posBuf, 3, 0));
@@ -51546,79 +51790,98 @@ class RibbonBatch {
     this.distBuf = new InstancedInterleavedBuffer(dist3, DIST_STRIDE, 1);
     this.geometry.setAttribute("instanceDistanceStart", new InterleavedBufferAttribute(this.distBuf, 1, 0));
     this.geometry.setAttribute("instanceDistanceEnd", new InterleavedBufferAttribute(this.distBuf, 1, 1));
-    this.widthAttr = new InstancedBufferAttribute(width, 1);
-    this.drawnAttr = new InstancedBufferAttribute(drawn, 1);
-    this.erasedAttr = new InstancedBufferAttribute(erased, 1);
-    this.fadeAttr = new InstancedBufferAttribute(fade, 1);
-    this.tintAttr = new InstancedBufferAttribute(tint, 3);
-    this.geometry.setAttribute("instanceWidthPx", this.widthAttr);
-    this.geometry.setAttribute("instanceDrawn", this.drawnAttr);
-    this.geometry.setAttribute("instanceErased", this.erasedAttr);
-    this.geometry.setAttribute("instanceFade", this.fadeAttr);
-    this.geometry.setAttribute("instanceTint", this.tintAttr);
+    this.strokeAttr = new InstancedBufferAttribute(stroke, 1);
+    this.geometry.setAttribute("instanceStroke", this.strokeAttr);
     this.capacity = cap;
   }
   reserve(maxSegments) {
+    const row = this.shared.reserveRow();
+    return { ...this.reserveRun(maxSegments), row };
+  }
+  reserveRun(maxSegments) {
     const cap = Math.max(1, maxSegments);
     const offset = this.cursor;
     this.cursor += cap;
     if (this.cursor > this.capacity) {
       this.allocate(1 << Math.ceil(Math.log2(this.cursor)));
     }
-    for (let i = offset;i < offset + cap; i++)
-      this.fadeAttr.array[i] = 0;
-    this.fadeAttr.needsUpdate = true;
+    this.pointRun(offset, cap, 0);
     if (offset + cap > this.geometry.instanceCount)
       this.geometry.instanceCount = offset + cap;
     this.mesh.visible = this.geometry.instanceCount > 0;
     return { offset, maxSegments: cap, count: 0 };
   }
-  relocate(slot, needSegments) {
-    for (let i = 0;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    this.fadeAttr.needsUpdate = true;
-    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))));
+  pointRun(offset, n, row) {
+    if (n <= 0)
+      return;
+    const arr = this.strokeAttr.array;
+    arr.fill(row, offset, offset + n);
+    this.markDirty(offset, offset + n);
   }
-  writeSlot(slot, positions, distances, count, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
-    if (count > slot.maxSegments)
-      slot = this.relocate(slot, count);
-    const n = Math.min(count, slot.maxSegments);
-    const posArr = this.posBuf.array;
-    const distArr = this.distBuf.array;
-    posArr.set(positions.subarray(0, n * POS_STRIDE), slot.offset * POS_STRIDE);
-    distArr.set(distances.subarray(0, n * DIST_STRIDE), slot.offset * DIST_STRIDE);
-    for (let i = 0;i < n; i++) {
-      const s = slot.offset + i;
-      this.widthAttr.array[s] = widthPx;
-      this.drawnAttr.array[s] = drawn;
-      this.erasedAttr.array[s] = erased;
-      this.tintAttr.array[s * 3] = tintR;
-      this.tintAttr.array[s * 3 + 1] = tintG;
-      this.tintAttr.array[s * 3 + 2] = tintB;
-      this.fadeAttr.array[s] = fade;
+  writeStroke(slot, stroke, mv, widthPx, drawn, erased, tintR, tintG, tintB, fade) {
+    const count = stroke.count;
+    if (count > slot.maxSegments) {
+      this.pointRun(slot.offset, slot.maxSegments, 0);
+      const run = this.reserveRun(1 << Math.ceil(Math.log2(Math.max(2, count))));
+      slot = { ...run, row: slot.row };
     }
-    for (let i = n;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    slot.count = n;
-    this.markDirty();
+    if (slot.points !== stroke.points || slot.count !== count) {
+      const n = Math.min(count, slot.maxSegments);
+      const posArr = this.posBuf.array;
+      const distArr = this.distBuf.array;
+      for (let i = 0;i < n * POS_STRIDE; i++)
+        posArr[slot.offset * POS_STRIDE + i] = stroke.positions[i];
+      for (let i = 0;i < n * DIST_STRIDE; i++)
+        distArr[slot.offset * DIST_STRIDE + i] = stroke.distances[i];
+      this.markDirty(slot.offset, slot.offset + n);
+      if (slot.count !== n || slot.points === undefined) {
+        this.pointRun(slot.offset, n, slot.row);
+        this.pointRun(slot.offset + n, slot.maxSegments - n, 0);
+      }
+      slot.points = stroke.points;
+      slot.count = n;
+    }
+    const t = this.shared.array;
+    const base = slot.row * TABLE_VEC4 * 4;
+    const e = mv.elements;
+    for (let i = 0;i < 16; i++)
+      t[base + i] = e[i];
+    t[base + 16] = widthPx;
+    t[base + 17] = drawn;
+    t[base + 18] = erased;
+    t[base + 19] = fade;
+    t[base + 20] = tintR;
+    t[base + 21] = tintG;
+    t[base + 22] = tintB;
+    this.shared.attr.needsUpdate = true;
     return slot;
   }
-  hideSlot(slot) {
-    if (slot.count === 0)
-      return;
-    for (let i = 0;i < slot.maxSegments; i++)
-      this.fadeAttr.array[slot.offset + i] = 0;
-    slot.count = 0;
-    this.fadeAttr.needsUpdate = true;
+  markDirty(lo, hi) {
+    if (lo < this.dirtyLo)
+      this.dirtyLo = lo;
+    if (hi > this.dirtyHi)
+      this.dirtyHi = hi;
   }
-  markDirty() {
+  flush() {
+    if (this.dirtyHi <= this.dirtyLo)
+      return;
+    const lo = this.dirtyLo;
+    const n = this.dirtyHi - lo;
+    this.posBuf.addUpdateRange(lo * POS_STRIDE, n * POS_STRIDE);
     this.posBuf.needsUpdate = true;
+    this.distBuf.addUpdateRange(lo * DIST_STRIDE, n * DIST_STRIDE);
     this.distBuf.needsUpdate = true;
-    this.widthAttr.needsUpdate = true;
-    this.drawnAttr.needsUpdate = true;
-    this.erasedAttr.needsUpdate = true;
-    this.fadeAttr.needsUpdate = true;
-    this.tintAttr.needsUpdate = true;
+    this.strokeAttr.addUpdateRange(lo, n);
+    this.strokeAttr.needsUpdate = true;
+    this.dirtyLo = Infinity;
+    this.dirtyHi = -Infinity;
+  }
+  hideStroke(slot) {
+    this.shared.array[slot.row * TABLE_VEC4 * 4 + 19] = 0;
+    this.shared.attr.needsUpdate = true;
+  }
+  get tableArray() {
+    return this.shared.array;
   }
 }
 
@@ -51699,17 +51962,17 @@ var FILL_KEYS = {
   tint: "dtFillTint",
   fade: "dtFillFade"
 };
-var shared3;
+var shared2;
 var sharedFillMaterial = () => {
-  if (!shared3) {
-    shared3 = new MeshBasicNodeMaterial;
-    shared3.transparent = true;
-    shared3.depthWrite = false;
-    shared3.side = DoubleSide;
-    shared3.colorNode = userData4(FILL_KEYS.tint, "color");
-    shared3.opacityNode = userData4(FILL_KEYS.fade, "float");
+  if (!shared2) {
+    shared2 = new MeshBasicNodeMaterial;
+    shared2.transparent = true;
+    shared2.depthWrite = false;
+    shared2.side = DoubleSide;
+    shared2.colorNode = userData4(FILL_KEYS.tint, "color");
+    shared2.opacityNode = userData4(FILL_KEYS.fade, "float");
   }
-  return shared3;
+  return shared2;
 };
 var ellipsePolygon = (radiusX, radiusY, segments = 64) => {
   const pts = [{ x: 0, y: 0, z: 0 }];
@@ -64189,6 +64452,61 @@ var insetLoop = (loop, amount) => {
   }
   return pts.map(({ p: p2 }) => p2);
 };
+var insetLoopDeepest = (loop, amount, others = []) => {
+  if (amount <= 0)
+    return { loop, depth: 0 };
+  const outer = loopArea(loop) > 0;
+  const within = (p2) => {
+    let inside = false;
+    for (let i2 = 0, j2 = loop.length - 1;i2 < loop.length; j2 = i2++) {
+      const a2 = loop[i2];
+      const b2 = loop[j2];
+      if (a2.y > p2.y !== b2.y > p2.y && p2.x < (b2.x - a2.x) * (p2.y - a2.y) / (b2.y - a2.y) + a2.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+  const fits = (inset, depth3, strictOwn) => {
+    if (inset === loop)
+      return false;
+    let close = 0;
+    for (const p2 of inset) {
+      if (strictOwn && within(p2) !== outer)
+        return false;
+      let own = Infinity;
+      for (let e2 = 0;strictOwn && e2 < loop.length && own >= depth3 * 0.95; e2++) {
+        own = Math.min(own, segmentDistance(p2, loop[e2], loop[(e2 + 1) % loop.length]));
+      }
+      let other = Infinity;
+      for (const ring of others) {
+        for (let e2 = 0;e2 < ring.length && other >= depth3 * 0.95; e2++) {
+          other = Math.min(other, segmentDistance(p2, ring[e2], ring[(e2 + 1) % ring.length]));
+        }
+      }
+      if ((own < depth3 * 0.95 || other < depth3 * 0.95) && ++close > inset.length * 0.02)
+        return false;
+    }
+    return true;
+  };
+  const full = insetLoop(loop, amount);
+  if (fits(full, amount, false))
+    return { loop: full, depth: amount };
+  let lo = 0;
+  let hi = amount;
+  let best = loop;
+  for (let k2 = 0;k2 < 12; k2++) {
+    const mid = (lo + hi) / 2;
+    const inset = insetLoop(loop, mid);
+    if (fits(inset, mid, true)) {
+      lo = mid;
+      best = inset;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo > 0 ? { loop: best, depth: lo } : { loop, depth: 0 };
+};
 var segmentDistance = (p2, a2, b2) => {
   const dx = b2.x - a2.x;
   const dy = b2.y - a2.y;
@@ -64213,6 +64531,15 @@ var trimCorner = (pts, i2, j2) => {
   return { x: a0.x + dax * s2, y: a0.y + day * s2, z: a1.z };
 };
 var closeLoop = (loop) => loop.length === 0 ? [] : [...loop, loop[0]];
+var loopArea = (loop) => {
+  let sum = 0;
+  for (let i2 = 0;i2 < loop.length; i2++) {
+    const a2 = loop[i2];
+    const b2 = loop[(i2 + 1) % loop.length];
+    sum += a2.x * b2.y - b2.x * a2.y;
+  }
+  return sum / 2;
+};
 
 // src/render/fonts.ts
 var FONT_CACHE_DIR = "refs/fonts";
@@ -64392,17 +64719,20 @@ var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   const outlines = [];
   for (let g2 = 0;g2 < glyphCount; g2++) {
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 0.000001);
-    const loops = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2).map((loop) => insetLoop(loop, inset));
-    const lengths = loops.map(loopLength);
+    const rings = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2);
+    const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r2) => r2 !== loop)));
+    const lengths = loops.map(({ loop }) => loopLength(loop));
     const total = lengths.reduce((a2, b2) => a2 + b2, 0);
     let walked = 0;
     const built = [];
     for (let i2 = 0;i2 < loops.length; i2++) {
       const ribbon = new RibbonStroke(strokePx);
-      ribbon.setPoints(closeLoop(loops[i2]).map((p2) => new Vector3(p2.x, p2.y, p2.z)));
+      const { loop, depth: depth3 } = loops[i2];
+      ribbon.setPoints(closeLoop(loop).map((p2) => new Vector3(p2.x, p2.y, p2.z)));
       const from = total > 0 ? walked / total : 0;
       walked += lengths[i2];
-      built.push({ ribbon, from, to: total > 0 ? walked / total : 1 });
+      const share = depth3 === inset ? 1 : depth3 / inset;
+      built.push({ ribbon, from, to: total > 0 ? walked / total : 1, share });
     }
     outlines.push({ window: windows2[g2] ?? [0, 1], loops: built });
   }
@@ -64420,9 +64750,9 @@ var syncOutlines = (outlines, holon) => {
     const pWrite = clamp013((creation - window2[0]) / span);
     const pErase = clamp013((erasure - window2[0]) / span);
     const { draw } = writePhases(Math.min(pWrite, 1 - pErase));
-    for (const { ribbon, from, to } of loops) {
+    for (const { ribbon, from, to, share } of loops) {
       const local = to > from ? clamp013((draw - from) / (to - from)) : draw > from ? 1 : 0;
-      ribbon.style(local, opacity, tint, width);
+      ribbon.style(local, opacity, tint, share === 1 ? width : width * share);
     }
   }
 };
@@ -65031,7 +65361,7 @@ class ThreeHost {
   highlightAmount = 0;
   constructor(dream, canvas, useInstancedRibbons) {
     this.dream = dream;
-    this.useInstancedRibbons = useInstancedRibbons;
+    this.instanced = useInstancedRibbons;
     this.renderer = new WebGPURenderer({ canvas, antialias: true });
     this.scene = new Scene;
     this.scene.background = new Color(0);
@@ -65040,6 +65370,7 @@ class ThreeHost {
     this.camera = this.perspCamera;
   }
   static INSTANCE_THRESHOLD = 1000;
+  static MIN_STROKES_PER_RUN = 8;
   static async mount(dream, canvas, opts = {}) {
     await Promise.resolve();
     dream.build();
@@ -65049,10 +65380,12 @@ class ThreeHost {
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false);
     for (const root of dream.roots)
       host.attach(root, host.scene);
-    if (host.ribbonBatch) {
-      host.ribbonBatch.mesh.renderOrder = host.nextFillOrder;
-      host.scene.add(host.ribbonBatch.mesh);
+    const auto = opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined;
+    if (auto && host.ribbonBatches.length > 0 && host.strokes.length / host.ribbonBatches.length < ThreeHost.MIN_STROKES_PER_RUN) {
+      host.unbatch();
     }
+    for (const batch3 of host.ribbonBatches)
+      host.scene.add(batch3.mesh);
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
@@ -65102,12 +65435,12 @@ class ThreeHost {
       group.add(binding.farCap.mesh, binding.nearBack.mesh, binding.nearFront.mesh, binding.lineA.mesh, binding.lineB.mesh);
       this.cylinders.push(binding);
     } else if (holon instanceof Ellipse && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++);
+      const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++);
+      const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
@@ -65115,7 +65448,7 @@ class ThreeHost {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
       if (loops) {
-        const fill = new FillShape(this.nextFillOrder++);
+        const fill = new FillShape(this.claimFillOrder());
         fill.setPolygons(loops);
         group.add(fill.mesh);
         this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) });
@@ -65124,7 +65457,7 @@ class ThreeHost {
       }
       const washed = !loops && !this.washedByAncestor.has(holon) && this.washesFillOpacity(holon) ? washGeometry(holon) : undefined;
       if (washed) {
-        const fill = new FillShape(this.nextFillOrder++);
+        const fill = new FillShape(this.claimFillOrder());
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
         this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
@@ -65138,10 +65471,15 @@ class ThreeHost {
         if (this.useInstancedRibbons) {
           group.add(ribbon.mesh);
           ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER);
-          if (!this.ribbonBatch)
-            this.ribbonBatch = new RibbonBatch;
+          if (!this.openBatch) {
+            this.batchTable ??= new BatchTable;
+            this.openBatch = new RibbonBatch(256, this.batchTable);
+            this.ribbonBatches.push(this.openBatch);
+          }
+          this.openBatch.mesh.renderOrder = ribbon.mesh.renderOrder;
+          strokeBinding.batch = this.openBatch;
           const initial = ribbon.geometry.instanceCount;
-          strokeBinding.slot = this.ribbonBatch.reserve(Math.max(2, initial));
+          strokeBinding.slot = this.openBatch.reserve(Math.max(2, initial));
         } else {
           group.add(ribbon.mesh);
         }
@@ -65154,7 +65492,7 @@ class ThreeHost {
           const polygon = arrowPolygon(holon.points, atStart, holon.arrowSize.value);
           if (!polygon)
             continue;
-          const fill = new FillShape(this.nextFillOrder++);
+          const fill = new FillShape(this.claimFillOrder());
           fill.setPolygon(polygon);
           group.add(fill.mesh);
           this.arrows.push({
@@ -65262,7 +65600,7 @@ class ThreeHost {
       fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
-    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatch !== undefined) {
+    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatches.length > 0) {
       this.settleScene();
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
@@ -65278,29 +65616,31 @@ class ThreeHost {
     this.packRibbonBatch();
   }
   packRibbonBatch() {
-    const batch3 = this.ribbonBatch;
-    if (!batch3)
+    if (this.ribbonBatches.length === 0)
       return;
     const viewInverse = this.camera.matrixWorldInverse;
     for (const binding of this.strokes) {
-      const { ribbon, group, slot } = binding;
-      if (!slot)
+      const { ribbon, group, slot, batch: batch3 } = binding;
+      if (!slot || !batch3)
         continue;
-      const count = ribbon.geometry.instanceCount;
+      const geometry = ribbon.geometry;
+      const count = geometry.instanceCount;
       if (!ribbon.mesh.visible || count < 1) {
-        batch3.hideSlot(slot);
+        batch3.hideStroke(slot);
         continue;
-      }
-      if (this.batchPos.length < count * 6) {
-        this.batchPos = new Float32Array(count * 6);
-        this.batchDist = new Float32Array(count * 2);
       }
       this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld);
-      const n2 = ribbon.packViewSegments(this.batchMv, this.batchPos, this.batchDist, this.batchPoint);
       const ud = ribbon.mesh.userData;
       const tint = ud[RIBBON_KEYS.tint];
-      binding.slot = batch3.writeSlot(slot, this.batchPos, this.batchDist, n2, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
+      binding.slot = batch3.writeStroke(slot, {
+        points: ribbon.worldPoints(),
+        positions: geometry.getAttribute("instanceStart").data.array,
+        distances: geometry.getAttribute("instanceDistanceStart").data.array,
+        count
+      }, this.batchMv, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
     }
+    for (const batch3 of this.ribbonBatches)
+      batch3.flush();
   }
   cullFrustum = new Frustum;
   cullVP = new Matrix4;
@@ -65312,12 +65652,34 @@ class ThreeHost {
   cullLatchVP = new Matrix4;
   cullLatchIdle = false;
   cullEnabled = true;
-  useInstancedRibbons;
-  ribbonBatch;
+  get useInstancedRibbons() {
+    return this.instanced;
+  }
+  instanced;
+  unbatch() {
+    for (const binding of this.strokes) {
+      if (!binding.batch)
+        continue;
+      binding.ribbon.mesh.layers.set(0);
+      binding.batch = undefined;
+      binding.slot = undefined;
+    }
+    for (const batch3 of this.ribbonBatches)
+      batch3.geometry.dispose();
+    this.ribbonBatches.length = 0;
+    this.openBatch = undefined;
+    this.batchTable?.material.dispose();
+    this.batchTable = undefined;
+    this.instanced = false;
+  }
+  ribbonBatches = [];
+  openBatch;
+  batchTable;
+  claimFillOrder() {
+    this.openBatch = undefined;
+    return this.nextFillOrder++;
+  }
   batchMv = new Matrix4;
-  batchPoint = new Vector3;
-  batchPos = new Float32Array(0);
-  batchDist = new Float32Array(0);
   cullOffscreen() {
     if (!this.cullEnabled || this.strokes.length === 0) {
       this.culledOffscreen = 0;
@@ -66562,8 +66924,900 @@ var mat3ToEuler = (m2) => {
 };
 var trackball = (dx, dy, radPerUnit) => mat3Mul(rotX(dy * radPerUnit), rotY(dx * radPerUnit));
 
-// sketch/vocabulary.ts
+// vocabulary/Logo/Logo.ts
+var ANGLE_LINES = PI * 2 / 5;
+var ANGLE_OFFSET = -PI / 2;
+var SMALL_CIRCLE_RATIO = 0.61;
+var SMALL_CIRCLE_GAP = 6;
+var FOCAL_RATIO = 0.11;
+var proportions = (radius) => {
+  const smallRadius = radius * SMALL_CIRCLE_RATIO;
+  const smallCenter = radius - smallRadius - SMALL_CIRCLE_GAP * (radius / 200);
+  const focalHeight = smallCenter + FOCAL_RATIO * smallRadius;
+  const footX = radius * Math.cos(ANGLE_OFFSET + ANGLE_LINES / 2);
+  const footY = radius * Math.sin(ANGLE_OFFSET + ANGLE_LINES / 2);
+  return { smallRadius, smallCenter, focalHeight, footX, footY };
+};
+
+class Logo extends Stroke {
+  static sovereign = true;
+  radius = length(200);
+  tint = color(BLUE);
+  smallTint = color(RED);
+  lineTint = color(WHITE);
+  get geometry() {
+    return proportions(this.radius.value);
+  }
+  mainCircle = new Circle({
+    radius: this.radius,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  smallCircle = new Circle({
+    radius: this.geometry.smallRadius,
+    y: this.geometry.smallCenter,
+    tint: this.smallTint,
+    stroke: this.stroke
+  });
+  leftLeg = new Line({
+    points: [
+      { x: this.geometry.footX, y: this.geometry.footY, z: 0 },
+      { x: 0, y: this.geometry.focalHeight, z: 0 }
+    ],
+    tint: this.lineTint,
+    stroke: this.stroke
+  });
+  rightLeg = new Line({
+    points: [
+      { x: -this.geometry.footX, y: this.geometry.footY, z: 0 },
+      { x: 0, y: this.geometry.focalHeight, z: 0 }
+    ],
+    tint: this.lineTint,
+    stroke: this.stroke
+  });
+  createAnim() {
+    const { smallRadius, smallCenter, focalHeight } = this.geometry;
+    return together(restage(this.mainCircle.opacity.sequence(0, 1), 0, 0.4), restage(eased("easeIn", this.leftLeg.creation.sequence(0, 1), this.rightLeg.creation.sequence(0, 1)), 0.4, 0.7), restage(this.smallCircle.opacity.sequence(0, 1), 0.7, 1), restage(eased("easeOut", this.smallCircle.radius.sequence(0, smallRadius), this.smallCircle.y.sequence(focalHeight, smallCenter)), 0.7, 1));
+  }
+  unCreateAnim() {
+    return together(restage(this.smallCircle.opacity.to(0), 0, 0.3), restage(together(this.leftLeg.creation.to(0), this.rightLeg.creation.to(0)), 0.3, 0.6), restage(this.mainCircle.opacity.to(0), 0.6, 1));
+  }
+}
+
+// src/geometry/platonic.ts
+var PHI2 = (1 + Math.sqrt(5)) / 2;
+var toUnit = (verts) => {
+  const r2 = Math.hypot(verts[0].x, verts[0].y, verts[0].z);
+  const k2 = r2 > 0 ? 1 / r2 : 1;
+  return verts.map((v2) => ({ x: v2.x * k2, y: v2.y * k2, z: v2.z * k2 }));
+};
+var edgesByLength = (verts) => {
+  const dist22 = (a2, b2) => (a2.x - b2.x) ** 2 + (a2.y - b2.y) ** 2 + (a2.z - b2.z) ** 2;
+  let min6 = Infinity;
+  for (let i2 = 0;i2 < verts.length; i2++) {
+    for (let j2 = i2 + 1;j2 < verts.length; j2++) {
+      const d2 = dist22(verts[i2], verts[j2]);
+      if (d2 < min6)
+        min6 = d2;
+    }
+  }
+  const tol = min6 * 0.000001;
+  const edges = [];
+  for (let i2 = 0;i2 < verts.length; i2++) {
+    for (let j2 = i2 + 1;j2 < verts.length; j2++) {
+      if (Math.abs(dist22(verts[i2], verts[j2]) - min6) <= tol)
+        edges.push([i2, j2]);
+    }
+  }
+  return edges;
+};
+var solidFrom = (raw, faces) => {
+  const vertices = toUnit(raw);
+  return { vertices, edges: edgesByLength(vertices), faces };
+};
+var tetrahedron = () => solidFrom([
+  { x: 1, y: 1, z: 1 },
+  { x: 1, y: -1, z: -1 },
+  { x: -1, y: 1, z: -1 },
+  { x: -1, y: -1, z: 1 }
+], 4);
+var cube = () => {
+  const v2 = [];
+  for (const x2 of [-1, 1])
+    for (const y2 of [-1, 1])
+      for (const z2 of [-1, 1])
+        v2.push({ x: x2, y: y2, z: z2 });
+  return solidFrom(v2, 6);
+};
+var octahedron = () => solidFrom([
+  { x: 1, y: 0, z: 0 },
+  { x: -1, y: 0, z: 0 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0, y: -1, z: 0 },
+  { x: 0, y: 0, z: 1 },
+  { x: 0, y: 0, z: -1 }
+], 8);
+var icosahedron = () => {
+  const v2 = [];
+  for (const a2 of [-1, 1]) {
+    for (const b2 of [-PHI2, PHI2]) {
+      v2.push({ x: 0, y: a2, z: b2 });
+      v2.push({ x: a2, y: b2, z: 0 });
+      v2.push({ x: b2, y: 0, z: a2 });
+    }
+  }
+  return solidFrom(v2, 20);
+};
+var dodecahedron = () => {
+  const v2 = [];
+  for (const x2 of [-1, 1])
+    for (const y2 of [-1, 1])
+      for (const z2 of [-1, 1])
+        v2.push({ x: x2, y: y2, z: z2 });
+  const invPhi = 1 / PHI2;
+  for (const a2 of [-invPhi, invPhi]) {
+    for (const b2 of [-PHI2, PHI2]) {
+      v2.push({ x: 0, y: a2, z: b2 });
+      v2.push({ x: a2, y: b2, z: 0 });
+      v2.push({ x: b2, y: 0, z: a2 });
+    }
+  }
+  return solidFrom(v2, 12);
+};
+var SOLIDS = {
+  tetrahedron: tetrahedron(),
+  cube: cube(),
+  octahedron: octahedron(),
+  dodecahedron: dodecahedron(),
+  icosahedron: icosahedron()
+};
+var rotate3 = (p2, yaw2, pitch2) => {
+  const cy = Math.cos(yaw2);
+  const sy = Math.sin(yaw2);
+  const x1 = p2.x * cy + p2.z * sy;
+  const z1 = -p2.x * sy + p2.z * cy;
+  const y1 = p2.y;
+  const cx = Math.cos(pitch2);
+  const sx = Math.sin(pitch2);
+  const y2 = y1 * cx - z1 * sx;
+  const z2 = y1 * sx + z1 * cx;
+  return { x: x1, y: y2, z: z2 };
+};
+var project = (solid, radius, yaw2, pitch2) => {
+  const vertices = solid.vertices.map((v2) => {
+    const r2 = rotate3(v2, yaw2, pitch2);
+    return { x: r2.x * radius, y: r2.y * radius, z: r2.z };
+  });
+  const edges = solid.edges.map(([i2, j2]) => ({
+    a: vertices[i2],
+    b: vertices[j2]
+  }));
+  return { vertices, edges };
+};
+
+// vocabulary/Platonic/Platonic.ts
+class Platonic extends Null {
+  static sovereign = true;
+  solid = "icosahedron";
+  radius = length(120);
+  spin = scalar(0);
+  pitch = angle(0.42);
+  edgeTint = color(WHITE);
+  edgeStroke = length(1.4);
+  nodeTint = color(WHITE);
+  nodeRadius = length(4);
+  edges;
+  nodes;
+  compose() {
+    const data = SOLIDS[this.solid];
+    const edgeLines = data.edges.map((_2, e2) => {
+      const line = new Line({ tint: this.edgeTint, stroke: this.edgeStroke });
+      deriveEdge(line, this, e2);
+      return line;
+    });
+    this.edges = this.add(new Group({ members: edgeLines }));
+    const nodeCircles = data.vertices.map((_2, i2) => new Circle({
+      radius: this.nodeRadius,
+      tint: this.nodeTint,
+      fillOpacity: 1,
+      stroke: 0,
+      x: this.spin.map(() => this.projectedVertex(i2).x),
+      y: this.spin.map(() => this.projectedVertex(i2).y)
+    }));
+    this.nodes = this.add(new Group({ members: nodeCircles }));
+  }
+  projectedVertex(i2) {
+    const data = SOLIDS[this.solid];
+    const { vertices } = project(data, this.radius.value, this.spin.value, this.pitch.value);
+    return vertices[i2];
+  }
+}
+var deriveEdge = (line, holon, edgeIndex) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const spin = holon.spin.value;
+      const radius = holon.radius.value;
+      const pitch2 = holon.pitch.value;
+      const next = [spin, radius, pitch2];
+      if (!key || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        const data = SOLIDS[holon.solid];
+        const { edges } = project(data, radius, spin, pitch2);
+        const e2 = edges[edgeIndex];
+        memo = [
+          { x: e2.a.x, y: e2.a.y, z: 0 },
+          { x: e2.b.x, y: e2.b.y, z: 0 }
+        ];
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// vocabulary/Plot/Plot.ts
+class Plot extends Null {
+  static sovereign = true;
+  fn = (x2) => x2;
+  domain = [-1, 1];
+  range = [0, 10];
+  width = length(760);
+  height = length(460);
+  reveal = completion(0);
+  samples = integer(900);
+  stroke = length(3);
+  curveTint = color(WHITE);
+  axisTint = color({ r: 0.45, g: 0.45, b: 0.5 });
+  showAxes = true;
+  curve;
+  axes;
+  at(x2, y2) {
+    const [x0, x1] = this.domain;
+    const [y0, y1] = this.range;
+    const w4 = this.width.value;
+    const h2 = this.height.value;
+    const u2 = (x2 - x0) / (x1 - x0);
+    const v2 = (Math.min(Math.max(y2, y0), y1) - y0) / (y1 - y0);
+    return { x: -w4 / 2 + u2 * w4, y: -h2 / 2 + v2 * h2 };
+  }
+  valueAt(x2) {
+    return this.fn(x2);
+  }
+  compose() {
+    const [x0, x1] = this.domain;
+    const n2 = Math.max(2, Math.round(this.samples.value));
+    this.curve = this.add(new Line({ tint: this.curveTint, stroke: this.stroke }));
+    derivePolyline(this.curve, () => [this.reveal.value], () => {
+      const r2 = this.reveal.value;
+      if (r2 <= 0)
+        return [];
+      const upto = Math.max(2, Math.ceil(r2 * n2));
+      const pts = [];
+      for (let i2 = 0;i2 < upto; i2++) {
+        const x2 = x0 + i2 / n2 * (x1 - x0);
+        const p2 = this.at(x2, this.fn(x2));
+        pts.push({ x: p2.x, y: p2.y, z: 0 });
+      }
+      return pts;
+    });
+    if (!this.showAxes) {
+      this.axes = this.add(new Group({ members: [] }));
+      return;
+    }
+    const w4 = this.width.value;
+    const h2 = this.height.value;
+    const xAxis = new Line({
+      points: [
+        { x: -w4 / 2, y: -h2 / 2, z: 0 },
+        { x: w4 / 2, y: -h2 / 2, z: 0 }
+      ],
+      tint: this.axisTint,
+      stroke: this.stroke.times(0.6)
+    });
+    const yAtZero = x0 <= 0 && 0 <= x1 ? this.at(0, this.range[0]).x : -w4 / 2;
+    const yAxis = new Line({
+      points: [
+        { x: yAtZero, y: -h2 / 2, z: 0 },
+        { x: yAtZero, y: h2 / 2, z: 0 }
+      ],
+      tint: this.axisTint,
+      stroke: this.stroke.times(0.6)
+    });
+    this.axes = this.add(new Group({ members: [xAxis, yAxis] }));
+  }
+}
+var derivePolyline = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+// vocabulary/RightTriangle/RightTriangle.ts
+var derivePolyline2 = (line, sourceKey, compute3) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v2, i2) => v2 !== key[i2])) {
+        key = next;
+        memo = compute3();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class RightTriangle extends Null {
+  static sovereign = true;
+  foot = { x: 0, y: 0 };
+  base = length(200);
+  rise = length(120);
+  stroke = length(3);
+  legTint = color({ r: 0.5, g: 0.5, b: 0.55 });
+  hypotenuseTint = color(WHITE);
+  baseLine;
+  riseLine;
+  hypotenuse;
+  sides;
+  get slope() {
+    const b2 = this.base.value;
+    return b2 === 0 ? Number.POSITIVE_INFINITY : this.rise.value / b2;
+  }
+  compose() {
+    const key = () => [this.base.value, this.rise.value, this.foot.x, this.foot.y];
+    this.baseLine = new Line({ tint: this.legTint, stroke: this.stroke.times(0.75) });
+    derivePolyline2(this.baseLine, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      return [
+        { x: x2, y: y2, z: 0 },
+        { x: x2 + this.base.value, y: y2, z: 0 }
+      ];
+    });
+    this.riseLine = new Line({ tint: this.legTint, stroke: this.stroke.times(0.75) });
+    derivePolyline2(this.riseLine, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      const b2 = this.base.value;
+      return [
+        { x: x2 + b2, y: y2, z: 0 },
+        { x: x2 + b2, y: y2 + this.rise.value, z: 0 }
+      ];
+    });
+    this.hypotenuse = new Line({ tint: this.hypotenuseTint, stroke: this.stroke });
+    derivePolyline2(this.hypotenuse, key, () => {
+      const { x: x2, y: y2 } = this.foot;
+      return [
+        { x: x2, y: y2, z: 0 },
+        { x: x2 + this.base.value, y: y2 + this.rise.value, z: 0 }
+      ];
+    });
+    this.sides = this.add(new Group({ members: [this.baseLine, this.riseLine, this.hypotenuse] }));
+  }
+}
+
+// vocabulary/Sketch/Sketch.ts
+var EMPTY = { name: "", source: "", hash: "", subpaths: [], closed: [] };
+var toPoints = (flat, scale2) => {
+  const points = [];
+  for (let i2 = 0;i2 + 1 < flat.length; i2 += 2) {
+    points.push({ x: flat[i2] * scale2, y: flat[i2 + 1] * scale2, z: 0 });
+  }
+  return points;
+};
+var arcLength = (points) => {
+  let total = 0;
+  for (let i2 = 1;i2 < points.length; i2++) {
+    const a2 = points[i2 - 1];
+    const b2 = points[i2];
+    total += Math.hypot(b2.x - a2.x, b2.y - a2.y, b2.z - a2.z);
+  }
+  return total;
+};
+
+class Sketch extends Stroke {
+  height = length(400);
+  tint = color(WHITE);
+  data = EMPTY;
+  strokes = [];
+  compose() {
+    const { subpaths } = this.data;
+    if (subpaths.length === 0)
+      return;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const sp of subpaths) {
+      for (let i2 = 1;i2 < sp.length; i2 += 2) {
+        const y2 = sp[i2];
+        if (y2 < minY)
+          minY = y2;
+        if (y2 > maxY)
+          maxY = y2;
+      }
+    }
+    const span = maxY - minY;
+    const scale2 = span > 0.000000001 ? this.height.value / span : 1;
+    for (const sp of subpaths) {
+      const points = toPoints(sp, scale2);
+      if (points.length < 2)
+        continue;
+      this.strokes.push(this.add(new Line({ points, tint: this.tint, stroke: this.stroke })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    return this.sweep(false);
+  }
+  unCreateAnim() {
+    this.parts;
+    return this.sweep(true);
+  }
+  sweep(retract) {
+    const n2 = this.strokes.length;
+    if (n2 === 0)
+      return { tracks: [] };
+    const lengths = this.strokes.map((s2) => arcLength(s2.points));
+    const total = lengths.reduce((a2, b2) => a2 + b2, 0);
+    const shares = total > 0.000000001 ? lengths.map((l2) => l2 / total) : lengths.map(() => 1 / n2);
+    const items = [];
+    let at2 = 0;
+    for (let i2 = 0;i2 < n2; i2++) {
+      const stroke = this.strokes[i2];
+      const from = at2;
+      at2 += shares[i2];
+      const to = i2 === n2 - 1 ? 1 : at2;
+      items.push(retract ? [stroke.creation.to(0), 1 - to, 1 - from] : [stroke.creation.sequence(0, 1), from, to]);
+    }
+    return together(...items);
+  }
+}
+// vocabulary/Sketch/assets/cash.ts
+var cash = {
+  name: "cash",
+  source: "refs/pitch/svg-assets/svg/cash.svg",
+  hash: "902fb1eb77e5a0ff",
+  subpaths: [
+    [-199.656, 81.891, -199.656, -81.891, 199.656, -81.891, 199.656, -70.297, 199.656, 81.891, -199.656, 81.891],
+    [-143.844, 67.891, -26.25, 67.891, -32.907, 62.635, -38.947, 56.24, -44.287, 48.813, -48.844, 40.462, -52.533, 31.297, -55.272, 21.423, -56.976, 10.949, -57.563, -0.016, -56.976, -10.979, -55.271, -21.449, -52.533, -31.318, -48.844, -40.478, -44.287, -48.823, -38.947, -56.244, -32.907, -62.636, -26.25, -67.891, -143.844, -67.891, -145.735, -60.095, -148.787, -52.827, -152.895, -46.193, -157.953, -40.297, -163.855, -35.245, -170.494, -31.142, -177.765, -28.093, -185.563, -26.203, -185.563, 26.203, -177.765, 28.093, -170.494, 31.142, -163.855, 35.245, -157.953, 40.297, -152.895, 46.193, -148.787, 52.827, -145.735, 60.095, -143.844, 67.891],
+    [23.656, 67.891, 143.844, 67.891, 145.733, 60.095, 148.782, 52.827, 152.885, 46.193, 157.937, 40.297, 163.833, 35.245, 170.468, 31.142, 177.735, 28.093, 185.531, 26.203, 185.531, -26.203, 177.735, -28.093, 170.468, -31.142, 163.833, -35.245, 157.937, -40.297, 152.885, -46.193, 148.782, -52.827, 145.733, -60.095, 143.844, -67.891, 23.656, -67.891, 30.312, -62.636, 36.349, -56.245, 41.684, -48.823, 46.234, -40.478, 49.918, -31.318, 52.651, -21.449, 54.352, -10.979, 54.938, -0.016, 54.352, 10.949, 52.651, 21.423, 49.918, 31.297, 46.234, 40.462, 41.684, 48.813, 36.349, 56.24, 30.312, 62.635, 23.656, 67.891],
+    [-115.656, 22.109, -119.953, 21.697, -124.121, 20.46, -128.033, 18.399, -131.563, 15.516, -134.446, 11.985, -136.505, 8.069, -137.741, 3.896, -138.153, -0.406, -137.741, -4.708, -136.505, -8.881, -134.446, -12.797, -131.563, -16.328, -128.033, -19.211, -124.121, -21.271, -119.952, -22.506, -115.656, -22.918, -111.36, -22.506, -107.192, -21.271, -103.279, -19.211, -99.75, -16.328, -96.867, -12.797, -94.807, -8.881, -93.572, -4.708, -93.16, -0.406, -93.572, 3.896, -94.807, 8.069, -96.867, 11.985, -99.75, 15.516, -103.279, 18.399, -107.191, 20.46, -111.359, 21.697, -115.656, 22.109],
+    [113.031, 22.109, 108.734, 21.697, 104.566, 20.46, 100.654, 18.399, 97.125, 15.516, 94.242, 11.985, 92.182, 8.069, 90.947, 3.896, 90.535, -0.406, 90.947, -4.708, 92.182, -8.881, 94.242, -12.797, 97.125, -16.328, 100.656, -19.211, 104.572, -21.271, 108.745, -22.506, 113.047, -22.918, 117.349, -22.506, 121.522, -21.271, 125.438, -19.211, 128.969, -16.328, 131.852, -12.797, 133.911, -8.881, 135.147, -4.708, 135.559, -0.406, 135.147, 3.896, 133.911, 8.069, 131.852, 11.985, 128.969, 15.516, 125.435, 18.399, 121.512, 20.46, 117.333, 21.697, 113.031, 22.109]
+  ],
+  closed: [0, 0, 0, 0, 0]
+};
+// vocabulary/Sketch/assets/factory.ts
+var factory = {
+  name: "factory",
+  source: "refs/pitch/svg-assets/svg/factory.svg",
+  hash: "299a13f1a2e3d816",
+  subpaths: [
+    [-127.813, 132.875, -129.754, 132.494, -131.359, 131.45, -132.473, 129.892, -132.938, 127.969, -140.063, -37.656, -166.594, -37.656, -166.594, -91.313, -200, -91.313, -200, -132.875, 200, -132.875, 200, -91.313, 165.563, -91.313, 165.563, -8.188, 145.438, -8.188, 145.438, 55.938, 88.844, 24.656, 88.844, 55.938, 32.25, 24.656, 32.25, 55.938, -40.688, 15.625, -40.688, -37.656, -58.813, -37.656, -65.938, 127.969, -66.397, 129.892, -67.5, 131.45, -69.095, 132.494, -71.031, 132.875, -79.844, 132.875, -81.785, 132.494, -83.391, 131.45, -84.504, 129.892, -84.969, 127.969, -92.094, -37.656, -106.781, -37.656, -113.875, 127.969, -114.34, 129.892, -115.453, 131.45, -117.059, 132.494, -119, 132.875, -127.813, 132.875]
+  ],
+  closed: [0]
+};
+// vocabulary/Sketch/assets/gear_big.ts
+var gearBig = {
+  name: "gear_big",
+  source: "refs/pitch/svg-assets/svg/gear_big.svg",
+  hash: "bea21981cf8703cc",
+  subpaths: [
+    [-0.053, -199.132, -5.559, -199.058, -13.457, -198.651, -19.236, -198.276, -20.734, -192.875, -24.137, -178.292, -25.055, -176.097, -26.617, -174.145, -28.61, -172.644, -30.82, -171.798, -54.613, -165.801, -56.945, -165.504, -59.401, -165.898, -61.687, -166.892, -63.514, -168.394, -73.285, -179.667, -77.189, -183.788, -82.498, -181.291, -106.385, -168.488, -111.381, -165.489, -110.164, -159.993, -106.26, -145.192, -106.096, -142.809, -106.589, -140.346, -107.644, -138.09, -109.166, -136.325, -126.369, -120.524, -128.267, -119.145, -130.605, -118.336, -133.073, -118.145, -135.363, -118.62, -149.445, -124.209, -154.723, -126.02, -158.219, -121.337, -173.615, -98.229, -176.611, -93.233, -173.021, -88.954, -162.436, -77.464, -161.127, -75.49, -160.377, -73.083, -160.227, -70.563, -160.717, -68.252, -167.838, -47.988, -168.903, -45.885, -170.595, -44.062, -172.68, -42.726, -174.926, -42.084, -190.414, -40.399, -196.004, -39.493, -196.908, -33.686, -199.688, -5.209, -200, 0.567, -194.816, 2.786, -179.516, 8.374, -177.428, 9.53, -175.638, 11.325, -174.334, 13.494, -173.707, 15.775, -170.93, 34.761, -170.872, 37.113, -171.516, 39.494, -172.742, 41.631, -174.426, 43.252, -187.822, 52.248, -192.318, 55.65, -190.414, 61.145, -179.422, 88.499, -176.924, 93.808, -171.334, 93.308, -154.629, 91.123, -152.276, 91.207, -149.895, 91.971, -147.759, 93.279, -146.137, 94.994, -136.145, 108.796, -135.025, 110.862, -134.518, 113.273, -134.628, 115.74, -135.363, 117.976, -143.23, 132.589, -145.637, 137.679, -141.451, 141.677, -118.564, 161.442, -113.973, 165.064, -109.258, 162.067, -95.395, 152.168, -93.309, 151.121, -90.855, 150.683, -88.345, 150.862, -86.09, 151.668, -72.193, 158.757, -70.289, 160.117, -68.73, 162.07, -67.678, 164.341, -67.291, 166.658, -67.51, 183.644, -67.291, 189.233, -61.703, 190.918, -31.943, 198.132, -26.23, 199.132, -23.449, 194.23, -15.645, 178.929, -14.269, 177.045, -12.285, 175.538, -9.981, 174.556, -7.65, 174.245, 7.338, 174.245, 9.655, 174.556, 11.935, 175.538, 13.914, 177.045, 15.332, 178.929, 23.139, 194.23, 25.918, 199.132, 31.631, 198.132, 61.389, 190.918, 66.979, 189.233, 67.197, 183.644, 66.979, 166.658, 67.309, 164.299, 68.343, 162.032, 69.92, 160.103, 71.881, 158.757, 85.777, 151.668, 87.976, 150.862, 90.467, 150.683, 92.94, 151.121, 95.082, 152.168, 108.945, 162.067, 113.66, 165.064, 118.25, 161.442, 141.139, 141.677, 145.324, 137.679, 142.92, 132.589, 135.051, 117.976, 134.316, 115.74, 134.205, 113.273, 134.713, 110.862, 135.832, 108.796, 145.824, 94.994, 147.404, 93.237, 149.546, 91.935, 151.95, 91.194, 154.316, 91.123, 171.023, 93.308, 176.611, 93.808, 179.109, 88.499, 190.102, 61.145, 192.006, 55.65, 187.51, 52.248, 174.113, 43.252, 172.428, 41.631, 171.203, 39.494, 170.558, 37.113, 170.615, 34.761, 173.396, 15.775, 174.022, 13.494, 175.325, 11.325, 177.115, 9.53, 179.203, 8.374, 194.504, 2.786, 200, 0.786, 199.687, -5.02, 196.877, -33.5, 196.004, -39.276, 190.383, -40.18, 174.895, -41.899, 172.649, -42.536, 170.564, -43.86, 168.872, -45.671, 167.807, -47.769, 160.719, -68.065, 160.238, -70.371, 160.4, -72.881, 161.143, -75.278, 162.404, -77.248, 173.021, -88.954, 176.611, -93.233, 173.613, -98.229, 158.219, -121.337, 154.723, -126.02, 149.414, -124.209, 135.332, -118.62, 133.041, -118.145, 130.572, -118.336, 128.235, -119.145, 126.338, -120.524, 109.164, -136.325, 107.586, -138.146, 106.513, -140.421, 106.039, -142.865, 106.26, -145.192, 110.164, -159.993, 111.35, -165.489, 106.354, -168.488, 82.467, -181.291, 77.189, -183.788, 73.287, -179.667, 63.482, -168.394, 61.66, -166.893, 59.384, -165.899, 56.94, -165.504, 54.613, -165.801, 30.82, -171.798, 28.61, -172.643, 26.617, -174.145, 25.055, -176.097, 24.137, -178.292, 20.732, -192.875, 19.234, -198.276, 13.428, -198.651, 5.527, -199.058, -0.053, -199.132],
+    [-0.234, -137.917, 13.864, -137.205, 27.558, -135.115, 40.778, -131.717, 53.455, -127.078, 65.519, -121.269, 76.9, -114.358, 87.529, -106.416, 97.335, -97.51, 106.249, -87.71, 114.2, -77.085, 121.12, -65.704, 126.939, -53.637, 131.585, -40.952, 134.991, -27.719, 137.085, -14.006, 137.799, 0.117, 137.085, 14.239, 134.991, 27.951, 131.585, 41.184, 126.939, 53.869, 121.12, 65.936, 114.2, 77.317, 106.249, 87.942, 97.335, 97.742, 87.529, 106.648, 76.9, 114.591, 65.519, 121.501, 53.455, 127.31, 40.778, 131.949, 27.558, 135.347, 13.864, 137.437, -0.234, 138.15, -14.357, 137.437, -28.069, 135.347, -41.302, 131.949, -53.987, 127.31, -66.054, 121.501, -77.435, 114.591, -88.06, 106.648, -97.86, 97.742, -106.766, 87.942, -114.709, 77.317, -121.62, 65.936, -127.429, 53.869, -132.067, 41.184, -135.466, 27.951, -137.556, 14.239, -138.268, 0.117, -137.554, -14.006, -135.46, -27.719, -132.054, -40.952, -127.408, -53.637, -121.589, -65.704, -114.669, -77.085, -106.718, -87.71, -97.804, -97.51, -87.998, -106.416, -77.369, -114.358, -65.988, -121.269, -53.924, -127.078, -41.247, -131.717, -28.026, -135.115, -14.332, -137.205, -0.234, -137.917]
+  ],
+  closed: [1, 1]
+};
+// vocabulary/Sketch/assets/gear_small.ts
+var gearSmall = {
+  name: "gear_small",
+  source: "refs/pitch/svg-assets/svg/gear_small.svg",
+  hash: "0516864fddc5814f",
+  subpaths: [
+    [-37.978, -200.016, -40.689, -199.36, -100.97, -176.672, -103.069, -175.627, -104.26, -174.301, -104.65, -172.534, -104.345, -170.172, -97.376, -136.141, -97.04, -133.189, -97.457, -130.611, -98.786, -128.291, -101.189, -126.11, -106.579, -121.942, -111.695, -117.432, -121.22, -107.61, -123.501, -104.922, -128.689, -105.985, -162.97, -115.141, -165.144, -115.627, -166.86, -115.514, -168.264, -114.542, -169.501, -112.453, -196.314, -53.172, -197.032, -51.184, -197.05, -49.587, -196.271, -48.204, -194.595, -46.86, -164.47, -26.891, -162.409, -25.28, -161.109, -23.488, -160.545, -21.358, -160.689, -18.735, -161.577, -12.279, -162.061, -5.787, -162.101, 0.707, -161.658, 7.172, -161.676, 10.432, -162.518, 12.956, -164.164, 14.955, -166.595, 16.64, -181.647, 25.33, -196.783, 33.859, -198.771, 35.215, -199.798, 36.694, -199.958, 38.467, -199.345, 40.703, -176.658, 100.984, -175.625, 103.076, -174.314, 104.269, -172.558, 104.665, -170.189, 104.359, -153.18, 100.796, -136.126, 97.422, -133.385, 97.074, -130.944, 97.371, -128.719, 98.538, -126.626, 100.797, -122.569, 106.074, -118.152, 111.061, -113.41, 115.752, -108.376, 120.14, -106.541, 122.039, -105.589, 124.031, -105.414, 126.242, -105.908, 128.797, -115.158, 163.015, -115.643, 165.193, -115.526, 166.911, -114.553, 168.314, -112.47, 169.547, -53.158, 196.39, -51.157, 197.096, -49.568, 197.073, -48.203, 196.256, -46.876, 194.578, -26.908, 164.484, -25.28, 162.427, -23.473, 161.18, -21.337, 160.678, -18.72, 160.859, -12.266, 161.714, -5.776, 162.087, 0.718, 162.026, 7.186, 161.578, 10.44, 161.643, 12.957, 162.532, 14.948, 164.209, 16.624, 166.64, 25.315, 181.706, 33.842, 196.859, 34.857, 198.444, 35.92, 199.47, 37.1, 199.98, 38.467, 200.015, 40.686, 199.39, 100.967, 176.703, 103.064, 175.66, 104.256, 174.335, 104.647, 172.569, 104.342, 170.203, 100.782, 153.206, 97.374, 136.172, 97.039, 133.208, 97.466, 130.63, 98.8, 128.316, 101.186, 126.14, 106.464, 122.089, 111.503, 117.728, 116.252, 113.042, 120.655, 108.015, 122.282, 106.41, 123.988, 105.552, 125.887, 105.364, 128.092, 105.765, 162.999, 115.172, 165.175, 115.656, 166.892, 115.54, 168.295, 114.568, 169.53, 112.484, 196.342, 53.203, 197.053, 51.201, 197.043, 49.601, 196.237, 48.225, 194.561, 46.89, 164.467, 26.922, 162.4, 25.306, 161.102, 23.51, 160.542, 21.381, 160.686, 18.765, 161.573, 12.308, 162.061, 5.817, 162.104, -0.677, 161.655, -7.141, 161.676, -10.417, 162.537, -12.942, 164.199, -14.934, 166.624, -16.61, 181.672, -25.288, 196.811, -33.797, 198.8, -35.164, 199.813, -36.659, 199.958, -38.441, 199.342, -40.672, 176.655, -100.953, 175.609, -103.049, 174.283, -104.229, 172.517, -104.607, 170.155, -104.297, 153.142, -100.746, 136.092, -97.36, 133.334, -97.022, 130.911, -97.356, 128.719, -98.552, 126.655, -100.797, 122.583, -106.064, 118.158, -111.043, 113.412, -115.727, 108.374, -120.11, 106.538, -122.016, 105.599, -124.012, 105.438, -126.222, 105.936, -128.766, 115.186, -162.985, 115.662, -165.18, 115.513, -166.9, 114.513, -168.295, 112.436, -169.516, 53.155, -196.328, 51.139, -197.037, 49.548, -197.009, 48.19, -196.187, 46.874, -194.516, 27.592, -165.547, 25.82, -163.163, 23.827, -161.485, 21.326, -160.665, 18.03, -160.86, 11.769, -161.779, 5.437, -162.136, -0.911, -162.018, -7.22, -161.516, -10.49, -161.575, -12.996, -162.495, -14.966, -164.207, -16.626, -166.641, -25.324, -181.687, -33.845, -196.828, -35.736, -199.302, -36.786, -199.862, -37.978, -200.016],
+    [-0.001, -138.104, 14.117, -137.39, 27.827, -135.297, 41.06, -131.894, 53.747, -127.25, 65.818, -121.434, 77.204, -114.516, 87.836, -106.566, 97.643, -97.653, 106.556, -87.846, 114.506, -77.214, 121.424, -65.828, 127.24, -53.757, 131.884, -41.07, 135.287, -27.836, 137.38, -14.125, 138.094, -0.008, 137.381, 14.11, 135.288, 27.821, 131.884, 41.054, 127.24, 53.741, 121.425, 65.813, 114.507, 77.199, 106.557, 87.83, 97.643, 97.637, 87.836, 106.551, 77.205, 114.501, 65.819, 121.419, 53.748, 127.235, 41.061, 131.879, 27.827, 135.282, 14.117, 137.375, -0.001, 138.088, -14.119, 137.375, -27.829, 135.282, -41.063, 131.879, -53.75, 127.235, -65.821, 121.419, -77.208, 114.501, -87.839, 106.551, -97.646, 97.637, -106.56, 87.83, -114.51, 77.199, -121.428, 65.813, -127.244, 53.741, -131.888, 41.054, -135.291, 27.821, -137.384, 14.11, -138.097, -0.008, -137.384, -14.125, -135.291, -27.836, -131.888, -41.07, -127.244, -53.757, -121.428, -65.828, -114.51, -77.214, -106.56, -87.846, -97.646, -97.653, -87.839, -106.566, -77.208, -114.516, -65.821, -121.434, -53.75, -127.25, -41.063, -131.894, -27.829, -135.297, -14.119, -137.39, -0.001, -138.104]
+  ],
+  closed: [1, 1]
+};
+// vocabulary/Sketch/assets/justice.ts
+var justice = {
+  name: "justice",
+  source: "refs/pitch/svg-assets/svg/justice.svg",
+  hash: "beb7634adbc0e42a",
+  subpaths: [
+    [0, 174.797, -3.878, 174.407, -7.49, 173.288, -10.76, 171.517, -13.609, 169.172, -15.961, 166.328, -17.736, 163.063, -18.859, 159.454, -19.25, 155.578, -18.603, 150.621, -16.775, 146.144, -13.934, 142.314, -10.25, 139.297, -10.25, 126.953, -14.308, 124.725, -17.879, 121.828, -20.878, 118.345, -23.219, 114.359, -153.188, 114.359, -153.188, 96.391, -136.875, 96.391, -184.344, -51.453, -200, -51.453, -194.496, -59.968, -187.958, -67.665, -180.481, -74.448, -172.164, -80.218, -163.104, -84.877, -153.398, -88.326, -143.144, -90.467, -132.438, -91.203, -121.73, -90.467, -111.472, -88.326, -101.761, -84.877, -92.695, -80.218, -84.372, -74.448, -76.891, -67.665, -70.348, -59.968, -64.844, -51.453, -80.5, -51.453, -128, 96.391, -24.656, 96.391, -22.49, 91.134, -19.264, 86.541, -15.133, 82.763, -10.25, 79.953, -10.25, 10.734, -25.063, -41.734, -25.063, -148.297, -80.375, -148.297, -82.835, -148.675, -85.025, -149.746, -86.804, -151.413, -88.031, -153.578, -96.063, -174.797, 96.063, -174.797, 88, -153.578, 86.773, -151.413, 84.994, -149.746, 82.804, -148.675, 80.344, -148.297, 25.063, -148.297, 25.063, -41.734, 10.25, 10.703, 10.25, 79.953, 15.128, 82.758, 19.248, 86.525, 22.463, 91.108, 24.625, 96.359, 127.969, 96.359, 80.5, -51.453, 64.844, -51.453, 70.347, -59.968, 76.886, -67.665, 84.362, -74.448, 92.679, -80.218, 101.739, -84.877, 111.445, -88.326, 121.7, -90.467, 132.406, -91.203, 143.114, -90.467, 153.372, -88.326, 163.083, -84.877, 172.149, -80.218, 180.472, -74.448, 187.953, -67.665, 194.495, -59.968, 200, -51.453, 184.313, -51.453, 136.844, 96.391, 153.188, 96.391, 153.188, 114.359, 23.188, 114.359, 20.852, 118.344, 17.864, 121.827, 14.303, 124.725, 10.25, 126.953, 10.25, 139.297, 13.929, 142.314, 16.759, 146.144, 18.577, 150.621, 19.219, 155.578, 18.829, 159.454, 17.71, 163.063, 15.939, 166.328, 13.594, 169.172, 10.75, 171.517, 7.485, 173.288, 3.876, 174.407, 0, 174.797],
+    [-135.438, 81.078, -135.438, -51.453, -178, -51.453, -135.438, 81.078],
+    [-129.406, 81.078, -86.844, -51.453, -129.406, -51.453, -129.406, 81.078],
+    [129.406, 81.078, 129.406, -51.453, 86.844, -51.453, 129.406, 81.078],
+    [135.438, 81.078, 178, -51.453, 135.438, -51.453, 135.438, 81.078]
+  ],
+  closed: [0, 0, 0, 0, 0]
+};
+// vocabulary/Sketch/assets/stethoscope.ts
+var stethoscope = {
+  name: "stethoscope",
+  source: "refs/pitch/svg-assets/svg/stethoscope.svg",
+  hash: "9d031e69560b6c17",
+  subpaths: [
+    [-111.316, 200.266, -113.625, 200.006, -115.747, 199.266, -117.63, 198.104, -119.222, 196.578, -128.222, 197.984, -129.889, 197.885, -131.295, 197.129, -132.266, 195.863, -132.628, 194.234, -132.628, 193.672, -138.222, 193.672, -144.823, 193.305, -151.264, 192.218, -157.495, 190.436, -163.467, 187.983, -169.129, 184.881, -174.43, 181.154, -179.322, 176.827, -183.753, 171.922, -187.61, 166.554, -190.805, 160.859, -193.325, 154.89, -195.158, 148.701, -196.293, 142.347, -196.716, 135.881, -196.415, 129.356, -195.378, 122.828, -172.472, 16.891, -174.457, 15.935, -175.972, 14.328, -176.856, 12.115, -176.816, 9.734, -165.628, -42.047, -164.3, -47.098, -162.555, -51.954, -160.416, -56.597, -157.906, -61.01, -155.046, -65.173, -151.86, -69.069, -148.37, -72.68, -144.598, -75.988, -140.566, -78.974, -136.298, -81.621, -131.815, -83.91, -127.14, -85.824, -122.296, -87.343, -117.305, -88.451, -112.19, -89.129, -106.972, -89.359, -100.753, -89.359, -100.753, -142.953, -100.444, -148.806, -99.535, -154.492, -98.058, -159.981, -96.042, -165.245, -93.519, -170.254, -90.518, -174.979, -87.07, -179.392, -83.204, -183.464, -78.952, -187.165, -74.344, -190.467, -69.41, -193.34, -64.18, -195.756, -58.684, -197.685, -52.954, -199.1, -47.019, -199.969, -40.909, -200.266, -32.032, -199.637, -23.496, -197.798, -15.415, -194.823, -7.903, -190.783, -1.076, -185.75, 4.952, -179.797, 10.067, -172.997, 14.153, -165.422, 14.434, -164.828, 71.841, 35.703, 74.273, 41.472, 77.62, 46.715, 81.774, 51.356, 86.63, 55.32, 92.08, 58.534, 98.018, 60.922, 104.338, 62.409, 110.934, 62.922, 115.104, 62.723, 119.155, 62.141, 123.066, 61.195, 126.816, 59.903, 133.754, 56.363, 139.801, 51.676, 144.793, 45.999, 146.841, 42.837, 148.563, 39.486, 149.939, 35.965, 150.947, 32.294, 151.567, 28.492, 151.778, 24.578, 151.778, -25.047, 146.369, -27.038, 141.415, -29.842, 136.998, -33.377, 133.201, -37.562, 130.104, -42.315, 127.79, -47.556, 126.342, -53.202, 125.841, -59.172, 126.561, -66.314, 128.625, -72.966, 131.893, -78.986, 136.22, -84.231, 141.465, -88.558, 147.484, -91.825, 154.136, -93.889, 161.278, -94.609, 168.42, -93.889, 175.073, -91.825, 181.092, -88.557, 186.337, -84.23, 190.664, -78.985, 193.931, -72.966, 195.996, -66.314, 196.716, -59.172, 196.215, -53.202, 194.767, -47.555, 192.453, -42.315, 189.357, -37.562, 185.558, -33.377, 181.141, -29.842, 176.187, -27.038, 170.778, -25.047, 170.778, 24.578, 170.469, 30.432, 169.56, 36.118, 168.083, 41.609, 166.067, 46.874, 163.544, 51.886, 160.543, 56.614, 157.095, 61.03, 153.229, 65.105, 148.977, 68.809, 144.369, 72.113, 139.435, 74.989, 134.205, 77.407, 128.709, 79.339, 122.979, 80.754, 117.044, 81.625, 110.934, 81.922, 106.01, 81.733, 101.184, 81.174, 91.897, 78.995, 83.214, 75.484, 75.273, 70.737, 68.21, 64.854, 62.166, 57.931, 59.569, 54.111, 57.278, 50.067, 55.311, 45.813, 53.684, 41.359, -3.472, -158.266, -6.281, -163.272, -9.775, -167.764, -13.879, -171.694, -18.517, -175.014, -23.615, -177.679, -29.096, -179.64, -34.886, -180.851, -40.909, -181.266, -45.079, -181.068, -49.13, -180.486, -53.041, -179.541, -56.791, -178.252, -63.729, -174.716, -69.776, -170.035, -74.768, -164.364, -76.816, -161.205, -78.538, -157.856, -79.914, -154.337, -80.922, -150.668, -81.542, -146.867, -81.753, -142.953, -81.753, -89.359, -75.534, -89.359, -70.317, -89.129, -65.202, -88.451, -60.211, -87.343, -55.367, -85.824, -50.692, -83.91, -46.21, -81.621, -41.942, -78.974, -37.91, -75.988, -34.138, -72.68, -30.647, -69.069, -27.461, -65.173, -24.601, -61.01, -22.091, -56.597, -19.952, -51.954, -18.207, -47.098, -16.878, -42.047, -5.691, 9.734, -5.65, 12.115, -6.534, 14.328, -8.05, 15.934, -10.034, 16.891, 12.903, 122.828, 13.939, 129.356, 14.236, 135.881, 13.808, 142.347, 12.668, 148.701, 10.829, 154.89, 8.304, 160.859, 5.105, 166.554, 1.247, 171.922, -3.184, 176.827, -8.076, 181.154, -13.377, 184.881, -19.039, 187.983, -25.011, 190.436, -31.243, 192.218, -37.684, 193.305, -44.284, 193.672, -49.847, 193.672, -49.847, 194.234, -50.214, 195.863, -51.196, 197.129, -52.612, 197.885, -54.284, 197.984, -63.284, 196.578, -64.872, 198.104, -66.744, 199.266, -68.855, 200.006, -71.159, 200.266, -72.671, 200.032, -73.981, 199.373, -75.996, 197.019, -77.206, 193.69, -77.609, 189.875, -77.206, 186.06, -75.996, 182.731, -73.981, 180.377, -72.671, 179.718, -71.159, 179.484, -68.855, 179.749, -66.744, 180.499, -64.872, 181.672, -63.284, 183.203, -54.284, 181.766, -52.612, 181.87, -51.196, 182.637, -50.214, 183.913, -49.847, 185.547, -49.847, 186.078, -44.284, 186.078, -38.541, 185.758, -32.936, 184.811, -27.512, 183.259, -22.315, 181.122, -17.387, 178.421, -12.773, 175.176, -8.515, 171.409, -4.659, 167.141, -1.303, 162.472, 1.478, 157.52, 3.672, 152.331, 5.27, 146.951, 6.258, 141.428, 6.628, 135.806, 6.367, 130.132, 5.466, 124.453, -17.441, 18.516, -19.769, 18.428, -21.843, 17.518, -23.451, 15.92, -24.378, 13.766, -35.566, -37.984, -37.659, -44.736, -40.827, -50.907, -44.947, -56.401, -49.896, -61.117, -55.551, -64.958, -61.791, -67.823, -68.493, -69.615, -75.534, -70.234, -106.941, -70.234, -113.983, -69.615, -120.689, -67.823, -126.934, -64.958, -132.595, -61.117, -137.55, -56.401, -141.674, -50.907, -144.846, -44.736, -146.941, -37.984, -158.128, 13.766, -159.07, 15.971, -160.784, 17.641, -162.847, 18.472, -165.066, 18.516, -187.972, 124.453, -188.872, 130.132, -189.129, 135.806, -188.755, 141.428, -187.76, 146.952, -186.157, 152.331, -183.958, 157.52, -181.173, 162.472, -177.816, 167.141, -173.961, 171.409, -169.708, 175.176, -165.098, 178.421, -160.176, 181.122, -154.984, 183.259, -149.566, 184.811, -143.964, 185.758, -138.222, 186.078, -132.628, 186.078, -132.628, 185.547, -132.266, 183.913, -131.295, 182.637, -129.889, 181.87, -128.222, 181.766, -119.222, 183.203, -117.63, 181.672, -115.747, 180.499, -113.625, 179.749, -111.316, 179.484, -109.804, 179.718, -108.494, 180.377, -106.479, 182.731, -105.269, 186.06, -104.866, 189.875, -105.269, 193.69, -106.479, 197.019, -108.494, 199.373, -109.804, 200.032, -111.316, 200.266],
+    [151.778, -36.484, 151.778, -46.609, 149.304, -49.018, 147.412, -51.922, 146.203, -55.224, 145.778, -58.828, 146.094, -61.948, 146.998, -64.855, 148.429, -67.488, 150.323, -69.783, 152.618, -71.677, 155.251, -73.108, 158.158, -74.013, 161.278, -74.328, 164.398, -74.013, 167.305, -73.108, 169.938, -71.677, 172.233, -69.783, 174.127, -67.488, 175.558, -64.855, 176.463, -61.948, 176.778, -58.828, 176.353, -55.223, 175.144, -51.921, 173.253, -49.018, 170.778, -46.609, 170.778, -36.484, 173.903, -38.097, 176.743, -40.13, 179.258, -42.542, 181.407, -45.29, 183.149, -48.334, 184.444, -51.633, 185.25, -55.145, 185.528, -58.828, 185.035, -63.714, 183.621, -68.268, 181.385, -72.393, 178.423, -75.988, 174.833, -78.956, 170.714, -81.198, 166.163, -82.615, 161.278, -83.109, 156.392, -82.615, 151.837, -81.198, 147.713, -78.956, 144.118, -75.988, 141.15, -72.392, 138.909, -68.268, 137.491, -63.714, 136.997, -58.828, 137.276, -55.145, 138.086, -51.633, 139.386, -48.334, 141.134, -45.29, 143.288, -42.541, 145.808, -40.13, 148.652, -38.097, 151.778, -36.484]
+  ],
+  closed: [0, 0]
+};
+// vocabulary/System/System.ts
+var ASSET_HEIGHT = {
+  gearBig: 398.264,
+  gearSmall: 400.031,
+  justice: 349.594,
+  factory: 265.75,
+  cash: 163.782,
+  stethoscope: 400.532
+};
+var ICON_SCALE = 0.5;
+var GEAR_SMALL_BANK = PI / 12;
+var GROUPS = [
+  { name: "law", icon: "justice", gear: "gearBig", scale: 0.5, x: 80, y: -85, bank: 0 },
+  { name: "economy", icon: "factory", gear: "gearBig", scale: 0.5, x: -80, y: 85, bank: 0 },
+  {
+    name: "finance",
+    icon: "cash",
+    gear: "gearSmall",
+    scale: 0.3,
+    x: 70,
+    y: 65,
+    bank: GEAR_SMALL_BANK
+  },
+  {
+    name: "healthcare",
+    icon: "stethoscope",
+    gear: "gearSmall",
+    scale: 0.3,
+    x: -70,
+    y: -65,
+    bank: -GEAR_SMALL_BANK
+  }
+];
+var shortestFirst = (data) => {
+  const withLength = data.subpaths.map((sp, i2) => {
+    let length8 = 0;
+    for (let k2 = 2;k2 + 1 < sp.length; k2 += 2) {
+      length8 += Math.hypot(sp[k2] - sp[k2 - 2], sp[k2 + 1] - sp[k2 - 1]);
+    }
+    return { sp, closed: data.closed[i2] ?? 0, length: length8, i: i2 };
+  });
+  withLength.sort((a2, b2) => a2.length - b2.length || a2.i - b2.i);
+  return {
+    ...data,
+    subpaths: withLength.map((e2) => e2.sp),
+    closed: withLength.map((e2) => e2.closed)
+  };
+};
+var ASSET_DATA = {
+  justice: shortestFirst(justice),
+  factory: shortestFirst(factory),
+  cash: shortestFirst(cash),
+  stethoscope: shortestFirst(stethoscope),
+  gearBig: shortestFirst(gearBig),
+  gearSmall: shortestFirst(gearSmall)
+};
+
+class Gearing extends Stroke {
+  iconData = ASSET_DATA.justice;
+  iconHeight = ASSET_HEIGHT.justice;
+  gearData = ASSET_DATA.gearBig;
+  gearHeight = ASSET_HEIGHT.gearBig;
+  gearBank = 0;
+  tint = color(WHITE);
+  gearTint = color(WHITE);
+  icon = new Sketch({ data: this.iconData, tint: this.tint, stroke: this.stroke });
+  gear = new Sketch({ data: this.gearData, tint: this.gearTint, stroke: this.stroke });
+  compose() {
+    this.icon.data = this.iconData;
+    this.icon.height.defaultValue = this.iconHeight * ICON_SCALE;
+    this.icon.height.value = this.iconHeight * ICON_SCALE;
+    this.gear.data = this.gearData;
+    this.gear.height.defaultValue = this.gearHeight;
+    this.gear.height.value = this.gearHeight;
+    this.gear.b.defaultValue = this.gearBank;
+    this.gear.b.value = this.gearBank;
+  }
+}
+
+class System extends Stroke {
+  static sovereign = true;
+  tint = color(WHITE);
+  gearTint = color(WHITE);
+  law = this.gearing("law");
+  economy = this.gearing("economy");
+  finance = this.gearing("finance");
+  healthcare = this.gearing("healthcare");
+  createAnim() {
+    const sketches = [this.law, this.economy, this.finance, this.healthcare].flatMap((g2) => [
+      g2.gear,
+      g2.icon
+    ]);
+    const strokes = [...this.walk()].filter((h2) => h2 instanceof Stroke);
+    return together(restage(together(...sketches.map((s2) => s2.createAnim())), 0, 0.6), restage(together(...strokes.map((s2) => s2.fillOpacity.to(1))), 0.5, 1));
+  }
+  gearing(name) {
+    const g2 = GROUPS.find((entry) => entry.name === name);
+    return new Gearing({
+      iconData: ASSET_DATA[g2.icon],
+      iconHeight: ASSET_HEIGHT[g2.icon],
+      gearData: ASSET_DATA[g2.gear],
+      gearHeight: ASSET_HEIGHT[g2.gear],
+      gearBank: g2.bank,
+      scale: g2.scale,
+      x: g2.x,
+      y: g2.y,
+      tint: this.tint,
+      gearTint: this.gearTint,
+      stroke: this.stroke
+    });
+  }
+}
+
+// sketch/catalogue.ts
+var SHELF = [
+  { className: "Axes", folder: "Axes", cls: Axes },
+  { className: "Cylinder", folder: "Cylinder", cls: Cylinder },
+  { className: "Eye", folder: "Eye", cls: Eye },
+  { className: "Figure", folder: "Figure", cls: Figure },
+  { className: "FoldableCube", folder: "FoldableCube", cls: FoldableCube },
+  { className: "Globe", folder: "Globe", cls: Globe },
+  { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
+  { className: "Logo", folder: "Logo", cls: Logo },
+  { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
+  { className: "MolochEye", folder: "MolochEye", cls: MolochEye },
+  { className: "Platonic", folder: "Platonic", cls: Platonic },
+  { className: "Plot", folder: "Plot", cls: Plot },
+  { className: "Regenaissance", folder: "Regenaissance", cls: Regenaissance },
+  { className: "SMark", folder: "Regenaissance", cls: SMark },
+  { className: "RightTriangle", folder: "RightTriangle", cls: RightTriangle },
+  { className: "System", folder: "System", cls: System },
+  { className: "TheWall", folder: "TheWall", cls: TheWall }
+];
+var FACE_PARAMS = {
+  TheWall: { growth: 1 }
+};
+var STANDARD = new Set(["x", "y", "z", "h", "p", "b", "scale", "creation", "opacity"]);
+var PEN = new Set(["erasure", "drawStart", "drawReversed", "fillOpacity", "clock"]);
+var isPenWidth = (name) => name === "stroke" || /Stroke$/.test(name);
+var NUMERIC = new Set(["scalar", "length", "angle", "bipolar", "completion", "integer"]);
+var DEFAULT_SIZE = 220;
+var ANGLE = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
 var num = (p2, key, fallback) => {
+  const v2 = Number(p2[key]);
+  return Number.isFinite(v2) ? v2 : fallback;
+};
+var idOf = (className) => className[0].toLowerCase() + className.slice(1);
+var toParent = (h2, v2) => {
+  const s2 = h2.scale.value;
+  let out = s2 === 1 ? v2 : { x: v2.x * s2, y: v2.y * s2, z: v2.z * s2 };
+  out = rotHPB(out, h2.p.value, h2.h.value, h2.b.value);
+  return { x: out.x + h2.x.value, y: out.y + h2.y.value, z: out.z + h2.z.value };
+};
+var extentOf = (root) => {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  const visit = (h2, up) => {
+    const add7 = (v2) => {
+      const q = up(v2);
+      if (!Number.isFinite(q.x) || !Number.isFinite(q.y))
+        return;
+      if (q.x < x0)
+        x0 = q.x;
+      if (q.x > x1)
+        x1 = q.x;
+      if (q.y < y0)
+        y0 = q.y;
+      if (q.y > y1)
+        y1 = q.y;
+    };
+    if (h2 instanceof Cylinder) {
+      const r2 = h2.radius.value;
+      const half = h2.height.value / 2;
+      for (const x2 of [-r2, r2])
+        for (const y2 of [-half, half])
+          for (const z2 of [-r2, r2])
+            add7({ x: x2, y: y2, z: z2 });
+    } else if (h2 instanceof Stroke) {
+      for (const v2 of polyline(h2) ?? [])
+        add7(v2);
+    }
+    for (const part of h2.parts)
+      visit(part, (v2) => up(toParent(part, v2)));
+  };
+  visit(root, (v2) => v2);
+  if (!Number.isFinite(x0))
+    return;
+  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+};
+var makeOwn = (g2, p2) => {
+  const overrides = {};
+  for (const [k2, { kind, shown }] of g2.own) {
+    const given = Number(p2[k2]);
+    const v2 = Number.isFinite(given) ? given : shown;
+    overrides[k2] = kind === "integer" ? Math.round(v2) : v2;
+  }
+  return new g2.cls(overrides);
+};
+var extents = new Map;
+var measured = (g2, p2, holon) => {
+  const key = `${g2.entry.id}${JSON.stringify([...g2.own.keys()].map((k2) => p2[k2] ?? null))}`;
+  if (!extents.has(key)) {
+    if (extents.size > 256)
+      extents.clear();
+    let e2;
+    try {
+      e2 = extentOf(holon ?? makeOwn(g2, p2));
+    } catch {
+      e2 = undefined;
+    }
+    extents.set(key, e2 && e2.w + e2.h > 0.000001 ? e2 : null);
+  }
+  return extents.get(key) ?? undefined;
+};
+var ownSpec = (name, kind, value, min6, max6) => {
+  const range3 = min6 !== undefined && max6 !== undefined ? `, ${min6}..${max6}` : "";
+  const r2 = Math.round(value * 1000) / 1000;
+  return {
+    type: "number",
+    default: value,
+    description: `the symbol's own ${kind}${range3} (default ${r2}); shape only — leave it at its default unless the drawing clearly says otherwise`
+  };
+};
+var genericFor = (shelf) => {
+  let sample3;
+  try {
+    sample3 = new shelf.cls;
+  } catch {
+    return;
+  }
+  const own = new Map;
+  const params = {
+    cx: { type: "number", role: "x", description: "centre x of the symbol's drawn extent, page units" },
+    cy: { type: "number", role: "y", description: "centre y of the symbol's drawn extent, page units" },
+    size: { type: "number", role: "length", default: DEFAULT_SIZE, description: "its largest extent (width or height, whichever is bigger), page units" },
+    rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = as the symbol stands by default` }
+  };
+  for (const [name, param] of sample3.params) {
+    if (STANDARD.has(name) || PEN.has(name) || isPenWidth(name) || name in params)
+      continue;
+    if (!NUMERIC.has(param.kind) || typeof param.defaultValue !== "number")
+      continue;
+    const shown = FACE_PARAMS[shelf.className]?.[name] ?? param.defaultValue;
+    own.set(name, { kind: param.kind, shown });
+    params[name] = ownSpec(name, param.kind, shown, param.min, param.max);
+  }
+  const g2 = {
+    cls: shelf.cls,
+    own,
+    entry: {
+      id: idOf(shelf.className),
+      name: shelf.className,
+      holon: shelf.className,
+      description: `The ${shelf.className} — a sovereign DreamTalk symbol (core/vocabulary/${shelf.folder}).`,
+      params,
+      build: (p2) => {
+        const holon = makeOwn(g2, p2);
+        const e2 = measured(g2, p2, holon) ?? { cx: 0, cy: 0, w: DEFAULT_SIZE, h: DEFAULT_SIZE };
+        const k2 = Math.max(1, num(p2, "size", DEFAULT_SIZE)) / Math.max(e2.w, e2.h, 0.000001);
+        return new Group({
+          members: [new Group({ members: [holon], x: -e2.cx, y: -e2.cy })],
+          x: num(p2, "cx", 0),
+          y: -num(p2, "cy", 0),
+          scale: k2,
+          b: -num(p2, "rotation", 0)
+        });
+      },
+      footprint: (p2) => {
+        const size = Math.max(1, num(p2, "size", DEFAULT_SIZE));
+        const e2 = measured(g2, p2);
+        if (!e2)
+          return { w: size, h: size };
+        const m2 = Math.max(e2.w, e2.h, 0.000001);
+        return { w: size * e2.w / m2, h: size * e2.h / m2 };
+      }
+    }
+  };
+  return g2;
+};
+var generics;
+var allGenerics = () => {
+  if (generics)
+    return generics;
+  const covered = new Set(VOCABULARY.map((e2) => e2.holon).filter(Boolean));
+  generics = new Map;
+  for (const s2 of SHELF) {
+    if (covered.has(s2.className))
+      continue;
+    const g2 = genericFor(s2);
+    if (g2)
+      generics.set(g2.entry.id, g2);
+  }
+  return generics;
+};
+var genericById = (id) => allGenerics().get(id)?.entry;
+var describeGeneric = (byClass) => {
+  for (const g2 of allGenerics().values()) {
+    const d2 = byClass[g2.entry.holon]?.description;
+    if (d2)
+      g2.entry.description = d2;
+  }
+};
+var catalogue = () => {
+  const folderOf = new Map(SHELF.map((s2) => [s2.className, s2.folder]));
+  const items = VOCABULARY.map((entry) => ({
+    entry,
+    className: entry.holon,
+    folder: entry.holon ? folderOf.get(entry.holon) : undefined,
+    kind: entry.holon && folderOf.has(entry.holon) ? "symbol" : "shape"
+  }));
+  for (const g2 of allGenerics().values())
+    items.push({ entry: g2.entry, className: g2.entry.holon, folder: folderOf.get(g2.entry.holon), kind: "symbol" });
+  const shapes = items.filter((i2) => i2.kind === "shape");
+  const symbols = items.filter((i2) => i2.kind === "symbol").sort((a2, b2) => a2.entry.name.localeCompare(b2.entry.name));
+  return [...shapes, ...symbols];
+};
+var importsOf = (s2) => [...s2.vocabulary ?? DEFAULT_IMPORTS];
+var PLACE_LENGTH = {
+  "text.size": 64,
+  "flowerOfLife.r": 60,
+  "regenaissance.r": 200,
+  "mindVirus.size": 110,
+  "sMark.size": 120,
+  "cylinder.radius": 70,
+  "cylinder.height": 180,
+  r: 90,
+  radius: 90
+};
+var placeParams = (entry, at2) => {
+  const out = {};
+  for (const [k2, spec] of Object.entries(entry.params)) {
+    if (spec.role === "x")
+      out[k2] = at2.x;
+    else if (spec.role === "y")
+      out[k2] = at2.y;
+    else if (spec.role === "length")
+      out[k2] = PLACE_LENGTH[`${entry.id}.${k2}`] ?? PLACE_LENGTH[k2] ?? spec.default ?? DEFAULT_SIZE;
+    else if (spec.role === "content")
+      out[k2] = entry.name;
+    else if (spec.type === "enum")
+      out[k2] = spec.options?.[0];
+    else if (spec.type === "points")
+      continue;
+    else if (spec.default !== undefined)
+      out[k2] = spec.default;
+    else if (spec.role === "angle")
+      out[k2] = 0;
+  }
+  return out;
+};
+
+// sketch/vocabulary.ts
+var num2 = (p2, key, fallback) => {
   const v2 = Number(p2[key]);
   return Number.isFinite(v2) ? v2 : fallback;
 };
@@ -66628,13 +67882,13 @@ var resampleByArcLength = (pts, n2) => {
   return out;
 };
 var buildMindVirus = (p2) => {
-  const size = Math.max(5, num(p2, "size", 100));
+  const size = Math.max(5, num2(p2, "size", 100));
   const s2 = size / MV_NATIVE;
-  const fold = clamp8(num(p2, "fold", 1), -1, 1);
-  const cx = num(p2, "x", 0);
-  const cy = num(p2, "y", 0);
+  const fold = clamp8(num2(p2, "fold", 1), -1, 1);
+  const cx = num2(p2, "x", 0);
+  const cy = num2(p2, "y", 0);
   const cable = readPoints(p2.cable);
-  let heading = num(p2, "heading", NaN);
+  let heading = num2(p2, "heading", NaN);
   if (!Number.isFinite(heading) && cable.length >= 2) {
     const a2 = cable[cable.length - 2];
     const b2 = cable[cable.length - 1];
@@ -66644,7 +67898,7 @@ var buildMindVirus = (p2) => {
   }
   if (!Number.isFinite(heading))
     heading = 0;
-  const tilt = clamp8(num(p2, "tilt", 0), -Math.PI / 2, Math.PI / 2);
+  const tilt = clamp8(num2(p2, "tilt", 0), -Math.PI / 2, Math.PI / 2);
   const fx = Math.cos(heading) * Math.cos(tilt);
   const fy = Math.sin(heading) * Math.cos(tilt);
   const fz = Math.sin(tilt);
@@ -66684,15 +67938,15 @@ var TEXT_ADVANCE_EM = 0.55;
 var textLines = (p2) => String(typeof p2.content === "string" || typeof p2.content === "number" ? p2.content : "").split(`
 `);
 var buildText = (p2) => {
-  const cap = Math.max(1, num(p2, "size", 60));
+  const cap = Math.max(1, num2(p2, "size", 60));
   const lines = textLines(p2);
   const em = cap / textBandEm(lines.join(`
 `));
   const step4 = em * TEXT_LINE_STEP_EM;
   const down = cap / 2 - (lines.length - 1) * step4 / 2;
-  const r2 = num(p2, "rotation", 0);
-  const cx = num(p2, "cx", 0);
-  const cy = num(p2, "cy", 0);
+  const r2 = num2(p2, "rotation", 0);
+  const cx = num2(p2, "cx", 0);
+  const cy = num2(p2, "cy", 0);
   const ax = cx - Math.sin(r2) * down;
   const ay = cy + Math.cos(r2) * down;
   return new Text({
@@ -66707,46 +67961,49 @@ var buildText = (p2) => {
   });
 };
 var textFootprint = (p2) => {
-  const cap = Math.max(1, num(p2, "size", 60));
+  const cap = Math.max(1, num2(p2, "size", 60));
   const lines = textLines(p2);
   const em = cap / textBandEm(lines.join(`
 `));
   const longest = Math.max(1, ...lines.map((l2) => l2.length));
   return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM };
 };
-var ANGLE = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
+var ANGLE2 = "radians, page angle: 0 = +x (right), increasing CLOCKWISE on the page (y is down)";
 var VOCABULARY = [
   {
     id: "circle",
     name: "Circle",
+    blurb: "A single circle.",
     description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       r: { type: "number", role: "length", description: "radius, page units (mean distance of the loop from its centre)" }
     },
-    build: (p2) => new Circle({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), radius: Math.max(1, num(p2, "r", 50)), tint: WHITE })
+    build: (p2) => new Circle({ x: num2(p2, "cx", 0), y: -num2(p2, "cy", 0), radius: Math.max(1, num2(p2, "r", 50)), tint: WHITE })
   },
   {
     id: "square",
     name: "Square",
+    blurb: "Four equal sides, four corners.",
     description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       size: { type: "number", role: "length", description: "side length, page units" },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; 0 = axis-aligned. Use the smallest equivalent angle in (−π/4, π/4]` }
     },
     build: (p2) => new Square({
-      x: num(p2, "cx", 0),
-      y: -num(p2, "cy", 0),
-      size: Math.max(1, num(p2, "size", 100)),
-      b: -num(p2, "rotation", 0)
+      x: num2(p2, "cx", 0),
+      y: -num2(p2, "cy", 0),
+      size: Math.max(1, num2(p2, "size", 100)),
+      b: -num2(p2, "rotation", 0)
     })
   },
   {
     id: "triangle",
     name: "Triangle",
+    blurb: "An equilateral triangle.",
     description: "An equilateral-ish triangle (three corners).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
@@ -66755,20 +68012,22 @@ var VOCABULARY = [
       rotation: {
         type: "number",
         role: "angle",
-        description: `${ANGLE}; 0 = one corner pointing straight UP (flat bottom); π/3 (or π) = pointing DOWN`
+        description: `${ANGLE2}; 0 = one corner pointing straight UP (flat bottom); π/3 (or π) = pointing DOWN`
       }
     },
     build: (p2) => new Polygon({
-      x: num(p2, "cx", 0),
-      y: -num(p2, "cy", 0),
-      radius: Math.max(1, num(p2, "r", 50)),
+      x: num2(p2, "cx", 0),
+      y: -num2(p2, "cy", 0),
+      radius: Math.max(1, num2(p2, "r", 50)),
       sides: 3,
-      phase: Math.PI / 2 - num(p2, "rotation", 0)
+      phase: Math.PI / 2 - num2(p2, "rotation", 0)
     })
   },
   {
     id: "cube",
     name: "Cube",
+    holon: "FoldableCube",
+    blurb: "A wireframe cube, turnable in 3D.",
     description: "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -66779,33 +68038,68 @@ var VOCABULARY = [
       b: { type: "number", role: "angle", description: "bank (in-plane roll), page angle (clockwise-positive), radians; usually 0" }
     },
     build: (p2) => {
-      const size = Math.max(1, num(p2, "size", 100));
-      const cube = new FoldableCube({ size, fold: 1, y: -size / 2 });
+      const size = Math.max(1, num2(p2, "size", 100));
+      const cube2 = new FoldableCube({ size, fold: 1, y: -size / 2 });
       return new Group({
-        members: [cube],
-        x: num(p2, "cx", 0),
-        y: -num(p2, "cy", 0),
-        h: num(p2, "h", 0.6),
-        p: num(p2, "p", 0.4),
-        b: -num(p2, "b", 0)
+        members: [cube2],
+        x: num2(p2, "cx", 0),
+        y: -num2(p2, "cy", 0),
+        h: num2(p2, "h", 0.6),
+        p: num2(p2, "p", 0.4),
+        b: -num2(p2, "b", 0)
+      });
+    }
+  },
+  {
+    id: "cylinder",
+    name: "Cylinder",
+    holon: "Cylinder",
+    blurb: "Born of a square and a circle.",
+    description: "A 3D wireframe cylinder: two ellipses (the caps) joined by two straight parallel sides — or a rectangle with an elliptical cap at each end, or a tall box whose top and bottom are ovals. A flat rectangle with no curved caps is not a cylinder; a single ellipse is a circle.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x (midway between the two caps' centres), page units" },
+      cy: { type: "number", role: "y", description: "centre y (midway between the two caps' centres), page units" },
+      radius: { type: "number", role: "length", description: "cap radius: HALF the caps' long (widest) axis, page units" },
+      height: { type: "number", role: "length", description: "axis length: distance between the two caps' centres, page units" },
+      h: { type: "number", role: "yaw", default: 0, description: "heading (turn about the axis), radians; 0 for any drawing (a cylinder looks the same turned about its axis)" },
+      p: {
+        type: "number",
+        role: "pitch",
+        default: 0.4,
+        description: "pitch, radians: how far the top cap tips toward the viewer — the caps' short/long axis ratio is sin(p) (a thin oval ≈ 0.25, a round-ish one ≈ 0.8; 0 = caps seen edge-on as lines)"
+      },
+      b: { type: "number", role: "angle", description: `${ANGLE2}; the lean of the axis: 0 = upright (caps above each other), ±π/2 = lying on its side` }
+    },
+    build: (p2) => {
+      const radius = Math.max(1, num2(p2, "radius", 60));
+      const height = Math.max(1, num2(p2, "height", 160));
+      const cylinder = Cylinder.of(new Rectangle({ width: 2 * radius, height }), new Circle({ radius }), { tint: WHITE });
+      return new Group({
+        members: [cylinder],
+        x: num2(p2, "cx", 0),
+        y: -num2(p2, "cy", 0),
+        h: num2(p2, "h", 0),
+        p: num2(p2, "p", 0.4),
+        b: -num2(p2, "b", 0)
       });
     }
   },
   {
     id: "flowerOfLife",
     name: "Flower of Life",
+    blurb: "Equal circles on a hexagonal lattice.",
     description: "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
     params: {
       cx: { type: "number", role: "x", description: "centre of the middle circle x, page units" },
       cy: { type: "number", role: "y", description: "centre of the middle circle y, page units" },
       r: { type: "number", role: "length", description: "radius of EACH circle (= the spacing between neighbouring centres), page units" },
       rings: { type: "enum", options: ["1", "2"], description: "1 → 7 circles, 2 → 19 circles" },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; 0 = outer centres at 0°, 60°, … (one on the +x axis)` }
     },
     build: (p2) => {
-      const r2 = Math.max(1, num(p2, "r", 50));
-      const rings = num(p2, "rings", 1) >= 2 ? 2 : 1;
-      const rot = -num(p2, "rotation", 0);
+      const r2 = Math.max(1, num2(p2, "r", 50));
+      const rings = num2(p2, "rings", 1) >= 2 ? 2 : 1;
+      const rot = -num2(p2, "rotation", 0);
       const centres = [{ x: 0, y: 0 }];
       for (let k2 = 0;k2 < 6; k2++) {
         const a2 = rot + k2 * Math.PI / 3;
@@ -66821,20 +68115,22 @@ var VOCABULARY = [
       }
       return new Group({
         members: centres.map((c2) => new Circle({ x: c2.x, y: c2.y, radius: r2 })),
-        x: num(p2, "cx", 0),
-        y: -num(p2, "cy", 0)
+        x: num2(p2, "cx", 0),
+        y: -num2(p2, "cy", 0)
       });
     }
   },
   {
     id: "mindVirus",
     name: "MindVirus",
+    holon: "MindVirus",
+    blurb: "The eye and the cube, swimming on its cable.",
     description: "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
     params: {
       x: { type: "number", role: "x", description: "body (cube) centre x, page units" },
       y: { type: "number", role: "y", description: "body (cube) centre y, page units" },
       size: { type: "number", role: "length", description: "cube edge length, page units" },
-      heading: { type: "number", role: "angle", description: `${ANGLE}; the direction the creature faces/swims (away from the cable)` },
+      heading: { type: "number", role: "angle", description: `${ANGLE2}; the direction the creature faces/swims (away from the cable)` },
       tilt: {
         type: "number",
         role: "tilt",
@@ -66856,35 +68152,40 @@ var VOCABULARY = [
   {
     id: "eye",
     name: "Eye",
+    holon: "Eye",
+    blurb: "The watcher of video-01, in profile.",
     description: "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the eye's bounding box, page units" },
       cy: { type: "number", role: "y", description: "centre y, page units" },
       size: { type: "number", role: "length", description: "length from apex to the far arc, page units" },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; the gaze direction (apex → arc). 0 = looking right` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; the gaze direction (apex → arc). 0 = looking right` }
     },
     build: (p2) => {
-      const size = Math.max(1, num(p2, "size", 100));
+      const size = Math.max(1, num2(p2, "size", 100));
       const k2 = size / 230;
-      const rot = -num(p2, "rotation", 0);
+      const rot = -num2(p2, "rotation", 0);
       const eye = new Eye({ scale: k2, x: -115 * k2 });
-      return new Group({ members: [eye], x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: rot });
+      return new Group({ members: [eye], x: num2(p2, "cx", 0), y: -num2(p2, "cy", 0), b: rot });
     }
   },
   {
     id: "figure",
     name: "Figure",
+    holon: "Figure",
+    blurb: "A person, as a stick figure.",
     description: "A person: a stick figure (round head, body line, arms, legs).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
       cy: { type: "number", role: "y", description: "centre y (halfway between crown and feet), page units" },
       height: { type: "number", role: "length", description: "crown-to-feet height, page units" }
     },
-    build: (p2) => new Figure({ x: num(p2, "cx", 0), y: -num(p2, "cy", 0), height: Math.max(1, num(p2, "height", 120)) })
+    build: (p2) => new Figure({ x: num2(p2, "cx", 0), y: -num2(p2, "cy", 0), height: Math.max(1, num2(p2, "height", 120)) })
   },
   {
     id: "text",
     name: "Text",
+    blurb: "Handwriting, typeset — it writes itself on.",
     description: "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
     params: {
       content: {
@@ -66903,7 +68204,7 @@ var VOCABULARY = [
         role: "length",
         description: "cap height: baseline to the top of the CAPITALS as written (D, T, H…); if no capital was written, to the top of the tall letters (d, l, k) instead. Page units — NOT the full bbox height when descenders hang below"
       },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; the baseline's direction. 0 = written level, left to right` }
     },
     build: buildText,
     footprint: textFootprint
@@ -66911,6 +68212,8 @@ var VOCABULARY = [
   {
     id: "regenaissance",
     name: "Regenaissance",
+    holon: "Regenaissance",
+    blurb: "The noosphere stacked over the biosphere.",
     description: "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the OUTER RING (≈ the middle of the eye), page units" },
@@ -66920,36 +68223,51 @@ var VOCABULARY = [
         role: "length",
         description: "radius of the OUTER RING, page units — the mean distance of the outermost loops from the centre (use the circle fits of the biggest strokes)"
       },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright (lattice globe on top, Earth below)` }
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; 0 = upright (lattice globe on top, Earth below)` }
     },
     build: (p2) => {
-      const regen = new Regenaissance({ radius: Math.max(1, num(p2, "r", 300)) });
-      return new Group({ members: [regen], x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+      const regen = new Regenaissance({ radius: Math.max(1, num2(p2, "r", 300)) });
+      return new Group({ members: [regen], x: num2(p2, "cx", 0), y: -num2(p2, "cy", 0), b: -num2(p2, "rotation", 0) });
     }
   },
   {
     id: "sMark",
     name: "S-mark",
+    holon: "SMark",
+    blurb: "The S with its dot and square.",
     description: "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the S (where its two bowls meet), page units" },
       cy: { type: "number", role: "y", description: "centre y of the S, page units" },
       size: { type: "number", role: "length", description: "height of the S from its top bowl to its bottom bowl (its bbox height, dot and square included), page units" },
-      rotation: { type: "number", role: "angle", description: `${ANGLE}; 0 = upright like the letter S (dot upper-right, square lower-left)` },
+      rotation: { type: "number", role: "angle", description: `${ANGLE2}; 0 = upright like the letter S (dot upper-right, square lower-left)` },
       framed: { type: "enum", options: ["no", "yes"], description: "yes if the S is drawn inside its own circle" }
     },
     build: (p2) => {
-      const R2 = Math.max(1, num(p2, "size", 100)) / SMARK_HEIGHT;
+      const R2 = Math.max(1, num2(p2, "size", 100)) / SMARK_HEIGHT;
       const members = [new SMark({ radius: R2 })];
       if (p2.framed === "yes")
         members.push(new Circle({ radius: R2, tint: WHITE }));
-      return new Group({ members, x: num(p2, "cx", 0), y: -num(p2, "cy", 0), b: -num(p2, "rotation", 0) });
+      return new Group({ members, x: num2(p2, "cx", 0), y: -num2(p2, "cy", 0), b: -num2(p2, "rotation", 0) });
     }
   }
 ];
 var SMARK_HEIGHT = 2 * (SMARK.offset * Math.SQRT1_2 + SMARK.offset + SMARK.band / 2);
 var BY_ID = new Map(VOCABULARY.map((e2) => [e2.id, e2]));
-var vocabById = (id) => BY_ID.get(id);
+var DEFAULT_IMPORTS = [
+  "circle",
+  "square",
+  "triangle",
+  "cube",
+  "flowerOfLife",
+  "mindVirus",
+  "eye",
+  "figure",
+  "text",
+  "regenaissance",
+  "sMark"
+];
+var vocabById = (id) => BY_ID.get(id) ?? genericById(id);
 var buildSymbol = (s2) => {
   const entry = vocabById(s2.symbol);
   if (!entry)
@@ -67105,6 +68423,235 @@ var framePage = (dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }) =
   o2.radius.defaultValue = o2.radius.value = r2;
 };
 
+// sketch/cataloguepanel.ts
+var THUMB_W = 160;
+var THUMB_H = 112;
+var lineOf = (item) => {
+  const e2 = item.entry;
+  if (e2.blurb)
+    return e2.blurb;
+  let d2 = e2.description.replace(new RegExp(`^(The\\s+)?${e2.name}\\s+[—–-]\\s+`), "");
+  d2 = d2[0] ? d2[0].toUpperCase() + d2.slice(1) : d2;
+  const end = d2.search(/[.:;](\s|$)| [—–] /);
+  return end > 0 ? `${d2.slice(0, end).trimEnd()}.` : d2;
+};
+var installCataloguePanel = (host) => {
+  const root = document.getElementById("catalogue");
+  root.innerHTML = `
+    <div class="cat-head">
+      <div class="cat-title"><b>Vocabulary</b><span class="cat-count"></span></div>
+      <button class="cat-close" title="Close (Esc)">×</button>
+    </div>
+    <label class="cat-search"><span>⌕</span><input type="search" placeholder="Search symbols" spellcheck="false" autocomplete="off" /></label>
+    <div class="cat-scroll"><div class="cat-body"></div><div class="cat-empty">Nothing on the shelf by that name.</div></div>
+    <div class="cat-foot">Click to import into this board · drag onto the page to place</div>`;
+  const input = root.querySelector("input");
+  const body = root.querySelector(".cat-body");
+  const scroller = root.querySelector(".cat-scroll");
+  const countEl = root.querySelector(".cat-count");
+  const emptyEl = root.querySelector(".cat-empty");
+  let items;
+  const tiles = new Map;
+  const sections = [];
+  let isOpen = false;
+  const rendered = new Set;
+  const queue = [];
+  let rendering = false;
+  const pump = async () => {
+    if (rendering)
+      return;
+    rendering = true;
+    while (queue.length) {
+      const item = queue.shift();
+      const tile = tiles.get(item.entry.id);
+      if (!tile || rendered.has(item.entry.id))
+        continue;
+      rendered.add(item.entry.id);
+      const canvas = await host.renderThumb(item, THUMB_W, THUMB_H).catch(() => {
+        return;
+      });
+      const well = tile.querySelector(".cat-well");
+      if (canvas) {
+        canvas.className = "cat-thumb";
+        well.replaceChildren(canvas);
+      } else {
+        well.innerHTML = `<span class="cat-mono"></span>`;
+        well.querySelector(".cat-mono").textContent = item.entry.name.slice(0, 1);
+      }
+      well.classList.add("ready");
+    }
+    rendering = false;
+  };
+  const seen = new IntersectionObserver((entries) => {
+    for (const e2 of entries) {
+      if (!e2.isIntersecting)
+        continue;
+      const id = e2.target.dataset.id;
+      const item = items?.find((i2) => i2.entry.id === id);
+      if (item && !rendered.has(id) && !queue.includes(item))
+        queue.push(item);
+      seen.unobserve(e2.target);
+    }
+    pump();
+  }, { root: scroller, rootMargin: "120px" });
+  const build = () => {
+    items = catalogue();
+    body.textContent = "";
+    const groups = [
+      ["Shapes", items.filter((i2) => i2.kind === "shape")],
+      ["Symbols", items.filter((i2) => i2.kind === "symbol")]
+    ];
+    for (const [label3, list] of groups) {
+      const h2 = document.createElement("div");
+      h2.className = "cat-section";
+      h2.textContent = label3;
+      const grid = document.createElement("div");
+      grid.className = "cat-grid";
+      for (const item of list)
+        grid.appendChild(tileFor(item));
+      body.append(h2, grid);
+      sections.push({ el: h2, ids: list.map((i2) => i2.entry.id) });
+      sections.push({ el: grid, ids: list.map((i2) => i2.entry.id) });
+    }
+    for (const t2 of tiles.values())
+      seen.observe(t2);
+    refresh();
+  };
+  const tileFor = (item) => {
+    const el = document.createElement("div");
+    el.className = "cat-tile";
+    el.dataset.id = item.entry.id;
+    el.innerHTML = `<div class="cat-well"></div><div class="cat-mark" title="Imported">✓</div><div class="cat-name"></div><div class="cat-line"></div>`;
+    el.querySelector(".cat-name").textContent = item.entry.name;
+    el.querySelector(".cat-line").textContent = lineOf(item);
+    el.title = `${item.entry.name} — ${item.entry.description}`;
+    el.addEventListener("pointerdown", (e2) => startPress(e2, item, el));
+    tiles.set(item.entry.id, el);
+    return el;
+  };
+  const startPress = (e2, item, el) => {
+    if (e2.button !== 0)
+      return;
+    e2.preventDefault();
+    const x0 = e2.clientX;
+    const y0 = e2.clientY;
+    let ghost;
+    const move = (m2) => {
+      if (!ghost && Math.hypot(m2.clientX - x0, m2.clientY - y0) > 5) {
+        ghost = document.createElement("div");
+        ghost.className = "cat-ghost";
+        const thumb = el.querySelector("canvas");
+        if (thumb) {
+          const img = document.createElement("img");
+          img.src = thumb.toDataURL();
+          ghost.appendChild(img);
+        }
+        const name = document.createElement("span");
+        name.textContent = item.entry.name;
+        ghost.appendChild(name);
+        document.body.appendChild(ghost);
+        root.classList.add("dragging");
+        el.classList.add("lifted");
+      }
+      if (ghost) {
+        ghost.style.left = `${m2.clientX}px`;
+        ghost.style.top = `${m2.clientY}px`;
+        ghost.classList.toggle("over", host.overPage(m2.clientX, m2.clientY));
+      }
+    };
+    const up = (u2) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (ghost) {
+        ghost.remove();
+        root.classList.remove("dragging");
+        el.classList.remove("lifted");
+        if (u2.type === "pointerup" && !host.place(item.entry.id, u2.clientX, u2.clientY))
+          host.flash("drop it on the page to place it");
+      } else if (u2.type === "pointerup")
+        host.toggle(item.entry.id);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const matches = (item, q) => {
+    if (!q)
+      return true;
+    const hay = `${item.entry.name} ${item.entry.id} ${item.entry.blurb ?? ""} ${item.entry.description}`.toLowerCase();
+    return q.split(/\s+/).every((w4) => hay.includes(w4));
+  };
+  const visible = () => {
+    const q = input.value.trim().toLowerCase();
+    const hits = (items ?? []).filter((i2) => matches(i2, q));
+    return q ? [...hits].sort((a2, b2) => Number(!a2.entry.name.toLowerCase().includes(q)) - Number(!b2.entry.name.toLowerCase().includes(q))) : hits;
+  };
+  const filter = () => {
+    const shown = new Set(visible().map((i2) => i2.entry.id));
+    for (const [id, t2] of tiles)
+      t2.hidden = !shown.has(id);
+    for (const s2 of sections)
+      s2.el.hidden = !s2.ids.some((id) => shown.has(id));
+    emptyEl.hidden = shown.size > 0;
+    for (const [id, t2] of tiles)
+      if (shown.has(id) && !rendered.has(id))
+        seen.observe(t2);
+  };
+  input.addEventListener("input", filter);
+  input.addEventListener("keydown", (e2) => {
+    if (e2.key === "Escape") {
+      e2.preventDefault();
+      if (input.value) {
+        input.value = "";
+        filter();
+      } else
+        close();
+    } else if (e2.key === "Enter") {
+      e2.preventDefault();
+      const first = visible()[0];
+      if (first && input.value.trim())
+        host.toggle(first.entry.id);
+    }
+    e2.stopPropagation();
+  });
+  const refresh = () => {
+    if (!items)
+      return;
+    const imported = new Set(host.imported());
+    for (const [id, t2] of tiles)
+      t2.classList.toggle("imported", imported.has(id));
+    const n2 = items.filter((i2) => imported.has(i2.entry.id)).length;
+    countEl.textContent = `${n2} of ${items.length} imported`;
+  };
+  const open = () => {
+    if (!items)
+      build();
+    isOpen = true;
+    root.classList.add("open");
+    host.opened(true);
+    refresh();
+    filter();
+    setTimeout(() => input.focus(), 30);
+  };
+  const close = () => {
+    isOpen = false;
+    root.classList.remove("open");
+    host.opened(false);
+    input.blur();
+  };
+  root.querySelector(".cat-close").addEventListener("click", close);
+  return {
+    get isOpen() {
+      return isOpen;
+    },
+    open,
+    close,
+    toggle: () => isOpen ? close() : open(),
+    refresh
+  };
+};
+
 // sketch/board.ts
 var BOARD_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 var isValidBoardName = (name) => BOARD_NAME.test(name);
@@ -67140,7 +68687,10 @@ var parseBoard = (v2) => {
     const fromStrokes = Array.isArray(s2.fromStrokes) ? s2.fromStrokes.filter((x2) => typeof x2 === "string") : [];
     symbols.push({ id: s2.id, symbol: s2.symbol, params, fromStrokes });
   }
-  return { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols };
+  const board = { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols };
+  if (Array.isArray(b2.vocabulary))
+    board.vocabulary = [...new Set(b2.vocabulary.filter((x2) => typeof x2 === "string"))];
+  return board;
 };
 var r2 = (v2) => Math.round(v2 * 100) / 100;
 var r3 = (v2) => Math.round(v2 * 1000) / 1000;
@@ -67163,9 +68713,11 @@ var serializeBoard = (b2) => {
     ${rows.join(`,
     `)}
   ]` : "[]";
+  const vocabulary = b2.vocabulary ? `
+  "vocabulary": ${JSON.stringify(b2.vocabulary)},` : "";
   return `{
   "version": 1,
-  "page": { "w": ${PAGE_W}, "h": ${PAGE_H} },
+  "page": { "w": ${PAGE_W}, "h": ${PAGE_H} },${vocabulary}
   "symbols": ${list(symbols)},
   "strokes": ${list(strokes)}
 }
@@ -67175,6 +68727,12 @@ var serializeBoard = (b2) => {
 // sketch/state.ts
 var emptyState = () => ({ strokes: [], symbols: [] });
 var apply = (s2, cmd) => {
+  if (cmd.kind === "imports")
+    return { ...s2, vocabulary: [...cmd.vocabulary] };
+  const next = applyPage(s2, cmd);
+  return next.vocabulary || !s2.vocabulary ? next : { ...next, vocabulary: s2.vocabulary };
+};
+var applyPage = (s2, cmd) => {
   switch (cmd.kind) {
     case "addStroke":
       return { strokes: [...s2.strokes, cmd.stroke], symbols: s2.symbols };
@@ -67395,16 +68953,16 @@ var unionBox = (boxes) => {
       pts.push({ x: b2.x, y: b2.y }, { x: b2.x + b2.w, y: b2.y + b2.h });
   return boxOfPoints(pts);
 };
-var num2 = (v2) => typeof v2 === "number" && Number.isFinite(v2) ? v2 : undefined;
+var num3 = (v2) => typeof v2 === "number" && Number.isFinite(v2) ? v2 : undefined;
 var symbolBox = (y2) => {
   const p2 = y2.params;
-  const cx = num2(p2.x) ?? num2(p2.cx) ?? 0;
-  const cy = num2(p2.y) ?? num2(p2.cy) ?? 0;
-  const r4 = num2(p2.r) ?? num2(p2.radius) ?? undefined;
-  const size = num2(p2.size);
+  const cx = num3(p2.x) ?? num3(p2.cx) ?? 0;
+  const cy = num3(p2.y) ?? num3(p2.cy) ?? 0;
+  const r4 = num3(p2.r) ?? num3(p2.radius) ?? undefined;
+  const size = num3(p2.size);
   const fp = vocabById(y2.symbol)?.footprint?.(p2);
-  const w4 = fp?.w ?? num2(p2.width) ?? (r4 !== undefined ? 2 * r4 : size ?? 160);
-  const h2 = fp?.h ?? num2(p2.height) ?? (r4 !== undefined ? 2 * r4 : size ?? w4);
+  const w4 = fp?.w ?? num3(p2.width) ?? (r4 !== undefined ? 2 * r4 : size ?? 160);
+  const h2 = fp?.h ?? num3(p2.height) ?? (r4 !== undefined ? 2 * r4 : size ?? w4);
   const pts = [
     { x: cx - w4 / 2, y: cy - h2 / 2 },
     { x: cx + w4 / 2, y: cy + h2 / 2 }
@@ -67888,7 +69446,7 @@ var installVoice = (host) => {
         png,
         selection: selected,
         board: { strokes: state2.strokes, symbols: state2.symbols },
-        vocabulary: VOCABULARY.map((e2) => e2.id),
+        vocabulary: importsOf(state2),
         labels
       });
     } catch (err) {
@@ -68080,7 +69638,7 @@ class DisplayStore {
 
 // sketch/distill.ts
 var OUT_STEP = 2.5;
-var PEN = 4;
+var PEN2 = 4;
 var SIGMA_MIN = 2.5;
 var strokeLength = (pts) => {
   let L2 = 0;
@@ -68130,7 +69688,7 @@ var sampleStrokes = (strokes, h2) => {
       return;
     const L2 = strokeLength(pts);
     const r4 = L2 > 0 ? resample(pts, h2) : [pts[0]];
-    const w4 = Math.max(L2, PEN) / r4.length;
+    const w4 = Math.max(L2, PEN2) / r4.length;
     for (const p2 of r4) {
       xs.push(p2.x);
       ys.push(p2.y);
@@ -69204,14 +70762,14 @@ var distillStrokes = (strokes, makeId, opts = {}) => {
 };
 var round3 = (v2) => Math.round(v2 * 100) / 100;
 var distillGlyph = (c2, r4) => {
-  const wave = (dy, amp, tilt) => Array.from({ length: 13 }, (_2, i2) => {
+  const wave2 = (dy, amp, tilt) => Array.from({ length: 13 }, (_2, i2) => {
     const u2 = i2 / 12;
     const x2 = c2.x + (u2 - 0.5) * 1.15 * r4;
     return { x: x2, y: c2.y + dy + tilt * (u2 - 0.5) * r4 - amp * r4 * Math.sin(u2 * Math.PI * 2) };
   });
   return {
-    faint: [wave(-0.3 * r4, 0.16, 0.12), wave(0.3 * r4, 0.2, -0.1), wave(-0.08 * r4, 0.24, -0.18)],
-    bold: wave(0, 0.18, 0)
+    faint: [wave2(-0.3 * r4, 0.16, 0.12), wave2(0.3 * r4, 0.2, -0.1), wave2(-0.08 * r4, 0.24, -0.18)],
+    bold: wave2(0, 0.18, 0)
   };
 };
 
@@ -69502,13 +71060,13 @@ var visibleRun = (pts, from, to) => {
   out.push(at2(b2));
   return out;
 };
-var flattenHolon = (root, project, note = { pending: false }) => {
+var flattenHolon = (root, project2, note = { pending: false }) => {
   const prims = [];
   const local = new Matrix4;
   const quat = new Quaternion;
   const pos = new Vector3;
   const scl = new Vector3;
-  const toPage = (m2, pts) => pts.map((p2) => project(tmpV.set(p2.x, p2.y, p2.z).applyMatrix4(m2)));
+  const toPage = (m2, pts) => pts.map((p2) => project2(tmpV.set(p2.x, p2.y, p2.z).applyMatrix4(m2)));
   const washedByAncestor = new Set;
   const washedTints = new Map;
   const visit = (h2, parent) => {
@@ -69516,13 +71074,13 @@ var flattenHolon = (root, project, note = { pending: false }) => {
     quat.setFromEuler(STRAIGHT_ON.set(h2.p.value, h2.h.value, h2.b.value, "ZXY"));
     const s2 = h2.scale.value;
     scl.set(s2, s2, s2);
-    const world = new Matrix4().multiplyMatrices(parent, local.compose(pos, quat, scl));
+    const world2 = new Matrix4().multiplyMatrices(parent, local.compose(pos, quat, scl));
     if (h2 instanceof Stroke && h2.opacity.value > 0.01) {
       const filledShape = h2 instanceof Ellipse && h2.filled.value || h2 instanceof Rectangle && h2.filled.value ? h2 : undefined;
       if (filledShape) {
         if (h2.creation.value * h2.opacity.value > 0.5) {
           const outline = filledShape instanceof Ellipse ? ellipseOutline(filledShape.radiusX.value, filledShape.radiusY.value) : rectanglePolyline(filledShape.width.value, filledShape.height.value, filledShape.rounding.value);
-          prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: inverseGrey(h2.tint.value) });
+          prims.push({ k: "fill", pts: flat(toPage(world2, outline)), grey: inverseGrey(h2.tint.value) });
         }
       } else {
         const wash = h2.fillOpacity.value * h2.opacity.value;
@@ -69532,7 +71090,7 @@ var flattenHolon = (root, project, note = { pending: false }) => {
           for (const part of h2.parts)
             washedByAncestor.add(part);
           if (washGrey < 245) {
-            const rings = loops.map((l2) => toPage(world, l2));
+            const rings = loops.map((l2) => toPage(world2, l2));
             prims.push({ k: "fill", pts: flat(rings.flat()), grey: washGrey, rings: rings.map((r4) => r4.length) });
             if (wash >= 0.99)
               washedTints.set(tintKey(h2.tint.value), washGrey);
@@ -69540,7 +71098,7 @@ var flattenHolon = (root, project, note = { pending: false }) => {
         } else if (wash > 0.05 && !washedByAncestor.has(h2) && washGrey < 245) {
           const outline = h2 instanceof Circle ? ellipseOutline(h2.radius.value, h2.radius.value) : h2 instanceof Ellipse ? ellipseOutline(h2.radiusX.value, h2.radiusY.value) : h2 instanceof Rectangle ? rectanglePolyline(h2.width.value, h2.height.value, h2.rounding.value) : h2 instanceof Line && closesOnItself2(h2.points) ? h2.points : undefined;
           if (outline) {
-            prims.push({ k: "fill", pts: flat(toPage(world, outline)), grey: washGrey });
+            prims.push({ k: "fill", pts: flat(toPage(world2, outline)), grey: washGrey });
             if (wash >= 0.99)
               washedTints.set(tintKey(h2.tint.value), washGrey);
           }
@@ -69548,7 +71106,7 @@ var flattenHolon = (root, project, note = { pending: false }) => {
         const grey = washedTints.get(tintKey(h2.tint.value)) ?? lineGrey(h2.tint.value);
         const pts = grey === undefined ? undefined : polyline(h2);
         if (pts && pts.length >= 2) {
-          const run = visibleRun(toPage(world, pts), h2.erasure.value, h2.creation.value);
+          const run = visibleRun(toPage(world2, pts), h2.erasure.value, h2.creation.value);
           if (run.length >= 2)
             prims.push({ k: "line", pts: flat(run), w: LINE_W(h2.stroke.value), ...grey ? { grey } : {} });
         }
@@ -69562,12 +71120,12 @@ var flattenHolon = (root, project, note = { pending: false }) => {
       for (const rings of glyphs ?? []) {
         const pts = [];
         for (const r4 of rings)
-          pts.push(...toPage(world, r4.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }))));
+          pts.push(...toPage(world2, r4.map((p2) => ({ x: p2.x, y: p2.y, z: 0 }))));
         prims.push({ k: "fill", pts: flat(pts), grey: grey ?? 0, rings: rings.map((r4) => r4.length) });
       }
     }
     for (const part of h2.parts)
-      visit(part, world);
+      visit(part, world2);
   };
   visit(root, new Matrix4);
   return prims;
@@ -69611,9 +71169,9 @@ var flattenSymbol = (s2) => {
     const holon = buildSymbol({ id: "mirror", symbol: s2.symbol, params: s2.params, fromStrokes: [] });
     const dream = new FlatDream(holon);
     dream.applyAt(dream.duration);
-    const project = pageProjector(dream);
+    const project2 = pageProjector(dream);
     for (const r4 of dream.roots)
-      prims.push(...flattenHolon(r4, project, note));
+      prims.push(...flattenHolon(r4, project2, note));
   } catch {
     prims = [];
   }
@@ -69914,7 +71472,7 @@ var readLocal = (key) => {
   try {
     const raw = localStorage.getItem(key);
     const b2 = raw ? parseBoard(JSON.parse(raw)) : undefined;
-    return b2 && (b2.strokes.length || b2.symbols.length) ? { strokes: b2.strokes, symbols: b2.symbols } : undefined;
+    return b2 && (b2.strokes.length || b2.symbols.length || b2.vocabulary) ? { strokes: b2.strokes, symbols: b2.symbols, ...b2.vocabulary ? { vocabulary: b2.vocabulary } : {} } : undefined;
   } catch {
     return;
   }
@@ -69924,7 +71482,10 @@ var loadBoard = async () => {
     const res = await fetch(`/api/board/${encodeURIComponent(boardName)}`, { cache: "no-store" });
     if (res.ok) {
       const b2 = parseBoard(await res.json()) ?? emptyBoard();
-      return { state: { strokes: b2.strokes, symbols: b2.symbols }, migrate: false };
+      return {
+        state: { strokes: b2.strokes, symbols: b2.symbols, ...b2.vocabulary ? { vocabulary: b2.vocabulary } : {} },
+        migrate: false
+      };
     }
     if (res.status === 404) {
       const local = readLocal(localKey(boardName)) ?? (boardName === "scratch" ? readLocal(LEGACY_KEY) : undefined);
@@ -70511,6 +72072,7 @@ var commit = (cmd, fresh) => {
 };
 var afterChange = (fresh) => {
   selection = pruneSelection(history.state, selection);
+  renderImports();
   saveState();
   updateButtons();
   drawInk();
@@ -70716,6 +72278,11 @@ var transform = async () => {
     flash("select some ink first (shift-drag a lasso)");
     return;
   }
+  if (importsOf(history.state).length === 0) {
+    flash("this board imports nothing yet — pick its vocabulary");
+    catalogueUI.open();
+    return;
+  }
   const ids = strokes.map((k2) => k2.id);
   if (!ring && last && sameIds(last.ids, ids) && last.response.candidates.length > 1) {
     openRing(last);
@@ -70730,14 +72297,14 @@ var transform = async () => {
   let response;
   try {
     const { png, crop } = renderCrop(strokes);
-    response = await recognize({ png, crop, strokes, vocabulary: VOCABULARY.map((e2) => e2.id) });
+    response = await recognize({ png, crop, strokes, vocabulary: importsOf(history.state) });
   } catch (err) {
     response = { candidates: [], error: err.message || "recognizer unreachable" };
   }
   thinking = undefined;
   updateButtons();
   drawInk();
-  const known = new Set(VOCABULARY.map((e2) => e2.id));
+  const known = new Set(importsOf(history.state));
   const candidates = (response.candidates ?? []).filter((c2) => known.has(c2.symbol));
   response = { ...response, candidates: [...candidates].sort((a2, b2) => b2.confidence - a2.confidence) };
   last = { ids, box, response };
@@ -70769,7 +72336,7 @@ var choose = (ids, c2) => {
   const symbol = { id: newId("sym"), symbol: c2.symbol, params: c2.params, fromStrokes: ids };
   selection = new Set;
   commit({ kind: "replace", ids, symbol }, symbol.id);
-  const name = VOCABULARY.find((e2) => e2.id === c2.symbol)?.name ?? c2.symbol;
+  const name = vocabById(c2.symbol)?.name ?? c2.symbol;
   flash(`${name}${c2.why ? ` — ${c2.why}` : ""}`, 3500);
 };
 var CHIP_CSS = 112;
@@ -70796,7 +72363,7 @@ var openRing = (from) => {
     el.style.top = `${y2 * scale2}px`;
     el.style.width = el.style.height = `${CHIP_CSS}px`;
     el.title = candidate.why ?? "";
-    const name = VOCABULARY.find((e2) => e2.id === candidate.symbol)?.name ?? candidate.symbol;
+    const name = vocabById(candidate.symbol)?.name ?? candidate.symbol;
     el.innerHTML = `<div class="thumb"></div><div class="label"><b></b><span></span></div>`;
     el.querySelector("b").textContent = name;
     el.querySelector("span").textContent = `${Math.round((candidate.confidence ?? 0) * 100)}%`;
@@ -71364,8 +72931,13 @@ window.addEventListener("keydown", (e2) => {
   } else if (!meta && !e2.altKey && e2.key.toLowerCase() === "d") {
     e2.preventDefault();
     distill();
+  } else if (!meta && !e2.altKey && e2.key.toLowerCase() === "i") {
+    e2.preventDefault();
+    catalogueUI.toggle();
   } else if (e2.key === "Escape") {
-    if (ring)
+    if (catalogueUI.isOpen)
+      catalogueUI.close();
+    else if (ring)
       closeRing();
     else
       setSelection([]);
@@ -71432,10 +73004,84 @@ var listBoards = async () => {
     }
   } catch {}
 };
-importsEl.textContent = VOCABULARY.map((e2) => e2.id).join(" · ");
-importsEl.title = VOCABULARY.map((e2) => `${e2.name} — ${e2.description}`).join(`
-
-`);
+var renderImports = () => {
+  const ids = importsOf(history.state);
+  importsEl.textContent = ids.length ? ids.join(" · ") : "nothing yet";
+  catalogueUI.refresh();
+};
+var toggleImport = (id) => {
+  const now = importsOf(history.state);
+  const on = now.includes(id);
+  commit({ kind: "imports", vocabulary: on ? now.filter((x2) => x2 !== id) : [...now, id] });
+  flash(`${on ? "no longer imports" : "imports"} ${vocabById(id)?.name ?? id}`, 2200);
+};
+var overPage = (clientX, clientY) => {
+  const el = document.elementFromPoint(clientX, clientY);
+  return !!el && pageEl.contains(el);
+};
+var placeFromCatalogue = (id, clientX, clientY) => {
+  const entry = vocabById(id);
+  if (!entry || !overPage(clientX, clientY))
+    return false;
+  closeRing();
+  cancelLive();
+  const symbol = { id: newId("sym"), symbol: id, params: placeParams(entry, toPage(clientX, clientY)), fromStrokes: [] };
+  const now = importsOf(history.state);
+  const add7 = { kind: "addSymbol", symbol };
+  history.do(now.includes(id) ? add7 : { kind: "edit", steps: [{ kind: "imports", vocabulary: [...now, id] }, add7], selected: [...selection] });
+  selection = new Set([symbol.id]);
+  afterChange(symbol.id);
+  flash(`${entry.name}${now.includes(id) ? "" : " — imported"}`, 2200);
+  return true;
+};
+var renderThumb = async (item, cssW, cssH) => {
+  const placed = { id: "thumb", symbol: item.entry.id, params: placeParams(item.entry, { x: PAGE_W / 2, y: PAGE_H / 2 }), fromStrokes: [] };
+  let box = symbolBox(placed);
+  try {
+    const e2 = extentOf(new Group({ members: [buildSymbol(placed)] }));
+    if (e2 && e2.w + e2.h > 1)
+      box = { x: e2.cx - e2.w / 2, y: -e2.cy - e2.h / 2, w: e2.w, h: e2.h };
+  } catch {}
+  const fc = boxCenter(box);
+  const deep = Object.values(item.entry.params).some((p2) => p2.role === "yaw" || p2.role === "pitch" || p2.role === "tilt");
+  const h2 = Math.max(box.h, box.w * cssH / cssW) * (deep ? 1.75 : 1.45);
+  const glW = cssH * 16 / 9;
+  const gl = document.createElement("canvas");
+  gl.width = Math.round(glW * dpr);
+  gl.height = Math.round(cssH * dpr);
+  gl.style.cssText = `position:fixed;left:0;top:0;width:${glW}px;height:${cssH}px;visibility:hidden;pointer-events:none`;
+  document.body.appendChild(gl);
+  let host;
+  try {
+    host = await ThreeHost.mount(new SymbolsDream([placed], { cx: fc.x, cy: fc.y, h: h2 }), gl);
+    host.renderer.setPixelRatio(dpr);
+    host.renderer.setSize(glW, cssH, false);
+    await host.renderFrame(0);
+    await host.renderFrame(0);
+    const out = document.createElement("canvas");
+    out.width = Math.round(cssW * dpr);
+    out.height = gl.height;
+    out.getContext("2d").drawImage(gl, (gl.width - out.width) / 2, 0, out.width, gl.height, 0, 0, out.width, out.height);
+    return out;
+  } catch (err) {
+    console.warn("[sketch] catalogue thumbnail failed", item.entry.id, err);
+    return;
+  } finally {
+    host?.dispose();
+    gl.remove();
+  }
+};
+var catalogueUI = installCataloguePanel({
+  imported: () => importsOf(history.state),
+  toggle: toggleImport,
+  place: placeFromCatalogue,
+  overPage,
+  renderThumb,
+  flash: (msg) => flash(msg, 2200),
+  opened: (open) => importsEl.classList.toggle("on", open)
+});
+importsEl.addEventListener("click", () => catalogueUI.toggle());
+renderImports();
 window.addEventListener("resize", () => {
   closeRing();
   layout2();
@@ -71546,6 +73192,9 @@ if (looking) {
 } else
   connectPen();
 listBoards();
+fetch("/api/catalogue").then((r4) => r4.ok ? r4.json() : undefined).then((b2) => b2?.classes && describeGeneric(b2.classes)).catch(() => {
+  return;
+});
 loadBoard().then(async ({ state: state2, migrate }) => {
   history = new History(state2);
   if (migrate)

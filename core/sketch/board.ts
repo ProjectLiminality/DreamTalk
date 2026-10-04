@@ -18,6 +18,10 @@ export interface BoardFile {
   page: { w: number; h: number }
   strokes: InkStroke[]
   symbols: PlacedSymbol[]
+  /** The visual vocabulary this board imports (symbol ids). Absent in a
+   *  board drawn before imports were a board's own: it imports the
+   *  defaults (vocabulary.ts DEFAULT_IMPORTS). */
+  vocabulary?: string[]
 }
 
 /** A name is a file stem: letters, digits, `-`, `_` — nothing that can walk a path. */
@@ -61,7 +65,9 @@ export const parseBoard = (v: unknown): BoardFile | undefined => {
     const fromStrokes = Array.isArray(s.fromStrokes) ? s.fromStrokes.filter((x) => typeof x === "string") : []
     symbols.push({ id: s.id, symbol: s.symbol, params, fromStrokes })
   }
-  return { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols }
+  const board: BoardFile = { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols }
+  if (Array.isArray(b.vocabulary)) board.vocabulary = [...new Set(b.vocabulary.filter((x) => typeof x === "string"))]
+  return board
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100
@@ -80,7 +86,11 @@ const roundDeep = (v: unknown): unknown => {
  * The file's bytes. One stroke and one symbol per line, so a board diffs
  * like a scene file does — a moved circle is one changed line in git.
  */
-export const serializeBoard = (b: { strokes: readonly InkStroke[]; symbols: readonly PlacedSymbol[] }): string => {
+export const serializeBoard = (b: {
+  strokes: readonly InkStroke[]
+  symbols: readonly PlacedSymbol[]
+  vocabulary?: readonly string[]
+}): string => {
   const strokes = b.strokes.map((k) =>
     JSON.stringify({
       id: k.id,
@@ -89,5 +99,7 @@ export const serializeBoard = (b: { strokes: readonly InkStroke[]; symbols: read
   )
   const symbols = b.symbols.map((y) => JSON.stringify({ ...y, params: roundDeep(y.params) }))
   const list = (rows: string[]) => (rows.length ? `[\n    ${rows.join(",\n    ")}\n  ]` : "[]")
-  return `{\n  "version": 1,\n  "page": { "w": ${PAGE_W}, "h": ${PAGE_H} },\n  "symbols": ${list(symbols)},\n  "strokes": ${list(strokes)}\n}\n`
+  // The imports on one line: what a scene imports reads like its import line.
+  const vocabulary = b.vocabulary ? `\n  "vocabulary": ${JSON.stringify(b.vocabulary)},` : ""
+  return `{\n  "version": 1,\n  "page": { "w": ${PAGE_W}, "h": ${PAGE_H} },${vocabulary}\n  "symbols": ${list(symbols)},\n  "strokes": ${list(strokes)}\n}\n`
 }

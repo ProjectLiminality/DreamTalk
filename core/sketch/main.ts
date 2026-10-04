@@ -54,7 +54,9 @@ import { Dream } from "../src/dream"
 import { Create } from "../src/verbs"
 import type { Holon } from "../src/holon"
 import { ThreeHost } from "../src/render/three-host"
-import { VOCABULARY, buildSymbol, canTumble, framePage, tumbleCentre, tumbleTurn, vocabById } from "./vocabulary"
+import { buildSymbol, canTumble, framePage, tumbleCentre, tumbleTurn, vocabById } from "./vocabulary"
+import { describeGeneric, extentOf, importsOf, placeParams, type CatalogueItem } from "./catalogue"
+import { installCataloguePanel } from "./cataloguepanel"
 import { Group } from "../src/parts/primitives"
 import { emptyBoard, isValidBoardName, parseBoard, serializeBoard } from "./board"
 import { installVoice } from "./voice"
@@ -115,7 +117,7 @@ const pageEl = document.getElementById("page") as HTMLDivElement
 const ink = document.getElementById("ink") as HTMLCanvasElement
 const ringEl = document.getElementById("ring") as HTMLDivElement
 const statusEl = document.getElementById("status") as HTMLSpanElement
-const importsEl = document.getElementById("imports") as HTMLSpanElement
+const importsEl = document.getElementById("imports") as HTMLButtonElement
 const presenceEl = document.getElementById("presence") as HTMLDivElement
 const dotEl = document.getElementById("tabletdot") as HTMLSpanElement
 const bannerEl = document.getElementById("banner") as HTMLDivElement
@@ -144,7 +146,9 @@ const readLocal = (key: string): SketchState | undefined => {
   try {
     const raw = localStorage.getItem(key)
     const b = raw ? parseBoard(JSON.parse(raw)) : undefined
-    return b && (b.strokes.length || b.symbols.length) ? { strokes: b.strokes, symbols: b.symbols } : undefined
+    return b && (b.strokes.length || b.symbols.length || b.vocabulary)
+      ? { strokes: b.strokes, symbols: b.symbols, ...(b.vocabulary ? { vocabulary: b.vocabulary } : {}) }
+      : undefined
   } catch {
     // a blocked or corrupt store is no fallback, never a broken page
     return undefined
@@ -157,7 +161,10 @@ const loadBoard = async (): Promise<{ state: SketchState; migrate: boolean }> =>
     const res = await fetch(`/api/board/${encodeURIComponent(boardName)}`, { cache: "no-store" })
     if (res.ok) {
       const b = parseBoard(await res.json()) ?? emptyBoard()
-      return { state: { strokes: b.strokes, symbols: b.symbols }, migrate: false }
+      return {
+        state: { strokes: b.strokes, symbols: b.symbols, ...(b.vocabulary ? { vocabulary: b.vocabulary } : {}) },
+        migrate: false,
+      }
     }
     if (res.status === 404) {
       // A new board — or one drawn before boards were files: bring it in.
@@ -885,6 +892,7 @@ const commit = (cmd: Command, fresh?: string) => {
 
 const afterChange = (fresh?: string) => {
   selection = pruneSelection(history.state, selection)
+  renderImports()
   saveState()
   updateButtons()
   drawInk()
@@ -1117,6 +1125,11 @@ const transform = async (): Promise<void> => {
     flash("select some ink first (shift-drag a lasso)")
     return
   }
+  if (importsOf(history.state).length === 0) {
+    flash("this board imports nothing yet — pick its vocabulary")
+    catalogueUI.open()
+    return
+  }
   const ids = strokes.map((k) => k.id)
   // A multi-reading we already have for exactly this ink: show it again
   // rather than asking twice. Asked again from an OPEN ring → re-ask.
@@ -1133,14 +1146,14 @@ const transform = async (): Promise<void> => {
   let response: RecognizeResponse
   try {
     const { png, crop } = renderCrop(strokes)
-    response = await recognize({ png, crop, strokes, vocabulary: VOCABULARY.map((e) => e.id) })
+    response = await recognize({ png, crop, strokes, vocabulary: importsOf(history.state) })
   } catch (err) {
     response = { candidates: [], error: (err as Error).message || "recognizer unreachable" }
   }
   thinking = undefined
   updateButtons()
   drawInk()
-  const known = new Set(VOCABULARY.map((e) => e.id))
+  const known = new Set(importsOf(history.state))
   const candidates = (response.candidates ?? []).filter((c) => known.has(c.symbol))
   response = { ...response, candidates: [...candidates].sort((a, b) => b.confidence - a.confidence) }
   last = { ids, box, response }
@@ -1176,7 +1189,7 @@ const choose = (ids: string[], c: Candidate) => {
   const symbol: PlacedSymbol = { id: newId("sym"), symbol: c.symbol, params: c.params, fromStrokes: ids }
   selection = new Set()
   commit({ kind: "replace", ids, symbol }, symbol.id)
-  const name = VOCABULARY.find((e) => e.id === c.symbol)?.name ?? c.symbol
+  const name = vocabById(c.symbol)?.name ?? c.symbol
   flash(`${name}${c.why ? ` — ${c.why}` : ""}`, 3500)
 }
 
@@ -1209,7 +1222,7 @@ const openRing = (from: LastResponse) => {
     el.style.top = `${y * scale}px`
     el.style.width = el.style.height = `${CHIP_CSS}px`
     el.title = candidate.why ?? ""
-    const name = VOCABULARY.find((e) => e.id === candidate.symbol)?.name ?? candidate.symbol
+    const name = vocabById(candidate.symbol)?.name ?? candidate.symbol
     el.innerHTML = `<div class="thumb"></div><div class="label"><b></b><span></span></div>`
     el.querySelector("b")!.textContent = name
     el.querySelector("span")!.textContent = `${Math.round((candidate.confidence ?? 0) * 100)}%`
@@ -1839,8 +1852,12 @@ window.addEventListener("keydown", (e) => {
   } else if (!meta && !e.altKey && e.key.toLowerCase() === "d") {
     e.preventDefault()
     distill()
+  } else if (!meta && !e.altKey && e.key.toLowerCase() === "i") {
+    e.preventDefault()
+    catalogueUI.toggle()
   } else if (e.key === "Escape") {
-    if (ring) closeRing()
+    if (catalogueUI.isOpen) catalogueUI.close()
+    else if (ring) closeRing()
     else setSelection([])
   } else if (e.key === "Delete" || e.key === "Backspace") {
     e.preventDefault()
@@ -1907,8 +1924,106 @@ const listBoards = async () => {
   }
 }
 
-importsEl.textContent = VOCABULARY.map((e) => e.id).join(" · ")
-importsEl.title = VOCABULARY.map((e) => `${e.name} — ${e.description}`).join("\n\n")
+// --- The catalogue: import from the whole vocabulary ------------------------------------
+
+/** The toolbar's import line: what the recognizer and the voice may answer with. */
+const renderImports = () => {
+  const ids = importsOf(history.state)
+  importsEl.textContent = ids.length ? ids.join(" · ") : "nothing yet"
+  catalogueUI.refresh()
+}
+
+/** Import or un-import one symbol for this board — one undo step. */
+const toggleImport = (id: string) => {
+  const now = importsOf(history.state)
+  const on = now.includes(id)
+  commit({ kind: "imports", vocabulary: on ? now.filter((x) => x !== id) : [...now, id] })
+  flash(`${on ? "no longer imports" : "imports"} ${vocabById(id)?.name ?? id}`, 2200)
+}
+
+/** Is a client point over the page itself (not the panel or toolbar above it)? */
+const overPage = (clientX: number, clientY: number): boolean => {
+  const el = document.elementFromPoint(clientX, clientY)
+  return !!el && pageEl.contains(el)
+}
+
+/**
+ * A symbol dropped from the catalogue: placed at the pointer at a
+ * comfortable size, selected, drawn on — and imported, if it was not, in
+ * the same undo step. Invoking without drawing.
+ */
+const placeFromCatalogue = (id: string, clientX: number, clientY: number): boolean => {
+  const entry = vocabById(id)
+  if (!entry || !overPage(clientX, clientY)) return false
+  closeRing()
+  cancelLive()
+  const symbol: PlacedSymbol = { id: newId("sym"), symbol: id, params: placeParams(entry, toPage(clientX, clientY)), fromStrokes: [] }
+  const now = importsOf(history.state)
+  const add: Command = { kind: "addSymbol", symbol }
+  history.do(
+    now.includes(id) ? add : { kind: "edit", steps: [{ kind: "imports", vocabulary: [...now, id] }, add], selected: [...selection] },
+  )
+  selection = new Set([symbol.id])
+  afterChange(symbol.id)
+  flash(`${entry.name}${now.includes(id) ? "" : " — imported"}`, 2200)
+  return true
+}
+
+/** One catalogue tile's picture: the symbol as the page draws it, small,
+ *  rendered off-screen and copied out before the frame is presented. */
+const renderThumb = async (item: CatalogueItem, cssW: number, cssH: number): Promise<HTMLCanvasElement | undefined> => {
+  const placed: PlacedSymbol = { id: "thumb", symbol: item.entry.id, params: placeParams(item.entry, { x: PAGE_W / 2, y: PAGE_H / 2 }), fromStrokes: [] }
+  // Framed on the ink it really draws (catalogue.ts extentOf) — a param
+  // footprint is only a guess at that — else on the footprint.
+  let box = symbolBox(placed)
+  try {
+    const e = extentOf(new Group({ members: [buildSymbol(placed)] }))
+    if (e && e.w + e.h > 1) box = { x: e.cx - e.w / 2, y: -e.cy - e.h / 2, w: e.w, h: e.h }
+  } catch {
+    // the footprint will do
+  }
+  const fc = boxCenter(box)
+  // A 3D symbol's near side looms larger in perspective than its extent says.
+  const deep = Object.values(item.entry.params).some((p) => p.role === "yaw" || p.role === "pitch" || p.role === "tilt")
+  const h = Math.max(box.h, (box.w * cssH) / cssW) * (deep ? 1.75 : 1.45)
+  const glW = (cssH * 16) / 9
+  const gl = document.createElement("canvas")
+  gl.width = Math.round(glW * dpr)
+  gl.height = Math.round(cssH * dpr)
+  gl.style.cssText = `position:fixed;left:0;top:0;width:${glW}px;height:${cssH}px;visibility:hidden;pointer-events:none`
+  document.body.appendChild(gl)
+  let host: ThreeHost | undefined
+  try {
+    host = await ThreeHost.mount(new SymbolsDream([placed], { cx: fc.x, cy: fc.y, h }), gl)
+    host.renderer.setPixelRatio(dpr)
+    host.renderer.setSize(glW, cssH, false)
+    await host.renderFrame(0)
+    await host.renderFrame(0)
+    const out = document.createElement("canvas")
+    out.width = Math.round(cssW * dpr)
+    out.height = gl.height
+    out.getContext("2d")!.drawImage(gl, (gl.width - out.width) / 2, 0, out.width, gl.height, 0, 0, out.width, out.height)
+    return out
+  } catch (err) {
+    console.warn("[sketch] catalogue thumbnail failed", item.entry.id, err)
+    return undefined
+  } finally {
+    host?.dispose()
+    gl.remove()
+  }
+}
+
+const catalogueUI = installCataloguePanel({
+  imported: () => importsOf(history.state),
+  toggle: toggleImport,
+  place: placeFromCatalogue,
+  overPage,
+  renderThumb,
+  flash: (msg) => flash(msg, 2200),
+  opened: (open) => importsEl.classList.toggle("on", open),
+})
+importsEl.addEventListener("click", () => catalogueUI.toggle())
+renderImports()
 
 window.addEventListener("resize", () => {
   closeRing()
@@ -2032,6 +2147,11 @@ if (looking) {
   }
 } else connectPen()
 void listBoards()
+// The shelf's own words (README / class doc) for the catalogue's tiles.
+void fetch("/api/catalogue")
+  .then((r) => (r.ok ? r.json() : undefined))
+  .then((b) => b?.classes && describeGeneric(b.classes))
+  .catch(() => undefined)
 void loadBoard().then(async ({ state, migrate }) => {
   history = new History(state)
   if (migrate) saveState()

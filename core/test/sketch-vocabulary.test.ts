@@ -9,6 +9,7 @@ const SENSIBLE: Record<string, Record<string, unknown>> = {
   square: { cx: 400, cy: 400, size: 200, rotation: 0.2 },
   triangle: { cx: 500, cy: 900, r: 200, rotation: 0 },
   cube: { cx: 700, cy: 600, size: 200, h: 0.6, p: 0.4, b: 0 },
+  cylinder: { cx: 900, cy: 500, radius: 80, height: 240, h: 0, p: 0.4, b: 0 },
   flowerOfLife: { cx: 700, cy: 900, r: 120, rings: "2", rotation: 0 },
   mindVirus: { x: 830, y: 570, size: 160, heading: 0, fold: 0.5, cable: [[150, 600], [400, 550], [720, 600]] },
   eye: { cx: 300, cy: 300, size: 200, rotation: 0 },

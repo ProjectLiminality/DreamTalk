@@ -41,7 +41,8 @@ import {
 } from "./protocol"
 import { Dream } from "../src/dream"
 import { ThreeHost } from "../src/render/three-host"
-import { VOCABULARY, buildSymbol, framePage } from "./vocabulary"
+import { buildSymbol, framePage } from "./vocabulary"
+import { importsOf } from "./catalogue"
 import {
   boxOfPoints,
   editCommand,
@@ -533,7 +534,7 @@ export const installVoice = (host: VoiceHost): Voice => {
         png,
         selection: selected,
         board: { strokes: state.strokes, symbols: state.symbols },
-        vocabulary: VOCABULARY.map((e) => e.id),
+        vocabulary: importsOf(state),
         labels,
       })
     } catch (err) {

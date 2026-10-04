@@ -31,7 +31,8 @@ import { mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import type { EditOp, InkStroke, InstructRequest, InstructResponse, PlacedSymbol } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
-import { vocabById, VOCABULARY, type VocabEntry } from "../sketch/vocabulary"
+import { vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
+import { describeShelf } from "./catalogue"
 import { bbox, cliResultText, coerceParam, fitCircle, MODEL, pngSize, stripFences, subsample, vocabBlock } from "./recognize"
 
 const TIMEOUT_MS = 120_000
@@ -237,7 +238,9 @@ export const parseInstructReply = (text: string, ctx: InstructContext): Instruct
 export async function instruct(req: InstructRequest): Promise<InstructResponse> {
   const started = performance.now()
   try {
-    const wanted = req.vocabulary?.length ? req.vocabulary : VOCABULARY.map((e) => e.id)
+    const wanted = req.vocabulary ?? DEFAULT_IMPORTS
+    // A symbol imported from the shelf is described in its own words.
+    await describeShelf(repoRoot)
     const entries = wanted.map(vocabById).filter((e): e is VocabEntry => !!e)
     const b64 = req.png.replace(/^data:image\/png;base64,/, "")
     const bytes = Uint8Array.from(Buffer.from(b64, "base64"))

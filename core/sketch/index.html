@@ -54,9 +54,11 @@
       overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
     #status.on { opacity: 0.8; }
     #toolbar .spacer { flex: 1; }
-    #toolbar .imports { color: var(--dim); font: 10.5px var(--mono); white-space: nowrap; overflow: hidden;
-      text-overflow: ellipsis; max-width: 42vw; cursor: help; }
-    #toolbar .imports::before { content: "import "; color: var(--text); }
+    #toolbar button.imports { color: var(--dim); font: 10.5px var(--mono); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; max-width: 42vw; text-align: left; }
+    #toolbar button.imports::before { content: "import "; color: var(--text); }
+    #toolbar button.imports:hover::before, #toolbar button.imports.on::before { color: var(--blue); }
+    #toolbar button.imports.on { color: var(--bright); border-color: var(--edge); }
     #toolbar #board { width: 92px; height: 24px; margin-left: 12px; padding: 0 7px; border-radius: 6px;
       background: none; border: 1px solid var(--edge); color: var(--bright); font: 11px var(--mono); outline: none; }
     #toolbar #board:focus { border-color: var(--blue); }
@@ -114,6 +116,67 @@
     .chip .label span { color: var(--text); font: 9.5px var(--mono); }
     .chip:not(.drawn) .label { bottom: auto; top: 50%; transform: translateY(-50%); }
     @keyframes chipIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); } }
+
+    /* The catalogue: the whole vocabulary as a shelf of pictures (cataloguepanel.ts).
+       A sheet at the right; click a tile to import it, drag it onto the page to place it. */
+    #catalogue { position: fixed; top: 44px; right: 0; bottom: 0; width: 372px; max-width: 100vw; z-index: 8;
+      display: flex; flex-direction: column; background: var(--bg); box-shadow: -1px 0 0 var(--edge);
+      transform: translateX(100%); visibility: hidden;
+      transition: transform 0.24s cubic-bezier(.2,.7,.2,1), visibility 0s linear 0.24s, opacity 0.2s; }
+    #catalogue.open { transform: none; visibility: visible; transition: transform 0.24s cubic-bezier(.2,.7,.2,1); }
+    #catalogue.dragging { opacity: 0.35; }
+    #catalogue .cat-head { display: flex; align-items: center; padding: 14px 14px 10px 18px; }
+    #catalogue .cat-title { flex: 1; display: flex; align-items: baseline; gap: 10px; }
+    #catalogue .cat-title b { color: var(--bright); font-weight: 500; font-size: 13px; letter-spacing: 0.01em; }
+    #catalogue .cat-count { color: var(--dim); font: 10.5px var(--mono); }
+    #catalogue .cat-close { background: none; border: none; color: var(--dim); font-size: 17px; line-height: 1;
+      width: 26px; height: 26px; border-radius: 6px; cursor: pointer; }
+    #catalogue .cat-close:hover { color: var(--bright); background: var(--edge); }
+    #catalogue .cat-search { display: flex; align-items: center; gap: 8px; margin: 0 14px 6px; height: 34px;
+      padding: 0 11px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--edge); background: var(--page); color: var(--dim); }
+    #catalogue .cat-search:focus-within { box-shadow: inset 0 0 0 1px var(--blue); }
+    #catalogue .cat-search span { font-size: 14px; }
+    #catalogue .cat-search input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+      color: var(--bright); font: 12.5px -apple-system, "SF Pro", Inter, sans-serif; -webkit-appearance: none; }
+    #catalogue .cat-search input::placeholder { color: var(--dim); }
+    #catalogue .cat-search input::-webkit-search-cancel-button { display: none; }
+    #catalogue .cat-scroll { flex: 1; overflow-y: auto; padding: 0 14px 14px; scrollbar-width: thin;
+      scrollbar-color: var(--edge) transparent; }
+    #catalogue .cat-section { color: var(--dim); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      margin: 16px 4px 9px; }
+    #catalogue .cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    #catalogue .cat-empty { color: var(--dim); text-align: center; padding: 40px 0; }
+    #catalogue .cat-empty[hidden], #catalogue [hidden] { display: none; }
+    #catalogue .cat-tile { position: relative; border-radius: 10px; padding: 6px 6px 10px; cursor: pointer;
+      box-shadow: inset 0 0 0 1px var(--edge); transition: box-shadow 0.15s, background 0.15s; touch-action: none; }
+    #catalogue .cat-tile:hover { background: color-mix(in srgb, var(--edge) 45%, transparent); }
+    #catalogue .cat-tile.imported { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 70%, transparent); }
+    #catalogue .cat-tile.lifted { opacity: 0.4; }
+    #catalogue .cat-well { height: 112px; border-radius: 6px; background: var(--page); overflow: hidden;
+      display: flex; align-items: center; justify-content: center; }
+    #catalogue .cat-well:not(.ready) { background: linear-gradient(100deg, var(--page) 40%, var(--edge) 50%, var(--page) 60%) 0 0 / 300% 100%;
+      animation: shimmer 1.6s linear infinite; }
+    @keyframes shimmer { to { background-position: -150% 0; } }
+    #catalogue .cat-thumb { width: 100%; height: 100%; display: block; opacity: 0.6; transition: opacity 0.2s;
+      animation: thumbIn 0.35s ease-out both; }
+    #catalogue .cat-tile:hover .cat-thumb, #catalogue .cat-tile.imported .cat-thumb { opacity: 1; }
+    @keyframes thumbIn { from { opacity: 0; } }
+    :root[data-theme="light"] #catalogue .cat-thumb, :root[data-theme="light"] .cat-ghost img { filter: invert(1) hue-rotate(180deg); }
+    #catalogue .cat-mono { color: var(--dim); font-size: 30px; font-weight: 300; }
+    #catalogue .cat-name { color: var(--bright); font-size: 12px; font-weight: 500; margin: 9px 4px 2px; }
+    #catalogue .cat-line { color: var(--text); font-size: 10.5px; line-height: 1.35; margin: 0 4px; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.7em; }
+    #catalogue .cat-mark { position: absolute; top: 12px; right: 12px; width: 17px; height: 17px; border-radius: 50%;
+      background: var(--blue); color: #fff; font-size: 10px; line-height: 17px; text-align: center; font-weight: 600;
+      opacity: 0; transform: scale(0.6); transition: opacity 0.15s, transform 0.15s; }
+    #catalogue .cat-tile.imported .cat-mark { opacity: 1; transform: none; }
+    #catalogue .cat-foot { color: var(--dim); font-size: 10.5px; padding: 10px 18px 12px; box-shadow: 0 -1px 0 var(--edge); }
+    .cat-ghost { position: fixed; z-index: 20; pointer-events: none; transform: translate(-50%, -50%); display: flex;
+      flex-direction: column; align-items: center; gap: 4px; opacity: 0.85; transition: opacity 0.12s; }
+    .cat-ghost img { width: 120px; height: 84px; border-radius: 8px; box-shadow: 0 0 0 1px var(--edge), 0 10px 30px rgba(0,0,0,0.45); }
+    .cat-ghost span { color: var(--bright); font-size: 11px; background: var(--page); padding: 1px 7px; border-radius: 5px; }
+    .cat-ghost.over { opacity: 1; }
+    .cat-ghost.over img { box-shadow: 0 0 0 1px var(--blue), 0 10px 30px rgba(0,0,0,0.45); }
   </style>
 </head>
 <body>
@@ -128,12 +191,13 @@
     <button id="clear" title="Clear the page (undoable)">clear</button>
     <span id="status"></span>
     <span class="spacer"></span>
-    <span class="imports" id="imports"></span>
+    <button class="imports" id="imports" title="The vocabulary this board imports — open the catalogue (I)"></button>
     <input id="board" list="boards" spellcheck="false" autocomplete="off" title="Board — a scene file, core/demo/boards/&lt;name&gt;.board.json. Type a name + Enter to open or start one." />
     <datalist id="boards"></datalist>
     <a id="toeditor" target="dreamtalk-editor" title="The same scene in the DreamTalk editor — camera, timeline, choreography">open in editor ↗</a>
     <span class="tabletdot" id="tabletdot"></span>
   </div>
+  <div id="catalogue"></div>
   <div id="banner"><span>reMarkable needs its one-time key — run:</span><code></code><button title="Dismiss">×</button></div>
   <div id="page">
     <canvas id="ink"></canvas>

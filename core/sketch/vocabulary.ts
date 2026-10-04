@@ -26,12 +26,13 @@
  */
 
 import type { Holon } from "../src/holon"
-import { Circle, Group, Line, Polygon, Square, type Vec3Like } from "../src/parts/primitives"
+import { Circle, Group, Line, Polygon, Rectangle, Square, type Vec3Like } from "../src/parts/primitives"
 import { derive } from "../src/params"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { MindVirus, type PulseSpec } from "../vocabulary/MindVirus/MindVirus"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
+import { Cylinder } from "../vocabulary/Cylinder/Cylinder"
 import { Regenaissance } from "../vocabulary/Regenaissance/Regenaissance"
 import { SMARK, SMark } from "../vocabulary/Regenaissance/SMark"
 import { Text } from "../src/parts/text"
@@ -40,6 +41,7 @@ import type { Dream } from "../src/dream"
 import { PAGE_H, PAGE_W, type InkStroke, type PlacedSymbol } from "./protocol"
 import { eulerToMat3, isMat3Identity, mat3Apply, mat3Mul, mat3ToEuler, wrapAngle, xfOf, xfPoint, type Mat3, type Xf } from "./xform"
 import { rotHPB } from "../src/parts/curves"
+import { genericById } from "./catalogue"
 
 /**
  * What a param MEANS geometrically — which is all a whiteboard transform
@@ -75,6 +77,11 @@ export interface VocabEntry {
   id: string
   name: string
   description: string
+  /** One plain line for the catalogue tile — `description` is for the model. */
+  blurb?: string
+  /** The sovereign class (core/vocabulary) this entry speaks for: the
+   *  catalogue offers it here instead of through the generic adapter. */
+  holon?: string
   params: Record<string, ParamSpec>
   build(params: Record<string, unknown>): Holon
   /** The symbol's page footprint (w × h about its x/y), when the generic
@@ -319,6 +326,7 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "circle",
     name: "Circle",
+    blurb: "A single circle.",
     description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -331,6 +339,7 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "square",
     name: "Square",
+    blurb: "Four equal sides, four corners.",
     description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -349,6 +358,7 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "triangle",
     name: "Triangle",
+    blurb: "An equilateral triangle.",
     description: "An equilateral-ish triangle (three corners).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
@@ -373,6 +383,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "cube",
     name: "Cube",
+    holon: "FoldableCube",
+    blurb: "A wireframe cube, turnable in 3D.",
     description:
       "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
     params: {
@@ -400,8 +412,46 @@ export const VOCABULARY: VocabEntry[] = [
     },
   },
   {
+    id: "cylinder",
+    name: "Cylinder",
+    holon: "Cylinder",
+    blurb: "Born of a square and a circle.",
+    description:
+      "A 3D wireframe cylinder: two ellipses (the caps) joined by two straight parallel sides — or a rectangle with an elliptical cap at each end, or a tall box whose top and bottom are ovals. A flat rectangle with no curved caps is not a cylinder; a single ellipse is a circle.",
+    params: {
+      cx: { type: "number", role: "x", description: "centre x (midway between the two caps' centres), page units" },
+      cy: { type: "number", role: "y", description: "centre y (midway between the two caps' centres), page units" },
+      radius: { type: "number", role: "length", description: "cap radius: HALF the caps' long (widest) axis, page units" },
+      height: { type: "number", role: "length", description: "axis length: distance between the two caps' centres, page units" },
+      h: { type: "number", role: "yaw", default: 0, description: "heading (turn about the axis), radians; 0 for any drawing (a cylinder looks the same turned about its axis)" },
+      p: {
+        type: "number",
+        role: "pitch",
+        default: 0.4,
+        description: "pitch, radians: how far the top cap tips toward the viewer — the caps' short/long axis ratio is sin(p) (a thin oval ≈ 0.25, a round-ish one ≈ 0.8; 0 = caps seen edge-on as lines)",
+      },
+      b: { type: "number", role: "angle", description: `${ANGLE}; the lean of the axis: 0 = upright (caps above each other), ±π/2 = lying on its side` },
+    },
+    build: (p) => {
+      const radius = Math.max(1, num(p, "radius", 60))
+      const height = Math.max(1, num(p, "height", 160))
+      // The cylinder a rectangle and a circle are both views of — its
+      // radius and height read off them (Cylinder.of), never copied.
+      const cylinder = Cylinder.of(new Rectangle({ width: 2 * radius, height }), new Circle({ radius }), { tint: WHITE })
+      return new Group({
+        members: [cylinder],
+        x: num(p, "cx", 0),
+        y: -num(p, "cy", 0),
+        h: num(p, "h", 0),
+        p: num(p, "p", 0.4),
+        b: -num(p, "b", 0),
+      })
+    },
+  },
+  {
     id: "flowerOfLife",
     name: "Flower of Life",
+    blurb: "Equal circles on a hexagonal lattice.",
     description:
       "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
     params: {
@@ -438,6 +488,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "mindVirus",
     name: "MindVirus",
+    holon: "MindVirus",
+    blurb: "The eye and the cube, swimming on its cable.",
     description:
       "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
     params: {
@@ -468,6 +520,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "eye",
     name: "Eye",
+    holon: "Eye",
+    blurb: "The watcher of video-01, in profile.",
     description:
       "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
     params: {
@@ -488,6 +542,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "figure",
     name: "Figure",
+    holon: "Figure",
+    blurb: "A person, as a stick figure.",
     description: "A person: a stick figure (round head, body line, arms, legs).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
@@ -500,6 +556,7 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "text",
     name: "Text",
+    blurb: "Handwriting, typeset — it writes itself on.",
     description:
       "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
     params: {
@@ -528,6 +585,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "regenaissance",
     name: "Regenaissance",
+    holon: "Regenaissance",
+    blurb: "The noosphere stacked over the biosphere.",
     description:
       "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
     params: {
@@ -548,6 +607,8 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "sMark",
     name: "S-mark",
+    holon: "SMark",
+    blurb: "The S with its dot and square.",
     description:
       "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
     params: {
@@ -573,7 +634,26 @@ const SMARK_HEIGHT = 2 * (SMARK.offset * Math.SQRT1_2 + SMARK.offset + SMARK.ban
 
 const BY_ID = new Map(VOCABULARY.map((e) => [e.id, e]))
 
-export const vocabById = (id: string): VocabEntry | undefined => BY_ID.get(id)
+/**
+ * What a board imports until it says otherwise — the vocabulary every
+ * board had before imports were a board's own (board.ts `vocabulary`).
+ */
+export const DEFAULT_IMPORTS: readonly string[] = [
+  "circle",
+  "square",
+  "triangle",
+  "cube",
+  "flowerOfLife",
+  "mindVirus",
+  "eye",
+  "figure",
+  "text",
+  "regenaissance",
+  "sMark",
+]
+
+/** A hand-written entry, else the catalogue's generic one (catalogue.ts). */
+export const vocabById = (id: string): VocabEntry | undefined => BY_ID.get(id) ?? genericById(id)
 
 /** A placed symbol → its holon, in the scene frame stated above. Unknown
  *  symbol ids throw (the recognizer never returns them). */

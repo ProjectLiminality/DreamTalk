@@ -26,6 +26,8 @@
  *     own screen (sketch/display.ts): batches relayed to every other client
  *     (the page → the bridge → dreamtalk-pad), the merged list kept so a
  *     client that connects later starts from a snapshot
+ *   - GET /api/catalogue → every symbol on the whiteboard's shelf in its
+ *     own words: README paragraph (or class doc) + face (scripts/catalogue.ts)
  *   - GET /api/boards, GET/PUT /api/board/<name> → whiteboard pages as
  *     scene files, core/demo/boards/<name>.board.json (scripts/boards.ts);
  *     a board file changing tells editors showing it to remount
@@ -42,6 +44,7 @@ import { recognize } from "./recognize"
 import { whereIs } from "./where"
 import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
+import { catalogueResponse } from "./catalogue"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
@@ -718,6 +721,7 @@ const server = Bun.serve<SocketData>({
     if (url.pathname === "/api/recognize" && req.method === "POST") return recognizeResponse(req)
     if (url.pathname === "/api/instruct" && req.method === "POST") return instructResponse(req)
     if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
+    if (url.pathname === "/api/catalogue") return catalogueResponse(repoRoot)
     if (url.pathname.startsWith("/api/board/"))
       return boardResponse(req, repoRoot, decodeURIComponent(url.pathname.slice("/api/board/".length)))
     if (url.pathname === "/api/refs") return Response.json(await listRefs())
