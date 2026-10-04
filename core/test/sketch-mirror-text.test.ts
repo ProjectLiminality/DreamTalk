@@ -11,6 +11,7 @@ import { configureGlyphs, onGlyphs, textOutline, whenGlyphsSettled } from "../sk
 import { flattenSymbol } from "../sketch/mirror"
 import type { DisplayPrim } from "../sketch/protocol"
 import { Text } from "../src/parts/text"
+import { TEXT_ASCENDER_EM, TEXT_CAP_EM } from "../sketch/vocabulary"
 
 const root = new URL("../../", import.meta.url).pathname
 
@@ -58,18 +59,32 @@ describe("text on the tablet", () => {
     off()
   })
 
+  test("the band constants are Arimo's own: capitals 1409, ascenders 1484 of 2048", async () => {
+    const top = async (c: string) => {
+      const t = new Text({ content: c, size: 2048 })
+      textOutline(t)
+      await whenGlyphsSettled()
+      return Math.max(...textOutline(t)!.flat(2).map((p) => p.y))
+    }
+    for (const c of ["H", "D", "T", "E", "1", "7"]) expect(await top(c)).toBeCloseTo(TEXT_CAP_EM * 2048, 6)
+    for (const c of ["b", "d", "h", "k", "l"]) expect(await top(c)).toBeCloseTo(TEXT_ASCENDER_EM * 2048, 6)
+  })
+
   test("the words stand where the vocabulary puts them: the band centred on (cx, cy), `size` tall", async () => {
-    // vocabulary.ts TEXT_CAP_EM is the ascender of `d l k` (1466/2048 em);
-    // Arimo's H itself is 1409 — the Mac draws that same glyph.
+    // With a capital, the band is the capitals': H spans baseline → top exactly.
     const fills = await letters({ content: "lH", cx: 700, cy: 900, size: 100 })
     expect(fills).toHaveLength(2)
-    const b = box(fills)
-    // baseline to ascender top, nothing below the baseline. The top is the
-    // vocabulary's estimate (Arimo's `l` measures 1484, not 1466): within 2 units.
-    expect(Math.abs(b.y0 - 850)).toBeLessThan(2)
-    expect(b.y1).toBeCloseTo(950, 0)
-    expect((b.x0 + b.x1) / 2).toBeCloseTo(700, 0)
+    const [l, H] = fills.map((f) => box([f]))
+    expect(H!.y0).toBeCloseTo(850, 1)
+    expect(H!.y1).toBeCloseTo(950, 1)
+    // type's l overshoots a capital by Arimo's own ratio
+    expect(l!.y0).toBeCloseTo(950 - 100 * (TEXT_ASCENDER_EM / TEXT_CAP_EM), 1) // the display list rounds to 0.1
+    expect((box(fills).x0 + box(fills).x1) / 2).toBeCloseTo(700, 0)
     for (const f of fills) expect(f.grey).toBe(0)
+    // Without one, the hand sized its tall letters: l spans the band.
+    const low = box(await letters({ content: "hill", cx: 700, cy: 900, size: 100 }))
+    expect(low.y0).toBeCloseTo(850, 1)
+    expect(low.y1).toBeCloseTo(950, 1)
   })
 
   test("an `o` is one fill with its counter, wound against its outside", async () => {

@@ -242,15 +242,26 @@ const buildMindVirus = (p: Record<string, unknown>): Holon => {
 // -- Text: the words as written, made platonic ---------------------------------
 
 /**
- * Arimo's capital height as a fraction of its em (the bundled default face,
- * render/text.ts): `H`, `D`, `T` and the ascenders of `d l k` stand 1466
- * units of its 2048 above the baseline (Arial's metric; the font's OS/2
- * capHeight field says 1409, but the glyphs measure 1466 — a rendered
- * "DreamTalk" at size 91 inks 92-93 tall, antialiasing included). The
- * vocabulary's `size` is that height — what a hand writing a word actually
- * controls — and the Text holon's `size` is the em.
+ * The top of the band a hand writes words in, as a fraction of Arimo's em
+ * (the bundled default face, render/text.ts), measured off the glyph
+ * outlines themselves (test/sketch-mirror-text.test.ts holds them to it):
+ *
+ *   capitals and digits — `H D T E 1 4 7` — stand 1409 of its 2048 (the
+ *   font's OS/2 capHeight, exactly);
+ *   ascenders — `b d f h k l` — stand 1484, a twentieth taller.
+ *
+ * The vocabulary's `size` is that height — what a hand writing a word
+ * actually controls — and the Text holon's `size` is the em. Which top the
+ * hand drew depends on what it wrote: words with a capital were sized by
+ * their capitals (a written D and l stand alike; type's l overshoots), words
+ * without one by their tall letters (textBandEm).
  */
-export const TEXT_CAP_EM = 1466 / 2048
+export const TEXT_CAP_EM = 1409 / 2048
+export const TEXT_ASCENDER_EM = 1484 / 2048
+
+/** The band top the written `content` was measured to, in em. */
+export const textBandEm = (content: string): number =>
+  !/[\p{Lu}\p{Nd}]/u.test(content) && /[bdfhklß]/.test(content) ? TEXT_ASCENDER_EM : TEXT_CAP_EM
 /** Baseline to baseline, in caps, for a written block of several lines. */
 const TEXT_LINE_STEP_EM = 1.2
 /** Arimo's mean advance per character, in em — a footprint, not a layout. */
@@ -270,8 +281,8 @@ const textLines = (p: Record<string, unknown>): string[] =>
  */
 const buildText = (p: Record<string, unknown>): Text => {
   const cap = Math.max(1, num(p, "size", 60))
-  const em = cap / TEXT_CAP_EM
   const lines = textLines(p)
+  const em = cap / textBandEm(lines.join("\n"))
   const step = em * TEXT_LINE_STEP_EM
   // Page offset of the first baseline below the block's centre, unturned.
   const down = cap / 2 - ((lines.length - 1) * step) / 2
@@ -294,8 +305,8 @@ const buildText = (p: Record<string, unknown>): Text => {
 
 const textFootprint = (p: Record<string, unknown>): { w: number; h: number } => {
   const cap = Math.max(1, num(p, "size", 60))
-  const em = cap / TEXT_CAP_EM
   const lines = textLines(p)
+  const em = cap / textBandEm(lines.join("\n"))
   const longest = Math.max(1, ...lines.map((l) => l.length))
   return { w: longest * TEXT_ADVANCE_EM * em, h: cap + (lines.length - 1) * em * TEXT_LINE_STEP_EM }
 }
@@ -502,12 +513,12 @@ export const VOCABULARY: VocabEntry[] = [
       cy: {
         type: "number",
         role: "y",
-        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals/tall letters (ignore descenders like g, y, p); for several lines, the middle of the whole block",
+        description: "centre y of the CAP BAND: halfway between the baseline the letters sit on and the top of the capitals — or, if no capital was written, of the tall letters (d, l, k) — ignoring descenders like g, y, p; for several lines, the middle of the whole block",
       },
       size: {
         type: "number",
         role: "length",
-        description: "cap height: baseline to the top of a capital or tall letter (d, l, k, T…) as written, page units — NOT the full bbox height when descenders hang below",
+        description: "cap height: baseline to the top of the CAPITALS as written (D, T, H…); if no capital was written, to the top of the tall letters (d, l, k) instead. Page units — NOT the full bbox height when descenders hang below",
       },
       rotation: { type: "number", role: "angle", description: `${ANGLE}; the baseline's direction. 0 = written level, left to right` },
     },

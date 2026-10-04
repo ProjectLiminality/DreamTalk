@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { buildSymbol, TEXT_CAP_EM, transformSymbol } from "../sketch/vocabulary"
+import { buildSymbol, TEXT_ASCENDER_EM, TEXT_CAP_EM, textBandEm, transformSymbol } from "../sketch/vocabulary"
 import { parseRecognizeReply, buildPrompt } from "../scripts/recognize"
 import { symbolBox } from "../sketch/state"
 import { vocabById } from "../sketch/vocabulary"
@@ -30,6 +30,15 @@ describe("text symbol", () => {
     expect(t.b.value).toBeCloseTo(0, 9)
   })
 
+  test("the band is the capitals' when one was written, else the tall letters'", () => {
+    expect(textBandEm("DreamTalk")).toBe(TEXT_CAP_EM)
+    expect(textBandEm("route 66")).toBe(TEXT_CAP_EM)
+    expect(textBandEm("dreamtalk")).toBe(TEXT_ASCENDER_EM)
+    expect(textBandEm("one")).toBe(TEXT_CAP_EM) // no tall letter: the cap band is the fallback
+    const t = buildSymbol(text({ content: "hello", cx: 0, cy: 0, size: 80 })) as Text
+    expect(t.size.value).toBeCloseTo(80 / TEXT_ASCENDER_EM, 9)
+  })
+
   test("rotation turns the block about its centre, not its baseline", () => {
     const r = Math.PI / 2 // clockwise quarter: the text reads top → bottom
     const t = buildSymbol(text({ content: "x", cx: 700, cy: 400, size: 80, rotation: r })) as Text
@@ -40,7 +49,7 @@ describe("text symbol", () => {
   })
 
   test("several lines centre the whole block", () => {
-    const t = buildSymbol(text({ content: "a\nb", cx: 0, cy: 0, size: 100 })) as Text
+    const t = buildSymbol(text({ content: "A\nB", cx: 0, cy: 0, size: 100 })) as Text
     const step = (100 / TEXT_CAP_EM) * 1.2
     expect(t.y.value).toBeCloseTo(-(50 - step / 2), 9)
     expect(t.lineHeight).toBe(1.2)
