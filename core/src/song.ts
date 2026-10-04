@@ -41,7 +41,8 @@
  *
  *  - `slide(d)`: Keynote's Push — A's and B's ROOT holons are carried
  *    up one frame-height together (A from rest to the top edge, B from
- *    below the bottom edge to rest), eased C4D-smooth; nothing fades.
+ *    below the bottom edge to rest), eased C4D-smooth unless the slide
+ *    states its own tangents; nothing fades.
  *    The frame-height is each chapter's own, at its observer's distance,
  *    so the two pictures stay butted edge to edge. A root whose `y` is
  *    a derived binding cannot be carried and stays put (say so in the
@@ -77,6 +78,7 @@ import type { Param, ParamValue } from "./params"
 import {
   buildIn,
   buildOut,
+  easeOf,
   lerpParamValue,
   matchRoots,
   matchedParams,
@@ -309,7 +311,8 @@ export class DreamSong extends Dream {
     }
 
     if (window && window.kind === "slide") {
-      const e = smooth((t - window.start) / (window.end - window.start))
+      const ease = easeOf(this.#chapters[window.into]!.transition)
+      const e = ease((t - window.start) / (window.end - window.start))
       const lift = (ys: Param<number>[], dy: number) => {
         for (const y of ys) y.value = (driven.has(y as Param<ParamValue>) ? y.value : y.defaultValue) + dy
       }

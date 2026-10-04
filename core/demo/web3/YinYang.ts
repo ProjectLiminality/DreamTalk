@@ -47,15 +47,32 @@
  * — the eternal exchange of the two principles. Web2 and Web3 are not two things
  * but two phases of one turning whole.
  *
+ * THE SPIN AND THE EXCHANGE, MEASURED (2026-10-04)
+ *
+ * Read off the final render at 30fps, 10–21.5s, by fitting a circle to each
+ * node's ring in every frame (the 1fps frames above cannot see this — the
+ * figure turns ~40° between quarter-seconds):
+ *
+ *  - The figure turns FOUR AND A FIFTH times (1515°), counter-clockwise, from
+ *    11.0 to 21.5 — one C4D ease-in whose left tangent is 0.18 of that span,
+ *    leaving at full speed (~170°/s) straight into the dive. RMS 5° over 300
+ *    frames.
+ *  - The lobes are not fixed halves. Each node sits at the centre of its own
+ *    lobe — a circle inside the big one, the two tangent to each other — and
+ *    the blue lobe's share of the diameter is 0.5 + 0.375·sin(turn/4): blue
+ *    swells to 0.875 at the first full turn (14.4s), the two are equal at the
+ *    second (16.7s), red holds 0.875 at the third (19.0s). Within 0.01.
+ *  - Each node's ring is 0.56 of its lobe's radius, at every size — the node
+ *    IS its lobe's dot, scaled with it.
+ *
  * THE S-CURVE — THE DECISION
  *
- * A yin-yang's divider is not a freehand squiggle: it is two half-circles of
- * radius R/2 stitched at the centre — the top half bulging into the right lobe,
- * the bottom half into the left — so the boundary runs from the top of the big
- * circle, curves through the centre, and reaches the bottom. Built here as a
- * single polyline (`sCurve`) sampled from those two semicircles, drawn on as one
- * stroke. It rotates rigidly with the whole figure (the `orbit` beat), because in
- * the frames the divider and the nodes turn together as one body.
+ * A yin-yang's divider is not a freehand squiggle: it is the two lobes' own
+ * half-circles stitched where they touch — from the blue lobe's rim point,
+ * under the blue node, to the tangent point, then over the red node to the red
+ * rim point. At an equal split that is the classic two R/2 semicircles; as the
+ * split moves the S leans with it. One polyline (`sCurve`), drawn on as one
+ * stroke, rotating rigidly with the nodes — in the frames they are one body.
  *
  * THE FIELD-LINES — THE DECISION
  *
@@ -69,8 +86,8 @@
  * THE SIZE-SWAP WITHOUT A SCALE PARAM
  *
  * The host has no cascading scale. So each node is a Group whose PRIMITIVES'
- * geometry (radii, ray endpoints, spiral points) is a pure function of a per-node
- * `scale()` reading, bound with `.follow()` on the `orbit` source (never
+ * geometry (radii, ray endpoints, spiral points) is a pure function of its
+ * lobe's share, bound with `.follow()` on the `orbit` source (never
  * `holon.r = 5`, the binding-killing trap). The node's screen POSITION does
  * cascade, so the Group's x/y are bound and the children ride along. The globe
  * inside cannot be scaled the same way (its radius drives derived continent
@@ -92,7 +109,7 @@
  * ONE PARAM PER BEAT
  *   birth   — the two globes brighten in and the big circle draws on (4–7s).
  *   divide  — the S-curve draws in and both nodes' decoration blooms (7–11s).
- *   orbit   — the whole figure counter-rotates and the nodes swap sizes (11–20s).
+ *   orbit   — the whole figure spins and the lobes trade sizes (11–21.5s).
  *
  * Every part is a pure function of these three numbers (birth/divide/orbit)
  * through seeded, closed-form geometry — no Math.random, no wall-clock — so the
@@ -103,6 +120,7 @@ import { Dream } from "../../src/index"
 import { Circle, Group, Line, Null } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, RED, BLUE, TAU, rgb, type Color } from "../../src/constants"
+import { c4dEaseWith } from "../../src/timeline"
 import { Globe } from "../../vocabulary/Globe/Globe"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
@@ -110,24 +128,19 @@ import { Globe } from "../../vocabulary/Globe/Globe"
  *  half-height; in scene units at zoom 1 that is close to this). */
 const OUTER_R = 265
 
-/** A lobe centre sits at half the outer radius from the centre, on the axis of
- *  the two semicircles — the yin-yang's two "dots" live here. */
-const LOBE_R = OUTER_R / 2
+/** The whole spin (see THE SPIN AND THE EXCHANGE): 1515°, on a C4D ease-in
+ *  with a 0.18 left tangent, leaving at full speed. */
+const ORBIT_TURN = TAU * (1515 / 360)
+const SPIN_EASE = 0.18
 
-/** The node globe's radius at FULL (large) size and at SMALL size. In
- *  f_00007–f_00011 the two are near-equal (~52px each); by f_00018 the big one
- *  is ~62px and the small ~14px. So the swap runs between these. */
-/**
- * Enlarged from 46 after looking: at that size the globes rendered as faint
- * scribbles inside their halos, because a filled continent only READS as land
- * once it is more than a few pixels across. In f_00009 the globe is roughly
- * half the halo's diameter and its continents are unmistakably solid white.
- */
-const GLOBE_BIG = 82
+/** How far the blue lobe's share swings from half: 0.5 ± 0.375. */
+const SWAP = 0.375
+
+/** A node's globe radius per unit of its lobe's radius. The ring (globe ×
+ *  HALO_RATIO) is then 0.56 of the lobe, as measured at every size. */
+const GLOBE_PER_LOBE = 0.32
+/** The globes' size before birth has brought them in. */
 const GLOBE_SMALL = 15
-/** The shared near-equal size fraction the two globes settle at after birth,
- *  before the orbit swaps them (f_00007–f_00011: two roughly equal nodes). */
-const EQUAL = 0.7
 
 /** A node's decoration reach, as a multiple of its globe radius — the flower
  *  ring sits ~2.4× the globe out (f_00009: blue lattice ~125px around a ~52px
@@ -154,25 +167,25 @@ const RED_FIELD: Color = rgb(0xc0, 0x38, 0x2f)
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 /**
- * The yin-yang divider as one polyline: the top semicircle (radius LOBE_R,
- * centred at the top lobe) from the crown of the big circle down to the centre,
- * then the bottom semicircle (centred at the bottom lobe) from the centre to the
- * base. Sampled fine enough to read as a smooth S. Local space, unrotated —
- * `orbit` rotates the whole figure that carries it.
+ * The yin-yang divider as one polyline, for a blue-lobe share `split`: the
+ * blue lobe (radius split·R, centred on −x) from its rim point under the blue
+ * node to where the lobes touch, then the red lobe (the rest, centred on +x)
+ * over the red node to its rim point. Local space, unrotated — `orbit`
+ * rotates the whole figure that carries it.
  */
-const sCurve = (segments = 48): { x: number; y: number; z: number }[] => {
+const sCurve = (split: number, segments = 48): { x: number; y: number; z: number }[] => {
   const pts: { x: number; y: number; z: number }[] = []
-  // Top semicircle: centre (0, +LOBE_R), sweeping the RIGHT half, from the top
-  // of the big circle (0, +OUTER_R) down to the centre (0, 0).
+  const rb = split * OUTER_R
+  const rr = OUTER_R - rb
+  // Blue lobe's lower half: centre (−rr, 0), from (−R, 0) round the bottom.
   for (let i = 0; i <= segments; i++) {
-    const a = (Math.PI / 2) - (i / segments) * Math.PI // +90° → −90°
-    pts.push({ x: Math.cos(a) * LOBE_R, y: LOBE_R + Math.sin(a) * LOBE_R, z: 0 })
+    const a = Math.PI + (i / segments) * Math.PI // 180° → 360°
+    pts.push({ x: -rr + Math.cos(a) * rb, y: Math.sin(a) * rb, z: 0 })
   }
-  // Bottom semicircle: centre (0, −LOBE_R), sweeping the LEFT half, from the
-  // centre (0, 0) down to the base (0, −OUTER_R).
+  // Red lobe's upper half: centre (rb, 0), from the touch point over the top.
   for (let i = 1; i <= segments; i++) {
-    const a = (Math.PI / 2) + (i / segments) * Math.PI // +90° → +270°
-    pts.push({ x: Math.cos(a) * LOBE_R, y: -LOBE_R + Math.sin(a) * LOBE_R, z: 0 })
+    const a = Math.PI - (i / segments) * Math.PI // 180° → 0°
+    pts.push({ x: rb + Math.cos(a) * rr, y: Math.sin(a) * rr, z: 0 })
   }
   return pts
 }
@@ -246,8 +259,8 @@ export class YinYangDream extends Dream {
    *  slowly. The blue node's globe faces Africa/Europe (spin 0); the red node's a
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
-  blueGlobe = new Globe({ radius: GLOBE_BIG, continents: "fill", land: WHITE, tilt: 0.12, spin: 0 })
-  redGlobe = new Globe({ radius: GLOBE_BIG, continents: "fill", land: WHITE, tilt: 0.12, spin: 0.5 })
+  blueGlobe = new Globe({ radius: GLOBE_SMALL, continents: "fill", land: WHITE, tilt: 0.12, spin: 0 })
+  redGlobe = new Globe({ radius: GLOBE_SMALL, continents: "fill", land: WHITE, tilt: 0.12, spin: 0.5 })
 
   /** The big outer circle — the yin-yang's boundary. Draws on over `birth`. */
   outer = new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2, creation: 0 })
@@ -269,7 +282,7 @@ export class YinYangDream extends Dream {
       const th = this.turn
       const c = Math.cos(th)
       const s = Math.sin(th)
-      return sCurve().map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: 0 }))
+      return sCurve(this.split()).map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: 0 }))
     })
     this.divider.creation.follow(this.divide.creation.map((c) => clamp01(c)))
 
@@ -282,53 +295,48 @@ export class YinYangDream extends Dream {
 
   // -- the two lobe readings, pure functions of `orbit` ---------------------
 
-  /** How far round the figure has turned this frame (radians). The frames turn
-   *  a bit past a quarter over shot 3; a little over π/2 reads right. */
+  /** How far round the figure has turned this frame (radians): `orbit` is the
+   *  spin's linear progress, read through its measured ease-in. */
   private get turn(): number {
-    return this.orbit.creation.map((c) => c * (TAU * 0.35)).value
+    return ORBIT_TURN * c4dEaseWith(clamp01(this.orbit.creation.value), SPIN_EASE, 0)
   }
 
-  /** The blue node's lobe centre, screen space: it starts in the LEFT lobe and
-   *  rotates around the centre with `turn`. In f_00005–f_00011 it sits left
-   *  (angle π); it rotates from there. */
+  /** The blue lobe's share of the diameter — half until the spin begins, then
+   *  swelling and shrinking once per four turns. The red lobe has the rest. */
+  private split(): number {
+    return 0.5 + SWAP * Math.sin(this.turn / 4)
+  }
+
+  /** The blue node's lobe centre, screen space: it starts LEFT (angle π) and
+   *  rides the turn, as far from the centre as the red lobe is wide. */
   private blueCentre(): { x: number; y: number } {
     const a = Math.PI + this.turn
-    return { x: Math.cos(a) * LOBE_R, y: Math.sin(a) * LOBE_R }
+    const d = (1 - this.split()) * OUTER_R
+    return { x: Math.cos(a) * d, y: Math.sin(a) * d }
   }
 
-  /** The red node's lobe centre — diametrically opposite the blue one. Starts in
-   *  the RIGHT lobe (angle 0) and counter-rotates with the same body. */
+  /** The red node's lobe centre — across the centre from the blue one, as far
+   *  out as the blue lobe is wide. Starts RIGHT (angle 0). */
   private redCentre(): { x: number; y: number } {
-    const a = 0 + this.turn
-    return { x: Math.cos(a) * LOBE_R, y: Math.sin(a) * LOBE_R }
+    const a = this.turn
+    const d = this.split() * OUTER_R
+    return { x: Math.cos(a) * d, y: Math.sin(a) * d }
   }
 
-  /**
-   * The node size fraction is a three-beat blend. At BIRTH the two globes rise
-   * to a shared near-equal size (`EQUAL`) — the frames open on two equal globes
-   * (f_00005), before any decoration. `divide` holds them equal while the
-   * decoration blooms. Then `orbit` swaps them: one eases toward small, the other
-   * toward full (f_00018/20 — red big, blue small).
-   */
+  /** The blue and red lobes' shares (the two sum to 1). */
   private blueScale01(): number {
-    const b = clamp01(this.birth.creation.value)
-    const o = clamp01(this.orbit.creation.value)
-    const equal = EQUAL * b
-    return equal * (1 - o) + 0 * o
+    return this.split()
   }
 
-  /** The red node's size fraction — the mirror: rises to equal on birth, then
-   *  grows to full (1) across `orbit` as the blue node shrinks. */
   private redScale01(): number {
-    const b = clamp01(this.birth.creation.value)
-    const o = clamp01(this.orbit.creation.value)
-    const equal = EQUAL * b
-    return equal * (1 - o) + 1 * o
+    return 1 - this.split()
   }
 
-  /** Map a 0→1 size fraction to a globe radius. */
-  private globeR(frac: number): number {
-    return GLOBE_SMALL + (GLOBE_BIG - GLOBE_SMALL) * frac
+  /** A globe radius for a lobe share: the lobe's dot, scaled with it, rising
+   *  in from small over `birth` (the frames open on two equal globes, f_00005). */
+  private globeR(share: number): number {
+    const full = share * OUTER_R * GLOBE_PER_LOBE
+    return GLOBE_SMALL + (full - GLOBE_SMALL) * clamp01(this.birth.creation.value)
   }
 
   // -- node construction ----------------------------------------------------
@@ -511,7 +519,7 @@ export class YinYangDream extends Dream {
     )
 
     // Beat 2 — DIVISION: the S-curve draws in, both nodes' decoration blooms
-    // (7–11s). The two nodes settle near-equal, one per lobe.
+    // (7–11s). The two nodes settle equal, one per lobe.
     this.say("The line between them — centralised, and decentralised.")
     this.play(
       together(
@@ -521,20 +529,21 @@ export class YinYangDream extends Dream {
       ),
       4,
     )
-    this.wait(0.5)
 
-    // Beat 3 — ORBIT: the whole figure counter-rotates and the nodes swap sizes
-    // (11–20s) — the eternal exchange of the two principles.
-    this.say("And they turn, each becoming the other.", { hold: true })
+    // Beat 3 — ORBIT: the figure spins up and the lobes trade sizes
+    // (11–21.5s) — the eternal exchange of the two principles. Linear
+    // progress; the spin's ease lives in `turn`. It is still at full speed
+    // when the film dives into it. The line is spoken OVER the spin, not
+    // before it: the film's turn begins at 11.0 on the dot.
+    this.say("And they turn, each becoming the other.")
     this.play(
       together(
-        this.orbit.creation.to(1, { easing: "smooth" }),
+        this.orbit.creation.to(1, { easing: "linear" }),
         this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }),
         this.redGlobe.spin.to(0.5 + TAU * 0.32, { easing: "linear" }),
       ),
-      6,
+      10.5,
     )
-    this.wait(1)
   }
 }
 

@@ -264,16 +264,19 @@ reading — this contradicts the "Who reads the quote" section above; the
 quote keeps its current voice, and the choice stays David's) and
 `14_I_would_love` (an alternate of 13's last sentence).
 
-**The moves between shots (2026-10-04).** The dive into the blue node
-(20.25–21.5) is the yin-yang chapter's camera zooming in on geometric keys
-read off the 4fps frames, dimmed to black by the crossfade into Web2 (whose
-camera starts where the dive ends, so the crossfade never pulls back out).
-The two vertical pushes (106–107, 144.5–146) are a new DreamSong transition,
-`slide(d)` (src/song.ts): both chapters' roots carried up one frame-height
-together, nothing fading — no renderer change was needed. Remaining
-differences: the original's yin-yang still spins fast into the dive (ours
-ends its turn at 18.5 and dives at the node where it rests), and its pushes
-start a touch quicker than C4D-smooth.
+**The moves between shots (2026-10-04, re-measured at 30fps).** Fitting a
+circle to each node's ring in every frame of 10–21.5 showed the yin-yang
+does not settle: it spins 1515° (four turns and a fifth) from 11.0 on one
+C4D ease-in (left tangent 0.18), still at ~170°/s at the cut, and its lobes
+trade sizes once per four turns (blue share 0.5 + 0.375·sin(turn/4); each
+ring 0.56 of its lobe) — YinYang.ts now draws exactly that, within ~3px of
+the reference frame by frame. The "dive" is a dolly straight in on the
+figure's CENTRE (19.6–21.5, distance to 0.15 on an ease-in), not an aim at
+the blue node: the node swells and swings across in front of the camera.
+The two vertical pushes are each ~2.6s Keynote curves (tangents 0.4 / 0.45,
+105.3–108.05 and 144.25–146.8), now `slide(d, PUSH)`. Remaining difference:
+mid-way through the first push the original dims both pictures to about
+half; ours fades nothing.
 
 **Not reproduced, stated rather than faked:** the C4D terminator light in
 shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch

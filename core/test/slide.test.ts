@@ -12,6 +12,7 @@ import { Dream } from "../src/dream"
 import { DreamSong } from "../src/song"
 import { Group, Circle } from "../src/parts/primitives"
 import { slide, smooth } from "../src/transitions"
+import { c4dEaseWith } from "../src/timeline"
 
 /**
  * A frames 500 units tall (radius 500 at the default 53.13° vertical fov:
@@ -48,6 +49,20 @@ const song = () => {
 describe("slide", () => {
   test("the spec", () => {
     expect(slide(1.5)).toEqual({ kind: "slide", duration: 1.5 })
+    expect(slide(2, { left: 0.4, right: 0.45 })).toEqual({
+      kind: "slide",
+      duration: 2,
+      smoothing: { left: 0.4, right: 0.45 },
+    })
+  })
+
+  test("a push with its own tangents is sampled on them, not on smooth", () => {
+    const s = new DreamSong([SceneA, [SceneB, slide(1, { left: 0.4, right: 0.45 })]])
+    const a = s.chapters[0]!.dream as SceneA
+    s.applyAt(1.25)
+    const e = c4dEaseWith(0.25, 0.4, 0.45)
+    expect(e).not.toBeCloseTo(smooth(0.25), 3)
+    expect(a.dot.y.value).toBeCloseTo(20 + e * 500, 2)
   })
 
   test("A rises a frame-height of its own; B rises from a frame-height of its own below", () => {

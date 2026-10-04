@@ -21,30 +21,32 @@
  *    5   7–8   Clarity (retimed)   45.00   45.00 –  61.50   crossfade 1.75
  *    6   9     Shot09Quote         61.50   61.50 –  78.75   cut
  *    7  10–11  NodeNet (retimed)   78.75   78.75 –  94.50   cut
- *    8  12     Shot12Vitruvian     93.75   93.75 – 107.00   crossfade 0.75
- *    9  13     Light (retimed)    106.00  106.00 – 119.75   slide 1.0
+ *    8  12     Shot12Vitruvian     93.75   93.75 – 108.05   crossfade 0.75
+ *    9  13     Light (retimed)    105.30  105.30 – 119.75   slide 2.75
  *   10  14     Shot14Callback     118.50  118.50 – 130.00   crossfade 1.25
- *   11  15     Shot15Hero         130.00  130.00 – 146.00   cut
- *   12  16     Portrait (retimed) 144.50  144.50 – 158.75   slide 1.5
+ *   11  15     Shot15Hero         130.00  130.00 – 146.80   cut
+ *   12  16     Portrait (retimed) 144.25  144.25 – 158.75   slide 2.55
  *   13  17     Closing (retimed)  158.75  158.75 – 171.00   cut
  *
- * THE THREE MOVES BETWEEN SHOTS, as the 4fps frames show them:
+ * THE THREE MOVES BETWEEN SHOTS, measured at 30fps:
  *
- *  - The DIVE into the blue node (20.25–21.5): the yin-yang's camera zooms
- *    into the small blue node — geometric growth, stated as keys (DIVE_KEYS)
- *    — while the crossfade into Web2 (21.0–21.5) dims it to black. Web2's
+ *  - The DIVE (19.6–21.5): the yin-yang never stops spinning — four turns
+ *    and a fifth from 11.0, still at full speed (YinYang.ts) — and the
+ *    camera dollies straight in on the figure's CENTRE, not on the blue
+ *    node, while the crossfade into Web2 (21.0–21.5) dims it to black. The
+ *    blue node swells and swings across in front of the camera, off-centre
+ *    and moving, which is what makes it read as a dive into it. Web2's
  *    camera starts where the dive ends, so the crossfade's one camera keeps
  *    going in rather than pulling back; it resets to the front in the black.
- *  - The two PUSHES (106–107, 144.5–146): `slide()` (src/song.ts) carries the
- *    outgoing scene up and off the top while the next rises from below,
- *    butted edge to edge, nothing fading. The portrait arrives whole — ring
- *    and plate already there, as the frames have them — and its words come
- *    after it lands.
+ *  - The two PUSHES (105.3–108.05, 144.25–146.8): `slide()` (src/song.ts)
+ *    carries the outgoing scene up and off the top while the next rises from
+ *    below, butted edge to edge, nothing fading, on the film's own push
+ *    curve (PUSH). The portrait arrives whole — ring and plate already
+ *    there, as the frames have them — and its words come after it lands.
  *
- * What still differs: the original's yin-yang keeps spinning fast right
- * into the dive (ours finished its turn at 18.5, so the dive aims at the
- * blue node where it rests, and centres it), and its pushes start a touch
- * quicker than C4D-smooth.
+ * What still differs: during the first push the original dims both
+ * pictures to about half brightness mid-way (the second does not); the
+ * slide fades nothing.
  *
  * RETIMED, NOT REBUILT. Six set-pieces were scored standalone at their own
  * pace, which the final render does not keep. Each is subclassed below with
@@ -77,6 +79,8 @@ import { together } from "../../src/anim"
 import { Create, FadeIn, FadeOut } from "../../src/verbs"
 import { Write } from "../../src/parts/text"
 import { TAU } from "../../src/constants"
+import { DEFAULT_DISTANCE } from "../../src/dream"
+import { ease } from "../../src/timeline"
 import { Shot01GlobeDream } from "./Shot01Globe"
 import { YinYangDream } from "./YinYang"
 import { Web2DisintegratingDream } from "./Web2Disintegrating"
@@ -91,81 +95,47 @@ import { Shot15HeroDream } from "./Shot15Hero"
 import { PortraitCardDream } from "./PortraitCard"
 import { ClosingDream } from "./Closing"
 
-// --- the dive into the blue node (20.25–21.5) ------------------------------
+// --- the dive (19.6–21.5) ----------------------------------------------
 
 /**
- * The dive's keys, read off the final render at 4fps: [seconds into the
- * dive, how much bigger the blue node stands]. The growth is geometric —
- * ×1.3, ×1.8, ×2.8, ×5 at quarter-second steps from 20.5, and on into the
- * black at 21.5 — so it is stated as keys, linear between them, not as one eased
- * ramp (an ease-in on the zoom value bunches the whole dive into its end).
+ * The dive, measured at 30fps by fitting each node's ring per frame: the
+ * camera never leaves the figure's centre — node separation and ring sizes
+ * agree on one magnification, and the centre they imply stays within 0.5px
+ * of the frame's. It DOLLIES straight in, its distance falling on one C4D
+ * ease-in from 19.6 to 21.5 to 0.15 of where it stood (×1.3 by 20.4, ×2.3 by
+ * 21.0), arriving at full speed as the crossfade dims it out. It reads as a
+ * dive into the blue node because that node is swelling and swinging in
+ * front of it — the spin is still at full speed — not because the camera
+ * aims at it.
  */
-const DIVE_KEYS: readonly (readonly [number, number])[] = [
-  [0.25, 1.3],
-  [0.5, 1.8],
-  [0.75, 2.8],
-  [1.0, 5],
-  [1.25, 7.5],
-]
-
-/** Where the dive begins in the yin-yang chapter (offset 4.0): song 20.25. */
-const DIVE_START = 16.25
-
+const DIVE_START = 15.6 // local; the chapter opens at 4.0 → song 19.6
+const DIVE_SPAN = 1.9
+/** The camera's distance at the end of the dive, as a fraction of its own. */
+const DIVE_DEPTH = 0.15
 /** The figure's own framing (YinYangDream: zoom 0.82). */
-const DIVE_ZOOM = 0.82
+const YINYANG_ZOOM = 0.82
+/** The dive's camera distance at song t (the yin-yang chapter opens at 4.0). */
+const diveRadius = (t: number) =>
+  DEFAULT_DISTANCE * (1 - (1 - DIVE_DEPTH) * ease("easeIn", (t - 4 - DIVE_START) / DIVE_SPAN))
 
 /**
- * The blue node as the figure stands when its turn is done (orbit = 1) —
- * read off a YinYang at that pose, not restated.
+ * The two pushes' tangents, measured off both at 30fps (the outgoing and
+ * incoming pictures' offsets, by correlation): one Keynote curve, eased in
+ * 0.4 and out 0.45 — longer than the 1–1.5s the quarter-second frames
+ * suggested, which is why they seemed to start "faster": they had already
+ * started. RMS under 1% of a frame-height on each.
  */
-const BLUE = (() => {
-  const pose = new YinYangDream()
-  pose.orbit.creation.value = 1
-  return { x: pose.blueNode.x.value, y: pose.blueNode.y.value }
-})()
+const PUSH = { left: 0.4, right: 0.45 }
 
-/**
- * How far the focus has travelled toward the node at magnification k. The
- * node's screen offset is (1 − f)·k: f = 1 − k^−1.5 lets it drift in to
- * the centre as it grows (k^−0.5), instead of racing off the frame's edge
- * the way a focus that lags the zoom sends it.
- */
-const focusAt = (k: number) => 1 - Math.pow(k, -1.5)
-
-/** Where the dive ends: the last key. */
-const DIVE_END = (() => {
-  const k = DIVE_KEYS[DIVE_KEYS.length - 1]![1]
-  const f = focusAt(k)
-  return { zoom: DIVE_ZOOM * k, x: BLUE.x * f, y: BLUE.y * f }
-})()
-
-/**
- * Shots 2–3, ending as the frames do: the camera dives into the blue node
- * (20.25 → 21.5 — barely moving at 20.5, the node ~2.8× by 21.0, ~5× and
- * dimming by 21.25, black by 21.5). The dim is the crossfade into Web2,
- * which opens at 21.0.
- */
+/** Shots 2–3, and the dive out of them (the dim is the crossfade into Web2,
+ *  which opens at 21.0). */
 class YinYangShot extends YinYangDream {
   override unfold() {
-    // Scored first, at its absolute place (local 16.25 = song 20.25), then the
-    // cursor goes back to 0 for the figure's own beats — whose held
-    // narration lines run its cursor past the chapter's span.
+    // Scored first, at its absolute place, then the cursor goes back to 0
+    // for the figure's own beats.
     this.wait(DIVE_START)
-    let at = 0
-    for (const [t, k] of DIVE_KEYS) {
-      const f = focusAt(k)
-      const linear = { easing: "linear" as const }
-      this.play(
-        together(
-          this.observer.zoom.to(DIVE_ZOOM * k, linear),
-          this.observer.x.to(BLUE.x * f, linear),
-          this.observer.y.to(BLUE.y * f, linear),
-        ),
-        t - at,
-      )
-      at = t
-    }
-    this.wait(-(DIVE_START + at))
+    this.play(this.observer.radius.to(DEFAULT_DISTANCE * DIVE_DEPTH, { easing: "easeIn" }), DIVE_SPAN)
+    this.wait(-(DIVE_START + DIVE_SPAN))
     super.unfold()
   }
 }
@@ -181,10 +151,12 @@ class YinYangShot extends YinYangDream {
 class Web2Shot extends Web2DisintegratingDream {
   override unfold() {
     this.observer.look("front")
-    this.set(this.observer.zoom.to(DIVE_END.zoom), this.observer.x.to(DIVE_END.x), this.observer.y.to(DIVE_END.y))
+    // The crossfade lerps the two cameras, so this one runs the dive's own
+    // last half-second (all but linear by then) and the lerp changes nothing.
+    this.set(this.observer.zoom.to(YINYANG_ZOOM), this.observer.radius.to(diveRadius(21)))
     this.stage(this.lattice)
-    this.wait(0.5)
-    this.set(this.observer.zoom.to(1), this.observer.x.to(0), this.observer.y.to(0))
+    this.play(this.observer.radius.to(DEFAULT_DISTANCE * DIVE_DEPTH, { easing: "linear" }), 0.5)
+    this.set(this.observer.zoom.to(1), this.observer.radius.to(DEFAULT_DISTANCE))
     this.wait(0.5)
     this.play(this.assemble.creation.to(1), 1)
     this.wait(3)
@@ -228,7 +200,8 @@ class NodeShot extends NodeNetworkDream {
 }
 
 /**
- * Shot 13: the outline globe turns 106–110.5, the insight ignites and floods
+ * Shot 13: it rises under the Vitruvian (the slide, 105.3–108.05), the
+ * outline globe turns 106–110.5, the insight ignites and floods
  * 110.5–113, the arcs wrap it 113–118. The standalone scene holds the
  * cursor for its placeholder narration before the arcs, which pushed them
  * past this chapter's cut; the song's timing is the frames'.
@@ -239,6 +212,8 @@ class LightShot extends LightSpreadDream {
     this.set(this.observer.zoom.to(1))
     this.outline.spin.follow(this.fill.spin.map((s) => s))
     for (const h of [this.fill, this.outline, this.hotspot, this.arcs]) this.stage(h)
+    // It rises from 105.3, the push's start; its beats still start at 106.
+    this.wait(0.7)
     // One continuous turn under all three beats (the frames never pause it).
     this.play(
       together(
@@ -255,7 +230,7 @@ class LightShot extends LightSpreadDream {
 }
 
 /**
- * Shot 16: it rises in WHOLE under the hero (the slide, 144.5–146 — ring
+ * Shot 16: it rises in WHOLE under the hero (the slide, 144.25–146.8 — ring
  * and photograph already there in every frame of the push), the words at
  * 146–147, held to 156.5, gone by 157.25.
  */
@@ -265,7 +240,7 @@ class PortraitShot extends PortraitCardDream {
     this.set(this.observer.zoom.to(1))
     for (const h of [this.plate, this.ring, this.label, this.note]) this.stage(h)
     this.set(this.ring.creation.to(1), this.plate.opacity.to(1))
-    this.wait(1.5)
+    this.wait(1.75)
     this.play(together(FadeIn(this.label), [FadeIn(this.note), 0.3, 1]), 1)
     this.wait(9.5)
     this.play(
@@ -344,11 +319,11 @@ export class Web3Dream extends DreamSong {
       [{ scene: ClarityShot, span: 16.5 }, crossfade(1.75)], // 45.00 –  61.50
       { scene: Shot09QuoteDream, span: 17.25 }, //          61.50 –  78.75
       { scene: NodeShot, span: 15.75 }, //                  78.75 –  94.50
-      [{ scene: Shot12VitruvianDream, span: 13.25 }, crossfade(0.75)], // 93.75 – 107.00
-      [{ scene: LightShot, span: 13.75 }, slide(1)], //     106.00 – 119.75 (push up)
+      [{ scene: Shot12VitruvianDream, span: 14.3 }, crossfade(0.75)], // 93.75 – 108.05
+      [{ scene: LightShot, span: 14.45 }, slide(2.75, PUSH)], // 105.30 – 119.75 (push up)
       [{ scene: Shot14CallbackDream, span: 11.5 }, crossfade(1.25)], // 118.50 – 130.00
-      { scene: Shot15HeroDream, span: 16 }, //              130.00 – 146.00
-      [{ scene: PortraitShot, span: 14.25 }, slide(1.5)], // 144.50 – 158.75 (push up)
+      { scene: Shot15HeroDream, span: 16.8 }, //            130.00 – 146.80
+      [{ scene: PortraitShot, span: 14.5 }, slide(2.55, PUSH)], // 144.25 – 158.75 (push up)
       { scene: ClosingShot, span: 12.25 }, //               158.75 – 171.00
     ])
   }

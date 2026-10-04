@@ -32,6 +32,11 @@ export interface Transition {
   kind: "cut" | "crossfade" | "magicMove" | "slide"
   /** Overlap in seconds — how long before A's end B's offset begins. */
   duration: number
+  /**
+   * slide only — the push's own C4D tangents (left, right), when a film's
+   * measured push is not C4D-smooth. Absent: `smooth`.
+   */
+  smoothing?: { left: number; right: number }
 }
 
 /** The default boundary: B starts exactly when A ends. */
@@ -55,8 +60,16 @@ export const magicMove = (duration: number): Transition => ({ kind: "magicMove",
  * C4D-smooth — one frame-height of travel. `up` (the default) means the
  * pictures move UP: A leaves through the top, B rises from below.
  * Nothing fades; both chapters are fully shown for the whole window.
+ * `smoothing` states the push's tangents when the film's differ.
  */
-export const slide = (duration: number): Transition => ({ kind: "slide", duration })
+export const slide = (duration: number, smoothing?: { left: number; right: number }): Transition =>
+  smoothing ? { kind: "slide", duration, smoothing } : { kind: "slide", duration }
+
+/** The window progress → eased progress a transition samples with. */
+export const easeOf = (transition: Transition | undefined): ((u: number) => number) => {
+  const s = transition?.smoothing
+  return s ? (u) => c4dEaseWith(u, s.left, s.right) : smooth
+}
 
 /** The fraction of a magic-move window the build-out/in ramps occupy. */
 export const BUILD_FRACTION = 0.4
