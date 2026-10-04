@@ -77,7 +77,7 @@ import { Create, FadeIn, FadeOut } from "../../src/verbs"
 import { Write } from "../../src/parts/text"
 import { TAU } from "../../src/constants"
 import { DEFAULT_DISTANCE } from "../../src/dream"
-import { ease } from "../../src/timeline"
+import { c4dEaseWith, ease } from "../../src/timeline"
 import { Shot01GlobeDream } from "./Shot01Globe"
 import { YinYangDream } from "./YinYang"
 import { Web2DisintegratingDream } from "./Web2Disintegrating"
@@ -187,12 +187,53 @@ class Web2Shot extends Web2DisintegratingDream {
   }
 }
 
-/** Shots 7–8: the field gathers 45–47.5; the clarity disc arrives 50–51.5. */
+/**
+ * Shots 7–8, measured at 30fps: the field fades up FRAME-FILLING behind the
+ * word (45.05–45.45), holds a beat, then the whole of it — lattice, halo and
+ * the ringlets themselves — contracts like a picture shrinking: 2.945× its
+ * rest size at 45.70 down to rest at 47.75, C4D tangents 0.1/0.65 (RMS 1%
+ * on the halo's median radius). The word shrinks with it (Shot06Word).
+ * The clarity disc arrives 50–51.5.
+ */
+const FIELD_SPAN = 2.75 // the burst, 45.0–47.75
+const FIELD_FROM = 2.945
+const fieldScale = (t: number) =>
+  t < 45.7 ? FIELD_FROM : 1 + (FIELD_FROM - 1) * (1 - c4dEaseWith((t - 45.7) / 2.05, 0.1, 0.65))
+
+/**
+ * Shot 6, ending as the frames do: once the field begins to contract
+ * (45.70) the word shrinks with it — the same picture drawn in — until the
+ * crossfade has taken it (46.75). Stated as camera zoom keys, 50ms apart.
+ */
+class Web3WordShot extends Shot06Web3WordDream {
+  override unfold() {
+    const offset = 30.75
+    this.wait(45.7 - offset)
+    let at = 45.7
+    for (let t = 45.75; t <= 46.75 + 1e-9; t += 0.05) {
+      this.play(this.observer.zoom.to(fieldScale(t) / FIELD_FROM, { easing: "linear" }), t - at)
+      at = t
+    }
+    this.wait(-(at - offset))
+    super.unfold()
+  }
+}
+
 class ClarityShot extends ClarityFieldDream {
+  protected override spreadAt(b: number): number {
+    return fieldScale(45 + FIELD_SPAN * b)
+  }
+  protected override ringScale(b: number): number {
+    return this.spreadAt(b)
+  }
+  protected override fadeAt(b: number): number {
+    return Math.max(0, Math.min(1, (FIELD_SPAN * b - 0.05) / 0.4))
+  }
+
   override unfold() {
     this.stageField()
-    this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5)
-    this.wait(2.5)
+    this.play(this.burst.creation.to(1, { easing: "linear" }), FIELD_SPAN)
+    this.wait(2.25)
     this.play(this.clarity.creation.to(1), 1.5)
     this.wait(10)
   }
@@ -338,7 +379,7 @@ export class Web3Dream extends DreamSong {
       { scene: Shot01GlobeDream, span: 4.5 }, //            0.00 –   4.50
       [{ scene: YinYangShot, span: 17.5 }, crossfade(0.5)], //  4.00 –  21.50 (dive)
       [{ scene: Web2Shot, span: 12 }, crossfade(1.75, DIVE_FADE)], // 19.75 – 31.75
-      [{ scene: Shot06Web3WordDream, span: 16 }, crossfade(1)], // 30.75 – 46.75
+      [{ scene: Web3WordShot, span: 16 }, crossfade(1)], // 30.75 – 46.75
       [{ scene: ClarityShot, span: 16.5 }, crossfade(1.75)], // 45.00 –  61.50
       { scene: Shot09QuoteDream, span: 17.25 }, //          61.50 –  78.75
       { scene: NodeShot, span: 15.75 }, //                  78.75 –  94.50

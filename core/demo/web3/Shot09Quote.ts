@@ -7,9 +7,10 @@
  * carries it. What the frames show at 4fps (refs, 61–80s):
  *
  *   61.5–63      the clarity disc fades out and the field dims further;
- *   63.25–70.75  the three lines write on, cascading (the Manim source's
- *                lag 0.9); the attribution follows at ~71.25–72;
- *   74.0–74.75   the quote fades out over the still-dim field;
+ *   63.25–70.0   the three lines write on, cascading (the Manim source's
+ *                lag 0.9) — measured at 8fps per line: 63.3–65.5,
+ *                65.75–67.5, 67.8–70.0; the attribution follows 71.0–71.75;
+ *   73.35–74.1   the quote fades out over the still-dim field;
  *   75.0–76.0    the clarity disc comes back;
  *   76–78.75     it holds — then its dots fly out into the node cloud of
  *                shot 10 (the next chapter).
@@ -60,15 +61,15 @@ export class Shot09QuoteDream extends ClarityFieldDream {
     this.play(this.veil.creation.to(1), 1.5)
     this.wait(0.25)
 
-    // The quote writes on (63.25–70.75), then the credit (71.25–72).
-    this.play(this.quote.writing.to(1, { easing: "linear" }), 7.5)
-    this.wait(0.5)
+    // The quote writes on (63.25–70.0), then the credit (71.0–71.75).
+    this.play(this.quote.writing.to(1, { easing: "linear" }), 6.75)
+    this.wait(1)
     this.play(this.quote.crediting.to(1), 0.75)
-    this.wait(2)
+    this.wait(1.6)
 
-    // It fades (74.0–74.75), and the clarity returns (75–76).
+    // It fades (73.35–74.1), and the clarity returns (75–76).
     this.play(FadeOut(this.quote), 0.75)
-    this.wait(0.25)
+    this.wait(0.9)
     this.play(this.veil.creation.to(0), 1)
     this.wait(2.75)
   }

@@ -203,20 +203,35 @@ export class ClarityFieldDream extends Dream {
    * dimmed by clarity and veil, and dissolved by expand.
    */
   private ringlet(c: Vec2, radius: number, tint: Color, rest: number, stroke: number): Circle {
-    const spread = (b: number) => 1 + (GATHER_FROM - 1) * (1 - smooth(b))
     return new Circle({
-      radius,
-      x: this.burst.creation.map((b) => c.x * spread(b)),
-      y: this.burst.creation.map((b) => c.y * spread(b)),
+      radius: this.burst.creation.map((b) => radius * this.ringScale(b)),
+      x: this.burst.creation.map((b) => c.x * this.spreadAt(b)),
+      y: this.burst.creation.map((b) => c.y * this.spreadAt(b)),
       tint,
       stroke,
       opacity: this.burst.creation.map((b) => {
-        const k = clamp01(b * 1.6)
+        const k = this.fadeAt(b)
         const dim = 1 - 0.3 * clamp01(this.clarity.creation.value) - 0.45 * clamp01(this.veil.creation.value)
         const fade = 1 - smooth((this.expand.creation.value - 0.2) / 0.8)
         return rest * k * dim * fade
       }),
     })
+  }
+
+  /** How far out the field stands at `burst` b (1 = at rest). */
+  protected spreadAt(b: number): number {
+    return 1 + (GATHER_FROM - 1) * (1 - smooth(b))
+  }
+
+  /** How large a ringlet stands at `burst` b — the standalone gathers its
+   *  ringlets in without scaling them. */
+  protected ringScale(_b: number): number {
+    return 1
+  }
+
+  /** How faded up the field is at `burst` b. */
+  protected fadeAt(b: number): number {
+    return clamp01(b * 1.6)
   }
 
   protected stageField() {

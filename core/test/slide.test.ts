@@ -147,4 +147,20 @@ describe("slide", () => {
     expect((s.chapters[0]!.dream as SceneA).dot.opacity.value).toBeCloseTo(decode(1 - e), 6)
     expect((s.chapters[1]!.dream as SceneB).dot.opacity.value).toBeCloseTo(decode(e), 6)
   })
+
+  test("holons sharing ONE opacity param are ramped once, not once each", () => {
+    class Shared extends Dream {
+      shared = new Circle()
+      many = Array.from({ length: 50 }, () => new Circle({ opacity: this.shared.opacity }))
+      unfold(): void {
+        for (const c of this.many) this.stage(c)
+        this.wait(2)
+      }
+    }
+    const s = new DreamSong([Shared, [SceneB, crossfade(1)]])
+    const a = s.chapters[0]!.dream as Shared
+    expect(a.many[0]!.opacity).toBe(a.many[1]!.opacity) // truly one param
+    s.applyAt(1.5) // window 1–2, midpoint
+    expect(a.many[0]!.opacity.value).toBeCloseTo(0.5, 6)
+  })
 })

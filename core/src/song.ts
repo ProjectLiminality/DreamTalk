@@ -341,23 +341,28 @@ export class DreamSong extends Dream {
       }
     }
 
-    // Transition ramps, multiplied onto the freshly established gate.
+    // Transition ramps, multiplied onto the freshly established gate —
+    // once per opacity PARAM, not per holon: holons may share one opacity
+    // (FlowerText's thousand ringlets carry the word's single
+    // circleOpacity), and ramping it once per sharer took a crossfaded
+    // word to 0.97^1000 in a frame.
     if (window) {
       const u = (t - window.start) / (window.end - window.start)
+      const ramp = (hs: readonly Holon[], k: number) => {
+        for (const opacity of new Set(hs.map((h) => h.opacity))) opacity.gate *= k
+      }
       if (window.kind === "crossfade") {
         const f = crossfadeAt(this.#chapters[window.into]!.transition, u)
-        for (const holon of holons[window.from]!) holon.opacity.gate *= f.from
-        for (const holon of holons[window.into]!) holon.opacity.gate *= f.into
+        ramp(holons[window.from]!, f.from)
+        ramp(holons[window.into]!, f.into)
       } else if (window.kind === "magicMove") {
-        const out = buildOut(u)
-        const into = buildIn(u)
-        for (const holon of window.outs) holon.opacity.gate *= out
-        for (const holon of window.ins) holon.opacity.gate *= into
+        ramp(window.outs, buildOut(u))
+        ramp(window.ins, buildIn(u))
       } else if (window.kind === "slide") {
         const d = dissolveAt(this.#chapters[window.into]!.transition, t - window.start)
         if (d !== undefined) {
-          for (const holon of holons[window.from]!) holon.opacity.gate *= d.from
-          for (const holon of holons[window.into]!) holon.opacity.gate *= d.into
+          ramp(holons[window.from]!, d.from)
+          ramp(holons[window.into]!, d.into)
         }
       }
     }

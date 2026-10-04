@@ -325,12 +325,23 @@ visibly differs, in order:
   down-cells vanishing on release, upright cells settling ~100px under the
   base, and the release front climbing linearly from 25.25. Ours still
   reads a little brighter and its fallen cloud a little narrower.
-- 31–45 (Web3 word): ours is pinkish and larger — the host's linear-tint
-  question (David's call) — and a different face.
-- 45–47: the original floods the whole frame with the red hex field
-  before it gathers; ours gathers from a disc.
-- 63–74 (quote): our line-by-line reveal runs ~1s behind, and the
-  original fades the quote out at 74s, ours at 75s.
+- 31–45 (Web3 word): size DONE — re-measured 742 × 226px, centred 13px
+  high (the demo's word at 0.78×, ringlets with it). Still different: the
+  face — ours is Arimo (Arial metrics, bundled, open licence); the original
+  reads as Helvetica, slightly heavier — and the colour (David's call).
+- ~~45–47~~ DONE: the field fades up frame-filling behind the word
+  (45.05–45.45), then the WHOLE picture contracts — lattice, halo, ringlets
+  and the word with it — from 2.945× at 45.70 to rest at 47.75 (fitted to
+  the halo's median radius, RMS 1%). Still different: the original's field
+  is a full rectangle at its largest (ours a disc reaching past the frame's
+  sides, not its corners), and its settled core shows a brighter lattice.
+  FOUND ON THE WAY (src/song.ts): transition ramps multiplied onto each
+  HOLON's opacity gate, and FlowerText's thousand ringlets share one
+  opacity param — so a crossfading word went to 0.97^1000 in one frame and
+  vanished at 45.05. Ramps now go once per param (test in slide.test.ts).
+- ~~63–74 (quote)~~ DONE: per-line write-on measured at 8fps (63.3–65.5,
+  65.75–67.5, 67.8–70.0), credit 71.0–71.75, fade 73.35–74.1 — ours within
+  ~0.1 of a line throughout.
 - 86–93 (node network): the original wires up at ~86s and gathers its four
   crystals into a compact 2×2 in the upper middle with the mesh gone; ours
   wires at ~88s, spreads the crystals to the corners and keeps the mesh.

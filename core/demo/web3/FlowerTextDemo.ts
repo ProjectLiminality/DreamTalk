@@ -32,7 +32,7 @@ import { web3MaskData } from "./web3-mask"
  * scene units. Font outlines come in y-up already, so no flip — only centre
  * and scale, uniformly, to preserve the letterforms.
  */
-const web3Mask = (height: number): Vec2[][] => {
+export const web3Mask = (height: number): Vec2[][] => {
   const { bounds, polygons } = web3MaskData
   const h = bounds.maxY - bounds.minY
   const scale = height / h

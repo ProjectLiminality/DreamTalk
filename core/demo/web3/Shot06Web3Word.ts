@@ -18,12 +18,32 @@
  */
 
 import { together } from "../../src/anim"
-import { FlowerTextDemoDream } from "./FlowerTextDemo"
+import { FlowerText } from "../../vocabulary/FlowerText/FlowerText"
+import { FlowerTextDemoDream, web3Mask } from "./FlowerTextDemo"
 
 /** How far below its rest the cloud starts, in scene units. */
 const RISE_FROM = -300
+/**
+ * The word as the frame has it (40s, 1280w): 742 × 226px, centred 13px
+ * above the frame's middle — the demo's word drawn 0.78× as large, its
+ * ringlets with it.
+ */
+const WORD_HEIGHT = 172
+const REST_Y = 10
 
 export class Shot06Web3WordDream extends FlowerTextDemoDream {
+  override word = new FlowerText({
+    mask: web3Mask(WORD_HEIGHT),
+    circleRadius: 4.8,
+    spacing: 6,
+    settle: 0,
+    scatterDistance: 260,
+    scatterMin: 25,
+    seed: 7,
+    stroke: 1.5,
+    circleOpacity: 0.85,
+  })
+
   override unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
@@ -32,11 +52,12 @@ export class Shot06Web3WordDream extends FlowerTextDemoDream {
 
     this.play(
       together(
-        [this.word.y.to(0, { easing: "easeOut" }), 0, 0.4],
+        [this.word.y.to(REST_Y, { easing: "easeOut" }), 0, 0.4],
         [this.word.settle.to(1, { easing: "easeOut" }), 0.02, 0.6],
       ),
       4.75,
     )
-    this.wait(9.5)
+    // Held to the chapter's end (46.75).
+    this.wait(11.25)
   }
 }
