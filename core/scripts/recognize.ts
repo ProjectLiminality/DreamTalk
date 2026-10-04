@@ -32,10 +32,22 @@
 
 import type { Candidate, InkStroke, RecognizeRequest, RecognizeResponse, RecognizeStage } from "../sketch/protocol"
 import { PAGE_H, PAGE_W } from "../sketch/protocol"
-import { instantReading, refineResponse, symbolOutline, type FitResult } from "../sketch/fit"
+import { instantReading, raceable, raceVocabulary, refineResponse, symbolOutline, type FitResult } from "../sketch/fit"
 import { inkKey } from "../sketch/speculate"
 import { readPoints, vocabById, DEFAULT_IMPORTS, type VocabEntry } from "../sketch/vocabulary"
-import { askChain, backendChain, CLI_MODEL, cliResultText, isFast, loadEnv, type Backend, type VisionReply } from "./backends"
+import {
+  askChain,
+  backendChain,
+  CLI_MODEL,
+  cliResultText,
+  decisionFirst,
+  isFast,
+  loadEnv,
+  type Backend,
+  type Choice,
+  type DecisionBackend,
+  type VisionReply,
+} from "./backends"
 import { describeShelf } from "./catalogue"
 import { overlayPng } from "./overlay"
 
@@ -316,6 +328,29 @@ export interface RecognizeOptions {
   chain?: Backend[]
   /** Asked ahead of ✦ (the pen paused): fast backends only, never the CLI. */
   speculative?: boolean
+  /** A decision model to choose first (default: backends.ts decisionFirst(); null for none). */
+  decision?: DecisionBackend | null
+}
+
+/** Clef's "nothing here fits" option. */
+const NONE = "none"
+
+/** The question Clef answers: which imported symbol (or none) is drawn. */
+export const symbolChoice = (entries: VocabEntry[]): Choice => {
+  const options: Record<string, string> = {}
+  for (const e of entries) options[e.id] = `${e.name}: ${e.description}`
+  options[NONE] = "None of these: something else, or only handwriting/arrows with nothing drawn that they could label."
+  return { instructions: "Which ONE of these symbols did the person mean by the hand-drawn scribble in the image?", options }
+}
+
+/** What Clef reads beside the image: the ink in brief (counts and extents, not polylines). */
+export const clefState = (req: RecognizeRequest): string => {
+  const all = req.strokes.flatMap((s) => s.points)
+  const closed = req.strokes.filter((s) => {
+    const a = s.points[0], b = s.points[s.points.length - 1]
+    return a && b && s.points.length > 8 && Math.hypot(a.x - b.x, a.y - b.y) < 0.2 * Math.max(1, ...s.points.map((p) => Math.hypot(p.x - a.x, p.y - a.y)))
+  }).length
+  return `A hand-drawn scribble on a whiteboard (the image): ${req.strokes.length} pen strokes, ${closed} of them closed loops; together ${bbox(all)}.`
 }
 
 /** A fit worse than this (fit.ts score) earns the reading a second look: the right
@@ -339,6 +374,10 @@ SECOND LOOK. The SECOND attached image is the same crop with your earlier readin
  *
  *   0. GEOMETRY (opt-in, RECOGNIZE_GEOMETRY_FIRST=1) — fit.ts instantReading;
  *      a clear circle needs no model at all.
+ *   1a. CHOICE — a decision model (Clef, when configured first) picks the
+ *      symbol with probabilities; the fitter places it from a cheap start
+ *      (fit.ts raceVocabulary over the picks) — no model-written numbers.
+ *      Words, a cable to trace, or "none" go on to step 1.
  *   1. FIRST LOOK — down the backend chain (fast first, the CLI last).
  *   2. FIT — every candidate tuned onto the ink (RECOGNIZE_FIT=0 to skip).
  *   3. SECOND LOOK — a poor fit (> POOR_FIT) is shown back to the same fast
@@ -372,7 +411,8 @@ export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = 
     const ids = entries.map((e) => e.id)
     const full = opts.chain ?? backendChain()
     const chain = opts.speculative ? full.filter(isFast) : full
-    if (chain.length === 0) return done({ candidates: [], error: "no fast backend to ask ahead" })
+    const clef = opts.decision === undefined ? decisionFirst() : (opts.decision ?? undefined)
+    if (chain.length === 0 && !clef) return done({ candidates: [], error: "no fast backend to ask ahead" })
     const png = req.png.replace(/^data:image\/png;base64,/, "")
     const img = pngSize(Uint8Array.from(Buffer.from(png, "base64")))
     const fitting = on(process.env.RECOGNIZE_FIT, true)
@@ -410,6 +450,54 @@ export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = 
       return { res: response, fit }
     }
 
+    // Still poor after the fast eyes: Claude takes the hard case (ahead of
+    // ✦ only the API — never the slow CLI).
+    const hardCase = async (res: RecognizeResponse, fit: number, from: string): Promise<{ res: RecognizeResponse; fit: number; backend?: string }> => {
+      const claude = full.filter((b) => b.name !== from && (b.name === "anthropic" || (b.name === "cli" && !opts.speculative)))[0]
+      if (!escalate || fit <= POOR_FIT || !claude) return { res, fit }
+      const t0 = performance.now()
+      const hard = await ask([claude], [png])
+      timed(`escalate ${claude.name}`, t0, hard.reply ? undefined : hard.failures.join("; "))
+      if (!hard.reply) return { res, fit }
+      const again = refine(parseRecognizeReply(hard.reply.text, ids))
+      if (again.res.candidates.length === 0 || (again.fit !== undefined && again.fit >= fit)) return { res, fit }
+      return { res: again.res, fit: again.fit ?? fit, backend: `${hard.reply.backend}:${hard.reply.model}` }
+    }
+
+    // 1a. A decision model (Clef): it only CHOOSES; the fitter supplies every number.
+    if (clef) {
+      const t0 = performance.now()
+      try {
+        const d = await clef.choose({ state: clefState(req), pngs: [png], choice: symbolChoice(entries), timeoutMs: 20_000 })
+        timed(`clef ${clef.model}`, t0, `${d.choice} ${d.confidence.toFixed(2)}`)
+        const picked = Object.entries(d.probabilities)
+          .filter(([id, p]) => id !== NONE && (id === d.choice || p >= 0.25))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([id, p]) => ({ entry: vocabById(id), p }))
+        // A choice the geometry can't place alone (words, a cable to trace) goes on to a reading model.
+        if (d.choice !== NONE && picked.length > 0 && picked.every((c) => c.entry && raceable(c.entry))) {
+          const t1 = performance.now()
+          const candidates: Candidate[] = []
+          let fit: number | undefined
+          for (const { entry, p } of picked) {
+            const best = raceVocabulary(req.strokes, [entry!.id])[0]
+            if (!best) continue
+            fit ??= best.score.total
+            candidates.push({ symbol: entry!.id, params: best.params, confidence: Math.round(p * 100) / 100, why: `Clef ${p.toFixed(2)} · fit ${best.score.total.toFixed(3)}` })
+          }
+          timed("fit", t1, fit?.toFixed(3))
+          if (candidates.length > 0 && fit !== undefined) {
+            const hard = await hardCase({ candidates }, fit, "clef")
+            return done({ ...hard.res, fit: hard.fit, backend: hard.backend ?? `clef:${clef.model}` })
+          }
+        }
+      } catch (err) {
+        timed("clef", t0, String((err as Error)?.message ?? err).slice(0, 120))
+      }
+      if (chain.length === 0) return done({ candidates: [], error: "Clef could not place it, and no fast reading model to ask ahead" })
+    }
+
     // 1. The first look.
     let t0 = performance.now()
     const first = await ask(chain, [png])
@@ -434,22 +522,10 @@ export async function recognize(req: RecognizeRequest, opts: RecognizeOptions = 
     }
 
     // 4. Still poor: Claude takes the hard case.
-    if (escalate && fit !== undefined && fit > POOR_FIT) {
-      const claude = full.filter(
-        (b) => b.name !== eyes.backend && (b.name === "anthropic" || (b.name === "cli" && !opts.speculative)),
-      )[0]
-      if (claude) {
-        t0 = performance.now()
-        const hard = await ask([claude], [png])
-        timed(`escalate ${claude.name}`, t0, hard.reply ? undefined : hard.failures.join("; "))
-        if (hard.reply) {
-          const again = refine(parseRecognizeReply(hard.reply.text, ids))
-          if (again.res.candidates.length > 0 && (again.fit === undefined || again.fit < fit)) {
-            ;({ res, fit } = again)
-            backend = `${hard.reply.backend}:${hard.reply.model}`
-          }
-        }
-      }
+    if (fit !== undefined) {
+      const hard = await hardCase(res, fit, eyes.backend)
+      ;({ res, fit } = hard)
+      if (hard.backend) backend = hard.backend
     }
     return done({ ...res, ...(fit !== undefined ? { fit } : {}), backend })
   } catch (err) {
@@ -496,5 +572,9 @@ export const recognizeMemo = (req: RecognizeRequest, opts: RecognizeOptions = {}
 /** What the page asks before it reads ahead: is there a fast backend at all? */
 export const recognizeConfig = (): { backends: string[]; speculate: boolean } => {
   const chain = backendChain()
-  return { backends: chain.map((b) => `${b.name}:${b.model}`), speculate: chain.some(isFast) }
+  const clef = decisionFirst()
+  return {
+    backends: [...(clef ? [`clef:${clef.model}`] : []), ...chain.map((b) => `${b.name}:${b.model}`)],
+    speculate: !!clef || chain.some(isFast),
+  }
 }

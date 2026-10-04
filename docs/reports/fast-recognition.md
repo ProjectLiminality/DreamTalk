@@ -269,8 +269,66 @@ Switches: `RECOGNIZE_BACKENDS`, `GROQ_MODEL`, `ANTHROPIC_MODEL`,
 `RECOGNIZE_FIT=0`, `RECOGNIZE_ESCALATE=0`, `RECOGNIZE_GEOMETRY_FIRST=1` (fit.ts
 answers clear flat shapes with no model).
 
-## 6. Still open
+## 6. Clef-flash as an experiment, and the real-cylinder benchmark
 
+**Clef backend** (`backends.ts` `clefBackend`): a REST call to Workers AI at
+`POST https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/run/@cf/cloudflare/clef-flash`,
+with the token as a Bearer header. I built the request from the model card's
+own JSON schemas (`…/models/clef-flash/schema-input.json` and
+`schema-output.json`, read 2026-10-04):
+
+- The body has `model: "clef-flash"`, `state` (a text summary of the ink),
+  `images` (base64 data URLs, at most 4), and `questions`.
+- The one question is `{symbol: {type: "choice", instructions, criteria: {<id>: <description>, …, none: …}}}`.
+- The answer is `answers.symbol = {choice, probabilities, confidence}`,
+  inside the REST envelope's `result`.
+
+It runs **as a decision model**:
+
+- Clef only *chooses*: the imported ids, plus `none`.
+- `fit.ts` places each pick (the top choice, and any other at p ≥ 0.25) from
+  a cheap start: scanned angles, then the tuning.
+- The probabilities become the candidates' confidences, and they feed the
+  options ring.
+- Text, a MindVirus (its cable has to be traced) or `none` go on to the
+  reading chain.
+- Clef goes first when its credentials are set and no keyed reader is
+  ordered ahead of it. The default order is `groq,clef,anthropic,cli`, so
+  with Groq keyed Clef is not used for recognition. To make it the primary,
+  set `RECOGNIZE_BACKENDS=clef,groq,cli`.
+
+**Benchmark: David's real cylinder** (59 searching strokes, from
+`core/demo/boards/scratch.board.json`; 12 imported symbols; 10 runs each;
+end-to-end ms including the fit; M1 Max):
+
+| path | right choice | median ms | range ms | fit after tuning | status |
+|---|---|---|---|---|---|
+| no model (`instantReading`) | 10/10 | 284 | 279–395 | 0.017 | runs today |
+| `claude -p` (Opus 5.5, today's path) + fit | 10/10 | 9 881 | 8 019–12 048 | 0.014 | runs today |
+| Clef-flash + fit | (10/10 mocked) | 178* | 177–372* | 0.017 | **awaiting key** |
+| Groq qwen3.8-27b + fit | (10/10 mocked) | 462* | 461–465* | 0.014 | **awaiting key** |
+
+\* The mocked rows use a model that always answers "cylinder", with an
+assumed network and model latency: Clef 150 ms (the reported median is
+39 ms), Groq 450 ms. These rows measure **our** share only: the request,
+the parse and the fit. That share is 12–30 ms. Choice correctness for Clef
+and Groq is unknown until real keys run. To reproduce:
+`cd core && WHICH=geometry,cli,clef-mock,groq-mock bun scripts/bench-recognize.ts`.
+
+**For David** (core/.env, gitignored):
+
+    GROQ_API_KEY=gsk_...
+    CLOUDFLARE_ACCOUNT_ID=<32-hex account id>
+    CLOUDFLARE_API_TOKEN=<token with Workers AI: Read/Edit>
+    # optional
+    ANTHROPIC_API_KEY=sk-ant-...
+    # to try Clef as the primary instead of Groq:
+    # RECOGNIZE_BACKENDS=clef,groq,anthropic,cli
+
+## 7. Still open
+
+- **The real latency and accuracy of Groq and Clef.** Re-run
+  `core/scripts/bench-recognize.ts` with the keys (`WHICH=groq,clef`).
 - **The real Groq latency**, and whether Qwen's first look is good enough
   that the second look rarely runs. One session with David's key settles
   both.

@@ -12,6 +12,14 @@
  *   cli        `claude -p` headless on the subscription — what there always
  *              was: no key, 5–15 s, the image written to disk and Read.
  *
+ * And one of another kind — a DECISION model, which answers typed questions
+ * with probabilities instead of writing text:
+ *
+ *   clef       Cloudflare's Clef-flash on Workers AI (REST): one Choice
+ *              "which imported symbol is this?" over the image; the fitter
+ *              (sketch/fit.ts) supplies every number. Needs
+ *              CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN.
+ *
  * The CHAIN is every backend whose key is present, in the order
  * RECOGNIZE_BACKENDS names (default groq, anthropic, cli); a backend that
  * fails hands the question to the next, and the CLI is always last, so with
@@ -21,7 +29,9 @@
  * here, never overriding what the shell set) and are never logged.
  *
  *   GROQ_API_KEY, ANTHROPIC_API_KEY      the keys
- *   RECOGNIZE_BACKENDS                    e.g. "anthropic,cli"
+ *   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN   Clef's
+ *   RECOGNIZE_BACKENDS                    e.g. "anthropic,cli" (default groq,clef,anthropic,cli)
+ *   CLEF_MODEL                            default @cf/cloudflare/clef-flash
  *   GROQ_MODEL                            default qwen/qwen3.8-27b
  *   ANTHROPIC_MODEL                       default claude-haiku-4-5
  */
@@ -36,6 +46,7 @@ export type BackendName = "groq" | "anthropic" | "cli"
 export const GROQ_MODEL = "qwen/qwen3.8-27b"
 export const ANTHROPIC_MODEL = "claude-haiku-4-5"
 export const CLI_MODEL = "claude-opus-5-5"
+export const CLEF_MODEL = "@cf/cloudflare/clef-flash"
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 const coreDir = new URL("../", import.meta.url).pathname
@@ -251,6 +262,99 @@ export const cliBackend = (opts: { model?: string } = {}): Backend => {
   }
 }
 
+// --- Clef: a decision model -------------------------------------------------------
+
+/** One typed Choice: option id → what it means (Workers AI System One schema). */
+export interface Choice {
+  instructions: string
+  options: Record<string, string>
+}
+
+export interface Decision {
+  /** The most probable option. */
+  choice: string
+  /** Every option's probability (they sum to 1). */
+  probabilities: Record<string, number>
+  confidence: number
+  model: string
+  ms: number
+}
+
+export interface DecisionBackend {
+  name: "clef"
+  model: string
+  choose(q: { state: string; pngs: string[]; choice: Choice; timeoutMs?: number }): Promise<Decision>
+}
+
+/**
+ * Clef on Workers AI. The request is the System One shape the model card's
+ * schema states (developers.cloudflare.com/workers-ai/models/clef-flash/
+ * schema-input.json, read 2026-10-04): `model` "clef-flash" | "clef",
+ * `state`, `questions` {id: {type: "choice", instructions, criteria:
+ * {option: description}}} (2–255 options), `images` as base64 data URLs
+ * (≤ 4). The answer: answers[id] = {choice, probabilities, confidence};
+ * the REST envelope wraps it in `result`.
+ */
+export const clefBackend = (opts: { accountId: string; apiToken: string; model?: string; fetch?: Fetch }): DecisionBackend => {
+  const model = opts.model ?? CLEF_MODEL
+  const doFetch: Fetch = opts.fetch ?? ((u, i) => fetch(u, i))
+  const url = `https://api.cloudflare.com/client/v4/accounts/${opts.accountId}/ai/run/${model}`
+  return {
+    name: "clef",
+    model,
+    async choose(q) {
+      const started = performance.now()
+      const body = {
+        model: model.endsWith("clef-flash") ? "clef-flash" : "clef",
+        state: q.state,
+        images: q.pngs.map((png) => `data:image/png;base64,${png}`),
+        questions: { symbol: { type: "choice", instructions: q.choice.instructions, criteria: q.choice.options } },
+      }
+      const res = await doFetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${opts.apiToken}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(q.timeoutMs ?? 20_000),
+      })
+      const raw = await res.text()
+      if (!res.ok) throw new Error(`clef ${res.status}: ${raw.slice(0, 300)}`)
+      const json = JSON.parse(raw) as { result?: unknown; answers?: unknown }
+      const out = (json.result ?? json) as { answers?: Record<string, { choice?: unknown; probabilities?: unknown; confidence?: unknown }> }
+      const a = out.answers?.symbol
+      if (!a || typeof a.choice !== "string") throw new Error(`clef: no answer in ${raw.slice(0, 200)}`)
+      return {
+        choice: a.choice,
+        probabilities: (a.probabilities ?? {}) as Record<string, number>,
+        confidence: Number(a.confidence ?? 0),
+        model,
+        ms: performance.now() - started,
+      }
+    },
+  }
+}
+
+/** The order the backends are tried in. */
+const orderOf = (env: Record<string, string | undefined>): string[] =>
+  (env.RECOGNIZE_BACKENDS ?? "groq,clef,anthropic,cli")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+/**
+ * Clef, when its credentials are set and it comes before every reading
+ * backend that has a key (by default: when there is no Groq key, or
+ * RECOGNIZE_BACKENDS names it first). Undefined otherwise.
+ */
+export const decisionFirst = (env: Record<string, string | undefined> = (loadEnv(), process.env)): DecisionBackend | undefined => {
+  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) return undefined
+  const order = orderOf(env)
+  const at = order.indexOf("clef")
+  if (at < 0) return undefined
+  const keyed = (n: string) => (n === "groq" && !!env.GROQ_API_KEY) || (n === "anthropic" && !!env.ANTHROPIC_API_KEY)
+  if (order.slice(0, at).some(keyed)) return undefined
+  return clefBackend({ accountId: env.CLOUDFLARE_ACCOUNT_ID, apiToken: env.CLOUDFLARE_API_TOKEN, model: env.CLEF_MODEL })
+}
+
 // --- The chain ------------------------------------------------------------------
 
 /**
@@ -259,10 +363,7 @@ export const cliBackend = (opts: { model?: string } = {}): Backend => {
  * runs is picked up by the next question.
  */
 export const backendChain = (env: Record<string, string | undefined> = (loadEnv(), process.env)): Backend[] => {
-  const order = (env.RECOGNIZE_BACKENDS ?? "groq,anthropic,cli")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const order = orderOf(env)
   const chain: Backend[] = []
   for (const name of order) {
     if (name === "groq" && env.GROQ_API_KEY) chain.push(groqBackend({ apiKey: env.GROQ_API_KEY, model: env.GROQ_MODEL }))

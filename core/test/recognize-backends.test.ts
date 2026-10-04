@@ -10,11 +10,23 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { inflateSync } from "node:zlib"
-import { anthropicBackend, askChain, backendChain, groqBackend, loadEnv, type Backend, type MessagesClient, type VisionAsk } from "../scripts/backends"
+import {
+  anthropicBackend,
+  askChain,
+  backendChain,
+  clefBackend,
+  decisionFirst,
+  groqBackend,
+  loadEnv,
+  type Backend,
+  type DecisionBackend,
+  type MessagesClient,
+  type VisionAsk,
+} from "../scripts/backends"
 import { overlayPng } from "../scripts/overlay"
 import { parseRecognizeReply, readingSchema, recognize, recognizeMemo, POOR_FIT } from "../scripts/recognize"
 import type { RecognizeRequest } from "../sketch/protocol"
-import { wobblyCircle } from "./scribbles"
+import { roughCylinder, wobblyCircle } from "./scribbles"
 
 const ASK: VisionAsk = {
   system: "sys",
@@ -271,5 +283,76 @@ describe("the overlay", () => {
       }
     expect(red).toBeGreaterThan(50)
     expect(black).toBeGreaterThan(100)
+  })
+})
+
+describe("Clef (a decision model)", () => {
+  test("one typed Choice over the image, in the Workers AI System One shape", async () => {
+    let seen: { url: string; init: RequestInit } | undefined
+    const b = clefBackend({
+      accountId: "acc123",
+      apiToken: "cf_secret",
+      fetch: async (url, init) => {
+        seen = { url, init }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: { model: "clef-flash", answers: { symbol: { type: "choice", choice: "circle", probabilities: { circle: 0.8, square: 0.2 }, confidence: 0.7 } }, usage: { input_tokens: 1, output_tokens: 0 } },
+          }),
+        )
+      },
+    })
+    const d = await b.choose({ state: "ink", pngs: ["AAAA"], choice: { instructions: "which?", options: { circle: "a circle", square: "a square" } } })
+    expect(d).toMatchObject({ choice: "circle", probabilities: { circle: 0.8, square: 0.2 }, confidence: 0.7 })
+    expect(seen!.url).toBe("https://api.cloudflare.com/client/v4/accounts/acc123/ai/run/@cf/cloudflare/clef-flash")
+    expect((seen!.init.headers as Record<string, string>).authorization).toBe("Bearer cf_secret")
+    expect(JSON.parse(String(seen!.init.body))).toEqual({
+      model: "clef-flash",
+      state: "ink",
+      images: ["data:image/png;base64,AAAA"],
+      questions: { symbol: { type: "choice", instructions: "which?", criteria: { circle: "a circle", square: "a square" } } },
+    })
+  })
+
+  test("an HTTP error throws without the token", async () => {
+    const b = clefBackend({ accountId: "a", apiToken: "cf_secret", fetch: async () => new Response("no", { status: 403 }) })
+    const err = await b.choose({ state: "", pngs: [], choice: { instructions: "", options: {} } }).catch((e: Error) => e)
+    expect(String(err)).toContain("clef 403")
+    expect(String(err)).not.toContain("cf_secret")
+  })
+
+  test("Clef goes first when it has credentials and no keyed reader is ordered before it", () => {
+    const cf = { CLOUDFLARE_ACCOUNT_ID: "a", CLOUDFLARE_API_TOKEN: "t" }
+    expect(decisionFirst({})).toBeUndefined()
+    expect(decisionFirst(cf)?.name).toBe("clef")
+    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g" })).toBeUndefined()
+    expect(decisionFirst({ ...cf, GROQ_API_KEY: "g", RECOGNIZE_BACKENDS: "clef,groq,cli" })?.name).toBe("clef")
+  })
+
+  const deciding = (choice: string, probabilities: Record<string, number>): DecisionBackend => ({
+    name: "clef",
+    model: "mock",
+    choose: async () => ({ choice, probabilities, confidence: 0.9, model: "mock", ms: 1 }),
+  })
+
+  test("Clef chooses, the fitter places: a cylinder from the ink alone", async () => {
+    const ink = roughCylinder(1)
+    const req: RecognizeRequest = { png: "iVBORw0KGgo=", crop: { x: 780, y: 440, w: 240, h: 320 }, strokes: ink, vocabulary: ["circle", "cylinder", "cube"] }
+    const res = await recognize(req, { chain: [], decision: deciding("cylinder", { cylinder: 0.9, cube: 0.08, circle: 0.02 }) })
+    expect(res.candidates.map((c) => c.symbol)).toEqual(["cylinder"])
+    expect(res.fit!).toBeLessThan(POOR_FIT)
+    expect(Math.abs(Number(res.candidates[0]!.params.radius) - 70)).toBeLessThan(15)
+    expect(res.backend).toBe("clef:mock")
+  })
+
+  test("words or a cable are not Clef's to place: the reading model takes over", async () => {
+    const seen: VisionAsk[] = []
+    const res = await recognize(request(), {
+      chain: [scripted("groq", [reply("circle", { cx: 600, cy: 500, r: 120 })], seen)],
+      decision: deciding("text", { text: 0.7, circle: 0.3 }),
+    })
+    expect(seen).toHaveLength(1)
+    expect(res.candidates[0]!.symbol).toBe("circle")
+    expect(res.stages!.map((s) => s.name)[0]).toBe("clef mock")
   })
 })
