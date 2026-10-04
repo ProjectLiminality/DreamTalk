@@ -39,6 +39,21 @@ export interface Transition {
   smoothing?: { left: number; right: number }
   /** slide only — a dissolve laid over the push (see `Dissolve`). */
   dissolve?: Dissolve
+  /** crossfade only — the fade's own curve (see `FadeCurve`). Absent: linear. */
+  fade?: FadeCurve
+}
+
+/**
+ * The shape of a fade, when a film's is not a plain linear ramp: C4D
+ * tangents for the fade's progress, and whether that progress was measured
+ * as SCREEN brightness — what a fade read off a video measures — rather
+ * than opacity. The host blends in linear light and encodes for display,
+ * so half opacity shows at ~0.74; a screen curve is decoded to the opacity
+ * that shows it.
+ */
+export interface FadeCurve {
+  smoothing?: { left: number; right: number }
+  screen?: boolean
 }
 
 /**
@@ -47,17 +62,9 @@ export interface Transition {
  * tangents (`smoothing`, default smooth) — so mid-way both stand at about
  * half. Before `start` A is whole and B unseen; after `end`, the reverse.
  */
-export interface Dissolve {
+export interface Dissolve extends FadeCurve {
   start: number
   end: number
-  smoothing?: { left: number; right: number }
-  /**
-   * The curve is SCREEN brightness — what a fade read off a video measures —
-   * not opacity. The host blends in linear light and encodes for display,
-   * so half opacity shows at ~0.74; a screen curve is decoded to the
-   * opacity that shows it.
-   */
-  screen?: boolean
 }
 
 /** sRGB decode: the linear light a display value stands for. */
@@ -67,8 +74,26 @@ const decodeScreen = (v: number): number =>
 /** The default boundary: B starts exactly when A ends. */
 export const cut: Transition = { kind: "cut", duration: 0 }
 
-/** A pure opacity ramp both ways across the overlap. */
-export const crossfade = (duration: number): Transition => ({ kind: "crossfade", duration })
+/** A pure opacity ramp both ways across the overlap — linear, unless a
+ *  `fade` curve states the film's own. */
+export const crossfade = (duration: number, fade?: FadeCurve): Transition =>
+  fade ? { kind: "crossfade", duration, fade } : { kind: "crossfade", duration }
+
+/** The two pictures' opacity factors at fade progress `u` (0 → 1, before
+ *  easing) on `curve`, whose tangents default to `fallback`. */
+const fadeFactors = (
+  u: number,
+  curve: FadeCurve,
+  fallback: { left: number; right: number },
+): { from: number; into: number } => {
+  const sm = curve.smoothing ?? fallback
+  const e = c4dEaseWith(u, sm.left, sm.right)
+  return curve.screen ? { from: decodeScreen(1 - e), into: decodeScreen(e) } : { from: 1 - e, into: e }
+}
+
+/** A crossfade's opacity factors at window progress `u`. */
+export const crossfadeAt = (transition: Transition | undefined, u: number): { from: number; into: number } =>
+  transition?.fade ? fadeFactors(u, transition.fade, { left: 0, right: 0 }) : { from: 1 - u, into: u }
 
 /**
  * Keynote's deepest trick, ontologically cleaned up: match holons across
@@ -107,9 +132,7 @@ export const dissolveAt = (
 ): { from: number; into: number } | undefined => {
   const d = transition?.dissolve
   if (!d) return undefined
-  const sm = d.smoothing ?? { left: C4D_SMOOTHING, right: C4D_SMOOTHING }
-  const u = c4dEaseWith((s - d.start) / (d.end - d.start), sm.left, sm.right)
-  return d.screen ? { from: decodeScreen(1 - u), into: decodeScreen(u) } : { from: 1 - u, into: u }
+  return fadeFactors((s - d.start) / (d.end - d.start), d, { left: C4D_SMOOTHING, right: C4D_SMOOTHING })
 }
 
 /** The window progress → eased progress a transition samples with. */

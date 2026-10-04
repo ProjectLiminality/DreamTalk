@@ -78,6 +78,7 @@ import type { Param, ParamValue } from "./params"
 import {
   buildIn,
   buildOut,
+  crossfadeAt,
   dissolveAt,
   easeOf,
   lerpParamValue,
@@ -344,8 +345,9 @@ export class DreamSong extends Dream {
     if (window) {
       const u = (t - window.start) / (window.end - window.start)
       if (window.kind === "crossfade") {
-        for (const holon of holons[window.from]!) holon.opacity.gate *= 1 - u
-        for (const holon of holons[window.into]!) holon.opacity.gate *= u
+        const f = crossfadeAt(this.#chapters[window.into]!.transition, u)
+        for (const holon of holons[window.from]!) holon.opacity.gate *= f.from
+        for (const holon of holons[window.into]!) holon.opacity.gate *= f.into
       } else if (window.kind === "magicMove") {
         const out = buildOut(u)
         const into = buildIn(u)

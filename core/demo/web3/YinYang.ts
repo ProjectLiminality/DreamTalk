@@ -117,7 +117,7 @@
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, Stroke } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, rgb, type Color } from "../../src/constants"
 import { hexPack } from "../../src/geometry/flower"
@@ -247,22 +247,37 @@ const gridPieces = (
   ]
 }
 
-/** A lightning-bolt glyph as a short zig-zag polyline, pointing radially outward
- *  at angle `a`, its base at radius `r0` and tip at `r1`. Local space. */
-const bolt = (a: number, r0: number, r1: number): { x: number; y: number; z: number }[] => {
-  const ca = Math.cos(a)
-  const sa = Math.sin(a)
-  // Perpendicular for the zig-zag kinks.
-  const px = -sa
-  const py = ca
-  const span = r1 - r0
-  const k = span * 0.28 // kink amplitude
-  const at = (t: number, side: number) => ({
-    x: ca * (r0 + span * t) + px * side * k,
-    y: sa * (r0 + span * t) + py * side * k,
+/**
+ * The lightning-bolt glyph, traced off the 14.4s frame at full resolution
+ * (the top bolt): a FILLED ⚡ — a thick slanted stroke,
+ * a jog back across, a thinner stroke down to an arrowhead. Stated as
+ * [inward, lateral] in units of its length, from the middle of its wide end;
+ * the tip points at the globe. Every bolt is this one, turned.
+ */
+const BOLT_OUTLINE: readonly (readonly [number, number])[] = [
+  [0, -0.091], [0, 0.091], [0.364, -0.055], [0.309, 0.164], [0.509, 0.109],
+  [0.836, 0.055], [0.873, 0.091], [1, -0.018], [0.873, -0.073], [0.836, -0.036],
+  [0.564, 0], [0.6, -0.236],
+]
+/** Where the bolts sit: wide end at 0.78 of the ring's radius, 0.24 long
+ *  (antialiased edge included — the traced mask's hard threshold reads ~12%
+ *  short, and the first render showed it). */
+const BOLT_OUTER = 0.78
+const BOLT_LENGTH = 0.24
+
+/** A bolt's closed outline at angle `a`, for a ring of radius `ring`. */
+const bolt = (a: number, ring: number): { x: number; y: number; z: number }[] => {
+  const dx = -Math.cos(a) // inward
+  const dy = -Math.sin(a)
+  const L = ring * BOLT_LENGTH
+  const ox = Math.cos(a) * ring * BOLT_OUTER
+  const oy = Math.sin(a) * ring * BOLT_OUTER
+  const pts = BOLT_OUTLINE.map(([u, v]) => ({
+    x: ox + dx * u * L - dy * v * L,
+    y: oy + dy * u * L + dx * v * L,
     z: 0,
-  })
-  return [at(0, 0), at(0.35, +1), at(0.5, -0.4), at(0.65, +1), at(1, 0)]
+  }))
+  return [...pts, pts[0]!]
 }
 
 /** One field-line: a spiral arc bowing outward from near the globe. Starts at
@@ -418,7 +433,7 @@ export class YinYangDream extends Dream {
     this.blueGlobe.landOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
     this.blueGlobe.oceanOpacity.follow(this.birth.creation.map((b) => clamp01(b)))
 
-    const members: (Circle | Line)[] = []
+    const members: Stroke[] = []
 
     // The grid: three families of four lines, 60° apart, only in the band.
     for (let f = 0; f < 3; f++) {
@@ -441,13 +456,18 @@ export class YinYangDream extends Dream {
       members.push(c)
     }
 
-    // Lightning bolts in the band, one on each axis and diagonal.
+    // Lightning bolts in the band, one on each axis and diagonal. Each is
+    // a DRAWING — a Stroke whose one child is the closed outline — because
+    // that is the wash the host fills properly for a concave shape (SMark's
+    // band); the outline itself is never inked.
     for (let i = 0; i < BOLT_COUNT; i++) {
       const a = (i / BOLT_COUNT) * TAU
-      const line = new Line({ tint: WHITE, stroke: 1.6, opacity: 0 })
-      deriveRot(line, this, () => bolt(a, ring() * 0.57, ring() * 0.78))
-      line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
-      members.push(line)
+      const glyph = new Stroke({ tint: WHITE, stroke: 0, fillOpacity: 0 })
+      glyph.fillOpacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
+      const outline = new Line({ tint: WHITE, stroke: 0, opacity: 0 })
+      deriveRot(outline, this, () => bolt(a, ring()))
+      ;(glyph as unknown as { add(h: Line): Line }).add(outline)
+      members.push(glyph)
     }
 
     // Red field-line spirals sweeping outward past the ring.

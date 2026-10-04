@@ -289,10 +289,19 @@ over decoded (`seen()`); the rings now land within a few levels of the
 frames. Every other scene's sampled tints draw lighter than sampled for
 the same reason — an engine-wide question, not settled here.
 
-Still different: the dive's fade to black starts at ~20.25 in the original
-(screen brightness 0.92 at 20.5, 0.72 at 20.9, 0.37 at 21.3) and ours only
-at 21.0 (the 0.5s crossfade); the bolts are drawn as zig-zag strokes where
-the original has filled glyphs.
+The dive's fade to black is the crossfade into Web2 on its own measured
+curve: `crossfade(1.75, { smoothing: {0.85, 0}, screen: true })`, 19.75–21.5,
+within 0.01 of the reference's screen brightness; Web2's camera retraces
+the dive under it (keyed every 50ms) so the crossfade's camera lerp is a
+no-op. The bolts are filled ⚡ glyphs traced off the 14.4s frame — a
+drawing (Stroke + one closed Line), the host's even-odd fill for a concave
+outline.
+
+Still different: while the crossfade dims the red node, its black sea goes
+translucent with everything else (opacity is per primitive, no group
+opacity), so the flower lattice behind it shows faintly through the globe
+for the last second; and the red globe faces the Pacific through 19–21s
+where the original's shows Asia and Australia (the globes' own spin).
 
 **Not reproduced, stated rather than faked:** the C4D terminator light in
 shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch

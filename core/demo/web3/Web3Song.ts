@@ -16,7 +16,7 @@
  *   ch  shots  scene               in      window          into it
  *    1   1     Shot01Globe          0.00    0.00 –   4.50   —
  *    2   2–3   YinYang (+dive)      4.00    4.00 –  21.50   crossfade 0.5
- *    3   4–5   Web2 (retimed)      21.00   21.00 –  31.75   crossfade 0.5
+ *    3   4–5   Web2 (retimed)      19.75   19.75 –  31.75   crossfade 1.75
  *    4   6     Shot06Web3Word      30.75   30.75 –  46.75   crossfade 1.0
  *    5   7–8   Clarity (retimed)   45.00   45.00 –  61.50   crossfade 1.75
  *    6   9     Shot09Quote         61.50   61.50 –  78.75   cut
@@ -33,7 +33,7 @@
  *  - The DIVE (19.6–21.5): the yin-yang never stops spinning — four turns
  *    and a fifth from 11.0, still at full speed (YinYang.ts) — and the
  *    camera dollies straight in on the figure's CENTRE, not on the blue
- *    node, while the crossfade into Web2 (21.0–21.5) dims it to black. The
+ *    node, while the crossfade into Web2 (19.75–21.5, DIVE_FADE) dims it to black. The
  *    blue node swells and swings across in front of the camera, off-centre
  *    and moving, which is what makes it read as a dive into it. Web2's
  *    camera starts where the dive ends, so the crossfade's one camera keeps
@@ -109,6 +109,15 @@ const DIVE_START = 15.6 // local; the chapter opens at 4.0 → song 19.6
 const DIVE_SPAN = 1.9
 /** The camera's distance at the end of the dive, as a fraction of its own. */
 const DIVE_DEPTH = 0.15
+/**
+ * The dive's fade to black, measured as screen brightness (the frame's
+ * brightest lines, 30fps): it begins at 19.75 and eases in — 0.92 at 20.5,
+ * 0.72 at 20.9, 0.37 at 21.3, black at 21.5 — one C4D ease-in, left tangent
+ * 0.85 (RMS 0.5%). It is the crossfade into Web2, whose picture is still
+ * dark until 22.
+ */
+const DIVE_FADE_START = 19.75
+const DIVE_FADE = { smoothing: { left: 0.85, right: 0 }, screen: true }
 /** The figure's own framing (YinYangDream: zoom 0.82). */
 const YINYANG_ZOOM = 0.82
 /** The dive's camera distance at song t (the yin-yang chapter opens at 4.0). */
@@ -129,13 +138,12 @@ const PUSH = { left: 0.4, right: 0.45 }
  * brightest line and the globe's sum to one all the way through — one
  * fading out as the other fades in, 105.5–107.6 on a 0.35/0.35 curve
  * (RMS 1%, measured as screen brightness), so both stand at about half
- * as they pass. The second push
- * keeps full brightness throughout.
+ * as they pass. The second push keeps full brightness throughout.
  */
 const PUSH1_DISSOLVE = { start: 0.2, end: 2.3, smoothing: { left: 0.35, right: 0.35 }, screen: true }
 
 /** Shots 2–3, and the dive out of them (the dim is the crossfade into Web2,
- *  which opens at 21.0). */
+ *  which opens at 19.75). */
 class YinYangShot extends YinYangDream {
   override unfold() {
     // Scored first, at its absolute place, then the cursor goes back to 0
@@ -151,18 +159,22 @@ class YinYangShot extends YinYangDream {
 
 /**
  * Shots 4–5: fades in whole at 22–23, holds, collapses 26–32. Its window
- * opens at 21.0, under the dive's fade: the camera STARTS where the dive
- * ends, so the crossfade's single camera keeps travelling inward instead
- * of pulling back out, and resets to the front in the black at 21.5.
+ * opens at 19.75, under the dive's fade (DIVE_FADE): its camera RETRACES
+ * the dive, so the crossfade's single camera keeps travelling inward
+ * instead of pulling back out, and resets to the front in the black at 21.5.
  */
 class Web2Shot extends Web2DisintegratingDream {
   override unfold() {
     this.observer.look("front")
     // The crossfade lerps the two cameras, so this one runs the dive's own
-    // last half-second (all but linear by then) and the lerp changes nothing.
-    this.set(this.observer.zoom.to(YINYANG_ZOOM), this.observer.radius.to(diveRadius(21)))
+    // curve, keyed every 50ms, and the lerp changes nothing.
+    this.set(this.observer.zoom.to(YINYANG_ZOOM), this.observer.radius.to(diveRadius(DIVE_FADE_START)))
     this.stage(this.lattice)
-    this.play(this.observer.radius.to(DEFAULT_DISTANCE * DIVE_DEPTH, { easing: "linear" }), 0.5)
+    const steps = Math.round((21.5 - DIVE_FADE_START) / 0.05)
+    for (let i = 1; i <= steps; i++) {
+      const t = DIVE_FADE_START + (i * (21.5 - DIVE_FADE_START)) / steps
+      this.play(this.observer.radius.to(diveRadius(t), { easing: "linear" }), (21.5 - DIVE_FADE_START) / steps)
+    }
     this.set(this.observer.zoom.to(1), this.observer.radius.to(DEFAULT_DISTANCE))
     this.wait(0.5)
     this.play(this.assemble.creation.to(1), 1)
@@ -321,7 +333,7 @@ export class Web3Dream extends DreamSong {
     super([
       { scene: Shot01GlobeDream, span: 4.5 }, //            0.00 –   4.50
       [{ scene: YinYangShot, span: 17.5 }, crossfade(0.5)], //  4.00 –  21.50 (dive)
-      [{ scene: Web2Shot, span: 10.75 }, crossfade(0.5)], //   21.00 –  31.75
+      [{ scene: Web2Shot, span: 12 }, crossfade(1.75, DIVE_FADE)], // 19.75 – 31.75
       [{ scene: Shot06Web3WordDream, span: 16 }, crossfade(1)], // 30.75 – 46.75
       [{ scene: ClarityShot, span: 16.5 }, crossfade(1.75)], // 45.00 –  61.50
       { scene: Shot09QuoteDream, span: 17.25 }, //          61.50 –  78.75

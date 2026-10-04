@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test"
 import { Dream } from "../src/dream"
 import { DreamSong } from "../src/song"
 import { Group, Circle } from "../src/parts/primitives"
-import { slide, smooth } from "../src/transitions"
+import { crossfade, slide, smooth } from "../src/transitions"
 import { c4dEaseWith } from "../src/timeline"
 
 /**
@@ -132,5 +132,19 @@ describe("slide", () => {
     const forward = (s.applyAt(1.25), b.dot.y.value)
     s.applyAt(1.9)
     expect((s.applyAt(1.25), b.dot.y.value)).toBe(forward)
+  })
+
+  test("a crossfade with its own curve fades on it; without one it stays linear", () => {
+    const plain = new DreamSong([SceneA, [SceneB, crossfade(1)]])
+    plain.applyAt(1.25)
+    expect((plain.chapters[0]!.dream as SceneA).dot.opacity.value).toBeCloseTo(0.75, 6)
+    const fade = { smoothing: { left: 0.85, right: 0 }, screen: true }
+    expect(crossfade(1, fade)).toEqual({ kind: "crossfade", duration: 1, fade })
+    const s = new DreamSong([SceneA, [SceneB, crossfade(1, fade)]])
+    s.applyAt(1.25)
+    const e = c4dEaseWith(0.25, 0.85, 0)
+    const decode = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    expect((s.chapters[0]!.dream as SceneA).dot.opacity.value).toBeCloseTo(decode(1 - e), 6)
+    expect((s.chapters[1]!.dream as SceneB).dot.opacity.value).toBeCloseTo(decode(e), 6)
   })
 })
