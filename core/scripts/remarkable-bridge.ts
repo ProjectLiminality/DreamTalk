@@ -45,14 +45,12 @@
  * parallel. Open a blank notebook page, write, and the tablet feels exactly
  * like the tablet; the Mac receives every sample and builds the scene.
  *
- * The cost of that choice, stated up front: the tablet shows xochitl's ink,
- * not DreamTalk's scene — selections, options and symbols appear on the Mac.
- * David's pen is a third-party EMR pen whose side button xochitl ignores
- * entirely (corrected 2026-10-03: an earlier version of this note said it was
- * xochitl's eraser — it is not). So the button is free for DreamTalk, but a
- * lasso drawn with it held is also laid down as ordinary ink in the notebook.
- * Owning the screen — rendering DreamTalk onto the e-ink — is the next step,
- * and this protocol doesn't change when it comes.
+ * THE TABLET'S OWN SCREEN. With dreamtalk-pad open in AppLoad
+ * (tablet/dreamtalk-pad), the tablet shows the whiteboard page itself: the
+ * bridge also carries the page's display list there (below, "the tablet's
+ * screen"), and AppLoad's window takes the pen, so no notebook is inked.
+ * Without it, the tablet shows xochitl's notebook and the reading above
+ * still works — the pen is the same pen either way.
  *
  * THE WIRE FORMAT
  *
