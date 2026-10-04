@@ -401,7 +401,9 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
       `[recognize] ${((performance.now() - started) / 1000).toFixed(2)}s${opts.speculative ? " (ahead)" : ""} · ` +
         stages.map((s) => `${s.name} ${s.ms}ms${s.note ? ` (${s.note})` : ""}`).join(" → ") +
         " → " +
-        (res.candidates.map((c) => `${c.symbol} ${c.confidence}`).join(", ") || res.error || "nothing") +
+        (res.candidates.map((c) => `${c.symbol} ${c.confidence}`).join(", ") ||
+          res.error ||
+          `nothing${res.notes ? ` — ${res.notes.slice(0, 160)}` : ""}`) +
         (res.fit !== undefined ? ` · fit ${res.fit.toFixed(3)}` : ""),
     )
     return res
@@ -520,6 +522,9 @@ export async function recognize(req: RecognizeRequest, options: RecognizeOptions
       const backend = `clef:${clef.model}`
       if (route.to === "replace") return done(single(clefReading!.candidates[0]!, { fit: clefReading!.fit, backend }))
       if (route.to === "ring") return done(ring(clefReading!.candidates.map((c) => ({ ...c, via: "clef", label: `clef ${c.confidence.toFixed(2)}` })), { fit: clefReading!.fit, backend }))
+      // Ahead of ✦, "none" is usually a drawing still in progress: don't wake Groq for it (✦ will).
+      if (opts.speculative && route.reason === "Clef: none")
+        return done({ candidates: [], notes: "Clef: none (read ahead; ✦ asks Groq)", backend: `clef:${clef.model}` })
       stages[stages.length - 1]!.note = `${stages[stages.length - 1]!.note ?? ""} → groq: ${route.reason}`.trim()
       if (chain.length === 0)
         return done(clefReading ? merge(clefReading, { via: "groq", candidates: [] }) : { candidates: [], error: `Clef: ${route.reason}, and no reader to ask next` })

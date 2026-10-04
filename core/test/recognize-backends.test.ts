@@ -349,6 +349,17 @@ describe("Clef (a decision model)", () => {
     expect(res.backend).toBe("clef:mock")
   })
 
+  test("Clef's 'none' ahead of ✦ (a drawing in progress) doesn't wake Groq; ✦ does", async () => {
+    const seen: VisionAsk[] = []
+    const groq = () => scripted("groq", [reply("circle", { cx: 600, cy: 500, r: 120 })], seen)
+    const ahead = await recognize(request(), { chain: [groq()], decision: deciding("none", { none: 0.3, circle: 0.2 }), speculative: true })
+    expect(seen).toHaveLength(0)
+    expect(ahead.candidates).toEqual([])
+    const pressed = await recognize(request(), { chain: [groq()], decision: deciding("none", { none: 0.3, circle: 0.2 }) })
+    expect(seen).toHaveLength(1)
+    expect(pressed.candidates[0]!.symbol).toBe("circle")
+  })
+
   test("words or a cable are not Clef's to place: the reading model takes over", async () => {
     const seen: VisionAsk[] = []
     const res = await recognize(request(), {

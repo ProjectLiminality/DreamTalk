@@ -140,6 +140,7 @@ export const groqBackend = (opts: { apiKey: string; model?: string; fetch?: Fetc
         signal: AbortSignal.timeout(q.timeoutMs ?? 30_000),
       })
       const raw = await res.text()
+      await keepRaw("groq", q.pngs, raw)
       if (!res.ok) throw new Error(`groq ${res.status}: ${raw.slice(0, 300)}`)
       const json = JSON.parse(raw) as { choices?: { message?: { content?: string } }[] }
       const text = json.choices?.[0]?.message?.content
@@ -318,6 +319,7 @@ export const clefBackend = (opts: { accountId: string; apiToken: string; model?:
         signal: AbortSignal.timeout(q.timeoutMs ?? 20_000),
       })
       const raw = await res.text()
+      await keepRaw("clef", q.pngs, raw)
       if (!res.ok) throw new Error(`clef ${res.status}: ${raw.slice(0, 300)}`)
       const json = JSON.parse(raw) as { result?: unknown; answers?: unknown }
       const out = (json.result ?? json) as { answers?: Record<string, { choice?: unknown; probabilities?: unknown; confidence?: unknown }> }
@@ -412,6 +414,23 @@ export const eyesFor = (
       }
   }
   return undefined
+}
+
+// --- Diagnosis: what the readers actually said ---------------------------------------
+
+/**
+ * RECOGNIZE_RAW=1 keeps every reader's raw reply — the response BODY only,
+ * never a header or key — and the image it was shown, under
+ * .cache/sketch/raw/ (gitignored with .cache), to see why a reading came
+ * back as it did. Off by default.
+ */
+export const keepRaw = async (backend: string, pngs: readonly string[], body: string): Promise<void> => {
+  if (!process.env.RECOGNIZE_RAW) return
+  const dir = `${cacheDir}/raw`
+  await mkdir(dir, { recursive: true })
+  const stamp = `${Date.now()}-${backend}`
+  await Bun.write(`${dir}/${stamp}.json`, body)
+  if (pngs[0]) await Bun.write(`${dir}/${stamp}.png`, Buffer.from(pngs[0], "base64"))
 }
 
 // --- The chain ------------------------------------------------------------------

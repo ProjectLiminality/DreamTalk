@@ -426,7 +426,54 @@ right, and every one settled by Clef alone.
 | cube | 577 | 0.018 |
 | MindVirus | 791 | 0.014 |
 
-## 9. Still open
+## 9. Groq's "nothing": the model declining, not a bug
+
+Twenty of 25 live Groq readings came back as "nothing". I captured raw
+replies by putting the exact production request to Groq myself:
+
+- **The ink still on the scratch board** (7–10 strokes): `flowerOfLife`,
+  0.95, with every param filled.
+- **The synthetic circle and MindVirus:** right, with full params, and a
+  16-point cable for the MindVirus.
+- **The first two strokes of a MindVirus** (a box with an eye, no tail yet):
+  `{"candidates": [], "notes": "The drawing shows a square containing a
+  circle … no symbol for a composite shape … it does not fit a single
+  vocabulary item."}`
+
+So the schema, the parse and the token cap are all fine. "Nothing" is Qwen
+following prompt rule 4 literally ("if nothing in the vocabulary fits at
+all, return an empty list"), and it does so on **unfinished drawings**.
+Read-ahead fires 300 ms after every pen-up, so most of those 20 were
+mid-drawing glances (17 of the 20 were marked `(ahead)`). Clef answers the
+same half-MindVirus with `square 0.38` and `circle 0.19`. That is exactly
+the "unsure" case, so it routes on.
+
+Fixes:
+- **Ahead of ✦, Clef's `none` no longer wakes Groq.** It's usually a drawing
+  in progress; pressing ✦ still asks Groq. This removes most of the Groq
+  calls that came back empty.
+- **The daemon log now prints Groq's notes** on an empty reading
+  (`nothing — <why>`).
+- **`RECOGNIZE_RAW=1`** keeps every reader's raw reply (the response body
+  only, never a header or key) and its image under `.cache/sketch/raw/`.
+  It is off by default.
+
+**About the 25 Clef `none` cases:** the log keeps no images and the ink is
+gone (the board is all symbols now). So I can't say what David drew; most
+were `(ahead)`, which fits the same drawing-in-progress pattern. Running
+with `RECOGNIZE_RAW=1` next session keeps the image for every `none`.
+
+**Re-measured live** (3 runs each, David's keys; "real" is the flower of
+life still on his board):
+
+| reader | circle | cylinder | cube | MindVirus | real flower (7 strokes) |
+|---|---|---|---|---|---|
+| groq | 3/3 · 897 ms | 3/3 · 1185 | 3/3 · 1164 | 3/3 · 1628 | 3/3 · 1093 |
+| clef | 3/3 · 486 | 3/3 · 319 | 3/3 · 374 | 3/3 · 1342 | 3/3 · 461 |
+| auto | 3/3 · 393 | 3/3 · 437 | 3/3 · 543 | 3/3 · 869 | 3/3 · 381 |
+
+## 10. Still open
+
 
 - **Compare on David's real sketches**, so the thresholds get tuned on
   picks rather than on log heuristics: `bun scripts/compare-summary.ts`.

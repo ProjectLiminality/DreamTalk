@@ -65573,6 +65573,27 @@ class ThreeHost {
   washedByAncestor = new Set;
   arrows = [];
   texts = [];
+  rootOf = new Map;
+  dormant;
+  asleep(holon) {
+    return this.dormant !== undefined && this.dormant.has(this.rootOf.get(holon));
+  }
+  updateDormancy() {
+    const live = this.dream.liveRoots;
+    if (!live) {
+      this.dormant = undefined;
+      return;
+    }
+    const roots = this.rootGroupMap();
+    const dormant = new Set;
+    for (const [root, group] of roots) {
+      const asleep = !live.has(root);
+      if (asleep)
+        dormant.add(root);
+      group.visible = !asleep;
+    }
+    this.dormant = dormant;
+  }
   nextFillOrder = 1;
   highlighted = new Set;
   highlightAmount = 0;
@@ -65633,7 +65654,8 @@ class ThreeHost {
     }
     return false;
   }
-  attach(holon, parent) {
+  attach(holon, parent, root = holon) {
+    this.rootOf.set(holon, root);
     const group = new Group2;
     group.matrixAutoUpdate = false;
     parent.add(group);
@@ -65644,7 +65666,7 @@ class ThreeHost {
       applied: new Float64Array(7).fill(Number.NaN)
     });
     if (holon instanceof Text) {
-      this.texts.push({ binding: attachText(holon, group), group });
+      this.texts.push({ binding: attachText(holon, group), group, holon });
     } else if (holon instanceof Cylinder) {
       const width = holon.stroke.value;
       const r2 = holon.radius.value;
@@ -65738,7 +65760,7 @@ class ThreeHost {
       }
     }
     for (const part of holon.parts)
-      this.attach(part, group);
+      this.attach(part, group, root);
   }
   beforeSync;
   async renderFrame(t2) {
@@ -65765,13 +65787,7 @@ class ThreeHost {
     const fades = this.dream.layerFades;
     if (!fades || !fades.some((f2) => f2.opacity < 1) || this.ribbonBatches.length > 0)
       return;
-    if (!this.rootGroups) {
-      this.rootGroups = new Map;
-      for (const { holon, group } of this.groups)
-        if (group.parent === this.scene)
-          this.rootGroups.set(holon, group);
-    }
-    const roots = this.rootGroups;
+    const roots = this.rootGroupMap();
     return fades.filter((f2) => f2.opacity < 1).map((f2) => ({
       objects: f2.roots.flatMap((r2) => {
         const g2 = roots.get(r2);
@@ -65781,6 +65797,15 @@ class ThreeHost {
     }));
   }
   rootGroups;
+  rootGroupMap() {
+    if (!this.rootGroups) {
+      this.rootGroups = new Map;
+      for (const { holon, group } of this.groups)
+        if (group.parent === this.scene)
+          this.rootGroups.set(holon, group);
+    }
+    return this.rootGroups;
+  }
   matricesSettled = false;
   freezeStaticMatrices() {
     const freeze = (o2) => {
@@ -65811,6 +65836,7 @@ class ThreeHost {
   frameT = Number.NaN;
   sync() {
     this.matricesSettled = false;
+    this.updateDormancy();
     for (const { group, transform: tr, applied: last } of this.groups) {
       const x2 = tr[0].value;
       const y2 = tr[1].value;
@@ -65836,6 +65862,8 @@ class ThreeHost {
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding;
+      if (this.dormant && this.asleep(holon))
+        continue;
       if (sigChanged(holon, binding.sig)) {
         const pts = polyline(holon);
         if (pts || holon instanceof Line)
@@ -65855,6 +65883,8 @@ class ThreeHost {
     }
     for (const binding of this.fills) {
       const { holon, fill } = binding;
+      if (this.dormant && this.asleep(holon))
+        continue;
       if (sigChanged(holon, binding.sig)) {
         fill.setPolygon(holon instanceof Ellipse ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value) : rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       }
@@ -65865,6 +65895,8 @@ class ThreeHost {
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding;
+      if (this.dormant && this.asleep(holon))
+        continue;
       if (sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon);
         if (washed)
@@ -65876,6 +65908,8 @@ class ThreeHost {
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding;
+      if (this.dormant && this.asleep(holon))
+        continue;
       if (drawingSigChanged(holon, binding.sig)) {
         fill.setPolygons(drawingSubpaths(holon) ?? []);
       }
@@ -65887,10 +65921,14 @@ class ThreeHost {
     if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatches.length > 0) {
       this.settleScene();
       for (const binding of this.cylinders)
-        this.syncCylinder(binding);
+        if (!this.asleep(binding.holon))
+          this.syncCylinder(binding);
       for (const binding of this.arrows)
-        this.syncArrow(binding);
-      for (const { binding, group } of this.texts) {
+        if (!this.asleep(binding.holon))
+          this.syncArrow(binding);
+      for (const { binding, group, holon } of this.texts) {
+        if (this.asleep(holon))
+          continue;
         binding.sync(1 / this.unitsPerPixelAt(group, new Vector3));
       }
       if (this.texts.length > 0)
@@ -65910,6 +65948,10 @@ class ThreeHost {
       const { ribbon, group, slot, batch: batch3 } = binding;
       if (!slot || !batch3)
         continue;
+      if (this.dormant && this.asleep(binding.holon)) {
+        batch3.hideStroke(slot);
+        continue;
+      }
       const geometry = ribbon.geometry;
       const count = geometry.instanceCount;
       if (!ribbon.mesh.visible || count < 1) {
@@ -66003,7 +66045,9 @@ class ThreeHost {
     const perspFactor = persp ? 2 * Math.tan(MathUtils.degToRad(cam.fov) / 2) / heightPx : 0;
     const orthoPerPx = cam instanceof OrthographicCamera ? (cam.top - cam.bottom) / heightPx : 0;
     const camPos = cam.position;
-    for (const { ribbon, group } of this.strokes) {
+    for (const { ribbon, group, holon } of this.strokes) {
+      if (this.dormant && this.asleep(holon))
+        continue;
       const mesh = ribbon.mesh;
       if (!mesh.visible || ribbon.boundsRadius <= 0)
         continue;
@@ -66199,7 +66243,7 @@ class ThreeHost {
     this.scene.updateMatrixWorld(true);
     let best;
     const consider = (holon, distance3, tolerance) => {
-      if (distance3 > tolerance)
+      if (distance3 > tolerance || this.asleep(holon))
         return;
       const depth3 = this.depthOf(holon);
       if (best && (best.depth > depth3 || best.depth === depth3 && best.distance <= distance3))
