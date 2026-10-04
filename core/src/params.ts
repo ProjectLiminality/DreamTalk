@@ -19,8 +19,10 @@ export type ParamKind =
   | "color"
   | "integer"
   | "bool"
+  | "text"
+  | "choice"
 
-export type ParamValue = number | boolean | Color
+export type ParamValue = number | boolean | string | Color
 
 /** Anything a part property can be fed: a literal, a Param, or a derived reading. */
 export type Source<T extends ParamValue> = T | Readable<T>
@@ -36,6 +38,14 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   readonly kind: ParamKind
   readonly min: number | undefined
   readonly max: number | undefined
+  /** A `choice` param's closed vocabulary — the only strings it may hold. */
+  readonly options: readonly string[] | undefined
+  /**
+   * Set by `asData()`: the holon field holding this param READS AS ITS
+   * VALUE through the holon (holon.ts records the field at scan). See
+   * asData below.
+   */
+  asData = false
   /** The declared default — what the param is before any timeline touches it. */
   defaultValue: T
   /** Set when the owning holon scans its fields. */
@@ -46,13 +56,22 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   #source?: Readable<T>
   #gate = 1
 
-  constructor(kind: ParamKind, value: T, min?: number, max?: number) {
+  constructor(
+    kind: ParamKind,
+    value: T,
+    min?: number,
+    max?: number,
+    options?: readonly string[],
+  ) {
     this.id = nextParamId++
     this.kind = kind
-    this.defaultValue = value
-    this.#value = value
     this.min = min
     this.max = max
+    this.options = options
+    // Only a choice validates its default here; numeric defaults stay as
+    // declared (clamping applies to what overrides and timelines write).
+    this.defaultValue = options ? this.clamp(value) : value
+    this.#value = this.defaultValue
   }
 
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
@@ -106,6 +125,13 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
       if (this.kind === "integer") out = Math.round(out)
       return out as unknown as T
     }
+    // A choice is a closed vocabulary: a string outside it is a typo in a
+    // scene file or a stale override, and saying so beats rendering it.
+    if (this.options && typeof v === "string" && !this.options.includes(v)) {
+      throw new Error(
+        `Param '${this.name ?? this.id}' is a choice of ${this.options.join(" ")} — not '${v}'`,
+      )
+    }
     return v
   }
 
@@ -118,7 +144,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   /** Animate by a relative offset (numeric params only). */
   by(dv: number, opts: AnimOpts = {}): Anim {
-    if (this.kind === "color" || this.kind === "bool") {
+    if (typeof this.defaultValue !== "number") {
       throw new Error(`Param '${this.name ?? this.id}' (${this.kind}) cannot animate .by()`)
     }
     return animOf(this.track("by", [dv as unknown as T], opts))
@@ -169,7 +195,7 @@ const animOf = (track: Track): Anim => ({ tracks: [track] })
 const scaleValue = (v: ParamValue, k: number): ParamValue => {
   if (typeof v === "number") return v * k
   if (isColor(v)) return { r: v.r * k, g: v.g * k, b: v.b * k }
-  throw new Error("cannot scale a boolean value")
+  throw new Error(`cannot scale a ${typeof v} value`)
 }
 
 /** A derived, read-only reading of one or more params. */
@@ -197,6 +223,35 @@ export const completion = (v = 0) => new Param<number>("completion", v, 0, 1)
 export const integer = (v = 0) => new Param<number>("integer", v)
 export const bool = (v = false) => new Param<boolean>("bool", v)
 export const color = (v: Color) => new Param<Color>("color", v)
+/** A free string — what a Text says, a label, a name. Steps, never blends. */
+export const text = (v = "") => new Param<string>("text", v)
+/**
+ * One of a closed set of strings — a rule picked from a vocabulary (the
+ * calculator's operator). The editor offers exactly `options`, and a value
+ * outside them is refused at construction rather than silently drawn.
+ */
+export const choice = (v: string, options: readonly string[]) =>
+  new Param<string>("choice", v, undefined, undefined, options)
+
+/**
+ * Promote construction DATA to a param without changing what its readers see.
+ *
+ * `Text.content` was a plain string field read by the renderer, the
+ * whiteboard and dozens of scenes. Declared as
+ * `content = asData(text("Text"))` it is a full Param to the holon — it
+ * registers, takes a literal, a shared Param or a derived reading at
+ * construction, animates, and the editor can override it — while
+ * `text.content` still reads as the string, because the holon's proxy
+ * hands out the param's live VALUE for a field declared this way. The
+ * Param itself is `holon.params.get("content")`.
+ *
+ * The cast is the point, and the one place it lives: the field's static
+ * type is what every reader receives.
+ */
+export const asData = <T extends ParamValue>(param: Param<T>): T => {
+  param.asData = true
+  return param as unknown as T
+}
 
 // --- States: discrete relational configurations ---
 

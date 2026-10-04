@@ -53,6 +53,12 @@ interface Internals {
   settled: boolean
   /** The public identity (the proxy) — used for parent links. */
   self?: Holon
+  /**
+   * Fields declared with `asData()` (params.ts): the proxy reads them as
+   * the param's live value. Recorded from the DECLARED param at scan, so a
+   * Param passed at construction (a shared binding) inherits the reading.
+   */
+  dataFields: Set<string>
 }
 
 const INTERNALS = new WeakMap<object, Internals>()
@@ -75,6 +81,7 @@ const scan = (target: Holon): void => {
     if (value instanceof Param) {
       const known = int.params.get(name)
       if (known === (value as Param<ParamValue>)) continue
+      if (value.asData && !known) int.dataFields.add(name)
       if (int.overrides.has(name)) {
         const o = int.overrides.get(name)
         int.overrides.delete(name)
@@ -169,15 +176,35 @@ export class Holon {
       scannedKeys: -1,
       composed: false,
       settled: false,
+      dataFields: new Set(),
     }
     INTERNALS.set(this, internals)
     const proxy = new Proxy(this, {
       get(target, prop, receiver) {
         // Settled holons skip the scan entirely — no Object.keys per read.
         if (typeof prop === "string" && !internals.settled) scan(target)
-        return Reflect.get(target, prop, receiver)
+        const value = Reflect.get(target, prop, receiver)
+        // An asData field reads as what it says (params.ts asData).
+        return internals.dataFields.size > 0 &&
+          value instanceof Param &&
+          internals.dataFields.has(prop as string)
+          ? value.value
+          : value
       },
       set(target, prop, value, receiver) {
+        // Writing a plain value to an asData field writes the param, never
+        // replaces it — the field stays a param for the timeline and editor.
+        // (Scan first: the write may be the first touch since construction.)
+        if (typeof prop === "string" && !internals.settled) scan(target)
+        if (
+          typeof prop === "string" &&
+          internals.dataFields.has(prop) &&
+          !(value instanceof Param)
+        ) {
+          const param = Reflect.get(target, prop) as Param<ParamValue>
+          param.value = param.clamp(value as ParamValue)
+          return true
+        }
         if (
           internals.settled &&
           typeof prop === "string" &&

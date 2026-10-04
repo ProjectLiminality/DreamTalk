@@ -29,7 +29,7 @@
  */
 
 import { Holon } from "../holon"
-import { color, completion, length, type Param, type ParamValue } from "../params"
+import { asData, color, completion, length, text, type Param, type ParamValue } from "../params"
 import { WHITE } from "../constants"
 import { dominoWindows } from "./primitives"
 import type { Anim, Track } from "../anim"
@@ -115,7 +115,7 @@ const linearCreation = (param: Param<number>, values: number[]): Anim => {
 export type TextAlign = "center" | "left"
 
 /**
- * Text — content is data (like Line.points), look is params. `size` is
+ * Text — content is data that is also a param (see `content`), look is params. `size` is
  * the font size (the 2021 `height`, default 50 — "trans-perspectival");
  * `stroke` is the 2021 TEXT_THICKNESS (5), kept because the vocabulary
  * records it and an outlined variant may want it — the current glyph
@@ -126,7 +126,18 @@ export type TextAlign = "center" | "left"
  * `align` chooses the block's anchor. Both default to the 2021 look.
  */
 export class Text extends Holon {
-  content = "Text"
+  /**
+   * What it says. A string PARAM read as data (params.ts `asData`):
+   * `text.content` is the string, as it always was, but the holon holds a
+   * Param — so content can be a literal, SHARE another holon's param
+   * (`new Text({ content: calc.op })` says whatever the operator is),
+   * FOLLOW a derived reading (`content: derive(() => …)` — a result that
+   * recomputes), step on the timeline (`text.params.get("content")!.to(…)`),
+   * and be overridden from the editor. The renderer re-lays the glyphs out
+   * whenever the string it reads changes; layout is async, so the previous
+   * glyphs stay on screen until the new ones land.
+   */
+  content = asData(text("Text"))
   /**
    * The face: a font URL, or one of the renderer's aliases — `"mono"`
    * for the bundled Cousine, `"default"` for Arimo. Unset means the

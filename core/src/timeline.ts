@@ -122,7 +122,9 @@ export const smoothingFor = (
 
 const lerpValue = (a: ParamValue, b: ParamValue, u: number): ParamValue => {
   if (typeof a === "number" && typeof b === "number") return a + (b - a) * u
+  // Discrete values (a flag, a word, a chosen rule) land when the track does.
   if (typeof a === "boolean" || typeof b === "boolean") return u >= 1 ? b : a
+  if (typeof a === "string" || typeof b === "string") return u >= 1 ? b : a
   if (isColor(a) && isColor(b)) {
     return {
       r: a.r + (b.r - a.r) * u,
