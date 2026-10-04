@@ -35,10 +35,13 @@
  * root and works in world space; its rays follow the emitter and the
  * colliders wherever they move.
  *
+ * THE PING: each hit sounds the moment the front arrives at it
+ * (`soundCues()`, src/sound.ts) — derived from `cast`, `reach` and the
+ * pose, so it moves with them. Pitched by distance on a pentatonic: a near
+ * wall rings high, a far one low, and a burst sounds like a chord.
+ *
  * NOT YET (named in the transmission, no infrastructure here to hang on):
- * the collision "ping" on the audio track — the framework has narration
- * clips but no effect-driven audio — and casting from an emitter's
- * surface normals or in 3D.
+ * casting from an emitter's surface normals or in 3D.
  */
 
 import { Holon, type Overrides } from "../../src/holon"
@@ -58,6 +61,7 @@ import { worldOutlineOf } from "../../src/geometry/morph"
 import { castRay, fanAngles, shockwave, type Vec2 } from "../../src/geometry/rays"
 import { RED } from "../../src/constants"
 import type { Anim } from "../../src/anim"
+import { pentatonicPitch, type SoundCue } from "../../src/sound"
 
 /** A local point of `holon` carried to world space through its chain. */
 export const toWorld = (holon: Holon, local: Vec3Like): Vec3Like => {
@@ -193,6 +197,27 @@ export class RayCaster extends Stroke {
   /** How far the ray front has travelled. */
   private front(): number {
     return this.cast.value * this.reach.value
+  }
+
+  /**
+   * A ping per ray, the moment its front reaches its hit (src/sound.ts).
+   * Nearer hits ring higher; many rays each ping quieter, so a burst of
+   * sixteen is no louder than three.
+   */
+  soundCues(): SoundCue[] {
+    const count = Math.max(0, Math.floor(this.steps.value))
+    const gain = Math.min(1, 1.6 / Math.sqrt(Math.max(count, 1)))
+    return Array.from({ length: count }, (_, i): SoundCue => ({
+      kind: "ping",
+      sounded: () => {
+        const hit = this.hits()[i]?.hit
+        return !!hit && this.cast.value > 0 && this.front() >= hit.distance
+      },
+      voice: () => {
+        const d = this.hits()[i]?.hit?.distance ?? this.reach.value
+        return { pitch: pentatonicPitch(1 - d / Math.max(this.reach.value, 1e-9)), gain }
+      },
+    }))
   }
 
   protected override compose(): void {

@@ -9,6 +9,15 @@ import { angle, bool, length, scalar } from "./params"
 import { PI } from "./constants"
 import type { Anim } from "./anim"
 import { Narration } from "./narration"
+import {
+  creationChimes,
+  gatherCues,
+  isSounding,
+  Soundtrack,
+  type SoundEvent,
+  type SoundKind,
+  type SoundVoice,
+} from "./sound"
 
 export interface BackdropSpec {
   path: string
@@ -204,6 +213,9 @@ export abstract class Dream {
   #rootsMemo?: readonly Holon[]
   #built?: Timeline
   #narration = new Narration()
+  #sounds: SoundEvent[] = []
+  #chimes = false
+  #soundtrack?: Soundtrack
 
   /** The temporal unfolding — override this. */
   abstract unfold(): void
@@ -263,6 +275,50 @@ export abstract class Dream {
   get narration(): Narration {
     this.build()
     return this.#narration
+  }
+
+  /**
+   * An effect sound at the cursor — `say()`'s sibling for the sounds the
+   * picture makes (src/sound.ts). Never advances the cursor.
+   *
+   *     this.sound("whoosh")
+   *     this.play(Move(this.eye, { x: 600 }), 0.4)
+   */
+  sound(kind: SoundKind, voice: SoundVoice = {}): void {
+    this.#sounds.push({ time: this.#cursor, kind, pitch: voice.pitch ?? 1, gain: voice.gain ?? 1 })
+  }
+
+  /**
+   * Opt in to a soft chime as each symbol completes its draw-on. Off by
+   * default, so no existing song starts chiming on its own. Call it
+   * anywhere in `unfold()`.
+   */
+  chimes(on = true): void {
+    this.#chimes = on
+  }
+
+  /**
+   * The effect sounds: those stated with `sound()`, those the dream's holons
+   * declare (`soundCues()` — RayCaster's pings), and the creation chimes if
+   * opted in. Gathered once; a pure function of the score.
+   *
+   * Cues are found by posing the timeline (src/sound.ts `gatherCues`), which
+   * writes live param values — so every param is put back afterwards, and a
+   * host that asks for the soundtrack mid-song sees its frame undisturbed.
+   */
+  get soundtrack(): Soundtrack {
+    const timeline = this.build()
+    if (this.#soundtrack) return this.#soundtrack
+    const cues = this.roots.flatMap((r) => [...r.walk()].flatMap((h) => (isSounding(h) ? h.soundCues() : [])))
+    const events = [...this.#sounds]
+    if (this.#chimes) events.push(...creationChimes(this.#clips))
+    if (cues.length > 0) {
+      const saved = timeline.params.map((p) => p.value)
+      events.push(...gatherCues(cues, (t) => timeline.apply(t), timeline.duration))
+      timeline.params.forEach((p, i) => (p.value = saved[i]!))
+    }
+    this.#soundtrack = new Soundtrack(events)
+    return this.#soundtrack
   }
 
   /** Register the reference layer (TASTE: The Editor). One per dream. */
