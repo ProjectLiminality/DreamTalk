@@ -1,5 +1,9 @@
 /**
- * Ribbon instancing (optimization A) — the INSTANCE-DATA EQUALITY gate.
+ * Ribbon instancing (optimization A, table layout since G) — the
+ * INSTANCE-DATA EQUALITY gate. Sections 1–3 pin the oracle-side packing
+ * helpers; the RibbonBatch section pins the table design: the batch's
+ * segments ARE the oracle's local floats, each stroke's row holds the
+ * same f32 modelView the per-mesh uniform carries, plus its style.
  *
  * The per-mesh RibbonStroke path (ribbon.ts) is the byte-identity ORACLE.
  * The batch (ribbon-batch.ts) must feed the shader the SAME numbers, only
@@ -113,160 +117,129 @@ describe("packViewSegments — the transform matches the oracle's modelView", ()
   })
 })
 
-describe("RibbonBatch — packing, offsets, relocation, hiding", () => {
-  test("a two-stroke batch places each slice at its reserved offset with the right style", () => {
+describe("RibbonBatch — the per-stroke table (opt G): offsets, rows, relocation, hiding", () => {
+  /** A stroke as the host hands it to the batch: its OWN local buffers. */
+  const strokeOf = (r: RibbonStroke) => ({
+    points: r.worldPoints(),
+    positions: (r.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute).data
+      .array as Float32Array,
+    distances: (r.geometry.getAttribute("instanceDistanceStart") as THREE.InterleavedBufferAttribute)
+      .data.array as Float32Array,
+    count: r.geometry.instanceCount,
+  })
+  const posOf = (b: RibbonBatch) =>
+    (b.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute).data.array as Float32Array
+  const rowOf = (b: RibbonBatch) => b.geometry.getAttribute("instanceStroke").array as Float32Array
+  const ROW = 24 // floats per table row: 4 mv columns, style, tint
+
+  test("the segments are the oracle's own LOCAL floats, at the stroke's offset", () => {
+    const batch = new RibbonBatch(16)
+    const rA = new RibbonStroke(2)
+    rA.setPoints([v3(0, 0, 0), v3(1, 0, 0)])
+    const rB = new RibbonStroke(2)
+    rB.setPoints([v3(100, 0, 0), v3(200, 0, 5)])
+    let slotA = batch.reserve(rA.geometry.instanceCount)
+    let slotB = batch.reserve(rB.geometry.instanceCount)
+    expect(slotB.offset).toBe(slotA.offset + slotA.maxSegments)
+    const mv = new THREE.Matrix4().makeTranslation(3, 4, 5)
+    slotA = batch.writeStroke(slotA, strokeOf(rA), mv, 2, 1, 0, 1, 1, 1, 1)
+    slotB = batch.writeStroke(slotB, strokeOf(rB), mv, 2, 1, 0, 1, 1, 1, 1)
+    const own = strokeOf(rB).positions
+    const pos = posOf(batch)
+    for (let i = 0; i < slotB.count * 6; i++) expect(pos[slotB.offset * 6 + i]).toBe(own[i])
+  })
+
+  test("each stroke's row holds ITS modelView and style — no bleed", () => {
     const batch = new RibbonBatch(8)
     const rA = new RibbonStroke(4)
     rA.setPoints([v3(0, 0, 0), v3(10, 0, 0), v3(10, 10, 0)])
     const rB = new RibbonStroke(6)
     rB.setPoints([v3(0, 0, 0), v3(-5, 0, 0)])
-
-    const slotA = batch.reserve(rA.geometry.instanceCount)
-    const slotB = batch.reserve(rB.geometry.instanceCount)
-    expect(slotB.offset).toBe(slotA.offset + slotA.maxSegments)
-
-    const mv = new THREE.Matrix4() // identity — bake == local for a clean read
-    const scratch = new THREE.Vector3()
-    const packStroke = (
-      r: RibbonStroke,
-      slot: ReturnType<typeof batch.reserve>,
-      width: number,
-      drawn: number,
-      erased: number,
-      tint: [number, number, number],
-      fade: number,
-    ) => {
-      const count = r.geometry.instanceCount
-      const pos = new Float32Array(count * 6)
-      const dist = new Float32Array(count * 2)
-      const n = r.packViewSegments(mv, pos, dist, scratch)
-      return batch.writeSlot(slot, pos, dist, n, width, drawn, erased, tint[0], tint[1], tint[2], fade)
-    }
-    packStroke(rA, slotA, 4, 12, 0, [1, 0, 0], 1)
-    packStroke(rB, slotB, 6, 3, 0, [0, 0.5, 1], 0.8)
-
-    const geom = batch.geometry
-    const width = geom.getAttribute("instanceWidthPx").array as Float32Array
-    const fade = geom.getAttribute("instanceFade").array as Float32Array
-    const tint = geom.getAttribute("instanceTint").array as Float32Array
-    const drawn = geom.getAttribute("instanceDrawn").array as Float32Array
-
-    // Slice A: its own width/drawn/tint/fade at every instance in its run.
-    for (let i = slotA.offset; i < slotA.offset + slotA.count; i++) {
-      expect(width[i]!).toBe(4)
-      expect(drawn[i]!).toBe(12)
-      expect(fade[i]!).toBe(1)
-      expect(tint[i * 3]!).toBe(1)
-    }
-    // Slice B: its own values, at its own offset — no bleed from A.
-    for (let i = slotB.offset; i < slotB.offset + slotB.count; i++) {
-      expect(width[i]!).toBe(6)
-      expect(drawn[i]!).toBe(3)
-      expect(fade[i]!).toBeCloseTo(0.8, 6)
-      expect(tint[i * 3 + 2]!).toBe(1)
-    }
-    // instanceCount covers both runs.
-    expect(geom.instanceCount).toBeGreaterThanOrEqual(slotB.offset + slotB.count)
+    let slotA = batch.reserve(rA.geometry.instanceCount)
+    let slotB = batch.reserve(rB.geometry.instanceCount)
+    const mvA = new THREE.Matrix4().makeRotationZ(0.3).setPosition(1, 2, 3)
+    const mvB = new THREE.Matrix4().makeScale(2, 2, 2)
+    slotA = batch.writeStroke(slotA, strokeOf(rA), mvA, 4, 12, 0, 1, 0, 0, 1)
+    slotB = batch.writeStroke(slotB, strokeOf(rB), mvB, 6, 3, 0, 0, 0.5, 1, 0.8)
+    expect(slotA.row).not.toBe(slotB.row)
+    const t = batch.tableArray
+    // The table stores the matrix as f32 — exactly what the per-mesh uniform is.
+    for (let i = 0; i < 16; i++) expect(t[slotA.row * ROW + i]).toBe(Math.fround(mvA.elements[i]!))
+    for (let i = 0; i < 16; i++) expect(t[slotB.row * ROW + i]).toBe(Math.fround(mvB.elements[i]!))
+    expect([...t.subarray(slotA.row * ROW + 16, slotA.row * ROW + 23)]).toEqual([4, 12, 0, 1, 1, 0, 0])
+    expect(t[slotB.row * ROW + 16]).toBe(6)
+    expect(t[slotB.row * ROW + 19]).toBeCloseTo(0.8, 6)
+    // Every live instance points at its own stroke's row.
+    const rows = rowOf(batch)
+    for (let i = 0; i < slotA.count; i++) expect(rows[slotA.offset + i]).toBe(slotA.row)
+    for (let i = 0; i < slotB.count; i++) expect(rows[slotB.offset + i]).toBe(slotB.row)
   })
 
-  test("baked view positions land at the slot's own offset (a stroke packs at the right place)", () => {
-    const batch = new RibbonBatch(16)
-    const rA = new RibbonStroke(2)
-    rA.setPoints([v3(0, 0, 0), v3(1, 0, 0)])
-    const slotA = batch.reserve(rA.geometry.instanceCount)
-    const rB = new RibbonStroke(2)
-    rB.setPoints([v3(7, 8, 9), v3(7, 8, 9)]) // degenerate but non-empty count
-    // Give B a real geometry so it has segments.
-    rB.setPoints([v3(100, 0, 0), v3(200, 0, 0)])
-    const slotB = batch.reserve(rB.geometry.instanceCount)
-
-    const mv = new THREE.Matrix4()
-    const scratch = new THREE.Vector3()
-    const pack = (r: RibbonStroke, slot: ReturnType<typeof batch.reserve>) => {
-      const count = r.geometry.instanceCount
-      const pos = new Float32Array(count * 6)
-      const dist = new Float32Array(count * 2)
-      const n = r.packViewSegments(mv, pos, dist, scratch)
-      return batch.writeSlot(slot, pos, dist, n, 2, count, 0, 1, 1, 1, 1)
-    }
-    pack(rA, slotA)
-    pack(rB, slotB)
-    const posArr = (
-      batch.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute
-    ).data.array as Float32Array
-    // B's first segment start (world x = 100) sits at slotB.offset's stride.
-    const stride = 6
-    // resamplePolyline splits a 2-pt line into SUBDIVISION pieces, so B's
-    // FIRST baked start is its first point (100, 0, 0).
-    expect(posArr[slotB.offset * stride]!).toBeCloseTo(100, 3)
+  test("segments are rewritten only when the polyline changes; the row every frame", () => {
+    const batch = new RibbonBatch(256)
+    const r = new RibbonStroke(2)
+    r.setPoints([v3(0, 0, 0), v3(1, 0, 0)])
+    let slot = batch.reserve(r.geometry.instanceCount)
+    slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4(), 2, 1, 0, 1, 1, 1, 1)
+    batch.flush()
+    const posAttr = (batch.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute).data
+    posAttr.clearUpdateRanges()
+    // Same polyline, new camera: no segment upload, a new matrix in the row.
+    slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4().makeTranslation(9, 0, 0), 2, 1, 0, 1, 1, 1, 1)
+    batch.flush()
+    expect(posAttr.updateRanges.length).toBe(0)
+    expect(batch.tableArray[slot.row * ROW + 12]).toBe(9)
+    // A new polyline: its segments go up again.
+    r.setPoints([v3(0, 0, 0), v3(2, 0, 0)])
+    slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4(), 2, 1, 0, 1, 1, 1, 1)
+    batch.flush()
+    expect(posAttr.updateRanges.length).toBe(1)
   })
 
-  test("a stroke that outgrows its slot relocates to a larger run", () => {
+  test("a stroke that outgrows its run relocates; the old run points at the hidden row", () => {
     const batch = new RibbonBatch(4)
     const r = new RibbonStroke(2)
     r.setPoints([v3(0, 0, 0), v3(1, 0, 0)]) // subdivides to ~128 segments
-    // Reserve a deliberately TOO-SMALL slot (2 segments).
-    let slot = batch.reserve(2)
+    let slot = batch.reserve(2) // deliberately too small
     const oldOffset = slot.offset
-    const count = r.geometry.instanceCount
-    expect(count).toBeGreaterThan(2)
-    const pos = new Float32Array(count * 6)
-    const dist = new Float32Array(count * 2)
-    const n = r.packViewSegments(new THREE.Matrix4(), pos, dist, new THREE.Vector3())
-    slot = batch.writeSlot(slot, pos, dist, n, 2, 1, 0, 1, 1, 1, 1)
-    // The slot moved to a fresh, larger run that can hold all n segments.
-    expect(slot.maxSegments).toBeGreaterThanOrEqual(n)
+    const row = slot.row
+    slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4(), 2, 1, 0, 1, 1, 1, 1)
+    expect(slot.maxSegments).toBeGreaterThanOrEqual(r.geometry.instanceCount)
     expect(slot.offset).not.toBe(oldOffset)
-    expect(slot.count).toBe(n)
-    // The abandoned run is hidden (fade 0 at the old offset).
-    const fade = batch.geometry.getAttribute("instanceFade").array as Float32Array
-    expect(fade[oldOffset]!).toBe(0)
+    expect(slot.row).toBe(row) // same stroke, same row
+    expect(slot.count).toBe(r.geometry.instanceCount)
+    expect(rowOf(batch)[oldOffset]).toBe(0)
+    expect(rowOf(batch)[slot.offset]).toBe(row)
   })
 
-  test("hiding a slot sets every instance's fade to 0 (draws nothing)", () => {
+  test("hiding a stroke zeroes its row's fade; row 0 is always hidden", () => {
     const batch = new RibbonBatch(8)
     const r = new RibbonStroke(3)
     r.setPoints([v3(0, 0, 0), v3(10, 0, 0)])
-    const slot = batch.reserve(r.geometry.instanceCount)
-    const count = r.geometry.instanceCount
-    const pos = new Float32Array(count * 6)
-    const dist = new Float32Array(count * 2)
-    const n = r.packViewSegments(new THREE.Matrix4(), pos, dist, new THREE.Vector3())
-    batch.writeSlot(slot, pos, dist, n, 3, 1, 0, 1, 1, 1, 1)
-    const fade = batch.geometry.getAttribute("instanceFade").array as Float32Array
-    expect(fade[slot.offset]!).toBe(1)
-    batch.hideSlot(slot)
-    for (let i = 0; i < slot.maxSegments; i++) expect(fade[slot.offset + i]!).toBe(0)
-    expect(slot.count).toBe(0)
+    let slot = batch.reserve(r.geometry.instanceCount)
+    slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4(), 3, 1, 0, 1, 1, 1, 1)
+    expect(batch.tableArray[slot.row * ROW + 19]).toBe(1)
+    batch.hideStroke(slot)
+    expect(batch.tableArray[slot.row * ROW + 19]).toBe(0)
+    expect(batch.tableArray[19]).toBe(0)
   })
 
-  test("a varying-segment stroke re-packs correctly frame to frame (shrink then grow)", () => {
+  test("a breathing stroke (shrink then grow) keeps its tail on the hidden row", () => {
     const batch = new RibbonBatch(512)
     const r = new RibbonStroke(2)
-    // Frame 1: many points.
     r.setPoints(Array.from({ length: 40 }, (_, i) => v3(i * 5, 0, 0)))
-    let slot = batch.reserve(r.geometry.instanceCount + 32) // headroom
-    const write = () => {
-      const count = r.geometry.instanceCount
-      const pos = new Float32Array(count * 6)
-      const dist = new Float32Array(count * 2)
-      const n = r.packViewSegments(new THREE.Matrix4(), pos, dist, new THREE.Vector3())
-      slot = batch.writeSlot(slot, pos, dist, n, 2, count, 0, 1, 1, 1, 1)
-      return n
-    }
-    const n1 = write()
-    // Frame 2: fewer points → fewer segments; the tail must hide.
+    let slot = batch.reserve(r.geometry.instanceCount + 32)
+    const write = () => (slot = batch.writeStroke(slot, strokeOf(r), new THREE.Matrix4(), 2, 1, 0, 1, 1, 1, 1))
+    write()
+    const n1 = slot.count
     r.setPoints([v3(0, 0, 0), v3(50, 0, 0)])
-    const n2 = write()
-    const fade = batch.geometry.getAttribute("instanceFade").array as Float32Array
-    // The live count shrank; instances past the new count are hidden.
-    expect(slot.count).toBe(n2)
-    if (n2 < n1) expect(fade[slot.offset + n2]!).toBe(0)
-    // Frame 3: back to many points (within headroom) → live again.
+    write()
+    const n2 = slot.count
+    if (n2 < n1) expect(rowOf(batch)[slot.offset + n2]).toBe(0)
     r.setPoints(Array.from({ length: 40 }, (_, i) => v3(i * 5, 0, 0)))
-    const n3 = write()
-    expect(slot.count).toBe(n3)
-    expect(fade[slot.offset]!).toBe(1)
+    write()
+    expect(slot.count).toBe(n1)
+    expect(rowOf(batch)[slot.offset + n1 - 1]).toBe(slot.row)
   })
 })
 

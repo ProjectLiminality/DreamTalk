@@ -1232,14 +1232,15 @@ export class ThreeHost {
   }
 
   /**
-   * Bake every batched stroke's segments (view-space) and style into the
-   * shared batch, hiding those style()/cull left invisible. Runs only when
-   * `useInstancedRibbons` is on. Uses `group.matrixWorld` as the stroke's
-   * world matrix — the ribbon mesh has identity local transform, so this
-   * equals the mesh.matrixWorld the per-mesh path's shader would use — and
-   * composes the modelView EXACTLY as three does (matrixWorldInverse ·
-   * world, Matrix4.multiplyMatrices), so the CPU `mv · local` here is the
-   * same one multiply the per-mesh shader does on the GPU.
+   * Write every batched stroke into the shared batch (perf G): its table
+   * row each frame — the modelView and style — and its LOCAL segments only
+   * when its polyline changed; strokes style()/cull left invisible are
+   * hidden by their row. Runs only when `useInstancedRibbons` is on. The
+   * modelView is composed EXACTLY as three composes the per-mesh uniform
+   * (matrixWorldInverse · matrixWorld, Matrix4.multiplyMatrices), from
+   * `group.matrixWorld` — the ribbon mesh has identity local transform, so
+   * that is the mesh.matrixWorld the per-mesh path would use — and the
+   * shader multiplies it by the same local endpoint, on the GPU.
    */
   private packRibbonBatch(): void {
     const batch = this.ribbonBatch
@@ -1248,27 +1249,28 @@ export class ThreeHost {
     for (const binding of this.strokes) {
       const { ribbon, group, slot } = binding
       if (!slot) continue
-      const count = ribbon.geometry.instanceCount
+      const geometry = ribbon.geometry
+      const count = geometry.instanceCount
       // A stroke style()/cull hid, or an empty derived polyline, draws
-      // nothing — hide its slot (fade 0) and skip the bake.
+      // nothing — hide its row and leave its segments be.
       if (!ribbon.mesh.visible || count < 1) {
-        batch.hideSlot(slot)
+        batch.hideStroke(slot)
         continue
       }
-      // Grow the scratch buffers if this stroke is the largest yet.
-      if (this.batchPos.length < count * 6) {
-        this.batchPos = new Float32Array(count * 6)
-        this.batchDist = new Float32Array(count * 2)
-      }
       this.batchMv.multiplyMatrices(viewInverse, group.matrixWorld)
-      const n = ribbon.packViewSegments(this.batchMv, this.batchPos, this.batchDist, this.batchPoint)
       const ud = ribbon.mesh.userData
       const tint = ud[RIBBON_KEYS.tint] as THREE.Color
-      binding.slot = batch.writeSlot(
+      binding.slot = batch.writeStroke(
         slot,
-        this.batchPos,
-        this.batchDist,
-        n,
+        {
+          points: ribbon.worldPoints(),
+          positions: (geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute).data
+            .array as Float32Array,
+          distances: (geometry.getAttribute("instanceDistanceStart") as THREE.InterleavedBufferAttribute)
+            .data.array as Float32Array,
+          count,
+        },
+        this.batchMv,
         ud[RIBBON_KEYS.widthPx] as number,
         ud[RIBBON_KEYS.drawn] as number,
         ud[RIBBON_KEYS.erased] as number,
@@ -1278,6 +1280,7 @@ export class ThreeHost {
         ud[RIBBON_KEYS.fade] as number,
       )
     }
+    batch.flush()
   }
 
   /**
@@ -1339,15 +1342,10 @@ export class ThreeHost {
   /** The one batched-ribbon mesh — present only when instancing is on. */
   private ribbonBatch?: RibbonBatch
   /**
-   * Scratch for the batch pack loop: one modelView matrix, one point, and
-   * two Float32Arrays sized to a stroke's max segment capacity. Allocated
-   * once, reused every stroke every frame, so the batch path makes no
-   * per-frame garbage.
+   * Scratch for the batch pack loop: one modelView matrix, reused every
+   * stroke every frame, so the batch path makes no per-frame garbage.
    */
   private readonly batchMv = new THREE.Matrix4()
-  private readonly batchPoint = new THREE.Vector3()
-  private batchPos = new Float32Array(0)
-  private batchDist = new Float32Array(0)
 
   /**
    * ADDITIVE off-screen cull (perf #2): hide ribbon meshes that are

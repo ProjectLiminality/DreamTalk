@@ -14,42 +14,40 @@
  *
  *   per-mesh (ribbon.ts)                 batch (here)
  *   ─────────────────────────────────────────────────────────────────
- *   modelViewMatrix · instanceStart      instanceStart, ALREADY view-space
- *   modelViewMatrix · instanceEnd        instanceEnd,   ALREADY view-space
- *   userData.widthPx  (per mesh)         instanceWidthPx (per segment)
- *   userData.drawn                       instanceDrawn
- *   userData.erased                      instanceErased
- *   userData.tint                        instanceTint (vec3)
- *   userData.fade                        instanceFade
+ *   instanceStart/End (local)            instanceStart/End — the SAME
+ *                                        floats, copied from the stroke's
+ *                                        own buffers
+ *   modelViewMatrix (uniform, f32)       the stroke's row of the TABLE:
+ *                                        the same f32 matrix
+ *   modelViewMatrix · local (GPU)        mv · local (GPU) — the same line
+ *   userData.widthPx/drawn/erased/fade   the row's style vec4
+ *   userData.tint                        the row's tint vec4
  *
- * WHY VIEW-SPACE, NOT WORLD (the transform crux, Option 1 done exactly).
- * The per-mesh shader's first act is `modelViewMatrix · local`, giving a
- * VIEW-space endpoint — and every line after it (near-plane trim on
- * view-space z, projection, NDC, pixel math) is a pure function of that
- * view-space point. So if the batch stores the endpoints ALREADY in view
- * space, the shader math from the near-trim onward is CHARACTER-FOR-
- * CHARACTER the per-mesh shader.
+ * THE TABLE (optimization G, 2026-10-04). A's first build baked every
+ * segment into VIEW space on the CPU each frame (`mv · local` in f64, then
+ * an f32 store) and wrote the style into every segment — ~480k segments
+ * re-packed per frame on TheWall, because the camera moves every frame:
+ * 25–37 ms, the largest cost left in the frame. Now the segments stay
+ * LOCAL and carry only their stroke's index; what changes per frame is
+ * per STROKE — its modelView and its style — and lives in a small
+ * read-only storage table (6 vec4 a stroke). Segment buffers are written
+ * only when a stroke's polyline changes, and uploaded by range.
  *
- * The design's precision caveat is about baking WORLD positions —
- * `viewMatrix·(worldMatrix·local)` with the inner product split across
- * CPU (f64) and GPU (f32) can differ in the last ulp from the per-mesh
- * `(view·world)·local` composed as one f32 mat4. We sidestep it by
- * composing `mv = matrixWorldInverse · matrixWorld` EXACTLY as three does
- * (Matrix4.multiplyMatrices — that is literally three's own line,
- * ModelNode.js:155) and baking `mv · local`. The per-mesh path then does
- * the identical multiply, only on the GPU: three uploads that same `mv`
- * as a uniform and the shader computes `mv · local`. The only residual
- * difference is CPU-f64 `mv·local` then f32-store vs GPU-f32 `mv·local` —
- * the same ONE multiply either way, which the byte-identity gate
- * measures (instancing-result.md). If it drifts, `Math.fround` on the
- * baked components collapses the store-precision gap; measurement first.
+ * This is also CLOSER to the oracle than the bake was: the oracle's
+ * shader multiplies its f32 `modelViewMatrix` uniform — three composes it
+ * as `matrixWorldInverse · matrixWorld` in f64 (ModelNode) and uploads it
+ * as f32 — by the f32 local endpoint, on the GPU. The table holds that
+ * same f32 matrix, composed the same way, and the shader does that same
+ * multiply on those same inputs. The bake's residual (CPU f64 multiply,
+ * f32 store) is gone.
  *
- * HIDING A SEGMENT. A batch draws all `instanceCount` instances every
- * frame; there is no per-instance skip. A slot that must draw nothing
- * (a hidden stroke, an unused over-allocated tail) sets instanceFade = 0,
- * so the fragment stage returns vec4(0,0,0,0). Under MAX blending a
- * zero-alpha, zero-color contribution changes no channel — it is a true
- * no-op, byte-exact, the same as if the instance were not submitted.
+ * HIDING. A batch draws all `instanceCount` instances every frame; there
+ * is no per-instance skip. Row 0 of the table is a permanently hidden
+ * stroke (fade 0): an unused or abandoned slot's segments point at it. A
+ * stroke hidden this frame sets its own row's fade to 0. Either way the
+ * fragment stage returns vec4(0,0,0,0), and under MAX blending a zero-
+ * alpha, zero-colour contribution changes no channel — a true no-op,
+ * byte-exact, the same as if the instance were not submitted.
  */
 
 import * as THREE from "three/webgpu"
@@ -63,6 +61,9 @@ const {
   Fn,
   If,
   attribute,
+  int,
+  mat4,
+  storage,
   cameraProjectionMatrix,
   clamp,
   float,
@@ -101,8 +102,12 @@ const vFade = varyingProperty("float", "dtBatchFade")
  * view space (baked with the same modelView the per-mesh mesh would use).
  */
 export class RibbonBatchMaterial extends THREE.NodeMaterial {
-  constructor() {
+  /** The per-stroke table this material reads (see RibbonBatch). */
+  readonly table: THREE.StorageBufferAttribute
+
+  constructor(table: THREE.StorageBufferAttribute) {
     super()
+    this.table = table
     // Blend state — byte-identical to RibbonMaterial (ribbon.ts).
     this.transparent = true
     this.depthWrite = false
@@ -115,12 +120,23 @@ export class RibbonBatchMaterial extends THREE.NodeMaterial {
     this.blendSrcAlpha = THREE.OneFactor
     this.blendDstAlpha = THREE.OneFactor
 
-    // Per-instance style, in place of RibbonMaterial's userData nodes.
-    const widthPx = float(attribute("instanceWidthPx"))
-    const drawn = float(attribute("instanceDrawn"))
-    const erased = float(attribute("instanceErased"))
-    const tint = vec3(attribute("instanceTint"))
-    const fade = float(attribute("instanceFade"))
+    // The stroke's row of the table, in place of RibbonMaterial's
+    // per-mesh modelViewMatrix and userData nodes: four mv columns, then
+    // (widthPx, drawn, erased, fade), then (tint, —).
+    const rows = storage(table, "vec4", table.count).toReadOnly()
+    const row = int(attribute("instanceStroke")).mul(TABLE_VEC4)
+    const mv = mat4(
+      rows.element(row),
+      rows.element(row.add(1)),
+      rows.element(row.add(2)),
+      rows.element(row.add(3)),
+    )
+    const style = rows.element(row.add(4))
+    const widthPx = style.x
+    const drawn = style.y
+    const erased = style.z
+    const fade = style.w
+    const tint = rows.element(row.add(5)).xyz
 
     const halfWidth = (w: ReturnType<typeof float>) => w.mul(screenDPR).mul(0.5)
     // pad(): stroke half-width + AA skirt + 1px guard — ribbon.ts's pad().
@@ -128,10 +144,9 @@ export class RibbonBatchMaterial extends THREE.NodeMaterial {
 
     this.vertexNode = Fn(() => {
       const corner = attribute("position").xy
-      // ALREADY view-space (baked mv·local at pack time) — the per-mesh
-      // shader's `modelViewMatrix · local` is exactly this, done on CPU.
-      const start = vec4(vec3(attribute("instanceStart")), 1.0).toVar()
-      const end = vec4(vec3(attribute("instanceEnd")), 1.0).toVar()
+      // The per-mesh shader's own line: modelView · local, on the GPU.
+      const start = mv.mul(vec4(attribute("instanceStart"), 1.0)).toVar()
+      const end = mv.mul(vec4(attribute("instanceEnd"), 1.0)).toVar()
       const distStart = float(attribute("instanceDistanceStart")).toVar()
       const distEnd = float(attribute("instanceDistanceEnd")).toVar()
 
@@ -232,11 +247,8 @@ export class RibbonBatchMaterial extends THREE.NodeMaterial {
   }
 }
 
-/** The one batch material every RibbonBatch shares. Lazy — importing this
- *  module stays side-effect free (like sharedRibbonMaterial). */
-let shared: RibbonBatchMaterial | undefined
-export const sharedRibbonBatchMaterial = (): RibbonBatchMaterial =>
-  (shared ??= new RibbonBatchMaterial())
+/** vec4s per stroke in the table: mv columns ×4, style, tint. */
+const TABLE_VEC4 = 6
 
 /** Floats per segment in the interleaved position buffer: start xyz + end xyz. */
 const POS_STRIDE = 6
@@ -245,14 +257,27 @@ const DIST_STRIDE = 2
 
 /**
  * A stroke's reservation inside a batch: a contiguous run of instance
- * slots. `maxSegments` is the slot's capacity (over-allocated so a stroke
- * whose segment count breathes — the section curve — never has to move);
- * `count` is how many are live this frame. Slots [count, maxSegments) are
- * kept hidden (fade 0) so they draw nothing.
+ * slots and its row in the table. `maxSegments` is the run's capacity
+ * (over-allocated so a stroke whose segment count breathes — the section
+ * curve — rarely has to move); `count` is how many are live.
  */
 export interface BatchSlot {
   offset: number
   maxSegments: number
+  count: number
+  /** The stroke's row in the table (≥ 1; row 0 is the hidden stroke). */
+  row: number
+  /** The polyline last copied in — a new array means the shape changed. */
+  points?: unknown
+}
+
+/** What a stroke hands the batch each frame. */
+export interface BatchStroke {
+  /** Its polyline's identity: a new array means new geometry (ribbon.ts setPoints). */
+  points: unknown
+  /** Its own interleaved LOCAL segment buffers (stride 6 and 2) and live count. */
+  positions: ArrayLike<number>
+  distances: ArrayLike<number>
   count: number
 }
 
@@ -260,33 +285,36 @@ export interface BatchSlot {
  * One InstancedBufferGeometry holding many strokes' segments, drawn once.
  *
  * Layout mirrors RibbonStroke's per-mesh geometry exactly (the same unit
- * quad + index shared across instances, the same interleaved position and
- * distance buffers) plus the per-instance style attributes. Strokes claim
- * contiguous slices via `reserve`; each frame the host writes a stroke's
- * baked view-space segments and style into its slice with `writeSlot` and
- * hides it with `hideSlot`.
+ * quad + index shared across instances, the same interleaved local
+ * position and distance buffers) plus one per-instance stroke index; the
+ * per-stroke values live in the table. Strokes claim a run via `reserve`;
+ * each frame the host writes a stroke with `writeStroke` (its geometry
+ * only if it changed, its table row always) or hides it with `hideStroke`.
  */
 export class RibbonBatch {
   readonly mesh: THREE.Mesh
-  readonly material: RibbonBatchMaterial
+  material: RibbonBatchMaterial
   readonly geometry: THREE.InstancedBufferGeometry
   /** High-water mark of reserved slots — the buffers' capacity in segments. */
   private capacity = 0
-  /** Next free offset when reserving; slots are never freed individually,
-   *  they are hidden (this matches the corpus: strokes join at attach and
-   *  stay for the scene's life). */
+  /** Next free offset when reserving; runs are never freed, only hidden. */
   private cursor = 0
+  /** Rows handed out (row 0 is the hidden stroke). */
+  private rows = 1
+  private table: THREE.StorageBufferAttribute
 
   private posBuf!: THREE.InstancedInterleavedBuffer
   private distBuf!: THREE.InstancedInterleavedBuffer
-  private widthAttr!: THREE.InstancedBufferAttribute
-  private drawnAttr!: THREE.InstancedBufferAttribute
-  private erasedAttr!: THREE.InstancedBufferAttribute
-  private fadeAttr!: THREE.InstancedBufferAttribute
-  private tintAttr!: THREE.InstancedBufferAttribute
+  private strokeAttr!: THREE.InstancedBufferAttribute
+  /**
+   * This frame's dirty instance extent [lo, hi), uploaded as ONE range per
+   * buffer at `flush()`. Hundreds of small ranges (TheWall's ~470 moving
+   * cables) cost far more as separate writeBuffer calls than one span.
+   */
+  private dirtyLo = Infinity
+  private dirtyHi = -Infinity
 
-  constructor(initialCapacity = 256) {
-    this.material = sharedRibbonBatchMaterial()
+  constructor(initialCapacity = 256, initialRows = 64) {
     this.geometry = new THREE.InstancedBufferGeometry()
     // The unit quad, shared by every instance — identical to RibbonStroke.
     this.geometry.setAttribute(
@@ -296,31 +324,24 @@ export class RibbonBatch {
     this.geometry.setIndex([0, 2, 1, 2, 3, 1])
     this.allocate(Math.max(1, initialCapacity))
     this.geometry.instanceCount = 0
+    this.table = new THREE.StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4)
+    this.material = new RibbonBatchMaterial(this.table)
     this.mesh = new THREE.Mesh(this.geometry, this.material)
     this.mesh.frustumCulled = false
     this.mesh.visible = false
   }
 
-  /** (Re)allocate the interleaved + per-instance buffers to `segments`
-   *  capacity, preserving existing data. */
+  /** (Re)allocate the per-instance buffers to `segments`, preserving data. */
   private allocate(segments: number): void {
     const old = this.capacity
     const cap = Math.max(1, segments)
     const pos = new Float32Array(cap * POS_STRIDE)
     const dist = new Float32Array(cap * DIST_STRIDE)
-    const width = new Float32Array(cap)
-    const drawn = new Float32Array(cap)
-    const erased = new Float32Array(cap)
-    const fade = new Float32Array(cap)
-    const tint = new Float32Array(cap * 3)
+    const stroke = new Float32Array(cap) // 0 = the hidden row
     if (old > 0) {
       pos.set(this.posBuf.array as Float32Array)
       dist.set(this.distBuf.array as Float32Array)
-      width.set(this.widthAttr.array as Float32Array)
-      drawn.set(this.drawnAttr.array as Float32Array)
-      erased.set(this.erasedAttr.array as Float32Array)
-      fade.set(this.fadeAttr.array as Float32Array)
-      tint.set(this.tintAttr.array as Float32Array)
+      stroke.set(this.strokeAttr.array as Float32Array)
     }
     this.posBuf = new THREE.InstancedInterleavedBuffer(pos, POS_STRIDE, 1)
     this.geometry.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(this.posBuf, 3, 0))
@@ -334,24 +355,34 @@ export class RibbonBatch {
       "instanceDistanceEnd",
       new THREE.InterleavedBufferAttribute(this.distBuf, 1, 1),
     )
-    this.widthAttr = new THREE.InstancedBufferAttribute(width, 1)
-    this.drawnAttr = new THREE.InstancedBufferAttribute(drawn, 1)
-    this.erasedAttr = new THREE.InstancedBufferAttribute(erased, 1)
-    this.fadeAttr = new THREE.InstancedBufferAttribute(fade, 1)
-    this.tintAttr = new THREE.InstancedBufferAttribute(tint, 3)
-    this.geometry.setAttribute("instanceWidthPx", this.widthAttr)
-    this.geometry.setAttribute("instanceDrawn", this.drawnAttr)
-    this.geometry.setAttribute("instanceErased", this.erasedAttr)
-    this.geometry.setAttribute("instanceFade", this.fadeAttr)
-    this.geometry.setAttribute("instanceTint", this.tintAttr)
+    this.strokeAttr = new THREE.InstancedBufferAttribute(stroke, 1)
+    this.geometry.setAttribute("instanceStroke", this.strokeAttr)
     this.capacity = cap
   }
 
+  /** Grow the table to hold `rows`, rebuilding the material that reads it. */
+  private growTable(rows: number): void {
+    const next = new Float32Array((1 << Math.ceil(Math.log2(rows))) * TABLE_VEC4 * 4)
+    next.set(this.table.array as Float32Array)
+    this.table = new THREE.StorageBufferAttribute(next, 4)
+    this.material.dispose()
+    this.material = new RibbonBatchMaterial(this.table)
+    this.mesh.material = this.material
+  }
+
   /**
-   * Reserve a contiguous slot of `maxSegments` for a stroke, growing the
-   * buffers if needed. Returns the slot; the stroke keeps it for life.
+   * Reserve a run of `maxSegments` slots and a table row for a stroke,
+   * growing the buffers if needed. The stroke keeps the slot for life
+   * (unless it outgrows it — see writeStroke).
    */
   reserve(maxSegments: number): BatchSlot {
+    const row = this.rows++
+    if (this.rows * TABLE_VEC4 > this.table.count) this.growTable(this.rows)
+    return { ...this.reserveRun(maxSegments), row }
+  }
+
+  /** A fresh run of instance slots, all pointing at the hidden row. */
+  private reserveRun(maxSegments: number): { offset: number; maxSegments: number; count: number } {
     const cap = Math.max(1, maxSegments)
     const offset = this.cursor
     this.cursor += cap
@@ -360,41 +391,36 @@ export class RibbonBatch {
       // at attach does not reallocate once per stroke.
       this.allocate(1 << Math.ceil(Math.log2(this.cursor)))
     }
-    // A fresh slot starts hidden (fade 0) so unwritten tails draw nothing.
-    for (let i = offset; i < offset + cap; i++) this.fadeAttr.array[i] = 0
-    this.fadeAttr.needsUpdate = true
+    // A fresh run starts hidden, so unwritten tails draw nothing.
+    this.pointRun(offset, cap, 0)
     if (offset + cap > this.geometry.instanceCount) this.geometry.instanceCount = offset + cap
     this.mesh.visible = this.geometry.instanceCount > 0
     return { offset, maxSegments: cap, count: 0 }
   }
 
-  /**
-   * Grow a slot that has outgrown its reservation by RELOCATING it to a
-   * fresh, larger run at the end of the buffers (the old run is hidden and
-   * abandoned — a small permanent gap). Breathing strokes (the section
-   * curve) are few and settle, so relocation is rare; correctness first.
-   * Returns the new slot; the caller must adopt it.
-   */
-  private relocate(slot: BatchSlot, needSegments: number): BatchSlot {
-    // Hide the abandoned run so its stale segments draw nothing.
-    for (let i = 0; i < slot.maxSegments; i++) this.fadeAttr.array[slot.offset + i] = 0
-    this.fadeAttr.needsUpdate = true
-    // Round up so a breathing stroke does not relocate every frame.
-    return this.reserve(1 << Math.ceil(Math.log2(Math.max(2, needSegments))))
+  /** Point instances [offset, offset + n) at table row `row`. */
+  private pointRun(offset: number, n: number, row: number): void {
+    if (n <= 0) return
+    const arr = this.strokeAttr.array as Float32Array
+    arr.fill(row, offset, offset + n)
+    this.markDirty(offset, offset + n)
   }
 
   /**
-   * Write a stroke's live segments into its slot: baked VIEW-space
-   * endpoints + arc-length distances and its per-segment style. Any slot
-   * instances past `count` are hidden (fade 0). If `count` exceeds the
-   * slot's capacity the slot is relocated to a larger run and the NEW slot
-   * is returned; the caller MUST adopt the returned slot (it may differ).
+   * Write one stroke for this frame: its table row always (modelView +
+   * style), its segments only when its polyline changed. A stroke that
+   * outgrows its run is RELOCATED to a larger one at the end (the old run
+   * pointed at the hidden row — a small permanent gap); the caller MUST
+   * adopt the returned slot.
+   *
+   * `mv` is composed by the caller exactly as three composes the per-mesh
+   * modelViewMatrix (matrixWorldInverse · matrixWorld, Matrix4.multiply-
+   * Matrices); the table stores it as f32, which is what the uniform is.
    */
-  writeSlot(
+  writeStroke(
     slot: BatchSlot,
-    positions: Float32Array,
-    distances: Float32Array,
-    count: number,
+    stroke: BatchStroke,
+    mv: THREE.Matrix4,
     widthPx: number,
     drawn: number,
     erased: number,
@@ -403,45 +429,76 @@ export class RibbonBatch {
     tintB: number,
     fade: number,
   ): BatchSlot {
-    if (count > slot.maxSegments) slot = this.relocate(slot, count)
-    const n = Math.min(count, slot.maxSegments)
-    const posArr = this.posBuf.array as Float32Array
-    const distArr = this.distBuf.array as Float32Array
-    posArr.set(positions.subarray(0, n * POS_STRIDE), slot.offset * POS_STRIDE)
-    distArr.set(distances.subarray(0, n * DIST_STRIDE), slot.offset * DIST_STRIDE)
-    for (let i = 0; i < n; i++) {
-      const s = slot.offset + i
-      this.widthAttr.array[s] = widthPx
-      this.drawnAttr.array[s] = drawn
-      this.erasedAttr.array[s] = erased
-      this.tintAttr.array[s * 3] = tintR
-      this.tintAttr.array[s * 3 + 1] = tintG
-      this.tintAttr.array[s * 3 + 2] = tintB
-      this.fadeAttr.array[s] = fade
+    const count = stroke.count
+    if (count > slot.maxSegments) {
+      this.pointRun(slot.offset, slot.maxSegments, 0)
+      // Round up so a breathing stroke does not relocate every frame.
+      const run = this.reserveRun(1 << Math.ceil(Math.log2(Math.max(2, count))))
+      slot = { ...run, row: slot.row }
     }
-    // Hide the unused tail of the slot (segment count shrank, or a slot
-    // over-allocated for its max) — fade 0 draws nothing.
-    for (let i = n; i < slot.maxSegments; i++) this.fadeAttr.array[slot.offset + i] = 0
-    slot.count = n
-    this.markDirty()
+    if (slot.points !== stroke.points || slot.count !== count) {
+      const n = Math.min(count, slot.maxSegments)
+      const posArr = this.posBuf.array as Float32Array
+      const distArr = this.distBuf.array as Float32Array
+      for (let i = 0; i < n * POS_STRIDE; i++) posArr[slot.offset * POS_STRIDE + i] = stroke.positions[i]!
+      for (let i = 0; i < n * DIST_STRIDE; i++) distArr[slot.offset * DIST_STRIDE + i] = stroke.distances[i]!
+      this.markDirty(slot.offset, slot.offset + n)
+      // Live segments read this stroke's row; the run's tail, the hidden row.
+      if (slot.count !== n || slot.points === undefined) {
+        this.pointRun(slot.offset, n, slot.row)
+        this.pointRun(slot.offset + n, slot.maxSegments - n, 0)
+      }
+      slot.points = stroke.points
+      slot.count = n
+    }
+    const t = this.table.array as Float32Array
+    const base = slot.row * TABLE_VEC4 * 4
+    const e = mv.elements
+    for (let i = 0; i < 16; i++) t[base + i] = e[i]!
+    t[base + 16] = widthPx
+    t[base + 17] = drawn
+    t[base + 18] = erased
+    t[base + 19] = fade
+    t[base + 20] = tintR
+    t[base + 21] = tintG
+    t[base + 22] = tintB
+    this.table.needsUpdate = true
     return slot
   }
 
-  /** Hide a whole slot (a stroke gone invisible / empty this frame). */
-  hideSlot(slot: BatchSlot): void {
-    if (slot.count === 0) return
-    for (let i = 0; i < slot.maxSegments; i++) this.fadeAttr.array[slot.offset + i] = 0
-    slot.count = 0
-    this.fadeAttr.needsUpdate = true
+  private markDirty(lo: number, hi: number): void {
+    if (lo < this.dirtyLo) this.dirtyLo = lo
+    if (hi > this.dirtyHi) this.dirtyHi = hi
   }
 
-  private markDirty(): void {
+  /**
+   * Hand this frame's segment changes to the renderer as one range per
+   * buffer. Call once after every stroke is written. (Reallocation inside
+   * `allocate` uploads whole new buffers anyway.)
+   */
+  flush(): void {
+    if (this.dirtyHi <= this.dirtyLo) return
+    const lo = this.dirtyLo
+    const n = this.dirtyHi - lo
+    this.posBuf.addUpdateRange(lo * POS_STRIDE, n * POS_STRIDE)
     this.posBuf.needsUpdate = true
+    this.distBuf.addUpdateRange(lo * DIST_STRIDE, n * DIST_STRIDE)
     this.distBuf.needsUpdate = true
-    this.widthAttr.needsUpdate = true
-    this.drawnAttr.needsUpdate = true
-    this.erasedAttr.needsUpdate = true
-    this.fadeAttr.needsUpdate = true
-    this.tintAttr.needsUpdate = true
+    this.strokeAttr.addUpdateRange(lo, n)
+    this.strokeAttr.needsUpdate = true
+    this.dirtyLo = Infinity
+    this.dirtyHi = -Infinity
+  }
+
+  /** Hide a stroke this frame: its row's fade to 0, its segments untouched. */
+  hideStroke(slot: BatchSlot): void {
+    const t = this.table.array as Float32Array
+    t[slot.row * TABLE_VEC4 * 4 + 19] = 0
+    this.table.needsUpdate = true
+  }
+
+  /** The table, for the byte-identity gate to read (instancing-gate.ts). */
+  get tableArray(): Float32Array {
+    return this.table.array as Float32Array
   }
 }

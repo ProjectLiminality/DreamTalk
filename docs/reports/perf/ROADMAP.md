@@ -138,5 +138,52 @@ run, also present baseline-vs-baseline). tsc clean, 1617 tests green.
 
 | # | Optimization | Lever | Impact | Risk |
 |---|---|---|---|---|
-| G | Batch pack without the per-frame CPU bake: per-stroke modelView in a small storage/instance buffer, `mv · local` on the GPU (instancing-design Option 2), or re-bake only strokes whose group moved when the camera is still | `packRibbonBatch` ~25–37 ms on TheWall | the largest remaining frame cost | HIGH — the byte-identity argument for Option 1 (one CPU multiply = the shader's) has to be re-made for the GPU path |
+| G | Batch pack without the per-frame CPU bake: per-stroke modelView in a small storage/instance buffer, `mv · local` on the GPU (instancing-design Option 2), or re-bake only strokes whose group moved when the camera is still | `packRibbonBatch` ~25–37 ms on TheWall | the largest remaining frame cost | **DONE 2026-10-04** — see "G result" below |
 | H | Cable's view-dependent tube (`toLocal`/`tubeFrom`) per frame | ~20 ms on TheWall, grows with t | vocabulary-level, Cable only | MEDIUM — Cable is scored by the wall gauntlet |
+
+## G result (2026-10-04) — the per-stroke table
+
+**Built.** The batch's segments stay LOCAL — the very floats of each
+stroke's own per-mesh buffers, copied only when its polyline changes and
+uploaded as one coalesced range a frame — and each carries its stroke's
+row index. Per frame only a small read-only storage TABLE is rewritten: 6
+vec4 per stroke (the f32 modelView, composed exactly as three composes the
+per-mesh uniform, then width/drawn/erased/fade, then tint). The shader does
+`mv · local` on the GPU — the oracle's own line on the oracle's own inputs,
+so the bake's CPU-f64/f32-store residual is gone. Row 0 is a permanently
+hidden stroke for unused and abandoned slots.
+
+**Gate.** `instancing-gate.ts` (extractor updated for the table) over the
+full staged set A was gated on — molocheye, o01, s01, s06, o03, video01,
+thewall (425k–500k segments at 4 t), mindvirus, labyrinth, magicmove:
+instance data EQUAL everywhere, coverage 1/1 everywhere, and the PNGs
+BYTE-IDENTICAL to the oracle on every TheWall frame (A only ever reached
+coverage equality there). tsc clean in these files, 1690 tests green.
+
+**Win.** `packRibbonBatch` 25–37 ms → 1.5–2 ms per frame on TheWall.
+
+**The finding that re-frames the roadmap.** `instancing-perf.ts` and the
+2026-09 profiles timed `renderer.render`'s SELF-time, which now returns
+once work is submitted — the per-mesh oracle reads 1.7 ms there. Measured
+to GPU COMPLETION (renderFrame, then `device.queue.onSubmittedWorkDone()`,
+30-frame windows; harness floor ~1 ms on molocheye, 3–4 ms on video01),
+TheWall's real frame is:
+
+| t (s) | oracle | A (bake) | G (table) |
+|---|---|---|---|
+| 0.5 | 276 | 293 | 264 |
+| 8.33 | 242 | 229 | 190 |
+| 15.8 | 182 | 167 | 129 |
+
+So instancing never moved the real frame much, and G's gain is the CPU it
+removed (−24 to −38 ms at every t). What remains is GPU work that is
+RESOLUTION-INDEPENDENT (320×180 ≈ 1920×1080) and FALLS over t while the
+segment count rises (425k → 500k) — not fill-rate, not plain vertex count.
+
+| # | Optimization | Lever | Impact | Risk |
+|---|---|---|---|---|
+| I | Attribute TheWall's GPU time with timestamp queries (vertex vs fragment vs the batch's storage reads; what about the early, top-down frames costs more), then fix what they show | the real frame: 130–260 ms GPU on this machine | the ceiling now | measure first — nothing to change until attributed |
+
+Measuring tip: any perf claim from here on must await GPU completion;
+`scratchpad`-style probes that time `renderer.render` alone measure
+submission only.

@@ -579,6 +579,14 @@ ruling (translation + the three deleted labels from footage).
       approximation: one depth per contour, set by its narrowest place,
       so such a contour's draw-phase pen is thinner than S&T's clipped pen
       in its wider parts; the settled letter is exact.
+- [x] **Perf G — the batch's per-stroke table**: segments stay local
+      (the oracle's own floats), per-frame data is a 6-vec4-per-stroke
+      storage table; `mv · local` on the GPU like the oracle. Pack 25–37 →
+      1.5–2 ms; instancing gate EQUAL + PNG byte-identical on TheWall.
+      FINDING (reports/perf/ROADMAP.md "G result"): measured to GPU
+      completion TheWall is 130–260 ms/frame under oracle, A and G alike —
+      the old fps claims timed submission only. New item I: attribute that
+      GPU time (timestamp queries) before anything else.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

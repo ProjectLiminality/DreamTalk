@@ -6,10 +6,10 @@
  *   1. INSTANCE-DATA EQUALITY. Mount the ORACLE (per-mesh) host and the
  *      BATCH host on the same page, render the same scene at the same t,
  *      and compare the exact numbers the shader receives:
- *        - per segment: the VIEW-space start/end (oracle: modelView·local,
- *          computed here the way the shader does; batch: the baked
- *          instanceStart/End it wrote), the LOCAL distances, and the style
- *          (drawn/erased/tint/fade/width).
+ *        - per segment: the VIEW-space start/end (oracle: modelView·local;
+ *          batch: its table row's f32 modelView · its local endpoints —
+ *          both computed here the way the shader does), the LOCAL
+ *          distances, and the style (drawn/erased/tint/fade/width).
  *      Both sides are flattened into a sorted multiset of segments and
  *      compared to a tight tolerance. This is the design's primary gate.
  *
@@ -89,22 +89,28 @@ const EXTRACT = `
       }
     }
   } else {
+    // Table layout (opt G): each instance carries LOCAL endpoints and its
+    // stroke's row; the row holds that stroke's f32 modelView and style.
+    // View space = row mv · local — the multiply the shader does.
     const batch = host['ribbonBatch'];
     const g = batch.geometry;
     const n = g.instanceCount;
     const pos = g.getAttribute('instanceStart').data.array;
     const dist = g.getAttribute('instanceDistanceStart').data.array;
-    const width = g.getAttribute('instanceWidthPx').array;
-    const drawn = g.getAttribute('instanceDrawn').array;
-    const erased = g.getAttribute('instanceErased').array;
-    const fade = g.getAttribute('instanceFade').array;
-    const tint = g.getAttribute('instanceTint').array;
+    const rows = g.getAttribute('instanceStroke').array;
+    const t = batch.tableArray;
+    const mv = new THREE.Matrix4();
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
-      if (fade[i] === 0) continue;   // hidden slot — draws nothing, excluded
-      segs.push([round(pos[i*6]),round(pos[i*6+1]),round(pos[i*6+2]),
-                 round(pos[i*6+3]),round(pos[i*6+4]),round(pos[i*6+5]),
-                 round(dist[i*2]),round(dist[i*2+1]),round(width[i]),round(drawn[i]),round(erased[i]),
-                 round(tint[i*3]),round(tint[i*3+1]),round(tint[i*3+2]),round(fade[i])]);
+      const r = rows[i] * 24;
+      const fade = t[r + 19];
+      if (fade === 0) continue;   // hidden — draws nothing, excluded
+      mv.fromArray(t, r);
+      a.set(pos[i*6], pos[i*6+1], pos[i*6+2]).applyMatrix4(mv);
+      b.set(pos[i*6+3], pos[i*6+4], pos[i*6+5]).applyMatrix4(mv);
+      segs.push([round(a.x),round(a.y),round(a.z),round(b.x),round(b.y),round(b.z),
+                 round(dist[i*2]),round(dist[i*2+1]),round(t[r+16]),round(t[r+17]),round(t[r+18]),
+                 round(t[r+20]),round(t[r+21]),round(t[r+22]),round(fade)]);
     }
   }
   segs.sort((p,q) => { for (let k=0;k<p.length;k++){ if(p[k]!==q[k]) return p[k]-q[k]; } return 0; });
