@@ -44,6 +44,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   #value: T
   #source?: Readable<T>
+  #gate = 1
 
   constructor(kind: ParamKind, value: T, min?: number, max?: number) {
     this.id = nextParamId++
@@ -56,7 +57,27 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
   get value(): T {
-    return this.#source ? this.#source.value : this.#value
+    const v = this.#source ? this.#source.value : this.#value
+    return this.#gate === 1 || typeof v !== "number" ? v : ((v * this.#gate) as unknown as T)
+  }
+
+  /**
+   * A multiplier over a NUMERIC param's reading, whoever produces it — the
+   * timeline, the editor, or a binding. 1 (the default) is transparent.
+   *
+   * It exists for DreamSong's visibility gate: a song hides inactive chapters
+   * and ramps crossfades by scaling every holon's opacity, and a BOUND
+   * opacity (`.follow()`, or a reading passed at construction) cannot be
+   * written. Gating the reading works the same for both, and never disturbs
+   * the value or the binding underneath — set it back to 1 and the param
+   * reads exactly what it would have.
+   */
+  get gate(): number {
+    return this.#gate
+  }
+
+  set gate(k: number) {
+    this.#gate = k
   }
 
   set value(v: T) {

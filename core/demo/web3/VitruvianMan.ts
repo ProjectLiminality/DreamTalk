@@ -57,24 +57,24 @@ import { VITRUVIAN_PATH } from "./vitruvian-path"
  * the start point changes only the phase of every coefficient, never the curve.
  * Index 355 is the crown (the topmost point of the trace).
  */
-const START_AT_HEAD = 355
-const rollToHead = <T,>(pts: readonly T[], at: number): T[] => [
+export const START_AT_HEAD = 355
+export const rollToHead = <T,>(pts: readonly T[], at: number): T[] => [
   ...pts.slice(at),
   ...pts.slice(0, at),
 ]
 
 /** Da Vinci's circle + square, measured from the frame (see header). */
-const CIRCLE_R = 314
-const CIRCLE_Y = 53 // the navel circle sits above the figure centre
-const SQUARE_SIZE = 524
-const SQUARE_Y = 2
+export const CIRCLE_R = 314
+export const CIRCLE_Y = 53 // the navel circle sits above the figure centre
+export const SQUARE_SIZE = 524
+export const SQUARE_Y = 2
 
 /**
  * How many epicycles. A handful of big circles carry the pose; the tail
  * (dropped below `minRadius` in the drawing, kept in the sum) smooths the
  * fingers and feet. 130 reads as the figure while the machine stays legible.
  */
-const TERMS = 130
+export const TERMS = 130
 
 export class VitruvianManDream extends Dream {
   // Da Vinci's two figures, drawn first, behind the trace.

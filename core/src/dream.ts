@@ -249,10 +249,11 @@ export abstract class Dream {
    *
    * Timing is estimated from the TEXT, never measured from audio, so a
    * dream's timeline is identical whether or not a voice has been
-   * synthesized — see the module header.
+   * synthesized — see the module header. `duration` overrides the estimate
+   * for a real recording of known length (narration.ts `add`).
    */
-  say(text: string, opts: { hold?: boolean; voice?: string } = {}): void {
-    const duration = this.#narration.add(text, this.#cursor, opts.voice)
+  say(text: string, opts: { hold?: boolean; voice?: string; duration?: number } = {}): void {
+    const duration = this.#narration.add(text, this.#cursor, opts.voice, opts.duration)
     if (opts.hold) this.#cursor += duration
   }
 

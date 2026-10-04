@@ -80,6 +80,13 @@ import { Web2DisintegratingDream } from "./web3/Web2Disintegrating"
 import { NodeNetworkDream } from "./web3/NodeNetwork"
 import { LightSpreadDream } from "./web3/LightSpread"
 import { YinYangDream } from "./web3/YinYang"
+import { Web3Dream } from "./web3/Web3Song"
+import { Shot01GlobeDream } from "./web3/Shot01Globe"
+import { Shot06Web3WordDream } from "./web3/Shot06Web3Word"
+import { Shot09QuoteDream } from "./web3/Shot09Quote"
+import { Shot12VitruvianDream } from "./web3/Shot12Vitruvian"
+import { Shot14CallbackDream } from "./web3/Shot14Callback"
+import { Shot15HeroDream } from "./web3/Shot15Hero"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -178,6 +185,15 @@ export const scenes: Record<string, DreamClass> = {
   // S-curve divides them into a yin-yang, and the two nodes (blue/centralised,
   // red/decentralised) counter-rotate and swap sizes. Web2 vs Web3, as one image.
   yinyang: YinYangDream,
+  // The whole Web3 video as ONE DreamSong: 17 shots, song time = video time,
+  // David's voice-over placed where the final mix has it.
+  web3: Web3Dream,
+  web3s01: Shot01GlobeDream,
+  web3s06: Shot06Web3WordDream,
+  web3s09: Shot09QuoteDream,
+  web3s12: Shot12VitruvianDream,
+  web3s14: Shot14CallbackDream,
+  web3s15: Shot15HeroDream,
   // The noosphere over the biosphere, the eye where they meet, one ring round both.
   regenaissance: RegenaissanceDream,
   // p02h: MagicMove03Dream, // p6 died before writing it

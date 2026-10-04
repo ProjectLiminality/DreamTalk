@@ -1,69 +1,91 @@
 /**
  * ClarityField — shots 7 and 8: complexity, and the clarity inside it.
  *
- * The turn of the Liminal Consulting Web3 argument. The word "Web3" bursts
- * into a vast red field of flower-of-life ringlets — thousands of them, dense
- * at the centre, fading to grey at the rim (shot 7, 43–52s). Then the field
- * dims and a blue-ringed disc of bright dots crystallises at its heart: the
- * "clarity behind complexity" (shot 8, 52–66s).
+ * The turn of the Liminal Consulting Web3 argument. The word "Web3" gives way
+ * to a vast field of flower-of-life ringlets that sweeps in from the edges of
+ * the frame and gathers into a dim red disc ringed by a loose grey halo
+ * (shot 7, 45–50s). Then a blue-ringed disc of bright dots crystallises at its
+ * heart: the "clarity behind complexity" (shot 8, 50–62s).
  *
- *   docs/reports/web3-recon.md shots 7–8. Colours measured from the frames:
- *   red core #7a2a24, grey rim #999, blue ring #2f8fe0, white dots #fff.
+ * The same field is the stage of two later shots, which is why it carries
+ * four beats rather than two (see Shot09 and Shot14):
+ *
+ *   burst   — the field gathers in and fades up (shot 7);
+ *   clarity — the blue disc of dots crystallises (shot 8);
+ *   veil    — the disc recedes and the field dims under the Vitalik quote
+ *             (shot 9), and comes back when veil returns to 0;
+ *   expand  — the disc swells to the size of the hero's red ring, its ring
+ *             turning from blue to red, while the field dissolves around it
+ *             (shot 14, the hand-off into shot 15).
+ *
+ * Each is a pure function of one number, the same shape as FourierTrace's
+ * `turn` and FlowerText's `settle`.
+ *
+ * WHAT THE FRAMES SHOW (refs/web3/frames f_00046–f_00063, f_00120–f_00130)
+ *
+ *   - the field does NOT grow out of the centre: at 45s a faint lattice
+ *     already fills the frame behind the word, and over 45–47.5s it CONTRACTS
+ *     into the disc. So `burst` brings the ringlets in from 2.2× their rest
+ *     radius as it fades them up.
+ *   - the red core is ~190px across at 1280w (≈148 units at this camera) and
+ *     DIM — a red haze of overlapping ringlets, not a bright lattice. Around it
+ *     a loose halo of grey ringlets of mixed sizes runs out to ~310px (≈242
+ *     units). The halo is irregular, not a packing: it is drawn from seeded
+ *     noise so it re-renders identically.
+ *   - the clarity ring is ~75px in radius (≈58 units), bright blue, around a
+ *     hex lattice of white dots ~13px apart.
+ *   - by 129s the ring has grown to ≈146 units and is turning red; at 130s it
+ *     IS the hero's ring (≈198 units), which is where shot 15 picks it up.
+ *
+ * An earlier version of this scene drew a 330-unit field of bright 17-unit
+ * cells and a 96-unit disc, and its two drivers were `new Null()` — creation
+ * 1 — so it opened fully formed (the campaign doc's first host trap). Both
+ * are corrected here against the frames above.
  *
  * WHY THIS IS A SCENE AND NOT A HOLON
  *
- * It is `hexPack` (already built for FlowerText) over a disc mask, plus a
- * ring and a second, tighter pack. Nothing here is a new capability — the
+ * It is `hexPack` (already built for FlowerText) over a disc mask, a seeded
+ * scatter, a ring and a second pack. Nothing here is a new capability — the
  * campaign map's test is whether the *parameterisation* is the interesting
  * thing, and here it is not: what is interesting is this particular
- * composition, which is exactly what a scene is for. Had the field been made
- * a holon, its knobs would have been "how red" and "how many" — a worse
- * FlowerText with a disc instead of letters.
+ * composition, which is exactly what a scene is for.
  *
- * THE DENSITY FALLOFF, AND WHY IT IS OPACITY AND NOT SPACING
+ * THE DENSITY FALLOFF IS OPACITY, NOT SPACING
  *
- * The reference field is DENSEST AT THE CENTRE and thins to a grey halo. A
- * hex pack is uniform by construction, so the gradient has to come from
- * somewhere. Two options: vary the spacing radially (a genuinely non-uniform
- * pack), or pack uniformly and fade the ringlets outward.
- *
- * Fading wins, and not only because it is simpler. A radially-varying pack
- * destroys the flower-of-life lattice — the thing the whole motif is ABOUT —
- * because the lattice only exists when every circle is the same distance from
- * its neighbours. The reference keeps its lattice visible right to the rim;
- * it is the brightness that falls away, not the geometry. So: uniform pack,
- * radial opacity and tint.
- *
- * ONE PARAM PER BEAT
- *
- * `burst` grows the field from nothing; `clarity` brings the inner disc in
- * and dims the field around it. Each is a pure function of one number, the
- * same shape as FourierTrace's `turn` and FlowerText's `settle`.
+ * A radially-varying pack destroys the flower-of-life lattice — the thing the
+ * whole motif is ABOUT — because the lattice only exists when every circle is
+ * the same distance from its neighbours. So the core is a uniform pack whose
+ * brightness falls away, and the halo is a separate scatter.
  */
 
 import { Dream } from "../../src/index"
 import { Circle, Group, Null } from "../../src/parts/primitives"
-import { hexPack, type Vec2 } from "../../src/geometry/flower"
-import { rgb } from "../../src/constants"
+import { hashUnit, hexPack, type Vec2 } from "../../src/geometry/flower"
+import { rgb, type Color } from "../../src/constants"
 
 /**
- * Measured from the reference frames (recon shots 7–8) — and then two of them
- * DELIBERATELY DEPARTED FROM, for the reason below.
- *
- * The measured core colour is #7a2a24 — but that is the colour of the FIELD
- * as photographed, after the original's bloom and compositing flattened it.
- * Drawn literally at these stroke widths it reads as near-black. The ringlet
- * INK has to be brighter than the field it averages to, which is why this is
- * lifted rather than copied.
+ * Measured from the reference frames, then the red DELIBERATELY lifted: the
+ * measured #7a2a24 is the field as photographed — thin ink averaged over
+ * black after the original's bloom. Drawn literally as ink it reads
+ * near-black, so the ink is brighter than the field it averages to.
  */
 const RED_CORE = rgb(0xc4, 0x46, 0x3a)
-const RIM_GREY = rgb(0x6e, 0x6e, 0x72)
+const RIM_GREY = rgb(0x9a, 0x96, 0x96)
 const CLARITY_BLUE = rgb(0x2f, 0x8f, 0xe0)
+/** The hero ring's red (shot 15) — where `expand` takes the clarity ring. */
+const HERO_RED = rgb(0xe0, 0x50, 0x40)
 const DOT_WHITE = rgb(0xff, 0xff, 0xff)
 
-/** The complexity field's reach, and the clarity disc's. */
-const FIELD_RADIUS = 330
-const CLARITY_RADIUS = 96
+/** The red core's reach and the halo's, in scene units (see header). */
+const CORE_RADIUS = 150
+const HALO_INNER = 135
+const HALO_OUTER = 260
+const HALO_COUNT = 1300
+/** The clarity disc at rest, and where `expand` takes it — the hero's ring. */
+export const CLARITY_RADIUS = 58
+export const HERO_RING_RADIUS = 198
+/** How far out the ringlets start before `burst` gathers them. */
+const GATHER_FROM = 2.2
 
 /** A disc as a polygon, for hexPack's mask. */
 const disc = (radius: number, segments = 96): Vec2[] =>
@@ -72,109 +94,151 @@ const disc = (radius: number, segments = 96): Vec2[] =>
     return { x: Math.cos(a) * radius, y: Math.sin(a) * radius }
   })
 
-/** Linear blend between two colours — the rim fade. */
-const mix = (a: { r: number; g: number; b: number }, b: typeof a, u: number) => ({
+/** Linear blend between two colours. Components directly — never back through rgb(). */
+const mix = (a: Color, b: Color, u: number): Color => ({
   r: a.r + (b.r - a.r) * u,
   g: a.g + (b.g - a.g) * u,
   b: a.b + (b.b - a.b) * u,
 })
 
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+const smooth = (u: number) => {
+  const v = clamp01(u)
+  return v * v * (3 - 2 * v)
+}
+
 export class ClarityFieldDream extends Dream {
-  /** Shot 7: the field bursts outward. */
-  burst = new Null()
-  /** Shot 8: the clarity disc crystallises and the field dims around it. */
-  clarity = new Null()
+  /** Shot 7: the field gathers in. Drivers start at 0 — never `new Null()`. */
+  burst = new Null({ creation: 0 })
+  /** Shot 8: the clarity disc crystallises. */
+  clarity = new Null({ creation: 0 })
+  /** Shot 9: the disc recedes and the field dims under the quote. */
+  veil = new Null({ creation: 0 })
+  /** Shot 14: the disc swells into the hero's ring; the field dissolves. */
+  expand = new Null({ creation: 0 })
 
   field!: Group
   inner!: Group
   ring!: Circle
 
-  private root = new Null()
+  protected root = new Null()
 
   constructor() {
     super()
-    // --- the complexity field -----------------------------------------
-    // Uniform flower-of-life pack over the whole disc; the falloff is in
-    // opacity and tint, never in spacing (see the header).
-    const centres = hexPack([disc(FIELD_RADIUS)], { spacing: 17 })
-    const rings = centres.map((c) => {
-      const d = Math.hypot(c.x, c.y) / FIELD_RADIUS
+    // --- the complexity field: a dim red core ------------------------------
+    // Flower-of-life spacing (radius = spacing) over a disc; brightness falls
+    // toward the edge, the lattice never does.
+    const core = hexPack([disc(CORE_RADIUS)], { spacing: 8 }).map((c) => {
+      const d = Math.hypot(c.x, c.y) / CORE_RADIUS
+      return this.ringlet(c, 8, RED_CORE, 0.14 * (1 - 0.45 * d * d), 1)
+    })
+
+    // --- the loose grey halo -----------------------------------------------
+    // Seeded, so it re-renders identically. Denser near the core, and the
+    // innermost ringlets keep a little of the red.
+    const halo = Array.from({ length: HALO_COUNT }, (_, i) => {
+      const a = hashUnit(i, 0, 31) * Math.PI * 2
+      // sqrt-free radial draw biased inward: thins out toward the rim.
+      const u = hashUnit(i, 1, 31)
+      const r = HALO_INNER + (HALO_OUTER - HALO_INNER) * u * u
+      const size = 1.3 + 3.2 * hashUnit(i, 2, 31)
+      const out = (r - HALO_INNER) / (HALO_OUTER - HALO_INNER)
+      return this.ringlet(
+        { x: Math.cos(a) * r, y: Math.sin(a) * r },
+        size,
+        mix(RED_CORE, RIM_GREY, clamp01(0.6 + out * 2.5)),
+        0.17 * (1 - out) + 0.03,
+        0.8,
+      )
+    })
+    this.field = new Group({ members: [...core, ...halo] })
+
+    // --- the clarity disc ---------------------------------------------------
+    // Dots are packed over the HERO disc so `expand` can reveal more of them
+    // as the ring swells; at rest only those inside the clarity ring show.
+    const dots = hexPack([disc(HERO_RING_RADIUS - 4)], { spacing: 8 }).map((c) => {
+      const d = Math.hypot(c.x, c.y)
       return new Circle({
-        radius: 9,
+        radius: 1.25,
         x: c.x,
         y: c.y,
-        // Red at the core, grey at the rim — the reference's halo.
-        tint: mix(RED_CORE, RIM_GREY, Math.min(1, Math.max(0, (d - 0.55) / 0.45))),
-        stroke: 1.6,
-        // Dense and bright in the middle, thin at the edge.
-        opacity: this.fieldOpacityAt(d),
+        tint: DOT_WHITE,
+        fillOpacity: 1,
+        stroke: 0.8,
+        opacity: this.discReading((on, rNow, e) => {
+          const inside = clamp01((rNow - 5 - d) / 6)
+          return on * inside * (1 - e) ** 1.5
+        }),
       })
     })
-    this.field = new Group({ members: rings })
-
-    // --- the clarity disc ---------------------------------------------
-    // A tighter pack of bright dots, inside its own blue ring. Filled,
-    // not outlined: the reference reads as DOTS against the field's
-    // ringlets, and that contrast is the point of the shot.
-    const dots = hexPack([disc(CLARITY_RADIUS - 8)], { spacing: 13 }).map(
-      (c) =>
-        new Circle({
-          radius: 2.6,
-          x: c.x,
-          y: c.y,
-          tint: DOT_WHITE,
-          fillOpacity: 1,
-          stroke: 1,
-          opacity: this.clarityOpacity,
-        }),
-    )
     this.inner = new Group({ members: dots })
     this.ring = new Circle({
-      radius: CLARITY_RADIUS,
-      tint: CLARITY_BLUE,
+      radius: this.expand.creation.map((e) => this.discRadius(e)),
+      tint: this.expand.creation.map((e) => mix(CLARITY_BLUE, HERO_RED, smooth((e - 0.45) / 0.55))),
       stroke: 3,
-      opacity: this.clarityOpacity,
+      opacity: this.discReading((on) => on),
+    })
+  }
+
+  /** The clarity ring's radius at expansion `e`. */
+  private discRadius(e: number): number {
+    return CLARITY_RADIUS + (HERO_RING_RADIUS - CLARITY_RADIUS) * smooth(e)
+  }
+
+  /**
+   * A derived opacity for the clarity disc's parts: how present the disc is
+   * (clarity in, veil out), its current radius and the expansion.
+   */
+  private discReading(f: (on: number, radius: number, e: number) => number) {
+    return this.clarity.creation.map((c) => {
+      const on = clamp01(c) * (1 - clamp01(this.veil.creation.value))
+      const e = clamp01(this.expand.creation.value)
+      return f(on, this.discRadius(e), e)
     })
   }
 
   /**
-   * A ringlet's opacity: how bright it is at rest, scaled by the burst and
-   * dimmed once clarity arrives.
-   *
-   * The dimming is what makes the shot legible — the field must recede for
-   * the disc to read as clarity rather than as one more dense patch.
+   * One ringlet of the field. Its position is gathered in by `burst` (from
+   * GATHER_FROM× out to rest), and its brightness is faded up by `burst`,
+   * dimmed by clarity and veil, and dissolved by expand.
    */
-  private fieldOpacityAt(d: number) {
-    const atRest = 1 - 0.45 * d * d
-    return this.burst.creation.map((b) =>
-      // Ringlets appear from the centre outward, so the burst reads as
-      // expansion rather than as a uniform fade-up.
-      Math.max(0, Math.min(1, (b - d * 0.45) / 0.55)) *
-      atRest *
-      (1 - 0.55 * this.clarity.creation.value),
-    )
+  private ringlet(c: Vec2, radius: number, tint: Color, rest: number, stroke: number): Circle {
+    const spread = (b: number) => 1 + (GATHER_FROM - 1) * (1 - smooth(b))
+    return new Circle({
+      radius,
+      x: this.burst.creation.map((b) => c.x * spread(b)),
+      y: this.burst.creation.map((b) => c.y * spread(b)),
+      tint,
+      stroke,
+      opacity: this.burst.creation.map((b) => {
+        const k = clamp01(b * 1.6)
+        const dim = 1 - 0.3 * clamp01(this.clarity.creation.value) - 0.45 * clamp01(this.veil.creation.value)
+        const fade = 1 - smooth((this.expand.creation.value - 0.2) / 0.8)
+        return rest * k * dim * fade
+      }),
+    })
   }
 
-  private get clarityOpacity() {
-    return this.clarity.creation.map((c) => Math.max(0, Math.min(1, c)))
-  }
-
-  unfold() {
+  protected stageField() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
     this.stage(this.root)
     this.stage(this.field)
-    this.stage(this.ring)
     this.stage(this.inner)
+    this.stage(this.ring)
+  }
 
-    // Shot 7 — the burst. Fast out of the word, then settling.
+  unfold() {
+    this.stageField()
+
+    // Shot 7 — the field gathers in out of the frame's edges, then rests.
     this.say("The word bursts into complexity.")
-    this.play(this.burst.creation.to(1), 4)
-    this.wait(1.5)
+    this.play(this.burst.creation.to(1, { easing: "easeOut" }), 2.5)
+    this.wait(2.5)
 
     // Shot 8 — the clarity inside it.
     this.say("And inside the complexity, clarity.", { hold: true })
-    this.play(this.clarity.creation.to(1), 3.5)
+    this.play(this.clarity.creation.to(1), 1.5)
     this.wait(3)
   }
 }

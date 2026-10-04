@@ -51,11 +51,12 @@ when done.
   macOS `say`; **universal voice mode** (deferred by David).
 
 ## Web3 video (Liminal Consulting)
-- 12 of 17 shots render. Open: shots 6, 9, 12, 14 from existing set-pieces;
-  sequence all 17 into one DreamSong; carry David's 14-segment voice-over.
-- Waiting on David: his photograph for shot 16; who reads the Vitalik quote;
-  whether the 3Blue1Brown soundtrack comes across.
-- Cosmetic: YinYang globes render as outlines.
+- **Assembled (2026-10-04):** `?scene=web3`, all 17 shots, 171s, David's
+  voice-over placed from the final mix (docs/campaigns/web3.md).
+- Waiting on David: his photograph for shot 16; who reads the Vitalik quote
+  (the final mix has VitalikQuote.mp3, not David's 07 take); whether the
+  3Blue1Brown soundtrack comes across.
+- Open: slide-wipe transitions; heavier-than-Manim text weight.
 
 ## Engine
 - Performance roadmap E/F; ontology builds (SDF square∩circle cylinder,

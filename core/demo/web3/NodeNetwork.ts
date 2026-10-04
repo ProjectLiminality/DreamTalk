@@ -46,6 +46,7 @@
 import { Dream } from "../../src/index"
 import { Circle, Group, Line, Null } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
+import { FadeIn } from "../../src/verbs"
 import { hashUnit } from "../../src/geometry/flower"
 import { WHITE, TAU } from "../../src/constants"
 import { Platonic } from "../../vocabulary/Platonic/Platonic"
@@ -218,8 +219,11 @@ export class NodeNetworkDream extends Dream {
     this.play(
       together(
         this.crystallise.creation.to(1),
-        // The crystals fade in as the cloud fades out.
-        ...this.crystals.map((c) => c.opacity.to(1)),
+        // The crystals fade in as the cloud fades out. FadeIn, not
+        // `c.opacity.to(1)`: opacity is per-primitive, so a Platonic's own
+        // opacity (it is a Null) hides nothing — its edges and vertices
+        // showed from t=0 until this was a deep fade.
+        ...this.crystals.map((c) => FadeIn(c)),
         // …and turn throughout, so rotation-as-a-param is visible.
         ...this.crystals.map((c) => c.spin.to(TAU * 0.55, { easing: "linear" })),
       ),

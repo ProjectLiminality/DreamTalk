@@ -47,8 +47,9 @@
  * Two pieces of documented pragmatism, both scaffolding until the
  * Dream/Holon unification delivers the clean form:
  *
- *  - HIDING: inactive chapters are hidden by forcing opacity = 0 on
- *    every holon of their trees after each apply. It must be every holon,
+ *  - HIDING: inactive chapters are hidden by gating opacity to 0
+ *    (`Param.gate`, which also reaches a bound opacity) on every holon
+ *    of their trees after each apply. It must be every holon,
  *    not just the roots, because the host reads each stroke's own
  *    opacity (there is no cascaded group opacity yet). Re-applied from
  *    the timeline-or-default on the live chapters each sample, so the
@@ -277,31 +278,34 @@ export class DreamSong extends Dream {
 
     // Visibility: the live chapters show (their driven opacity already
     // applied, undriven restored to default); every other tree is hidden.
+    // Hiding and ramping go through the opacity's GATE (params.ts), not its
+    // value: a bound opacity — a holon whose fade follows a driver — cannot
+    // be written, and the gate scales either kind of reading alike.
     const active = this.chapterAt(t)
     const fromChapter = window ? this.#chapters[window.from]! : undefined
     for (let i = 0; i < this.#chapters.length; i++) {
       const chapter = this.#chapters[i]!
       const live = chapter === active || chapter === fromChapter
       for (const holon of holons[i]!) {
-        if (!live) {
-          holon.opacity.value = 0
-        } else if (!driven.has(holon.opacity as Param<ParamValue>)) {
-          holon.opacity.value = holon.opacity.defaultValue
+        const opacity = holon.opacity
+        opacity.gate = live ? 1 : 0
+        if (live && !opacity.isBound && !driven.has(opacity as Param<ParamValue>)) {
+          opacity.value = opacity.defaultValue
         }
       }
     }
 
-    // Transition ramps, multiplied onto the freshly established opacity.
+    // Transition ramps, multiplied onto the freshly established gate.
     if (window) {
       const u = (t - window.start) / (window.end - window.start)
       if (window.kind === "crossfade") {
-        for (const holon of holons[window.from]!) holon.opacity.value *= 1 - u
-        for (const holon of holons[window.into]!) holon.opacity.value *= u
+        for (const holon of holons[window.from]!) holon.opacity.gate *= 1 - u
+        for (const holon of holons[window.into]!) holon.opacity.gate *= u
       } else {
         const out = buildOut(u)
         const into = buildIn(u)
-        for (const holon of window.outs) holon.opacity.value *= out
-        for (const holon of window.ins) holon.opacity.value *= into
+        for (const holon of window.outs) holon.opacity.gate *= out
+        for (const holon of window.ins) holon.opacity.gate *= into
       }
     }
 

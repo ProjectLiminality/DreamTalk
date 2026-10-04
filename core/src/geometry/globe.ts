@@ -87,13 +87,19 @@ export const projectLatLon = (
 }
 
 /**
- * Project a whole ring, clamping every far-face point onto the limb circle so
- * the ring stays CLOSED and its far half folds flat against the silhouette
- * (see the header's limb-clamp note). For FILLED continents.
+ * Project a whole ring for a FILL: its near-face coast as projected, and each
+ * run of far-face points replaced by the LIMB ARC between where the coast
+ * goes over the horizon and where it comes back — so the ring stays closed
+ * and its hidden part lies flat along the silhouette.
  *
- * A point already on the near face passes through. A far-face point is pushed
- * to radius `radius` along its own screen direction; if it sits exactly on the
- * axis (no screen direction), it is dropped to the pole nearest its sign.
+ * The arc taken is the SHORTER one between the two crossings. An earlier
+ * version pushed every far point out to the limb along its own screen
+ * direction, which is the same arc whenever the hidden run stays near the
+ * limb — but a run passing behind the globe near the antipode projects close
+ * to the centre, where screen direction is arbitrary, and its clamped image
+ * swept the whole limb: the Americas seen from 110°E filled the entire disc
+ * and turned the visible continents into holes (Web3 shot 1). A ring with no
+ * near-face point at all is wholly hidden and returns empty.
  */
 export const clampedRing = (
   ring: readonly number[],
@@ -101,16 +107,46 @@ export const clampedRing = (
   spin: number,
   tilt: number,
 ): Vec2[] => {
-  const out: Vec2[] = []
+  const pts: Projected[] = []
   for (let i = 0; i + 1 < ring.length; i += 2) {
-    const p = projectLatLon(ring[i]!, ring[i + 1]!, radius, spin, tilt)
+    pts.push(projectLatLon(ring[i]!, ring[i + 1]!, radius, spin, tilt))
+  }
+  const n = pts.length
+  const first = pts.findIndex((p) => p.z >= 0)
+  if (first < 0) return []
+  if (pts.every((p) => p.z >= 0)) return pts.map((p) => ({ x: p.x, y: p.y }))
+
+  /** Where the segment a→b crosses z = 0, on the limb. */
+  const crossing = (a: Projected, b: Projected): number => {
+    const t = a.z / (a.z - b.z)
+    return Math.atan2(a.y + (b.y - a.y) * t, a.x + (b.x - a.x) * t)
+  }
+  const STEP = (4 * Math.PI) / 180
+
+  const out: Vec2[] = []
+  // Walk once round the ring, starting on the near face.
+  for (let k = 0; k < n; k++) {
+    const i = (first + k) % n
+    const p = pts[i]!
     if (p.z >= 0) {
       out.push({ x: p.x, y: p.y })
-    } else {
-      const len = Math.hypot(p.x, p.y)
-      if (len < 1e-9) out.push({ x: 0, y: p.y >= 0 ? radius : -radius })
-      else out.push({ x: (p.x / len) * radius, y: (p.y / len) * radius })
+      continue
     }
+    // A hidden run starts here: find where it ends.
+    let j = i
+    while (pts[(j + 1) % n]!.z < 0) j = (j + 1) % n
+    const enter = crossing(pts[(i - 1 + n) % n]!, p)
+    const leave = crossing(pts[(j + 1) % n]!, pts[j]!)
+    let d = leave - enter
+    while (d > Math.PI) d -= 2 * Math.PI
+    while (d <= -Math.PI) d += 2 * Math.PI
+    const steps = Math.max(1, Math.ceil(Math.abs(d) / STEP))
+    for (let s = 0; s <= steps; s++) {
+      const a = enter + (d * s) / steps
+      out.push({ x: Math.cos(a) * radius, y: Math.sin(a) * radius })
+    }
+    // Skip the rest of the run.
+    k += (j - i + n) % n
   }
   return out
 }

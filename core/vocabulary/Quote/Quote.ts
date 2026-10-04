@@ -86,6 +86,27 @@ export class Quote extends Null {
   voice: string | undefined = undefined
 
   /**
+   * The faces, as Text's `font` takes them (a URL, an alias, or a system
+   * PostScript name). Unset is the renderer's default. A quotation's
+   * typography is often part of where it came from — the Web3 video's is
+   * Manim's Times, its credit Times Italic.
+   */
+  font: string | undefined = undefined
+  attributionFont: string | undefined = undefined
+
+  /**
+   * Where the credit sits under the block: indented from the left (the
+   * default), or flush with the block's RIGHT edge — Manim's
+   * `next_to(block, DOWN, aligned_edge=RIGHT)`, which is how the Web3
+   * video's own quote places it. Text only anchors left or centre, so the
+   * right placement is estimated from the credit's length, as `blockWidth`
+   * is from the longest line.
+   */
+  attributionPlacement: "indent" | "right" = "indent"
+  /** The credit's size, as a multiple of `size`. */
+  attributionScale = length(0.85)
+
+  /**
    * The quote as ONE line of narration — what a scene passes to `say()` so
    * the spoken audio sits on the same timeline as the writing.
    *
@@ -153,6 +174,7 @@ export class Quote extends Null {
         content,
         size: this.size,
         tint: this.tint,
+        font: this.font,
         align: "left",
         x: left,
         y: top - i * step,
@@ -165,15 +187,21 @@ export class Quote extends Null {
 
     const members: Text[] = [...this.lineTexts]
     if (this.attribution) {
+      const content = this.attribution.startsWith("–") ? this.attribution : `– ${this.attribution}`
+      const creditSize = size * this.attributionScale.value
       this.credit = new Text({
-        content: this.attribution.startsWith("–") ? this.attribution : `– ${this.attribution}`,
-        size: this.size.times(0.85),
+        content,
+        size: this.size.times(this.attributionScale.value),
         tint: this.attributionTint,
+        font: this.attributionFont ?? this.font,
         align: "left",
         // Sits below the last line, indented — the conventional placement,
         // and far enough down that it reads as a separate act.
         y: top - n * step - size * 0.35,
-        x: left + size * 1.2,
+        x:
+          this.attributionPlacement === "right"
+            ? left + width - content.length * creditSize * 0.42
+            : left + size * 1.2,
         creation: this.crediting,
       })
       members.push(this.credit)

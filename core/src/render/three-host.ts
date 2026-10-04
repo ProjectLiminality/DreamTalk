@@ -24,6 +24,7 @@
 import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
+import type { Param } from "../params"
 import {
   AnnularSector,
   Arc,
@@ -160,6 +161,22 @@ interface ArrowBinding {
 interface GroupBinding {
   holon: Holon
   group: THREE.Group
+  /**
+   * The holon's transform params — x, y, z, p, h, b, scale, in the order
+   * sync() has always read them (a derived reading may compute lazily on
+   * first read, so the order is kept). Captured once at attach so the
+   * per-frame loop reads each Param directly instead of through the Holon
+   * proxy's get-trap — ~41k trap calls a frame on TheWall. A built holon
+   * is settled, so these are the very Params `holon.x` etc. return.
+   */
+  transform: readonly Param<number>[]
+  /**
+   * The values last composed into `group.matrix`, NaN until the first
+   * sync. The group does not auto-update its matrix (perf E): sync()
+   * composes it only when one of these changes, so the static majority of
+   * a scene's groups costs a compare a frame, not a compose + trig.
+   */
+  applied: Float64Array
 }
 
 /**
@@ -813,6 +830,12 @@ export class ThreeHost {
    */
   private washesFillOpacity(holon: Stroke): boolean {
     if (holon.fillOpacity.value > 0) return true
+    // A BOUND fillOpacity (`.follow()`, or a derived reading passed in at
+    // construction) can rise later through any upstream track, so a zero
+    // at attach proves nothing. YinYang's globes were this: their land
+    // follows a birth driver that is 0 at attach, no track names the param
+    // itself, so no wash was ever built and the land drew as bare outline.
+    if (holon.fillOpacity.isBound) return true
     for (const clip of this.dream.clips) {
       for (const track of clip.anim.tracks) {
         if (track.param === (holon.fillOpacity as unknown as typeof track.param)) return true
@@ -823,8 +846,15 @@ export class ThreeHost {
 
   private attach(holon: Holon, parent: THREE.Object3D): void {
     const group = new THREE.Group()
+    // sync() composes the matrix itself, and only when the transform moved.
+    group.matrixAutoUpdate = false
     parent.add(group)
-    this.groups.push({ holon, group })
+    this.groups.push({
+      holon,
+      group,
+      transform: [holon.x, holon.y, holon.z, holon.p, holon.h, holon.b, holon.scale],
+      applied: new Float64Array(7).fill(Number.NaN),
+    })
 
     if (holon instanceof Text) {
       this.texts.push({ binding: attachText(holon, group), group })
@@ -986,8 +1016,36 @@ export class ThreeHost {
   private frameT = Number.NaN
 
   private sync(): void {
-    for (const { holon, group } of this.groups) {
-      group.position.set(holon.x.value, holon.y.value, holon.z.value)
+    for (const { group, transform: tr, applied: last } of this.groups) {
+      const x = tr[0]!.value
+      const y = tr[1]!.value
+      const z = tr[2]!.value
+      const p = tr[3]!.value
+      const h = tr[4]!.value
+      const b = tr[5]!.value
+      const s = tr[6]!.value
+      // Unmoved since the last compose: the matrix already IS this
+      // transform (Object.is, so a -0 or NaN reads as a change exactly
+      // when it would compose differently).
+      if (
+        Object.is(x, last[0]) &&
+        Object.is(y, last[1]) &&
+        Object.is(z, last[2]) &&
+        Object.is(p, last[3]) &&
+        Object.is(h, last[4]) &&
+        Object.is(b, last[5]) &&
+        Object.is(s, last[6])
+      ) {
+        continue
+      }
+      last[0] = x
+      last[1] = y
+      last[2] = z
+      last[3] = p
+      last[4] = h
+      last[5] = b
+      last[6] = s
+      group.position.set(x, y, z)
       // h/p/b ARE C4D's HPB triple, so they must compose the way C4D
       // composes them: M = R_H · R_P · R_B in C4D's axes, which under the
       // fixed axis dictionary (X, Y, Z)c4d → (x, z, y) reads as
@@ -995,9 +1053,9 @@ export class ThreeHost {
       // its 'XYZ' default. Single-axis poses are unaffected (which is why
       // this went unnoticed until S09 turned a rectangle about two axes
       // at once: the wrong order put its corners 43px off the reference).
-      group.rotation.set(holon.p.value, holon.h.value, holon.b.value, "ZXY")
-      const s = holon.scale.value
+      group.rotation.set(p, h, b, "ZXY")
       group.scale.set(s, s, s)
+      group.updateMatrix()
     }
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding

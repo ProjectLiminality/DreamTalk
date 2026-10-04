@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
+import { continentRings } from "../vocabulary/Globe/continents"
 import {
   clampedRing,
   frontArcs,
@@ -106,12 +107,32 @@ describe("clampedRing keeps the loop usable for a fill", () => {
     }
   })
 
-  test("a back-face point is pushed out to the limb", () => {
-    // lon 180 is on the far face; its clamp must land on the circle.
+  test("a ring wholly on the far face is hidden — no area at all", () => {
     const back = [180, 0, 170, 5, 190, -5]
-    const pts = clampedRing(back, R, 0, 0)
-    // the first vertex (lon 180, on the far face) is clamped to radius R.
-    expect(Math.hypot(pts[0]!.x, pts[0]!.y)).toBeCloseTo(R, 3)
+    expect(clampedRing(back, R, 0, 0)).toEqual([])
+  })
+
+  test("a hidden run lies ON the limb, along the shorter arc", () => {
+    const pts = clampedRing(ring, R, 0, 0.1)
+    const onLimb = pts.filter((p) => Math.abs(Math.hypot(p.x, p.y) - R) < 1e-6)
+    expect(onLimb.length).toBeGreaterThan(1)
+  })
+
+  test("no continent floods the disc when it passes behind near the antipode", () => {
+    // The Americas seen from ~110°E (Web3 shot 1): the old clamp pushed each
+    // far point out along its own screen direction, and near the antipode
+    // that direction is arbitrary — the ring's image swept the whole limb
+    // (96% of the disc) and the visible continents became holes.
+    for (const r of continentRings) {
+      const pts = clampedRing(r, R, -1.95, 0.12)
+      let area = 0
+      for (let k = 0; k < pts.length; k++) {
+        const a = pts[k]!
+        const b = pts[(k + 1) % pts.length]!
+        area += a.x * b.y - b.x * a.y
+      }
+      expect(Math.abs(area / 2)).toBeLessThan(Math.PI * R * R * 0.5)
+    }
   })
 })
 

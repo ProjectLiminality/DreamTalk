@@ -189,30 +189,85 @@ repository is David's call. The placeholder announces itself in an assembly
 rather than leaving a silent gap — when the cut is reviewed, this shot says
 what it is waiting for.
 
-## An open cosmetic gap: YinYang's globes read as outlines
+## YinYang's globes read as outlines — FIXED (2026-10-04)
 
-The reference's yin-yang globes are solid bright white land; ours draw as thin
-continent outlines. Measured: our red node is 0.5% bright pixels where the
-reference is 8.9% — an 18× gap.
+The real cause was in the host, not the scene. `ThreeHost.washesFillOpacity`
+decides ONCE, at attach, whether a Stroke ever needs a fill mesh: yes if its
+`fillOpacity` is non-zero then, or if some timeline track names that param.
+YinYang's land follows a reading — `landOpacity.follow(birth.creation…)` — so
+at attach it was 0 and no track names it (the track is on the `birth`
+driver). No wash was ever built; only the zero-width coastline strokes drew.
+GlobeDemo (constant 1) and LightSpread (a direct `landOpacity.to(1)` track)
+never hit it. Fix: a BOUND `fillOpacity` counts as "may show"
+(`src/render/three-host.ts`). Any scene that follows a fill into existence
+benefits. Verified by before/after frames of `yinyang` at t=5.
 
-What has been RULED OUT, so nobody repeats it:
-- **Not the tint or opacity.** The fill parent is `fillOpacity: 1`, `opacity: 1`,
-  tint pure white, over 21 closed rings — structurally identical to GlobeDemo.
-- **Not the scale.** GlobeDemo's hero globe at radius **52** renders 30.9%
-  bright; YinYang's at 62–80 renders 0.5%. Smaller renders *better* there, so
-  size is not the variable.
-- **Not memo invalidation.** `deriveRing`'s key is `[spin, radius, tilt]`, so a
-  `.follow()`-rebound radius does invalidate the memo, and `clampedRing` reads
-  `radius.value` live.
+## The assembly — `web3` (2026-10-04)
 
-So the geometry is right and the fill is configured right. The remaining
-suspect is compositing — something in the node group draws over the flooded
-land, or the even-odd fill of a parent whose children are rebound per-frame
-behaves differently from one built at a fixed radius. Worth a focused pass;
-the shot reads correctly without it.
+`core/demo/web3/Web3Song.ts` is the whole video as one DreamSong, **171.0s**,
+song time = video time. Its header carries the chapter table (every cut
+read off the final render at 4fps) and how the voice-over was placed. Six
+set-pieces are RETIMED there by subclass (their holons untouched, only the
+timing measured from the frames); the standalone `say(…, {hold})`
+placeholders had pushed beats seconds late (LightSpread's arcs fell past
+their cut).
 
-## Not yet done
+New shots, all compositions of what existed:
+- `web3s01` Shot01Globe — the dark globe brightening (Globe holon only).
+- `web3s06` Shot06Web3Word — FlowerTextDemo retimed: rises from below, ~2.8s settle.
+- `web3s09` Shot09Quote — ClarityField `veil` + the Quote holon, in Times.
+- `web3s12` Shot12Vitruvian — figure present from the start, pen lapping
+  every 4.5s (the final render, not the standalone demo, is the canon).
+- `web3s14` Shot14Callback — ClarityField again; `expand` swells the disc
+  into the hero's ring.
+- `web3s15` Shot15Hero — globe + flower lattice + red ring + rays + bloom at
+  the measured proportions.
 
-The 17 shots are not assembled; only set-pieces exist. Narration is available
-(a full 14-segment VO exists in `Video/Audio/`) and the `say()` scoring
-primitive now exists to carry it — but the shots must exist first.
+**Fixes found on the way (each at its own level):**
+- `ClarityField` rebuilt against the frames: its drivers were `new Null()`
+  (creation 1 — it opened fully formed), its field ~2× too large and far too
+  bright. It now has four beats (burst, clarity, veil, expand) so shots 7–9
+  and 14 are ONE scene recurring.
+- `NodeNetwork`: the four crystals showed from t=0 — `c.opacity.to(1)` on a
+  Platonic (a Null) hides nothing; now a deep `FadeIn`.
+- `YinYang`: drew ~21% too large against f_00009; camera zoom 0.82.
+- `Globe` fill (`clampedRing`): a continent passing behind near the antipode
+  had its far points clamped along arbitrary screen directions, sweeping the
+  whole limb — the Americas seen from 110°E flooded the disc and turned the
+  visible land into holes. Hidden runs are now the shorter limb arc between
+  the crossings; a wholly hidden ring is a zero-area closed sliver (an empty
+  child would switch off the whole drawing's fill). Regression test on the
+  real continent data.
+- `DreamSong` hiding now goes through `Param.gate` (a multiplier on a numeric
+  param's reading): writing a BOUND opacity throws, and ClarityField,
+  YinYang and LightSpread bind theirs — the song could not sample at all.
+- `Quote` gained `font`/`attributionFont` and a right-aligned credit (Manim's
+  `aligned_edge=RIGHT`); `Times-Roman`/`Times-Italic` added to SYSTEM_FACES
+  (extract with `bun core/scripts/system-font.ts Times-Roman Times-Italic`;
+  without the cache the text falls back to Arimo).
+
+**Voice-over.** Each of the 14 m4a takes was cross-correlated against the
+final mix chunk by chunk; the USED pieces were cut and imported under voice
+`David` (18 pieces + the quote = 19 lines). `say()` gained `duration` for a
+real recording of known length. The cut points (source seconds), so the cache
+can be rebuilt with `scripts/import-voice.ts "<text>" <cut> --voice David`
+(texts are in `WEB3_VOICEOVER`):
+
+    01 0.6–6.9   02 7.0–14.9   03 0–9.2   04 0.72–4.75 | 5.4–11.2 | 11.4–23.6
+    05 1.0–7.9   06 0.9–2.9    08 0.5–3.2 | 3.9–9.6    09 0.5–3.4 | 3.45–end
+    10 whole     11_a_universal 0–2.6 | 2.65–4.4       11_not_limited 0.9–end
+    12 1.6–end   13 whole
+
+Two takes are not in the final mix and are not placed: `07_if_the_thing`
+(the mix correlates with `VitalikQuote.mp3` at 63.3s, not with David's
+reading — this contradicts the "Who reads the quote" section above; the
+quote keeps its current voice, and the choice stays David's) and
+`14_I_would_love` (an alternate of 13's last sentence).
+
+**Not reproduced, stated rather than faked:** the zoom into the blue node at
+~21s and the slide-wipes at 106s and 145s (crossfades instead — a slide
+needs both chapters' cameras to move as one); the C4D terminator light in
+shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch
+composites every stroke above every fill — a host property); Text renders
+heavier than Manim's hairline serif; LightSpread's arcs stay closer to the
+sphere than the original's wide loops.

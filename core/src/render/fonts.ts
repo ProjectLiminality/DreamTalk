@@ -72,6 +72,10 @@ export const SYSTEM_FACES: Readonly<Record<string, string>> = {
   "HelveticaNeue-Medium": "/System/Library/Fonts/HelveticaNeue.ttc",
   "HelveticaNeue-Bold": "/System/Library/Fonts/HelveticaNeue.ttc",
   Helvetica: "/System/Library/Fonts/Helvetica.ttc",
+  // The Web3 video's Manim text (the Vitalik quote, the closing title) is
+  // set in Times; the attribution in its italic.
+  "Times-Roman": "/System/Library/Fonts/Times.ttc",
+  "Times-Italic": "/System/Library/Fonts/Times.ttc",
 }
 
 /** The collection a face comes from, or undefined if it is not ours to source. */

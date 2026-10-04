@@ -183,7 +183,7 @@ export class Globe extends Null {
       const line = new Line({ tint: this.land, stroke: scalar(0) })
       deriveRing(line, this, () => {
         const pts = clampedRing(ring, this.radius.value, this.spin.value, this.tilt.value)
-        return closeLoop(pts)
+        return closeLoop(pts) ?? hiddenLoop(this.radius.value)
       })
       parentAdd(parent, line)
     }
@@ -256,9 +256,23 @@ export class Globe extends Null {
   }
 }
 
+/**
+ * A ring that is wholly behind the globe, or too small to enclose anything,
+ * still has to be a CLOSED loop: the host fills a drawing only while every
+ * subpath is one (three-host `drawingSubpaths`), so a single empty ring
+ * would switch off the whole land. A zero-area sliver on the limb encloses
+ * nothing and keeps the drawing a drawing.
+ */
+const hiddenLoop = (radius: number): Vec3Like[] => [
+  { x: 0, y: -radius, z: 0 },
+  { x: 1e-3, y: -radius, z: 0 },
+  { x: 0, y: -radius + 1e-3, z: 0 },
+  { x: 0, y: -radius, z: 0 },
+]
+
 /** Close an open loop by repeating its first point — what a fill needs. */
-const closeLoop = (pts: { x: number; y: number }[]): Vec3Like[] => {
-  if (pts.length < 3) return []
+const closeLoop = (pts: { x: number; y: number }[]): Vec3Like[] | undefined => {
+  if (pts.length < 3) return undefined
   const out: Vec3Like[] = pts.map((p) => ({ x: p.x, y: p.y, z: 0 }))
   const a = out[0]!
   const b = out[out.length - 1]!

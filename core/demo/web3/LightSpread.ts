@@ -86,8 +86,8 @@ const TILT = 0.12
 /** Where the shot starts and ends its rotation. 0 faces the prime meridian
  *  (Africa/Europe); the frames open on the Asia face and turn TO Africa/Europe
  *  as the hotspot fires, so we start east of the meridian and turn back to it. */
-const SPIN_START = -1.15
-const SPIN_END = 0.15
+export const SPIN_START = -1.15
+export const SPIN_END = 0.15
 
 /**
  * The hotspot's location, in lon/lat degrees — the eastern Mediterranean /

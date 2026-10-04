@@ -486,7 +486,10 @@ export class YinYangDream extends Dream {
 
   unfold() {
     this.observer.look("front")
-    this.set(this.observer.zoom.to(1))
+    // 0.82, not 1: measured against f_00009 the big circle's radius is
+    // ~280px at 1280w, and at zoom 1 OUTER_R draws it at ~340px. The whole
+    // figure was built at one consistent scale, so the camera corrects it.
+    this.set(this.observer.zoom.to(0.82))
 
     // Draw order: the S-curve and outer ring under the nodes; the two globes
     // slowly turning throughout.
