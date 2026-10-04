@@ -91,6 +91,7 @@ import { Shot15HeroDream } from "./web3/Shot15Hero"
 import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { SquareCircleDream } from "./SquareCircle"
 import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
+import { RayCasterDemoDream } from "./RayCasterDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -98,6 +99,7 @@ export const scenes: Record<string, DreamClass> = {
   founding: CylinderDream,
   squarecircle: SquareCircleDream,
   geometrysketch: GeometrySketchDemoDream,
+  raycaster: RayCasterDemoDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

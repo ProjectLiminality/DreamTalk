@@ -1,4 +1,6 @@
-import { completion } from "../../src/params"
+import { completion, derive } from "../../src/params"
+import type { Overrides } from "../../src/holon"
+import { Cast, RayCaster, toWorld } from "./RayCaster"
 import { eased, together, type Anim } from "../../src/anim"
 import { ease } from "../../src/timeline"
 import { Arc, Ellipse, Line, Stroke } from "../../src/parts/primitives"
@@ -127,5 +129,31 @@ export class Eye extends Stroke {
       // one ease across both, the mirror of oneStroke().
       [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1],
     )
+  }
+
+  /**
+   * Look — cast rays from the eye at `colliders` (RayCaster.ts, the
+   * Eye's latent ability). By default three rays across the eye's own
+   * opening: its two lid lines and its gaze, the Dialectical-Thinking
+   * beat. The fan is DERIVED from the eye's live gaze and `opening`, so
+   * turn or blink the eye and the rays follow. Returns the caster for the
+   * scene to declare, and its Cast — the same contract as `.morphTo()`.
+   *
+   *     const { caster, anim } = eye.rayCast([circle])
+   */
+  rayCast(colliders: readonly Stroke[], overrides: Overrides = {}): { caster: RayCaster; anim: Anim } {
+    const gaze = () => {
+      const o = toWorld(this, { x: 0, y: 0, z: 0 })
+      const ahead = toWorld(this, { x: 1, y: 0, z: 0 })
+      return Math.atan2(ahead.y - o.y, ahead.x - o.x)
+    }
+    const half = () => (PI / 8) * this.opening.value
+    const caster = new RayCaster(this, colliders, {
+      first: derive(() => gaze() + half()),
+      last: derive(() => gaze() - half()),
+      steps: 3,
+      ...overrides,
+    })
+    return { caster, anim: Cast(caster) }
   }
 }

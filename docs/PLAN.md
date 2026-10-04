@@ -556,5 +556,13 @@ ruling (translation + the three deleted labels from footage).
       marks follow the shape live. src/geometry/angles.ts +
       vocabulary/GeometrySketch (holon, graft `.sketchGeometry()`, README,
       face) + `/demo/?scene=geometrysketch`; 15 tests.
-- [ ] Ontology builds (ONTOLOGY.md 2026-09-16): RayCaster · node-graph
-      visualisation.
+- [x] **RayCaster** — the Eye's latent ability (vocabulary/Eye/
+      RayCaster.ts, not popped out): fanned rays from any emitter in the
+      xy plane stop at colliders' outlines, an "x" marks each hit, an
+      ease-out shockwave rings out; `cast` drives all of it (pure f(t)).
+      `eye.rayCast([shape])` = the Dialectical three-ray case, fan derived
+      from the eye's live gaze/opening. src/geometry/rays.ts; 20 tests;
+      `/demo/?scene=raycaster`. MISSING, recorded: the collision audio
+      "ping" — the framework has narration clips but no effect-driven
+      audio track to drive; and emitter-normal / 3D casting ("later").
+- [ ] Node-graph visualisation (ONTOLOGY 2026-09-17).
