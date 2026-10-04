@@ -55,6 +55,12 @@ when done.
 ## Audio
 - Narration as a timeline clip is built. Open: a better narrator voice than
   macOS `say`; **universal voice mode** (deferred by David).
+- **Effect sound built (2026-10-04):** `src/sound.ts` + `src/render/sfx.ts` —
+  synthesized ping / chime / whoosh as timeline events (`this.sound()`,
+  holon `soundCues()`, opt-in `this.chimes()`); RayCaster pings wired. Open:
+  David's ear on the three sounds (levels, timbre); whether `Move` should
+  whoosh on its own above some speed; offline render (`render-song.ts`) has
+  no audio mixdown yet — neither narration nor effects.
 
 ## Web3 video (Liminal Consulting)
 - **Assembled (2026-10-04):** `?scene=web3`, all 17 shots, 171s, David's

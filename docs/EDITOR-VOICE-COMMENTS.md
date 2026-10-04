@@ -126,3 +126,30 @@ HONEST CAVEATS:
   call before relying on it for sensitive content.
 
 Step 5 (universal voice mode) remains deferred per David.
+
+## Generalised: comment mode on any element, in creator mode (2026-10-04)
+
+Creator mode's transmission: "Changes are git-tracked; Claude-artifact-style
+comment mode generalised to any element." Built on the step-1 store rather
+than beside it:
+
+- **Where.** The demo player's creator panel (`` ` `` on `/demo/?scene=…`)
+  carries the same comment block as the editor (editor/comments.ts — one
+  comment mode, two hosts). Select any holon at any t → type or dictate →
+  Attach. With nothing selected the panel lists the scene's notes; a
+  note's time is the way back to it (holon selected, t on screen).
+- **Anchor.** Stable path + class (as before), the t, the screen bounds,
+  and now the holon's field `name` and its wholes' classes (`owners`) —
+  what lets an agent find the line that makes it.
+- **Storage.** `<scene>.comments.jsonl` BESIDE the scene's DreamWeaving
+  (placed by reading demo/scenes.ts), git-tracked. Resolve/reopen are
+  appended event lines, folded on read — a note's life is only ever added
+  lines. The old gitignored core/.comments/ files are still read.
+- **Markers.** Open notes show as a small calm disc on their holon while
+  the song stands within 0.5 s of their t, in creator mode only
+  (demo/commentmarks.ts — a DOM overlay, never in the Dream). Resolve
+  removes the disc.
+- **The agent's queue.** `bun scripts/comments.ts --open [scene]` prints
+  each open note with scene, holon path, the `file:line` that declares it
+  (`opGlyph = new Text(…)` in Calculator.ts) and its class's file:line,
+  the t, and the text. `--resolve <scene> <id>` marks one worked.

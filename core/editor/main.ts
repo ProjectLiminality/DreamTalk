@@ -62,9 +62,10 @@ import {
   type HandleGeometry,
 } from "./gizmo"
 import { buildParamRow, formatValue, inspectorGroups } from "./inspector"
-import { mountComments, type CommentPanel } from "./comments"
+import { holonAnchor, mountComments, type CommentPanel } from "./comments"
 import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
+import { EffectPlayer } from "../src/render/sfx"
 import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
@@ -428,6 +429,9 @@ const boot = async (resume?: Transport) => {
   // same shape. A scene with no say() lines, or with nothing synthesized,
   // simply plays silently: see src/render/narrator.ts.
   const narrator = new Narrator(dream.narration, httpVoiceCache())
+  // Effect sounds (src/sound.ts) under the same rule: they sound only as a
+  // PLAYING playhead passes them — never on a scrub or a held frame.
+  const sfx = new EffectPlayer(dream.soundtrack, { narration: dream.narration })
 
   const syncBackdrop = (t: number, playing: boolean) => {
     if (!backdropIsVideo) return
@@ -680,6 +684,7 @@ const boot = async (resume?: Transport) => {
           return holon ? classNameOf(holon) : sceneName
         },
         currentT: () => current,
+        anchor: () => (selection.current ? holonAnchor(dream, selection.current) : {}),
         bounds: () => {
           const holon = selection.current
           const box = holon ? host.boundsOf(holon) : undefined
@@ -863,6 +868,7 @@ const boot = async (resume?: Transport) => {
     // left the old narrator holding it would stack a context per switch,
     // and browsers cap how many a page may open.
     narrator.dispose()
+    sfx.dispose()
     host.dispose()
   }
 
@@ -1630,6 +1636,7 @@ const boot = async (resume?: Transport) => {
     await host.renderFrame(t)
     syncBackdrop(t, playing)
     narrator.update(t, playing)
+    sfx.update(t, playing)
     timeline?.setPlayhead(t)
     ptransport?.sync(t, playing)
     checkpoint?.sync()
@@ -1658,6 +1665,7 @@ const boot = async (resume?: Transport) => {
     // Pausing to comment must be silent — that is the whole point of the
     // pause (docs/EDITOR-VOICE-COMMENTS.md).
     narrator.update(current, false)
+    sfx.update(current, false)
     checkpoint?.sync()
   }
 

@@ -10,8 +10,10 @@ import { scenes, defaultScene } from "./scenes"
 import { httpBakeCache } from "../src/bakecache"
 import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
+import { EffectPlayer, type FiredSound } from "../src/render/sfx"
 import { CreatorMode, isCreatorToggle } from "../editor/creator"
 import { mountCreatorPanel } from "./creatorpanel"
+import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 
@@ -91,6 +93,38 @@ const main = async () => {
   // silently — see src/render/narrator.ts.
   const narrator = new Narrator(dream.narration, httpVoiceCache())
 
+  // Effect sounds (src/sound.ts): ON by default, `m` or the label mutes,
+  // `?sound=0` starts muted. Every fired sound is logged on window.__sfx —
+  // the headless harness cannot hear, so it reads what was asked for.
+  const sfxLog: FiredSound[] = []
+  const sfx = new EffectPlayer(dream.soundtrack, {
+    narration: dream.narration,
+    onFire: (f) => sfxLog.push(f),
+  })
+  sfx.muted = query.get("sound") === "0"
+  ;(window as unknown as Record<string, unknown>).__sfx = {
+    events: dream.soundtrack.events,
+    log: sfxLog,
+    get muted() {
+      return sfx.muted
+    },
+  }
+  // The label exists only for a song that has sounds, so every silent
+  // scene's screenshots are exactly what they were.
+  let soundLabel: HTMLDivElement | undefined
+  const toggleSound = () => {
+    sfx.muted = !sfx.muted
+    if (soundLabel) soundLabel.textContent = sfx.muted ? "sound off (m)" : "sound on (m)"
+  }
+  if (!sfx.isEmpty) {
+    soundLabel = document.createElement("div")
+    soundLabel.style.cssText =
+      "position:fixed;bottom:10px;right:12px;color:#555;font:12px monospace;cursor:pointer;user-select:none"
+    soundLabel.textContent = sfx.muted ? "sound off (m)" : "sound on (m)"
+    soundLabel.addEventListener("click", toggleSound)
+    document.body.appendChild(soundLabel)
+  }
+
   // `?t=` starts the song there (the explorer's way back up; the editor's link).
   const startT = Math.max(0, Number(query.get("t")) || 0) % (duration || 1)
   let playing = true
@@ -104,6 +138,7 @@ const main = async () => {
       current = t
       await host.renderFrame(t)
       narrator.update(t, true)
+      sfx.update(t, true)
       readout.textContent = `t = ${t.toFixed(2)}s / ${duration.toFixed(2)}s`
     }
     requestAnimationFrame(frame)
@@ -147,6 +182,7 @@ const main = async () => {
           resumeOnExit = playing
           playing = false
           narrator.update(Number.NaN, false)
+          sfx.update(Number.NaN, false)
           readout.textContent = `t = ${current.toFixed(2)}s (creator mode)`
         } else {
           creator.select(null)
@@ -177,7 +213,31 @@ const main = async () => {
           t: place.alone ? Number(query.get("at")) || 0 : current,
         })
       : undefined,
+    {
+      // A note's own moment: the held world stands there, exactly as setT does.
+      seek: (t) => {
+        current = t
+        readout.textContent = `t = ${t.toFixed(2)}s (creator mode)`
+        void host.renderFrame(t).then(() => host.renderFrame(t))
+      },
+      onChange: (all) => marks.set(all),
+      bounds: (holon) => {
+        const box = host.boundsOf(holon)
+        return box ? { minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y } : undefined
+      },
+      signal: ac.signal,
+    },
   )
+  // Open notes, marked on their holon at their t — creator mode only.
+  const marks = mountCommentMarks({
+    canvas,
+    roots: dream.roots,
+    boundsOf: (h) => host.boundsOf(h),
+    now: () => current,
+    active: () => creator.on,
+    onPick: (c) => panel.seekTo(c),
+    signal: ac.signal,
+  })
 
   // --- The Dream Explorer (demo/explorer.ts) -------------------------------
   //
@@ -199,6 +259,7 @@ const main = async () => {
       resumeOnHome = playing
       playing = false
       narrator.update(Number.NaN, false)
+      sfx.update(Number.NaN, false)
       readout.textContent = `t = ${current.toFixed(2)}s (dream explorer)`
       return current
     },
@@ -217,6 +278,10 @@ const main = async () => {
     if (isExplorerToggle(e) || (e.code === "Escape" && explorer.on)) {
       e.preventDefault()
       explorer.toggle(e.code === "Escape" ? false : undefined)
+      return
+    }
+    if (e.code === "KeyM" && !e.metaKey && !e.ctrlKey && !e.altKey && !sfx.isEmpty) {
+      toggleSound()
       return
     }
     if (isCreatorToggle(e) || (e.code === "Escape" && creator.on)) {
@@ -244,6 +309,7 @@ const main = async () => {
       // A held frame is silent: the gauntlet and every screenshot must sound
       // like nothing, because they are nothing.
       narrator.update(t, false)
+      sfx.update(t, false)
       readout.textContent = `t = ${t.toFixed(2)}s (held)`
     },
     play: () => {
@@ -253,6 +319,7 @@ const main = async () => {
     pause: () => {
       playing = false
       narrator.update(Number.NaN, false)
+      sfx.update(Number.NaN, false)
     },
   }
 }

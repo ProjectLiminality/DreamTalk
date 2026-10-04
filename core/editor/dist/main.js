@@ -59585,7 +59585,7 @@ var scan = (target) => {
       }
       int3.params.set(name, value);
     } else if (value instanceof Holon) {
-      if (!int3.parts.includes(value)) {
+      if (value.parent === undefined) {
         value.parent = int3.self ?? target;
         int3.parts.push(value);
       }
@@ -59672,6 +59672,14 @@ class Holon {
   }
   add(part) {
     const int3 = internalsOf(this);
+    if (part.parent) {
+      const prev = internalsOf(part.parent);
+      for (const list of [prev.parts, prev.dynamicParts]) {
+        const i2 = list.indexOf(part);
+        if (i2 >= 0)
+          list.splice(i2, 1);
+      }
+    }
     part.parent = int3.self ?? this;
     int3.dynamicParts.push(part);
     return part;
@@ -59854,7 +59862,8 @@ class Null extends Holon {
 
 class Group2 extends Null {
   members = [];
-  compose() {
+  constructor(overrides = {}) {
+    super(overrides);
     for (const member of this.members)
       this.add(member);
   }
@@ -61268,6 +61277,109 @@ class Narration {
   }
 }
 
+// src/sound.ts
+var isSounding = (h2) => typeof h2?.soundCues === "function";
+var PENTATONIC = [0, 2, 4, 7, 9, 12];
+var pentatonicPitch = (u2) => {
+  const semis = Math.max(0, Math.min(1, u2)) * 12;
+  let best = PENTATONIC[0];
+  for (const s2 of PENTATONIC)
+    if (Math.abs(s2 - semis) < Math.abs(best - semis))
+      best = s2;
+  return 2 ** (best / 12);
+};
+var MERGE_SECONDS = 0.03;
+var CUE_STEP = 1 / 120;
+var CUE_EPSILON = 0.00001;
+var gatherCues = (cues, applyAt, duration, step3 = CUE_STEP) => {
+  if (cues.length === 0 || !(duration > 0))
+    return [];
+  const out = [];
+  applyAt(0);
+  let was = cues.map((c2) => c2.sounded());
+  let prevT = 0;
+  const n2 = Math.ceil(duration / step3);
+  for (let k2 = 1;k2 <= n2; k2++) {
+    const t2 = Math.min(k2 * step3, duration);
+    applyAt(t2);
+    const now = cues.map((c2) => c2.sounded());
+    for (let i2 = 0;i2 < cues.length; i2++) {
+      if (was[i2] || !now[i2])
+        continue;
+      const cue = cues[i2];
+      let lo = prevT;
+      let hi = t2;
+      while (hi - lo > CUE_EPSILON) {
+        const mid = (lo + hi) / 2;
+        applyAt(mid);
+        if (cue.sounded())
+          hi = mid;
+        else
+          lo = mid;
+      }
+      applyAt(hi);
+      const v2 = cue.voice?.() ?? {};
+      out.push({ time: hi, kind: cue.kind, pitch: v2.pitch ?? 1, gain: v2.gain ?? 1 });
+      applyAt(t2);
+    }
+    was = now;
+    prevT = t2;
+  }
+  return out;
+};
+var creationChimes = (clips) => {
+  const out = [];
+  for (const clip of clips) {
+    if (clip.duration <= 0)
+      continue;
+    const done = new Map;
+    for (const track of clip.anim.tracks) {
+      const owner = track.param.owner;
+      if (!(owner instanceof Holon) || track.param !== owner.creation)
+        continue;
+      if (track.mode === "by" || track.values[track.values.length - 1] !== 1)
+        continue;
+      const end = clip.start + track.relStop * clip.duration;
+      const root = owner.root;
+      done.set(root, Math.max(done.get(root) ?? -Infinity, end));
+    }
+    for (const time3 of done.values())
+      out.push({ time: time3, kind: "chime", pitch: 1, gain: 1 });
+  }
+  return out;
+};
+
+class Soundtrack {
+  events;
+  constructor(events) {
+    const sorted = [...events].filter((e2) => Number.isFinite(e2.time) && e2.time >= 0).sort((a2, b2) => a2.time - b2.time || a2.kind.localeCompare(b2.kind) || a2.pitch - b2.pitch);
+    const merged = [];
+    for (const e2 of sorted) {
+      let twin = -1;
+      for (let i2 = merged.length - 1;i2 >= 0 && e2.time - merged[i2].time < MERGE_SECONDS; i2--) {
+        if (merged[i2].kind === e2.kind && merged[i2].pitch === e2.pitch)
+          twin = i2;
+      }
+      if (twin >= 0) {
+        const m2 = merged[twin];
+        merged[twin] = { ...m2, gain: Math.min(1, m2.gain + e2.gain * 0.25) };
+      } else
+        merged.push(e2);
+    }
+    this.events = merged;
+  }
+  get isEmpty() {
+    return this.events.length === 0;
+  }
+  between(t0, t1) {
+    return this.events.filter((e2) => e2.time > t0 && e2.time <= t1);
+  }
+  transcript() {
+    return this.events.map((e2) => `[${e2.time.toFixed(3)}] ${e2.kind} ×${e2.pitch.toFixed(3)} @${e2.gain.toFixed(2)}`).join(`
+`);
+  }
+}
+
 // src/dream.ts
 var PERSPECTIVES = {
   front: { phi: 0, theta: 0 },
@@ -61336,6 +61448,9 @@ class Dream {
   #rootsMemo;
   #built;
   #narration = new Narration;
+  #sounds = [];
+  #chimes = false;
+  #soundtrack;
   play(anim, runTime = 1) {
     const clip = { anim, start: this.#cursor, duration: runTime };
     this.#clips.push(clip);
@@ -61358,6 +61473,28 @@ class Dream {
   get narration() {
     this.build();
     return this.#narration;
+  }
+  sound(kind, voice = {}) {
+    this.#sounds.push({ time: this.#cursor, kind, pitch: voice.pitch ?? 1, gain: voice.gain ?? 1 });
+  }
+  chimes(on = true) {
+    this.#chimes = on;
+  }
+  get soundtrack() {
+    const timeline = this.build();
+    if (this.#soundtrack)
+      return this.#soundtrack;
+    const cues = this.roots.flatMap((r2) => [...r2.walk()].flatMap((h2) => isSounding(h2) ? h2.soundCues() : []));
+    const events = [...this.#sounds];
+    if (this.#chimes)
+      events.push(...creationChimes(this.#clips));
+    if (cues.length > 0) {
+      const saved = timeline.params.map((p2) => p2.value);
+      events.push(...gatherCues(cues, (t2) => timeline.apply(t2), timeline.duration));
+      timeline.params.forEach((p2, i2) => p2.value = saved[i2]);
+    }
+    this.#soundtrack = new Soundtrack(events);
+    return this.#soundtrack;
   }
   backdrop(path, opts = {}) {
     this.#backdrop = { path, offset: opts.offset ?? 0 };
@@ -62106,6 +62243,21 @@ class RayCaster extends Stroke {
   }
   front() {
     return this.cast.value * this.reach.value;
+  }
+  soundCues() {
+    const count = Math.max(0, Math.floor(this.steps.value));
+    const gain3 = Math.min(1, 1.6 / Math.sqrt(Math.max(count, 1)));
+    return Array.from({ length: count }, (_2, i2) => ({
+      kind: "ping",
+      sounded: () => {
+        const hit = this.hits()[i2]?.hit;
+        return !!hit && this.cast.value > 0 && this.front() >= hit.distance;
+      },
+      voice: () => {
+        const d2 = this.hits()[i2]?.hit?.distance ?? this.reach.value;
+        return { pitch: pentatonicPitch(1 - d2 / Math.max(this.reach.value, 0.000000001)), gain: gain3 };
+      }
+    }));
   }
   compose() {
     const count = Math.max(0, Math.floor(this.steps.value));
@@ -63002,20 +63154,59 @@ class Cable extends Stroke {
     }
     return key;
   }
-  toLocal(v2) {
+  _frame;
+  localFrame() {
     const chain = [];
     for (let node = this.parent;node; node = node.parent)
       chain.push(node);
-    let out = v2;
+    const steps = [];
     for (let i2 = chain.length - 1;i2 >= 0; i2--) {
       const anc = chain[i2];
-      out = sub4(out, { x: anc.x.value, y: anc.y.value, z: anc.z.value });
-      out = invRotHPB(out, anc.p.value, anc.h.value, anc.b.value);
+      const p2 = anc.p.value;
+      const h2 = anc.h.value;
+      const b2 = anc.b.value;
       const s2 = anc.scale.value;
-      if (s2 !== 1)
-        out = mul4(out, 1 / s2);
+      steps.push({
+        x: anc.x.value,
+        y: anc.y.value,
+        z: anc.z.value,
+        cb: Math.cos(-b2),
+        sb: Math.sin(-b2),
+        cp: Math.cos(-p2),
+        sp: Math.sin(-p2),
+        ch: Math.cos(-h2),
+        sh: Math.sin(-h2),
+        inv: s2 !== 1 ? 1 / s2 : 1,
+        scaled: s2 !== 1
+      });
     }
-    return out;
+    return steps;
+  }
+  toLocal(v2) {
+    const steps = this._frame ?? this.localFrame();
+    let x2 = v2.x;
+    let y2 = v2.y;
+    let z2 = v2.z;
+    for (const k2 of steps) {
+      x2 = x2 - k2.x;
+      y2 = y2 - k2.y;
+      z2 = z2 - k2.z;
+      let t2 = x2 * k2.cb - y2 * k2.sb;
+      y2 = x2 * k2.sb + y2 * k2.cb;
+      x2 = t2;
+      t2 = y2 * k2.cp - z2 * k2.sp;
+      z2 = y2 * k2.sp + z2 * k2.cp;
+      y2 = t2;
+      t2 = x2 * k2.ch + z2 * k2.sh;
+      z2 = -x2 * k2.sh + z2 * k2.ch;
+      x2 = t2;
+      if (k2.scaled) {
+        x2 = x2 * k2.inv;
+        y2 = y2 * k2.inv;
+        z2 = z2 * k2.inv;
+      }
+    }
+    return { x: x2, y: y2, z: z2 };
   }
   geometry() {
     const key = this.geometryKey();
@@ -63023,7 +63214,12 @@ class Cable extends Stroke {
       return this._memo;
     }
     this._memoKey = key;
-    this._memo = this.computeGeometry();
+    this._frame = this.localFrame();
+    try {
+      this._memo = this.computeGeometry();
+    } finally {
+      this._frame = undefined;
+    }
     return this._memo;
   }
   tubeFrom(spine, empty2) {
@@ -64460,30 +64656,60 @@ var TABLE_VEC4 = 6;
 var POS_STRIDE = 6;
 var DIST_STRIDE = 2;
 
+class BatchTable {
+  attr;
+  material;
+  rows = 1;
+  meshes = [];
+  constructor(initialRows = 64) {
+    this.attr = new StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4);
+    this.material = new RibbonBatchMaterial(this.attr);
+  }
+  get array() {
+    return this.attr.array;
+  }
+  adopt(mesh) {
+    this.meshes.push(mesh);
+    mesh.material = this.material;
+  }
+  reserveRow() {
+    const row = this.rows++;
+    if (this.rows * TABLE_VEC4 > this.attr.count) {
+      const next = new Float32Array((1 << Math.ceil(Math.log2(this.rows))) * TABLE_VEC4 * 4);
+      next.set(this.attr.array);
+      this.attr = new StorageBufferAttribute(next, 4);
+      this.material.dispose();
+      this.material = new RibbonBatchMaterial(this.attr);
+      for (const mesh of this.meshes)
+        mesh.material = this.material;
+    }
+    return row;
+  }
+}
+
 class RibbonBatch {
   mesh;
-  material;
   geometry;
+  shared;
   capacity = 0;
   cursor = 0;
-  rows = 1;
-  table;
   posBuf;
   distBuf;
   strokeAttr;
   dirtyLo = Infinity;
   dirtyHi = -Infinity;
-  constructor(initialCapacity = 256, initialRows = 64) {
+  constructor(initialCapacity = 256, shared2 = new BatchTable) {
     this.geometry = new InstancedBufferGeometry;
     this.geometry.setAttribute("position", new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, -1, 1, 0, 1, 1, 0], 3));
     this.geometry.setIndex([0, 2, 1, 2, 3, 1]);
     this.allocate(Math.max(1, initialCapacity));
     this.geometry.instanceCount = 0;
-    this.table = new StorageBufferAttribute(new Float32Array(Math.max(2, initialRows) * TABLE_VEC4 * 4), 4);
-    this.material = new RibbonBatchMaterial(this.table);
-    this.mesh = new Mesh(this.geometry, this.material);
+    this.shared = shared2;
+    this.mesh = new Mesh(this.geometry, shared2.material);
+    shared2.adopt(this.mesh);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
+    this.mesh.userData.dtBatch = this;
   }
   allocate(segments) {
     const old = this.capacity;
@@ -64506,18 +64732,8 @@ class RibbonBatch {
     this.geometry.setAttribute("instanceStroke", this.strokeAttr);
     this.capacity = cap;
   }
-  growTable(rows) {
-    const next = new Float32Array((1 << Math.ceil(Math.log2(rows))) * TABLE_VEC4 * 4);
-    next.set(this.table.array);
-    this.table = new StorageBufferAttribute(next, 4);
-    this.material.dispose();
-    this.material = new RibbonBatchMaterial(this.table);
-    this.mesh.material = this.material;
-  }
   reserve(maxSegments) {
-    const row = this.rows++;
-    if (this.rows * TABLE_VEC4 > this.table.count)
-      this.growTable(this.rows);
+    const row = this.shared.reserveRow();
     return { ...this.reserveRun(maxSegments), row };
   }
   reserveRun(maxSegments) {
@@ -64563,7 +64779,7 @@ class RibbonBatch {
       slot.points = stroke.points;
       slot.count = n2;
     }
-    const t2 = this.table.array;
+    const t2 = this.shared.array;
     const base = slot.row * TABLE_VEC4 * 4;
     const e2 = mv.elements;
     for (let i2 = 0;i2 < 16; i2++)
@@ -64575,7 +64791,7 @@ class RibbonBatch {
     t2[base + 20] = tintR;
     t2[base + 21] = tintG;
     t2[base + 22] = tintB;
-    this.table.needsUpdate = true;
+    this.shared.attr.needsUpdate = true;
     return slot;
   }
   markDirty(lo, hi) {
@@ -64599,12 +64815,11 @@ class RibbonBatch {
     this.dirtyHi = -Infinity;
   }
   hideStroke(slot) {
-    const t2 = this.table.array;
-    t2[slot.row * TABLE_VEC4 * 4 + 19] = 0;
-    this.table.needsUpdate = true;
+    this.shared.array[slot.row * TABLE_VEC4 * 4 + 19] = 0;
+    this.shared.attr.needsUpdate = true;
   }
   get tableArray() {
-    return this.table.array;
+    return this.shared.array;
   }
 }
 
@@ -65175,7 +65390,7 @@ class ThreeHost {
   highlightAmount = 0;
   constructor(dream, canvas, useInstancedRibbons) {
     this.dream = dream;
-    this.useInstancedRibbons = useInstancedRibbons;
+    this.instanced = useInstancedRibbons;
     this.renderer = new WebGPURenderer({ canvas, antialias: true });
     this.scene = new Scene;
     this.scene.background = new Color(0);
@@ -65184,6 +65399,7 @@ class ThreeHost {
     this.camera = this.perspCamera;
   }
   static INSTANCE_THRESHOLD = 1000;
+  static MIN_STROKES_PER_RUN = 8;
   static async mount(dream, canvas, opts = {}) {
     await Promise.resolve();
     dream.build();
@@ -65193,10 +65409,12 @@ class ThreeHost {
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false);
     for (const root of dream.roots)
       host.attach(root, host.scene);
-    if (host.ribbonBatch) {
-      host.ribbonBatch.mesh.renderOrder = host.nextFillOrder;
-      host.scene.add(host.ribbonBatch.mesh);
+    const auto = opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined;
+    if (auto && host.ribbonBatches.length > 0 && host.strokes.length / host.ribbonBatches.length < ThreeHost.MIN_STROKES_PER_RUN) {
+      host.unbatch();
     }
+    for (const batch3 of host.ribbonBatches)
+      host.scene.add(batch3.mesh);
     await Promise.all(host.texts.map((t2) => t2.binding.ready));
     return host;
   }
@@ -65246,12 +65464,12 @@ class ThreeHost {
       group.add(binding.farCap.mesh, binding.nearBack.mesh, binding.nearFront.mesh, binding.lineA.mesh, binding.lineB.mesh);
       this.cylinders.push(binding);
     } else if (holon instanceof Ellipse && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++);
+      const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value));
       group.add(fill.mesh);
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
     } else if (holon instanceof Rectangle && holon.filled.value) {
-      const fill = new FillShape(this.nextFillOrder++);
+      const fill = new FillShape(this.claimFillOrder());
       fill.setPolygon(rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value));
       group.add(fill.mesh);
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
@@ -65259,7 +65477,7 @@ class ThreeHost {
       let strokeBinding;
       const loops = this.washesFillOpacity(holon) ? drawingSubpaths(holon) : undefined;
       if (loops) {
-        const fill = new FillShape(this.nextFillOrder++);
+        const fill = new FillShape(this.claimFillOrder());
         fill.setPolygons(loops);
         group.add(fill.mesh);
         this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) });
@@ -65268,7 +65486,7 @@ class ThreeHost {
       }
       const washed = !loops && !this.washedByAncestor.has(holon) && this.washesFillOpacity(holon) ? washGeometry(holon) : undefined;
       if (washed) {
-        const fill = new FillShape(this.nextFillOrder++);
+        const fill = new FillShape(this.claimFillOrder());
         fill.setPolygon(washed.points, washed.triangles);
         group.add(fill.mesh);
         this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) });
@@ -65282,10 +65500,15 @@ class ThreeHost {
         if (this.useInstancedRibbons) {
           group.add(ribbon.mesh);
           ribbon.mesh.layers.set(ThreeHost.BATCH_LAYER);
-          if (!this.ribbonBatch)
-            this.ribbonBatch = new RibbonBatch;
+          if (!this.openBatch) {
+            this.batchTable ??= new BatchTable;
+            this.openBatch = new RibbonBatch(256, this.batchTable);
+            this.ribbonBatches.push(this.openBatch);
+          }
+          this.openBatch.mesh.renderOrder = ribbon.mesh.renderOrder;
+          strokeBinding.batch = this.openBatch;
           const initial = ribbon.geometry.instanceCount;
-          strokeBinding.slot = this.ribbonBatch.reserve(Math.max(2, initial));
+          strokeBinding.slot = this.openBatch.reserve(Math.max(2, initial));
         } else {
           group.add(ribbon.mesh);
         }
@@ -65298,7 +65521,7 @@ class ThreeHost {
           const polygon = arrowPolygon(holon.points, atStart, holon.arrowSize.value);
           if (!polygon)
             continue;
-          const fill = new FillShape(this.nextFillOrder++);
+          const fill = new FillShape(this.claimFillOrder());
           fill.setPolygon(polygon);
           group.add(fill.mesh);
           this.arrows.push({
@@ -65406,7 +65629,7 @@ class ThreeHost {
       fill.style(binding.look.fillOpacity.value * binding.look.opacity.value, liftTint(binding.look.tint.value, this.highlightOf(holon)));
     }
     this.syncCamera();
-    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatch !== undefined) {
+    if (this.cylinders.length > 0 || this.arrows.length > 0 || this.texts.length > 0 || this.ribbonBatches.length > 0) {
       this.settleScene();
       for (const binding of this.cylinders)
         this.syncCylinder(binding);
@@ -65422,13 +65645,12 @@ class ThreeHost {
     this.packRibbonBatch();
   }
   packRibbonBatch() {
-    const batch3 = this.ribbonBatch;
-    if (!batch3)
+    if (this.ribbonBatches.length === 0)
       return;
     const viewInverse = this.camera.matrixWorldInverse;
     for (const binding of this.strokes) {
-      const { ribbon, group, slot } = binding;
-      if (!slot)
+      const { ribbon, group, slot, batch: batch3 } = binding;
+      if (!slot || !batch3)
         continue;
       const geometry = ribbon.geometry;
       const count = geometry.instanceCount;
@@ -65446,7 +65668,8 @@ class ThreeHost {
         count
       }, this.batchMv, ud[RIBBON_KEYS.widthPx], ud[RIBBON_KEYS.drawn], ud[RIBBON_KEYS.erased], tint.r, tint.g, tint.b, ud[RIBBON_KEYS.fade]);
     }
-    batch3.flush();
+    for (const batch3 of this.ribbonBatches)
+      batch3.flush();
   }
   cullFrustum = new Frustum;
   cullVP = new Matrix4;
@@ -65458,8 +65681,33 @@ class ThreeHost {
   cullLatchVP = new Matrix4;
   cullLatchIdle = false;
   cullEnabled = true;
-  useInstancedRibbons;
-  ribbonBatch;
+  get useInstancedRibbons() {
+    return this.instanced;
+  }
+  instanced;
+  unbatch() {
+    for (const binding of this.strokes) {
+      if (!binding.batch)
+        continue;
+      binding.ribbon.mesh.layers.set(0);
+      binding.batch = undefined;
+      binding.slot = undefined;
+    }
+    for (const batch3 of this.ribbonBatches)
+      batch3.geometry.dispose();
+    this.ribbonBatches.length = 0;
+    this.openBatch = undefined;
+    this.batchTable?.material.dispose();
+    this.batchTable = undefined;
+    this.instanced = false;
+  }
+  ribbonBatches = [];
+  openBatch;
+  batchTable;
+  claimFillOrder() {
+    this.openBatch = undefined;
+    return this.nextFillOrder++;
+  }
   batchMv = new Matrix4;
   cullOffscreen() {
     if (!this.cullEnabled || this.strokes.length === 0) {
@@ -103250,6 +103498,7 @@ var VOCABULARY = [
   {
     id: "circle",
     name: "Circle",
+    blurb: "A single circle.",
     description: "A single circle. Any closed round loop — a wobbly hand-drawn circle or ellipse-ish oval is still a circle.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -103261,6 +103510,7 @@ var VOCABULARY = [
   {
     id: "square",
     name: "Square",
+    blurb: "Four equal sides, four corners.",
     description: "A square (four roughly equal sides, four corners). A drawn rectangle that is roughly square counts.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -103278,6 +103528,7 @@ var VOCABULARY = [
   {
     id: "triangle",
     name: "Triangle",
+    blurb: "An equilateral triangle.",
     description: "An equilateral-ish triangle (three corners).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (centroid), page units" },
@@ -103300,6 +103551,8 @@ var VOCABULARY = [
   {
     id: "cube",
     name: "Cube",
+    holon: "FoldableCube",
+    blurb: "A wireframe cube, turnable in 3D.",
     description: "A 3D wireframe cube — a square with a second offset square and connecting edges, or any drawn box in perspective. A flat square with no depth is `square`, not `cube`.",
     params: {
       cx: { type: "number", role: "x", description: "centre x, page units" },
@@ -103325,6 +103578,7 @@ var VOCABULARY = [
   {
     id: "flowerOfLife",
     name: "Flower of Life",
+    blurb: "Equal circles on a hexagonal lattice.",
     description: "The sacred-geometry Flower of Life: equal circles of radius r whose centres sit on a hexagonal lattice of spacing r — a centre circle and 6 around it (rings 1, the 'seed', 7 circles), optionally 12 more (rings 2, 19 circles). Many overlapping equal circles drawn in a rosette = this.",
     params: {
       cx: { type: "number", role: "x", description: "centre of the middle circle x, page units" },
@@ -103360,6 +103614,8 @@ var VOCABULARY = [
   {
     id: "mindVirus",
     name: "MindVirus",
+    holon: "MindVirus",
+    blurb: "The eye and the cube, swimming on its cable.",
     description: "A MindVirus: a creature whose body is a cube (often drawn as an open box / cup, its walls flaring like a jellyfish bell) with an eye on its front face, trailing a long wavy CABLE (tail) behind it. Any box/cube shape with a squiggly line trailing off one side = this. The creature swims AWAY from its cable: the heading points from where the cable attaches through the body.",
     params: {
       x: { type: "number", role: "x", description: "body (cube) centre x, page units" },
@@ -103387,6 +103643,8 @@ var VOCABULARY = [
   {
     id: "eye",
     name: "Eye",
+    holon: "Eye",
+    blurb: "The watcher of video-01, in profile.",
     description: "The DreamTalk Eye seen in profile: a sideways V / wedge (two eyelid lines meeting at an apex) closed by an arc, with an iris near the arc — like a '<' with a ')' on its open side. A plain almond eye shape also counts.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the eye's bounding box, page units" },
@@ -103405,6 +103663,8 @@ var VOCABULARY = [
   {
     id: "figure",
     name: "Figure",
+    holon: "Figure",
+    blurb: "A person, as a stick figure.",
     description: "A person: a stick figure (round head, body line, arms, legs).",
     params: {
       cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
@@ -103416,6 +103676,7 @@ var VOCABULARY = [
   {
     id: "text",
     name: "Text",
+    blurb: "Handwriting, typeset — it writes itself on.",
     description: "WORDS — handwriting that reads as text and is the whole selection (no drawn shape it labels). It becomes typeset DreamTalk text that writes itself on. The input is the string; the symbol is the act of writing it.",
     params: {
       content: {
@@ -103442,6 +103703,8 @@ var VOCABULARY = [
   {
     id: "regenaissance",
     name: "Regenaissance",
+    holon: "Regenaissance",
+    blurb: "The noosphere stacked over the biosphere.",
     description: "The Regenaissance: TWO EQUAL CIRCLES STACKED VERTICALLY and overlapping, so an almond / eye shape (a vesica) forms where they meet; the TOP circle is a globe drawn as a LATTICE (crossing curved lines — meridians, parallels, a web or grid); the BOTTOM circle is the EARTH (wobbly continent outlines inside it); in the eye sits a small circle holding an S-curve with a small square and a dot (yin-yang-like); and ONE BIG OUTER RING wraps the whole stack. Hand-drawn, every circle is usually MANY overlapping rough loops traced round and round — a bundle of loops is ONE circle, and the outermost bundle is the outer ring. Any two stacked overlapping globes inside a ring = this, even if some parts are rough or missing.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the OUTER RING (≈ the middle of the eye), page units" },
@@ -103461,6 +103724,8 @@ var VOCABULARY = [
   {
     id: "sMark",
     name: "S-mark",
+    holon: "SMark",
+    blurb: "The S with its dot and square.",
     description: "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",
     params: {
       cx: { type: "number", role: "x", description: "centre x of the S (where its two bowls meet), page units" },
@@ -105098,6 +105363,24 @@ var buildParamRow = (name, param, hooks) => {
 };
 
 // editor/comments.ts
+var holonAnchor = (dream, holon) => {
+  const owners = [];
+  let name;
+  for (let n2 = holon.parent;n2; n2 = n2.parent) {
+    owners.push(classNameOf(n2));
+    if (name === undefined) {
+      for (const [key, value] of Object.entries(n2))
+        if (value === holon)
+          name = key;
+    }
+  }
+  if (name === undefined) {
+    for (const [key, value] of Object.entries(dream))
+      if (value === holon)
+        name = key;
+  }
+  return name === undefined ? { owners } : { name, owners };
+};
 var samePath = (a2, b2) => {
   if (a2 === null || b2 === null)
     return a2 === b2;
@@ -105146,24 +105429,60 @@ var mountComments = (host, ctx, signal) => {
   composer.appendChild(attach);
   section.appendChild(composer);
   host.appendChild(section);
+  const changed = () => ctx.onChange?.(all3);
+  const setResolved = async (c2, resolved2) => {
+    try {
+      const res = await fetch("/api/comment/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene: ctx.scene, id: c2.id, resolved: resolved2 }),
+        signal
+      });
+      if (!res.ok)
+        return;
+      const { comment } = await res.json();
+      all3 = all3.map((x2) => x2.id === comment.id ? comment : x2);
+      renderList();
+      changed();
+    } catch {}
+  };
   const renderList = () => {
     list.textContent = "";
-    const mine = all3.filter((c2) => samePath(c2.path, selectionKey));
+    const scenewide = ctx.listAll === true && selectionKey === null;
+    section.classList.toggle("scenewide", scenewide);
+    heading.textContent = scenewide ? "Comments in this scene" : "Comments";
+    composer.style.display = scenewide ? "none" : "";
+    const mine = scenewide ? [...all3].sort((a2, b2) => Number(a2.resolved ?? false) - Number(b2.resolved ?? false) || a2.t - b2.t) : all3.filter((c2) => samePath(c2.path, selectionKey));
     if (mine.length === 0) {
       const empty2 = document.createElement("div");
       empty2.className = "empty";
-      empty2.textContent = "No comments yet — the first note on this selection.";
+      empty2.textContent = scenewide ? "No comments yet — select anything to leave one." : "No comments yet — the first note on this selection.";
       list.appendChild(empty2);
       return;
     }
     for (const c2 of mine) {
       const row = document.createElement("div");
       row.className = "comment";
+      row.dataset.id = c2.id;
       if (c2.resolved)
         row.classList.add("resolved");
       const meta = document.createElement("div");
       meta.className = "cmeta";
-      meta.textContent = `${ago(c2.ts)} · ${c2.t.toFixed(2)}s`;
+      const when = document.createElement(ctx.seek ? "a" : "span");
+      when.className = "cwhen";
+      when.textContent = `${scenewide ? `${c2.name ?? c2.pathLabel} · ` : ""}${c2.t.toFixed(2)}s`;
+      if (ctx.seek) {
+        when.title = "go there — this holon, at this t";
+        when.addEventListener("click", () => ctx.seek?.(c2), { signal });
+      }
+      const age = document.createElement("span");
+      age.textContent = ` · ${ago(c2.ts)}${c2.resolved ? " · resolved" : ""}`;
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "cresolve";
+      toggle.textContent = c2.resolved ? "reopen" : "resolve";
+      toggle.addEventListener("click", () => void setResolved(c2, !c2.resolved), { signal });
+      meta.append(when, age, toggle);
       const body = document.createElement("div");
       body.className = "cbody";
       body.textContent = c2.text;
@@ -105179,6 +105498,7 @@ var mountComments = (host, ctx, signal) => {
         return;
       all3 = (await res.json()).comments ?? [];
       renderList();
+      changed();
     } catch {}
   };
   const send = async () => {
@@ -105191,7 +105511,8 @@ var mountComments = (host, ctx, signal) => {
       text: text2,
       t: ctx.currentT(),
       scene: ctx.scene,
-      bounds: ctx.bounds() ?? null
+      bounds: ctx.bounds() ?? null,
+      ...ctx.anchor?.()
     };
     input.value = "";
     attach.disabled = true;
@@ -105206,6 +105527,7 @@ var mountComments = (host, ctx, signal) => {
         const { comment } = await res.json();
         all3.push(comment);
         renderList();
+        changed();
       }
     } catch {
       if (!input.value)
@@ -105285,6 +105607,7 @@ var mountComments = (host, ctx, signal) => {
   };
   return {
     refresh,
+    all: () => all3,
     dispose: () => {
       stopDictation();
       section.remove();
@@ -105430,6 +105753,155 @@ class Narrator {
       this.ctx?.close();
     } catch {}
     this.ctx = undefined;
+  }
+}
+
+// src/timbre.ts
+var TIMBRE = {
+  ping: {
+    base: 660,
+    partials: [
+      { type: "tone", ratio: 1, peak: 0.5, attack: 0.004, decay: 0.45 },
+      { type: "tone", ratio: 2.76, peak: 0.12, attack: 0.002, decay: 0.18 }
+    ]
+  },
+  chime: {
+    base: 523.25,
+    partials: [
+      { type: "tone", ratio: 1, peak: 0.32, attack: 0.02, decay: 1.6 },
+      { type: "tone", ratio: 1.5, peak: 0.2, attack: 0.03, decay: 1.3 },
+      { type: "tone", ratio: 2, peak: 0.06, attack: 0.02, decay: 0.9 }
+    ]
+  },
+  whoosh: {
+    base: 1,
+    partials: [{ type: "noise", from: 350, to: 2200, q: 1.2, span: 0.5, peak: 0.5, rise: 0.45 }]
+  }
+};
+var MASTER_GAIN = 0.35;
+var UNDER_VOICE = 0.55;
+var SILENT = 0.0001;
+var NOISE_SECONDS = 0.55;
+var noiseSamples = (n2) => {
+  const out = new Float32Array(n2);
+  let s2 = 625341585;
+  for (let i2 = 0;i2 < n2; i2++) {
+    s2 ^= s2 << 13;
+    s2 ^= s2 >>> 17;
+    s2 ^= s2 << 5;
+    out[i2] = (s2 >>> 0) / 4294967295 * 2 - 1;
+  }
+  return out;
+};
+
+// src/render/sfx.ts
+var CONTINUOUS_SECONDS2 = 0.5;
+var STILL_SECONDS2 = 0.0001;
+
+class EffectPlayer {
+  track;
+  opts;
+  ctx;
+  bus;
+  noise;
+  lastT = Number.NaN;
+  muted = false;
+  constructor(track, opts = {}) {
+    this.track = track;
+    this.opts = opts;
+  }
+  get isEmpty() {
+    return this.track.isEmpty;
+  }
+  update(t2, transportPlaying) {
+    const prev = this.lastT;
+    this.lastT = t2;
+    if (!transportPlaying || !Number.isFinite(prev) || !Number.isFinite(t2))
+      return;
+    const delta = t2 - prev;
+    if (delta < STILL_SECONDS2 || delta > CONTINUOUS_SECONDS2)
+      return;
+    for (const event of this.track.between(prev, t2))
+      this.fire(event, t2);
+  }
+  fire(event, at2) {
+    this.opts.onFire?.({ event, at: at2, muted: this.muted });
+    if (this.muted)
+      return;
+    const ctx = this.audio();
+    if (!ctx || !this.bus)
+      return;
+    if (ctx.state === "suspended")
+      ctx.resume().catch(() => {});
+    const level = event.gain * (this.opts.narration?.at(event.time) ? UNDER_VOICE : 1);
+    const timbre = TIMBRE[event.kind];
+    try {
+      for (const p2 of timbre.partials)
+        this.partial(ctx, p2, timbre.base, event.pitch, level);
+    } catch {}
+  }
+  partial(ctx, p2, base, pitch2, level) {
+    const now = ctx.currentTime;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, now);
+    if (p2.type === "tone") {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = base * pitch2 * p2.ratio;
+      env.gain.linearRampToValueAtTime(p2.peak * level, now + p2.attack);
+      env.gain.exponentialRampToValueAtTime(SILENT, now + p2.attack + p2.decay);
+      osc.connect(env).connect(this.bus);
+      osc.start(now);
+      osc.stop(now + p2.attack + p2.decay + 0.05);
+      return;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(ctx);
+    const band = ctx.createBiquadFilter();
+    band.type = "bandpass";
+    band.Q.value = p2.q;
+    band.frequency.setValueAtTime(p2.from * pitch2, now);
+    band.frequency.exponentialRampToValueAtTime(p2.to * pitch2, now + p2.span);
+    env.gain.linearRampToValueAtTime(p2.peak * level, now + p2.span * p2.rise);
+    env.gain.linearRampToValueAtTime(0, now + p2.span);
+    src.connect(band).connect(env).connect(this.bus);
+    src.start(now);
+    src.stop(now + p2.span + 0.02);
+  }
+  noiseBuffer(ctx) {
+    if (this.noise)
+      return this.noise;
+    const samples = noiseSamples(Math.ceil(ctx.sampleRate * NOISE_SECONDS));
+    const buf = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+    buf.getChannelData(0).set(samples);
+    this.noise = buf;
+    return buf;
+  }
+  audio() {
+    if (this.ctx)
+      return this.ctx;
+    try {
+      const Ctor = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+      if (!Ctor)
+        return;
+      const ctx = new Ctor;
+      const bus = ctx.createGain();
+      bus.gain.value = MASTER_GAIN;
+      bus.connect(ctx.destination);
+      this.ctx = ctx;
+      this.bus = bus;
+      return ctx;
+    } catch {
+      return;
+    }
+  }
+  dispose() {
+    try {
+      this.ctx?.close();
+    } catch {}
+    this.ctx = undefined;
+    this.bus = undefined;
+    this.noise = undefined;
   }
 }
 
@@ -106730,6 +107202,7 @@ var boot = async (resume) => {
   };
   bdMode.addEventListener("change", applyBackdropMode, listen);
   const narrator = new Narrator(dream.narration, httpVoiceCache());
+  const sfx = new EffectPlayer(dream.soundtrack, { narration: dream.narration });
   const syncBackdrop = (t2, playing2) => {
     if (!backdropIsVideo)
       return;
@@ -106886,6 +107359,7 @@ var boot = async (resume) => {
         return holon ? classNameOf(holon) : sceneName;
       },
       currentT: () => current2,
+      anchor: () => selection.current ? holonAnchor(dream, selection.current) : {},
       bounds: () => {
         const holon = selection.current;
         const box = holon ? host.boundsOf(holon) : undefined;
@@ -107014,6 +107488,7 @@ var boot = async (resume) => {
     checkpoint?.dispose();
     ptransport?.dispose();
     narrator.dispose();
+    sfx.dispose();
     host.dispose();
   };
   const switchScene = (key) => {
@@ -107548,6 +108023,7 @@ var boot = async (resume) => {
     await host.renderFrame(t2);
     syncBackdrop(t2, playing);
     narrator.update(t2, playing);
+    sfx.update(t2, playing);
     timeline?.setPlayhead(t2);
     ptransport?.sync(t2, playing);
     checkpoint?.sync();
@@ -107567,6 +108043,7 @@ var boot = async (resume) => {
     playpause.textContent = "▶";
     syncBackdrop(current2, false);
     narrator.update(current2, false);
+    sfx.update(current2, false);
     checkpoint?.sync();
   };
   playpause.addEventListener("click", () => playing ? pause() : play(), listen);

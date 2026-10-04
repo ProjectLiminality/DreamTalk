@@ -562,9 +562,9 @@ ruling (translation + the three deleted labels from footage).
       ease-out shockwave rings out; `cast` drives all of it (pure f(t)).
       `eye.rayCast([shape])` = the Dialectical three-ray case, fan derived
       from the eye's live gaze/opening. src/geometry/rays.ts; 20 tests;
-      `/demo/?scene=raycaster`. MISSING, recorded: the collision audio
-      "ping" — the framework has narration clips but no effect-driven
-      audio track to drive; and emitter-normal / 3D casting ("later").
+      `/demo/?scene=raycaster`. The collision "ping" landed 2026-10-04
+      with effect sound (src/sound.ts, src/render/sfx.ts). MISSING,
+      recorded: emitter-normal / 3D casting ("later").
 - [x] **Text weight, one rule** (lead-assigned) — S&T `clipping="inside"`
       means a written letter is never fatter than its letterform. Each
       contour now insets as deep as it can without folding OR crossing its

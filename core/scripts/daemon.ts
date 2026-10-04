@@ -37,7 +37,7 @@ import { watch } from "node:fs"
 import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
-import { appendComment, isValidScene, parseCommentInput, readComments } from "./comments"
+import { appendComment, isValidScene, parseCommentInput, readComments, setResolved } from "./comments"
 import { recognize } from "./recognize"
 import { whereIs } from "./where"
 import { instruct } from "./instruct"
@@ -245,8 +245,10 @@ const faceResponse = async (name: string): Promise<Response> => {
 
 // --- Selection-anchored comments (EDITOR-VOICE-COMMENTS step 1) -------------
 //
-// POST /api/comment  → append one comment to core/.comments/<scene>.jsonl
+// POST /api/comment  → append one comment beside the scene's DreamWeaving
+//                      (<dir>/<scene>.comments.jsonl — git-tracked)
 // GET  /api/comments?scene=<key>  → every comment for a scene, oldest-first
+// POST /api/comment/resolve {scene, id, resolved}  → resolve / reopen one
 //
 // The store (scripts/comments.ts) is pure over the repo root; this is only
 // the HTTP skin: validate the body, append, echo the written record back so
@@ -271,6 +273,22 @@ const postCommentResponse = async (req: Request): Promise<Response> => {
     log("comment write failed:", err)
     return Response.json({ error: "write failed" }, { status: 500 })
   }
+}
+
+const resolveCommentResponse = async (req: Request): Promise<Response> => {
+  let body: { scene?: unknown; id?: unknown; resolved?: unknown }
+  try {
+    body = (await req.json()) as typeof body
+  } catch {
+    return Response.json({ error: "malformed JSON body" }, { status: 400 })
+  }
+  const { scene, id } = body
+  if (typeof scene !== "string" || !isValidScene(scene) || typeof id !== "string")
+    return Response.json({ error: "bad scene or id" }, { status: 400 })
+  const comment = await setResolved(repoRoot, scene, id, body.resolved !== false)
+  if (!comment) return Response.json({ error: "no such comment" }, { status: 404 })
+  log(`comment ${comment.resolved ? "resolved" : "reopened"} → ${scene} (${comment.pathLabel})`)
+  return Response.json({ ok: true, comment })
 }
 
 const getCommentsResponse = async (scene: string | null): Promise<Response> => {
@@ -707,6 +725,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ file: await whereIs(repoRoot, url.searchParams.get("name") ?? "") })
     if (url.pathname === "/api/source") return sourceResponse(url.searchParams.get("file"))
     if (url.pathname === "/api/comment" && req.method === "POST") return postCommentResponse(req)
+    if (url.pathname === "/api/comment/resolve" && req.method === "POST") return resolveCommentResponse(req)
     if (url.pathname === "/api/comments") return getCommentsResponse(url.searchParams.get("scene"))
     if (url.pathname.startsWith("/api/voice/")) {
       return voiceResponse(req, url.pathname.slice("/api/voice/".length))

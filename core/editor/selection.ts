@@ -90,7 +90,8 @@ const descend = (node: Holon, target: Holon, trail: number[]): number[] | undefi
   return undefined
 }
 
-const resolvePath = (roots: readonly Holon[], path: SelectionPath): Holon | null => {
+/** The holon a path addresses now, or null if the tree no longer has it there. */
+export const resolvePath = (roots: readonly Holon[], path: SelectionPath): Holon | null => {
   let node = roots[path.root]
   if (!node) return null
   for (const index of path.indices) {

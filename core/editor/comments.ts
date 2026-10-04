@@ -14,13 +14,41 @@
  * GET /api/comments and shows only those whose path matches the current
  * selection, so you SEE your own comments the moment they land.
  *
+ * The same block is the demo player's comment mode (demo/creatorpanel.ts):
+ * there, with nothing selected, it lists the whole scene's comments, each a
+ * way back to its holon and its t; every note can be resolved (and
+ * reopened) in place, and the host is told whenever the set changes so it
+ * can mark the commented holons on screen.
+ *
  * main.ts owns WHAT is selected and its stable path; this module owns the UI
  * and the REST round-trip. A comment carries the selection's screen bounds +
  * t so a later step can render exactly that region (the render is then a pure
  * function of what is captured here).
  */
 
+import type { Holon } from "../src/holon"
 import type { SelectionPath } from "./selection"
+import { classNameOf } from "./classname"
+
+/**
+ * What a comment needs to find its holon's LINE: the field that holds it,
+ * on the nearest whole that names it (a Calculator's `opGlyph` is a member
+ * of its `all` Group but a field of the Calculator — so every ancestor is
+ * asked, then the Dream itself for a root), and the classes of its wholes,
+ * nearest first, which tell the queue (scripts/comments.ts) which files to
+ * look in.
+ */
+export const holonAnchor = (dream: object, holon: Holon): { name?: string; owners: string[] } => {
+  const owners: string[] = []
+  let name: string | undefined
+  for (let n: Holon | null = holon.parent; n; n = n.parent) {
+    owners.push(classNameOf(n))
+    if (name === undefined)
+      for (const [key, value] of Object.entries(n)) if (value === holon) name = key
+  }
+  if (name === undefined) for (const [key, value] of Object.entries(dream)) if (value === holon) name = key
+  return name === undefined ? { owners } : { name, owners }
+}
 
 interface CommentBounds {
   minX: number
@@ -39,7 +67,10 @@ export interface Comment {
   t: number
   scene: string
   bounds?: CommentBounds | null
+  name?: string
+  owners?: string[]
   resolved?: boolean
+  resolvedAt?: string
 }
 
 /** What the mount needs from the editor to attach a comment to the selection. */
@@ -53,11 +84,21 @@ export interface CommentContext {
   currentT: () => number
   /** The selection's screen bounds, for the future render (may be undefined). */
   bounds: () => CommentBounds | undefined
+  /** The holon's field name and its wholes' classes — where the queue looks for its line. */
+  anchor?: () => { name?: string; owners?: string[] }
+  /** With nothing selected, list the whole scene's comments (the player's panel). */
+  listAll?: boolean
+  /** Go to a comment: its holon selected, its t on screen. Makes each row's time a link. */
+  seek?: (comment: Comment) => void
+  /** The comment set changed (loaded, attached, resolved) — for on-screen markers. */
+  onChange?: (all: readonly Comment[]) => void
 }
 
 export interface CommentPanel {
   /** Re-render for a (possibly changed) selection — called on every select. */
   refresh: () => void
+  /** Every comment for the scene, as last loaded. */
+  all: () => readonly Comment[]
   dispose: () => void
 }
 
@@ -142,23 +183,67 @@ export const mountComments = (
   section.appendChild(composer)
   host.appendChild(section)
 
+  const changed = () => ctx.onChange?.(all)
+
+  const setResolved = async (c: Comment, resolved: boolean) => {
+    try {
+      const res = await fetch("/api/comment/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene: ctx.scene, id: c.id, resolved }),
+        signal,
+      })
+      if (!res.ok) return
+      const { comment } = (await res.json()) as { comment: Comment }
+      all = all.map((x) => (x.id === comment.id ? comment : x))
+      renderList()
+      changed()
+    } catch {
+      // The daemon blinked — the row keeps its state, and says so by not changing.
+    }
+  }
+
   const renderList = () => {
     list.textContent = ""
-    const mine = all.filter((c) => samePath(c.path, selectionKey))
+    const scenewide = ctx.listAll === true && selectionKey === null
+    section.classList.toggle("scenewide", scenewide)
+    heading.textContent = scenewide ? "Comments in this scene" : "Comments"
+    composer.style.display = scenewide ? "none" : ""
+    // Scene-wide, the open ones lead; on a selection, the order they were made.
+    const mine = scenewide
+      ? [...all].sort((a, b) => Number(a.resolved ?? false) - Number(b.resolved ?? false) || a.t - b.t)
+      : all.filter((c) => samePath(c.path, selectionKey))
     if (mine.length === 0) {
       const empty = document.createElement("div")
       empty.className = "empty"
-      empty.textContent = "No comments yet — the first note on this selection."
+      empty.textContent = scenewide
+        ? "No comments yet — select anything to leave one."
+        : "No comments yet — the first note on this selection."
       list.appendChild(empty)
       return
     }
     for (const c of mine) {
       const row = document.createElement("div")
       row.className = "comment"
+      row.dataset.id = c.id
       if (c.resolved) row.classList.add("resolved")
       const meta = document.createElement("div")
       meta.className = "cmeta"
-      meta.textContent = `${ago(c.ts)} · ${c.t.toFixed(2)}s`
+      const when = document.createElement(ctx.seek ? "a" : "span")
+      when.className = "cwhen"
+      when.textContent = `${scenewide ? `${c.name ?? c.pathLabel} · ` : ""}${c.t.toFixed(2)}s`
+      if (ctx.seek) {
+        when.title = "go there — this holon, at this t"
+        when.addEventListener("click", () => ctx.seek?.(c), { signal })
+      }
+      const age = document.createElement("span")
+      age.textContent = ` · ${ago(c.ts)}${c.resolved ? " · resolved" : ""}`
+      const toggle = document.createElement("button")
+      toggle.type = "button"
+      toggle.className = "cresolve"
+      toggle.textContent = c.resolved ? "reopen" : "resolve"
+      toggle.addEventListener("click", () => void setResolved(c, !c.resolved), { signal })
+      meta.append(when, age, toggle)
       const body = document.createElement("div")
       body.className = "cbody"
       body.textContent = c.text
@@ -174,6 +259,7 @@ export const mountComments = (
       if (!res.ok) return
       all = ((await res.json()) as { comments: Comment[] }).comments ?? []
       renderList()
+      changed()
     } catch {
       // Aborted on unmount, or the daemon blinked — the block just shows what it has.
     }
@@ -192,6 +278,7 @@ export const mountComments = (
       t: ctx.currentT(),
       scene: ctx.scene,
       bounds: ctx.bounds() ?? null,
+      ...ctx.anchor?.(),
     }
     input.value = ""
     attach.disabled = true
@@ -206,6 +293,7 @@ export const mountComments = (
         const { comment } = (await res.json()) as { comment: Comment }
         all.push(comment)
         renderList()
+        changed()
       }
     } catch {
       // Restore the text so an offline daemon doesn't eat the note.
@@ -331,6 +419,7 @@ export const mountComments = (
 
   return {
     refresh,
+    all: () => all,
     dispose: () => {
       // Never leave a recognizer listening past the panel's life (a scene
       // switch / remount) — it would hold the mic and keep dictating into a
