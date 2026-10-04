@@ -377,9 +377,13 @@ visibly differs, in order:
   top and bottom — one fill each with the host's radial falloff (it
   replaced six stacked ellipses), within ~6 levels of the frames.
 - ~~31s~~ DONE: the cloud enters at ~31.1 and settles by 33.4. Still
-  different: the original's Web2 lattice lifts off the top of frame while
-  the word arrives (ours crossfades it), and its word forms left to right
-  ("Veb" reads at 32 with the 3 still loose); ours settles evenly.
+  different, and OPEN (wrapped up 2026-10-04 at David's call):
+  - the original's Web2 lattice lifts off the top of frame while the word
+    arrives (ours crossfades it out) — needs Web2's camera carried down
+    through a longer overlap;
+  - its word forms left to right ("Veb" reads at 32 with the 3 still
+    loose); ours settles evenly — a FlowerText option (a per-circle settle
+    delay by x), keeping the standalone scenes unchanged.
 - 31–45s: the word's typeface (Arimo vs Helvetica — a licensing call) and
   colour (David's call).
 - ~~108–113s~~ DONE with the host's `fillFalloff`: the land is re-origined
