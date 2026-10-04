@@ -14,17 +14,37 @@
  *                                                               ▲
  *                     sketch page ──POST /api/recognize──────────┘──▶ claude -p
  *
- * PAGE COORDINATES. Everything is in PAGE units: the reMarkable 2's portrait
- * screen, 1404 × 1872 (its native pixel grid, ~226 dpi), origin top-left,
- * y down. One coordinate system from the digitizer to the recognizer means a
- * stroke drawn on the tablet, a lasso drawn with a mouse, and a symbol placed
- * by Claude all agree without a single conversion in between. Only the
- * renderer maps page → scene, in one place.
+ * PAGE COORDINATES. Everything is in PAGE units: the reMarkable 2's screen
+ * held on its SIDE — landscape, 1872 × 1404 (its native pixel grid, ~226
+ * dpi, turned a quarter), origin top-left, y down. One coordinate system from
+ * the digitizer to the recognizer means a stroke drawn on the tablet, a lasso
+ * drawn with a mouse, and a symbol placed by Claude all agree without a
+ * single conversion in between. Only the renderer maps page → scene, and only
+ * the bridge maps page ↔ the tablet's own (portrait) screen — the quarter
+ * turn lives there and nowhere else.
  */
 
-/** The reMarkable 2 screen in portrait — the page every stroke lives on. */
-export const PAGE_W = 1404
-export const PAGE_H = 1872
+/** The page every stroke lives on: the tablet held landscape (David, 2026-10-04). */
+export const PAGE_W = 1872
+export const PAGE_H = 1404
+
+/** The tablet's screen in its native grid, as its hardware sees it: portrait. */
+export const SCREEN_W = 1404
+export const SCREEN_H = 1872
+
+/**
+ * Which way the tablet is turned to hold it landscape. "cw": turned a quarter
+ * clockwise (its left edge becomes the top); "ccw": counter-clockwise.
+ */
+export type Orientation = "cw" | "ccw"
+
+/** A point on the tablet's portrait screen → the landscape page. */
+export const screenToPage = (x: number, y: number, o: Orientation): { x: number; y: number } =>
+  o === "cw" ? { x: SCREEN_H - y, y: x } : { x: y, y: SCREEN_W - x }
+
+/** The landscape page → the tablet's portrait screen (the inverse). */
+export const pageToScreen = (x: number, y: number, o: Orientation): { x: number; y: number } =>
+  o === "cw" ? { x: y, y: SCREEN_H - x } : { x: SCREEN_W - y, y: x }
 
 /** One sample of the pen. */
 export interface PenSample {

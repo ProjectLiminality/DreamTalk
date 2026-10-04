@@ -85,7 +85,19 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { connect as netConnect } from "node:net"
 import { homedir, networkInterfaces } from "node:os"
 import { join } from "node:path"
-import { PAD_DISPLAY_PORT, PAGE_H, PAGE_W, type PenEvent, type PenSample } from "../sketch/protocol"
+import {
+  PAD_DISPLAY_PORT,
+  PAGE_H,
+  PAGE_W,
+  SCREEN_H,
+  SCREEN_W,
+  pageToScreen,
+  screenToPage,
+  type DisplayOp,
+  type Orientation,
+  type PenEvent,
+  type PenSample,
+} from "../sketch/protocol"
 import { DisplayStore, parseDisplayOps, toLines } from "../sketch/display"
 
 export interface RawEvent {
@@ -174,14 +186,47 @@ export const RM2_TOUCH_MAP: DigitizerMap = {
   flipY: true,
 }
 
-/** Raw sensor coordinates → page units (1404×1872, y down). */
-export const toPage = (rawX: number, rawY: number, m: DigitizerMap): { x: number; y: number } => {
+/**
+ * How David holds the tablet. The page is landscape (protocol.ts); the
+ * screen is portrait hardware, so the quarter turn between them lives HERE,
+ * at the device's edge, and nowhere else: pen and touch turn into the page
+ * on the way in, the display list turns onto the screen on the way out.
+ * RM_ORIENT=ccw if the page comes out upside down.
+ */
+export const ORIENT: Orientation = process.env.RM_ORIENT === "ccw" ? "ccw" : "cw"
+
+/** Raw sensor coordinates → the tablet's portrait screen (1404×1872, y down). */
+export const toScreen = (rawX: number, rawY: number, m: DigitizerMap): { x: number; y: number } => {
   let u = m.swap ? rawY / m.maxY : rawX / m.maxX
   let v = m.swap ? rawX / m.maxX : rawY / m.maxY
   if (m.flipX) u = 1 - u
   if (m.flipY) v = 1 - v
-  return { x: u * PAGE_W, y: v * PAGE_H }
+  return { x: u * SCREEN_W, y: v * SCREEN_H }
 }
+
+/** Raw sensor coordinates → page units (the landscape page, y down). */
+export const toPage = (rawX: number, rawY: number, m: DigitizerMap, o: Orientation = ORIENT): { x: number; y: number } => {
+  const p = toScreen(rawX, rawY, m)
+  return screenToPage(p.x, p.y, o)
+}
+
+/** The display list, page units → the tablet's screen (every prim's points turned). */
+export const opsToScreen = (ops: readonly DisplayOp[], o: Orientation = ORIENT): DisplayOp[] =>
+  ops.map((op) => {
+    if (op.op !== "put") return op
+    return {
+      ...op,
+      prims: op.prims.map((prim) => {
+        const pts = prim.pts.slice()
+        for (let i = 0; i + 1 < pts.length; i += 2) {
+          const q = pageToScreen(pts[i]!, pts[i + 1]!, o)
+          pts[i] = q.x
+          pts[i + 1] = q.y
+        }
+        return { ...prim, pts }
+      }),
+    }
+  })
 
 /**
  * Folds the kernel's event stream into PenEvents.
@@ -888,7 +933,7 @@ const displayFeed = (url: string) => {
       }
       if (!ops.length) return
       store.apply(ops)
-      const text = toLines(ops)
+      const text = toLines(opsToScreen(ops))
       for (const sink of sinks) sink(text)
     }
     ws.onclose = () => setTimeout(connect, 1000)
@@ -896,7 +941,7 @@ const displayFeed = (url: string) => {
   }
   connect()
   return {
-    snapshot: () => toLines(store.snapshot()),
+    snapshot: () => toLines(opsToScreen(store.snapshot())),
     listen(sink: Lines): () => void {
       sinks.add(sink)
       return () => sinks.delete(sink)
@@ -1193,9 +1238,11 @@ const runCalibrate = async () => {
   const pm = penMap()
   const tm = touchMap()
   console.log(
-    "\nTouch each corner with the pen, then a finger. Top-left should map near (0, 0),\n" +
-      `bottom-right near (${PAGE_W}, ${PAGE_H}). If an axis is mirrored, set RM_FLIP_X/RM_FLIP_Y=1|0\n` +
-      "(pen) or RM_TOUCH_FLIP_X/RM_TOUCH_FLIP_Y (touch); RM_SWAP / RM_TOUCH_SWAP swap the axes.\n",
+    `\nHold the tablet landscape (RM_ORIENT=${ORIENT}: ${ORIENT === "cw" ? "turned a quarter clockwise, its left edge at the top" : "turned a quarter counter-clockwise, its right edge at the top"}).\n` +
+      "Touch each corner with the pen, then a finger. Top-left (as you hold it) should map near (0, 0),\n" +
+      `bottom-right near (${PAGE_W}, ${PAGE_H}). If the whole page comes out upside down, flip RM_ORIENT=cw|ccw.\n` +
+      "If only one axis is mirrored, set RM_FLIP_X/RM_FLIP_Y=1|0 (pen) or RM_TOUCH_FLIP_X/RM_TOUCH_FLIP_Y\n" +
+      "(touch) — those act on the tablet's own portrait screen; RM_SWAP / RM_TOUCH_SWAP swap its axes.\n",
   )
   let pen = { x: 0, y: 0 }
   let touch = { x: 0, y: 0 }

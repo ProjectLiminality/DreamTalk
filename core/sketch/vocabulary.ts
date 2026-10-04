@@ -9,14 +9,14 @@
  *
  * ## The coordinate convention (the one mapping in the sketchpad)
  *
- * Params arrive in PAGE units (protocol.ts: 1404 × 1872, origin top-left,
+ * Params arrive in PAGE units (protocol.ts: PAGE_W × PAGE_H, origin top-left,
  * y DOWN). `build` returns a holon already positioned in a scene frame
  * where
  *
  *     scene x = page x        scene y = −page y        z = 0
  *
  * and every length is in page units (1 page unit = 1 scene unit). The
- * sketch page's camera frames the rectangle x ∈ [0, 1404], y ∈ [−1872, 0]
+ * sketch page's camera frames the rectangle x ∈ [0, PAGE_W], y ∈ [−PAGE_H, 0]
  * and maps nothing else.
  *
  * Angles in params are PAGE angles: radians, measured from +x and turning
@@ -795,8 +795,8 @@ export const inkHolon = (k: InkStroke): Line =>
 /**
  * Frame a dream's observer on a page rectangle, straight on, so scene
  * (x, −y) lands on page (x, y) and the rectangle's HEIGHT fills the
- * frame (the host is 16:9; a portrait page is clipped at the sides by
- * whoever shows it, or sits in the middle of a wider frame).
+ * frame (the host is 16:9; the 4:3 page sits in the middle of the wider
+ * frame, and whoever shows it clips the sides).
  */
 export const framePage = (dream: Dream, frame = { cx: PAGE_W / 2, cy: PAGE_H / 2, h: PAGE_H }): void => {
   const o = dream.observer

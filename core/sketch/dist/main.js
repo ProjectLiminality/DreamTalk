@@ -991,319 +991,29 @@ class DottedLine extends Stroke {
     return together(...this.dashes.map((d, i) => [d.creation.to(0), 1 - (i + 1) / n, 1 - i / n]));
   }
 }
+// src/geometry/sdf.ts
+var squareCircleCylinder = (profileWidth, profileHeight, circleRadius) => ({
+  radius: circleRadius,
+  height: profileHeight,
+  exact: profileWidth >= 2 * circleRadius
+});
+
 // vocabulary/Cylinder/Cylinder.ts
 class Cylinder extends Stroke {
   static sovereign = true;
   radius = length(50);
   height = length(200);
-}
-// vocabulary/Eye/Eye.ts
-var oneStroke = (strokes, retract = false) => {
-  const n = strokes.length;
-  if (n === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i) => {
-    const values = [];
-    for (let k = 0;k <= STEPS; k++) {
-      const shared = ease("smooth", k / STEPS) * n;
-      const drawn = Math.min(1, Math.max(0, shared - i));
-      values.push(retract ? 1 - drawn : drawn);
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class Eye extends Stroke {
-  static sovereign = true;
-  opening = completion(1);
-  lidTop = new Line({
-    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(PI / 8)
-  });
-  lidBottom = new Line({
-    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
-    tint: this.tint,
-    stroke: this.stroke,
-    b: this.opening.times(-PI / 8)
-  });
-  eyeball = new Arc({
-    radius: 200,
-    startAngle: this.opening.times(-PI / 8),
-    endAngle: this.opening.times(PI / 8),
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
-  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
-  createAnim() {
-    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
-  }
-  unCreateAnim() {
-    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
-  }
-}
-// vocabulary/Axes/Axes.ts
-var cascade = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => restage(line.creation.sequence(0, 1), windows2[i][0], windows2[i][1])));
-};
-var consume = (lines) => {
-  const windows2 = dominoWindows(lines.length);
-  return together(...lines.map((line, i) => restage(line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1])));
-};
-
-class Axes extends Stroke {
-  static sovereign = true;
-  mode = "xy";
-  xStart = scalar(-200);
-  xEnd = scalar(200);
-  yStart = scalar(-200);
-  yEnd = scalar(200);
-  zStart = scalar(-200);
-  zEnd = scalar(200);
-  gridSpacing = length(30);
-  gridLineLength = length(1000);
-  drawGrid = bool(false);
-  drawTicks = bool(false);
-  arrowEnd = bool(true);
-  arrowSize = length(720 / 700);
-  gridTint = color(WHITE);
-  axisLines = [];
-  gridGroups = [];
-  tickGroups = [];
-  compose() {
-    const spacing = this.gridSpacing.value;
-    const halfGrid = this.gridLineLength.value / 2;
-    const extents = {
-      x: [this.xStart.value, this.xEnd.value],
-      y: [this.yStart.value, this.yEnd.value],
-      z: [this.zStart.value, this.zEnd.value]
-    };
-    const frames = {
-      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
-      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
-      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
-    };
-    const at = (v, k) => ({ x: v.x * k, y: v.y * k, z: v.z * k });
-    const sum = (a, b) => ({
-      x: a.x + b.x,
-      y: a.y + b.y,
-      z: a.z + b.z
-    });
-    const positions = (start, end) => {
-      const out = [];
-      const negCount = Math.round(Math.abs(start) / spacing);
-      const posCount = Math.round(end / spacing);
-      for (let i = negCount - 1;i >= 1; i--)
-        out.push(-i * spacing);
-      for (let i = 1;i < posCount; i++)
-        out.push(i * spacing);
-      return out;
-    };
-    for (const axis of this.mode) {
-      const frame = frames[axis];
-      const extent = extents[axis];
-      if (!frame || !extent)
-        continue;
-      const [start, end] = extent;
-      this.axisLines.push(this.add(new Line({
-        points: [at(frame.dir, start), at(frame.dir, end)],
-        tint: this.tint,
-        stroke: this.stroke,
-        arrowEnd: this.arrowEnd.value,
-        arrowSize: this.arrowSize
-      })));
-      if (this.drawGrid.value) {
-        const group = [];
-        for (const pos of positions(start, end)) {
-          group.push(this.add(new Line({
-            points: [
-              sum(at(frame.dir, pos), at(frame.perp, -halfGrid)),
-              sum(at(frame.dir, pos), at(frame.perp, halfGrid))
-            ],
-            tint: this.gridTint,
-            stroke: this.stroke.times(0.5)
-          })));
-        }
-        this.gridGroups.push(group);
-      }
-      if (this.drawTicks.value) {
-        const group = [];
-        const tickHalf = 5;
-        const posCount = Math.round(end / spacing);
-        const negCount = Math.round(Math.abs(start) / spacing);
-        for (let i = -(negCount - 1);i < posCount; i++) {
-          group.push(this.add(new Line({
-            points: [
-              sum(at(frame.dir, i * spacing), at(frame.perp, -tickHalf)),
-              sum(at(frame.dir, i * spacing), at(frame.perp, tickHalf))
-            ],
-            tint: this.tint,
-            stroke: this.stroke
-          })));
-        }
-        this.tickGroups.push(group);
-      }
-    }
-  }
-  createAnim() {
-    this.parts;
-    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
-    const items = [
-      [together(...this.axisLines.map((l) => l.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([cascade(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([cascade(group), 0.3, 1]);
-    return together(...items);
-  }
-  unCreateAnim() {
-    this.parts;
-    const items = [
-      [together(...this.axisLines.map((l) => l.erasure.sequence(0, 1))), 0, 1]
-    ];
-    for (const group of this.gridGroups)
-      items.push([consume(group), 0, 1]);
-    for (const group of this.tickGroups)
-      items.push([consume(group), 0, 0.7]);
-    return together(...items);
-  }
-}
-// vocabulary/MolochEye/MolochEye.ts
-var SIN_HALF_SPAN = 4 / 5;
-var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
-var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
-var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
-var CAMERA_DISTANCE_RATIO = 1.282;
-var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
-var K = perspectiveK(CAMERA_DISTANCE_RATIO);
-var LENS_STROKE_RATIO = 0.0246;
-var PUPIL_EDGE_RATIO = 1.1673;
-var PUPIL_STROKE_RATIO = 2.284;
-var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
-var onePen = (strokes) => {
-  const n = strokes.length;
-  if (n === 0)
-    return { tracks: [] };
-  const STEPS = 48;
-  return eased("linear", ...strokes.map((stroke, i) => {
-    const values = [];
-    for (let k = 0;k <= STEPS; k++) {
-      const shared = ease("smooth", k / STEPS) * n;
-      values.push(Math.min(1, Math.max(0, shared - i)));
-    }
-    return stroke.creation.sequence(...values);
-  }));
-};
-
-class MolochEye extends Stroke {
-  static sovereign = true;
-  height = length(100);
-  tint = color(BLUE);
-  lensTop = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(-LENS_CENTER_RATIO),
-    startAngle: PI / 2 + HALF_SPAN,
-    endAngle: PI / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  lensBottom = new Arc({
-    radius: this.height.times(LENS_RADIUS_RATIO),
-    y: this.height.times(LENS_CENTER_RATIO),
-    startAngle: -PI / 2 + HALF_SPAN,
-    endAngle: -PI / 2 - HALF_SPAN,
-    tint: WHITE,
-    stroke: this.stroke
-  });
-  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
-  irisFill = new Ellipse({
-    radiusX: this.height.times(IRIS_FILL_RATIO),
-    radiusY: this.height.times(IRIS_FILL_RATIO),
-    filled: true,
-    tint: BLACK
-  });
-  pupilBack = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO * K),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K)
-  });
-  pupilFront = new Square({
-    size: this.height.times(PUPIL_EDGE_RATIO),
-    tint: this.tint,
-    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
-  });
-  connectors = [];
-  compose() {
-    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
-    const back = front * K;
-    const corners = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1]
-    ];
-    for (const [sx, sy] of corners) {
-      this.connectors.push(this.add(new Line({
-        points: [
-          { x: sx * back, y: sy * back, z: 0 },
-          { x: sx * front, y: sy * front, z: 0 }
-        ],
-        tint: this.tint,
-        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K) / 2)
-      })));
-    }
-  }
-  createAnim() {
-    this.parts;
-    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c) => c.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
-  }
-}
-// vocabulary/FoldableCube/FoldableCube.ts
-class FoldableCube extends Stroke {
-  static sovereign = true;
-  size = length(100);
-  fold = bipolar(0);
-  tint = color(BLUE);
-  bottom = new Rectangle({
-    width: this.size,
-    height: this.size,
-    p: PI / 2,
-    tint: this.tint,
-    stroke: this.stroke
-  });
-  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
-  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
-  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
-  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
-  get foldAngle() {
-    return this.fold.value * PI / 2;
-  }
-  hinge(offset, angle2, axis = "p") {
-    return new Group({
-      ...offset,
-      [axis]: derive(angle2),
-      members: [
-        new Rectangle({
-          width: this.size,
-          height: this.size,
-          p: PI / 2,
-          tint: this.tint,
-          stroke: this.stroke,
-          ...offset
-        })
-      ]
+  static of(profile, circle, overrides = {}) {
+    const width = () => profile instanceof Square ? profile.size.value : profile.width.value;
+    const height = () => profile instanceof Square ? profile.size.value : profile.height.value;
+    const shape = () => squareCircleCylinder(width(), height(), circle.radius.value);
+    return new Cylinder({
+      ...overrides,
+      radius: derive(() => shape().radius),
+      height: derive(() => shape().height)
     });
   }
-  get walls() {
-    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
-  }
 }
-var hingeAngle = (fold) => fold * PI / 2;
 // src/geometry/section.ts
 var EPS = 0.000000001;
 var clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -1625,6 +1335,652 @@ class Connection extends Stroke {
   }
 }
 
+// src/geometry/morph.ts
+var MORPH_SAMPLES = 128;
+var dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+var arcLengths = (points) => {
+  const out = [0];
+  for (let i = 1;i < points.length; i++)
+    out.push(out[i - 1] + dist(points[i - 1], points[i]));
+  return out;
+};
+var pointAtArcLength = (points, s) => {
+  if (points.length === 0)
+    return { x: 0, y: 0, z: 0 };
+  if (points.length === 1)
+    return points[0];
+  const cum = arcLengths(points);
+  const total = cum[cum.length - 1];
+  if (total <= 0)
+    return points[0];
+  const target = Math.min(1, Math.max(0, s)) * total;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = lo + hi >> 1;
+    if (cum[mid] <= target)
+      lo = mid;
+    else
+      hi = mid;
+  }
+  const span = cum[hi] - cum[lo];
+  const u = span > 0 ? (target - cum[lo]) / span : 0;
+  const a = points[lo];
+  const b = points[hi];
+  return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u };
+};
+var resampleUniform = (points, count = MORPH_SAMPLES) => {
+  if (count < 2)
+    return points.length ? [points[0]] : [];
+  if (points.length === 0)
+    return [];
+  const out = [];
+  for (let i = 0;i < count; i++)
+    out.push(pointAtArcLength(points, i / (count - 1)));
+  return out;
+};
+var morphedPolyline = (source, target, u, count = MORPH_SAMPLES) => {
+  const t = Math.min(1, Math.max(0, u));
+  const a = resampleUniform(source, count);
+  const b = resampleUniform(target, count);
+  const n = Math.min(a.length, b.length);
+  const out = [];
+  for (let i = 0;i < n; i++) {
+    const p = a[i];
+    const q = b[i];
+    out.push({
+      x: p.x + (q.x - p.x) * t,
+      y: p.y + (q.y - p.y) * t,
+      z: p.z + (q.z - p.z) * t
+    });
+  }
+  return out;
+};
+var outlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const ring = (rx, ry) => {
+    const pts = [];
+    for (let i = 0;i <= segments; i++) {
+      const a = i / segments * Math.PI * 2;
+      pts.push({ x: Math.cos(a) * rx, y: Math.sin(a) * ry, z: 0 });
+    }
+    return pts;
+  };
+  let base;
+  if (holon instanceof Circle)
+    base = ring(holon.radius.value, holon.radius.value);
+  else if (holon instanceof Ellipse)
+    base = ring(holon.radiusX.value, holon.radiusY.value);
+  else if (holon instanceof Square) {
+    const s = holon.size.value / 2;
+    base = [
+      { x: -s, y: -s, z: 0 },
+      { x: s, y: -s, z: 0 },
+      { x: s, y: s, z: 0 },
+      { x: -s, y: s, z: 0 },
+      { x: -s, y: -s, z: 0 }
+    ];
+  } else if (holon instanceof Polygon) {
+    const n = holon.sides.value;
+    const pts = [];
+    for (let i = 0;i <= n; i++) {
+      const a = i / n * Math.PI * 2 + holon.phase.value;
+      pts.push({ x: Math.cos(a) * holon.radius.value, y: Math.sin(a) * holon.radius.value, z: 0 });
+    }
+    base = pts;
+  } else if (holon instanceof Rectangle) {
+    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
+  } else if (holon instanceof Line) {
+    base = holon.points.length >= 2 ? [...holon.points] : undefined;
+  }
+  if (!base)
+    return;
+  const phase = holon.drawStart.value;
+  const reversed = holon.drawReversed.value;
+  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
+};
+var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
+  const local = outlineOf(holon, segments);
+  if (!local)
+    return;
+  const chain = [];
+  for (let node = holon;node; node = node.parent)
+    chain.push(node);
+  return local.map((p) => {
+    let out = p;
+    for (const node of chain) {
+      const s = node.scale.value;
+      out = rotHPB({ x: out.x * s, y: out.y * s, z: out.z * s }, node.p.value, node.h.value, node.b.value);
+      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+    }
+    return out;
+  });
+};
+
+// src/geometry/rays.ts
+var fanAngles = (first, last, steps) => {
+  const n = Math.max(0, Math.floor(steps));
+  if (n === 0)
+    return [];
+  if (n === 1)
+    return [(first + last) / 2];
+  const span = last - first;
+  const fullTurn = Math.abs(Math.abs(span) - 2 * Math.PI) < 0.000000001;
+  const out = [];
+  for (let i = 0;i < n; i++)
+    out.push(first + span * i / (fullTurn ? n : n - 1));
+  return out;
+};
+var castRay = (origin, angle2, polylines, reach) => {
+  const dx = Math.cos(angle2);
+  const dy = Math.sin(angle2);
+  let best = Infinity;
+  for (const line of polylines) {
+    for (let i = 0;i + 1 < line.length; i++) {
+      const a = line[i];
+      const b = line[i + 1];
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+      const den = dx * ey - dy * ex;
+      if (Math.abs(den) < 0.000000000001)
+        continue;
+      const ax = a.x - origin.x;
+      const ay = a.y - origin.y;
+      const t = (ax * ey - ay * ex) / den;
+      const u = (ax * dy - ay * dx) / den;
+      if (t > 0.000000001 && u >= 0 && u <= 1 && t < best)
+        best = t;
+    }
+  }
+  if (!(best <= reach))
+    return;
+  return { distance: best, point: { x: origin.x + dx * best, y: origin.y + dy * best } };
+};
+var shockwave = (s) => {
+  if (!(s > 0) || s >= 1)
+    return { radius: s >= 1 ? 1 : 0, strength: 0 };
+  return { radius: 1 - (1 - s) * (1 - s), strength: 1 - s };
+};
+
+// vocabulary/Eye/RayCaster.ts
+var toWorld = (holon, local) => {
+  let out = local;
+  for (let node = holon;node; node = node.parent) {
+    const s = node.scale.value;
+    out = rotHPB({ x: out.x * s, y: out.y * s, z: out.z * s }, node.p.value, node.h.value, node.b.value);
+    out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
+  }
+  return out;
+};
+var outlineReading = (shape) => {
+  const out = [];
+  if (shape instanceof Circle)
+    out.push(shape.radius.value);
+  else if (shape instanceof Ellipse)
+    out.push(shape.radiusX.value, shape.radiusY.value);
+  else if (shape instanceof Square)
+    out.push(shape.size.value);
+  else if (shape instanceof Polygon)
+    out.push(shape.radius.value, shape.sides.value, shape.phase.value);
+  else if (shape instanceof Rectangle)
+    out.push(shape.width.value, shape.height.value, shape.rounding.value);
+  else if (shape instanceof Line)
+    for (const p of shape.points)
+      out.push(p.x, p.y, p.z);
+  for (let node = shape;node; node = node.parent) {
+    out.push(node.x.value, node.y.value, node.z.value, node.h.value, node.p.value, node.b.value, node.scale.value);
+  }
+  return out;
+};
+var derivePoints2 = (line, sourceKey, compute) => {
+  let key;
+  let memo = [];
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const next = sourceKey();
+      if (!key || key.length !== next.length || next.some((v, i) => v !== key[i])) {
+        key = next;
+        memo = compute();
+        line.geomVersion++;
+      }
+      return memo;
+    },
+    set(_v) {}
+  });
+};
+
+class RayCaster extends Stroke {
+  static sovereign = true;
+  first = angle(0);
+  last = angle(2 * Math.PI);
+  steps = integer(12);
+  reach = length(600);
+  cast = completion(0);
+  mark = length(10);
+  shock = length(60);
+  shockSpan = scalar(0.3);
+  hitTint = color(RED);
+  emitter;
+  colliders;
+  hitsKey;
+  hitsMemo = [];
+  constructor(emitter, colliders, overrides = {}) {
+    super(overrides);
+    for (const c of colliders) {
+      if (!worldOutlineOf(c, 8)) {
+        throw new Error(`RayCaster: ${c.constructor.name} cannot be a collider — a ray stops on an OUTLINE, and ` + `this has none of its own (a composite draws through its sub-strokes: pass those ` + `instead; an empty Line needs its points first). Colliders are: Circle, Ellipse, ` + `Square, Polygon, Rectangle, or a Line of two or more points.`);
+      }
+    }
+    this.emitter = emitter;
+    this.colliders = [...colliders];
+  }
+  origin() {
+    return toWorld(this.emitter, { x: 0, y: 0, z: 0 });
+  }
+  hits() {
+    const o = this.origin();
+    const key = [
+      o.x,
+      o.y,
+      o.z,
+      this.first.value,
+      this.last.value,
+      this.steps.value,
+      this.reach.value,
+      ...this.colliders.flatMap(outlineReading)
+    ];
+    const k = this.hitsKey;
+    if (!k || k.length !== key.length || key.some((v, i) => v !== k[i])) {
+      this.hitsKey = key;
+      const outlines = this.colliders.map((c) => worldOutlineOf(c) ?? []);
+      this.hitsMemo = fanAngles(this.first.value, this.last.value, this.steps.value).map((a) => ({
+        angle: a,
+        hit: castRay(o, a, outlines, this.reach.value)
+      }));
+    }
+    return this.hitsMemo;
+  }
+  front() {
+    return this.cast.value * this.reach.value;
+  }
+  compose() {
+    const count = Math.max(0, Math.floor(this.steps.value));
+    const look = { stroke: this.stroke, opacity: this.opacity };
+    const key = () => [
+      this.cast.value,
+      this.mark.value,
+      this.shockSpan.value,
+      ...this.hits().flatMap((h) => [h.angle, h.hit?.point.x ?? -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, h.hit?.point.y ?? -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000])
+    ];
+    for (let i = 0;i < count; i++) {
+      const ray = this.add(new Line({ tint: this.tint, ...look }));
+      derivePoints2(ray, key, () => {
+        const h = this.hits()[i];
+        const front = this.front();
+        if (!h || front <= 0)
+          return [];
+        const o = this.origin();
+        const d = Math.min(front, h.hit?.distance ?? this.reach.value);
+        return [o, { x: o.x + Math.cos(h.angle) * d, y: o.y + Math.sin(h.angle) * d, z: o.z }];
+      });
+      for (const tilt of [1, -1]) {
+        const stroke = this.add(new Line({ tint: this.hitTint, ...look }));
+        derivePoints2(stroke, key, () => {
+          const hit = this.hits()[i]?.hit;
+          if (!hit || this.front() < hit.distance)
+            return [];
+          const m = this.mark.value / Math.SQRT2;
+          const z = this.origin().z;
+          return [
+            { x: hit.point.x - m, y: hit.point.y - m * tilt, z },
+            { x: hit.point.x + m, y: hit.point.y + m * tilt, z }
+          ];
+        });
+      }
+      const wave = () => {
+        const hit = this.hits()[i]?.hit;
+        if (!hit)
+          return { radius: 0, strength: 0 };
+        const span = Math.max(this.shockSpan.value * this.reach.value, 0.000000001);
+        return shockwave((this.front() - hit.distance) / span);
+      };
+      this.add(new Circle({
+        tint: this.hitTint,
+        stroke: this.stroke,
+        x: derive(() => this.hits()[i]?.hit?.point.x ?? 0),
+        y: derive(() => this.hits()[i]?.hit?.point.y ?? 0),
+        z: derive(() => this.origin().z),
+        radius: derive(() => Math.max(wave().radius * this.shock.value, 0.001)),
+        opacity: derive(() => wave().strength * this.opacity.value)
+      }));
+    }
+  }
+}
+var Cast = (caster) => caster.cast.to(1);
+
+// vocabulary/Eye/Eye.ts
+var oneStroke = (strokes, retract = false) => {
+  const n = strokes.length;
+  if (n === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i) => {
+    const values = [];
+    for (let k = 0;k <= STEPS; k++) {
+      const shared = ease("smooth", k / STEPS) * n;
+      const drawn = Math.min(1, Math.max(0, shared - i));
+      values.push(retract ? 1 - drawn : drawn);
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class Eye extends Stroke {
+  static sovereign = true;
+  opening = completion(1);
+  lidTop = new Line({
+    points: [{ x: 230, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(PI / 8)
+  });
+  lidBottom = new Line({
+    points: [{ x: 0, y: 0, z: 0 }, { x: 230, y: 0, z: 0 }],
+    tint: this.tint,
+    stroke: this.stroke,
+    b: this.opening.times(-PI / 8)
+  });
+  eyeball = new Arc({
+    radius: 200,
+    startAngle: this.opening.times(-PI / 8),
+    endAngle: this.opening.times(PI / 8),
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  iris = new Ellipse({ x: 180, radiusX: 20, radiusY: 60, filled: true, tint: this.tint });
+  pupil = new Ellipse({ x: 190, radiusX: 8, radiusY: 24, filled: true, tint: BLACK });
+  createAnim() {
+    return together([this.pupil.creation.sequence(0, 1), 0, 0.01], [oneStroke([this.lidTop, this.lidBottom]), 0, 0.5], [this.eyeball.creation.sequence(0, 1), 0, 0.5], [this.iris.creation.sequence(0, 1), 0.3, 1]);
+  }
+  unCreateAnim() {
+    return together([this.iris.creation.to(0), 0, 0.5], [this.pupil.creation.to(0), 0.5, 0.6], [this.eyeball.creation.to(0), 0.3, 1], [oneStroke([this.lidBottom, this.lidTop], true), 0.3, 1]);
+  }
+  rayCast(colliders, overrides = {}) {
+    const gaze = () => {
+      const o = toWorld(this, { x: 0, y: 0, z: 0 });
+      const ahead = toWorld(this, { x: 1, y: 0, z: 0 });
+      return Math.atan2(ahead.y - o.y, ahead.x - o.x);
+    };
+    const half = () => PI / 8 * this.opening.value;
+    const caster = new RayCaster(this, colliders, {
+      first: derive(() => gaze() + half()),
+      last: derive(() => gaze() - half()),
+      steps: 3,
+      ...overrides
+    });
+    return { caster, anim: Cast(caster) };
+  }
+}
+// vocabulary/Axes/Axes.ts
+var cascade = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i) => restage(line.creation.sequence(0, 1), windows2[i][0], windows2[i][1])));
+};
+var consume = (lines) => {
+  const windows2 = dominoWindows(lines.length);
+  return together(...lines.map((line, i) => restage(line.erasure.sequence(0, 1), windows2[i][0], windows2[i][1])));
+};
+
+class Axes extends Stroke {
+  static sovereign = true;
+  mode = "xy";
+  xStart = scalar(-200);
+  xEnd = scalar(200);
+  yStart = scalar(-200);
+  yEnd = scalar(200);
+  zStart = scalar(-200);
+  zEnd = scalar(200);
+  gridSpacing = length(30);
+  gridLineLength = length(1000);
+  drawGrid = bool(false);
+  drawTicks = bool(false);
+  arrowEnd = bool(true);
+  arrowSize = length(720 / 700);
+  gridTint = color(WHITE);
+  axisLines = [];
+  gridGroups = [];
+  tickGroups = [];
+  compose() {
+    const spacing = this.gridSpacing.value;
+    const halfGrid = this.gridLineLength.value / 2;
+    const extents = {
+      x: [this.xStart.value, this.xEnd.value],
+      y: [this.yStart.value, this.yEnd.value],
+      z: [this.zStart.value, this.zEnd.value]
+    };
+    const frames = {
+      x: { dir: { x: 1, y: 0, z: 0 }, perp: { x: 0, y: 1, z: 0 } },
+      y: { dir: { x: 0, y: 1, z: 0 }, perp: { x: 1, y: 0, z: 0 } },
+      z: { dir: { x: 0, y: 0, z: 1 }, perp: { x: 1, y: 0, z: 0 } }
+    };
+    const at = (v, k) => ({ x: v.x * k, y: v.y * k, z: v.z * k });
+    const sum = (a, b) => ({
+      x: a.x + b.x,
+      y: a.y + b.y,
+      z: a.z + b.z
+    });
+    const positions = (start, end) => {
+      const out = [];
+      const negCount = Math.round(Math.abs(start) / spacing);
+      const posCount = Math.round(end / spacing);
+      for (let i = negCount - 1;i >= 1; i--)
+        out.push(-i * spacing);
+      for (let i = 1;i < posCount; i++)
+        out.push(i * spacing);
+      return out;
+    };
+    for (const axis of this.mode) {
+      const frame = frames[axis];
+      const extent = extents[axis];
+      if (!frame || !extent)
+        continue;
+      const [start, end] = extent;
+      this.axisLines.push(this.add(new Line({
+        points: [at(frame.dir, start), at(frame.dir, end)],
+        tint: this.tint,
+        stroke: this.stroke,
+        arrowEnd: this.arrowEnd.value,
+        arrowSize: this.arrowSize
+      })));
+      if (this.drawGrid.value) {
+        const group = [];
+        for (const pos of positions(start, end)) {
+          group.push(this.add(new Line({
+            points: [
+              sum(at(frame.dir, pos), at(frame.perp, -halfGrid)),
+              sum(at(frame.dir, pos), at(frame.perp, halfGrid))
+            ],
+            tint: this.gridTint,
+            stroke: this.stroke.times(0.5)
+          })));
+        }
+        this.gridGroups.push(group);
+      }
+      if (this.drawTicks.value) {
+        const group = [];
+        const tickHalf = 5;
+        const posCount = Math.round(end / spacing);
+        const negCount = Math.round(Math.abs(start) / spacing);
+        for (let i = -(negCount - 1);i < posCount; i++) {
+          group.push(this.add(new Line({
+            points: [
+              sum(at(frame.dir, i * spacing), at(frame.perp, -tickHalf)),
+              sum(at(frame.dir, i * spacing), at(frame.perp, tickHalf))
+            ],
+            tint: this.tint,
+            stroke: this.stroke
+          })));
+        }
+        this.tickGroups.push(group);
+      }
+    }
+  }
+  createAnim() {
+    this.parts;
+    const hasSub = this.gridGroups.length > 0 || this.tickGroups.length > 0;
+    const items = [
+      [together(...this.axisLines.map((l) => l.creation.sequence(0, 1))), 0, hasSub ? 0.8 : 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([cascade(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([cascade(group), 0.3, 1]);
+    return together(...items);
+  }
+  unCreateAnim() {
+    this.parts;
+    const items = [
+      [together(...this.axisLines.map((l) => l.erasure.sequence(0, 1))), 0, 1]
+    ];
+    for (const group of this.gridGroups)
+      items.push([consume(group), 0, 1]);
+    for (const group of this.tickGroups)
+      items.push([consume(group), 0, 0.7]);
+    return together(...items);
+  }
+}
+// vocabulary/MolochEye/MolochEye.ts
+var SIN_HALF_SPAN = 4 / 5;
+var HALF_SPAN = Math.asin(SIN_HALF_SPAN);
+var LENS_RADIUS_RATIO = 2 / SIN_HALF_SPAN;
+var LENS_CENTER_RATIO = LENS_RADIUS_RATIO - 1;
+var CAMERA_DISTANCE_RATIO = 1.282;
+var perspectiveK = (distanceRatio) => distanceRatio / (distanceRatio + 1);
+var K = perspectiveK(CAMERA_DISTANCE_RATIO);
+var LENS_STROKE_RATIO = 0.0246;
+var PUPIL_EDGE_RATIO = 1.1673;
+var PUPIL_STROKE_RATIO = 2.284;
+var IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2;
+var onePen = (strokes) => {
+  const n = strokes.length;
+  if (n === 0)
+    return { tracks: [] };
+  const STEPS = 48;
+  return eased("linear", ...strokes.map((stroke, i) => {
+    const values = [];
+    for (let k = 0;k <= STEPS; k++) {
+      const shared = ease("smooth", k / STEPS) * n;
+      values.push(Math.min(1, Math.max(0, shared - i)));
+    }
+    return stroke.creation.sequence(...values);
+  }));
+};
+
+class MolochEye extends Stroke {
+  static sovereign = true;
+  height = length(100);
+  tint = color(BLUE);
+  lensTop = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(-LENS_CENTER_RATIO),
+    startAngle: PI / 2 + HALF_SPAN,
+    endAngle: PI / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  lensBottom = new Arc({
+    radius: this.height.times(LENS_RADIUS_RATIO),
+    y: this.height.times(LENS_CENTER_RATIO),
+    startAngle: -PI / 2 + HALF_SPAN,
+    endAngle: -PI / 2 - HALF_SPAN,
+    tint: WHITE,
+    stroke: this.stroke
+  });
+  irisRing = new Circle({ radius: this.height, tint: WHITE, stroke: this.stroke });
+  irisFill = new Ellipse({
+    radiusX: this.height.times(IRIS_FILL_RATIO),
+    radiusY: this.height.times(IRIS_FILL_RATIO),
+    filled: true,
+    tint: BLACK
+  });
+  pupilBack = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO * K),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO * K)
+  });
+  pupilFront = new Square({
+    size: this.height.times(PUPIL_EDGE_RATIO),
+    tint: this.tint,
+    stroke: this.stroke.times(PUPIL_STROKE_RATIO)
+  });
+  connectors = [];
+  compose() {
+    const front = this.height.value * PUPIL_EDGE_RATIO / 2;
+    const back = front * K;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ];
+    for (const [sx, sy] of corners) {
+      this.connectors.push(this.add(new Line({
+        points: [
+          { x: sx * back, y: sy * back, z: 0 },
+          { x: sx * front, y: sy * front, z: 0 }
+        ],
+        tint: this.tint,
+        stroke: this.stroke.times(PUPIL_STROKE_RATIO * (1 + K) / 2)
+      })));
+    }
+  }
+  createAnim() {
+    this.parts;
+    return together([onePen([this.lensTop, this.lensBottom]), 0, 0.45], [this.irisRing.creation.sequence(0, 1), 0.35, 0.55], [this.pupilBack.creation.sequence(0, 1), 0.5, 0.65], [together(...this.connectors.map((c) => c.creation.sequence(0, 1))), 0.62, 0.78], [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9], [this.irisFill.creation.sequence(0, 1), 0.92, 1]);
+  }
+}
+// vocabulary/FoldableCube/FoldableCube.ts
+class FoldableCube extends Stroke {
+  static sovereign = true;
+  size = length(100);
+  fold = bipolar(0);
+  tint = color(BLUE);
+  bottom = new Rectangle({
+    width: this.size,
+    height: this.size,
+    p: PI / 2,
+    tint: this.tint,
+    stroke: this.stroke
+  });
+  frontPivot = this.hinge({ z: this.size.times(0.5) }, () => -this.foldAngle);
+  backPivot = this.hinge({ z: this.size.times(-0.5) }, () => this.foldAngle, "p");
+  rightPivot = this.hinge({ x: this.size.times(0.5) }, () => this.foldAngle, "b");
+  leftPivot = this.hinge({ x: this.size.times(-0.5) }, () => -this.foldAngle, "b");
+  get foldAngle() {
+    return this.fold.value * PI / 2;
+  }
+  hinge(offset, angle2, axis = "p") {
+    return new Group({
+      ...offset,
+      [axis]: derive(angle2),
+      members: [
+        new Rectangle({
+          width: this.size,
+          height: this.size,
+          p: PI / 2,
+          tint: this.tint,
+          stroke: this.stroke,
+          ...offset
+        })
+      ]
+    });
+  }
+  get walls() {
+    return [this.frontPivot, this.backPivot, this.rightPivot, this.leftPivot].map((pivot) => pivot.members[0]);
+  }
+}
+var hingeAngle = (fold) => fold * PI / 2;
 // src/bake.ts
 var bake = (sim, { fps, duration }) => {
   if (fps <= 0)
@@ -1787,10 +2143,10 @@ var straightState = (anchor, tip, particles = CABLE_PARTICLES) => {
 };
 var pointFaceCollision = (point, face, push = COLLISION_PUSH, thickness = COLLISION_THICKNESS) => {
   const { corners, normal } = face;
-  const dist = dot(sub(point, corners[0]), normal);
-  if (dist < -thickness || dist > thickness)
+  const dist2 = dot(sub(point, corners[0]), normal);
+  if (dist2 < -thickness || dist2 > thickness)
     return { point, collided: false };
-  const proj = sub(point, mul(normal, dist));
+  const proj = sub(point, mul(normal, dist2));
   for (let e = 0;e < 4; e++) {
     const a = corners[e];
     const b = corners[(e + 1) % 4];
@@ -1805,13 +2161,13 @@ var foldableCubeFaces = (center, frame, fold, scale, size = 100) => {
   const cos = Math.cos(angle2);
   const sin = Math.sin(angle2);
   const h = size / 2;
-  const toWorld = (p) => add(center, {
+  const toWorld2 = (p) => add(center, {
     x: (frame.vx.x * p.x + frame.vy.x * p.y + frame.vz.x * p.z) * scale,
     y: (frame.vx.y * p.x + frame.vy.y * p.y + frame.vz.y * p.z) * scale,
     z: (frame.vx.z * p.x + frame.vy.z * p.y + frame.vz.z * p.z) * scale
   });
   const makeFace = (local) => {
-    const c = local.map(toWorld);
+    const c = local.map(toWorld2);
     const n = normalize(cross(sub(c[1], c[0]), sub(c[3], c[0]))) ?? { x: 0, y: 1, z: 0 };
     return { corners: c, normal: n };
   };
@@ -1882,10 +2238,10 @@ var step = (state2, config) => {
   for (let pass = 0;pass < iterations; pass++) {
     for (let i = 0;i < n - 1; i++) {
       const delta = sub(predicted[i + 1], predicted[i]);
-      const dist = length2(delta);
-      if (dist < 0.001)
+      const dist2 = length2(delta);
+      if (dist2 < 0.001)
         continue;
-      const correction = mul(delta, 1 - restLength / dist);
+      const correction = mul(delta, 1 - restLength / dist2);
       if (i > 0)
         predicted[i] = add(predicted[i], mul(correction, 0.5));
       if (i < n - 2)
@@ -3272,7 +3628,7 @@ var extractWallSegments = (layout, passages) => {
   }
   return segments;
 };
-var dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+var dist2 = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
   const touchesCitadel = (segment) => segment.some((p) => Math.abs(Math.hypot(p.x, p.y) - citadelRadius) < tolerance);
   const connected = new Set;
@@ -3292,7 +3648,7 @@ var filterConnectedToCitadel = (segments, citadelRadius, tolerance) => {
       let joined = false;
       for (const j of connected) {
         const [b0, b1] = ends(j);
-        if (dist(a0, b0) < tolerance || dist(a0, b1) < tolerance || dist(a1, b0) < tolerance || dist(a1, b1) < tolerance) {
+        if (dist2(a0, b0) < tolerance || dist2(a0, b1) < tolerance || dist2(a1, b0) < tolerance || dist2(a1, b1) < tolerance) {
           joined = true;
           break;
         }
@@ -3441,129 +3797,8 @@ class Labyrinth extends Stroke {
     return together(...items);
   }
 }
-// src/geometry/morph.ts
-var MORPH_SAMPLES = 128;
-var dist2 = (a, b) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
-var arcLengths = (points) => {
-  const out = [0];
-  for (let i = 1;i < points.length; i++)
-    out.push(out[i - 1] + dist2(points[i - 1], points[i]));
-  return out;
-};
-var pointAtArcLength = (points, s) => {
-  if (points.length === 0)
-    return { x: 0, y: 0, z: 0 };
-  if (points.length === 1)
-    return points[0];
-  const cum = arcLengths(points);
-  const total = cum[cum.length - 1];
-  if (total <= 0)
-    return points[0];
-  const target = Math.min(1, Math.max(0, s)) * total;
-  let lo = 0;
-  let hi = cum.length - 1;
-  while (hi - lo > 1) {
-    const mid = lo + hi >> 1;
-    if (cum[mid] <= target)
-      lo = mid;
-    else
-      hi = mid;
-  }
-  const span = cum[hi] - cum[lo];
-  const u = span > 0 ? (target - cum[lo]) / span : 0;
-  const a = points[lo];
-  const b = points[hi];
-  return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u };
-};
-var resampleUniform = (points, count = MORPH_SAMPLES) => {
-  if (count < 2)
-    return points.length ? [points[0]] : [];
-  if (points.length === 0)
-    return [];
-  const out = [];
-  for (let i = 0;i < count; i++)
-    out.push(pointAtArcLength(points, i / (count - 1)));
-  return out;
-};
-var morphedPolyline = (source, target, u, count = MORPH_SAMPLES) => {
-  const t = Math.min(1, Math.max(0, u));
-  const a = resampleUniform(source, count);
-  const b = resampleUniform(target, count);
-  const n = Math.min(a.length, b.length);
-  const out = [];
-  for (let i = 0;i < n; i++) {
-    const p = a[i];
-    const q = b[i];
-    out.push({
-      x: p.x + (q.x - p.x) * t,
-      y: p.y + (q.y - p.y) * t,
-      z: p.z + (q.z - p.z) * t
-    });
-  }
-  return out;
-};
-var outlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const ring = (rx, ry) => {
-    const pts = [];
-    for (let i = 0;i <= segments; i++) {
-      const a = i / segments * Math.PI * 2;
-      pts.push({ x: Math.cos(a) * rx, y: Math.sin(a) * ry, z: 0 });
-    }
-    return pts;
-  };
-  let base;
-  if (holon instanceof Circle)
-    base = ring(holon.radius.value, holon.radius.value);
-  else if (holon instanceof Ellipse)
-    base = ring(holon.radiusX.value, holon.radiusY.value);
-  else if (holon instanceof Square) {
-    const s = holon.size.value / 2;
-    base = [
-      { x: -s, y: -s, z: 0 },
-      { x: s, y: -s, z: 0 },
-      { x: s, y: s, z: 0 },
-      { x: -s, y: s, z: 0 },
-      { x: -s, y: -s, z: 0 }
-    ];
-  } else if (holon instanceof Polygon) {
-    const n = holon.sides.value;
-    const pts = [];
-    for (let i = 0;i <= n; i++) {
-      const a = i / n * Math.PI * 2 + holon.phase.value;
-      pts.push({ x: Math.cos(a) * holon.radius.value, y: Math.sin(a) * holon.radius.value, z: 0 });
-    }
-    base = pts;
-  } else if (holon instanceof Rectangle) {
-    base = rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value);
-  } else if (holon instanceof Line) {
-    base = holon.points.length >= 2 ? [...holon.points] : undefined;
-  }
-  if (!base)
-    return;
-  const phase = holon.drawStart.value;
-  const reversed = holon.drawReversed.value;
-  return phase === 0 && !reversed ? base : rephasePolyline(base, phase, reversed);
-};
-var worldOutlineOf = (holon, segments = MORPH_SAMPLES) => {
-  const local = outlineOf(holon, segments);
-  if (!local)
-    return;
-  const chain = [];
-  for (let node = holon;node; node = node.parent)
-    chain.push(node);
-  return local.map((p) => {
-    let out = p;
-    for (const node of chain) {
-      const s = node.scale.value;
-      out = rotHPB({ x: out.x * s, y: out.y * s, z: out.z * s }, node.p.value, node.h.value, node.b.value);
-      out = { x: out.x + node.x.value, y: out.y + node.y.value, z: out.z + node.z.value };
-    }
-    return out;
-  });
-};
-
 // vocabulary/Morph/Morph.ts
-var derivePoints2 = (line, sourceKey, compute) => {
+var derivePoints3 = (line, sourceKey, compute) => {
   let key;
   let memo = [];
   Object.defineProperty(line, "points", {
@@ -3631,7 +3866,7 @@ class MorphShape extends Stroke {
     this.ends = { source, target };
   }
   compose() {
-    derivePoints2(this.line, () => {
+    derivePoints3(this.line, () => {
       const a = worldPosition(this.ends.source);
       const b = worldPosition(this.ends.target);
       return [
@@ -66230,8 +66465,8 @@ var deriveRun = (line, holon, compute3) => {
 };
 
 // sketch/protocol.ts
-var PAGE_W = 1404;
-var PAGE_H = 1872;
+var PAGE_W = 1872;
+var PAGE_H = 1404;
 
 // sketch/xform.ts
 var IDENTITY = { translate: { x: 0, y: 0 }, rotate: 0, scale: 1, pivot: { x: 0, y: 0 } };

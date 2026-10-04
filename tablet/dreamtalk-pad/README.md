@@ -19,7 +19,11 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
 ```
 
 - **Display list** (`core/sketch/protocol.ts`, "The display list"): keyed
-  items of 2D primitives in page units (= rM2 pixels). Ops are `put`, `del`,
+  items of 2D primitives in page units (= rM2 pixels). The page is
+  LANDSCAPE (1872×1404, the tablet held on its side); the pad's screen is
+  the panel's own portrait grid, so the bridge turns every point a quarter
+  on the way in (`opsToScreen`) and every pen sample back (`toPage`). The
+  pad never knows. Ops are `put`, `del`,
   `clear` and `flush`; a batch ends with `flush`, so the screen changes once
   per batch. A reconnect or late join gets a full snapshot.
 - **The page** (`core/sketch/mirror.ts`) flattens every placed symbol
@@ -65,13 +69,15 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
   149 checks.
 - `cd core && bun scripts/mirror-e2e.ts` runs the whole chain. It serves
   the real whiteboard page with a fixture board, makes a selection, takes
-  what `/ws/display` relays and runs the ARM pad on it. It then compares
-  the pad's page with headless Chrome's screenshot of the same page
+  what `/ws/display` relays, turns it onto the portrait screen as the
+  bridge does (`opsToScreen`) and runs the ARM pad on it. It then turns
+  the pad's screen back onto the page and compares it with headless
+  Chrome's screenshot of the same page
   (`.cache/mirror-e2e/{mac,pad,overlay}.png`). The board has every
   vocabulary symbol, ink, a selection and two text symbols (a word, and a
-  turned two-line block with counters). Last run: 97.0% of the pad's ink
-  lies on the Mac's, and 99.9% of the Mac's ink lies on the pad's, within
-  3 px. The rest is the Mac's translucent selection halo, which e-ink leaves
+  turned two-line block with counters). Last run (landscape, 2026-10-04):
+  96.5% of the pad's ink lies on the Mac's, and 99.9% of the Mac's ink
+  lies on the pad's, within 3 px. The rest is the Mac's translucent selection halo, which e-ink leaves
   out, and a rim of about 2 px around most of the Mac's letters (its Write
   trace sits outside the letterform there, not inside).
 - `cd core && bun test test/sketch-mirror.test.ts test/sketch-mirror-text.test.ts`
@@ -92,7 +98,10 @@ After a reboot, triple-press the power button to bring AppLoad back.
    `/home/root/xovi/exthome/appload/dreamtalk-pad/`). Use
    `RM_HOST=<ip> ./install.sh` if the bridge's cached address is stale.
 3. On the tablet, open **DreamTalk** from AppLoad. Open the whiteboard on the
-   Mac (`/sketch/`) and the tablet shows it.
+   Mac (`/sketch/`) and the tablet shows it. Hold the tablet landscape,
+   turned a quarter CLOCKWISE (its left edge at the top) — the bridge's
+   default `RM_ORIENT=cw`. Held the other way, start the bridge with
+   `RM_ORIENT=ccw`.
 
 **Rollback:** `./install.sh --remove`. To set it off for one run, use
 `RM_SCREEN=off` on the bridge.

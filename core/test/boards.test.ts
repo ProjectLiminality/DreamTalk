@@ -11,6 +11,7 @@ import { isValidBoardName, parseBoard, serializeBoard } from "../sketch/board"
 import { BoardDream, boardDream } from "../demo/boards/Board"
 import { boardNameOf, boardResponse, listBoards } from "../scripts/boards"
 import { Line } from "../src/parts/primitives"
+import { PAGE_H, PAGE_W } from "../sketch/protocol"
 
 const board = {
   strokes: [{ id: "k1", points: [{ x: 10.123456, y: 20, pressure: 0.51234, t: 3.6 }, { x: 30, y: 40, pressure: 0.5, t: 9 }] }],
@@ -55,8 +56,8 @@ describe("the board as a scene", () => {
     expect(dream.ink.length).toBe(1)
     expect(dream.ink[0]).toBeInstanceOf(Line)
     expect(dream.ink[0]!.points[1]).toEqual({ x: 30, y: -40, z: 0 })
-    expect(dream.observer.x.value).toBe(702)
-    expect(dream.observer.y.value).toBe(-936)
+    expect(dream.observer.x.value).toBe(PAGE_W / 2)
+    expect(dream.observer.y.value).toBe(-PAGE_H / 2)
     expect(dream.duration).toBe(0) // choreography belongs to code
     expect(Ctor.name).toBe("Board scratchDream")
   })

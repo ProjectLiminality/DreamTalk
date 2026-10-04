@@ -45,11 +45,13 @@ import {
   sshArgs,
   subnetHosts,
   toPage,
+  ORIENT,
+  opsToScreen,
   parseEvents,
   type RawEvent,
   type TouchFrame,
 } from "../scripts/remarkable-bridge"
-import { PAGE_H, PAGE_W } from "../sketch/protocol"
+import { PAGE_H, PAGE_W, screenToPage } from "../sketch/protocol"
 
 /** Encode input_events exactly as the kernel would write them. */
 const encode = (events: Omit<RawEvent, "t">[], size: 16 | 24, sec = 100, usec = 250000): Uint8Array => {
@@ -199,6 +201,8 @@ describe("TouchStateMachine (multitouch protocol B)", () => {
     return raw.flatMap((e) => m.feed(e) ?? [])
   }
   const ident = { ...RM2_TOUCH_MAP, flipY: false }
+  /** Raw touch → screen px (identity map) → the landscape page, as the bridge does. */
+  const pg = (rx: number, ry: number) => screenToPage((rx / 1403) * 1404, (ry / 1871) * 1872, ORIENT)
 
   test("two fingers down, move, one lifts, both lift", () => {
     const m = new TouchStateMachine(ident)
@@ -209,13 +213,15 @@ describe("TouchStateMachine (multitouch protocol B)", () => {
     ])
     expect(down.length).toBe(1)
     expect(down[0]!.touches.map((t) => t.id)).toEqual([10, 11])
-    expect(down[0]!.touches[0]!.x).toBeCloseTo((100 / 1403) * 1404, 6)
-    expect(down[0]!.touches[1]!.y).toBeCloseTo((900 / 1871) * 1872, 6)
+    expect(down[0]!.touches[0]!.x).toBeCloseTo(pg(100, 200).x, 6)
+    expect(down[0]!.touches[0]!.y).toBeCloseTo(pg(100, 200).y, 6)
+    expect(down[0]!.touches[1]!.y).toBeCloseTo(pg(700, 900).y, 6)
 
     // Only slot 1's X changes; slot 0 keeps its last position.
     const move = feedBytes(m, [abs(ABS_MT_POSITION_X, 750), syn])
-    expect(move[0]!.touches[0]!.x).toBeCloseTo((100 / 1403) * 1404, 6)
-    expect(move[0]!.touches[1]!.x).toBeCloseTo((750 / 1403) * 1404, 6)
+    expect(move[0]!.touches[0]).toMatchObject(pg(100, 200))
+    expect(move[0]!.touches[1]!.x).toBeCloseTo(pg(750, 900).x, 6)
+    expect(move[0]!.touches[1]!.y).toBeCloseTo(pg(750, 900).y, 6)
 
     const oneUp = feedBytes(m, [abs(ABS_MT_SLOT, 0), abs(ABS_MT_TRACKING_ID, -1), syn])
     expect(oneUp[0]!.touches.map((t) => t.id)).toEqual([11])
@@ -235,13 +241,36 @@ describe("TouchStateMachine (multitouch protocol B)", () => {
     const m = new TouchStateMachine(ident)
     feedBytes(m, [abs(ABS_MT_TRACKING_ID, 1), abs(ABS_MT_POSITION_X, 10), syn])
     const f = feedBytes(m, [{ type: EV_SYN, code: SYN_DROPPED, value: 0 }, abs(ABS_MT_POSITION_X, 999), syn])
-    expect(f[0]!.touches[0]!.x).toBeCloseTo((10 / 1403) * 1404, 6)
+    expect(f[0]!.touches[0]!.x).toBeCloseTo(pg(10, 0).x, 6)
+    expect(f[0]!.touches[0]!.y).toBeCloseTo(pg(10, 0).y, 6)
   })
 
-  test("the default rM2 map puts raw (0, 0) at the page's bottom-left", () => {
+  test("the default rM2 map puts raw (0, 0) at the SCREEN's bottom-left, turned into the page", () => {
     const m = new TouchStateMachine(RM2_TOUCH_MAP)
     const f = feedBytes(m, [abs(ABS_MT_TRACKING_ID, 1), abs(ABS_MT_POSITION_X, 0), abs(ABS_MT_POSITION_Y, 0), syn])
-    expect(f[0]!.touches[0]).toMatchObject({ x: 0, y: 1872 })
+    expect(f[0]!.touches[0]).toMatchObject(screenToPage(0, 1872, ORIENT))
+  })
+})
+
+describe("landscape: the quarter turn at the device's edge", () => {
+  test("page <-> screen round-trips both ways, and the page is landscape", () => {
+    expect(PAGE_W).toBeGreaterThan(PAGE_H)
+    for (const o of ["cw", "ccw"] as const) {
+      const corners = [[0, 0], [PAGE_W, 0], [0, PAGE_H], [PAGE_W, PAGE_H]].map(([x, y]) => opsToScreen([{ op: "put", id: "c", z: 0, prims: [{ k: "line", pts: [x!, y!], w: 1 }] }], o)[0]!)
+      const xs = corners.map((c) => (c.op === "put" ? c.prims[0]!.pts[0]! : NaN))
+      const ys = corners.map((c) => (c.op === "put" ? c.prims[0]!.pts[1]! : NaN))
+      // every page corner lands on a screen corner of the portrait panel
+      for (const x of xs) expect([0, 1404]).toContain(Math.round(x))
+      for (const y of ys) expect([0, 1872]).toContain(Math.round(y))
+    }
+  })
+
+  test("a pen sample at the screen's centre is the page's centre, either way", () => {
+    for (const o of ["cw", "ccw"] as const) {
+      const c = toPage(RM2_MAP.maxX / 2, RM2_MAP.maxY / 2, RM2_MAP, o)
+      expect(c.x).toBeCloseTo(PAGE_W / 2, 6)
+      expect(c.y).toBeCloseTo(PAGE_H / 2, 6)
+    }
   })
 })
 

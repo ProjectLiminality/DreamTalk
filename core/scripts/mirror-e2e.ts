@@ -10,10 +10,13 @@
  *   2. opens it in headless Chrome, light theme, 1 css px per page unit,
  *      selects a stroke and a symbol (frame, handles, ✦ chip), and
  *      screenshots the page rectangle → mac.png;
- *   3. subscribes to /ws/display like the bridge does, and writes the
- *      snapshot it gets as the tablet's wire (one op per line);
+ *   3. subscribes to /ws/display like the bridge does, turns the snapshot
+ *      onto the tablet's portrait screen exactly as the bridge does
+ *      (`opsToScreen`, the default orientation) and writes it as the
+ *      tablet's wire (one op per line);
  *   4. runs the REAL armv7 dreamtalk-pad on it (tablet/dreamtalk-pad:
- *      ./build.sh e2e in an emulated container) → the page it drew;
+ *      ./build.sh e2e in an emulated container) → the screen it drew,
+ *      turned back onto the landscape page (`pageToScreen`, per pixel);
  *   5. compares the two pictures: how much of the pad's ink lies on the
  *      Mac's and vice versa (within 3 px), and writes an overlay —
  *      black both, red Mac only, blue pad only.
@@ -25,7 +28,8 @@
 import puppeteer from "puppeteer-core"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { displayHub, parseDisplayOps, toLines } from "../sketch/display"
-import { PAGE_H, PAGE_W, type DisplayOp } from "../sketch/protocol"
+import { PAGE_H, PAGE_W, SCREEN_H, SCREEN_W, pageToScreen, type DisplayOp } from "../sketch/protocol"
+import { ORIENT, opsToScreen } from "./remarkable-bridge"
 import { serializeBoard } from "../sketch/board"
 import type { InkStroke, PlacedSymbol } from "../sketch/protocol"
 
@@ -46,19 +50,20 @@ const wave = (id: string, x0: number, y0: number, n: number, amp: number): InkSt
   })),
 })
 
-const strokes: InkStroke[] = [wave("ink-wave", 120, 1560, 60, 40), wave("ink-sel", 820, 1500, 40, 25)]
+// Laid out on the landscape page (PAGE_W × PAGE_H = 1872 × 1404).
+const strokes: InkStroke[] = [wave("ink-wave", 1100, 1270, 60, 40), wave("ink-sel", 1100, 1080, 40, 25)]
 const sym = (id: string, symbol: string, params: Record<string, unknown>): PlacedSymbol => ({ id, symbol, params, fromStrokes: [] })
 const symbols: PlacedSymbol[] = [
-  sym("s-circle", "circle", { cx: 260, cy: 260, r: 140 }),
-  sym("s-square", "square", { cx: 700, cy: 260, size: 230, rotation: 0.3 }),
-  sym("s-tri", "triangle", { cx: 1130, cy: 280, r: 150, rotation: 0 }),
-  sym("s-flower", "flowerOfLife", { cx: 330, cy: 800, r: 95, rings: 1 }),
-  sym("s-cube", "cube", { cx: 1000, cy: 760, size: 220, h: 0.6, p: 0.4 }),
-  sym("s-eye", "eye", { cx: 330, cy: 1260, size: 300, rotation: 0 }),
-  sym("s-figure", "figure", { cx: 1180, cy: 1240, height: 360 }),
-  sym("s-word", "text", { content: "DreamTalk", cx: 400, cy: 1760, size: 70 }),
-  sym("s-lines", "text", { content: "oea gob\nBagel 8", cx: 1130, cy: 520, size: 38, rotation: 0.2 }),
-  sym("s-virus", "mindVirus", { x: 760, y: 1200, size: 140, heading: 0, fold: 0.8, cable: [[520, 1340], [600, 1300], [640, 1240], [690, 1210]] }),
+  sym("s-circle", "circle", { cx: 220, cy: 220, r: 140 }),
+  sym("s-square", "square", { cx: 640, cy: 230, size: 230, rotation: 0.3 }),
+  sym("s-tri", "triangle", { cx: 1060, cy: 250, r: 150, rotation: 0 }),
+  sym("s-flower", "flowerOfLife", { cx: 1560, cy: 260, r: 95, rings: 1 }),
+  sym("s-cube", "cube", { cx: 260, cy: 680, size: 220, h: 0.6, p: 0.4 }),
+  sym("s-eye", "eye", { cx: 700, cy: 680, size: 300, rotation: 0 }),
+  sym("s-figure", "figure", { cx: 1720, cy: 1000, height: 360 }),
+  sym("s-word", "text", { content: "DreamTalk", cx: 400, cy: 1200, size: 70 }),
+  sym("s-lines", "text", { content: "oea gob\nBagel 8", cx: 1180, cy: 620, size: 38, rotation: 0.2 }),
+  sym("s-virus", "mindVirus", { x: 900, y: 1060, size: 140, heading: 0, fold: 0.8, cable: [[660, 1200], [740, 1160], [780, 1100], [830, 1070]] }),
 ]
 const boardText = serializeBoard({ strokes, symbols })
 
@@ -136,7 +141,8 @@ try {
   })
   const ids = ops.flatMap((o) => (o.op === "put" ? [o.id] : []))
   console.log(`display list: ${ids.length} items — ${ids.join(" ")}`)
-  writeFileSync(`${padDir}/build/display.ndjson`, toLines(ops))
+  // The bridge's own turn onto the portrait screen — the pad never sees the page.
+  writeFileSync(`${padDir}/build/display.ndjson`, toLines(opsToScreen(ops, ORIENT)))
 
   // --- 4. the real pad draws it ---------------------------------------------------------
 
@@ -149,16 +155,24 @@ try {
     throw new Error(`pad e2e failed (${code})`)
   }
   const pgm = new Uint8Array(await Bun.file(`${padDir}/build/e2e.pgm`).arrayBuffer())
+  // The pad drew its portrait screen; read it back onto the landscape page,
+  // each page pixel from the screen pixel its centre lands on.
+  let off = 0
+  for (let lines = 0; lines < 3; off++) if (pgm[off] === 10) lines++
+  const screen = pgm.subarray(off, off + SCREEN_W * SCREEN_H)
+  const padPage = new Uint8Array(PAGE_W * PAGE_H)
+  for (let y = 0; y < PAGE_H; y++)
+    for (let x = 0; x < PAGE_W; x++) {
+      const q = pageToScreen(x + 0.5, y + 0.5, ORIENT)
+      padPage[y * PAGE_W + x] = screen[Math.floor(q.y) * SCREEN_W + Math.floor(q.x)]!
+    }
 
   // --- 5. compare, in the browser (it decodes PNGs) ---------------------------------------
 
   const cmp = await browser.newPage()
   const result = await cmp.evaluate(
-    async (macB64: string, pgmB64: string, W: number, H: number) => {
-      const bytes = Uint8Array.from(atob(pgmB64), (c) => c.charCodeAt(0))
-      let off = 0
-      for (let lines = 0; lines < 3; off++) if (bytes[off] === 10) lines++
-      const padGrey = bytes.subarray(off, off + W * H)
+    async (macB64: string, padB64: string, W: number, H: number) => {
+      const padGrey = Uint8Array.from(atob(padB64), (c) => c.charCodeAt(0))
       const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${macB64}`)).blob())
       const c = new OffscreenCanvas(W, H)
       const g = c.getContext("2d")!
@@ -226,7 +240,7 @@ try {
       return { precision: padOnMac / Math.max(1, pad), recall: macOnPad / Math.max(1, macN), pad, mac: macN, overlay, padPng }
     },
     Buffer.from(await Bun.file(macPng).arrayBuffer()).toString("base64"),
-    Buffer.from(pgm).toString("base64"),
+    Buffer.from(padPage).toString("base64"),
     PAGE_W,
     PAGE_H,
   )

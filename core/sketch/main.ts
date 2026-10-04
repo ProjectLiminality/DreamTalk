@@ -9,7 +9,7 @@
  * when it changes — layout here, camera/timeline/choreography there.
  * `/sketch/?board=<name>` picks a board (default `scratch`).
  *
- * Layers over one page rectangle (protocol.ts: 1404 × 1872, y down):
+ * Layers over one page rectangle (protocol.ts: PAGE_W × PAGE_H, landscape, y down):
  *
  *   - SYMBOLS, twice: a ThreeHost canvas for the symbols at rest and one
  *     for the SELECTED symbols, so a live move/rotate/scale is a CSS

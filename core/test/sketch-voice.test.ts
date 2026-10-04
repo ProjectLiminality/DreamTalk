@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { History, apply, editCommand, touched, updateSymbol, type SketchState } from "../sketch/state"
-import type { InkStroke, InstructRequest, PlacedSymbol } from "../sketch/protocol"
+import { PAGE_H, PAGE_W, type InkStroke, type InstructRequest, type PlacedSymbol } from "../sketch/protocol"
 import { buildInstructPrompt, parseInstructReply, type InstructContext } from "../scripts/instruct"
 import { VOCABULARY } from "../sketch/vocabulary"
 
@@ -135,7 +135,7 @@ describe("instruct prompt", () => {
   })
 
   test("names the selection by tag, or says the whole scene", () => {
-    const p = buildInstructPrompt(req(["sym-c"]), "/x.png", { w: 702, h: 936 }, VOCABULARY)
+    const p = buildInstructPrompt(req(["sym-c"]), "/x.png", { w: PAGE_W / 2, h: PAGE_H / 2 }, VOCABULARY)
     expect(p).toContain("SELECTED: S1.")
     expect(p).toContain("S1 [SELECTED] circle")
     expect(p).toContain("K1 ink")

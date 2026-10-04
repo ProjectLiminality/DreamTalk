@@ -60097,6 +60097,7 @@ var exports_outline = {};
 __export(exports_outline, {
   startAtTop: () => startAtTop,
   loopArea: () => loopArea,
+  insetLoopDeepest: () => insetLoopDeepest,
   insetLoop: () => insetLoop,
   closeLoop: () => closeLoop,
   boundaryLoops: () => boundaryLoops,
@@ -60251,6 +60252,27 @@ var insetLoop = (loop, amount) => {
     }
   }
   return pts.map(({ p: p2 }) => p2);
+};
+var insetLoopDeepest = (loop, amount) => {
+  if (amount <= 0)
+    return { loop, depth: 0 };
+  const full = insetLoop(loop, amount);
+  if (full !== loop)
+    return { loop: full, depth: amount };
+  let lo = 0;
+  let hi = amount;
+  let best = loop;
+  for (let k2 = 0;k2 < 12; k2++) {
+    const mid = (lo + hi) / 2;
+    const inset = insetLoop(loop, mid);
+    if (inset !== loop) {
+      lo = mid;
+      best = inset;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo > 0 ? { loop: best, depth: lo } : { loop, depth: 0 };
 };
 var segmentDistance = (p2, a2, b2) => {
   const dx = b2.x - a2.x;
@@ -60782,17 +60804,19 @@ var buildOutlines = (geometry, strokePx, pixelsPerUnit) => {
   const outlines = [];
   for (let g2 = 0;g2 < glyphCount; g2++) {
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 0.000001);
-    const loops = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2).map((loop) => insetLoop(loop, inset));
-    const lengths = loops.map(loopLength);
+    const loops = boundaryLoops(positions, indices, (t2) => glyphIndex.getX(indices[t2 * 3]) === g2).map((loop) => insetLoopDeepest(loop, inset));
+    const lengths = loops.map(({ loop }) => loopLength(loop));
     const total = lengths.reduce((a2, b2) => a2 + b2, 0);
     let walked = 0;
     const built = [];
     for (let i2 = 0;i2 < loops.length; i2++) {
       const ribbon = new RibbonStroke(strokePx);
-      ribbon.setPoints(closeLoop(loops[i2]).map((p2) => new Vector3(p2.x, p2.y, p2.z)));
+      const { loop, depth: depth3 } = loops[i2];
+      ribbon.setPoints(closeLoop(loop).map((p2) => new Vector3(p2.x, p2.y, p2.z)));
       const from = total > 0 ? walked / total : 0;
       walked += lengths[i2];
-      built.push({ ribbon, from, to: total > 0 ? walked / total : 1 });
+      const share = depth3 === inset ? 1 : depth3 / inset;
+      built.push({ ribbon, from, to: total > 0 ? walked / total : 1, share });
     }
     outlines.push({ window: windows2[g2] ?? [0, 1], loops: built });
   }
@@ -60810,9 +60834,9 @@ var syncOutlines = (outlines, holon) => {
     const pWrite = clamp012((creation - window2[0]) / span);
     const pErase = clamp012((erasure - window2[0]) / span);
     const { draw } = writePhases(Math.min(pWrite, 1 - pErase));
-    for (const { ribbon, from, to } of loops) {
+    for (const { ribbon, from, to, share } of loops) {
       const local = to > from ? clamp012((draw - from) / (to - from)) : draw > from ? 1 : 0;
-      ribbon.style(local, opacity, tint, width);
+      ribbon.style(local, opacity, tint, share === 1 ? width : width * share);
     }
   }
 };
@@ -102922,8 +102946,8 @@ var scenes = {
 var defaultScene = "founding";
 
 // sketch/protocol.ts
-var PAGE_W = 1404;
-var PAGE_H = 1872;
+var PAGE_W = 1872;
+var PAGE_H = 1404;
 
 // sketch/vocabulary.ts
 var num = (p2, key, fallback) => {
