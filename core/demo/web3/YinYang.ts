@@ -599,7 +599,9 @@ export class YinYangDream extends Dream {
       together(
         this.orbit.creation.to(1, { easing: "linear" }),
         this.blueGlobe.spin.to(TAU * 0.32, { easing: "linear" }),
-        this.redGlobe.spin.to(0.5 + TAU * 0.32, { easing: "linear" }),
+        // The red globe turns faster than the blue: it shows South America
+        // at 11s and Asia and Australia by 19s (refs at full resolution).
+        this.redGlobe.spin.to(0.5 + TAU * 0.78, { easing: "linear" }),
       ),
       10.5,
     )

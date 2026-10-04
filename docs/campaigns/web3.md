@@ -297,11 +297,47 @@ no-op. The bolts are filled ⚡ glyphs traced off the 14.4s frame — a
 drawing (Stroke + one closed Line), the host's even-odd fill for a concave
 outline.
 
-Still different: while the crossfade dims the red node, its black sea goes
-translucent with everything else (opacity is per primitive, no group
-opacity), so the flower lattice behind it shows faintly through the globe
-for the last second; and the red globe faces the Pacific through 19–21s
-where the original's shows Asia and Australia (the globes' own spin).
+The red globe turns faster than the blue (to 0.5 + 0.78·TAU over the
+spin): South America at 11s, Asia and Australia through 17–21s, as the
+frames show.
+
+**Needs an engine change — not done:** opacity is per primitive (no group
+opacity), so while the dive's fade dims the red node its black sea goes
+translucent with everything else and the flower lattice behind it shows
+faintly through the globe in the last second. Same cause anywhere a
+filled globe fades over decoration.
+
+**The whole song against the reference, 1fps, 0–171s (2026-10-04).** Read
+side by side (reference frames taken on the exact second). What still
+visibly differs, in order:
+
+- 0–4 (globe): the original fades up from black under a C4D terminator
+  light; ours is evenly lit from the first frame. At 4s the original's
+  globe is already parting into two; ours is one globe until the cut.
+- 5–8 (yin-yang birth/division): the original's outer circle is whole by
+  5s and the nodes are decorated by ~6–7s; ours draws the circle over
+  4–7s and decorates ~1s later. (From 8s through the dive it matches.)
+- 22–31 (Web2): the original's triangle is a darker, smaller blue lattice
+  that fades in; ours is lighter blue and larger. The collapse timing
+  matches.
+- 31–45 (Web3 word): ours is pinkish and larger — the host's linear-tint
+  question (David's call) — and a different face.
+- 45–47: the original floods the whole frame with the red hex field
+  before it gathers; ours gathers from a disc.
+- 63–74 (quote): our line-by-line reveal runs ~1s behind, and the
+  original fades the quote out at 74s, ours at 75s.
+- 86–93 (node network): the original wires up at ~86s and gathers its four
+  crystals into a compact 2×2 in the upper middle with the mesh gone; ours
+  wires at ~88s, spreads the crystals to the corners and keeps the mesh.
+- 107–113 (light): the original's outline globe faces Asia and ignites to
+  a shaded white; ours faces Africa/Europe and floods through grey.
+- 114–118: the original's arcs loop wide around the globe; ours stay close
+  (as noted below).
+- 119 and 128–130: the original dims into the callback and into the hero
+  earlier and darker; ours is brighter through those changes.
+- 146–157 (portrait): ours is the placeholder — the photograph awaits David.
+- 163–165 (closing): the title arrives ~0.5–1s later in ours; our circles
+  draw slightly larger.
 
 **Not reproduced, stated rather than faked:** the C4D terminator light in
 shot 1; the hero's flower lattice draws OVER the globe (the ribbon batch
