@@ -608,8 +608,10 @@ ruling (translation + the three deleted labels from footage).
       dissolve fades each chapter as ONE flattened picture (offscreen
       layer, added by weight); Web3's dive no longer shows the lattice
       through the globe's sea. Every other frame/scene unchanged.
-- [ ] **Text contour inset cost** — re-run every frame of a camera move,
-      ~1.5 s/frame in Web3's transitions; exact fix noted in ROADMAP.
+- [~] **Text contour inset cost** — exact half done (segment grid +
+      cached rings, 945/945 identical): Web3 transitions 1.4–1.6 s → 0.44–
+      0.65 s a frame. The rest needs a coarser re-inset trigger (≤ 0.01 px
+      change during camera moves) — awaiting a decision (ROADMAP).
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

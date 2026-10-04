@@ -447,6 +447,34 @@ const loopLength = (loop: readonly Vec3Like[]): number => {
  * glyph), and the per-glyph filter is what keeps neighbouring letters
  * from welding into one another's loops.
  */
+/**
+ * One glyph's boundary contours, cached per layout: the contours are a
+ * pure function of the glyph geometry, but the outlines are rebuilt every
+ * frame the projection scale moves (a dolly), and recovering the rings
+ * each time was a third of that cost. Keyed by the position attribute and
+ * its version, so a relayout or any write to the positions misses.
+ */
+const ringCache = new WeakMap<THREE.BufferAttribute, { version: number; rings: Map<number, Vec3Like[][]> }>()
+const glyphRings = (
+  position: THREE.BufferAttribute,
+  positions: ArrayLike<number>,
+  indices: ArrayLike<number>,
+  glyphIndex: THREE.BufferAttribute,
+  g: number,
+): Vec3Like[][] => {
+  let entry = ringCache.get(position)
+  if (!entry || entry.version !== position.version) {
+    entry = { version: position.version, rings: new Map() }
+    ringCache.set(position, entry)
+  }
+  let rings = entry.rings.get(g)
+  if (!rings) {
+    rings = boundaryLoops(positions, indices, (t) => glyphIndex.getX(indices[t * 3]!) === g)
+    entry.rings.set(g, rings)
+  }
+  return rings
+}
+
 const buildOutlines = (
   geometry: THREE.BufferGeometry,
   strokePx: number,
@@ -478,7 +506,7 @@ const buildOutlines = (
     // encode blur, so pulling the hard edge a further pixel in only
     // thins the stems.
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 1e-6)
-    const rings = boundaryLoops(positions, indices, (t) => glyphIndex.getX(indices[t * 3]!) === g)
+    const rings = glyphRings(position, positions, indices, glyphIndex, g)
     // Each contour against its siblings too: a counter and its outline
     // share the stem between them, and neither inset may cross it.
     const loops = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop)))

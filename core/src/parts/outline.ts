@@ -343,20 +343,16 @@ export const insetLoopDeepest = (
       // Clear of the glyph's OTHER contours too: a bowl narrower than the
       // pen lets the outline's inset cross its counter's, and the pen
       // would paint inside the hole.
-      let own = Infinity
-      for (let e = 0; strictOwn && e < loop.length && own >= depth * 0.95; e++) {
-        own = Math.min(own, segmentDistance(p, loop[e]!, loop[(e + 1) % loop.length]!))
-      }
-      let other = Infinity
-      for (const ring of others) {
-        for (let e = 0; e < ring.length && other >= depth * 0.95; e++) {
-          other = Math.min(other, segmentDistance(p, ring[e]!, ring[(e + 1) % ring.length]!))
-        }
-      }
-      if ((own < depth * 0.95 || other < depth * 0.95) && ++close > inset.length * 0.02) return false
+      if (grid.near(p, depth * 0.95, strictOwn) && ++close > inset.length * 0.02) return false
     }
     return true
   }
+  // Every query below asks "is any edge closer than r", r ≤ 0.95·amount:
+  // a grid of cell `amount` answers it from the 3×3 cells around the
+  // point, exhaustively — the same booleans as the all-pairs walk, which
+  // ran every frame of a dolly (Text re-insets as its scale moves) and
+  // cost Web3's transitions ~1.5 s a frame.
+  const grid = new SegmentGrid(loop, others, amount)
   const full = insetLoop(loop, amount)
   if (fits(full, amount, false)) return { loop: full, depth: amount }
   // Bisect for the deepest depth that fits (12 halvings: within 1/4096
@@ -375,6 +371,67 @@ export const insetLoopDeepest = (
     }
   }
   return lo > 0 ? { loop: best, depth: lo } : { loop, depth: 0 }
+}
+
+/**
+ * The segments of a contour and its sibling contours, binned by a uniform
+ * grid whose cell is at least every query radius — so the 3×3 cells around
+ * a point hold every segment that could lie within it. `near` gives the
+ * same answer as testing every segment: own edges count only when asked.
+ */
+class SegmentGrid {
+  private readonly cells = new Map<number, number[]>()
+  private readonly a: Vec3Like[] = []
+  private readonly b: Vec3Like[] = []
+  private readonly own: boolean[] = []
+
+  constructor(loop: Loop, others: readonly Loop[], private readonly cell: number) {
+    const add = (ring: Loop, own: boolean) => {
+      for (let e = 0; e < ring.length; e++) {
+        const a = ring[e]!
+        const b = ring[(e + 1) % ring.length]!
+        const id = this.a.length
+        this.a.push(a)
+        this.b.push(b)
+        this.own.push(own)
+        const x0 = Math.floor(Math.min(a.x, b.x) / cell)
+        const x1 = Math.floor(Math.max(a.x, b.x) / cell)
+        const y0 = Math.floor(Math.min(a.y, b.y) / cell)
+        const y1 = Math.floor(Math.max(a.y, b.y) / cell)
+        for (let x = x0; x <= x1; x++) {
+          for (let y = y0; y <= y1; y++) {
+            const key = this.key(x, y)
+            const list = this.cells.get(key)
+            if (list) list.push(id)
+            else this.cells.set(key, [id])
+          }
+        }
+      }
+    }
+    add(loop, true)
+    for (const ring of others) add(ring, false)
+  }
+
+  private key(x: number, y: number): number {
+    return (x + 0x8000) * 0x10000 + (y + 0x8000)
+  }
+
+  /** Is any (sibling, or own when `withOwn`) segment closer to p than r? */
+  near(p: Vec3Like, r: number, withOwn: boolean): boolean {
+    const cx = Math.floor(p.x / this.cell)
+    const cy = Math.floor(p.y / this.cell)
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      for (let y = cy - 1; y <= cy + 1; y++) {
+        const list = this.cells.get(this.key(x, y))
+        if (!list) continue
+        for (const id of list) {
+          if (!withOwn && this.own[id]) continue
+          if (segmentDistance(p, this.a[id]!, this.b[id]!) < r) return true
+        }
+      }
+    }
+    return false
+  }
 }
 
 /** Distance from p to the segment a–b (in the plane). */

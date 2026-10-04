@@ -491,3 +491,30 @@ glyph, inside a 12-step bisection. Exact remedies, no visual change: cache
 `boundaryLoops` per glyph geometry, and answer `fits`' "is any edge within
 r" through a uniform grid of segments (cell ≥ r, so a 3×3 lookup is
 exhaustive) instead of all pairs.
+
+### Text contour inset cost — the exact half, done (2026-10-04)
+
+- `insetLoopDeepest`'s fit test asks "is any edge closer than r" through a
+  `SegmentGrid` (cell = the half-pen ≥ every r, so the 3×3 cells around a
+  point hold every edge that could be closer) instead of all pairs.
+  Exactness checked directly: HEAD's outline.ts vs the new one on every
+  contour of a pangram at three sizes and five insets — 945 cases, 0
+  differences — and 7.8× faster (8.2 s → 1.0 s).
+- `buildOutlines` caches each glyph's boundary rings per layout (keyed by
+  the position attribute and its version).
+- Gates (frozen worktrees at cdf2ae4): state-gate text, patience,
+  agentarena, quote, web3s09 identical; web3 identical but for one
+  first-frame `hg` value — every ribbon's geometry at that frame is
+  identical in the same order (17,929), so it is the documented
+  unused-buffer-tail floor. 1,818 tests green.
+- Web3 transition frames, GPU-complete: 1,437 → **439** ms (t=20.5),
+  1,575 → **649** ms (t=46); t=40 unchanged (68).
+
+**Still ~360 ms/frame there** (`near` 5.8 s, `within` 2.6 s, `fits`
+2.6 s per 30 frames): Web3's pens are wider than its stems, so nearly every
+contour bisects, every frame of a dolly. The remaining lever is not exact:
+Text re-insets whenever its pixels-per-unit moves by more than an absolute
+1e-4 — already a quantization. Re-insetting only on a ~0.5% relative move
+would change the inset by ≤ ~0.01 px during camera moves (sub-pixel, but
+not byte-identical) and remove nearly all of it. A TASTE-level call for
+David/lead, not taken here.
