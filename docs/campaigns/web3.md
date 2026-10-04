@@ -301,11 +301,10 @@ The red globe turns faster than the blue (to 0.5 + 0.78·TAU over the
 spin): South America at 11s, Asia and Australia through 17–21s, as the
 frames show.
 
-**Needs an engine change — not done:** opacity is per primitive (no group
-opacity), so while the dive's fade dims the red node its black sea goes
-translucent with everything else and the flower lattice behind it shows
-faintly through the globe in the last second. Same cause anywhere a
-filled globe fades over decoration.
+**Fixed by the engine (verified in a frame each, 2026-10-04):** the dive's
+red globe no longer goes see-through mid-fade (cdf2ae4, dissolves flatten
+each picture before mixing — 21.2s), and the hero's lattice no longer
+draws over its globe (3dd6173, ribbon runs — 140s).
 
 **The whole song against the reference, 1fps, 0–171s (2026-10-04).** Read
 side by side (reference frames taken on the exact second). What still
@@ -371,7 +370,27 @@ visibly differs, in order:
   161–162, the title 162.75–164.4. Within ~3px everywhere.
 - 146–157 (portrait): ours is the placeholder — the photograph awaits David.
 
-**Not reproduced, stated rather than faked:** the hero's flower lattice draws OVER the globe (the ribbon batch
-composites every stroke above every fill — a host property); Text renders
+**FINAL remaining differences (1fps full-song sheet vs reference,
+2026-10-04, after all of the above):**
+
+- 1–3s: the original's far half has a soft white glow beyond the right
+  limb; ours has only the frosted veil.
+- 31s: the Web3 cloud's red rises into the Web2 collapse a beat early.
+- 31–45s: the word's typeface (Arimo vs Helvetica — a licensing call) and
+  colour (David's call).
+- 108–113s: the light globe ignites as a radial glow shading the land
+  white → grey; ours floods flat (needs a gradient fill — with engine).
+- 128–130s: the swelling disc fills brighter/whiter in the original and
+  the hero's globe arrives already lit; ours is dimmer through the hand-off.
+- 63–74s: our quote type is heavier than Manim's hairline serif.
+- 146–157s: the portrait is a placeholder — awaiting David's photograph.
+- 163s: the title's first letters ~0.3s behind.
+
+Everything else — the opening, the yin-yang's birth, spin and dive, Web2,
+the field's contraction, the quote's timing, the network, the pushes, the
+light globe's turn and arcs, the dip into the callback, the hero and the
+closing — matches the frames at 1fps.
+
+**Not reproduced, stated rather than faked:** Text renders
 heavier than Manim's hairline serif; the light globe's radial glow (a
 gradient fill, host-side).
