@@ -489,6 +489,20 @@ static void apply_op(const dl_op *op) {
 static ink_rect settle = {0, 0, 0, 0}; /* shown since the last quality pass */
 static double last_activity = 0;
 
+/*
+ * LATEST STATE ONLY. The page streams batches faster than e-ink can show
+ * them; drawing every batch in turn left the screen walking through stale
+ * frames, further and further behind (David, 2026-10-04). So a batch's
+ * `flush` only marks the screen DUE: c_read drains everything queued,
+ * applying it to the item list (cheap), and the main loop then paints the
+ * union of what changed ONCE, from the newest state, at most every
+ * DL_MIN_MS. The pen's own trail is drawn on its own path and is never
+ * held back by this.
+ */
+#define DL_MIN_MS 120.0
+static int flush_due = 0;
+static double last_flush = 0;
+
 static void flush_batch(void) {
     /* The page has had the pen lift: the trails it now draws itself can go. */
     if (batch_ended_gesture && !pen_down)
@@ -524,7 +538,7 @@ static void c_read(void) {
             if (!cdiscard && k > start) {
                 dl_op op;
                 int rc = dl_parse(cbuf + start, k - start, &op, op_prims, MAX_PRIMS, op_nums, MAX_NUMS);
-                if (rc == 0 && op.kind == DL_FLUSH) flush_batch();
+                if (rc == 0 && op.kind == DL_FLUSH) flush_due = 1;
                 else if (rc == 0) apply_op(&op);
                 else fprintf(stderr, "dreamtalk-pad: skipped a display-list line (%d)\n", rc);
             }
@@ -625,6 +639,10 @@ int main(void) {
             double due = last_activity + QUIET_MS;
             if (next < 0 || due < next) next = due;
         }
+        if (flush_due) {
+            double due = last_flush + DL_MIN_MS;
+            if (next < 0 || due < next) next = due;
+        }
         int timeout = next < 0 ? -1 : next <= t ? 0 : (int)(next - t) + 1;
         if (poll(fds, (nfds_t)nfds, timeout) < 0) {
             if (errno == EINTR) continue;
@@ -689,6 +707,12 @@ int main(void) {
 
         if (il >= 0 && fds[il].revents) c_accept();
         if (ic >= 0 && cfd >= 0 && fds[ic].revents) c_read();
+        /* Everything queued is applied; show the newest state once. */
+        if (flush_due && now_ms() - last_flush >= DL_MIN_MS) {
+            flush_due = 0;
+            last_flush = now_ms();
+            flush_batch();
+        }
 
         t = now_ms();
         /* Trails the page never adopted (a tap on a control, a lost link) fade out. */
