@@ -138,6 +138,8 @@ interface StyleParams {
   stroke: Param<number>
   erasure: Param<number>
   fillOpacity: Param<number>
+  fillFalloff: Param<number>
+  fillFalloffRadius: Param<number>
 }
 
 const styleOf = (holon: Stroke): StyleParams => ({
@@ -147,6 +149,8 @@ const styleOf = (holon: Stroke): StyleParams => ({
   stroke: holon.stroke,
   erasure: holon.erasure,
   fillOpacity: holon.fillOpacity,
+  fillFalloff: holon.fillFalloff,
+  fillFalloffRadius: holon.fillFalloffRadius,
 })
 
 /** A filled flat shape (Ellipse with filled=true): creation = fill-in. */
@@ -155,6 +159,8 @@ interface FillBinding {
   fill: FillShape
   sig: ShapeSig
   look: StyleParams
+  /** Drawn with the radial-light material (Stroke.fillFalloff). */
+  gradient: boolean
 }
 
 /**
@@ -169,6 +175,8 @@ interface WashBinding {
   fill: FillShape
   sig: ShapeSig
   look: StyleParams
+  /** Drawn with the radial-light material (Stroke.fillFalloff). */
+  gradient: boolean
 }
 
 /**
@@ -921,6 +929,24 @@ export class ThreeHost {
    * it. Read once per holon at attach, which is the only moment the
    * answer can still change what gets built.
    */
+  /**
+   * Will this fill ever light radially (Stroke.fillFalloff)? Decided once
+   * at attach, as washesFillOpacity decides a wash: a non-zero falloff, a
+   * bound one, or one a track moves. Only such fills switch to the
+   * radial-light material; every other fill keeps its flat one exactly.
+   */
+  private lightsRadially(holon: Stroke, fill: FillShape): boolean {
+    const f = holon.fillFalloff
+    let uses = f.value > 0 || f.isBound
+    for (const clip of this.dream.clips) {
+      for (const track of clip.anim.tracks) {
+        if (track.param === (f as unknown as typeof track.param)) uses = true
+      }
+    }
+    if (uses) fill.useGradient()
+    return uses
+  }
+
   private washesFillOpacity(holon: Stroke): boolean {
     if (holon.fillOpacity.value > 0) return true
     // A BOUND fillOpacity (`.follow()`, or a derived reading passed in at
@@ -982,14 +1008,14 @@ export class ThreeHost {
       const fill = new FillShape(this.claimFillOrder())
       fill.setPolygon(ellipsePolygon(holon.radiusX.value, holon.radiusY.value))
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
     } else if (holon instanceof Rectangle && holon.filled.value) {
       const fill = new FillShape(this.claimFillOrder())
       fill.setPolygon(
         rectanglePolyline(holon.width.value, holon.height.value, holon.rounding.value),
       )
       group.add(fill.mesh)
-      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
+      this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -1015,7 +1041,7 @@ export class ThreeHost {
         const fill = new FillShape(this.claimFillOrder())
         fill.setPolygons(loops)
         group.add(fill.mesh)
-        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon) })
+        this.drawingWashes.push({ holon, fill, sig: drawingSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
         for (const part of holon.parts) this.washedByAncestor.add(part)
       }
       const washed =
@@ -1026,7 +1052,7 @@ export class ThreeHost {
         const fill = new FillShape(this.claimFillOrder())
         fill.setPolygon(washed.points, washed.triangles)
         group.add(fill.mesh)
-        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon) })
+        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
       }
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
@@ -1309,6 +1335,7 @@ export class ThreeHost {
         look.creation.value * look.opacity.value,
         liftTint(look.tint.value, this.highlightOf(holon)),
       )
+      if (binding.gradient) fill.setGradient(look.fillFalloff.value, look.fillFalloffRadius.value)
     }
     for (const binding of this.washes) {
       const { holon, fill } = binding
@@ -1325,6 +1352,7 @@ export class ThreeHost {
         binding.look.fillOpacity.value * binding.look.opacity.value,
         liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
+      if (binding.gradient) fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value)
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding
@@ -1342,6 +1370,7 @@ export class ThreeHost {
         binding.look.fillOpacity.value * binding.look.opacity.value,
         liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
+      if (binding.gradient) fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value)
     }
     this.syncCamera()
 

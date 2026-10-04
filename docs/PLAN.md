@@ -612,6 +612,11 @@ ruling (translation + the three deleted labels from footage).
       cached rings, 945/945 identical): Web3 transitions 1.4–1.6 s → 0.44–
       0.65 s a frame. The rest needs a coarser re-inset trigger (≤ 0.01 px
       change during camera moves) — awaiting a decision (ROADMAP).
+- [x] **Radial-light fill** — `Stroke.fillFalloff` (0 = flat, default)
+      + `fillFalloffRadius` (0 = the fill's own extent): colour ×
+      (1 − falloff·smoothstep(0, R, r)) from the local origin, animatable.
+      Only fills that ask switch material; state gate 504/504 identical.
+      `/demo/?scene=fillglow`. For Web3's light globe (LightSpread).
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

@@ -28,13 +28,15 @@ import { evenOddTriangulation } from "../geometry/evenodd"
 // Same @types/three lag as ribbon.ts: UserDataNode misses the typed
 // Node<...> surface — the graph is verified when the shader builds.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { userData } = TSLTyped as any
+const { userData, positionLocal, smoothstep, float, max } = TSLTyped as any
 
 /** The per-mesh value slots the shared fill material reads (FillShape
  *  owns the writes). */
 const FILL_KEYS = {
   tint: "dtFillTint",
   fade: "dtFillFade",
+  falloff: "dtFillFalloff",
+  radius: "dtFillFalloffRadius",
 } as const
 
 /** The one fill material every FillShape shares. Lazy so importing this
@@ -53,6 +55,30 @@ const sharedFillMaterial = (): THREE.MeshBasicNodeMaterial => {
 }
 
 /** A flat ellipse as a triangle fan around its center. */
+/**
+ * The radial-light fill (Stroke.fillFalloff): the same flat fill, its
+ * colour scaled by 1 − falloff · smoothstep(0, R, r), r the distance from
+ * the mesh's local origin. A material of its own, used ONLY by fills that
+ * ask for a falloff — every other fill keeps the shared flat material
+ * above, so nothing that does not use it can render a different byte.
+ */
+let sharedGradient: THREE.MeshBasicNodeMaterial | undefined
+const sharedGradientFillMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedGradient) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = true
+    m.depthWrite = false
+    m.side = THREE.DoubleSide
+    const r = positionLocal.xy.length()
+    const radius = max(userData(FILL_KEYS.radius, "float"), float(1e-6))
+    const light = float(1).sub(userData(FILL_KEYS.falloff, "float").mul(smoothstep(0, radius, r)))
+    m.colorNode = userData(FILL_KEYS.tint, "color").mul(light)
+    m.opacityNode = userData(FILL_KEYS.fade, "float")
+    sharedGradient = m
+  }
+  return sharedGradient
+}
+
 export const ellipsePolygon = (
   radiusX: number,
   radiusY: number,
@@ -78,6 +104,25 @@ export class FillShape {
     this.mesh.visible = false
     this.mesh.userData[FILL_KEYS.tint] = new THREE.Color(1, 1, 1)
     this.mesh.userData[FILL_KEYS.fade] = 1
+  }
+
+  /** The farthest point of the current shape from its local origin. */
+  private extent = 0
+
+  /**
+   * Switch this fill to the radial-light material (Stroke.fillFalloff).
+   * Called once, at attach, for a fill that will ever use a falloff.
+   */
+  useGradient(): void {
+    this.mesh.material = sharedGradientFillMaterial()
+    this.mesh.userData[FILL_KEYS.falloff] = 0
+    this.mesh.userData[FILL_KEYS.radius] = 0
+  }
+
+  /** The falloff this frame; a radius of 0 means the shape's own extent. */
+  setGradient(falloff: number, radius: number): void {
+    this.mesh.userData[FILL_KEYS.falloff] = falloff
+    this.mesh.userData[FILL_KEYS.radius] = radius > 0 ? radius : this.extent
   }
 
   /**
@@ -107,6 +152,9 @@ export class FillShape {
     geometry.setIndex(indices)
     this.mesh.geometry.dispose()
     this.mesh.geometry = geometry
+    let extent = 0
+    for (const p of pts) extent = Math.max(extent, Math.hypot(p.x, p.y))
+    this.extent = extent
   }
 
   /**

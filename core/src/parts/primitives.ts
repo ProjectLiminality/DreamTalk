@@ -118,6 +118,17 @@ export class Stroke extends Holon {
    * vocabulary/Eye, not here. One colour until a scene needs two.
    */
   fillOpacity = completion(0)
+  /**
+   * A radial light across the fill: 0 is flat (every existing fill); at k
+   * the fill's brightness falls from full at the shape's local origin to
+   * 1 − k at `fillFalloffRadius`, on a smoothstep — a lit disc, white at
+   * the heart, greying toward its rim (Web3 107–113 s, the light globe).
+   * Only the colour dims; the fill's opacity is its own. Pure f(t): both
+   * animate like any param.
+   */
+  fillFalloff = completion(0)
+  /** Where the falloff completes, in local units; 0 = the fill's own extent from its origin. */
+  fillFalloffRadius = length(0)
 }
 
 /**

@@ -92,6 +92,7 @@ import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { SquareCircleDream } from "./SquareCircle"
 import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
 import { RayCasterDemoDream } from "./RayCasterDemo"
+import { FillGlowDream } from "./FillGlow"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -100,6 +101,7 @@ export const scenes: Record<string, DreamClass> = {
   squarecircle: SquareCircleDream,
   geometrysketch: GeometrySketchDemoDream,
   raycaster: RayCasterDemoDream,
+  fillglow: FillGlowDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,
