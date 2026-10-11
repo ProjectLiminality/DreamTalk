@@ -35,12 +35,27 @@
  *     ~1 s after each waveform switch, so switching is only done while
  *     nobody is writing.
  *
- * Leaving: swipe one finger down from the top centre of the screen to the
- * middle; AppLoad's bar appears with its close button (rm-appload README).
+ * Leaving: tap the small × in the corner with ONE FINGER. It sits at the
+ * screen's top-left, 8..72 px (portrait), which with the bridge's default
+ * RM_ORIENT=cw is the landscape page's TOP-RIGHT corner (with ccw it is the
+ * bottom-left). The page never puts anything fixed there (its controls follow
+ * the selection), the pen-gate marker is in another corner, and a writing
+ * hand rests low. qtfb forwards fingers as TOUCH_* user input (rm-appload
+ * FBController::touchEvent, screen pixels), so no evdev node is needed. It
+ * takes a finger landing in the box and lifting in the box; another finger
+ * landing meanwhile, the pen coming down, or sliding out cancels it. Then
+ * the pad leaves by the SIGTERM path: TERMINATE to qtfb, exit 0. AppLoad closes the window on
+ * either (FBController active -> false, and QProcess::finished -> pidDied ->
+ * window.qml closed()), back to xochitl. The pen is untouched: a tip there
+ * still draws. A finger tap there is nothing to the page (one-finger taps do
+ * nothing; the bridge sends them to it all the same). The old way still
+ * works: swipe one finger down from the top centre (portrait) to the middle;
+ * AppLoad's bar appears with its close button.
  *
  * Environment (all optional): DTPAD_PORT — display-list port (default 7777,
  * 0 off); DTPAD_PEN_DEV — the digitizer's evdev node (default: found by
  * name in /proc/bus/input/devices); DTPAD_QUALITY=0 — no quality pass;
+ * DTPAD_EXIT=0 — no × (leave by the swipe);
  * DTPAD_GATE=1 — the latency-gate marker (top right, black while the app
  * sees the pen down; for counting frames in a 240 fps video). QTFB_KEY is
  * set by AppLoad.
@@ -351,6 +366,22 @@ static int mac_connected = 0;
 
 static const ink_rect MARKER = {W - 64, 16, W - 16, 64};
 
+/* The × that leaves the app: its hit box, in screen pixels. It starts 8 px
+ * in, so qtfb's (0, 0) — what it sends for a point it cannot place — is
+ * never inside it. */
+static const ink_rect EXIT_BOX = {8, 8, 72, 72};
+static int exit_shown = 1;
+
+static void draw_exit(void) {
+    float cx = (EXIT_BOX.x0 + EXIT_BOX.x1) * 0.5f, cy = (EXIT_BOX.y0 + EXIT_BOX.y1) * 0.5f, a = 11.0f;
+    /* A little white under it, so a stroke in the corner can't swallow it. */
+    ink_fill(&page, (ink_rect){(int)(cx - a - 5), (int)(cy - a - 5), (int)(cx + a + 6), (int)(cy + a + 6)}, INK_WHITE);
+    ink_segment(&page, cx - a, cy - a, 1.0f, cx + a, cy + a, 1.0f, 1);
+    ink_segment(&page, cx - a, cy + a, 1.0f, cx + a, cy - a, 1.0f, 1);
+}
+
+static int in_exit(int x, int y) { return x >= EXIT_BOX.x0 && x < EXIT_BOX.x1 && y >= EXIT_BOX.y0 && y < EXIT_BOX.y1; }
+
 /* A region, from the list: white, then every item touching it in order,
  * then the live trails — all clipped to it. The display list is the truth
  * for every pixel; the trail is the only thing drawn here, and only until
@@ -374,6 +405,7 @@ static ink_rect repaint(ink_rect r) {
         ink_polyline(&page, o, 5, NULL, 2.0f, 0, 0, 0, 0);
         if (pen_down) ink_fill(&page, in, INK_BLACK);
     }
+    if (exit_shown && ink_rect_overlaps(EXIT_BOX, r)) draw_exit(); /* over everything: the way out */
     page.clip = ink_rect_empty();
     return r;
 }
@@ -584,6 +616,7 @@ int main(void) {
     int port = (int)env_float("DTPAD_PORT", 7777);
     int quality = (int)env_float("DTPAD_QUALITY", 1);
     gate = (int)env_float("DTPAD_GATE", 0);
+    exit_shown = (int)env_float("DTPAD_EXIT", 1) != 0;
 
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
@@ -615,6 +648,7 @@ int main(void) {
     }
 
     double qpass_back = 0; /* when to switch back to UFAST after a quality pass */
+    int exit_armed = 0, exit_finger = 0; /* a finger on the ×, while it stays alone and inside */
     last_activity = now_ms();
 
     while (!quitting) {
@@ -670,12 +704,33 @@ int main(void) {
                 }
                 if (m.type != QTFB_MSG_USERINPUT) continue;
                 int type = m.input.input_type, x = m.input.x, y = m.input.y;
+                /* Fingers: only the × listens (the Mac reads them itself). */
+                if (type == QTFB_INPUT_TOUCH_PRESS) {
+                    /* A second finger landing is a gesture, not a tap on the ×. */
+                    if (exit_armed) exit_armed = 0;
+                    else if (exit_shown && !pen_down && in_exit(x, y)) exit_armed = 1, exit_finger = m.input.dev_id;
+                    continue;
+                }
+                if (type == QTFB_INPUT_TOUCH_UPDATE) {
+                    if (exit_armed && m.input.dev_id == exit_finger && !in_exit(x, y)) exit_armed = 0;
+                    continue;
+                }
+                if (type == QTFB_INPUT_TOUCH_RELEASE) {
+                    if (exit_armed && m.input.dev_id == exit_finger && !pen_down && in_exit(x, y)) {
+                        fprintf(stderr, "dreamtalk-pad: × tapped, leaving\n");
+                        quitting = 1;
+                        break;
+                    }
+                    if (exit_armed && m.input.dev_id == exit_finger) exit_armed = 0;
+                    continue;
+                }
                 float w = ink_page_width((float)m.input.d / 100.0f);
                 if (type == QTFB_INPUT_PEN_PRESS) {
                     /* The kernel had the button long before xochitl passed the
                      * press on; read it now, whatever order poll reported. */
                     if (efd >= 0) pen_dev_read();
                     pen_down = 1;
+                    exit_armed = 0; /* the pen came down: not a tap on the × */
                     last_activity = now_ms();
                     if (gate) ink = ink_rect_union(ink, repaint(MARKER));
                     if (item_at(DL_NOINK, x, y) >= 0) cur = -1; /* a control: the page acts */

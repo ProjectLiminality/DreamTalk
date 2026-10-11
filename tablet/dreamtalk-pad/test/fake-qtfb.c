@@ -83,6 +83,21 @@ static void pen(int type, int x, int y, int d) {
     send(cfd, &m, sizeof m, 0);
 }
 
+/* A finger, as FBController::touchEvent forwards it: dev_id is the touch point id. */
+static void touch(int type, int id, int x, int y) {
+    struct qtfb_server_msg m;
+    memset(&m, 0, sizeof m);
+    m.type = QTFB_MSG_USERINPUT;
+    m.input.input_type = type;
+    m.input.dev_id = id, m.input.x = x, m.input.y = y;
+    send(cfd, &m, sizeof m, 0);
+}
+
+static int pad_alive(pid_t pid) {
+    int status;
+    return waitpid(pid, &status, WNOHANG) == 0;
+}
+
 /* One evdev key change + SYN, as the 32-bit kernel writes them (16 bytes each). */
 static void evdev_key(int code, int value) {
     struct {
@@ -207,7 +222,7 @@ int main(int argc, char **argv) {
     updates u = drain(1500);
     CHECK(u.modes == 1 && u.seq[0] == QTFB_REFRESH_UFAST, "startup sets UFAST (modes %d, first %d)", u.modes, u.seq[0]);
     CHECK(u.alls == 1, "startup sends one full update (%d)", u.alls);
-    CHECK(count_ink(0, 0, W, H) == 0, "page cleared to white: nothing is drawn but the list");
+    CHECK(count_ink(0, 0, W, H) == count_ink(8, 8, 72, 72), "page cleared to white: nothing is drawn but the list (and the ×)");
 
     /* ---- the Mac connects, as ssh -W does, and is greeted ---- */
     for (int i = 0; i < 100 && mac < 0; i++) {
@@ -362,7 +377,25 @@ int main(int argc, char **argv) {
     drain(500);
     CHECK(count_ink(0, 0, W, H) == kept, "page kept");
 
-    /* ---- AppLoad closes the framebuffer: the pad exits cleanly ---- */
+    /* ---- the × in the corner (screen top-left; landscape top-right under cw) ---- */
+    CHECK(count_ink(8, 8, 72, 72) > 0 && count_ink(8, 8, 72, 72) < 400, "the × is drawn, thin (%d px)", count_ink(8, 8, 72, 72));
+    touch(QTFB_INPUT_TOUCH_PRESS, 3, 40, 40); /* slides out: not a tap */
+    touch(QTFB_INPUT_TOUCH_UPDATE, 3, 300, 300);
+    touch(QTFB_INPUT_TOUCH_RELEASE, 3, 300, 300);
+    touch(QTFB_INPUT_TOUCH_PRESS, 4, 40, 40); /* a second finger lands: a gesture */
+    touch(QTFB_INPUT_TOUCH_PRESS, 5, 700, 900);
+    touch(QTFB_INPUT_TOUCH_RELEASE, 5, 700, 900);
+    touch(QTFB_INPUT_TOUCH_RELEASE, 4, 40, 40);
+    touch(QTFB_INPUT_TOUCH_PRESS, 6, 700, 40); /* a tap elsewhere */
+    touch(QTFB_INPUT_TOUCH_RELEASE, 6, 700, 40);
+    u = drain(500);
+    CHECK(pad_alive(pid) && u.partials == 0, "no exit, no drawing on non-taps (%d updates)", u.partials);
+
+    /* ---- a finger tap on the ×: the pad says TERMINATE and exits cleanly ---- */
+    touch(QTFB_INPUT_TOUCH_PRESS, 7, 38, 44);
+    touch(QTFB_INPUT_TOUCH_RELEASE, 7, 41, 42);
+    struct qtfb_client_msg bye = next(2000);
+    CHECK(bye.type == QTFB_MSG_TERMINATE, "tap on × -> TERMINATE (got type %d)", bye.type);
     close(cfd);
     int status = -1;
     for (int i = 0; i < 50 && waitpid(pid, &status, WNOHANG) == 0; i++) usleep(100000);

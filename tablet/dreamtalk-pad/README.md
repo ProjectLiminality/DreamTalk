@@ -43,8 +43,16 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
   the digitizer's evdev node, because qtfb forwards the pen as plain mouse
   events without the button. When everything is quiet and the pen is out of
   range, it does one quality pass in CONTENT.
-- **Leaving the app.** Swipe one finger down from the top centre of the
-  screen to the middle. AppLoad's bar appears, with its close button.
+- **Leaving the app.** Tap the small × in the corner with one finger. It
+  sits in the landscape page's TOP-RIGHT corner (screen top-left, 8–72 px,
+  so bottom-left if the bridge runs `RM_ORIENT=ccw`). The page puts nothing
+  fixed there. The finger must land in the box and lift in it. Another finger
+  landing, the pen coming down, or sliding out cancels the tap. The pen still
+  draws there. qtfb forwards fingers as touch input, so the pad needs no
+  touchscreen node. On a tap the pad leaves by its SIGTERM path (TERMINATE,
+  exit 0) and AppLoad closes the window. `DTPAD_EXIT=0` hides the ×. The old
+  way still works: swipe one finger down from the top centre (portrait) to
+  the middle, and AppLoad's bar appears with its close button.
 
 ## Verified on the Mac
 
@@ -64,9 +72,11 @@ sketch page ──ws /ws/display──▶ daemon ──ws──▶ bridge ──
   - removals repaint only what they uncover;
   - knockout fills work;
   - the quality pass;
-  - a clean exit.
+  - the × is drawn; sliding out, a second finger and a tap elsewhere don't
+    exit;
+  - a finger tap on the × sends TERMINATE and exits cleanly.
 
-  149 checks.
+  152 checks.
 - `cd core && bun scripts/mirror-e2e.ts` runs the whole chain. It serves
   the real whiteboard page with a fixture board, makes a selection, takes
   what `/ws/display` relays, turns it onto the portrait screen as the
