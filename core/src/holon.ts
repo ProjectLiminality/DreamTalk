@@ -23,6 +23,7 @@
  */
 
 import { together, type Anim } from "./anim"
+import type { StateSpace } from "./automaton"
 import {
   angle,
   completion,
@@ -251,6 +252,17 @@ export class Holon {
    * covering self and parts, or undefined for the default retract.
    */
   unCreateAnim(): Anim | undefined {
+    return undefined
+  }
+
+  /**
+   * Optional: this holon's walkable STATE SPACE (src/automaton.ts) — its
+   * named axes (each a set of States) and the elements that own them. The
+   * player's game loop lets a viewer fire them in any order; a song walks
+   * one path through the same axes (`axis.to(position)`). Undefined: the
+   * holon is not walkable on its own.
+   */
+  stateSpace(): StateSpace | undefined {
     return undefined
   }
 
