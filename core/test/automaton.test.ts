@@ -184,3 +184,51 @@ describe("FlowMap as the first citizen", () => {
     expect(a.axis("raw.open").handles()).toEqual(m.stage("raw").flows)
   })
 })
+
+describe("one param, one axis", () => {
+  test("a part sharing its whole's param is walked by the whole only", async () => {
+    const { MindVirus } = await import("../vocabulary/MindVirus/MindVirus")
+    const v = new MindVirus()
+    void v.parts
+    const ids = gatherStateSpace([v]).axes.map((a) => `${a.owner?.constructor.name}:${a.id}`)
+    expect(ids).toEqual(["MindVirus:state"])
+  })
+})
+
+describe("the vocabulary's own state spaces", () => {
+  test("each symbol walks exactly the states its params already express", async () => {
+    const { Eye } = await import("../vocabulary/Eye/Eye")
+    const { FoldableCube } = await import("../vocabulary/FoldableCube/FoldableCube")
+    const { Road } = await import("../vocabulary/Road/Road")
+    const { Quote } = await import("../vocabulary/Quote/Quote")
+    const { TheWall } = await import("../vocabulary/TheWall/TheWall")
+    const { Calculator } = await import("../demo/creatormode/Calculator")
+    const cases: [object, string[]][] = [
+      [new Eye(), ["opening:closed,open"]],
+      [new FoldableCube(), ["fold:flat,cup,wrapped"]],
+      [new Road(), ["horizon:road,landscape"]],
+      [new Quote({ lines: ["a"] }), ["quote:blank,written,credited"]],
+      [new TheWall(), ["growth:unbuilt,built"]],
+      [new Calculator(), ["op:+,−,×,÷"]],
+    ]
+    for (const [h, want] of cases) {
+      const holon = h as import("../src/holon").Holon
+      void holon.parts
+      const space = gatherStateSpace([holon])
+      expect(space.axes.map((a) => `${a.id}:${a.positions.map((p) => p.name).join(",")}`)).toEqual(want)
+      // Every axis fires and lands on its position's values.
+      const auto = new Automaton(space)
+      auto.enter()
+      for (const a of space.axes) {
+        const to = auto.next(a.id)
+        auto.fire(a.id, to)
+      }
+      auto.clock = 10
+      auto.apply()
+      for (const a of space.axes) {
+        const pos = a.positions.find((p) => p.name === auto.position(a.id))!
+        for (const [p, v] of pos.values) expect(p.value).toEqual(v)
+      }
+    }
+  })
+})

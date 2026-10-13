@@ -78,6 +78,8 @@ export interface Position {
 
 export interface Axis {
   readonly id: string
+  /** The holon that declared it (set by gatherStateSpace) — focus and key groups read it. */
+  readonly owner?: Holon
   readonly label: string
   readonly duration: number
   readonly positions: readonly Position[]
@@ -178,6 +180,25 @@ export const toggle = (
 }
 
 /**
+ * One param's closed vocabulary as an axis — a `choice` param's options
+ * (or a given list of values) are its positions, in order.
+ */
+export const choices = (
+  id: string,
+  param: Param<ParamValue>,
+  opts: AxisOpts & { values?: readonly ParamValue[] } = {},
+): Axis => {
+  if (param.isBound) throw new Error(`choices '${id}': its param follows a binding — target the source`)
+  const values = opts.values ?? param.options
+  if (!values || values.length < 2) throw new Error(`choices '${id}': needs a choice param or at least two values`)
+  return makeAxis(
+    id,
+    values.map((v) => ({ name: String(v), values: new Map([[param, param.clamp(v)]]) })),
+    opts,
+  )
+}
+
+/**
  * Every state space declared under these roots (Holon.stateSpace()), one
  * space. Ids stay as declared; a repeat (two FlowMaps) gets `#2`, `#3`.
  */
@@ -186,6 +207,7 @@ export const gatherStateSpace = (roots: readonly Holon[]): StateSpace => {
   const clocks = new Set<Param<number>>()
   const seen = new Map<string, number>()
   const visited = new Set<Holon>()
+  const walked = new Set<Param<ParamValue>>()
   for (const root of roots) {
     for (const h of root.walk()) {
       if (visited.has(h)) continue
@@ -193,9 +215,15 @@ export const gatherStateSpace = (roots: readonly Holon[]): StateSpace => {
       const space = h.stateSpace()
       if (!space) continue
       for (const a of space.axes) {
+        // One param, one axis: a part that shares its whole's param (a
+        // MindVirus's FoldableCube folds with it) is already walked by the
+        // whole, which declared first (walk is whole-first).
+        const ps = a.params()
+        if (ps.length > 0 && ps.every((p) => walked.has(p))) continue
+        for (const p of ps) walked.add(p)
         const n = (seen.get(a.id) ?? 0) + 1
         seen.set(a.id, n)
-        axes.push(n === 1 ? a : { ...a, id: `${a.id}#${n}`, label: `${a.label} #${n}` })
+        axes.push(n === 1 ? { ...a, owner: h } : { ...a, owner: h, id: `${a.id}#${n}`, label: `${a.label} #${n}` })
       }
       for (const c of space.clocks ?? []) clocks.add(c)
     }

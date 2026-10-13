@@ -51,6 +51,7 @@ import { FoldableCube } from "../FoldableCube/FoldableCube"
 import { Cable } from "../Cable/Cable"
 import { MolochEye } from "../MolochEye/MolochEye"
 import { PI } from "../../src/constants"
+import { axis, type StateSpace } from "../../src/automaton"
 
 export interface PulseShares {
   /** Time fraction of the OPEN phase (0.30 in the source). */
@@ -189,6 +190,15 @@ export class MindVirus extends Holon {
     idle: state({ fold: 1 }),
     hunting: state({ fold: 0.5 }),
     attached: state({ fold: -1 }),
+  }
+
+  /**
+   * Walkable (src/automaton.ts): its own states, idle · hunting · attached.
+   * Not in journey mode, where the fold follows the path's clock.
+   */
+  override stateSpace(): StateSpace | undefined {
+    if (this.fold.isBound) return undefined
+    return { axes: [axis("state", this, this.states, { label: "mind virus", duration: 1.4, handles: [this] })] }
   }
 
   /** The control mechanism — the real MolochEye, gazing forward.

@@ -32,6 +32,7 @@ import { Group, Null, Rectangle } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { choice, derive, text } from "../../src/params"
 import { WHITE } from "../../src/constants"
+import { choices, type StateSpace } from "../../src/automaton"
 
 /** Button and field geometry — one grid, stated once.
  *  (`rounding` is a COMPLETION, 0..1, not a pixel radius: 1 is a stadium.) */
@@ -69,6 +70,12 @@ export class Calculator extends Null {
   inputA = text("3")
   inputB = text("5")
   op = choice("+", Object.keys(RULES))
+
+  /** Walkable (src/automaton.ts): the rule itself — click the operator to cycle + − × ÷. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.op.isBound) return undefined
+    return { axes: [choices("op", this.op, { label: "operator", duration: 0.4, handles: [this.opButton, this.opGlyph] })] }
+  }
 
   // The window the app lives in. In DreamOS this frame is not decoration:
   // it is the boundary of the DreamNode — window ≡ folder ≡ place.

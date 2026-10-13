@@ -38,7 +38,7 @@
  * never see it.
  */
 
-import { orthoHalfHeight, type Observer } from "./dream"
+import { ZOOM_REFERENCE_WIDTH, orthoHalfHeight, type Observer } from "./dream"
 import type { Holon } from "./holon"
 import { C4D_SMOOTHING, c4dEaseWith } from "./timeline"
 
@@ -163,6 +163,31 @@ export class ViewLayer {
     to.y += (cx * right.y - cy * up.y) * w
     to.z += (cx * right.z - cy * up.z) * w
     to.dolly = clamp(this.delta.dolly + Math.log(extent / (FRAME_FILL * size.height)), -8, 8)
+    this.glideTo(to, now)
+  }
+
+  /**
+   * Glide to frame a WORLD-space sphere — a holon's ink bounds — exactly,
+   * from wherever the view stands: its centre becomes the focus, and the
+   * distance (perspective) or zoom (orthographic) is the one at which it
+   * fills FRAME_FILL of the frame's height. The orbit is kept.
+   */
+  frameSphere(center: { x: number; y: number; z: number }, radius: number, now: number): void {
+    const o = this.observer
+    const raw = (p: { value: number; bias: number; gate: number }) => (p.value - p.bias) / (p.gate || 1)
+    const to = { ...this.delta }
+    to.x = center.x - raw(o.x)
+    to.y = center.y - raw(o.y)
+    to.z = center.z - raw(o.z)
+    const R = Math.max(radius, 1e-3)
+    const zoomRaw = raw(o.zoom) || 1
+    if (o.orthographic.value) {
+      const z = ZOOM_REFERENCE_WIDTH / (2 * (16 / 9) * (R / FRAME_FILL))
+      to.dolly = clamp(Math.log(zoomRaw / z), -8, 8)
+    } else {
+      const want = R / (FRAME_FILL * Math.tan(o.fov.value / 2))
+      to.dolly = clamp(Math.log(want / (raw(o.radius) / zoomRaw)), -8, 8)
+    }
     this.glideTo(to, now)
   }
 

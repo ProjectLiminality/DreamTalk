@@ -1416,6 +1416,12 @@ const boot = async (resume?: Transport) => {
 
   /** Frame a holon (its screen box) — the `f` key. */
   const frameHolon = (holon: Holon | null) => {
+    const world = holon ? host.worldBoundsOf(holon) : undefined
+    if (world) {
+      const { min, max } = world
+      const c = { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 }
+      return view.frameSphere(c, Math.hypot(max.x - min.x, max.y - min.y, max.z - min.z) / 2, performance.now())
+    }
     const box = holon ? host.boundsOf(holon) : undefined
     if (!box) return beginReturn()
     view.frameBox(

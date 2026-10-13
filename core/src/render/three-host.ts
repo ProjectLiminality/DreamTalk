@@ -2422,20 +2422,45 @@ export class ThreeHost {
    * Undefined when nothing of it is currently on screen.
    */
   boundsOf(holon: Holon): THREE.Box3 | undefined {
-    this.scene.updateMatrixWorld(true)
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
-    const wanted = new Set<Holon>()
-    for (const h of holon.walk()) wanted.add(h)
-
     const box = new THREE.Box3()
     box.makeEmpty()
     const point = new THREE.Vector3()
-    const add = (world: THREE.Vector3) => {
+    const found = this.eachInkPoint(holon, (world) => {
       point.copy(world).project(this.camera)
       box.expandByPoint(
         new THREE.Vector3(((point.x + 1) / 2) * width, ((1 - point.y) / 2) * height, 0),
       )
+    })
+    return found ? box : undefined
+  }
+
+  /**
+   * A holon's ink as a WORLD-space box — view-independent, so the viewer's
+   * camera can frame a holon exactly from wherever it stands (src/view.ts
+   * frameSphere) instead of guessing from an oblique screen box.
+   */
+  worldBoundsOf(holon: Holon): THREE.Box3 | undefined {
+    const box = new THREE.Box3()
+    box.makeEmpty()
+    return this.eachInkPoint(holon, (world) => box.expandByPoint(world)) ? box : undefined
+  }
+
+  /**
+   * Visit every world point of a holon's ink (its whole subtree): ribbons,
+   * cylinder contours, fills and arrowheads, text. A holon with no ink of
+   * its own (a Null, a Group, an empty whole) is still framable and
+   * selectable — it falls back to its origin. False when it is not on stage.
+   */
+  private eachInkPoint(holon: Holon, visit: (world: THREE.Vector3) => void): boolean {
+    this.scene.updateMatrixWorld(true)
+    const wanted = new Set<Holon>()
+    for (const h of holon.walk()) wanted.add(h)
+    let any = false
+    const add = (world: THREE.Vector3) => {
+      any = true
+      visit(world)
     }
     const addRibbon = (ribbon: RibbonStroke, object: THREE.Object3D) => {
       for (const world of this.ribbonWorldPoints(ribbon, object)) add(world)
@@ -2458,15 +2483,12 @@ export class ThreeHost {
       if (!wanted.has(binding.holon)) continue
       for (const world of this.meshWorldPoints(group)) add(world)
     }
-    // A holon with no ink of its own (a Null, a Group, an empty whole) is
-    // still selectable — fall back to its origin so the affordance has
-    // somewhere to sit.
-    if (box.isEmpty()) {
+    if (!any) {
       const found = this.groups.find((g) => g.holon === holon)
-      if (!found) return undefined
+      if (!found) return false
       add(new THREE.Vector3().setFromMatrixPosition(found.group.matrixWorld))
     }
-    return box
+    return true
   }
 
   /**

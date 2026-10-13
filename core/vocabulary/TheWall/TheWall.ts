@@ -81,6 +81,7 @@ import { CABLE_PARTICLES, CABLE_SLACK } from "../../src/geometry/xpbd"
 import { rotHPB } from "../../src/parts/curves"
 import type { TetherTip, TetherOptions } from "../Cable/Cable"
 import { bakeHash, decodeTrack, encodeTrack, type BakeCache, type BakedTrack } from "../../src/bake"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 /**
  * Rows lag each other by this many bricks — the diagonal growth wave
@@ -130,6 +131,12 @@ export class TheWall extends Holon {
    *  to reproduce the 2025/26 wave that leaves the last 15% in flight
    *  (FIDELITY-LEDGER #1). */
   sealAtOne = bool(true)
+
+  /** Walkable (src/automaton.ts): the wall unbuilt or built — its one parameter. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.growth.isBound) return undefined
+    return { axes: [toggle("growth", this.growth, { off: ["unbuilt", 0], on: ["built", 1], duration: 6, handles: [this] })] }
+  }
 
   /** Scene seconds the cable bake must cover — the scene's own span. */
   cableDuration = scalar(500 / 30)

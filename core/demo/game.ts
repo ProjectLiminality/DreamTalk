@@ -53,6 +53,8 @@ export interface GameHost {
   canvas: HTMLCanvasElement
   pick(clientX: number, clientY: number): Holon | undefined
   boundsOf(holon: Holon): PixelBox | undefined
+  /** World-space ink bounds — when given, framing is exact from any view (ThreeHost.worldBoundsOf). */
+  worldBoundsOf?(holon: Holon): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | undefined
   /** Install (or clear) the per-frame write after the timeline's apply. */
   setBeforeSync(fn: (() => void) | undefined): void
 }
@@ -100,6 +102,7 @@ const STYLE = `
 .dt-game-hud div { cursor: pointer; white-space: nowrap; }
 .dt-game-hud div:hover { color: #888; }
 .dt-game-hud b { font-weight: normal; color: #bbb; }
+.dt-game-hud .dt-game-focus { color: #888; cursor: default; margin-bottom: 4px; }
 .dt-game-hud i { font-style: normal; color: #444; display: inline-block; width: 1.6em; }
 `
 
@@ -125,7 +128,13 @@ export class GameLoop {
   #probe: { x: number; y: number } | null = null
   #press: { x: number; y: number } | null = null
   #hudShown: boolean
-  readonly #keys = new Map<string, Axis>()
+  /** Key → the axes on it, one per holon group (a gallery repeats digits; focus picks). */
+  readonly #keys = new Map<string, Axis[]>()
+  readonly #keyOf = new Map<Axis, string>()
+  /** The walkable holons, in declaration order — arrows move between them. */
+  readonly #owners: Holon[] = []
+  /** The holon in focus (its axes alone are live on keys and the HUD), or null: all. */
+  #focus: Holon | null = null
   readonly #handleOf = new Map<Holon, Axis[]>()
   readonly #host: GameHost
   readonly #opts: GameOpts
@@ -139,12 +148,19 @@ export class GameLoop {
     this.automaton = new Automaton(gatherStateSpace(opts.roots))
     this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
     if (this.view) this.view.keepOuts = keepOutsOf(opts.roots)
-    // Declared keys first; then the free digits, in declaration order.
-    for (const a of this.automaton.axes) if (a.key && !RESERVED.includes(a.key) && !this.#keys.has(a.key)) this.#keys.set(a.key, a)
-    const free = [...AUTO_KEYS].filter((k) => !this.#keys.has(k))
-    for (const a of this.automaton.axes) {
-      const key = a.key ? undefined : free.shift()
-      if (key) this.#keys.set(key, a)
+    // Keys per holon: its declared keys first, then the free digits, in
+    // declaration order — so every symbol in a gallery has its own 1, 2, 3.
+    for (const a of this.automaton.axes) if (a.owner && !this.#owners.includes(a.owner)) this.#owners.push(a.owner)
+    const groups = new Map<Holon | undefined, Axis[]>()
+    for (const a of this.automaton.axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
+    for (const axes of groups.values()) {
+      const taken = new Set<string>()
+      for (const a of axes) if (a.key && !RESERVED.includes(a.key) && !taken.has(a.key)) this.#bind(a.key, a, taken)
+      const free = [...AUTO_KEYS].filter((k) => !taken.has(k))
+      for (const a of axes) {
+        const key = this.#keyOf.has(a) ? undefined : free.shift()
+        if (key) this.#bind(key, a, taken)
+      }
     }
     if (!document.getElementById("dt-game-style")) {
       const style = document.createElement("style")
@@ -377,16 +393,57 @@ export class GameLoop {
     }
   }
 
-  /** Headless: drive the clock by hand from here on. */
+  /**
+   * Headless: drive the clock by hand from here on. A hand-driven clock
+   * also lands any view glide (they run on wall time, which a headless
+   * page barely advances), so a capture shows where the view is going.
+   */
   at(clock: number): void {
     this.#origin = undefined
     this.automaton.clock = clock
+    this.view?.step(Number.POSITIVE_INFINITY)
+  }
+
+  #bind(key: string, a: Axis, taken: Set<string>): void {
+    taken.add(key)
+    this.#keyOf.set(a, key)
+    this.#keys.set(key, [...(this.#keys.get(key) ?? []), a])
+  }
+
+  /** Walkable now, and in focus (keys and the HUD; a click reaches any handle). */
+  #live_(a: Axis): boolean {
+    return this.automaton.enabled(a.id) && (!this.#focus || a.owner === this.#focus)
+  }
+
+  /** The holon in focus, or null when every holon's axes are live. */
+  get focus(): Holon | null {
+    return this.#focus
+  }
+
+  /**
+   * Focus a walkable holon (null: all) and glide to frame it — the arrows
+   * walk the scene's symbols one by one, a gallery's way of being visited.
+   */
+  setFocus(holon: Holon | null, frame = true): void {
+    this.#focus = holon
+    if (frame) this.frame(holon)
+    this.#renderHud()
+  }
+
+  /** Step the focus by ±1 through the walkable holons (wrapping). */
+  step(by: number): void {
+    const n = this.#owners.length
+    if (n < 2) return
+    const i = this.#focus ? this.#owners.indexOf(this.#focus) : by > 0 ? -1 : 0
+    this.setFocus(this.#owners[(((i + by) % n) + n) % n]!)
   }
 
   fire(id: string, position?: string): void {
     if (!this.#on) return
     const a = this.automaton.axis(id)
     if (!this.automaton.enabled(a.id)) return
+    // Acting on a holon brings it into focus (when the scene is being walked one by one).
+    if (this.#focus && a.owner && a.owner !== this.#focus) this.setFocus(a.owner, false)
     this.automaton.fire(a.id, position)
     this.#flash = performance.now()
     this.#renderHud()
@@ -400,6 +457,12 @@ export class GameLoop {
 
   /** Glide to frame a holon; null glides back to the song's camera. */
   frame(holon: Holon | null, now = performance.now()): void {
+    const world = holon && this.view ? this.#host.worldBoundsOf?.(holon) : undefined
+    if (world && this.view) {
+      const c = { x: (world.min.x + world.max.x) / 2, y: (world.min.y + world.max.y) / 2, z: (world.min.z + world.max.z) / 2 }
+      const r = Math.hypot(world.max.x - world.min.x, world.max.y - world.min.y, world.max.z - world.min.z) / 2
+      return this.view.frameSphere(c, r, now)
+    }
     const box = holon ? this.#host.boundsOf(holon) : undefined
     if (!box || !this.view) return this.view?.reset(now)
     const c = this.#host.canvas
@@ -424,22 +487,30 @@ export class GameLoop {
       this.frame(this.#hovered?.handle ?? null)
       return true
     }
-    const a = this.#keys.get(e.key)
-    if (!a || !this.automaton.enabled(a.id)) return false
+    if ((e.code === "ArrowRight" || e.code === "ArrowLeft") && this.#owners.length >= 2) {
+      this.step(e.code === "ArrowRight" ? 1 : -1)
+      return true
+    }
+    if (e.code === "Escape" && this.#focus) {
+      this.setFocus(null)
+      return true
+    }
+    const a = this.#keys.get(e.key)?.find((x) => this.#live_(x))
+    if (!a) return false
     this.fire(a.id)
     return true
   }
 
   /** The axes as the HUD shows them — and the harness reads. */
-  state(): { id: string; key?: string; position: string; positions: string[]; enabled: boolean; progress: number }[] {
-    const keyOf = new Map([...this.#keys].map(([k, a]) => [a.id, k]))
+  state(): { id: string; key?: string; position: string; positions: string[]; enabled: boolean; progress: number; owner?: string }[] {
     return this.automaton.axes.map((a) => ({
       id: a.id,
-      key: keyOf.get(a.id),
+      key: this.#keyOf.get(a),
       position: this.automaton.position(a.id),
       positions: a.positions.map((p) => p.name),
-      enabled: this.automaton.enabled(a.id),
+      enabled: this.#live_(a),
       progress: this.automaton.progress(a.id),
+      owner: a.owner?.constructor.name,
     }))
   }
 
@@ -558,7 +629,12 @@ export class GameLoop {
     }
     this.#hud.style.display = ""
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
-    this.#hud.innerHTML = this.state()
+    const f = this.#focus
+    const head =
+      this.#owners.length >= 2
+        ? `<div class="dt-game-focus">‹ ${esc(f ? f.constructor.name : "all")} ›  <i>←→</i></div>`
+        : ""
+    this.#hud.innerHTML = head + this.state()
       .filter((s) => s.enabled)
       .map((s) => {
         const a = this.automaton.axis(s.id)

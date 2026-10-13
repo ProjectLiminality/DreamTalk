@@ -102,6 +102,7 @@ import { FillGlowDream } from "./FillGlow"
 import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { LensDream } from "./LensDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
+import { GalleryDream } from "./GalleryDemo"
 import { FlowMapGrainDream, GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
@@ -240,6 +241,8 @@ export const scenes: Record<string, DreamClass> = {
   "earth-features": EarthFeaturesDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
+  // The walkable symbols side by side: ← → visit each, its axes live (play=free).
+  gallery: GalleryDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
   "flowmap-time": FlowMapTimeDream,
   // S&OP as one figure-eight: demand ↔ supply, value running round, untwisting into one loop.

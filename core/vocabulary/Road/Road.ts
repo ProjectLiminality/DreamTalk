@@ -2,6 +2,7 @@ import type { Overrides } from "../../src/holon"
 import { angle, completion, length } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { derivePoints, toWorld } from "../../src/parts/soliddrawing"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 /**
  * A road, platonic: two edges and a dashed centre line, lying on the
@@ -31,6 +32,11 @@ export class Road extends Stroke {
   bend = angle(0)
   /** The land: 0 = only the road, 1 = a horizon line and two hills behind it. */
   horizon = completion(0)
+
+  /** Walkable (src/automaton.ts): the land behind the road, there or not. */
+  override stateSpace(): StateSpace {
+    return { axes: [toggle("horizon", this.horizon, { off: ["road", 0], on: ["landscape", 1], handles: [this] })] }
+  }
 
   private bound?: (world: Vec3Like) => boolean
   private boundKey: () => number[] = () => []

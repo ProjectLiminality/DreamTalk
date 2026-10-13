@@ -40,6 +40,7 @@
 import { derive, bipolar, color, length } from "../../src/params"
 import { Group, Rectangle, Stroke } from "../../src/parts/primitives"
 import { BLUE, PI } from "../../src/constants"
+import { axis, type StateSpace } from "../../src/automaton"
 
 export class FoldableCube extends Stroke {
   /** A sovereign symbol — cast in the editor, a button in the game loop. */
@@ -48,6 +49,14 @@ export class FoldableCube extends Stroke {
   size = length(100)
   /** −1 wrapped … 0 flat … +1 open cup. */
   fold = bipolar(0)
+
+  /** Walkable (src/automaton.ts): wrapped · flat · open cup — the fold's three named poses. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.fold.isBound) return undefined
+    return {
+      axes: [axis("fold", this, { flat: { fold: 0 }, cup: { fold: 1 }, wrapped: { fold: -1 } }, { duration: 1.6, handles: [this] })],
+    }
+  }
   override tint = color(BLUE)
 
   /** The static bottom face, lying in the local x–z plane. */

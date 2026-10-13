@@ -5,6 +5,7 @@ import { eased, together, type Anim } from "../../src/anim"
 import { ease } from "../../src/timeline"
 import { Arc, Ellipse, Line, Stroke } from "../../src/parts/primitives"
 import { BLACK, PI } from "../../src/constants"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 /**
  * The Eye — the creature of video-01 ("circler"/"rectangler"). Local
@@ -55,6 +56,11 @@ export class Eye extends Stroke {
   /** ONTOLOGY.md: a sovereign symbol (pre-pop-out) — cast, not asset. */
   static sovereign = true
   opening = completion(1)
+
+  /** Walkable (src/automaton.ts): the lids close and open — click the eye, or `o`. */
+  override stateSpace(): StateSpace {
+    return { axes: [toggle("opening", this.opening, { key: "o", off: ["closed", 0], on: ["open", 1], handles: [this] })] }
+  }
   // The lids are ONE stroke in the source — a three-point Spline
   // [upper tip, apex, lower tip] (custom_objects.py:79-80) — so the pen
   // runs the upper lid INWARD to the apex and then the lower lid back

@@ -51,6 +51,7 @@ import { Group, Null } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { color, completion, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
+import { axis, type StateSpace } from "../../src/automaton"
 
 /** How much of a line is written before the next one starts (Manim's lag_ratio). */
 const LAG = 0.9
@@ -123,6 +124,23 @@ export class Quote extends Null {
   writing = completion(0)
   /** The attribution's own write, kept separate — the credit is its own beat. */
   crediting = completion(0)
+
+  /**
+   * Walkable (src/automaton.ts): blank · written · credited — the quote's
+   * own beats, in order (the credit is never without the words).
+   */
+  override stateSpace(): StateSpace {
+    return {
+      axes: [
+        axis(
+          "quote",
+          this,
+          { blank: { writing: 0, crediting: 0 }, written: { writing: 1, crediting: 0 }, credited: { writing: 1, crediting: 1 } },
+          { duration: 2, handles: [this] },
+        ),
+      ],
+    }
+  }
 
   size = length(46)
   /** Baseline-to-baseline, as a multiple of `size`. */

@@ -144,6 +144,7 @@ const main = async () => {
       canvas,
       pick: (x, y) => pickAt(x, y),
       boundsOf: (h) => host.boundsOf(h),
+      worldBoundsOf: (h) => host.worldBoundsOf(h),
       setBeforeSync: (fn) => (host.beforeSync = fn),
     },
     {
