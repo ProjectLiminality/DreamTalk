@@ -29,7 +29,8 @@
  *
  * THE VIEW. In the game loop the viewer may always look around (src/view.ts,
  * the same layer the editor flies when paused): drag orbits, shift- or
- * right-drag pans, the wheel (or a pinch) dollies, double-click frames what
+ * right-drag pans, the wheel (or a trackpad pinch) dollies; on glass, one
+ * finger orbits, two pinch (dolly) and drag (pan), a double-tap frames; double-click frames what
  * is under the pointer (without firing it — see DOUBLE_MS), `f` frames the hovered handle, `r` glides home.
  * A drag never fires; a click that did not travel does — so transitions
  * keep firing from any angle, and picking reads the effective camera.
@@ -45,7 +46,7 @@ import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
-import { ViewLayer, keepOutsOf } from "../src/view"
+import { DOLLY_PER_NOTCH, ViewLayer, keepOutsOf } from "../src/view"
 import type { Observer } from "../src/dream"
 
 export interface GameHost {
@@ -87,7 +88,9 @@ const FLASH_MS = 320
  * position mid-ease, ~0.1 of the way in: a barely visible swing and home.
  */
 const DOUBLE_MS = 300
+/** A fingertip lands less precisely than a cursor: a double-TAP may wander further. */
 const DOUBLE_PX = 6
+const DOUBLE_TAP_PX = 16
 const AUTO_KEYS = "1234567890"
 /** The player's own keys in game mode — no axis may claim them (m: sound, h: HUD, r/f: view). */
 const RESERVED = ["m", "h", "r", "f", " ", "`", "~"]
@@ -107,6 +110,10 @@ export class GameLoop {
   #installed = false
   #drag: { x: number; y: number; pan: boolean; moved: boolean; id: number } | null = null
   #lastClick: { x: number; y: number; at: number; fired?: { axis: string; from: string } } | null = null
+  /** Fingers on the glass (touch pointers), for the two-finger pinch/pan. */
+  readonly #touches = new Map<number, { x: number; y: number }>()
+  #pinch: { dist: number; mid: { x: number; y: number } } | null = null
+  #lastPointerTouch = false
   #on = false
   /** Wall-clock origin of the automaton's clock (ms); undefined = manual clock. */
   #origin: number | undefined = 0
@@ -165,6 +172,13 @@ export class GameLoop {
       "pointermove",
       (e) => {
         if (!this.#live()) return
+        if (e.pointerType === "touch" && this.#touches.has(e.pointerId)) {
+          this.#touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (this.#pinch) {
+            this.#pinchMove()
+            return
+          }
+        }
         const d = this.#drag
         if (d && this.view) {
           const dx = e.clientX - d.x
@@ -196,6 +210,17 @@ export class GameLoop {
       "pointerdown",
       (e) => {
         if (!this.#live() || e.button > 2) return
+        this.#lastPointerTouch = e.pointerType === "touch"
+        if (e.pointerType === "touch") {
+          this.#touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+          if (this.#touches.size >= 2 && this.view) {
+            // A second finger: no click, no one-finger orbit — a pinch.
+            this.#press = null
+            this.#drag = null
+            this.#pinch = this.#pinchState()
+            return
+          }
+        }
         if (e.button === 0) this.#press = { x: e.clientX, y: e.clientY }
         this.#drag = { x: e.clientX, y: e.clientY, pan: e.button !== 0 || e.shiftKey, moved: false, id: e.pointerId }
       },
@@ -212,9 +237,30 @@ export class GameLoop {
       },
       { ...listen, passive: false },
     )
+    const lift = (e: PointerEvent): boolean => {
+      if (e.pointerType !== "touch") return false
+      this.#touches.delete(e.pointerId)
+      if (!this.#pinch) return false
+      // The pinch ends with the gesture: the finger left behind neither
+      // clicks nor orbits until it lifts too.
+      if (this.#touches.size < 2) this.#pinch = null
+      this.#press = null
+      this.#drag = null
+      return true
+    }
+    canvas.addEventListener(
+      "pointercancel",
+      (e) => {
+        lift(e)
+        this.#press = null
+        this.#drag = null
+      },
+      listen,
+    )
     canvas.addEventListener(
       "pointerup",
       (e) => {
+        if (lift(e)) return
         const press = this.#press
         this.#press = null
         const drag = this.#drag
@@ -253,6 +299,24 @@ export class GameLoop {
     return this.#release !== undefined
   }
 
+  /** The two-finger span and midpoint now. */
+  #pinchState(): { dist: number; mid: { x: number; y: number } } {
+    const [a, b] = [...this.#touches.values()]
+    return { dist: Math.hypot(b!.x - a!.x, b!.y - a!.y), mid: { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 } }
+  }
+
+  /** Pinch: the span's ratio dollies (apart = closer), the midpoint's travel pans. */
+  #pinchMove(): void {
+    const view = this.view
+    const prev = this.#pinch
+    if (!view || !prev || this.#touches.size < 2) return
+    const now = this.#pinchState()
+    const box = this.#host.canvas.getBoundingClientRect()
+    if (prev.dist > 0 && now.dist > 0) view.dolly(-Math.log(now.dist / prev.dist) / DOLLY_PER_NOTCH)
+    view.pan(now.mid.x - prev.mid.x, now.mid.y - prev.mid.y, box.height)
+    this.#pinch = now
+  }
+
   #live(): boolean {
     return this.#on && !this.#opts.suspended()
   }
@@ -265,6 +329,8 @@ export class GameLoop {
     this.#release = undefined
     this.#on = true
     this.#heldAt = t
+    // Touch belongs to the game while it is on: no page scroll or browser zoom.
+    this.#host.canvas.style.touchAction = "none"
     this.#origin = now
     this.#pausedAt = undefined
     this.automaton.enter()
@@ -281,6 +347,9 @@ export class GameLoop {
     this.#setHovered(null)
     this.#release = { from: now, clock: this.automaton.clock }
     this.#drag = null
+    this.#pinch = null
+    this.#touches.clear()
+    this.#host.canvas.style.touchAction = ""
     this.view?.reset(now, RELEASE)
     this.#renderHud()
   }
@@ -388,7 +457,8 @@ export class GameLoop {
    */
   click(clientX: number, clientY: number, now = performance.now()): void {
     const last = this.#lastClick
-    if (last && now - last.at < DOUBLE_MS && Math.hypot(clientX - last.x, clientY - last.y) < DOUBLE_PX) {
+    const near = this.#lastPointerTouch ? DOUBLE_TAP_PX : DOUBLE_PX
+    if (last && now - last.at < DOUBLE_MS && Math.hypot(clientX - last.x, clientY - last.y) < near) {
       this.#lastClick = null
       if (last.fired) this.automaton.fire(last.fired.axis, last.fired.from)
       if (this.view) this.frameAt(clientX, clientY)
