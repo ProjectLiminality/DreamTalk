@@ -17,7 +17,7 @@
  */
 
 import type { Holon, Overrides } from "../../src/holon"
-import { Line, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Line, type Vec3Like } from "../../src/parts/primitives"
 import { scalar } from "../../src/params"
 import { toWorld } from "../../src/parts/soliddrawing"
 import { latLonToUnit } from "../../src/geometry/sphere"
@@ -70,28 +70,18 @@ export class Connection extends Line {
     super(overrides)
     const [from, to] = this.ends
     if (!from || !to) throw new Error("Connection: needs ends: [from, to]")
-    let key = ""
-    let memo: Vec3Like[] = []
-    Object.defineProperty(this, "points", {
-      configurable: true,
-      enumerable: true,
-      get: (): Vec3Like[] => {
-        const k = [from.lat.value, from.lon.value, to.lat.value, to.lon.value, from.radius.value, this.rise.value, this.base.value].join(",")
-        if (k !== key) {
-          key = k
-          memo = greatCircleArc(
-            { lat: from.lat.value, lon: from.lon.value },
-            { lat: to.lat.value, lon: to.lon.value },
-            from.radius.value,
-            this.rise.value,
-            this.base.value,
-          )
-          this.geomVersion++
-        }
-        return memo
-      },
-      set: () => {},
-    })
+    derivePoints(
+      this,
+      () => [from.lat.value, from.lon.value, to.lat.value, to.lon.value, from.radius.value, this.rise.value, this.base.value],
+      () =>
+        greatCircleArc(
+          { lat: from.lat.value, lon: from.lon.value },
+          { lat: to.lat.value, lon: to.lon.value },
+          from.radius.value,
+          this.rise.value,
+          this.base.value,
+        ),
+    )
   }
 
   /** Numbers that move whenever `worldCurves()` would — the morph's cheap dirty key. */

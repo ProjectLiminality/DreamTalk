@@ -66,8 +66,6 @@ describe("one symbol, one implementation", () => {
   test("derived Line points go through primitives.ts derivePoints, not a private copy", () => {
     // Holons whose copy awaits their owner's next pass — this list only shrinks.
     const PENDING = new Set([
-      "vocabulary/Earth/Earth.ts",
-      "vocabulary/Earth/Connection.ts",
       "vocabulary/FlowMap/FlowMap.ts",
       "vocabulary/SOPLoop/SOPLoop.ts",
       "vocabulary/Horizons/Horizons.ts",

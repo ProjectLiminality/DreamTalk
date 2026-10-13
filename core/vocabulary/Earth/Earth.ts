@@ -86,7 +86,7 @@
 
 import { Euler, Matrix4, Vector3 } from "three/webgpu"
 import { Holon, type Overrides } from "../../src/holon"
-import { Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Surface } from "../../src/parts/surface"
 import { color, completion, derive, length, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
@@ -627,7 +627,7 @@ export class Earth extends Null {
       strokes,
       new Line({ tint: this.terminatorTint, stroke: this.terminatorStroke, opacity: this.terminatorOpacity }),
     )
-    deriveLine(this.terminator, sunKey, () => {
+    derivePoints(this.terminator, () => [sunKey()], () => {
       const c = sun()
       return circlePoints({ centre: { x: 0, y: 0, z: 0 }, normal: c, radius: r * 1.0005 })
     })
@@ -643,7 +643,7 @@ export class Earth extends Null {
           opacity: derive(() => this.atmosphereOpacity.value * Math.pow(1 - f + 1 / RINGS, 1.6)),
         }),
       )
-      deriveLine(ring, () => `${this.horizonKey()},${this.atmosphereWidth.value}`, () => {
+      derivePoints(ring, () => [this.horizonKey(), this.atmosphereWidth.value], () => {
         const e = this.localEye()
         if (!e) return []
         const h = horizonCircle(e.point, r * (1 + this.atmosphereWidth.value * f), e.orthographic)
@@ -662,7 +662,7 @@ export class Earth extends Null {
         creation: this.limbDraw,
       }),
     )
-    deriveLine(this.limb, () => this.horizonKey(), () => {
+    derivePoints(this.limb, () => [this.horizonKey()], () => {
       const h = this.horizonNow()
       if (!h) return []
       const lift = r * 0.002
@@ -1040,26 +1040,6 @@ const deriveSurface = (
     set(v: number) {
       version = v
     },
-  })
-}
-
-/** The same for a Line's `points`: recomputed when its key changes, `geomVersion` bumped. */
-const deriveLine = (line: Line, key: () => string, build: () => Vec3Like[]): void => {
-  let last: string | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const k = key()
-      if (k !== last) {
-        last = k
-        memo = build()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
   })
 }
 
