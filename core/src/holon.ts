@@ -309,6 +309,18 @@ export class Holon {
     return part
   }
 
+  /**
+   * Attach a part from OUTSIDE this holon's own class — after construction,
+   * from the whole that is composing it: a stage given its flows, a label
+   * anchor its glyphs, a building's Null its faces. The same adoption as
+   * `add` (one parent; the part moves). Inside a class, compose() keeps
+   * using `add`; when the parts are known up front, `Group({ members })`
+   * says it in one line.
+   */
+  attach<T extends Holon>(part: T): T {
+    return this.add(part)
+  }
+
   get params(): ReadonlyMap<string, Param<ParamValue>> {
     complete(this)
     return internalsOf(this).params

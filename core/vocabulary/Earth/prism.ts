@@ -47,7 +47,7 @@ export const prism = (
   ink: Ink,
   offset: Vec3Like = { x: 0, y: 0, z: 0 },
 ): void => {
-  const add = <T extends Holon>(h: T): T => (owner as unknown as { add(h: T): T }).add(h)
+  const add = <T extends Holon>(h: T): T => owner.attach(h)
   const z0 = -depth / 2 + offset.z
   const z1 = depth / 2 + offset.z
   const at = ([x, y]: P2, z: number): Vec3Like => ({ x: x + offset.x, y: y + offset.y, z })

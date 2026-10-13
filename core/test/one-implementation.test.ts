@@ -72,4 +72,18 @@ describe("one symbol, one implementation", () => {
     )
     expect(offenders).toEqual([])
   })
+
+  test("parts are attached through attach(), not a cast past add()'s protection", () => {
+    // Files whose casts await their owner's next pass — this list only shrinks.
+    const PENDING = new Set([
+      "vocabulary/Earth/Earth.ts",
+      "vocabulary/Earth/Labels.ts",
+      "vocabulary/Earth/PointData.ts",
+      "vocabulary/GeoFlow/GeoFlow.ts",
+      "vocabulary/FlowMap/FlowMap.ts",
+    ])
+    const cast = /as unknown as \{\s*add\(/
+    const offenders = ALL.map(rel).filter((f) => !PENDING.has(f) && cast.test(readFileSync(join(core, f), "utf8")))
+    expect(offenders).toEqual([])
+  })
 })
