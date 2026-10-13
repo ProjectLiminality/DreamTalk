@@ -44,7 +44,11 @@ when done.
   highlight sheets (`highlight` + `country(iso)`), camera-facing labels
   (country + city, LOD + horizon fade, overlay compositing via the new
   opt-in `Text.composite`), `Focus` / `FlyTo` verbs; `?scene=earth-features`.
-- Open: 1:10m below a country's scale; label collision culling; morphing
+- Built 2026-10-13 (round 4): label declutter (fixed priority, continuous
+  yield, stateless), 1:10m regional packs (`packs/alps10m.ts`, 80 KB; grid
+  cells as the seam), night side + terminator, atmosphere halo, land light.
+- Open: more detail packs (Europe-wide is large); measured glyph boxes for
+  the declutter; morphing
   the site→HQ `Connection` arcs into one circle (they expose
   `worldCurves()`); and the colour-space question below. (Draw-on cost
   fixed 2026-10-13: 80 → 20 ms, byte-identical.)
