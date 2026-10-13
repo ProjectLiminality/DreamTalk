@@ -38,6 +38,7 @@ import { SketchDream } from "./vocabulary/Sketch"
 import { RegenaissanceDream } from "./vocabulary/Regenaissance"
 import { EarthDream } from "./vocabulary/Earth"
 import { EarthFeaturesDream } from "./vocabulary/EarthFeatures"
+import { EarthDataDream } from "./vocabulary/EarthData"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
@@ -240,6 +241,8 @@ export const scenes: Record<string, DreamClass> = {
   earth: EarthDream,
   // The Earth's other layers: graticule, lakes, rivers, labels, a country lighting up, FlyTo.
   "earth-features": EarthFeaturesDream,
+  // The Earth as a knowledge surface: a choropleth through a year, columns, flows into a hub.
+  "earth-data": EarthDataDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
