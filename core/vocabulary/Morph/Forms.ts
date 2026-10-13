@@ -10,7 +10,7 @@
  *     this.play(this.forms.morph("dot", "truck"), 4)   // the song's spelling
  *
  * In free play (?play=free) the forms are a STATE AXIS, "form", whose
- * positions are the forms themselves: click any of them (or press "f") and
+ * positions are the forms themselves: click any of them (or press "n") and
  * it becomes the next, by the real morph between those two (`Morph(a, b)`
  * — its `via`). Interrupted mid-flight, the automaton retargets every
  * form's visibility smoothly toward the new position, so even a reversal
@@ -35,7 +35,7 @@ export interface FormsOptions {
   observer?: Observer
   /** Seconds a free-play transition takes. Default 4. */
   duration?: number
-  /** Key that steps to the next form. Default "f". */
+  /** Key that steps to the next form. Default "n" ("f" is the player's, reserved). */
   key?: string
   /** Options for every pairwise morph. */
   morph?: MorphAnyOptions
@@ -108,7 +108,7 @@ export class Forms extends Null {
       label: "form",
       duration: opts.duration ?? 4,
       positions,
-      key: opts.key ?? "f",
+      key: opts.key ?? "n",
       via: (from, to) => this.morph(from, to),
       handles: () => Object.values(forms),
       to: (name) => {

@@ -4,7 +4,7 @@
  * `forms`: one thing in three forms — a blue dot, the truck it stands for,
  * the word that names it — and a morph between any two. As a song: dot →
  * truck → word → dot. In free play (?scene=forms&play=free) the forms are
- * a state axis: click whichever is showing (or press "f") and it becomes
+ * a state axis: click whichever is showing (or press "n") and it becomes
  * the next.
  *
  * `morph-solids`: 3D into 3D — a truck, a pallet, a film reel, a pouch —
@@ -64,14 +64,14 @@ export class MorphSolidsDream extends Dream {
     this.stage(this.pouch)
     const turn = (phi: number, theta: number, d: number) => this.play(together(...this.observer.orbit({ phi, theta })), d)
     this.wait(0.8)
-    this.play(Morph(this.truck, this.pallet), 3.5)
+    this.play(Morph(this.truck, this.pallet), 4.5)
     turn(1.2, 0.45, 2)
-    this.play(Morph(this.pallet, this.reel), 3.5)
+    this.play(Morph(this.pallet, this.reel), 4.5)
     turn(0.4, 0.25, 2)
     // Once DURING a morph: the curves are re-read as the camera turns.
-    this.play(together(Morph(this.reel, this.pouch), ...this.observer.orbit({ phi: 0.9, theta: 0.4 })), 3.5)
+    this.play(together(Morph(this.reel, this.pouch), ...this.observer.orbit({ phi: 0.9, theta: 0.4 })), 4.5)
     turn(0.7, 0.32, 1.5)
-    this.play(Morph(this.pouch, this.truck), 3.5)
+    this.play(Morph(this.pouch, this.truck), 4.5)
     this.wait(1)
   }
 }

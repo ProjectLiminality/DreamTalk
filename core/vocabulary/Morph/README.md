@@ -72,7 +72,8 @@ It picks the route from what the two are — pass `route:` to choose:
 | anything → a `Word` or a string | `"word"` | the symbol settles into one line, the line is held a beat, the letters rise from it in reading order |
 | one closed outline → one closed outline | `"point"` | the classic morph: every point on its own path, turned for the least travel |
 | many curves → one closed curve | `"gather"` | each curve becomes a complementary arc, in proportion to its length |
-| everything else (dot → truck, truck → pallet, 3D ↔ 3D) | `"travel"` | strokes fly as bodies on gentle arcs and bend into shape late; small closed details fly whole or condense in place |
+| shapes alike enough to fly into each other (dot → truck, a shape → a moved or scaled copy) | `"travel"` | strokes fly as bodies on gentle arcs and bend into shape late; small closed details fly whole or condense in place |
+| two shapes that share nothing (truck → pallet; `dissimilarity` above `neutralAbove`, 0.03) | `"neutral"` | through a neutral form: the first condenses into a camera-facing circle, held a beat, the second grows out of it — "a sphere is very neutral" |
 
 The camera is found by itself (a 3D symbol's or a Word's observer), so 3D
 targets are drawn as the camera sees them — and stay correct if the camera
@@ -86,7 +87,7 @@ the morph between any two a walkable transition — the automaton's `via`:
 forms = new Forms({ dot: this.dot, truck: this.truck, word: this.word }, { observer: this.observer })
 …
 this.play(this.forms.morph("dot", "truck"), 4)      // in a song
-// ?scene=forms&play=free: click the form showing (or its key) → the next one, by the real morph
+// ?scene=forms&play=free: click the form showing (or press "n") → the next one, by the real morph
 ```
 
 Every pairwise morph is built up front; each position states every form's

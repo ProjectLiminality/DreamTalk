@@ -100,3 +100,33 @@ describe("Forms", () => {
     expect(forms.parts.filter((p) => p instanceof MorphCurves).length).toBeGreaterThanOrEqual(6)
   })
 })
+
+describe("the neutral route", () => {
+  test("unlike solids go through a camera-facing circle, held a beat", async () => {
+    const { dissimilarity } = await import("../vocabulary/Morph/universal")
+    const obs = new Observer({ phi: 0.7, theta: 0.32, radius: 700 })
+    const truck = new Truck({ observer: obs, scale: 0.42 })
+    const pallet = new Pallet({ observer: obs, opacity: 0 })
+    expect(dissimilarity(truck, pallet)).toBeGreaterThan(0.03)
+    const m = Morph(truck, pallet)
+    expect(m.route).toBe("neutral")
+    const circle = m.holons.find((h): h is Line => h instanceof Line)!
+    const pts = circle.points
+    expect(pts[0]).toEqual(pts.at(-1)!)
+    // shown at the end of the first half, hidden only after the held beat
+    const show = m.tracks.find((t) => t.param === circle.opacity && t.values[0] === 1)!
+    const hide = m.tracks.filter((t) => t.param === circle.opacity && t.values[0] === 0).map((t) => t.relStart)
+    expect(show.relStop).toBeCloseTo(0.45, 6)
+    expect(Math.max(...hide)).toBeGreaterThanOrEqual(0.55 - 1e-9)
+  })
+
+  test("alike shapes and a dot fly straight (no neutral)", async () => {
+    const { dissimilarity } = await import("../vocabulary/Morph/universal")
+    const obs = new Observer({ phi: 0.7, theta: 0.32 })
+    const a = new Truck({ observer: obs, scale: 0.42 })
+    const b = new Truck({ observer: obs, scale: 0.5, opacity: 0 })
+    expect(dissimilarity(a, b)).toBeLessThan(0.01)
+    expect(Morph(a, b).route).toBe("travel")
+    expect(Morph(new Circle({ radius: 40 }), new Truck({ observer: obs, opacity: 0 })).route).toBe("travel")
+  })
+})
