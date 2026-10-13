@@ -111,7 +111,19 @@ export interface FlowMapData {
    * The value chain, IN ORDER — the order is the point and never changes.
    * Stage k's flows run from slice k to slice k + 1 of the expanded stack.
    */
-  stages: { id: string; label?: string; tint?: Color; certainty?: number; symbol?: ParticleSymbol }[]
+  stages: {
+    id: string
+    label?: string
+    tint?: Color
+    certainty?: number
+    symbol?: ParticleSymbol
+    /**
+     * How sure the material TYPE is (its symbol) — Grain's rung-2
+     * certainty: below 1 a guessed type ghosts at rung 2 while the dot
+     * rungs stay solid. Default 1.
+     */
+    typeKnown?: number
+  }[]
   /** A flow of value from one entity (member or partner id) to another, in a stage. */
   flows: {
     from: string
@@ -241,6 +253,8 @@ export class FlowStage extends Group {
   open = completion(1)
   /** Is this stage's knowledge real data (1) or a picture we are painting (0)? */
   certainty = certainty(1)
+  /** How sure its particles' material type is — a guess (low) ghosts the symbol, not the dot. */
+  typeKnown = completion(1)
   /** What its particles are — the neutral dot until a richer symbol is asked for. */
   symbol = choice("dot", PARTICLE_SYMBOLS)
   /**
@@ -428,6 +442,20 @@ export class FlowMap extends Null {
           }),
         )
       }
+      // A guessed material type: guess ↔ data, walkable once its symbols show.
+      const typeKnown = sd.typeKnown ?? 1
+      if (typeKnown < 1 && sd.symbol && sd.symbol !== "dot") {
+        axes.push(
+          toggle(`${sd.id}.type`, stage.typeKnown, {
+            label: `${name} type`,
+            off: ["guess", typeKnown],
+            on: ["data", 1],
+            duration: 2,
+            when: () => stage.shown.value > 0.5 && stage.rung.value > 1.5,
+            handles: () => stage.flows,
+          }),
+        )
+      }
     })
     if (this.lanesWanted())
       axes.push(
@@ -587,6 +615,7 @@ export class FlowMap extends Null {
           stageId: s.id,
           certainty: s.certainty ?? 1,
           symbol: s.symbol ?? "dot",
+          typeKnown: s.typeKnown ?? 1,
         }),
     )
     this.stages = stages
@@ -863,6 +892,7 @@ export class FlowMap extends Null {
               neutral: NEUTRAL,
               symbol: material,
               grain: derive(() => stage.rung.value),
+              typeKnown: stage.typeKnown,
               opacity: derive(() => cur().o),
             })
           : new Circle({

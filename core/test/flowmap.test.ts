@@ -325,6 +325,21 @@ describe("FlowMap", () => {
     expect(raw.carriers[0]!.parts[0]).not.toBe(raw.dots[0])
   })
 
+  test("a stage's material type certainty reaches every Grain, with a guess ↔ data toggle", () => {
+    const data: FlowMapData = {
+      ...MOCK_FLOWMAP,
+      stages: MOCK_FLOWMAP.stages.map((st) => (st.id === "semi" ? { ...st, symbol: "reel" as const, typeKnown: 0.6 } : st)),
+    }
+    const m = new FlowMap({ radius: R, data })
+    void m.parts
+    const grain = m.stage("semi").flows[0]!.dots[0] as unknown as { typeKnown: { value: number } }
+    expect(grain.typeKnown.value).toBeCloseTo(0.6, 12)
+    m.stage("semi").typeKnown.value = 1
+    expect(grain.typeKnown.value).toBe(1)
+    const t = m.stateSpace().axes.find((a) => a.id === "semi.type")!
+    expect(t.positions.map((p) => p.name)).toEqual(["guess", "data"])
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)
