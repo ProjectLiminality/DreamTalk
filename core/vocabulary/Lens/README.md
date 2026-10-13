@@ -59,6 +59,8 @@ holds at once, default 4), `dotRadius`, `dotTint`, `lineTint`,
 
 Scene: `/demo/?scene=lens`. Proven by `test/lens.test.ts`.
 
+**Certainty**: a source may say how sure its data is (`certainty()`, read live — FlowMap: stage × flow). What the lens shows of the flow (line, dots, road, trucks) is a `FlowContent` carrying it, so a conjectural flow is ghosted inside a crisp lens.
+
 **Not yet**: the concrete world is one road through the window's centre (a
 curved road, two directions, a landscape); while a particle is
 mid-morph its correspondence is re-planned every frame (fine offline,

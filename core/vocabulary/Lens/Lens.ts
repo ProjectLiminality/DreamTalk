@@ -35,6 +35,7 @@ import type { View } from "../../src/geometry/hiddenline"
 import { atArcLength, smooth } from "../../src/geometry/flowmap"
 import { MorphCurves, morphPhases } from "../Morph/MorphCurves"
 import { axis, type StateSpace } from "../../src/automaton"
+import { certainty } from "../../src/certainty"
 import { together, type Anim } from "../../src/anim"
 import { Road } from "../Road/Road"
 import { Truck } from "../Truck/Truck"
@@ -263,6 +264,18 @@ export interface FlowSource {
   particles(): number[]
   /** The holon the path is stated in (FlowMap's `stack`; a Stream itself). */
   frame?: Holon
+  /**
+   * How sure the data behind this flow is (src/certainty.ts), read live —
+   * FlowMap: its stage's × its flow's. What the lens SHOWS of the flow (the
+   * line, dots, road, trucks) carries it; the lens itself, an instrument,
+   * stays crisp. Omitted: certain.
+   */
+  certainty?: () => number
+}
+
+/** What a FlowLens shows of its flow: as certain as the flow is, however crisp the lens. */
+export class FlowContent extends Group {
+  certainty = certainty(1)
 }
 
 export interface FlowLensOptions extends LensOptions {
@@ -462,8 +475,11 @@ export class FlowLens extends Lens {
   }
 
   protected override compose(): void {
-    const { opts } = this.flow
+    const { opts, source } = this.flow
     const K = opts.slots ?? 4
+    // Everything below is the flow's, not the lens's: it ghosts with the flow
+    // (gathered in paint order, handed to one FlowContent at the end).
+    const content: Holon[] = []
     const observer = opts.observer
     const shown = () => this.opened()
 
@@ -541,8 +557,8 @@ export class FlowLens extends Lens {
     })
     // Paint order is occlusion order: the line/road first, then the
     // trucks' solid fills over it, then the particles and their outlines.
-    this.add(chord)
-    this.add(
+    content.push(chord)
+    content.push(
       new MorphCurves([chord], [road], {
         observer,
         morph: derive(() => morphPhases(this.concrete.value).morph),
@@ -550,7 +566,7 @@ export class FlowLens extends Lens {
         stroke: this.stroke,
       }),
     )
-    this.add(ground)
+    content.push(ground)
 
     // The abstract particles in the near face, and each one's morph.
     const R = opts.dotRadius ?? 9
@@ -583,9 +599,9 @@ export class FlowLens extends Lens {
         z: derive(() => at().z),
       })
     })
-    for (const d of dots) this.add(d)
+    content.push(...dots)
     states.forEach((st, k) =>
-      this.add(
+      content.push(
         new MorphCurves([dots[k]!], [trucks[k]!], {
           observer,
           morph: derive(() => morphPhases(st().ck).morph),
@@ -596,6 +612,7 @@ export class FlowLens extends Lens {
         }),
       ),
     )
+    this.add(new FlowContent({ members: content, certainty: derive(() => source.certainty?.() ?? 1) }))
   }
 }
 
