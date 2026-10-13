@@ -533,7 +533,7 @@ const filled = (h: Holon): number =>
  * composite's parts do not inherit opacity in the host, so a verb that
  * hides or shows a whole must address each of them.
  */
-const ownParams = (h: Holon, key: "opacity" | "fillOpacity"): Param<number>[] => {
+export const ownParams = (h: Holon, key: "opacity" | "fillOpacity"): Param<number>[] => {
   const out = new Set<Param<number>>()
   for (const n of h.walk()) {
     if (key === "fillOpacity" && !(n instanceof Stroke)) continue

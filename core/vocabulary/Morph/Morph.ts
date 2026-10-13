@@ -153,6 +153,7 @@ import {
   derivePoints,
 } from "../../src/parts/primitives"
 import { worldPosition } from "../../src/parts/curves"
+import { morphAny, type MorphAnyOptions, type MorphResult } from "./universal"
 import {
   MORPH_SAMPLES,
   morphedPolyline,
@@ -410,7 +411,7 @@ export interface MorphOptions {
  *   morpher's own opacity away at the same instant, so exactly one of
  *   the three is ever the lit image.
  */
-export const Morph = (
+const morphShape = (
   shape: MorphShape,
   source: Stroke,
   target: Stroke,
@@ -460,6 +461,30 @@ export const Morph = (
     ],
   }
   return together(...parts, windowed)
+}
+
+/**
+ * THE ONE VERB, two spellings by what it is handed:
+ *
+ *   Morph(shape, source, target, opts?)  — pydeation's morph, exactly as
+ *       above (a staged MorphShape between two plane outlines; the corpus
+ *       is scored against it).
+ *   Morph(a, b, opts?)                    — anything into anything: the
+ *       route chosen by what a and b are (a word, one outline, many lines
+ *       into a circle, 3D into 3D) — see universal.ts and "How to morph
+ *       anything" in the README. Returns an Anim that also carries
+ *       `back()`, `route` and `holons`.
+ */
+export function Morph(shape: MorphShape, source: Stroke, target: Stroke, opts?: MorphOptions): Anim
+export function Morph(a: Holon, b: Holon | string, opts?: MorphAnyOptions): MorphResult
+export function Morph(
+  a: MorphShape | Holon,
+  b: Stroke | Holon | string,
+  c?: Stroke | MorphAnyOptions,
+  d?: MorphOptions,
+): Anim | MorphResult {
+  if (a instanceof MorphShape) return morphShape(a, b as Stroke, c as Stroke, d)
+  return morphAny(a, b as Holon | string, c as MorphAnyOptions | undefined)
 }
 
 // ─── 5. THE GRAFT ───────────────────────────────────────────────────

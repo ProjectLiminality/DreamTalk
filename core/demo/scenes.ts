@@ -108,6 +108,7 @@ import { GalleryDream } from "./GalleryDemo"
 import { FlowMapGrainDream, GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
+import { FormsDream, MorphSolidsDream } from "./MorphAnyDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -135,6 +136,9 @@ export const scenes: Record<string, DreamClass> = {
   // General mesh silhouettes: creases + smooth contours, hidden lines removed.
   meshes: MeshDream,
   "morph-mesh": MeshMorphDream,
+  // How to morph anything: one thing in three forms (a state axis in free play), and 3D into 3D.
+  forms: FormsDream,
+  "morph-solids": MorphSolidsDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

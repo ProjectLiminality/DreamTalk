@@ -42,6 +42,11 @@ export class Word extends Stroke {
     this.spec = { text, font: font ?? ARIMO, observer }
   }
 
+  /** The observer it faces, if any. */
+  get observer(): Observer | undefined {
+    return this.spec.observer
+  }
+
   /** The word it writes. */
   get text(): string {
     return this.spec.text

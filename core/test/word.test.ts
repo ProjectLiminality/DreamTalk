@@ -113,10 +113,10 @@ describe("MorphToWord", () => {
     const tracks = m.there().tracks
     const shows = tracks.filter((t) => t.param === line.opacity && t.values[0] === 1)
     expect(shows.length).toBe(1)
-    expect(shows[0]!.relStop).toBeCloseTo(0.42, 6)
+    expect(shows[0]!.relStop).toBeCloseTo(0.45, 6)
     // …and it is held: the word appears only after 0.58.
     const word = tracks.filter((t) => t.param === m.word.opacity && t.values[0] === 1)
-    expect(word[0]!.relStart).toBeGreaterThan(0.58)
+    expect(word[0]!.relStart).toBeGreaterThan(0.53)
   })
 
   test("the word stands where the symbol is, as wide as it, and both morphs read both", () => {

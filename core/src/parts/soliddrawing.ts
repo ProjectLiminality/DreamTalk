@@ -164,6 +164,11 @@ export abstract class SolidDrawing extends Stroke {
     this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0 }
   }
 
+  /** The observer it is drawn for (a morph reads it to see as the camera does). */
+  get observer(): Observer | undefined {
+    return this.seen.observer
+  }
+
   /** The world-space view this drawing is seen from. */
   view(): View {
     return this.seen.observer ? viewOf(this.seen.observer) : { eye: { x: 0, y: 0, z: 1500 } }

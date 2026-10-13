@@ -45,6 +45,60 @@ place, and is the reason the morpher comes back rather than being
 conjured — a Dream's holons are its declared fields, so neither spelling
 smuggles one in.
 
+## How to morph anything
+
+One verb: **`Morph(a, b)`**. Declare `b` hidden (`opacity: 0`), then play it:
+
+```ts
+import { Morph } from "../../vocabulary/Morph/Morph"
+
+class Becoming extends Dream {
+  dot = new Circle({ radius: 40, tint: BLUE, fillOpacity: 1 })
+  truck = new Truck({ observer: this.observer, opacity: 0 })
+
+  unfold() {
+    const m = Morph(this.dot, this.truck)   // an Anim — and m.back(), m.route, m.holons
+    this.play(m, 4)                         // the dot becomes the truck
+    this.play(m.back(), 4)                  // and back
+    this.play(Morph(this.truck, "truck"), 5) // a symbol into its word (a string is enough)
+  }
+}
+```
+
+It picks the route from what the two are — pass `route:` to choose:
+
+| a → b | route | what you see |
+|---|---|---|
+| anything → a `Word` or a string | `"word"` | the symbol settles into one line, the line is held a beat, the letters rise from it in reading order |
+| one closed outline → one closed outline | `"point"` | the classic morph: every point on its own path, turned for the least travel |
+| many curves → one closed curve | `"gather"` | each curve becomes a complementary arc, in proportion to its length |
+| everything else (dot → truck, truck → pallet, 3D ↔ 3D) | `"travel"` | strokes fly as bodies on gentle arcs and bend into shape late; small closed details fly whole or condense in place |
+
+The camera is found by itself (a 3D symbol's or a Word's observer), so 3D
+targets are drawn as the camera sees them — and stay correct if the camera
+moves during the morph. The morphers it builds join the scene through the
+tracks that animate them; nothing needs staging.
+
+**A morph as a state.** `Forms` holds one thing in several forms and makes
+the morph between any two a walkable transition — the automaton's `via`:
+
+```ts
+forms = new Forms({ dot: this.dot, truck: this.truck, word: this.word }, { observer: this.observer })
+…
+this.play(this.forms.morph("dot", "truck"), 4)      // in a song
+// ?scene=forms&play=free: click the form showing (or its key) → the next one, by the real morph
+```
+
+Every pairwise morph is built up front; each position states every form's
+visibility, so an interrupted transition retargets to a true picture.
+Scenes: `?scene=forms` (dot ↔ truck ↔ word), `?scene=morph-solids`
+(truck → pallet → film reel → pouch, the camera turning), `?scene=morph-word`,
+`?scene=morph-dot-truck`, `?scene=morph-lines-circle`, `?scene=lens`.
+
+The engine underneath is the rest of this README: `MorphCurves` (N curves
+into M), `MorphToWord`, `SolidDrawing` targets, and pydeation's
+`MorphShape` (`Morph(shape, a, b)` — the corpus spelling, unchanged).
+
 ## N curves into M, in 3D — `MorphCurves` + `MorphMany`
 
 `MorphShape` above is pydeation's morph and stays exactly that (one closed

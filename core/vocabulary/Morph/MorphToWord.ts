@@ -49,6 +49,8 @@ export interface WordMorphOptions {
   at?: Vec3Like
   /** Overrides for the Word (stroke, …). */
   word?: Overrides
+  /** Morph into THIS word (already declared) instead of building one. */
+  into?: Word
   /** Travel as a point-wise lerp with this `lag` instead of rigid flight (MorphCurves). */
   lag?: number
   /** MorphCurves' `snap` — keep whole strokes whole. Default 0.04. */
@@ -119,7 +121,7 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
   const unitWidth = unit.length ? Math.max(...unit.map((p) => p.x)) - Math.min(...unit.map((p) => p.x)) : 1
   const size = opts.size ?? ((opts.fit ?? 0.9) * symbolWidth) / Math.max(1e-6, unitWidth)
   const tint = opts.tint ?? (symbol instanceof Stroke ? symbol.tint.value : undefined)
-  const word = new Word(text, {
+  const word = opts.into ?? new Word(text, {
     observer,
     size,
     x: centre.x,
@@ -166,7 +168,7 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
   // the word's baseline, laid out in reading order — and the letters rise
   // from it. The middle of the morph is a single clean line: the essence
   // held for a beat between the thing and its name.
-  const unitPts = wordOutline(text, ARIMO, { size })
+  const unitPts = wordOutline(text, ARIMO, { size: word.size.value })
   const wordWidth = unitPts.length ? Math.max(...unitPts.flat().map((p) => p.x)) - Math.min(...unitPts.flat().map((p) => p.x)) : size
   const half = wordWidth / 2
   // The baseline follows the camera (it lies along the camera's right, the
@@ -198,7 +200,7 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
   const wordToLine = new MorphCurves([word], [line], morphOpts)
   const lineToSymbol = new MorphCurves([line], [symbol], lineOpts)
   // The line is HELD for a beat between the two halves.
-  const half2 = (a: Anim, b: Anim): Anim => together([a, 0, 0.42], [b, 0.58, 1])
+  const half2 = (a: Anim, b: Anim): Anim => together([a, 0, 0.45], [b, 0.53, 1])
   return {
     word,
     toWord: toLine,
