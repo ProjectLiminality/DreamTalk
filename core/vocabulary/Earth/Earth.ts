@@ -319,8 +319,13 @@ export class Earth extends Null {
   lake = color(rgb(0, 0, 0))
   lakeOpacity = completion(0)
 
-  /** Major rivers and lake centrelines. */
-  riverTint = color(rgb(0x1e, 0x5a, 0x8c))
+  /**
+   * Major rivers and lake centrelines. A light blue on purpose: strokes
+   * composite by MAX, so a river shows over a lit country only where it is
+   * brighter than the fill in some channel — this one clears the red and
+   * the blue highlights both, and still reads as water on the dim land.
+   */
+  riverTint = color(rgb(0x5a, 0xa8, 0xe0))
   riverStroke = length(1)
   riverOpacity = completion(0)
   riverDraw = completion(1)
@@ -417,7 +422,15 @@ export class Earth extends Null {
       this.landSheets.push(sheet)
     })
 
-    // Lakes over the land, then the highlighted countries over both.
+    // The highlighted countries over the land, then the lakes over both —
+    // a lit country's lakes stay water.
+    for (const iso of this.highlight) {
+      const mesh = countryMesh(iso)
+      const sheet = this.add(new Surface({ tint: RED, fillOpacity: 0 }))
+      sheet.positions = scaledMesh(mesh, r)
+      sheet.indices = mesh.indices
+      this.countrySheets.set(iso, sheet)
+    }
     const lakes = lakeGeometry()
     for (const [rank, mesh] of [...lakes.sheets].sort((a, b) => a[0] - b[0])) {
       if (mesh.indices.length === 0) continue
@@ -431,14 +444,6 @@ export class Earth extends Null {
       sheet.indices = mesh.indices
       this.lakeSheets.push(sheet)
     }
-    for (const iso of this.highlight) {
-      const mesh = countryMesh(iso)
-      const sheet = this.add(new Surface({ tint: RED, fillOpacity: 0 }))
-      sheet.positions = scaledMesh(mesh, r)
-      sheet.indices = mesh.indices
-      this.countrySheets.set(iso, sheet)
-    }
-
     const strokes = new Null()
     this.add(strokes)
     // The graticule lies under every other stroke.
