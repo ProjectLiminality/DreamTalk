@@ -12,7 +12,8 @@ import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
-import { Grain, NEUTRAL, RUNG, grainPhases, rungCertainty, solidBounds } from "../vocabulary/Grain/Grain"
+import { Grain, NEUTRAL, RUNG, grainPhases, rungCertainty } from "../vocabulary/Grain/Grain"
+import { solidBounds } from "../src/geometry/hiddenline"
 
 /** A three-quarter view from above, orthographic — the grain scene's camera. */
 const observer = (): Observer => {
@@ -94,13 +95,19 @@ describe("Grain — the rungs", () => {
       const cur = grainPhases(g)
       for (const key of ["color", "fillOut", "morph", "fillIn", "label"] as const)
         expect(Math.abs(cur[key] - prev[key])).toBeLessThan(dg * 8)
+      for (const key of ["fillOut", "morph", "fillIn"] as const)
+        expect(Math.abs(cur.item[key] - prev.item[key])).toBeLessThan(dg * 8)
       prev = cur
     }
   })
 
   test("the rungs in order: colour, then the morph (fill out → travel → fill in), then the label", () => {
-    expect(grainPhases(0)).toEqual({ color: 0, fillOut: 0, morph: 0, fillIn: 0, label: 0 })
-    expect(grainPhases(1)).toEqual({ color: 1, fillOut: 0, morph: 0, fillIn: 0, label: 0 })
+    const flat = (g: number) => {
+      const { item: _, ...rest } = grainPhases(g)
+      return rest
+    }
+    expect(flat(0)).toEqual({ color: 0, fillOut: 0, morph: 0, fillIn: 0, label: 0 })
+    expect(flat(1)).toEqual({ color: 1, fillOut: 0, morph: 0, fillIn: 0, label: 0 })
     const two = grainPhases(2)
     expect([two.color, two.fillOut, two.morph, two.label]).toEqual([1, 1, 1, 0])
     expect(two.fillIn).toBeCloseTo(1, 12)
@@ -197,5 +204,55 @@ describe("Grain — the morph, in its own frame", () => {
     expect(reel.material.value).toEqual(NEUTRAL)
     g.grain.value = RUNG.type
     expect(reel.material.value).toEqual(BLUE)
+  })
+})
+
+describe("Grain — the item rung, data-driven", () => {
+  const make = () => {
+    const g = new Grain({
+      observer: observer(),
+      category: BLUE,
+      symbol: (o) => new FilmReel(o),
+      item: (o) => new FilmReel({ ...o, width: 110, diameter: 260 }),
+      size: 80,
+      stand: true,
+    })
+    void g.parts
+    return g
+  }
+
+  test("the exact item is drawn at the TYPE's scale: a narrower, taller reel is narrower and taller", () => {
+    const g = make()
+    const span = (cs: { x: number; y: number }[][], a: "x" | "y") => {
+      const v = cs.flat().map((p) => p[a])
+      return Math.max(...v) - Math.min(...v)
+    }
+    const t = g.symbolCurves()
+    const i = g.symbolCurves(g.item)
+    expect(span(i, "x")).toBeLessThan(span(t, "x"))
+    expect(span(i, "y")).toBeGreaterThan(span(t, "y"))
+  })
+
+  test("2 → 3: the type's edges become the item's — exact at both ends of the travel", () => {
+    const g = make()
+    g.grain.value = 2 + 0.2 + 1e-9
+    expect(totalLength(g.pieces())).toBeCloseTo(totalLength(g.symbolCurves()), 2)
+    g.grain.value = 3 - 0.2 - 1e-9
+    expect(totalLength(g.pieces())).toBeCloseTo(totalLength(g.symbolCurves(g.item)), 2)
+    g.grain.value = 3
+    expect(g.pieces()).toEqual([])
+  })
+
+  test("the handover: the type's symbol shows until its fill is out, the item's from when its fill comes in", () => {
+    const g = make()
+    const shown = (x: number) => {
+      g.grain.value = x
+      return [g.symbol!.opacity.value > 0, g.item!.opacity.value > 0]
+    }
+    expect(shown(2)).toEqual([true, false])
+    expect(shown(2.1)).toEqual([true, false])
+    expect(shown(2.5)).toEqual([false, false])
+    expect(shown(2.95)).toEqual([false, true])
+    expect(shown(3)).toEqual([false, true])
   })
 })

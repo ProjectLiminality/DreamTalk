@@ -1,6 +1,6 @@
 import { BLACK, GREEN } from "../../src/constants"
 import { color } from "../../src/params"
-import type { Solid } from "../../src/geometry/hiddenline"
+import { translateSolid, type Solid } from "../../src/geometry/hiddenline"
 import { SolidDrawing } from "../../src/parts/soliddrawing"
 
 /**
@@ -46,6 +46,6 @@ export class Pouch extends SolidDrawing {
     ]
     // The zip, a line just under the seal, flat on the face.
     raw.push({ kind: "panel", center: { x: 0, y: 154, z: 12 }, size: { x: W - 12, y: 2, z: 0 }, normal: { x: 0, y: 0, z: 1 } })
-    return raw.map((s) => (s.kind === "mesh" ? s : { ...s, center: { x: s.center.x, y: s.center.y - 93, z: s.center.z } }))
+    return raw.map((s) => translateSolid(s, { x: 0, y: -93, z: 0 }))
   }
 }

@@ -46,7 +46,7 @@ import { Param, completion, derive, length, paramEpoch, scalar } from "../../src
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { derivePoints, localView, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
-import type { Solid, View } from "../../src/geometry/hiddenline"
+import { solidBounds, type View } from "../../src/geometry/hiddenline"
 import { blendPlan, planMorph, type MorphPlan } from "../../src/geometry/correspond"
 import { morphPhases } from "../Morph/MorphCurves"
 
@@ -65,6 +65,14 @@ export interface GrainOptions {
   symbol?: (overrides: Overrides & { observer?: Observer }) => SolidDrawing
   /** Rung 3: the exact item's name. */
   label?: string
+  /**
+   * Rung 3: the exact item's own symbol — the type's symbol made from the
+   * item's data (a reel of its real width and diameter, an octabin rather
+   * than sacks, a bigger pouch). Built like `symbol` and drawn at the
+   * TYPE's scale, so a wider reel is wider; 2 → 3 morphs the type's
+   * symbol into it. Omit it and the item rung only names the type.
+   */
+  item?: (overrides: Overrides & { observer?: Observer }) => SolidDrawing
   /** The dot's colour before its category is known. Default NEUTRAL. */
   neutral?: Color
   /**
@@ -80,26 +88,6 @@ const mixColor = (a: Color, b: Color, u: number): Color => ({
   b: a.b + (b.b - a.b) * u,
 })
 const clamp01 = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x)
-
-/** A solid's axis-aligned bounds in its drawing's space. */
-export const solidBounds = (s: Solid): { lo: Vec3Like; hi: Vec3Like } => {
-  if (s.kind === "mesh") {
-    const lo = { x: Infinity, y: Infinity, z: Infinity }
-    const hi = { x: -Infinity, y: -Infinity, z: -Infinity }
-    for (const p of s.positions)
-      for (const a of ["x", "y", "z"] as const) {
-        lo[a] = Math.min(lo[a], p[a])
-        hi[a] = Math.max(hi[a], p[a])
-      }
-    return { lo, hi }
-  }
-  const h =
-    s.kind === "cylinder"
-      ? { x: s.axis === "x" ? s.height / 2 : s.radius, y: s.axis === "y" ? s.height / 2 : s.radius, z: s.axis === "z" ? s.height / 2 : s.radius }
-      : { x: s.size.x / 2, y: s.size.y / 2, z: s.size.z / 2 }
-  const c = s.center
-  return { lo: { x: c.x - h.x, y: c.y - h.y, z: c.z - h.z }, hi: { x: c.x + h.x, y: c.y + h.y, z: c.z + h.z } }
-}
 
 /** A drawing's solids' bounds: the largest extent (what `size` measures) and the lowest y. */
 const boundsOf = (sym: SolidDrawing): { extent: number; bottom: number } => {
@@ -131,9 +119,16 @@ export const rungCertainty = (g: number, known: readonly number[]): number => {
  */
 export const grainPhases = (
   g: number,
-): { color: number; fillOut: number; morph: number; fillIn: number; label: number } => {
+): {
+  color: number
+  fillOut: number
+  morph: number
+  fillIn: number
+  label: number
+  item: { fillOut: number; morph: number; fillIn: number }
+} => {
   const m = morphPhases(g - 1)
-  return { color: clamp01(g), ...m, label: clamp01(g - 2) }
+  return { color: clamp01(g), ...m, label: clamp01(g - 2), item: morphPhases(g - 2) }
 }
 
 export class Grain extends Stroke {
@@ -153,16 +148,19 @@ export class Grain extends Stroke {
 
   /** The symbol this grain becomes (rung 2), if it has one. */
   symbol?: SolidDrawing
+  /** The exact item's symbol (rung 3), if the data gives one. */
+  item?: SolidDrawing
   /** The item's name (rung 3), if it has one. */
   label?: Text
 
   private opts!: GrainOptions
   private planMemo?: { key: number[]; plan: MorphPlan }
+  private itemPlanMemo?: { key: number[]; plan: MorphPlan }
 
   constructor(overrides: Overrides & GrainOptions = {}) {
-    const { observer, category, symbol, label, neutral, stand, ...rest } = overrides
+    const { observer, category, symbol, label, item, neutral, stand, ...rest } = overrides
     super({ stroke: 2.5, ...rest })
-    this.opts = { observer, category, symbol, label, neutral, stand }
+    this.opts = { observer, category, symbol, label, item, neutral, stand }
     this.certainty.follow(
       derive(() =>
         rungCertainty(this.grain.value, [
@@ -221,9 +219,8 @@ export class Grain extends Stroke {
     return pts
   }
 
-  /** The symbol's visible curves, grain-local (it sits on the y axis, scaled, unturned). */
-  symbolCurves(): Vec3Like[][] {
-    const sym = this.symbol
+  /** A symbol's visible curves, grain-local (it sits on the y axis, scaled, unturned). Default: the type's. */
+  symbolCurves(sym: SolidDrawing | undefined = this.symbol): Vec3Like[][] {
     if (!sym) return []
     const s = sym.scale.value
     const y = sym.y.value
@@ -243,17 +240,51 @@ export class Grain extends Stroke {
     return plan
   }
 
+  /** The type → item plan (rung 2 → 3), re-planned only when either drawing or the view changes. */
+  itemPlan(): MorphPlan | undefined {
+    const a = this.symbol
+    const b = this.item
+    if (!a || !b) return undefined
+    const k = this.toward()
+    const key = [a.scale.value, a.y.value, b.scale.value, b.y.value, k.x, k.y, k.z, ...a.signature(), -1, ...b.signature()]
+    const m = this.itemPlanMemo
+    if (m && m.key.length === key.length && m.key.every((x, i) => x === key[i])) return m.plan
+    const plan = planMorph(this.symbolCurves(a), this.symbolCurves(b), { normal: k })
+    this.itemPlanMemo = { key, plan }
+    return plan
+  }
+
   /** The morph's curves at the current rung — empty unless mid-morph. */
   pieces(): Vec3Like[][] {
-    const { morph, fillIn } = grainPhases(this.grain.value)
-    if (this.grain.value <= 1 || fillIn > 0 || !this.symbol) return []
-    const plan = this.plan()
-    return plan ? blendPlan(plan, morph, 0.5) : []
+    const g = this.grain.value
+    const ph = grainPhases(g)
+    if (g > 1 && g < 2) {
+      if (ph.fillIn > 0 || !this.symbol) return []
+      const plan = this.plan()
+      return plan ? blendPlan(plan, ph.morph, 0.5) : []
+    }
+    // The type's symbol becoming the exact item's: like shapes, so every
+    // point travels straight (no lag) — the reel simply takes its size.
+    if (g > 2 && g < 3 && this.item && ph.item.fillOut >= 1 && ph.item.fillIn <= 0) {
+      const plan = this.itemPlan()
+      return plan ? blendPlan(plan, ph.item.morph, 0) : []
+    }
+    return []
   }
 
   protected override compose(): void {
-    const { observer, symbol, label } = this.opts
+    const { observer, symbol, label, item } = this.opts
     const phases = () => grainPhases(this.grain.value)
+    // With an item symbol the type's symbol hands over to it on 2 → 3.
+    const typeFill = () => {
+      const ph = phases()
+      return item && this.grain.value > 2 ? 1 - ph.item.fillOut : ph.fillIn
+    }
+    const typeShown = () => {
+      const ph = phases()
+      if (item && this.grain.value > 2) return ph.item.fillOut < 1
+      return ph.fillIn > 0
+    }
 
     // The symbol first: its solid fills paint under every line.
     if (symbol) {
@@ -261,17 +292,33 @@ export class Grain extends Stroke {
         observer,
         stroke: this.stroke,
         tint: this.tint,
-        fillOpacity: derive(() => phases().fillIn),
-        opacity: derive(() => (phases().fillIn > 0 ? this.opacity.value : 0)),
+        fillOpacity: derive(typeFill),
+        opacity: derive(() => (typeShown() ? this.opacity.value : 0)),
       })
       const { extent, bottom } = boundsOf(sym)
-      sym.scale.follow(derive(() => this.size.value / extent))
-      if (this.opts.stand) sym.y.follow(derive(() => (-bottom * this.size.value) / extent))
-      // The material is the category's colour, when the symbol has one.
-      const material = (sym as unknown as Record<string, unknown>).material
-      if (material instanceof Param) (material as Param<Color>).follow(derive(() => this.dotTint()))
+      const place = (s: SolidDrawing, low: number) => {
+        // Scaled by the TYPE's extent, so an item's own dimensions show.
+        s.scale.follow(derive(() => this.size.value / extent))
+        if (this.opts.stand) s.y.follow(derive(() => (-low * this.size.value) / extent))
+        // The material is the category's colour, when the symbol has one.
+        const material = (s as unknown as Record<string, unknown>).material
+        if (material instanceof Param) (material as Param<Color>).follow(derive(() => this.dotTint()))
+      }
+      place(sym, bottom)
       this.symbol = sym
       this.add(sym)
+      if (item) {
+        const exact = item({
+          observer,
+          stroke: this.stroke,
+          tint: this.tint,
+          fillOpacity: derive(() => phases().item.fillIn),
+          opacity: derive(() => (this.grain.value > 2 && phases().item.fillIn > 0 ? this.opacity.value : 0)),
+        })
+        place(exact, boundsOf(exact).bottom)
+        this.item = exact
+        this.add(exact)
+      }
     }
 
     // The dot: a filled disc facing the viewer, in the colour of its rung.
@@ -288,7 +335,7 @@ export class Grain extends Stroke {
     // into M curves makes at most 1 + M pieces; M is read for the view at
     // construction, with room for a view that shows a few more spans (a
     // flow may carry hundreds of grains — every slot is a mounted line).
-    const capacity = symbol ? 16 + this.symbolCurves().length : 0
+    const capacity = symbol ? 16 + this.symbolCurves().length + (this.item ? this.symbolCurves(this.item).length : 0) : 0
     let version = 0
     let lastKey = ""
     const piecesNow = () => this.pieces()
@@ -309,7 +356,7 @@ export class Grain extends Stroke {
     for (let i = 0; i < capacity; i++) {
       const slot = new Line({
         stroke: this.stroke,
-        tint: derive(() => mixColor(this.dotTint(), this.tint.value, phases().morph)),
+        tint: derive(() => (this.grain.value > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph))),
         opacity: derive(() => (current()[i] ? this.opacity.value : 0)),
       })
       derivePoints(slot, () => (current(), [version]), () => current()[i] ?? [])

@@ -1,6 +1,6 @@
 import { BLACK, RED } from "../../src/constants"
 import { choice, color } from "../../src/params"
-import type { Solid } from "../../src/geometry/hiddenline"
+import { translateSolid, type Solid } from "../../src/geometry/hiddenline"
 import { SolidDrawing } from "../../src/parts/soliddrawing"
 
 /** What stands on the pallet. */
@@ -92,6 +92,6 @@ export class Pallet extends SolidDrawing {
     const cx = L / 2
     const cy = y1 / 2
     const cz = D / 2
-    return raw.map((s) => (s.kind === "mesh" ? s : { ...s, center: { x: s.center.x - cx, y: s.center.y - cy, z: s.center.z - cz } }))
+    return raw.map((s) => translateSolid(s, { x: -cx, y: -cy, z: -cz }))
   }
 }
