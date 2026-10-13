@@ -39,6 +39,7 @@ import { RegenaissanceDream } from "./vocabulary/Regenaissance"
 import { EarthDream } from "./vocabulary/Earth"
 import { EarthFeaturesDream } from "./vocabulary/EarthFeatures"
 import { EarthDataDream } from "./vocabulary/EarthData"
+import { GeoFlowDream } from "./vocabulary/GeoFlow"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
@@ -242,6 +243,8 @@ export const scenes: Record<string, DreamClass> = {
   "earth-features": EarthFeaturesDream,
   // The Earth as a knowledge surface: a choropleth through a year, columns, flows into a hub.
   "earth-data": EarthDataDream,
+  // An organisation on the planet ↔ as its flow map: one axis between them (v).
+  geoflow: GeoFlowDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
   // The walkable symbols side by side: ← → visit each, its axes live (play=free).
