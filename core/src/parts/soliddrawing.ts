@@ -129,6 +129,8 @@ export interface SolidDrawingOptions {
 const flattenSolids = (solids: readonly Solid[]): number[] =>
   solids.flatMap((s) => {
     const fill = s.fill ? [s.fill.r, s.fill.g, s.fill.b] : [-1, -1, -1]
+    if (s.kind === "panel")
+      return [2, s.center.x, s.center.y, s.center.z, s.size.x, s.size.y, s.size.z, s.normal.x, s.normal.y, s.normal.z, ...fill]
     return s.kind === "box"
       ? [0, s.center.x, s.center.y, s.center.z, s.size.x, s.size.y, s.size.z, ...fill]
       : [1, s.center.x, s.center.y, s.center.z, s.radius, s.height, "xyz".indexOf(s.axis), ...fill]

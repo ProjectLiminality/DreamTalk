@@ -2,7 +2,8 @@
 
 ![Truck](Truck.png)
 
-A truck, platonic: a box trailer of blue cargo, a cab, a hood, six wheels.
+A truck, platonic: a box trailer of blue cargo, a cab with its windows, a
+low hood with a grille, a bumper, a chassis rail, eight wheels with hubs.
 It is drawn the way the 2021 vocabulary draws everything — white lines on
 black and one fill colour — but its lines are its **visible 3D edges**,
 recomputed for wherever the camera is: hidden edges are removed, the
@@ -31,5 +32,4 @@ removal, painter-ordered fills).
 **Why it exists**: the dot→truck morph (`/demo/?scene=morph-dot-truck`,
 vocabulary/Morph `MorphCurves`) — a blue particle in a flow becomes the
 truck it stands for, and back. Its `worldCurves()` is what the morph lands
-on. 640 long (+x, cab forward), 268 tall, 180 wide, origin at the middle
-of its bounding box.
+on. Cab forward (+x), origin at the middle of its bounding box. 650 long, 232 tall, 188 wide.

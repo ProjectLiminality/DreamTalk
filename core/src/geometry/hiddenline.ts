@@ -77,7 +77,21 @@ export interface CylinderSolid {
   fill?: Color
 }
 
-export type Solid = Box | CylinderSolid
+/**
+ * A flat rectangle lying ON a face — a window, a windshield, a grille.
+ * Not a solid: it occludes nothing; its four edges are drawn when its
+ * face (outward `normal`, axis-aligned) faces the viewer and nothing else
+ * hides them. `size` has a zero extent along the normal.
+ */
+export interface Panel {
+  kind: "panel"
+  center: Vec3Like
+  size: Vec3Like
+  normal: Vec3Like
+  fill?: Color
+}
+
+export type Solid = Box | CylinderSolid | Panel
 
 /**
  * Where the drawing is seen from. `eye` is a perspective camera position;
@@ -161,6 +175,7 @@ const mantleNormal = (c: CylinderSolid, theta: number): Vec3Like => {
  * plus the two cap discs.
  */
 const hits = (s: Solid, o: Vec3Like, d: Vec3Like, tMin: number, tMax: number): boolean => {
+  if (s.kind === "panel") return false
   if (s.kind === "box") {
     let lo = tMin
     let hi = tMax
@@ -374,6 +389,28 @@ export const hiddenLineDrawing = (
 
   solids.forEach((s, si) => {
     const depth = depthOf(view, s)
+    if (s.kind === "panel") {
+      const { center: c, size: z } = s
+      if (!facing(view, c, s.normal)) return
+      // The rectangle's corners: the two non-zero extents of `size`.
+      const axes = (["x", "y", "z"] as const).filter((a) => Math.abs(z[a]) > 0)
+      if (axes.length !== 2) return
+      const [a1, a2] = axes as ["x" | "y" | "z", "x" | "y" | "z"]
+      const corner = (s1: number, s2: number): Vec3Like => {
+        const p = { ...c }
+        p[a1] += (s1 * z[a1]) / 2
+        p[a2] += (s2 * z[a2]) / 2
+        return p
+      }
+      const ring = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]
+      for (let i = 0; i < 4; i++) {
+        const a = ring[i]!
+        const b = ring[(i + 1) % 4]!
+        lines.push(...visibleRuns((t) => lerp(a, b, t), () => true, solids, si, view, edgeN, false, true))
+      }
+      if (s.fill) faces.push({ points: [...ring, ring[0]!], fill: s.fill, solid: si, depth: depth - 1e-3 })
+      return
+    }
     if (s.kind === "box") {
       for (const e of boxEdges(s)) {
         const mid = lerp(e.a, e.b, 0.5)
@@ -447,6 +484,62 @@ export const hiddenLineDrawing = (
     }
   })
 
-  faces.sort((a, b) => b.depth - a.depth || a.solid - b.solid)
+  const order = paintOrder(solids, view, faces)
+  faces.sort((a, b) => order.get(a.solid)! - order.get(b.solid)! || b.depth - a.depth)
   return { lines, faces: faces.map(({ points, fill, solid }) => ({ points, fill, solid })) }
+}
+
+/**
+ * The painter's order of the filled solids: B paints after A whenever B
+ * hides any sample of A's visible faces (its corners pulled 10% toward
+ * the centroid, and the centroid). Kahn's topological sort over that
+ * relation, the farther solid first among the ready ones; a cycle (which
+ * convex, non-interpenetrating solids should not form) falls back to
+ * depth for what remains. Sorting by solid centres alone fails exactly
+ * where it matters — a long chassis rail whose centre is nearer the
+ * camera than the cargo box that hides it.
+ */
+const paintOrder = (
+  solids: readonly Solid[],
+  view: View,
+  faces: readonly (Face & { depth: number })[],
+): Map<number, number> => {
+  const ids = [...new Set(faces.map((f) => f.solid))]
+  const depth = new Map(faces.map((f) => [f.solid, f.depth]))
+  const samples = new Map<number, Vec3Like[]>()
+  for (const f of faces) {
+    const ring = f.points.slice(0, -1)
+    const c = ring.reduce((a, p) => add(a, mul(p, 1 / ring.length)), v(0, 0, 0))
+    const step = Math.max(1, Math.floor(ring.length / 8))
+    const pts = [c]
+    for (let i = 0; i < ring.length; i += step) pts.push(lerp(ring[i]!, c, 0.1))
+    samples.set(f.solid, [...(samples.get(f.solid) ?? []), ...pts])
+  }
+  const after = new Map<number, Set<number>>(ids.map((i) => [i, new Set()]))
+  const indeg = new Map<number, number>(ids.map((i) => [i, 0]))
+  for (const a of ids)
+    for (const b of ids) {
+      if (a === b) continue
+      const solid = solids[b]!
+      const hidden = samples.get(a)!.some((p) =>
+        "eye" in view
+          ? hits(solid, p, sub(view.eye, p), 1e-6, 1)
+          : hits(solid, p, view.toward, 1e-6, Number.POSITIVE_INFINITY),
+      )
+      if (hidden && !after.get(a)!.has(b)) {
+        after.get(a)!.add(b)
+        indeg.set(b, indeg.get(b)! + 1)
+      }
+    }
+  const out = new Map<number, number>()
+  const remaining = new Set(ids)
+  const byDepth = (x: number, y: number) => depth.get(y)! - depth.get(x)! || x - y
+  while (remaining.size) {
+    const ready = [...remaining].filter((i) => indeg.get(i) === 0).sort(byDepth)
+    const next = ready[0] ?? [...remaining].sort(byDepth)[0]!
+    out.set(next, out.size)
+    remaining.delete(next)
+    for (const b of after.get(next)!) indeg.set(b, indeg.get(b)! - 1)
+  }
+  return out
 }

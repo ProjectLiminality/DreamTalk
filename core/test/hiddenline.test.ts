@@ -129,8 +129,8 @@ describe("Truck", () => {
       const truck = new Truck({ observer: obs })
       const d = truck.drawing()
       expect(d.lines.length).toBeGreaterThan(8)
-      expect(d.lines.length).toBeLessThanOrEqual(64)
-      expect(d.faces.length).toBeLessThanOrEqual(32)
+      expect(d.lines.length).toBeLessThanOrEqual(160)
+      expect(d.faces.length).toBeLessThanOrEqual(64)
     }
   })
 
@@ -138,7 +138,7 @@ describe("Truck", () => {
     const obs = new Observer({ phi: 0.6, theta: 0.3 })
     const truck = new Truck({ observer: obs, x: 100 })
     const a = truck.worldCurves()
-    expect(Math.min(...a.flat().map((p) => p.x))).toBeCloseTo(100 - 320, 6)
+    expect(Math.min(...a.flat().map((p) => p.x))).toBeCloseTo(100 - 325, 6)
     obs.phi.value = -0.6
     const b = truck.worldCurves()
     expect(JSON.stringify(b)).not.toBe(JSON.stringify(a))
