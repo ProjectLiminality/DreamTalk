@@ -24,7 +24,8 @@
 import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
-import type { Param } from "../params"
+import type { Param, Readable } from "../params"
+import { seenOpacity } from "../certainty"
 import {
   AnnularSector,
   Arc,
@@ -133,7 +134,8 @@ interface StrokeBinding {
  */
 interface StyleParams {
   creation: Param<number>
-  opacity: Param<number>
+  /** The holon's opacity as SEEN — its own fade times its inherited certainty (certainty.ts). */
+  opacity: Readable<number>
   tint: Param<Color>
   stroke: Param<number>
   erasure: Param<number>
@@ -144,7 +146,7 @@ interface StyleParams {
 
 const styleOf = (holon: Stroke): StyleParams => ({
   creation: holon.creation,
-  opacity: holon.opacity,
+  opacity: seenOpacity(holon),
   tint: holon.tint,
   stroke: holon.stroke,
   erasure: holon.erasure,
@@ -1853,7 +1855,9 @@ export class ThreeHost {
       )
       if (polygon) fill.setPolygon(polygon)
     }
-    fill.style(present * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)))
+    // The head is seen as its line is (certainty.ts): read the line's seen opacity.
+    const seen = binding.stroke ? binding.stroke.look.opacity.value : holon.opacity.value
+    fill.style(present * seen, liftTint(holon.tint.value, this.highlightOf(holon)))
   }
 
   /** The camera's view direction expressed in a group's local frame. */

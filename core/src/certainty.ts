@@ -1,0 +1,113 @@
+/**
+ * Certainty — what the data says, and what we are only painting.
+ *
+ * A universal visual language for knowledge (David, 2026-10-13): anything
+ * driven by real data is drawn SOLID; anything mocked or merely conceptual —
+ * "painting a picture" — is GHOSTED. Potentiality versus actuality: the
+ * ghost is the wave function before the data collapses it. The more of a
+ * picture that turns solid over a holon's git history, the more of the
+ * knowledge has crystallised.
+ *
+ * Certainty is a holon-level ability, opt-in by declaration:
+ *
+ *     class Flow extends Null {
+ *       certainty = certainty(0.2)   // conjecture
+ *     }
+ *
+ * It is a completion param (0 = pure conjecture, 1 = hard data) that the
+ * renderer recognises. Unlike `opacity`, which is per leaf, certainty
+ * INHERITS: a leaf is as certain as the product of every certainty on it
+ * and above it, so ghosting a whole branch is one param on the branch,
+ * and a branch inside a ghosted whole stays ghosted however solid it
+ * claims to be. A holon with no certainty anywhere above it is untouched —
+ * `seenOpacity` hands the host its own opacity param back, so every scene
+ * that never declares one renders exactly as it did.
+ *
+ * What a ghost LOOKS like is one function, `ghost(c)`: today translucency
+ * with a floor, so even pure conjecture stays legible. The "quantum blur"
+ * David wants later (a Heisenberg shimmer — the microscopic state unknown,
+ * only the macroscopic one known) has its hook here too: `wobble()` is a
+ * deterministic, smooth positional uncertainty a holon can add to its own
+ * moving parts, scaled by 1 − c. A shader-side blur would read the same
+ * `certaintyOf()` and take over from the opacity floor.
+ */
+
+import type { Holon } from "./holon"
+import { completion, type Param, type Readable } from "./params"
+
+const CERTAINTIES = new WeakSet<Param<number>>()
+
+/** Declare a holon's certainty: 1 = driven by real data, 0 = pure conjecture. */
+export const certainty = (v = 1): Param<number> => {
+  const p = completion(v)
+  CERTAINTIES.add(p)
+  return p
+}
+
+export const isCertainty = (p: unknown): p is Param<number> =>
+  typeof p === "object" && p !== null && CERTAINTIES.has(p as Param<number>)
+
+/** The ink pure conjecture keeps — a ghost is faint, never gone. */
+export const GHOST_FLOOR = 0.28
+
+/** How much of its ink a thing of certainty `c` shows. ghost(1) = 1 exactly. */
+export const ghost = (c: number): number => {
+  const k = c <= 0 ? 0 : c >= 1 ? 1 : c
+  return GHOST_FLOOR + (1 - GHOST_FLOOR) * k
+}
+
+/** Every certainty on this holon and above it, nearest first. */
+export const certaintiesOf = (holon: Holon): Param<number>[] => {
+  const out: Param<number>[] = []
+  for (let node: Holon | undefined = holon; node; node = node.parent) {
+    for (const p of node.params.values()) if (isCertainty(p)) out.push(p as Param<number>)
+  }
+  return out
+}
+
+/** The certainty a holon is drawn with — the product down its chain. */
+export const certaintyOf = (holon: Holon): number => {
+  let c = 1
+  for (const p of certaintiesOf(holon)) c *= p.value
+  return c
+}
+
+/**
+ * The opacity the renderer should draw a leaf with: its own fade times the
+ * ghost of its inherited certainty. With no certainty anywhere above it,
+ * this IS `holon.opacity` (same object), so nothing changes for anyone
+ * who never asked. The chain is captured once — a built holon's parents
+ * are final — and read live, so certainty animates like any param.
+ */
+export const seenOpacity = (holon: Holon): Readable<number> => {
+  const chain = certaintiesOf(holon)
+  if (chain.length === 0) return holon.opacity
+  const own = holon.opacity
+  return {
+    get value() {
+      let c = 1
+      for (const p of chain) c *= p.value
+      return own.value * ghost(c)
+    },
+  }
+}
+
+/**
+ * Positional uncertainty — the hook for the quantum blur. A smooth,
+ * deterministic offset (a few incommensurate sines, so it never visibly
+ * loops) whose amplitude is `amp · (1 − c)`: certain things hold still,
+ * conjectured ones hover where they might be. Pure f(seed, t, c).
+ */
+export const wobble = (
+  seed: number,
+  t: number,
+  c: number,
+  amp: number,
+): { x: number; y: number } => {
+  const u = (1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)) * amp
+  if (u === 0) return { x: 0, y: 0 }
+  const s = seed * 12.9898
+  const x = Math.sin(t * 1.7 + s) * 0.6 + Math.sin(t * 2.9 + s * 1.3) * 0.4
+  const y = Math.sin(t * 2.3 + s * 0.7) * 0.6 + Math.sin(t * 3.7 + s * 1.9) * 0.4
+  return { x: x * u, y: y * u }
+}
