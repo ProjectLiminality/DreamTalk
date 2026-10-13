@@ -44,6 +44,8 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [Regenaissance](Regenaissance/) | fully drawn, `?scene=regenaissance` | Globe + SMark (+ great-circle lattice) | regenaissance tests; recognizer on David's own sketch |
 | [Earth](Earth/) | whole Earth, Europe facing, `?scene=earth` | primitives + Surface (Natural Earth 1:50m) + Factory/Headquarters | earth tests (31): projection, on-sphere triangulation vs exact area, horizon occluder, data integrity |
 | [FlowMap](FlowMap/) | staged + categorised, `?scene=flowmap` t=26 | primitives (geometry/flowmap, certainty) | flowmap tests (16) |
+| [SOPLoop](SOPLoop/) | demand ghosted, `?scene=sop` t=4.5 | primitives (geometry/lemniscate, flowmap stream, certainty) | planning tests |
+| [Horizons](Horizons/) | all three horizons, `?scene=horizons` t=14 | Figure (geometry/horizons, certainty) | planning tests |
 
 ## Abilities
 

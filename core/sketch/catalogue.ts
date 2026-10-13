@@ -41,6 +41,8 @@ import { Figure } from "../vocabulary/Figure/Figure"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { Globe } from "../vocabulary/Globe/Globe"
 import { FlowMap } from "../vocabulary/FlowMap/FlowMap"
+import { Horizons } from "../vocabulary/Horizons/Horizons"
+import { SOPLoop } from "../vocabulary/SOPLoop/SOPLoop"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { Logo } from "../vocabulary/Logo/Logo"
@@ -72,6 +74,8 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Figure", folder: "Figure", cls: Figure },
   { className: "FoldableCube", folder: "FoldableCube", cls: FoldableCube },
   { className: "FlowMap", folder: "FlowMap", cls: FlowMap },
+  { className: "Horizons", folder: "Horizons", cls: Horizons },
+  { className: "SOPLoop", folder: "SOPLoop", cls: SOPLoop },
   { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
   { className: "Globe", folder: "Globe", cls: Globe },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
