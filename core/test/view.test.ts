@@ -117,4 +117,43 @@ describe("the viewer's camera layer", () => {
     v.release()
     expect([o.theta.value, o.radius.value]).toEqual([1.2, 200])
   })
+
+  test("surface orbit: a drag over a close-up glides the planet beneath the view, height held", () => {
+    const o = new Observer()
+    // An Earth of radius 400 at the origin, the focus on its surface (top),
+    // the eye 200 above looking down at a slant.
+    o.y.value = 400
+    o.theta.value = 1.2
+    o.radius.value = 200
+    const v = new ViewLayer(o)
+    v.keepOuts = () => [{ center: { x: 0, y: 0, z: 0 }, radius: 408 }]
+    v.apply()
+    const read = () => {
+      const r = o.radius.value / o.zoom.value
+      const f = { x: o.x.value, y: o.y.value, z: o.z.value }
+      const e = {
+        x: f.x + r * Math.sin(o.phi.value) * Math.cos(o.theta.value),
+        y: f.y + r * Math.sin(o.theta.value),
+        z: f.z + r * Math.cos(o.phi.value) * Math.cos(o.theta.value),
+      }
+      return { f, e, fr: Math.hypot(f.x, f.y, f.z), er: Math.hypot(e.x, e.y, e.z) }
+    }
+    const h0 = read().er
+    let prev = read().f
+    for (let i = 0; i < 40; i++) {
+      v.orbit(30, i < 20 ? 0 : 15, 1280) // sideways, then also forward
+      v.apply()
+      const now = read()
+      expect(now.fr).toBeCloseTo(400, 6) // the focus stays on the ground
+      expect(now.er).toBeCloseTo(h0, 6) // the eye keeps its height
+      expect(now.er).toBeGreaterThan(408) // never inside
+      // The ground under the focus moves smoothly (no jumps).
+      expect(Math.hypot(now.f.x - prev.x, now.f.y - prev.y, now.f.z - prev.z)).toBeLessThan(40)
+      prev = now.f
+    }
+    // It really travelled across the surface.
+    expect(Math.hypot(prev.x, prev.y - 400, prev.z)).toBeGreaterThan(200)
+    v.release()
+    expect([o.x.value, o.y.value, o.z.value, o.theta.value]).toEqual([0, 400, 0, 1.2])
+  })
 })

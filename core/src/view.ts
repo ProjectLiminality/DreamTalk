@@ -72,6 +72,18 @@ export const keepOutsOf = (roots: readonly Holon[]): (() => KeepOut[]) => {
   return () => declarers.flatMap((h) => h.keepOut() ?? [])
 }
 
+/** Rotate v about the unit axis k by angle a (Rodrigues). */
+const rotate = (v: { x: number; y: number; z: number }, k: { x: number; y: number; z: number }, a: number) => {
+  const c = Math.cos(a)
+  const s = Math.sin(a)
+  const dot = k.x * v.x + k.y * v.y + k.z * v.z
+  return {
+    x: v.x * c + (k.y * v.z - k.z * v.y) * s + k.x * dot * (1 - c),
+    y: v.y * c + (k.z * v.x - k.x * v.z) * s + k.y * dot * (1 - c),
+    z: v.z * c + (k.x * v.y - k.y * v.x) * s + k.z * dot * (1 - c),
+  }
+}
+
 export const ZERO_VIEW: ViewDelta = { phi: 0, theta: 0, dolly: 0, x: 0, y: 0, z: 0 }
 
 /** A full drag across the viewport turns the view once around (C4D's feel). */
@@ -124,11 +136,76 @@ export class ViewLayer {
   /** Orbit by a drag of (dx, dy) over a viewport `width` px wide. */
   orbit(dx: number, dy: number, width: number): void {
     this.#glide = undefined
+    if (this.#surfaceOrbit(dx, dy, width)) return
     const d = this.delta
     d.phi -= (dx / (width || 1)) * ORBIT_PER_WIDTH
     // Elevation is clamped on the EFFECTIVE pose, not the delta alone.
     const authored = this.#authored().theta
     d.theta = clamp(authored + d.theta + (dy / (width || 1)) * ORBIT_PER_WIDTH, -THETA_LIMIT, THETA_LIMIT) - authored
+  }
+
+  /**
+   * SURFACE ORBIT. When the focus sits on (inside) a keep-out — an Earth
+   * close-up, its focus on the ground — orbiting about the focus would
+   * swing the eye into the solid at once, and the keep-out would pin it
+   * there. So the whole view turns about the keep-out's CENTRE instead,
+   * eye and focus together, by the angle that moves the ground under the
+   * focus as far as the cursor moved: the planet glides beneath the view
+   * (Google Earth's drag), the height above it held. Vertical drags carry
+   * the view over the poles' latitudes up to the elevation limit.
+   */
+  #surfaceOrbit(dx: number, dy: number, width: number): boolean {
+    const o = this.observer
+    if (o.orthographic.value) return false
+    const f = { x: o.x.value, y: o.y.value, z: o.z.value }
+    const s = this.keepOuts().find((k) => Math.hypot(f.x - k.center.x, f.y - k.center.y, f.z - k.center.z) <= k.radius)
+    if (!s) return false
+    const c = s.center
+    const ground = Math.max(Math.hypot(f.x - c.x, f.y - c.y, f.z - c.z), 1e-6)
+    // The drag as a direction on the ground: the focus travels AGAINST the
+    // cursor (the ground follows it), so the turn is about the axis normal
+    // to both the surface normal and that travel, by the angle that covers
+    // the cursor's distance at the ground.
+    const w = this.worldPerPixel(width * (9 / 16))
+    const phi = o.phi.value
+    const theta = o.theta.value
+    const r = o.radius.value / (o.zoom.value || 1)
+    const eye = {
+      x: f.x + r * Math.sin(phi) * Math.cos(theta),
+      y: f.y + r * Math.sin(theta),
+      z: f.z + r * Math.cos(phi) * Math.cos(theta),
+    }
+    const { right, up } = this.#basis()
+    const n = { x: (f.x - c.x) / ground, y: (f.y - c.y) / ground, z: (f.z - c.z) / ground }
+    let t = { x: -dx * right.x + dy * up.x, y: -dx * right.y + dy * up.y, z: -dx * right.z + dy * up.z }
+    const tn = t.x * n.x + t.y * n.y + t.z * n.z
+    t = { x: t.x - tn * n.x, y: t.y - tn * n.y, z: t.z - tn * n.z }
+    const tl = Math.hypot(t.x, t.y, t.z)
+    if (tl < 1e-9) return true
+    const axisK = {
+      x: (n.y * t.z - n.z * t.y) / tl,
+      y: (n.z * t.x - n.x * t.z) / tl,
+      z: (n.x * t.y - n.y * t.x) / tl,
+    }
+    const angle = (Math.hypot(dx, dy) * w) / ground
+    const turn = (p: { x: number; y: number; z: number }) => {
+      const v = rotate({ x: p.x - c.x, y: p.y - c.y, z: p.z - c.z }, axisK, angle)
+      return { x: c.x + v.x, y: c.y + v.y, z: c.z + v.z }
+    }
+    const f2 = turn(f)
+    const e2 = turn(eye)
+    const v = { x: e2.x - f2.x, y: e2.y - f2.y, z: e2.z - f2.z }
+    const len = Math.hypot(v.x, v.y, v.z) || 1
+    const theta2 = Math.asin(clamp(v.y / len, -1, 1))
+    if (Math.abs(theta2) > THETA_LIMIT) return true // over the pole: hold
+    const phi2 = Math.atan2(v.x, v.z)
+    const d = this.delta
+    d.phi += Math.atan2(Math.sin(phi2 - phi), Math.cos(phi2 - phi))
+    d.theta += theta2 - theta
+    d.x += f2.x - f.x
+    d.y += f2.y - f.y
+    d.z += f2.z - f.z
+    return true
   }
 
   /** Pan the focus so the picture follows the cursor, (dx, dy) px over a viewport `height` px tall. */
