@@ -271,6 +271,35 @@ describe("FlowMap", () => {
     expect(Math.hypot(p.x - flow.carriers[j]!.x.value, p.y - flow.carriers[j]!.y.value)).toBeLessThan(1e-6)
   })
 
+  test("member labels: one per labelled member and slice, off by default, tinted as the ring", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    const site = m.slices[0]!.sites[0]!
+    expect(site.label?.content).toBe(MOCK_FLOWMAP.members[0]!.label)
+    expect(site.label!.opacity.value).toBe(0)
+    m.memberLabels.value = 1
+    expect(site.label!.opacity.value).toBe(1)
+    m.grain.value = 1
+    expect(site.label!.tint.value).toEqual(site.ring.tint.value)
+  })
+
+  test("memberScale shrinks the rings and re-lays the members, still each in its own region", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    const before = m.slices[0]!.sites[0]!.ring.radius.value
+    m.memberScale.value = 0.7
+    m.grain.value = 1
+    expect(m.slices[0]!.sites[0]!.ring.radius.value).toBeCloseTo(before * 0.7, 9)
+    const discs = categoryDiscs(2, R, 1)
+    MOCK_FLOWMAP.members.forEach((mem, i) => {
+      const p = m.frame().members[i]!
+      discs.forEach((d, k) => {
+        const id = MOCK_FLOWMAP.categories![k]!.id
+        expect(Math.hypot(p.x - d.x, p.y - d.y) < d.radius).toBe((mem.categories ?? []).includes(id))
+      })
+    })
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)

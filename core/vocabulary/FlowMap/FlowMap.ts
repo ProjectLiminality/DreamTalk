@@ -122,6 +122,8 @@ export class FlowEntity extends Group {
   /** Is this entity real data (1) or a placeholder we are painting (0)? */
   certainty = certainty(1)
   ring!: Circle
+  /** Its name inside the ring (members with a `label`; shown by `memberLabels`). */
+  label?: Text
 }
 
 /** One slice of the stage stack: the group circle, its category discs, members and partners. */
@@ -198,6 +200,14 @@ export class FlowMap extends Null {
   channel = completion(0.38)
   /** Stage and category names: 1 shown, 0 off. */
   labels = completion(1)
+  /**
+   * Member names (each member's `label`) as small text inside its ring,
+   * tinted as the ring is: 1 shown, 0 off (the default). Shown flat; they
+   * fade as the stack turns (a facing name outgrows a foreshortened ring).
+   */
+  memberLabels = completion(0)
+  /** Member ring size as a multiple of the default — smaller fits more members per region. */
+  memberScale = scalar(1)
   /**
    * The group circle's presence. 1 drawn; 0 absent — so a morph can bring
    * it from elsewhere (the opening's connection lines) and hand over.
@@ -300,19 +310,25 @@ export class FlowMap extends Null {
   // --- the pure state of the picture, memoised per param change ---------------
 
   // Memo slots — plain fields, not #-private: the holon is a Proxy.
-  private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number }
+  private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number; scale: number }
   private memoKey: number[] = []
   private memoFrame?: Frame
 
+  /** A member ring's radius now. */
+  private memberSize(): number {
+    return memberRadius(this.radius.value) * this.memberScale.value
+  }
+
   private layout() {
     const R = this.radius.value
-    if (this.memoLayout && this.memoLayout.R === R) return this.memoLayout
+    const scale = this.memberScale.value
+    if (this.memoLayout && this.memoLayout.R === R && this.memoLayout.scale === scale) return this.memoLayout
     const d = this.data
     const cats = d.categories ?? []
     const of = d.members.map((m) => (m.categories ?? []).map((c) => cats.findIndex((k) => k.id === c)).filter((i) => i >= 0))
-    const { flat, categorised } = memberLayouts(of, cats.length, R, memberRadius(R))
+    const { flat, categorised } = memberLayouts(of, cats.length, R, this.memberSize())
     const partners = partnerLayout((d.partners ?? []).map((p) => p.side), R)
-    this.memoLayout = { flat, categorised, partners, R }
+    this.memoLayout = { flat, categorised, partners, R, scale }
     return this.memoLayout
   }
 
@@ -320,6 +336,7 @@ export class FlowMap extends Null {
   frame(): Frame {
     const key = [
       this.radius.value,
+      this.memberScale.value,
       this.grain.value,
       this.expand.value,
       this.gap.value,
@@ -430,19 +447,33 @@ export class FlowMap extends Null {
       const members = d.members.map((m, i) => {
         const home = (m.categories ?? []).map((c) => cats.findIndex((x) => x.id === c)).filter((j) => j >= 0)
         const tint = home.length === 1 ? (cats[home[0]!]!.tint ?? CATEGORY_TINTS[home[0]! % CATEGORY_TINTS.length]!) : WHITE
+        const ringTint = derive(() => mix(WHITE, tint, this.grain.value))
         const ring = new Circle({
-          radius: derive(() => memberRadius(R())),
+          radius: derive(() => this.memberSize()),
           stroke: 2.5,
-          tint: derive(() => mix(WHITE, tint, this.grain.value)),
+          tint: ringTint,
           opacity: vis,
         })
+        // Its name, centred in the ring and facing the camera; it inherits
+        // the entity's certainty like the ring does.
+        const label = m.label
+          ? new Text({
+              content: m.label,
+              size: derive(() => this.memberSize() * 0.7),
+              tint: ringTint,
+              // Read while flat; once the stack turns, a camera-facing name
+              // outgrows its foreshortened ring, so it steps aside.
+              opacity: derive(() => this.frame().visible[k]! * this.memberLabels.value * (1 - smooth(0, 0.4, this.expand.value))),
+            })
+          : undefined
         const e = new FlowEntity({
-          members: [ring],
+          members: label ? [ring, this.facing(label, { y: derive(() => -this.memberSize() * 0.25) })] : [ring],
           certainty: m.certainty ?? 1,
           x: derive(() => this.frame().members[i]!.x),
           y: derive(() => this.frame().members[i]!.y),
         })
         e.ring = ring
+        e.label = label
         return e
       })
       const outer = partners.map((p, i) => {
@@ -454,7 +485,7 @@ export class FlowMap extends Null {
           (f) => (f.from === p.id && stageIndex(f.stage) === k) || (f.to === p.id && stageIndex(f.stage) === k - 1),
         )
         const ring = new Circle({
-          radius: derive(() => memberRadius(R())),
+          radius: derive(() => this.memberSize()),
           stroke: 2.5,
           tint: PARTNER_TINT,
           opacity: used
@@ -533,7 +564,7 @@ export class FlowMap extends Null {
       const ends = (): [Vec3, Vec3] => {
         const a0 = this.where(f.from, si)
         const b0 = this.where(f.to, si + 1)
-        const rim = memberRadius(R()) * 1.9
+        const rim = this.memberSize() * 1.9
         return [trimToRim(a0, b0, rim), trimToRim(b0, a0, rim)]
       }
       // The channel's arc-length table, once per frame of the picture.

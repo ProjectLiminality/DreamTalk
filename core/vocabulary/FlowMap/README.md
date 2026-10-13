@@ -49,6 +49,10 @@ all honour it. Below full certainty the renderer adds a SUPERPOSITION
 cloud of breathing echoes a few pixels off — potentiality, many microstates
 behind one macrostate — that crystallise onto it as certainty rises
 (`stage("raw").certainty.to(1)` is the collapse the demo ends on).
+- `memberLabels` (default 0) — each member's `label` as small text in its
+  ring, tinted as the ring; shown flat, fading as the stack turns.
+  `memberScale` shrinks the rings so more members fit a region (20 members,
+  13 in one region, fit at scale 1; 0.8 gives them room).
 - `rim` — the group circle's presence, so a morph can bring it in: the demo
   opens with the members' relations to the centre morphing (Morph's
   `MorphCurves`) into the group circle. Staged, a `legend` names the
