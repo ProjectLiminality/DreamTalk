@@ -2,13 +2,11 @@
  * sphere.ts — geography on a true 3D sphere: lat/lon to points, curves
  * that hug the surface, and polygons triangulated ON the sphere.
  *
- * `geometry/globe.ts` is the Web3 globe's maths — lon/lat flattened to a
- * disc by an orthographic projection, the far face clamped to the limb in
- * 2D. That is a picture of a sphere. This file is the sphere itself: every
- * point it returns is a 3D point in the Earth's own frame, the camera is
- * whatever the scene's observer is, and what is hidden is decided by depth
- * against the solid ball (vocabulary/Earth), not by a projection trick.
- * Both stay: Web3 keeps its globe exactly.
+ * The sphere itself, not a picture of one (the flat Web3 Globe that
+ * projected lon/lat to a disc was retired into the Earth, 2026-10-13):
+ * every point it returns is a 3D point in the Earth's own frame, the camera
+ * is whatever the scene's observer is, and what is hidden is decided by
+ * depth against the solid ball (vocabulary/Earth), not by a projection trick.
  *
  * THE FRAME
  *
@@ -457,4 +455,40 @@ export const tangentFrame = (n: Vec3): { u: Vec3; w: Vec3 } => {
   u = { x: u.x / l, y: u.y / l, z: u.z / l }
   const w = { x: n.y * u.z - n.z * u.y, y: n.z * u.x - n.x * u.z, z: n.x * u.y - n.y * u.x }
   return { u, w }
+}
+
+/**
+ * A band of the unit sphere around `centre`: every point whose angle from
+ * it lies in [a0, a1] radians (a0 = 0 gives a cap). Triangulated in rings
+ * no more than `step` apart and `segments` around, so it hugs the sphere
+ * like the land does — the night side and its twilight bands (Earth).
+ */
+export const sphereBand = (centre: Vec3, a0: number, a1: number, segments = 128, step = (1.5 * Math.PI) / 180): SphereMesh => {
+  const { u, w } = tangentFrame(centre)
+  const rings = Math.max(1, Math.ceil((a1 - a0) / step))
+  const positions: number[] = []
+  const indices: number[] = []
+  for (let r = 0; r <= rings; r++) {
+    const a = a0 + ((a1 - a0) * r) / rings
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    for (let s = 0; s <= segments; s++) {
+      const t = (s / segments) * Math.PI * 2
+      const ct = Math.cos(t) * sa
+      const st = Math.sin(t) * sa
+      positions.push(
+        centre.x * ca + u.x * ct + w.x * st,
+        centre.y * ca + u.y * ct + w.y * st,
+        centre.z * ca + u.z * ct + w.z * st,
+      )
+    }
+  }
+  const row = segments + 1
+  for (let r = 0; r < rings; r++) {
+    for (let s = 0; s < segments; s++) {
+      const p = r * row + s
+      indices.push(p, p + row, p + 1, p + 1, p + row, p + row + 1)
+    }
+  }
+  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) }
 }

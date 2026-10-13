@@ -207,7 +207,7 @@ countries.forEach((f, i) => {
 
 // Cities: every national capital, and every place Natural Earth ranks as
 // worth a label by zoom 4 — about 240, the cities a world map names.
-const cityTable: [string, number, number, number, number][] = (await load(PLACES))
+const cityTable: [string, number, number, number, number, number][] = (await load(PLACES))
   .filter((f) => f.properties.adm0cap === 1 || Number(f.properties.min_zoom) <= 4)
   .map((f) => {
     const p = f.properties
@@ -217,6 +217,7 @@ const cityTable: [string, number, number, number, number][] = (await load(PLACES
       Math.round(Number(p.latitude) * 1000) / 1000,
       Number(p.min_zoom),
       p.adm0cap === 1 ? 1 : 0,
+      Number(p.pop_max) || 0,
     ]
   })
 
@@ -247,8 +248,8 @@ export const COUNTRY_RINGS_50M = ${JSON.stringify(encodeRings(countryRings, COUN
 /** [ISO alpha-2 (or ADM0_A3 where NE has none), name, label lon, label lat, min_label]. */
 export const COUNTRIES: readonly (readonly [string, string, number, number, number])[] = ${JSON.stringify(countryTable)}
 
-/** [name, lon, lat, min_zoom, capital]. */
-export const CITIES: readonly (readonly [string, number, number, number, number])[] = ${JSON.stringify(cityTable)}
+/** [name, lon, lat, min_zoom, capital, population (pop_max)]. */
+export const CITIES: readonly (readonly [string, number, number, number, number, number])[] = ${JSON.stringify(cityTable)}
 `
 writeFileSync(join(here, "naturalEarthFeatures.ts"), features)
 console.log(

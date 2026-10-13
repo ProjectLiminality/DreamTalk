@@ -131,10 +131,18 @@ export interface City {
   lat: number
   minZoom: number
   capital: boolean
+  population: number
 }
 
 export const cities = (): City[] =>
-  CITIES.map(([name, lon, lat, minZoom, capital]) => ({ name, lon, lat, minZoom, capital: capital === 1 }))
+  CITIES.map(([name, lon, lat, minZoom, capital, population]) => ({
+    name,
+    lon,
+    lat,
+    minZoom,
+    capital: capital === 1,
+    population,
+  }))
 
 // --- Graticule ---------------------------------------------------------------
 
