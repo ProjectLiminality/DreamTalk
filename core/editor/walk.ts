@@ -50,6 +50,8 @@ export interface WalkOpts {
   /** Pause the transport — a fire from the inspector while playing. */
   pause: () => void
   hud: boolean
+  /** The editor's own axes, listed above the scene's when nothing is selected. */
+  editor?: () => readonly EditorAxis[]
   signal: AbortSignal
 }
 
@@ -60,6 +62,21 @@ export interface WalkGhost {
   to: string
   seconds: number
   progress: number
+}
+
+/**
+ * One of the EDITOR's own axes — transport, lens, panels. The editor is the
+ * automaton that contains the scene's; these are its dimensions, shown
+ * above the scene's in the State group, each position a button. Not params
+ * (nothing eases): a position is read, and fired, through the editor.
+ */
+export interface EditorAxis {
+  id: string
+  label: string
+  key?: string
+  positions: readonly string[]
+  position(): string
+  fire(position: string): void
 }
 
 /** One axis as the inspector's State group shows it. */
@@ -79,6 +96,9 @@ export interface WalkAxisView {
  * GameLoop is told every param is the song's — its release writes nothing.
  */
 const EVERY_PARAM = { has: () => true } as unknown as ReadonlySet<Param<ParamValue>>
+
+/** The State group's id prefix for the editor's own axes. */
+const EDITOR = "editor:"
 
 const same = (a: ParamValue | undefined, b: ParamValue | undefined): boolean => {
   if (a === b) return true
@@ -106,6 +126,7 @@ export class EditorWalk {
   #fired = 0
   #panel: HTMLElement | undefined
   #panelAxes: ReadonlySet<string> | undefined
+  #panelEditor: readonly EditorAxis[] = []
   #panelKey = ""
 
   constructor(opts: WalkOpts) {
@@ -250,16 +271,19 @@ export class EditorWalk {
    */
   step(now: number): boolean {
     const { game } = this
-    if (!this.walkable) return false
+    if (!this.walkable) {
+      this.#refreshPanel()
+      return false
+    }
     if (this.#opts.isPlaying()) {
       if (game.on) {
         game.leave(now)
         this.#written.clear()
         this.#owned.clear()
         this.#moving = false
-        this.#refreshPanel()
       }
       game.tick(now)
+      this.#refreshPanel()
       return false
     }
     this.#ground(now)
@@ -282,8 +306,9 @@ export class EditorWalk {
    */
   inspect(parent: HTMLElement, holon: Holon | null): void {
     this.#panel = undefined
-    if (!this.walkable) return
-    let ids: Set<string> | undefined
+    const editor = holon ? [] : (this.#opts.editor?.() ?? [])
+    if (!this.walkable && editor.length === 0) return
+    let ids: Set<string> | undefined = this.walkable ? undefined : new Set()
     if (holon) {
       let owner: Holon | null | undefined = holon
       while (owner && !owner.stateSpace()) owner = owner.parent
@@ -301,13 +326,20 @@ export class EditorWalk {
     rows.addEventListener("click", (e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-pos]")
       const row = el?.closest<HTMLElement>("[data-axis]")
-      if (el && row?.dataset.axis) this.fire(row.dataset.axis, el.dataset.pos)
+      const id = row?.dataset.axis
+      if (!el?.dataset.pos || !id) return
+      const own = id.startsWith(EDITOR) ? this.#panelEditor.find((x) => EDITOR + x.id === id) : undefined
+      if (own) own.fire(el.dataset.pos)
+      else this.fire(id, el.dataset.pos)
+      this.#refreshPanel()
     })
     parent.appendChild(box)
     this.#panel = rows
+    this.#panelEditor = editor
     this.#panelAxes = ids
+    // Filled by the next step(): an inspector render can run during boot,
+    // before the editor's own axes can be read.
     this.#panelKey = ""
-    this.#refreshPanel()
   }
 
   // --- internals -----------------------------------------------------------
@@ -363,7 +395,17 @@ export class EditorWalk {
   #refreshPanel(): void {
     const panel = this.#panel
     if (!panel) return
-    const views = this.axes().filter((v) => !this.#panelAxes || this.#panelAxes.has(v.id))
+    const editor: WalkAxisView[] = this.#panelEditor.map((x) => ({
+      id: EDITOR + x.id,
+      label: x.label,
+      key: x.key,
+      position: x.position(),
+      positions: [...x.positions],
+      enabled: true,
+      progress: 1,
+    }))
+    const scene = this.walkable ? this.axes().filter((v) => !this.#panelAxes || this.#panelAxes.has(v.id)) : []
+    const views = [...editor, ...scene]
     const key = views.map((v) => `${v.position}${v.enabled ? 1 : 0}${v.progress < 1 ? "~" : ""}`).join()
     if (key === this.#panelKey) return
     this.#panelKey = key
@@ -373,7 +415,9 @@ export class EditorWalk {
         const pos = v.positions
           .map((p) => `<span data-pos="${esc(p)}"${p === v.position ? ' class="at"' : ""}>${esc(p)}</span>`)
           .join("")
-        const cls = `walkrow${v.enabled ? "" : " off"}${v.progress < 1 ? " going" : ""}`
+        const own = v.id.startsWith(EDITOR)
+        const last = own && v === editor[editor.length - 1] && scene.length > 0
+        const cls = `walkrow${own ? " editorrow" : ""}${last ? " last" : ""}${v.enabled ? "" : " off"}${v.progress < 1 ? " going" : ""}`
         return `<div class="${cls}" data-axis="${esc(v.id)}"><label>${esc(v.label)}</label><i>${esc(v.key ?? "")}</i><div>${pos}</div></div>`
       })
       .join("")

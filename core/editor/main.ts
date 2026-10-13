@@ -971,6 +971,41 @@ const boot = async (resume?: Transport) => {
         pause: () => pause(),
         // The inspector's State group is the HUD here; `h` (or ?hud=1) adds it in the viewport.
         hud: new URLSearchParams(location.search).get("hud") === "1",
+        // The editor's own axes — the machine that contains the scene's.
+        editor: () => [
+          {
+            id: "transport",
+            label: "transport",
+            key: "␣",
+            positions: ["paused", "playing"],
+            position: () => (playing ? "playing" : "paused"),
+            fire: (p) => (p === "playing" ? play() : pause()),
+          },
+          {
+            id: "lens",
+            label: "lens",
+            key: "`",
+            positions: ["game", "creator"],
+            position: () => (creator?.on ? "creator" : "game"),
+            fire: (p) => creator?.toggle(p === "creator"),
+          },
+          {
+            id: "outline",
+            label: "outline",
+            key: "⇧L",
+            positions: ["hidden", "shown"],
+            position: () => (outlineOpen ? "shown" : "hidden"),
+            fire: (p) => void ((p === "shown") !== outlineOpen && toggleOutline()),
+          },
+          {
+            id: "code",
+            label: "code",
+            key: "⌃/",
+            positions: ["hidden", "shown"],
+            position: () => (code?.open ? "shown" : "hidden"),
+            fire: (p) => void ((p === "shown") !== !!code?.open && toggleCode()),
+          },
+        ],
         signal: ac.signal,
       })
 

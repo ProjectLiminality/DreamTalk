@@ -257,7 +257,7 @@
        One row per axis of the state space: label | key | positions, the one
        it stands at in white, the one it is heading to while it moves. Every
        position is a button; an axis not walkable from here goes quiet. */
-    .walkrow { display: grid; grid-template-columns: 76px 14px 1fr; align-items: baseline;
+    .walkrow { display: grid; grid-template-columns: 76px 20px 1fr; align-items: baseline;
       gap: 4px 8px; margin: 2px 0; min-height: 20px; font-size: 11px; }
     .walkrow label { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .walkrow i { font-style: normal; color: var(--dimmer); font-family: var(--mono); }
@@ -266,6 +266,8 @@
     .walkrow span.at { color: var(--bright); }
     .walkrow.going span.at { color: var(--blue); }
     .walkrow.off { opacity: 0.4; }
+    /* The editor's own axes sit above the scene's — the containing machine first. */
+    .walkrow.last { padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line-soft); }
     /* --- State lanes (editor/statelanes.ts) under the clip rows -------------
        One quiet lane per axis the song moves; each authored transition a
        block `from → to`. A walked, unwritten one is a dashed ghost at the

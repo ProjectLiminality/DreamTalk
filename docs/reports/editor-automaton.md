@@ -111,6 +111,10 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
   duration (the checkpoint writes `this.play`, not the helper).
 - Firing while playing (a live fork of the song) and the clocks running in
   the paused editor are deliberate omissions, not gaps.
-- The editor's own axes are not yet *declared* the way the scene's are;
-  when they are, the HUD can show both machines — the containment made
-  visible.
+- The editor's own axes are declared (`EditorAxis`, editor/walk.ts):
+  transport, lens, outline and code. With nothing selected they sit above
+  the scene's axes in the State group, each position a button, so the
+  containment is visible: the containing machine first, the scene's below.
+  They are not params, since nothing eases; a position is read and fired
+  through the editor. Selection and the panels with unbounded positions
+  (comments, explorer) are not axes yet.
