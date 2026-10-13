@@ -39,6 +39,7 @@
 import { onTextLayout } from "../src/render/text"
 import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
+import { ViewLayer } from "../src/view"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
@@ -75,15 +76,7 @@ import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } fro
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { UndoStack, undoAction, type OpDescriptor } from "./undo"
-import {
-  Overrides,
-  RETURN_SECONDS,
-  clampTheta,
-  dollyRadius,
-  lerpPose,
-  ORBIT_PER_WIDTH,
-  type Pose,
-} from "./overrides"
+import { Overrides, type Pose } from "./overrides"
 
 interface Transport {
   t: number
@@ -361,7 +354,13 @@ const boot = async (resume?: Transport) => {
   // overlay, so nothing else in the editor or the renderer has to know
   // the live layer exists. The Dream is untouched.
   const overrides = new Overrides(dream.build())
-  host.beforeSync = () => overrides.apply()
+  // The viewer's camera rides above the overrides (see "Flying the Observer").
+  const obs = dream.observer
+  const view = new ViewLayer(obs)
+  host.beforeSync = () => {
+    overrides.apply()
+    view.apply()
+  }
 
   // --- Selection: one store, read and written by every panel ---------------
   const selection = new Selection()
@@ -1327,127 +1326,59 @@ const boot = async (resume?: Transport) => {
     }
   })
 
-  // --- Flying the Observer (EDITOR-V4, "Flying the Observer") --------------
+  // --- Flying the Observer (EDITOR-V4; one mechanism since 2026-10-13) ------
   //
-  // The Observer is a Holon like any other (rule 5), so flying it is just
-  // overrides on its spherical params — no camera state anywhere, no
-  // special case in the host, and the scene file is never touched.
+  // The viewer's camera is src/view.ts's ViewLayer: a delta over the
+  // observer's READINGS (Param bias/gate), so it works on every scene — a
+  // bound rig (EarthView), an orthographic map, a song that moves its own
+  // camera — and every view-dependent holon sees the pose on screen.
   //
-  //   drag        → phi / theta   (orbit)
-  //   shift+drag  → x / y         (pan the focus point)
-  //   scroll      → radius        (dolly)
+  //   drag        → orbit        shift+drag → pan the focus
+  //   scroll      → dolly        f → frame the selection   r / Esc → back
   //
-  // On play the flown pose falls back to the timeline's pose at the
-  // current t over RETURN_SECONDS, eased, and only then are the overrides
-  // released — David's "a quick interpolation of the current view towards
-  // the camera perspective and then the scene should be played further."
-  const obs = dream.observer
-  const observerParams = new Set<Param<ParamValue>>([
-    obs.phi as Param<ParamValue>,
-    obs.theta as Param<ParamValue>,
-    obs.radius as Param<ParamValue>,
-    obs.x as Param<ParamValue>,
-    obs.y as Param<ParamValue>,
-  ])
-
-  /** The pose the timeline alone would put the observer in at time t. */
-  const timelinePose = (t: number): Pose => {
-    const tl = dream.build()
-    return {
-      phi: tl.valueAt(obs.phi, t),
-      theta: tl.valueAt(obs.theta, t),
-      radius: tl.valueAt(obs.radius, t),
-      x: tl.valueAt(obs.x, t),
-      y: tl.valueAt(obs.y, t),
-    }
-  }
-
-  /** The pose actually on screen: the flown one if flying, else the timeline's. */
-  const livePose = (): Pose =>
-    flown ?? {
-      phi: obs.phi.value,
-      theta: obs.theta.value,
-      radius: obs.radius.value,
-      x: obs.x.value,
-      y: obs.y.value,
-    }
-
-  /** The flown pose, or null when the observer is following the timeline. */
-  let flown: Pose | null = null
-  /** An in-flight return, if play() started one. */
-  let returning: { from: Pose; to: Pose; startedAt: number } | null = null
-
-  const overlayPose = (pose: Pose) => {
-    overrides.set(obs.phi as Param<ParamValue>, pose.phi, "observer")
-    overrides.set(obs.theta as Param<ParamValue>, clampTheta(pose.theta), "observer")
-    overrides.set(obs.radius as Param<ParamValue>, pose.radius, "observer")
-    overrides.set(obs.x as Param<ParamValue>, pose.x, "observer")
-    overrides.set(obs.y as Param<ParamValue>, pose.y, "observer")
-  }
-
-  const releaseObserver = () => {
-    flown = null
-    returning = null
-    overrides.release(observerParams)
-  }
+  // Paused, the view stays where you put it while you scrub (looking at a
+  // moment from all sides). On play it glides back to the authored camera
+  // over RETURN_SECONDS — David's "a quick interpolation of the current
+  // view towards the camera perspective and then the scene should be
+  // played further." The layer is written after the overrides in the
+  // host's beforeSync; the Dream never knows.
+  /** The pose on screen — flown or authored, one reading. */
+  const livePose = (): Pose => ({
+    phi: obs.phi.value,
+    theta: obs.theta.value,
+    radius: obs.radius.value,
+    x: obs.x.value,
+    y: obs.y.value,
+  })
 
   /** Fly by a pixel delta — the same entry point the pointer and __dt use. */
   const fly = (dx: number, dy: number, mode: "orbit" | "pan") => {
-    returning = null
-    const pose = { ...livePose() }
-    const width = canvas.getBoundingClientRect().width || canvas.width
-    if (mode === "pan") {
-      // Pan moves the focus point across the view plane, so it must track
-      // the cursor at every distance: one screen width is the world width
-      // the frustum spans at the focus, which for a perspective rig is
-      // proportional to the radius.
-      const worldPerPixel = (2 * pose.radius * Math.tan(obs.fov.value / 2)) /
-        (canvas.getBoundingClientRect().height || canvas.height)
-      pose.x -= dx * worldPerPixel
-      pose.y += dy * worldPerPixel
-    } else {
-      // Angular rate is radius-independent — C4D orbits the sphere, not
-      // the distance, so the gesture feels identical near and far.
-      pose.phi -= (dx / width) * ORBIT_PER_WIDTH
-      pose.theta = clampTheta(pose.theta + (dy / width) * ORBIT_PER_WIDTH)
-    }
-    flown = pose
-    overlayPose(pose)
+    const box = canvas.getBoundingClientRect()
+    if (mode === "pan") view.pan(dx, dy, box.height || canvas.height)
+    else view.orbit(dx, dy, box.width || canvas.width)
   }
 
-  const dolly = (deltaY: number) => {
-    returning = null
-    const pose = { ...livePose() }
-    pose.radius = dollyRadius(pose.radius, deltaY)
-    flown = pose
-    overlayPose(pose)
+  const dolly = (deltaY: number) => view.dolly(deltaY)
+
+  /** Start the eased fall back to the authored camera. No-op if not flown. */
+  const beginReturn = () => view.reset(performance.now())
+
+  /** One step of a glide, from the frame loop: true while one is running. */
+  const stepReturn = (now: number): boolean => {
+    const gliding = view.gliding
+    view.step(now)
+    return gliding
   }
 
-  /** Start the eased fall back to the timeline's pose. No-op if not flying. */
-  const beginReturn = () => {
-    if (!flown) return
-    returning = { from: { ...flown }, to: timelinePose(current), startedAt: performance.now() }
-  }
-
-  /**
-   * One step of the return, run from the frame loop. Returns true while
-   * the tween still owns the observer — the loop repaints for it even
-   * when nothing else would.
-   */
-  const stepReturn = (now: number, t = current): boolean => {
-    if (!returning) return false
-    const u = (now - returning.startedAt) / (RETURN_SECONDS * 1000)
-    if (u >= 1) {
-      releaseObserver()
-      return false
-    }
-    // The target keeps up with the playhead: the timeline's pose at the t
-    // about to be drawn, so the tween lands on a moving camera smoothly.
-    returning.to = timelinePose(t)
-    const pose = lerpPose(returning.from, returning.to, u)
-    flown = pose
-    overlayPose(pose)
-    return true
+  /** Frame a holon (its screen box) — the `f` key. */
+  const frameHolon = (holon: Holon | null) => {
+    const box = holon ? host.boundsOf(holon) : undefined
+    if (!box) return beginReturn()
+    view.frameBox(
+      { minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y },
+      { width: canvas.width, height: canvas.height },
+      performance.now(),
+    )
   }
 
   // Drag in the viewport orbits; shift+drag pans; the wheel dollies.
@@ -1593,6 +1524,16 @@ const boot = async (resume?: Transport) => {
     { ...listen, passive: false },
   )
 
+  // Double-click frames what is under the pointer (empty space: back home).
+  canvas.addEventListener(
+    "dblclick",
+    (e) => {
+      if (playing) return
+      frameHolon(pickAt(e.clientX, e.clientY) ?? null)
+    },
+    listen,
+  )
+
   // --- Transport -----------------------------------------------------------
   let playing = false
   let current = 0
@@ -1610,7 +1551,7 @@ const boot = async (resume?: Transport) => {
     if (overrides.size === 0) return
     // A return tween owns the observer for its 0.4s: it is the snap-back,
     // stretched, so time moving does not also yank the camera.
-    const cleared = overrides.clearOnTimeMove(returning ? observerParams : undefined)
+    const cleared = overrides.clearOnTimeMove()
     if (cleared.length === 0) return
     const gone = new Set(cleared)
     for (const row of rows) {
@@ -1620,7 +1561,6 @@ const boot = async (resume?: Transport) => {
       drag.reverted = true
       drag = null
     }
-    if (cleared.some((p) => observerParams.has(p))) flown = null
   }
 
   /**
@@ -1703,6 +1643,13 @@ const boot = async (resume?: Transport) => {
         pause()
         void paint(stepTime(current, e.code === "Period" ? 1 : -1, duration, e.shiftKey))
       }
+      // The viewer's camera: `f` frames the selection, `r` glides back to
+      // the authored camera (src/view.ts). Paused only — playing, the
+      // song owns the camera.
+      if (!typing && !playing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.code === "KeyF") frameHolon(selection.current ?? null)
+        if (e.code === "KeyR") beginReturn()
+      }
       if (playerMode) {
         // Esc / `e` return to the creator editor — same scene, same t
         // (LOOPS: the player and the editor are two presentations of one
@@ -1743,11 +1690,9 @@ const boot = async (resume?: Transport) => {
           overrides.delete(d.param)
           d.row.classList.remove("diverged", "live")
           void host.renderFrame(current).then(() => syncPanel())
-        } else if (flown) {
-          // …or, mid-flight, put the camera back where the scene has it.
-          releaseObserver()
-          void host.renderFrame(current).then(() => syncPanel())
-          checkpoint?.sync()
+        } else if (view.active && !view.gliding) {
+          // …or, flown, glide the camera back to where the scene has it.
+          beginReturn()
         } else if (discardPose()) {
           // …or a standing pose evaporates — every override released,
           // the file never touched (checkpoint capture's cancel).
@@ -1857,8 +1802,6 @@ const boot = async (resume?: Transport) => {
       drag = null
     }
     overrides.clearAll()
-    flown = null
-    returning = null
     for (const row of rows) row.el?.classList.remove("diverged", "live")
     void host.renderFrame(current).then(() => {
       syncPanel()
@@ -1928,7 +1871,7 @@ const boot = async (resume?: Transport) => {
       // The tween runs BEFORE the frame is drawn, so the overlay it
       // writes is what this frame renders; paint() then holds the
       // observer back from the time-move clear while it is in flight.
-      stepReturn(now, t)
+      stepReturn(now)
       await paint(t)
     } else if (stepReturn(now)) {
       // A return that outlives a pause still finishes, quietly.
