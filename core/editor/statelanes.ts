@@ -239,7 +239,7 @@ export const mountStateLanes = (container: HTMLElement, opts: StateLanesOpts): S
       const key = ghosts.map((g) => `${g.axis}:${g.from}:${g.to}:${g.progress < 1 ? 1 : 0}`).join() + `@${t}`
       if (key === ghostKey) return
       ghostKey = key
-      for (const el of root.querySelectorAll(".stateblock.ghost")) el.remove()
+      for (const el of Array.from(root.querySelectorAll(".stateblock.ghost"))) el.remove()
       for (const g of ghosts) {
         const axis = byId.get(g.axis)
         if (!axis) continue

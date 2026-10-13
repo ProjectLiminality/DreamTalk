@@ -395,3 +395,72 @@ describe("retiming a helper-played clip — the literal lives in unfold()'s call
     expect(bare.ok).toBe(false)
   })
 })
+
+// --- ⌘K in the song's idiom, with the clocks still running ------------------------
+
+describe("capture — a walked transition written as the song would write it", () => {
+  test("ghosts become holon.axis(…).to(…); their params are not repeated; the song's clocks run", () => {
+    const r = rig()
+    try {
+      // The song animates the clock, like FlowMap's flowing().
+      const animates = r.overrides.animates.bind(r.overrides)
+      r.overrides.animates = (p) => p === P(r.lamp.time) || animates(p)
+      r.walk.fire("grain", "sorted")
+      r.run(1.2)
+      const cap = r.walk.capture((h) => (h === r.lamp ? "lamp" : undefined))
+      expect(cap.transitions).toEqual([{ holon: "this.lamp", axis: "grain", position: "sorted" }])
+      expect(cap.covers.has(P(r.lamp.grain))).toBe(true)
+      expect(cap.clocks).toEqual(["this.lamp.time"])
+      // An owner the scene cannot spell falls back to the raw pose.
+      expect(r.walk.capture(() => undefined).transitions).toEqual([])
+    } finally {
+      r.restore()
+    }
+  })
+
+  test("appendCheckpoint spells clocks, axes and raw targets under one together", () => {
+    const res = applyAppendCheckpoint(song, {
+      op: "appendCheckpoint",
+      placement: "after",
+      anchor: helperSpan,
+      ordinal: 1,
+      transitions: [{ holon: "this.map", axis: "raw.open", position: "closed" }],
+      clocks: ["this.map.time"],
+      targets: [{ path: "this.map.labels", value: 0 }],
+      duration: 1.2,
+    })
+    if (!res.ok) throw new Error(res.reason)
+    expect(res.text).toContain(`    this.flowing(2.5, m.grain.to(1))
+    this.play(
+      together(
+        this.map.time.by(1.2, { easing: "linear" }),
+        this.map.stateAxis("raw.open").to("closed"),
+        this.map.labels.to(0),
+      ),
+      1.2,
+    )
+`)
+    const bad = applyAppendCheckpoint(song, {
+      op: "appendCheckpoint",
+      placement: "end",
+      transitions: [{ holon: "globalThis", axis: "x", position: "y" }],
+      targets: [],
+    })
+    expect(bad.ok).toBe(false)
+  })
+})
+
+describe("the written line plays as walked", () => {
+  test("holon.stateAxis(id).to(position) with the clock's by(): lands the axis, the clock never stops", async () => {
+    const { together } = await import("../src/anim")
+    const lamp = new Lamp()
+    const anim = together(lamp.time.by(2, { easing: "linear" }), lamp.stateAxis("grain").to("sorted"))
+    const tl = new Timeline([{ anim, start: 0, duration: 2 }])
+    tl.apply(1)
+    expect(lamp.time.value).toBeCloseTo(1, 9)
+    tl.apply(2)
+    expect(lamp.grain.value).toBe(1)
+    expect(lamp.time.value).toBeCloseTo(2, 9)
+    expect(() => lamp.stateAxis("nope")).toThrow(/no axis 'nope'/)
+  })
+})

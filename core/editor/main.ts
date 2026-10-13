@@ -71,7 +71,7 @@ import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
 import { mountTimeline, stepTime, type ClipRow, type TimelineHandle } from "./timeline"
-import { clipOrdinalOf, mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
+import { clipOrdinalOf, holonPathOf, mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
 import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
@@ -1872,6 +1872,7 @@ const boot = async (resume?: Transport) => {
       sceneFile: () => sceneFileFor(sceneKey),
       send: sendOp,
       seconds: () => walk?.seconds,
+      walk: () => walk?.capture((h) => holonPathOf(dream, h)),
       signal: ac.signal,
     })
 

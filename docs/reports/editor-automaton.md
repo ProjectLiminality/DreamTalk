@@ -67,6 +67,21 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
 - The HUD is off by default in the editor (the State group is its editor
   form); `h` or `?hud=1` shows it in the viewport.
 
+## ⌘K in the song's idiom, clocks running
+
+- A walked transition is written as an axis to a named position:
+  `this.map.stateAxis("expand").to("staged")`. That is `Holon.stateAxis(id)`,
+  the scene-addressable form of `axis.to(position)`. The name avoids the
+  `axis` fields holons already have. The walked axes' params are not
+  repeated as raw `.to()`s. Anything else posed (inspector tweaks, moves)
+  still writes as raw param targets in the same `together`.
+- Clocks the song animates (FlowMap's `time`) ride along in every
+  recorded clip, as `this.map.time.by(d, { easing: "linear" })`, so the
+  particles keep flowing through it instead of freezing.
+- Checked against the real FlowMap song: the generated file typechecks,
+  and sampled across the inserted clip, time runs on while expand and
+  raw.open move.
+
 ## Step 2 — the timeline shows the state space
 
 - `editor/statelanes.ts`: under the clip rows, one lane per axis the song

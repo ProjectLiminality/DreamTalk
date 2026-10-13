@@ -22,6 +22,7 @@
 
 import type { Dream } from "../src/dream"
 import type { Holon } from "../src/holon"
+import type { Param, ParamValue } from "../src/params"
 import type { Clip } from "../src/timeline"
 import type { Overrides } from "./overrides"
 import { anchorOf, type SourceAnchor } from "./anchors"
@@ -30,6 +31,18 @@ export interface CaptureTarget {
   /** The param as the scene's code addresses it: `this.circle.x`. */
   path: string
   value: number | boolean
+}
+
+/**
+ * What the walk adds to a capture (editor/walk.ts): its transitions in the
+ * song's idiom (`holon.stateAxis(id).to(position)`), the params those already
+ * say (so they are not spelled twice as raw `.to()`s), and the clocks the
+ * song keeps running (so the recorded clip never freezes them).
+ */
+export interface WalkCapture {
+  transitions: { holon: string; axis: string; position: string }[]
+  covers: ReadonlySet<Param<ParamValue>>
+  clocks: string[]
 }
 
 export interface Placement {
@@ -85,11 +98,14 @@ export const captureTargets = (
   dream: Dream,
   overrides: Overrides,
   t: number,
+  /** Params already said another way (a walked axis's transition). */
+  covered?: ReadonlySet<Param<ParamValue>>,
 ): CaptureTarget[] => {
   const timeline = dream.build()
   const targets: CaptureTarget[] = []
   for (const entry of overrides.entries()) {
     const { param, value, displaced } = entry
+    if (covered?.has(param)) continue
     if (typeof value !== "number" && typeof value !== "boolean") continue
     const owner = param.owner as Holon | undefined
     if (!owner || !param.name) continue
@@ -170,6 +186,8 @@ export interface CheckpointOpts {
   send: (op: Record<string, unknown>) => void
   /** The clip length a capture writes when none is given (a walked transition's own). */
   seconds?: () => number | undefined
+  /** The walk's part of the capture: its transitions, in the song's idiom. */
+  walk?: () => WalkCapture | undefined
   signal: AbortSignal
 }
 
@@ -222,8 +240,10 @@ export const mountCheckpoint = (opts: CheckpointOpts): CheckpointHandle => {
   ): Promise<Record<string, unknown> | undefined> => {
     if (opts.isPlaying() || sent) return undefined
     const t = opts.currentT()
-    const targets = captureTargets(dream, overrides, t)
-    if (targets.length === 0) return undefined
+    const walked = opts.walk?.()
+    const targets = captureTargets(dream, overrides, t, walked?.covers)
+    const transitions = walked?.transitions ?? []
+    if (targets.length === 0 && transitions.length === 0) return undefined
     const { placement, anchor } = placementAt(dream.clips, t)
     const file = anchor?.file ?? opts.sceneFile()
     let baseHash: string | undefined
@@ -239,6 +259,8 @@ export const mountCheckpoint = (opts: CheckpointOpts): CheckpointHandle => {
       anchor: anchor ? { start: anchor.start, end: anchor.end } : undefined,
       ordinal: anchor ? clipOrdinalAt(dream.clips, t) : undefined,
       targets,
+      transitions: transitions.length ? transitions : undefined,
+      clocks: walked?.clocks.length ? walked.clocks : undefined,
       duration: clipSeconds,
       baseHash,
     }

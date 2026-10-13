@@ -23,7 +23,7 @@
  */
 
 import { together, type Anim } from "./anim"
-import type { StateSpace } from "./automaton"
+import type { Axis, StateSpace } from "./automaton"
 import type { KeepOut } from "./view"
 import {
   angle,
@@ -265,6 +265,18 @@ export class Holon {
    */
   stateSpace(): StateSpace | undefined {
     return undefined
+  }
+
+  /**
+   * One axis of this holon's state space, by its declared id — the song's
+   * spelling of a walked transition: `this.play(map.stateAxis("grain").to("categorised"), 1.8)`.
+   * (Not `axis`: holons already name parts that — an Axes, a symmetry line.)
+   */
+  stateAxis(id: string): Axis {
+    const axes = this.stateSpace()?.axes ?? []
+    const a = axes.find((x) => x.id === id)
+    if (!a) throw new Error(`${this.constructor.name}: no axis '${id}' (axes: ${axes.map((x) => x.id).join(", ") || "none"})`)
+    return a
   }
 
   /**

@@ -394,6 +394,16 @@ export interface AppendCheckpointOp {
    * `this.observer.phi`, `this.lines[2].y`).
    */
   targets: { path: string; value: number | boolean }[]
+  /**
+   * Walked transitions, in the song's own idiom — an axis of a holon to a
+   * named position: `this.map.stateAxis("grain").to("categorised")`.
+   */
+  transitions?: { holon: string; axis: string; position: string }[]
+  /**
+   * Clocks that keep running through the clip (a FlowMap's `time`), so a
+   * recorded transition never freezes the world: `path.by(duration, linear)`.
+   */
+  clocks?: string[]
   /** Seconds the transition plays over (default 1). */
   duration?: number
   /** Repo-relative path of the file, for computing an import specifier. */
@@ -402,6 +412,8 @@ export interface AppendCheckpointOp {
 
 /** A target path is a `this.` member chain — anything else never reaches the file. */
 const CHECKPOINT_PATH = /^this(\.[A-Za-z_$][A-Za-z0-9_$]*(\[\d+\])?)+$/
+/** A holon's path: the same chain, which may be the Dream itself (`this`). */
+const HOLON_PATH = /^this(\.[A-Za-z_$][A-Za-z0-9_$]*(\[\d+\])?)*$/
 
 const checkpointLiteral = (value: number | boolean): string =>
   typeof value === "boolean" ? String(value) : numberLiteral(value)
@@ -454,7 +466,14 @@ const ensureTogetherImport = (file: SourceFile, relFile?: string): string | unde
  * so the generated line is indistinguishable from a hand-written one.
  */
 export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): OpResult => {
-  if (op.targets.length === 0) return { ok: false, reason: "empty pose — nothing to capture" }
+  const transitions = op.transitions ?? []
+  const clocks = op.clocks ?? []
+  if (op.targets.length === 0 && transitions.length === 0)
+    return { ok: false, reason: "empty pose — nothing to capture" }
+  for (const t of transitions)
+    if (!HOLON_PATH.test(t.holon)) return { ok: false, reason: `holon path '${t.holon}' is not a this.* reference` }
+  for (const c of clocks)
+    if (!CHECKPOINT_PATH.test(c)) return { ok: false, reason: `clock path '${c}' is not a this.* param reference` }
   for (const target of op.targets) {
     if (!CHECKPOINT_PATH.test(target.path))
       return { ok: false, reason: `target path '${target.path}' is not a this.* param reference` }
@@ -490,7 +509,11 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
   }
 
   const duration = numberLiteral(op.duration ?? 1)
-  const calls = op.targets.map((t) => `${t.path}.to(${checkpointLiteral(t.value)})`)
+  const calls = [
+    ...clocks.map((c) => `${c}.by(${duration}, { easing: "linear" })`),
+    ...transitions.map((t) => `${t.holon}.stateAxis(${JSON.stringify(t.axis)}).to(${JSON.stringify(t.position)})`),
+    ...op.targets.map((t) => `${t.path}.to(${checkpointLiteral(t.value)})`),
+  ]
   const statement =
     calls.length === 1
       ? `this.play(${calls[0]}, ${duration})`

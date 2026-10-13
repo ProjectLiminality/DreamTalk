@@ -34,6 +34,7 @@ import { isColor } from "../src/constants"
 import { GameLoop } from "../demo/game"
 import type { Overrides } from "./overrides"
 import { bufferToClient, type PixelBox } from "./creator"
+import type { WalkCapture } from "./checkpoint"
 
 export interface WalkOpts {
   canvas: HTMLCanvasElement
@@ -208,6 +209,33 @@ export class EditorWalk {
       out.push({ axis: x.id, from, to, seconds: x.duration, progress: a.progress(x.id) })
     }
     return out
+  }
+
+  /**
+   * The walk's part of a ⌘K capture, in the song's own idiom: each ghost
+   * as `holon.stateAxis("id").to("position")` (where the scene can spell the
+   * axis's owner — `pathOf` is checkpoint.ts's holonPathOf), the params
+   * those transitions already say, and the clocks the song runs (so the
+   * recorded clip — walked or posed — keeps the particles flowing).
+   */
+  capture(pathOf: (h: Holon) => string | undefined): WalkCapture {
+    const a = this.game.automaton
+    const transitions: WalkCapture["transitions"] = []
+    const covers = new Set<Param<ParamValue>>()
+    for (const g of this.ghosts()) {
+      const axis = a.axis(g.axis)
+      const path = axis.owner && pathOf(axis.owner)
+      if (!path) continue
+      transitions.push({ holon: `this.${path}`, axis: g.axis.replace(/#\d+$/, ""), position: g.to })
+      for (const p of axis.params()) covers.add(p)
+    }
+    const clocks: string[] = []
+    for (const c of this.#clocks) {
+      const owner = c.owner as Holon | undefined
+      const path = owner && c.name && this.#opts.overrides.animates(c) ? pathOf(owner) : undefined
+      if (path) clocks.push(`this.${path}.${c.name}`)
+    }
+    return { transitions, covers, clocks }
   }
 
   /** The axes, as the inspector and the headless harness read them. */
