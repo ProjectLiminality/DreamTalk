@@ -27,6 +27,14 @@
  * positions with the current one lit. Rows are clickable. `h` hides it;
  * `?hud=0` starts hidden.
  *
+ * THE VIEW. In the game loop the viewer may always look around (src/view.ts,
+ * the same layer the editor flies when paused): drag orbits, shift- or
+ * right-drag pans, the wheel (or a pinch) dollies, double-click frames what
+ * is under the pointer, `f` frames the hovered handle, `r` glides home.
+ * A drag never fires; a click that did not travel does — so transitions
+ * keep firing from any angle, and picking reads the effective camera.
+ * Leaving, the view glides back to the song's camera with the walked state.
+ *
  * THE LAYER. The automaton writes ABOVE the timeline as the host's
  * `beforeSync` — the same seam the editor's live overrides use — so the
  * Dream, the gauntlet and every export see only the pure timeline.
@@ -37,6 +45,8 @@ import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { bufferToClient, type PixelBox } from "../editor/creator"
+import { ViewLayer } from "../src/view"
+import type { Observer } from "../src/dream"
 
 export interface GameHost {
   canvas: HTMLCanvasElement
@@ -48,6 +58,11 @@ export interface GameHost {
 
 export interface GameOpts {
   roots: readonly Holon[]
+  /**
+   * The scene's observer — the game loop's own viewer camera biases its
+   * readings. Absent (the editor, which flies its own ViewLayer): no orbit here.
+   */
+  observer?: Observer
   /** The params the song's timeline animates (they snap back on their own). */
   animated: ReadonlySet<Param<ParamValue>>
   /** Is another mode (creator, explorer) holding the pointer right now? */
@@ -64,7 +79,11 @@ const TICK = 10
 const HOVER_STEP = 4
 const CLICK_SLOP = 4
 const FLASH_MS = 320
+/** A second click this soon, this near, after a fire is a double-click's tail — it frames, it does not fire again. */
+const DOUBLE_MS = 350
 const AUTO_KEYS = "1234567890"
+/** The player's own keys in game mode — no axis may claim them (m: sound, h: HUD, r/f: view). */
+const RESERVED = ["m", "h", "r", "f", " ", "`", "~"]
 
 const STYLE = `
 .dt-game-hud { position: fixed; left: 12px; bottom: 30px; color: #555; font: 12px monospace; line-height: 18px; user-select: none; z-index: 40; }
@@ -77,6 +96,11 @@ const STYLE = `
 
 export class GameLoop {
   readonly automaton: Automaton
+  /** The viewer's camera — orbit / pan / dolly over the song's (absent without an observer). */
+  readonly view: ViewLayer | undefined
+  #installed = false
+  #drag: { x: number; y: number; pan: boolean; moved: boolean; id: number } | null = null
+  #lastFire: { x: number; y: number; at: number } | null = null
   #on = false
   /** Wall-clock origin of the automaton's clock (ms); undefined = manual clock. */
   #origin: number | undefined = 0
@@ -100,8 +124,9 @@ export class GameLoop {
     this.#opts = opts
     this.#hudShown = opts.hud
     this.automaton = new Automaton(gatherStateSpace(opts.roots))
+    this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
     // Declared keys first; then the free digits, in declaration order.
-    for (const a of this.automaton.axes) if (a.key && !this.#keys.has(a.key)) this.#keys.set(a.key, a)
+    for (const a of this.automaton.axes) if (a.key && !RESERVED.includes(a.key) && !this.#keys.has(a.key)) this.#keys.set(a.key, a)
     const free = [...AUTO_KEYS].filter((k) => !this.#keys.has(k))
     for (const a of this.automaton.axes) {
       const key = a.key ? undefined : free.shift()
@@ -134,6 +159,26 @@ export class GameLoop {
       "pointermove",
       (e) => {
         if (!this.#live()) return
+        const d = this.#drag
+        if (d && this.view) {
+          const dx = e.clientX - d.x
+          const dy = e.clientY - d.y
+          if (!d.moved && Math.hypot(dx, dy) <= CLICK_SLOP) return
+          if (!d.moved) {
+            d.moved = true
+            this.#setHovered(null)
+            canvas.style.cursor = "grabbing"
+            try {
+              canvas.setPointerCapture(d.id)
+            } catch {}
+          }
+          d.x = e.clientX
+          d.y = e.clientY
+          const box = canvas.getBoundingClientRect()
+          if (d.pan || e.shiftKey) this.view.pan(dx, dy, box.height)
+          else this.view.orbit(dx, dy, box.width)
+          return
+        }
         if (this.#probe && Math.hypot(e.clientX - this.#probe.x, e.clientY - this.#probe.y) < HOVER_STEP) return
         this.#probe = { x: e.clientX, y: e.clientY }
         this.hoverAt(e.clientX, e.clientY)
@@ -144,7 +189,28 @@ export class GameLoop {
     canvas.addEventListener(
       "pointerdown",
       (e) => {
-        if (this.#live() && e.button === 0) this.#press = { x: e.clientX, y: e.clientY }
+        if (!this.#live() || e.button > 2) return
+        if (e.button === 0) this.#press = { x: e.clientX, y: e.clientY }
+        this.#drag = { x: e.clientX, y: e.clientY, pan: e.button !== 0 || e.shiftKey, moved: false, id: e.pointerId }
+      },
+      listen,
+    )
+    canvas.addEventListener("contextmenu", (e) => this.#on && this.view && e.preventDefault(), listen)
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        if (!this.#live() || !this.view) return
+        e.preventDefault()
+        // A pinch arrives as ctrl+wheel with small deltas: amplify it to feel like a notch.
+        this.view?.dolly(e.ctrlKey ? e.deltaY * 6 : e.deltaY)
+      },
+      { ...listen, passive: false },
+    )
+    canvas.addEventListener(
+      "dblclick",
+      (e) => {
+        if (!this.#live() || !this.view) return
+        this.frameAt(e.clientX, e.clientY)
       },
       listen,
     )
@@ -153,7 +219,19 @@ export class GameLoop {
       (e) => {
         const press = this.#press
         this.#press = null
+        const drag = this.#drag
+        this.#drag = null
+        if (drag?.moved) {
+          canvas.style.cursor = ""
+          try {
+            canvas.releasePointerCapture(drag.id)
+          } catch {}
+          return
+        }
         if (!this.#live() || !press) return
+        const last = this.#lastFire
+        if (last && performance.now() - last.at < DOUBLE_MS && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) return
+        this.#lastFire = { x: e.clientX, y: e.clientY, at: performance.now() }
         if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP) return
         this.clickAt(e.clientX, e.clientY)
       },
@@ -196,6 +274,7 @@ export class GameLoop {
     this.#pausedAt = undefined
     this.automaton.enter()
     this.#host.setBeforeSync(() => this.#write())
+    this.#installed = true
     this.#indexHandles()
     this.#renderHud()
   }
@@ -206,6 +285,8 @@ export class GameLoop {
     this.#on = false
     this.#setHovered(null)
     this.#release = { from: now, clock: this.automaton.clock }
+    this.#drag = null
+    this.view?.reset(now, RELEASE)
     this.#renderHud()
   }
 
@@ -213,6 +294,12 @@ export class GameLoop {
   tick(now = performance.now()): void {
     if (this.#on && this.#origin !== undefined && this.#pausedAt === undefined) this.automaton.clock = (now - this.#origin) / 1000
     if (this.#release && (now - this.#release.from) / 1000 >= RELEASE) this.#finishRelease()
+    this.view?.step(now)
+    if (this.#installed && !this.#on && !this.#release && !this.view?.active) {
+      this.view?.release()
+      this.#host.setBeforeSync(undefined)
+      this.#installed = false
+    }
     this.#paint(now)
   }
 
@@ -241,12 +328,36 @@ export class GameLoop {
     this.#renderHud()
   }
 
-  /** A key in game mode: true when it fired something. */
+  /** Glide to frame the holon under this point (empty space: home). */
+  frameAt(clientX: number, clientY: number): void {
+    const hit = this.#ownerAt(clientX, clientY)?.handle ?? this.#host.pick(clientX, clientY)
+    this.frame(hit ?? null)
+  }
+
+  /** Glide to frame a holon; null glides back to the song's camera. */
+  frame(holon: Holon | null, now = performance.now()): void {
+    const box = holon ? this.#host.boundsOf(holon) : undefined
+    if (!box || !this.view) return this.view?.reset(now)
+    const c = this.#host.canvas
+    this.view?.frameBox({ minX: box.min.x, minY: box.min.y, maxX: box.max.x, maxY: box.max.y }, { width: c.width, height: c.height }, now)
+  }
+
+  /** A key in game mode: true when it did something. */
   key(e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey">): boolean {
     if (!this.#on || e.metaKey || e.ctrlKey || e.altKey) return false
     if (e.code === "KeyH") {
       this.#hudShown = !this.#hudShown
       this.#renderHud()
+      return true
+    }
+    // The view keys are reserved: an axis cannot take them.
+    if (!this.view && (e.code === "KeyR" || e.code === "KeyF")) return false
+    if (e.code === "KeyR") {
+      this.view?.reset(performance.now())
+      return true
+    }
+    if (e.code === "KeyF") {
+      this.frame(this.#hovered?.handle ?? null)
       return true
     }
     const a = this.#keys.get(e.key)
@@ -317,6 +428,7 @@ export class GameLoop {
 
   /** The live layer: after the timeline's apply, before the host syncs. */
   #write(): void {
+    this.view?.apply()
     if (this.#on) {
       this.automaton.apply()
       return
@@ -340,7 +452,6 @@ export class GameLoop {
 
   #finishRelease(): void {
     this.#release = undefined
-    this.#host.setBeforeSync(undefined)
     // A param the song never animates has nothing to rewrite it: put it back.
     for (const p of this.automaton.params) {
       if (this.#opts.animated.has(p) || p.isBound) continue

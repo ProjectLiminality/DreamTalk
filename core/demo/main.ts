@@ -148,6 +148,7 @@ const main = async () => {
     },
     {
       roots: dream.roots,
+      observer: dream.observer,
       animated: new Set(dream.build().params),
       suspended: () => creator.on || explorer.on,
       hud: query.get("hud") !== "0",
@@ -366,6 +367,8 @@ const main = async () => {
     await host.renderFrame(current)
     game.enter(current)
   }
+    /** The viewer's camera: `.orbit(dx, dy, width)`, `.pan(dx, dy, height)`, `.dolly(dy)`, `.reset(now)`. */
+    view: game.view,
   window.__dt = {
     ready: true,
     duration,
