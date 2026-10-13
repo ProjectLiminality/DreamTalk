@@ -71,11 +71,13 @@ import type { NumericFieldHandle } from "./numeric"
 import { classNameOf } from "./classname"
 import { mountCodeView } from "./codeview"
 import { mountTimeline, stepTime, type ClipRow, type TimelineHandle } from "./timeline"
-import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
+import { clipOrdinalOf, mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./checkpoint"
 import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { EditorWalk } from "./walk"
+import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
+import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type OpDescriptor } from "./undo"
 import { Overrides, type Pose } from "./overrides"
 
@@ -542,6 +544,8 @@ const boot = async (resume?: Transport) => {
   let checkpoint: CheckpointHandle | undefined
   // The player's own chrome — mounted only under ?mode=player.
   let ptransport: PlayerTransport | undefined
+  // The walk's lanes under the clip rows (editor/statelanes.ts), beside the timeline.
+  let lanes: StateLanesHandle | undefined
 
   // --- Inspector: the SELECTED holon's properties, and nothing else --------
   //
@@ -1619,6 +1623,7 @@ const boot = async (resume?: Transport) => {
     narrator.update(t, playing)
     sfx.update(t, playing)
     timeline?.setPlayhead(t)
+    lanes?.setPlayhead(t)
     ptransport?.sync(t, playing)
     checkpoint?.sync()
     timecode.textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`
@@ -1789,6 +1794,8 @@ const boot = async (resume?: Transport) => {
       file: anchor.file,
       span: { start: anchor.start, end: anchor.end },
       runTime: seconds,
+      // Through a helper (`flowing(dt, …)`) the literal lives in unfold()'s call.
+      ordinal: clipOrdinalOf(dream.clips, row.clip),
       baseHash,
     })
   }
@@ -1803,6 +1810,45 @@ const boot = async (resume?: Transport) => {
       onSelect: selectClip,
       onResize: (row, seconds) => void commitRunTime(row, seconds),
     })
+
+  // --- The walk's lanes (editor/statelanes.ts) ------------------------------
+  //
+  // Under the clip rows, one lane per axis the song moves: each authored
+  // transition a block `from → to`, the walk's uncaptured ones as ghosts at
+  // the playhead. The timeline grows to hold them.
+  app.style.removeProperty("--timeline-h")
+  if (timeline && walk?.walkable) {
+    const axes = walk.game.automaton.axes
+    const origin = dream.clips.reduce((min, c) => Math.min(min, c.start), 0)
+    const rowOf = (clip: Clip) => timeline?.rows.find((r) => r.clip === clip)
+    lanes = mountStateLanes(clipsBar, {
+      axes,
+      lanes: axisSegments(axes, dream.clips, dream.build()),
+      origin,
+      span: (duration > 0 ? duration : 1) - origin,
+      onSeek: (clip) => {
+        const row = rowOf(clip)
+        if (row) return selectClip(row)
+        pause()
+        void paint(clip.start)
+      },
+      onResize: (clip, seconds) => {
+        const row = rowOf(clip)
+        if (row) void commitRunTime(row, seconds)
+      },
+      signal: ac.signal,
+    })
+  }
+  let laneCount = -1
+  /** The walk's ghosts onto the lanes, and the timeline's height to fit them. */
+  const syncLanes = () => {
+    if (!lanes || !walk) return
+    lanes.setGhosts(walk.ghosts(), current)
+    if (lanes.count === laneCount) return
+    laneCount = lanes.count
+    app.style.setProperty("--timeline-h", `${132 + Math.min(8 * 16, lanesHeight(laneCount))}px`)
+  }
+  syncLanes()
 
   // --- Checkpoint capture (EDITOR-V5 "Checkpoint capture") -----------------
   //
@@ -1913,6 +1959,7 @@ const boot = async (resume?: Transport) => {
   const loop = async (now: number) => {
     if (!alive) return
     const walked = walk?.step(now) ?? false
+    syncLanes()
     if (playing) {
       // A still (a board with no choreography yet) has no time to loop.
       const t = duration > 0 ? ((now - anchor) / 1000) % duration : 0

@@ -129,11 +129,22 @@ export const placementAt = (clips: readonly Clip[], t: number): Placement => {
 }
 
 /**
- * Which anchored clip the placement names, counted in play order — the
+ * Which anchored clip this is, counted in play order — the
  * daemon's way into a song that plays through a helper (`this.flowing(…)`
  * around one `this.play`), where every clip carries the helper's one
  * span and only the count says which of unfold()'s statements it was.
  */
+export const clipOrdinalOf = (clips: readonly Clip[], target: Clip): number | undefined => {
+  let i = -1
+  for (const clip of clips) {
+    if (!anchorOf(clip as unknown as object)) continue
+    i++
+    if (clip === target) return i
+  }
+  return undefined
+}
+
+/** The ordinal of the anchored clip the playhead stands in (or last passed). */
 export const clipOrdinalAt = (clips: readonly Clip[], t: number): number => {
   let ordinal = 0
   let i = -1

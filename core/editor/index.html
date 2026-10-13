@@ -266,6 +266,22 @@
     .walkrow span.at { color: var(--bright); }
     .walkrow.going span.at { color: var(--blue); }
     .walkrow.off { opacity: 0.4; }
+    /* --- State lanes (editor/statelanes.ts) under the clip rows -------------
+       One quiet lane per axis the song moves; each authored transition a
+       block `from → to`. A walked, unwritten one is a dashed ghost at the
+       playhead. Same time axis as the rows, so geometry is still timing. */
+    .statelanes { position: relative; margin-top: 6px; border-top: 1px solid var(--line-soft); padding-top: 4px; }
+    .lane { position: relative; height: 16px; }
+    .lanelabel { position: absolute; left: 4px; top: 2px; font-size: 9.5px; color: var(--dimmer);
+      pointer-events: none; white-space: nowrap; }
+    .stateblock { position: absolute; top: 1px; height: 13px; border-radius: 7px; box-sizing: border-box;
+      border: 1px solid #2a2a31; background: #18181c; color: var(--dim); font-size: 9.5px; line-height: 11px;
+      padding: 0 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: none; }
+    .stateblock:hover { color: var(--text); border-color: #44444c; }
+    .stateblock.active { color: var(--bright); border-color: #55555e; }
+    .stateblock.ghost { border: 1px dashed var(--blue); background: transparent; color: var(--blue); pointer-events: none; }
+    .stateblock .grip { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: ew-resize; }
+    .stateblock .grip:hover, .stateblock.resizing .grip { background: rgba(0,162,255,0.3); }
     /* The game HUD (demo/game.ts) sits inside the viewport, not over the rail. */
     body .dt-game-hud { left: calc(var(--rail-w) + 14px); bottom: calc(var(--timeline-h) + 12px); }
 

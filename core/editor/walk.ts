@@ -52,6 +52,15 @@ export interface WalkOpts {
   signal: AbortSignal
 }
 
+/** A walked transition not yet written — a ghost block on the timeline. */
+export interface WalkGhost {
+  axis: string
+  from: string
+  to: string
+  seconds: number
+  progress: number
+}
+
 /** One axis as the inspector's State group shows it. */
 export interface WalkAxisView {
   id: string
@@ -86,6 +95,8 @@ export class EditorWalk {
   readonly #written = new Map<Param<ParamValue>, ParamValue>()
   /** Params whose override the walk itself created (it may also remove them). */
   readonly #owned = new Set<Param<ParamValue>>()
+  /** Where each axis stood at entry — a ghost's `from`. */
+  readonly #entry = new Map<string, string>()
   #enteredAt: number | undefined
   #ungrounded = false
   #writing = false
@@ -178,6 +189,27 @@ export class EditorWalk {
     return undefined
   }
 
+  /**
+   * The walked-but-uncaptured transitions: every axis fired since entry
+   * that now stands somewhere other than where it entered — what the
+   * timeline draws as ghost blocks at the playhead until ⌘K or Escape.
+   */
+  ghosts(): WalkGhost[] {
+    const { game } = this
+    if (!game.on) return []
+    const a = game.automaton
+    const fired = new Set(a.journal.map((f) => f.axis))
+    const out: WalkGhost[] = []
+    for (const x of a.axes) {
+      if (!fired.has(x.id)) continue
+      const from = this.#entry.get(x.id)
+      const to = a.position(x.id)
+      if (from === undefined || from === to) continue
+      out.push({ axis: x.id, from, to, seconds: x.duration, progress: a.progress(x.id) })
+    }
+    return out
+  }
+
   /** The axes, as the inspector and the headless harness read them. */
   axes(): WalkAxisView[] {
     const a = this.game.automaton
@@ -258,6 +290,8 @@ export class EditorWalk {
     const t = this.#opts.currentT()
     if (game.on && !this.#ungrounded && this.#enteredAt === t) return
     game.enter(t, now)
+    this.#entry.clear()
+    for (const x of game.automaton.axes) this.#entry.set(x.id, game.automaton.position(x.id))
     this.#enteredAt = t
     this.#ungrounded = false
     this.#written.clear()

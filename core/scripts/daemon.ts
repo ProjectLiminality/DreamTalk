@@ -495,7 +495,8 @@ const inverseFor = (
   }
   if (msg.op === "setRunTime") {
     const previous = readRunTime(before, msg.span)
-    if (previous.kind === "unreadable") return undefined
+    // A helper's parameter (`dt`): the literal moved in unfold() — put those bytes back.
+    if (previous.kind === "unreadable") return msg.ordinal !== undefined ? spanEditInverse(before, after, file) : undefined
     return {
       type: "op",
       op: "setRunTime",
@@ -600,7 +601,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
       case "setBackdrop":
         return applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
       case "setRunTime":
-        return applySetRunTime(current, { op: "setRunTime", span: msg.span, runTime: msg.runTime })
+        return applySetRunTime(current, { op: "setRunTime", span: msg.span, runTime: msg.runTime, ordinal: msg.ordinal })
       case "appendCheckpoint":
         return applyAppendCheckpoint(current, {
           op: "appendCheckpoint",

@@ -67,6 +67,24 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
 - The HUD is off by default in the editor (the State group is its editor
   form); `h` or `?hud=1` shows it in the viewport.
 
+## Step 2 — the timeline shows the state space
+
+- `editor/statelanes.ts`: under the clip rows, one lane per axis the song
+  moves. Each authored transition is a block `from → to`, with positions
+  read off the timeline at the clip's ends (nearest match, the automaton's
+  own rule). A click seeks to (and selects) the clip. Dragging the right
+  edge retimes it with the rows' `setRunTime` op. A walked, unwritten
+  transition is a dashed ghost at the playhead until ⌘K or Esc. The
+  timeline grows to hold the lanes (at most 8).
+- These are not the per-parameter lanes timeline.ts forbids. A lane is a
+  named dimension a holon chose to expose, and a scene with no state space
+  draws none.
+- `setRunTime` now retimes songs that play through helpers: when the
+  play()'s run_time is the helper's parameter (`flowing(dt, …)`), the
+  literal in the unfold() call that played the clip is rewritten, found by
+  ordinal. Undo uses the byte-span inverse. This also fixes retiming the
+  clip rows in FlowMap.
+
 ## Next
 
 - The recorded spelling is the pose (`this.map.stack.members[4].open.to(0)`);

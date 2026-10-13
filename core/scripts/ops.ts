@@ -34,6 +34,12 @@ export interface SetRunTimeOp {
   span: { start: number; end: number }
   /** The clip's new duration in seconds. */
   runTime: number
+  /**
+   * Which anchored clip it is, in play order — for a play() inside a
+   * helper whose run_time is the helper's parameter (`flowing(dt, …)`):
+   * the literal then lives in the unfold() call that passed it.
+   */
+  ordinal?: number
 }
 
 /** One guarded edit: `span` must still hold `expect`, and becomes `replace`. */
@@ -469,9 +475,15 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
     if (!op.anchor) return { ok: false, reason: `placement '${op.placement}' needs an anchor span` }
     const { start, end } = op.anchor
     const direct = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
-    const at =
-      direct >= 0 ? direct : op.ordinal !== undefined ? statementOfPlay(unfold, statements, op) : -1
-    if (typeof at === "string") return { ok: false, reason: at }
+    let at = direct
+    if (at < 0 && op.ordinal !== undefined) {
+      const found = playStatement(unfold, statements, op.anchor, op.ordinal)
+      if (typeof found === "string") return { ok: false, reason: found }
+      // Inside a statement that plays several, only its edge is a place.
+      if (found && found.offset !== (op.placement === "before" ? 0 : found.plays - 1))
+        return { ok: false, reason: "that clip is one of several a single statement plays — place it by hand" }
+      if (found) at = found.index
+    }
     if (at < 0)
       return { ok: false, reason: "no statement at the anchored span — reload and recapture" }
     index = op.placement === "before" ? at : at + 1
@@ -499,6 +511,17 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
   return { ok: true, text: unfold.getSourceFile().getFullText() }
 }
 
+/** Where a helper-played clip sits among unfold()'s statements. */
+interface PlayStatement {
+  /** Index into unfold's statements (with comments). */
+  index: number
+  /** How many plays that statement makes, and which of them this clip is. */
+  plays: number
+  offset: number
+  /** The helper method the anchored `this.play` lives in. */
+  helper: MethodDeclaration
+}
+
 /**
  * The unfold() statement that played the `ordinal`-th anchored clip, for a
  * song that plays through helpers (`this.flowing(3, …)` → one `this.play`).
@@ -506,21 +529,19 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
  * call to a method of the class is the plays of its own statements, by
  * the same rule. A play inside anything else — a loop, a branch, a
  * callback — makes the count indeterminate, and the op refuses rather
- * than guess. Returns the statement index, -1 if the count runs out, or
+ * than guess. Returns the statement, undefined if the count runs out, or
  * the refusal.
  */
-const statementOfPlay = (
+const playStatement = (
   unfold: MethodDeclaration,
   statements: readonly Node[],
-  op: AppendCheckpointOp,
-): number | string => {
+  anchor: { start: number; end: number },
+  ordinal: number,
+): PlayStatement | undefined | string => {
   const cls = unfold.getParent()
   if (!Node.isClassDeclaration(cls)) return "unfold() is not a class method"
-  const helper = cls
-    .getMethods()
-    .find((m) => op.anchor && m.getStart() <= op.anchor.start && m.getEnd() >= op.anchor.end)
-  if (!helper || helper === unfold) return "no statement at the anchored span — reload and recapture"
-  const indeterminate = "the song plays inside a loop or branch — place the transition by hand"
+  const helper = cls.getMethods().find((m) => m.getStart() <= anchor.start && m.getEnd() >= anchor.end)
+  if (!helper || helper === unfold) return "no statement at the anchored span — reload and retry"
   const mayPlay = (node: Node, depth: number): boolean =>
     depth < 8 &&
     node.getDescendantsOfKind(SyntaxKind.CallExpression).some((c) => {
@@ -547,19 +568,14 @@ const statementOfPlay = (
     }
     return mayPlay(stmt, depth) ? undefined : 0
   }
-  const ordinal = op.ordinal!
   let count = 0
   for (let i = 0; i < statements.length; i++) {
     const k = playsOf(statements[i]!, 0)
-    if (k === undefined) return indeterminate
-    if (ordinal < count + k) {
-      // Inside a statement that plays several: only its edge is a place.
-      const edge = op.placement === "before" ? count : count + k - 1
-      return ordinal === edge ? i : "that clip is one of several a single statement plays — place it by hand"
-    }
+    if (k === undefined) return "the song plays inside a loop or branch — edit it by hand"
+    if (ordinal < count + k) return { index: i, plays: k, offset: ordinal - count, helper }
     count += k
   }
-  return -1
+  return undefined
 }
 
 /** The shortest clip a drag can write — sub-0.1s durations are noise. */
@@ -600,6 +616,12 @@ export const applySetRunTime = (source: string, op: SetRunTimeOp): OpResult => {
     target.addArgument(numberLiteral(seconds))
     return { ok: true, text: file.getFullText() }
   }
+  const helperParam = runArg.asKind(SyntaxKind.Identifier)
+  if (helperParam && op.ordinal !== undefined) {
+    // findUnfold reparses (and forgets these nodes): hand it the text.
+    const anchor = { start: target.getStart(), end: target.getEnd() }
+    return retimeThroughHelper(file.getFullText(), anchor, helperParam.getText(), op.ordinal, seconds)
+  }
   if (!runArg.asKind(SyntaxKind.NumericLiteral))
     return {
       ok: false,
@@ -607,6 +629,41 @@ export const applySetRunTime = (source: string, op: SetRunTimeOp): OpResult => {
     }
   runArg.replaceWithText(numberLiteral(seconds))
   return { ok: true, text: file.getFullText() }
+}
+
+/**
+ * A helper's play() takes its run_time from the helper's own parameter
+ * (`flowing(dt, …) { this.play(…, dt) }`): the number the song wrote is
+ * the argument at that position in the unfold() call that played this
+ * clip — found by its ordinal, rewritten only if it is a literal.
+ */
+const retimeThroughHelper = (
+  text: string,
+  anchor: { start: number; end: number },
+  name: string,
+  ordinal: number,
+  seconds: number,
+): OpResult => {
+  const unfold = findUnfold(text)
+  if (!unfold) return { ok: false, reason: "no class with an unfold() method found" }
+  const statements = unfold.getStatementsWithComments()
+  const found = playStatement(unfold, statements, anchor, ordinal)
+  if (typeof found === "string") return { ok: false, reason: found }
+  if (!found || found.plays !== 1)
+    return { ok: false, reason: `run_time is \`${name}\` and its call plays more than once — edit the source` }
+  const index = found.helper.getParameters().findIndex((p) => p.getName() === name)
+  if (index < 0) return { ok: false, reason: `run_time is \`${name}\`, not a parameter of ${found.helper.getName()}() — edit the source` }
+  const call = statements[found.index]!
+    .asKind(SyntaxKind.ExpressionStatement)
+    ?.getExpression()
+    .asKind(SyntaxKind.CallExpression)
+  if (call?.getExpression().getText() !== `this.${found.helper.getName()}`)
+    return { ok: false, reason: `that clip is played through more than one helper — edit the source` }
+  const arg = call.getArguments()[index]
+  if (!arg?.asKind(SyntaxKind.NumericLiteral))
+    return { ok: false, reason: `run_time is \`${arg?.getText() ?? name}\` — not a numeric literal; edit the source` }
+  arg.replaceWithText(numberLiteral(seconds))
+  return { ok: true, text: unfold.getSourceFile().getFullText() }
 }
 
 const isPascalConstruction = (node: NewExpression): boolean =>

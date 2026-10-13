@@ -323,3 +323,75 @@ describe("recording — a walked transition becomes a this.play at the playhead"
     expect(res.ok).toBe(false)
   })
 })
+
+// --- The song as a path: state lanes and ghosts -----------------------------------
+
+import { axisSegments, blockLabel } from "../editor/statelanes"
+import { gatherStateSpace } from "../src/automaton"
+import { applySetRunTime } from "../scripts/ops"
+
+describe("state lanes — the song drawn as a walk through its axes", () => {
+  test("a clip that moves an axis is a block from → to; holding or clock-only clips are not", () => {
+    const lamp = new Lamp()
+    const clip = (anim: Clip["anim"], start: number, duration: number) => ({ anim, start, duration }) as Clip
+    const clips = [
+      clip(lamp.time.to(3), 0, 3), // the clock alone: no axis moves
+      clip(lamp.grain.to(1), 3, 2), // plain → sorted
+      clip(lamp.grain.to(1), 5, 1), // holds: not a transition
+      clip(lamp.grain.to(0), 6, 1.5), // sorted → plain
+    ]
+    const tl = new Timeline(clips.map((c) => ({ anim: c.anim, start: c.start, duration: c.duration })))
+    const lanes = axisSegments(gatherStateSpace([lamp]).axes, clips, tl)
+    expect(lanes.map((l) => l.axis.id)).toEqual(["grain"])
+    expect(lanes[0]!.segments.map((s) => [s.start, s.duration, s.from, s.to])).toEqual([
+      [3, 2, "plain", "sorted"],
+      [6, 1.5, "sorted", "plain"],
+    ])
+    expect(blockLabel("plain", "sorted")).toBe("plain → sorted")
+  })
+
+  test("the walk's ghosts: fired, standing elsewhere than at entry, until Escape", () => {
+    const r = rig()
+    try {
+      expect(r.walk.ghosts()).toEqual([])
+      r.walk.fire("grain", "sorted")
+      r.run(0.3)
+      expect(r.walk.ghosts()).toMatchObject([{ axis: "grain", from: "plain", to: "sorted", seconds: 1 }])
+      expect(r.walk.ghosts()[0]!.progress).toBeLessThan(1)
+      // Walked back: nothing to write, no ghost.
+      r.walk.fire("grain", "plain")
+      r.run(1.2)
+      expect(r.walk.ghosts()).toEqual([])
+      r.walk.fire("shown", "on")
+      r.run(0.6)
+      expect(r.walk.ghosts().map((g) => g.axis)).toEqual(["shown"])
+      r.overrides.clearAll()
+      r.frame()
+      r.run(0.1)
+      expect(r.walk.ghosts()).toEqual([])
+    } finally {
+      r.restore()
+    }
+  })
+})
+
+describe("retiming a helper-played clip — the literal lives in unfold()'s call", () => {
+  test("setRunTime with an ordinal rewrites the helper call's argument", () => {
+    const res = applySetRunTime(song, { op: "setRunTime", span: helperSpan, runTime: 3.25, ordinal: 1 })
+    if (!res.ok) throw new Error(res.reason)
+    expect(res.text).toBe(song.replace("this.flowing(2.5, m.grain.to(1))", "this.flowing(3.25, m.grain.to(1))"))
+  })
+
+  test("a direct play() still retimes in place; no ordinal on a parameter is refused", () => {
+    const direct = applySetRunTime(song, {
+      op: "setRunTime",
+      span: { start: song.indexOf("this.play(m.expand"), end: song.indexOf("this.play(m.expand") + "this.play(m.expand.to(1), 2)".length },
+      runTime: 4,
+      ordinal: 2,
+    })
+    if (!direct.ok) throw new Error(direct.reason)
+    expect(direct.text).toContain("this.play(m.expand.to(1), 4)")
+    const bare = applySetRunTime(song, { op: "setRunTime", span: helperSpan, runTime: 3 })
+    expect(bare.ok).toBe(false)
+  })
+})
