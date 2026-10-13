@@ -46,7 +46,8 @@
  *   coast    the shoreline, one Line per run of land boundary.
  *   borders  admin-0 land boundaries, one Line each.
  *   limb     the silhouette circle as a stroke (off unless `limbStroke`).
- *   places   whatever the scene anchors on the surface (`Place`).
+ *   places   whatever the scene anchors in the Earth's frame (`Place`s,
+ *            and the `Connection` arcs between them).
  *
  * `sea` defaults to black: on the black page the Earth is ONLY its land and
  * lines, and yet it occludes.

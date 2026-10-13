@@ -16,20 +16,31 @@ import { together } from "../../src/anim"
 import { rgb } from "../../src/constants"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { EarthView, FrameRegion, followEarth } from "../../vocabulary/Earth/EarthView"
-import { sitePlaces } from "../../vocabulary/Earth/Sites"
+import { sitePlaces, SITE_TINTS, type SiteData } from "../../vocabulary/Earth/Sites"
+import { Connection } from "../../vocabulary/Earth/Connection"
 import { MOCK_SITES } from "../../vocabulary/Earth/mockSites"
 
 export const EUROPE = { lat: 49, lon: 12, span: 17 }
 
 export class EarthDream extends Dream {
   sites = sitePlaces(MOCK_SITES, { sunk: true, scale: 1.25 })
+  /** Each production site reports home: an arc from it to the headquarters. */
+  links = this.sites.slice(1).map(
+    (site, i) =>
+      new Connection({
+        ends: [site, this.sites[0]!],
+        tint: SITE_TINTS[(MOCK_SITES[i + 1] as SiteData).kind],
+        stroke: 1.3,
+        creation: 0,
+      }),
+  )
   earth = new Earth({
     limbStroke: 1.2,
     limbDraw: 0,
     coastDraw: 0,
     landOpacity: 0,
     borderDraw: 0,
-    places: this.sites,
+    places: [...this.sites, ...this.links],
   })
   view = new EarthView({ lat: 18, lon: -62 })
 
@@ -67,6 +78,11 @@ export class EarthDream extends Dream {
     this.play(
       together(...rest.map((s, i): [ReturnType<typeof s.altitude.to>, number, number] => [s.altitude.to(0), (i / rest.length) * 0.7, (i / rest.length) * 0.7 + 0.3])),
       3.5,
+    )
+    // The relation: every site draws its line home.
+    this.play(
+      together(...this.links.map((l, i): [ReturnType<typeof l.creation.to>, number, number] => [l.creation.to(1), (i / this.links.length) * 0.5, (i / this.links.length) * 0.5 + 0.5])),
+      3,
     )
     this.wait(2.5)
   }
