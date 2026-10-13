@@ -29,6 +29,7 @@ import { derive } from "../../src/params"
 // A cycle with Earth.ts, safe: these are only called once both modules have loaded.
 import { chainAt, lod as lodOf, worldMatrixOf as worldMatrix, type Earth } from "./Earth"
 import { latLonToUnit } from "../../src/geometry/sphere"
+import { ARIMO } from "../../src/geometry/fonts/arimo"
 
 /** A label: a Null at the anchor carrying its text (and a city's dot). */
 export type Label = Null
@@ -272,6 +273,29 @@ export class LabelLayout {
   }
 }
 
+/** Country names are set in open capitals: extra advance per glyph, in ems. */
+const COUNTRY_TRACKING = 0.14
+
+/**
+ * A label's width in ems, MEASURED: the glyph advances of the face the
+ * renderer sets it in (an unset Text font is Arimo alone — render/text.ts
+ * DEFAULT_FONT_URL — and src/geometry/fonts/arimo.ts is that face as data),
+ * plus the tracking each glyph carries. Kerning, which the shaper may add,
+ * is left out: it moves a name by a fraction of a letter, well inside the
+ * boxes' padding. A glyph outside the baked set counts as a space.
+ */
+export const textWidth = (text: string, tracking = 0): number => {
+  const em = ARIMO.unitsPerEm
+  const space = ARIMO.glyphs[32]?.[0] ?? em * 0.28
+  let w = 0
+  let n = 0
+  for (const ch of text) {
+    w += ARIMO.glyphs[ch.codePointAt(0)!]?.[0] ?? space
+    n++
+  }
+  return w / em + Math.max(0, n - 1) * tracking
+}
+
 /** Breathing room round every label box, screen pixels. */
 const PAD = 3
 /** A label is gone once this fraction of its box is covered by stronger ones. */
@@ -303,8 +327,9 @@ export const makeLabel = (
   const az = u.z * k
   const city = spec.kind === "city"
   const scale = city ? 0.85 : 1
-  // Glyph advance is ~0.55 em (sentence case) / ~0.66 em (capitals) plus tracking.
-  const width = spec.text.length * (city ? 0.55 : 0.66 + 0.14)
+  // The text's real width, in ems, from the face the renderer draws it in.
+  const tracking = city ? 0 : COUNTRY_TRACKING
+  const width = textWidth(spec.text, tracking)
   const index = layout.add({
     x: ax,
     y: ay,
@@ -336,7 +361,7 @@ export const makeLabel = (
       tint: earth.labelTint,
       stroke: 0,
       composite: "overlay",
-      tracking: city ? 0 : 0.14,
+      tracking,
       align: city ? "left" : "center",
       x: city ? 0.55 : 0,
       y: -0.35,

@@ -27,6 +27,7 @@ import { Earth, geography, placeFrame, Place } from "../vocabulary/Earth/Earth"
 import { EarthView, FlyTo, Focus, followEarth, viewDistance, viewPose, zoomForSpan } from "../vocabulary/Earth/EarthView"
 import { cities, countries, countryMesh, graticuleLines, lakeGeometry, regionOf, riverGeometry } from "../vocabulary/Earth/features"
 import { ALPS_10M } from "../vocabulary/Earth/packs/alps10m"
+import { textWidth } from "../vocabulary/Earth/Labels"
 import { sitePlaces } from "../vocabulary/Earth/Sites"
 import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
@@ -576,5 +577,38 @@ describe("the Earth under a parent", () => {
     parent.scale.value = 2 // four times bigger on screen: more outlines earn their pen
     const after = tiny.map((l) => l.opacity.value)
     expect(after.reduce((a, b) => a + b, 0)).toBeGreaterThan(before.reduce((a, b) => a + b, 0))
+  })
+})
+
+describe("the Earth as a visual automaton", () => {
+  test("its axes, each a key, each naming only unbound params", () => {
+    const earth = new Earth()
+    const ids = earth.stateSpace().axes.map((a) => [a.id, a.key])
+    expect(ids).toEqual([
+      ["time", "n"], ["land", "d"], ["borders", "b"],
+      ["water", "w"], ["graticule", "g"], ["atmosphere", "a"],
+    ])
+    const labelled = new Earth({ labels: { countries: 2 } })
+    expect(labelled.stateSpace().axes.map((a) => a.id)).toContain("labels")
+  })
+  test("a position is the song's own spelling: axis.to(…) is a plain timeline move", () => {
+    const earth = new Earth()
+    const night = earth.stateSpace().axes.find((a) => a.id === "time")!.to("night")
+    expect(night.tracks.map((t) => [t.param, t.values[0]])).toEqual([
+      [earth.sunLat, 12],
+      [earth.sunLon, -165],
+      [earth.nightOpacity, 0.92],
+      [earth.terminatorOpacity, 0.9],
+    ])
+  })
+})
+
+describe("label boxes are measured", () => {
+  test("widths come from the face's own advances, not character counts", () => {
+    expect(textWidth("MMM")).toBeGreaterThan(2.2 * textWidth("iii"))
+    // Arimo: "M" advances 1706/2048 em.
+    expect(textWidth("M")).toBeCloseTo(1706 / 2048, 6)
+    // Tracking adds per gap between glyphs.
+    expect(textWidth("AB", 0.14) - textWidth("AB")).toBeCloseTo(0.14, 9)
   })
 })

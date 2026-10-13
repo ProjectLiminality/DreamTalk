@@ -93,6 +93,7 @@ import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { KeepOut } from "../../src/view"
+import { axis, toggle, type StateSpace } from "../../src/automaton"
 import {
   angleBetween,
   densifyLonLat,
@@ -843,6 +844,49 @@ export class Earth extends Null {
   private horizonNow(): ReturnType<typeof horizonCircle> {
     const e = this.localEye()
     return e ? horizonCircle(e.point, this.radius.value, e.orthographic) : undefined
+  }
+
+  /**
+   * THE EARTH AS A VISUAL AUTOMATON (src/automaton.ts): the planet's own
+   * degrees of freedom as walkable axes, each a key in free play —
+   *
+   *   n  time        day → dusk → night: the sun over Europe, the
+   *                  terminator across it, Europe in the dark (a time of
+   *                  day is the sun's place AND the night shown: one axis)
+   *   d  land        the white globe ↔ the dim map (where borders read)
+   *   b  borders     off ↔ on
+   *   w  water       lakes and rivers off ↔ on
+   *   g  graticule   off ↔ on
+   *   a  atmosphere  off ↔ on
+   *   l  labels      off ↔ on (only when labels were built)
+   *
+   * Every transition is the automaton's own: interruptible, reversible, a
+   * pure function of its event log. A scene's timeline can take the same
+   * paths (`earth.stateSpace().axes[i].to("night")`).
+   */
+  override stateSpace(): StateSpace {
+    void this.parts
+    const axes = [
+      axis(
+        "time",
+        this,
+        {
+          day: { sunLat: 12, sunLon: 15, nightOpacity: 0, terminatorOpacity: 0 },
+          dusk: { sunLat: 12, sunLon: -75, nightOpacity: 0.92, terminatorOpacity: 0.9 },
+          night: { sunLat: 12, sunLon: -165, nightOpacity: 0.92, terminatorOpacity: 0.9 },
+        },
+        { key: "n", duration: 2.4 },
+      ),
+      axis("land", this, { globe: { land: WHITE }, map: { land: rgb(0x0e, 0x0e, 0x0e) } }, { key: "d" }),
+      toggle("borders", this.borderOpacity, { key: "b" }),
+      axis("water", this, { dry: { lakeOpacity: 0, riverOpacity: 0 }, wet: { lakeOpacity: 1, riverOpacity: 1 } }, { key: "w" }),
+      toggle("graticule", this.graticuleOpacity, { key: "g", on: ["on", 0.6] }),
+      toggle("atmosphere", this.atmosphereOpacity, { key: "a" }),
+    ]
+    if (this.countryLabels.length + this.cityLabels.length > 0) {
+      axes.push(toggle("labels", this.labelOpacity, { key: "l" }))
+    }
+    return { axes }
   }
 
   /**
