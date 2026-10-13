@@ -23,7 +23,8 @@ import {
 import { decodeRings, encodeRings, QUANTUM } from "../vocabulary/Earth/codec"
 import { BORDERS_50M, LAND_50M } from "../vocabulary/Earth/naturalEarth"
 import { Earth, geography, placeFrame, Place } from "../vocabulary/Earth/Earth"
-import { EarthView, viewDistance, viewPose, zoomForSpan } from "../vocabulary/Earth/EarthView"
+import { EarthView, FlyTo, Focus, viewDistance, viewPose, zoomForSpan } from "../vocabulary/Earth/EarthView"
+import { cities, countries, countryMesh, graticuleLines, lakeGeometry, riverGeometry } from "../vocabulary/Earth/features"
 import { sitePlaces } from "../vocabulary/Earth/Sites"
 import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
@@ -357,5 +358,79 @@ describe("EarthView", () => {
     // Leaning south: the eye's latitude drops below the target's.
     const eye = tilted.focus.clone().add(tilted.dir.clone().multiplyScalar(tilted.distance))
     expect(unitToLatLon(eye).lat).toBeLessThan(48)
+  })
+})
+
+describe("the optional layers", () => {
+  test("a country's sheet has the country's real area (Austria 83,879 km², Egypt ~1.0M km²)", () => {
+    const R_KM = 6371.0088
+    const at = meshArea(countryMesh("AT")) * R_KM * R_KM
+    expect(Math.abs(at - 83879) / 83879).toBeLessThan(0.03)
+    const eg = meshArea(countryMesh("EG")) * R_KM * R_KM
+    expect(Math.abs(eg - 1_001_450) / 1_001_450).toBeLessThan(0.03)
+  })
+  test("ISO codes are Natural Earth's own, with the -99 quirk resolved (France is FR)", () => {
+    const isos = new Set(countries().map((c) => c.iso))
+    for (const iso of ["FR", "NO", "AT", "EG", "DE", "JP", "BR"]) expect(isos.has(iso)).toBe(true)
+    expect(isos.has("-99")).toBe(false)
+    expect(() => countryMesh("XX")).toThrow()
+  })
+  test("the graticule: major lines every step, a finer ranked set between, all on the sphere", () => {
+    const lines = graticuleLines(15)
+    const major = lines.filter((l) => l.rank === 0)
+    expect(major.length).toBe(24 + 11) // 24 meridians, 11 parallels (no poles)
+    expect(lines.length).toBe(72 + 35)
+    for (const l of lines) for (const p of l.points) expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(1, 9)
+    // A parallel stays at its latitude.
+    const p30 = lines.find((l) => Math.abs(unitToLatLon(l.points[0]!).lat - 30) < 1e-9)!
+    for (const p of p30.points) expect(unitToLatLon(p).lat).toBeCloseTo(30, 9)
+  })
+  test("lakes and rivers decode, ranked, and lakes fill where lakes are", () => {
+    const lakes = lakeGeometry()
+    expect(lakes.shores.length).toBe(465)
+    expect(riverGeometry().length).toBe(894)
+    const meshes = [...lakes.sheets.values()]
+    const onLake = (lat: number, lon: number) => meshes.some((m) => covers(m, latLonToUnit(lat, lon)))
+    expect(onLake(-1, 33)).toBe(true) // Lake Victoria
+    expect(onLake(47.6, 9.3)).toBe(true) // Lake Constance
+    expect(onLake(48.2, 16.37)).toBe(false) // Vienna
+  })
+  test("an Earth builds only what it is asked for, and lights up only listed countries", () => {
+    const plain = new Earth()
+    void plain.parts
+    expect(plain.countryLabels.length + plain.cityLabels.length).toBe(0)
+    expect(() => plain.country("AT")).toThrow()
+    expect(plain.graticuleOpacity.value).toBe(0)
+    expect(plain.lakeOpacity.value).toBe(0)
+    expect(plain.riverOpacity.value).toBe(0)
+    const rich = new Earth({ highlight: ["AT"], labels: { countries: 3, cities: 3 } })
+    void rich.parts
+    expect(rich.country("AT").fillOpacity.value).toBe(0)
+    expect(rich.countryLabels.length).toBeGreaterThan(50)
+    expect(rich.cityLabels.length).toBeGreaterThan(20)
+    expect(cities().filter((c) => c.capital).length).toBe(200)
+  })
+})
+
+describe("Focus and FlyTo", () => {
+  const earth = new Earth()
+  const observer = new Observer()
+  const view = new EarthView()
+  test("Focus moves lat, lon, zoom and tilt together over the clip", () => {
+    const a = Focus(view, { lat: 48, lon: 16, zoom: 3, tilt: 30 })
+    expect(a.tracks.map((t) => t.param)).toEqual([view.lat, view.lon, view.zoom, view.tilt])
+    for (const t of a.tracks) expect([t.relStart, t.relStop]).toEqual([0, 1])
+  })
+  test("a span is solved to the zoom that frames it", () => {
+    const a = Focus(view, { lat: 48, lon: 16, span: 10 }, { earth, observer })
+    const zoom = a.tracks.find((t) => t.param === view.zoom)!.values[0] as number
+    expect(zoom).toBeCloseTo(zoomForSpan(400, 10, view.fill.value, observer.fov.value), 9)
+  })
+  test("FlyTo rises in the first half and descends onto the target in the second", () => {
+    const a = FlyTo(view, { lat: 27, lon: 31, zoom: 3, tilt: 30, pullBack: 2 })
+    const zooms = a.tracks.filter((t) => t.param === view.zoom)
+    expect(zooms.map((t) => [t.relStart, t.relStop, t.values[0]])).toEqual([[0, 0.5, 1], [0.5, 1, 3]])
+    const tilts = a.tracks.filter((t) => t.param === view.tilt)
+    expect(tilts.map((t) => t.values[0])).toEqual([0, 30])
   })
 })

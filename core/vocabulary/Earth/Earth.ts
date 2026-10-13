@@ -91,7 +91,7 @@ import { Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Surface } from "../../src/parts/surface"
 import { color, completion, derive, length, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
-import { rgb, WHITE } from "../../src/constants"
+import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import {
   angleBetween,
@@ -108,6 +108,8 @@ import {
 } from "../../src/geometry/sphere"
 import { decodeRings } from "./codec"
 import { BORDERS_50M, LAND_50M } from "./naturalEarth"
+import { cities, countries, countryMesh, graticuleLines, lakeGeometry, riverGeometry } from "./features"
+import { billboard, makeLabel, type Label } from "./Labels"
 
 /** Longest step a stroke takes along the surface, degrees (chord sag ~1e-5·R). */
 const MAX_STEP = 0.5
@@ -254,7 +256,7 @@ const shoreRuns = (dense: number[], pts: Vec3[]): Vec3[][] => {
  * half-lit islands at rest), and a descending camera fades each rank in
  * over the half-level that brings it.
  */
-const lod = (rank: number, detail: number): number =>
+export const lod = (rank: number, detail: number): number =>
   Math.max(0, Math.min(1, 2 * (detail - rank / 2) + 1))
 
 const scaled = (points: readonly Vec3[], r: number): Vec3Like[] =>
@@ -304,6 +306,51 @@ export class Earth extends Null {
   limbOpacity = completion(1)
   limbDraw = completion(1)
 
+  // --- Optional layers: each off by default, each ranked for LOD ---------
+
+  /** Lat/lon lines every `graticuleStep`° (a finer set arrives at map zoom 3). 0 opacity = off. */
+  graticuleTint = color(rgb(0x2a, 0x2a, 0x2a))
+  graticuleStroke = length(0.8)
+  graticuleOpacity = completion(0)
+  /** Degrees between major graticule lines — construction-time. */
+  graticuleStep = 15
+
+  /** Lakes: their water (`lake`, default the sea's black) and their shores (the coast's pen). */
+  lake = color(rgb(0, 0, 0))
+  lakeOpacity = completion(0)
+
+  /** Major rivers and lake centrelines. */
+  riverTint = color(rgb(0x1e, 0x5a, 0x8c))
+  riverStroke = length(1)
+  riverOpacity = completion(0)
+  riverDraw = completion(1)
+
+  /**
+   * Countries to be able to light up, by ISO alpha-2 ("AT", "EG", …).
+   * Construction-time: each listed country gets its own sheet on the
+   * sphere, reached by `country(iso)` — animate its `fillOpacity` and
+   * `tint`. Only the listed ones are triangulated.
+   */
+  highlight: string[] = []
+
+  /**
+   * Labels to build — construction-time, none by default. `countries`:
+   * build country names with Natural Earth min_label up to this; `cities`:
+   * city names with min_zoom up to this. Each still fades in by `detail`
+   * and out toward the horizon; `labelOpacity` dims them all.
+   */
+  labels: { countries?: number; cities?: number } = {}
+  labelTint = color(rgb(0xb0, 0xb0, 0xb0))
+  labelOpacity = completion(1)
+  /** Label text height in screen pixels (720-line reference); cities are drawn at 0.85 of it. */
+  labelSize = length(11)
+  /**
+   * Added to `detail` for labels only. Natural Earth's min_label assumes a
+   * web map whose world is 1024 px across; a framed globe is ~600, so names
+   * come in half a level later than the land they sit on.
+   */
+  labelBias = scalar(-0.5)
+
   /**
    * Holons to anchor on the surface — usually `Place`s, which seat their
    * contents at a lat/lon facing outward. Adopted at construction (the
@@ -317,6 +364,21 @@ export class Earth extends Null {
   landSheets: Surface[] = []
   coastLines: Line[] = []
   borderLines: Line[] = []
+  graticuleLines: Line[] = []
+  lakeSheets: Surface[] = []
+  lakeShores: Line[] = []
+  riverLines: Line[] = []
+  countryLabels: Label[] = []
+  cityLabels: Label[] = []
+  private countrySheets = new Map<string, Surface>()
+
+  /** The sheet of a country listed in `highlight` — its `fillOpacity` and `tint` light it up. */
+  country(iso: string): Surface {
+    void this.parts
+    const sheet = this.countrySheets.get(iso)
+    if (!sheet) throw new Error(`Earth: country '${iso}' is not in highlight: [${this.highlight.join(", ")}]`)
+    return sheet
+  }
 
   constructor(overrides: Overrides = {}) {
     super(overrides)
@@ -355,8 +417,44 @@ export class Earth extends Null {
       this.landSheets.push(sheet)
     })
 
+    // Lakes over the land, then the highlighted countries over both.
+    const lakes = lakeGeometry()
+    for (const [rank, mesh] of [...lakes.sheets].sort((a, b) => a[0] - b[0])) {
+      if (mesh.indices.length === 0) continue
+      const sheet = this.add(
+        new Surface({
+          tint: this.lake,
+          fillOpacity: derive(() => this.lakeOpacity.value * lod(rank, this.detail.value)),
+        }),
+      )
+      sheet.positions = scaledMesh(mesh, r)
+      sheet.indices = mesh.indices
+      this.lakeSheets.push(sheet)
+    }
+    for (const iso of this.highlight) {
+      const mesh = countryMesh(iso)
+      const sheet = this.add(new Surface({ tint: RED, fillOpacity: 0 }))
+      sheet.positions = scaledMesh(mesh, r)
+      sheet.indices = mesh.indices
+      this.countrySheets.set(iso, sheet)
+    }
+
     const strokes = new Null()
     this.add(strokes)
+    // The graticule lies under every other stroke.
+    for (const g of graticuleLines(this.graticuleStep)) {
+      this.graticuleLines.push(
+        addTo(
+          strokes,
+          new Line({
+            points: scaled(g.points, r),
+            tint: this.graticuleTint,
+            stroke: this.graticuleStroke,
+            opacity: derive(() => this.graticuleOpacity.value * lod(g.rank, this.detail.value)),
+          }),
+        ),
+      )
+    }
     const fineness = this.finenessGauge()
     const lineOf = (g: GeoLine, kind: "coast" | "border"): Line => {
       const coast = kind === "coast"
@@ -372,6 +470,34 @@ export class Earth extends Null {
       })
     }
     for (const g of geo.coast) this.coastLines.push(addTo(strokes, lineOf(g, "coast")))
+    for (const g of lakes.shores) {
+      this.lakeShores.push(
+        addTo(
+          strokes,
+          new Line({
+            points: scaled(g.points, r),
+            tint: this.coastTint,
+            stroke: this.coastStroke,
+            creation: this.coastDraw,
+            opacity: derive(() => this.lakeOpacity.value * this.coastOpacity.value * lod(g.rank, this.detail.value)),
+          }),
+        ),
+      )
+    }
+    for (const g of riverGeometry()) {
+      this.riverLines.push(
+        addTo(
+          strokes,
+          new Line({
+            points: scaled(g.points, r),
+            tint: this.riverTint,
+            stroke: this.riverStroke,
+            creation: this.riverDraw,
+            opacity: derive(() => this.riverOpacity.value * lod(g.rank, this.detail.value)),
+          }),
+        ),
+      )
+    }
     for (const g of geo.borders) this.borderLines.push(addTo(strokes, lineOf(g, "border")))
 
     // The limb: the horizon circle, lifted a hair toward the eye so the
@@ -397,6 +523,34 @@ export class Earth extends Null {
         },
       })
     })
+
+    // Labels, over every stroke and under the places.
+    const { countries: maxCountry, cities: maxCity } = this.labels
+    if (maxCountry !== undefined || maxCity !== undefined) {
+      const board = billboard(this)
+      const labels = new Null()
+      this.add(labels)
+      if (maxCountry !== undefined) {
+        for (const c of countries()) {
+          if (!(c.minLabel <= maxCountry)) continue
+          this.countryLabels.push(
+            addTo(labels, makeLabel(this, board, {
+              lat: c.labelLat, lon: c.labelLon, text: c.name.toUpperCase(), rank: Math.round(c.minLabel * 2), kind: "country",
+            })),
+          )
+        }
+      }
+      if (maxCity !== undefined) {
+        for (const c of cities()) {
+          if (!(c.minZoom <= maxCity)) continue
+          this.cityLabels.push(
+            addTo(labels, makeLabel(this, board, {
+              lat: c.lat, lon: c.lon, text: c.name, rank: Math.round(c.minZoom * 2), kind: "city",
+            })),
+          )
+        }
+      }
+    }
 
     // The places were adopted at construction (so a scene animating one
     // finds the Earth as its root before anything is composed); adopting
@@ -472,7 +626,7 @@ export class Earth extends Null {
   lens?: () => number
 
   /** The observer the Earth was told about (`seenFrom`). */
-  private seer?: Observer
+  seer?: Observer
 
   /** Where the eye is, in world space — set by `seenFrom`. */
   eye?: () => { point: Vec3; orthographic: boolean }
@@ -505,7 +659,7 @@ export class Earth extends Null {
   }
 
   /** The eye in the Earth's own frame (through every transform above it). */
-  private localEye(): { point: Vec3; orthographic: boolean } | undefined {
+  localEye(): { point: Vec3; orthographic: boolean } | undefined {
     const eye = this.eye?.() ?? DEFAULT_EYE
     if (!eye) return undefined
     const m = worldMatrixOf(this)
@@ -568,7 +722,7 @@ const scratchInv = new Matrix4()
 const DEFAULT_EYE = { point: { x: 0, y: 0, z: 1500 }, orthographic: false }
 
 /** A holon's world matrix as the host composes it (three-host: ZXY h/p/b, uniform scale). */
-const worldMatrixOf = (holon: Holon): Matrix4 => {
+export const worldMatrixOf = (holon: Holon): Matrix4 => {
   const chain: Holon[] = []
   for (let h: Holon | undefined = holon; h; h = h.parent) chain.unshift(h)
   const m = new Matrix4()

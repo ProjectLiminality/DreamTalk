@@ -1034,7 +1034,8 @@ export class ThreeHost {
     })
 
     if (holon instanceof Text) {
-      this.texts.push({ binding: attachText(holon, group), group, holon })
+      const order = holon.composite === "first" ? undefined : this.claimFillOrder()
+      this.texts.push({ binding: attachText(holon, group, order, holon.composite === "overlay"), group, holon })
     } else if (holon instanceof Cylinder) {
       const width = holon.stroke.value
       const r = holon.radius.value

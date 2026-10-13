@@ -40,7 +40,7 @@
 import { Euler, Vector3 } from "three/webgpu"
 import { Null } from "../../src/parts/primitives"
 import { completion, derive, scalar, type AnimOpts } from "../../src/params"
-import { together, type Anim } from "../../src/anim"
+import { chain, together, type Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { latLonToUnit, type Vec3 } from "../../src/geometry/sphere"
 import type { Earth } from "./Earth"
@@ -197,5 +197,85 @@ export const FrameRegion = (
     view.lat.to(region.lat, opts),
     view.lon.to(region.lon, opts),
     view.zoom.to(Math.max(0, zoom), opts),
+  )
+}
+
+/** Where to look: a ground point, and optionally how close and how leaned. */
+export interface FocusTarget {
+  lat: number
+  lon: number
+  /** log2 magnification (EarthView.zoom); or give `span` and it is solved. */
+  zoom?: number
+  /** Half-extent on the ground to frame, degrees — used when `zoom` is not given. */
+  span?: number
+  /** Lean off straight-down, degrees. Left as it is when not given. */
+  tilt?: number
+}
+
+const resolveZoom = (
+  view: EarthView,
+  target: FocusTarget,
+  frame?: { earth: Earth; observer: Observer },
+): number | undefined => {
+  if (target.zoom !== undefined) return target.zoom
+  if (target.span === undefined) return undefined
+  if (!frame) throw new Error("Focus: a `span` needs { earth, observer } to solve the zoom")
+  return Math.max(
+    0,
+    zoomForSpan(frame.earth.radius.value * frame.earth.scale.value, target.span, view.fill.value, frame.observer.fov.value),
+  )
+}
+
+/**
+ * Look at a place: lat/lon (and zoom, tilt when given) all move together
+ * over the clip. The plain verb — any place, any time; play it for as long
+ * as the move should take.
+ *
+ *     this.play(Focus(view, { lat: 48.2, lon: 16.4, zoom: 3, tilt: 35 }), 3)
+ *
+ * Longitudes are animated as numbers: to cross the antimeridian the short
+ * way, give the target as e.g. 190 rather than −170.
+ */
+export const Focus = (
+  view: EarthView,
+  target: FocusTarget,
+  frame?: { earth: Earth; observer: Observer },
+  opts: AnimOpts = {},
+): Anim => {
+  const zoom = resolveZoom(view, target, frame)
+  return together(
+    view.lat.to(target.lat, opts),
+    view.lon.to(target.lon, opts),
+    ...(zoom !== undefined ? [view.zoom.to(zoom, opts)] : []),
+    ...(target.tilt !== undefined ? [view.tilt.to(target.tilt, opts)] : []),
+  )
+}
+
+/**
+ * Fly to a place the way a traveller would: rise, cross, descend. The
+ * ground point glides over the whole clip while the zoom first pulls back
+ * `pullBack` levels below the target's and then comes down onto it, and
+ * any tilt eases off for the crossing and returns on arrival — the
+ * zoom-out-pan-zoom-in path that keeps a long hop legible instead of
+ * smearing the planet past at street level.
+ *
+ * The pull-back is stated relative to the TARGET (never read from where
+ * the view happens to be at build time), so the verb is a pure function
+ * of what it is given and composes anywhere in a timeline.
+ */
+export const FlyTo = (
+  view: EarthView,
+  target: FocusTarget & { pullBack?: number },
+  frame?: { earth: Earth; observer: Observer },
+): Anim => {
+  const zoom = resolveZoom(view, target, frame) ?? 0
+  const high = Math.max(0, zoom - (target.pullBack ?? 1.5))
+  return together(
+    view.lat.to(target.lat),
+    view.lon.to(target.lon),
+    chain(view.zoom.to(high, { easing: "easeIn" }), view.zoom.to(zoom, { easing: "easeOut" })),
+    ...(target.tilt !== undefined
+      ? [chain(view.tilt.to(0, { easing: "easeIn" }), view.tilt.to(target.tilt, { easing: "easeOut" }))]
+      : []),
   )
 }

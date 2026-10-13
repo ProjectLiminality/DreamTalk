@@ -37,6 +37,7 @@ import { CableDream } from "./vocabulary/Cable"
 import { SketchDream } from "./vocabulary/Sketch"
 import { RegenaissanceDream } from "./vocabulary/Regenaissance"
 import { EarthDream } from "./vocabulary/Earth"
+import { EarthFeaturesDream } from "./vocabulary/EarthFeatures"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { Scene00Dream } from "./origins/Scene00"
 import { Scene01Dream } from "./origins/Scene01"
@@ -218,6 +219,8 @@ export const scenes: Record<string, DreamClass> = {
   regenaissance: RegenaissanceDream,
   // The black Earth turns to Europe, the eye descends, the sites rise.
   earth: EarthDream,
+  // The Earth's other layers: graticule, lakes, rivers, labels, a country lighting up, FlyTo.
+  "earth-features": EarthFeaturesDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
   // p02h: MagicMove03Dream, // p6 died before writing it

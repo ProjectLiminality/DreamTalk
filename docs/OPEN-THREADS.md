@@ -40,8 +40,11 @@ when done.
   first occluder), NE `min_zoom` LOD, `Place` anchoring, `EarthView`
   (lat/lon/zoom/tilt + `FrameRegion`), Factory/Headquarters with GPU hidden
   lines, and mock European sites (the real ones stay private).
-- Open: per-country polygons (fill and colour each country); 1:10m below a
-  country's scale; rivers, lakes, cities and labels; a graticule; morphing
+- Built 2026-10-13 (round 3): graticule, lakes, rivers, per-country
+  highlight sheets (`highlight` + `country(iso)`), camera-facing labels
+  (country + city, LOD + horizon fade, overlay compositing via the new
+  opt-in `Text.composite`), `Focus` / `FlyTo` verbs; `?scene=earth-features`.
+- Open: 1:10m below a country's scale; label collision culling; morphing
   the site→HQ `Connection` arcs into one circle (they expose
   `worldCurves()`); and the colour-space question below. (Draw-on cost
   fixed 2026-10-13: 80 → 20 ms, byte-identical.)

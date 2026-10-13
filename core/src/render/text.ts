@@ -828,7 +828,14 @@ export const onTextLayout = (fn: () => void): (() => void) => {
  * transform (the standard params); this binding owns the glyph geometry
  * and the material's uniforms.
  */
-export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
+export const attachText = (
+  holon: Text,
+  group: THREE.Object3D,
+  /** A composite slot (renderOrder) for text that opts into attach order (Text.composite). */
+  order?: number,
+  /** Ignore depth (Text.composite "overlay"). */
+  overlay = false,
+): TextBinding => {
   const seen = seenOpacity(holon)
   let mesh: THREE.Mesh | undefined
   let material: TextGlyphMaterial | undefined
@@ -858,7 +865,10 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
     dropOutlines()
     outlines = buildOutlines(mesh.geometry, holon.stroke.value, insetScale)
     for (const outline of outlines) {
-      for (const { ribbon } of outline.loops) group.add(ribbon.mesh)
+      for (const { ribbon } of outline.loops) {
+        if (order !== undefined) ribbon.mesh.renderOrder = order
+        group.add(ribbon.mesh)
+      }
     }
   }
 
@@ -916,6 +926,8 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
           mesh = new THREE.Mesh(geometry, material)
           mesh.frustumCulled = false
           mesh.visible = false
+          if (order !== undefined) mesh.renderOrder = order
+          if (overlay) material.depthTest = false
           group.add(mesh)
         } else {
           mesh.geometry = geometry

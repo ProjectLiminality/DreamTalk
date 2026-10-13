@@ -34,7 +34,12 @@ export const BORDER_CLASSES = [
   "Indeterminant frontier",
 ] as const
 
-/** Grid steps per degree. */
+/**
+ * Grid steps per degree — the default, and the land's and borders'. A
+ * layer may pack on a coarser grid (the country fills use 200: they lie
+ * UNDER the 1/1000° coast and borders, so half a kilometre is never seen,
+ * and on that grid most steps fit one byte).
+ */
 export const QUANTUM = 1000
 
 /** One decoded ring: its meta byte and its points as flat [lon, lat, …] degrees. */
@@ -47,7 +52,10 @@ const zig = (n: number): number => (n < 0 ? -2 * n - 1 : 2 * n)
 const unzig = (n: number): number => (n & 1 ? -(n + 1) / 2 : n / 2)
 
 /** Pack rings (flat lon/lat degrees) into the base64 stream. */
-export const encodeRings = (rings: readonly { meta: number; coords: readonly number[] }[]): string => {
+export const encodeRings = (
+  rings: readonly { meta: number; coords: readonly number[] }[],
+  quantum = QUANTUM,
+): string => {
   const bytes: number[] = []
   const varint = (v: number): void => {
     // Plain arithmetic, not bit ops: a zigzagged 360000 is past 2^18 but
@@ -66,8 +74,8 @@ export const encodeRings = (rings: readonly { meta: number; coords: readonly num
     const n = ring.coords.length / 2
     varint(n)
     for (let i = 0; i < n; i++) {
-      const x = Math.round(ring.coords[2 * i]! * QUANTUM)
-      const y = Math.round(ring.coords[2 * i + 1]! * QUANTUM)
+      const x = Math.round(ring.coords[2 * i]! * quantum)
+      const y = Math.round(ring.coords[2 * i + 1]! * quantum)
       varint(zig(x - px))
       varint(zig(y - py))
       px = x
@@ -78,7 +86,7 @@ export const encodeRings = (rings: readonly { meta: number; coords: readonly num
 }
 
 /** Unpack a base64 stream back into rings. Runs in the browser — no Buffer. */
-export const decodeRings = (b64: string): Ring[] => {
+export const decodeRings = (b64: string, quantum = QUANTUM): Ring[] => {
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
@@ -104,8 +112,8 @@ export const decodeRings = (b64: string): Ring[] => {
     for (let i = 0; i < n; i++) {
       px += unzig(varint())
       py += unzig(varint())
-      coords[2 * i] = px / QUANTUM
-      coords[2 * i + 1] = py / QUANTUM
+      coords[2 * i] = px / quantum
+      coords[2 * i + 1] = py / quantum
     }
     rings.push({ meta, coords })
   }

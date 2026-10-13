@@ -148,6 +148,19 @@ export class Text extends Holon {
   /** Where the block sits on this holon's x — see TextAlign. */
   align: TextAlign = "center"
   /**
+   * When the text composites. "first" (the default, and every scene
+   * written before this existed): beneath every fill, as text always has.
+   * "inOrder": in attach order like any fill or stroke, so text attached
+   * after a fill draws over it — a map's labels over its land.
+   * "overlay": in attach order AND ignoring depth — for camera-facing
+   * labels that must never be cut by the 3D world they annotate (a flat
+   * billboard on a globe dips into the ground on the side that faces the
+   * globe's bulge); whatever hides them, hides them by opacity. The
+   * glyph fill only: traced outlines (stroke > 0) share the ribbon
+   * material and stay depth-tested.
+   */
+  composite: "first" | "inOrder" | "overlay" = "first"
+  /**
    * Baseline-to-baseline distance as a MULTIPLE of `size`, or unset for
    * the shaper's own default (which is the face's own line height).
    *

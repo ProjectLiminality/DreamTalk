@@ -41,14 +41,18 @@ import { Figure } from "../vocabulary/Figure/Figure"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { Globe } from "../vocabulary/Globe/Globe"
 import { FlowMap } from "../vocabulary/FlowMap/FlowMap"
+import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { Logo } from "../vocabulary/Logo/Logo"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { MolochEye } from "../vocabulary/MolochEye/MolochEye"
+import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { Platonic } from "../vocabulary/Platonic/Platonic"
 import { Plot } from "../vocabulary/Plot/Plot"
+import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { Regenaissance } from "../vocabulary/Regenaissance/Regenaissance"
 import { SMark } from "../vocabulary/Regenaissance/SMark"
+import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
 import { RightTriangle } from "../vocabulary/RightTriangle/RightTriangle"
 import { System } from "../vocabulary/System/System"
 import { TheWall } from "../vocabulary/TheWall/TheWall"
@@ -68,16 +72,20 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Figure", folder: "Figure", cls: Figure },
   { className: "FoldableCube", folder: "FoldableCube", cls: FoldableCube },
   { className: "FlowMap", folder: "FlowMap", cls: FlowMap },
+  { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
   { className: "Globe", folder: "Globe", cls: Globe },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
   { className: "Logo", folder: "Logo", cls: Logo },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
   { className: "MolochEye", folder: "MolochEye", cls: MolochEye },
+  { className: "Pallet", folder: "Pallet", cls: Pallet },
   { className: "Platonic", folder: "Platonic", cls: Platonic },
   { className: "Plot", folder: "Plot", cls: Plot },
+  { className: "Pouch", folder: "Pouch", cls: Pouch },
   { className: "Regenaissance", folder: "Regenaissance", cls: Regenaissance },
   { className: "SMark", folder: "Regenaissance", cls: SMark },
+  { className: "SheetStack", folder: "SheetStack", cls: SheetStack },
   { className: "RightTriangle", folder: "RightTriangle", cls: RightTriangle },
   { className: "System", folder: "System", cls: System },
   { className: "TheWall", folder: "TheWall", cls: TheWall },
