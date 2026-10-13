@@ -150,6 +150,7 @@ import {
   Square,
   Stroke,
   type Vec3Like,
+  derivePoints,
 } from "../../src/parts/primitives"
 import { worldPosition } from "../../src/parts/curves"
 import {
@@ -161,42 +162,9 @@ import {
 
 // ─── 1. THE HOLON ───────────────────────────────────────────────────
 
-/**
- * Install a pull-based `points` accessor on a Line: `compute` runs only
- * when `sourceKey` changes, and the memo is what every reader sees. The
- * returned array identity is stable across unchanged frames, so the
- * host's value-comparison dirty-check stays cheap and honest.
- *
- * The same idiom `Connection` and `Cylinder` use (parts/curves.ts), said
- * again here rather than exported from there: it is six lines, and
- * widening curves.ts's surface for it would couple two modules that
- * otherwise share nothing.
- */
-const derivePoints = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => Vec3Like[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        // Signal the recompute so the host regenerates the ribbon exactly
-        // when the blended outline changed — the O(1) counterpart to the
-        // old per-frame flatten+compare (primitives.ts: Line.geomVersion).
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
-}
+// `derivePoints` (parts/primitives.ts): the shared pull-based `points`
+// accessor — a Line whose points are a derived reading, recomputed (and
+// its geomVersion bumped) only when its key changes.
 
 /**
  * The size-and-shape half of a stroke's identity — enough of it to know

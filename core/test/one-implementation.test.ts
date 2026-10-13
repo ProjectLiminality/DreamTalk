@@ -69,7 +69,6 @@ describe("one symbol, one implementation", () => {
       "vocabulary/Earth/Earth.ts",
       "vocabulary/Earth/Connection.ts",
       "vocabulary/FlowMap/FlowMap.ts",
-      "vocabulary/Morph/Morph.ts",
       "vocabulary/SOPLoop/SOPLoop.ts",
       "vocabulary/Horizons/Horizons.ts",
     ])
