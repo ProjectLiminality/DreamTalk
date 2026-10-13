@@ -60,6 +60,8 @@ import { SolidDrawing, derivePoints, toLocal, toWorld, viewOf } from "../../src/
 import { worldOutlineOf } from "../../src/geometry/morph"
 import {
   blendPlan,
+  blendTravel,
+  chainCurves,
   planMorph,
   type CorrespondOptions,
   type MorphPlan,
@@ -205,6 +207,24 @@ export interface MorphCurvesOptions extends CorrespondOptions {
    * Default 0.5.
    */
   lag?: number
+  /**
+   * How pieces travel. "rigid" (default): each flies as a body on a gentle
+   * arc, turning and scaling toward its target's pose, and bends into its
+   * exact shape only near the end (geometry/correspond.ts blendTravel).
+   * "lerp": every point on its own straight line, shaped by `lag`.
+   */
+  travel?: "rigid" | "lerp"
+  /** Rigid travel: spread the piece starts over this fraction, in order along `axis`. Default 0. */
+  stagger?: number
+  /** Rigid travel: how far paths bow (fraction of their length). Default 0.2. */
+  arc?: number
+  /** Rigid travel: when, in its flight, a piece starts bending into shape. Default 0.5. */
+  bend?: number
+  /**
+   * Join each side's curves that meet end to end into longer strokes
+   * before matching (chainCurves) — fewer, longer pieces. Default true.
+   */
+  chain?: boolean
 }
 
 /**
@@ -238,14 +258,14 @@ export class MorphCurves extends Stroke {
   private curvesMemo?: { curves: Vec3Like[][]; version: number }
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
-    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, ...rest } = options
+    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, ...rest } = options
     super(rest)
     if (!sources.length || !targets.length)
       throw new Error(
         `MorphCurves: needs at least one source and one target holon (got ${sources.length} → ${targets.length}). ` +
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
-    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate } }
+    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain } }
   }
 
   /** The current plan — re-planned only when an input's curves change. */
@@ -266,8 +286,28 @@ export class MorphCurves extends Stroke {
     if (this.planMemo && sameKey(this.planMemo.key, key)) return this.planMemo
     const srcOwner: Holon[] = []
     const tgtOwner: Holon[] = []
-    const src = sources.flatMap((h) => partCurvesOf(h).map((c) => (srcOwner.push(c.part), c.curve)))
-    const tgt = targets.flatMap((h) => partCurvesOf(h).map((c) => (tgtOwner.push(c.part), c.curve)))
+    let src = sources.flatMap((h) => partCurvesOf(h).map((c) => (srcOwner.push(c.part), c.curve)))
+    let tgt = targets.flatMap((h) => partCurvesOf(h).map((c) => (tgtOwner.push(c.part), c.curve)))
+    if (opts.chain ?? true) {
+      // Strokes, not shards: join each side's curves that meet end to end.
+      // A chain wears its first member's colour.
+      const tolOf = (cs: Vec3Like[][]) => {
+        const pts = cs.flat()
+        if (!pts.length) return 0
+        const span = (k: "x" | "y" | "z") => Math.max(...pts.map((p) => p[k])) - Math.min(...pts.map((p) => p[k]))
+        return Math.hypot(span("x"), span("y"), span("z")) * 0.004
+      }
+      const cs = chainCurves(src, tolOf(src))
+      const ct = chainCurves(tgt, tolOf(tgt))
+      const so = cs.members.map((m) => srcOwner[m[0]!]!)
+      const to = ct.members.map((m) => tgtOwner[m[0]!]!)
+      src = cs.curves
+      tgt = ct.curves
+      srcOwner.length = 0
+      srcOwner.push(...so)
+      tgtOwner.length = 0
+      tgtOwner.push(...to)
+    }
     let normal = opts.normal
     if (!normal && obs) {
       const view = viewOf(obs)
@@ -341,7 +381,12 @@ export class MorphCurves extends Stroke {
     const { plan, offset } = this.plan()
     const f = this.frameMemo
     if (f && f.plan === plan && f.u === u && f.offset === offset) return f
-    this.frameMemo = { plan, u, offset, curves: blendPlan(plan, u, this.ends.opts.lag ?? 0.5, offset), version: ++this.frames }
+    const o = this.ends.opts
+    const curves =
+      (o.travel ?? "rigid") === "rigid"
+        ? blendTravel(plan, u, { stagger: o.stagger, axis: o.axis, arc: o.arc, bend: o.bend, offset })
+        : blendPlan(plan, u, o.lag ?? 0.5, offset)
+    this.frameMemo = { plan, u, offset, curves, version: ++this.frames }
     return this.frameMemo
   }
 

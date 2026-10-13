@@ -218,3 +218,53 @@ describe("degenerate inputs", () => {
     expect(correspond(EDGES, []).pieces).toEqual([])
   })
 })
+
+describe("rigid-then-deform travel", () => {
+  const { blendTravel, chainCurves } = require("../src/geometry/correspond") as typeof import("../src/geometry/correspond")
+  const plan = planMorph(ARCS, EDGES, { normal: { x: 0, y: 0, z: 1 } })
+
+  for (const stagger of [0, 0.4]) {
+    test(`exact at both ends (stagger ${stagger}), offsets included`, () => {
+      const at0 = blendTravel(plan, 0, { stagger })
+      const at1 = blendTravel(plan, 1, { stagger })
+      plan.pieces.forEach((p, i) => {
+        at0[i]!.forEach((q, j) => expect(Math.hypot(q.x - p.from[j]!.x, q.y - p.from[j]!.y, q.z - p.from[j]!.z)).toBeLessThan(1e-9))
+        at1[i]!.forEach((q, j) => expect(Math.hypot(q.x - p.to[j]!.x, q.y - p.to[j]!.y, q.z - p.to[j]!.z)).toBeLessThan(1e-9))
+      })
+      const off = { from: { x: 10, y: 0, z: 0 }, to: { x: 0, y: -5, z: 2 } }
+      const moved = blendTravel(plan, 1, { stagger, offset: off })
+      expect(moved[0]![0]!.y).toBeCloseTo(plan.pieces[0]!.to[0]!.y - 5, 9)
+    })
+  }
+
+  test("mid-flight, a piece is still ONE polyline of its own point count, and pieces leave in stagger order", () => {
+    const mid = blendTravel(plan, 0.3, { stagger: 0.6, axis: { x: 1, y: 0, z: 0 } })
+    plan.pieces.forEach((p, i) => expect(mid[i]!.length).toBe(p.from.length))
+    const keyOf = (i: number) => plan.pieces[i]!.motion.ct.x
+    const moved = (i: number) => mid[i]!.some((q, j) => Math.hypot(q.x - plan.pieces[i]!.from[j]!.x, q.y - plan.pieces[i]!.from[j]!.y) > 1e-6)
+    const order = plan.pieces.map((_, i) => i).sort((a, b) => keyOf(a) - keyOf(b))
+    // The leftmost-bound piece has left; the rightmost has not yet.
+    expect(moved(order[0]!)).toBe(true)
+    expect(moved(order[order.length - 1]!)).toBe(false)
+  })
+
+  test("chainCurves joins curves that meet, keeps length, leaves closed ones alone", () => {
+    const sq = [
+      [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }],
+      [{ x: 10, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }], // reversed on purpose
+      [{ x: 10, y: 10, z: 0 }, { x: 0, y: 10, z: 0 }],
+      circle(50, 50, 5),
+    ]
+    const { curves, members } = chainCurves(sq, 1e-6)
+    expect(curves.length).toBe(2)
+    expect(members[0]).toEqual([0, 1, 2])
+    expect(len(curves[0]!)).toBeCloseTo(30, 9)
+    expect(curves[1]!.length).toBe(circle(50, 50, 5).length)
+  })
+
+  test("sweep-angular merges stretches that continue each other on both sides", () => {
+    const one = [arc(0, 0, 100, 0, Math.PI)]
+    const { pieces } = correspond(one, [circle(0, 0, 50)], { order: "sweep-angular" })
+    expect(pieces.length).toBeLessThanOrEqual(2)
+  })
+})

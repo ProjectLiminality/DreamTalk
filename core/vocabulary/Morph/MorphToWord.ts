@@ -49,10 +49,14 @@ export interface WordMorphOptions {
   at?: Vec3Like
   /** Overrides for the Word (stroke, …). */
   word?: Overrides
-  /** MorphCurves' `lag` (pieces keep their shape for the journey). Default 0: one continuous deformation. */
+  /** Travel as a point-wise lerp with this `lag` instead of rigid flight (MorphCurves). */
   lag?: number
-  /** MorphCurves' `snap` — keep short source curves whole. Default 0.01. */
+  /** MorphCurves' `snap` — keep whole strokes whole. Default 0.04. */
   snap?: number
+  /** Letters arrive one after another over this fraction of the morph. Default 0.35. */
+  stagger?: number
+  /** How far the strokes' paths bow. Default 0.15. */
+  arc?: number
 }
 
 export interface WordMorph {
@@ -116,7 +120,20 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
     ...opts.word,
   })
   const order = opts.order ?? "sweep-angular"
-  const morphOpts = { observer, opacity: 0, order, axis, lag: opts.lag ?? 0, snap: opts.snap ?? 0.01, ...(symbol instanceof Stroke ? { stroke: symbol.stroke } : {}) }
+  const morphOpts = {
+    observer,
+    opacity: 0,
+    order,
+    axis,
+    // Whole strokes to whole letters where the lengths allow (snap), the
+    // letters arriving one after another in reading order (stagger), each
+    // stroke flying as a body on a gentle arc.
+    snap: opts.snap ?? 0.04,
+    stagger: opts.stagger ?? 0.35,
+    arc: opts.arc ?? 0.15,
+    ...(opts.lag !== undefined ? { lag: opts.lag, travel: "lerp" as const } : {}),
+    ...(symbol instanceof Stroke ? { stroke: symbol.stroke } : {}),
+  }
   const toWord = new MorphCurves([symbol], [word], morphOpts)
   const toSymbol = new MorphCurves([word], [symbol], morphOpts)
   return {

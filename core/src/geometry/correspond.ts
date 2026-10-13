@@ -532,7 +532,7 @@ const sweepThenGather = (
   for (const [t, share] of [...byTarget].sort((a, b) => a[0] - b[0])) {
     // The share as curves of its own, remembering where each came from.
     const subs = share.map((p) => subCurve(sources[p.source]!, cums[p.source]!, p.from[0], p.from[1]))
-    const local = correspond(subs, [targets[t]!], { ...opts, order: "angular", rotate: true, snap: 0 })
+    const local = correspond(subs, [targets[t]!], { ...opts, order: "angular", rotate: true })
     cost += local.cost
     for (const q of local.pieces) {
       const origin = share[q.source]!
@@ -547,7 +547,34 @@ const sweepThenGather = (
       })
     }
   }
-  return { pieces, offset: first.offset, cost: byTarget.size ? cost / byTarget.size : 0 }
+  return { pieces: mergeContiguous(pieces), offset: first.offset, cost: byTarget.size ? cost / byTarget.size : 0 }
+}
+
+/**
+ * Pieces that continue each other on BOTH sides — the same source curve,
+ * the next stretch of it, onto the same target curve, the next stretch of
+ * it — were one stroke all along: join them.
+ */
+const mergeContiguous = (pieces: MorphPiece[]): MorphPiece[] => {
+  const out: MorphPiece[] = []
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
+  for (const p of pieces) {
+    const q = out[out.length - 1]
+    if (
+      q &&
+      q.source === p.source &&
+      q.target === p.target &&
+      near(q.from[1], p.from[0]) &&
+      near(q.to[1], p.to[0]) &&
+      Math.sign(q.from[1] - q.from[0]) === Math.sign(p.from[1] - p.from[0]) &&
+      Math.sign(q.to[1] - q.to[0]) === Math.sign(p.to[1] - p.to[0])
+    ) {
+      out[out.length - 1] = { ...q, from: [q.from[0], p.from[1]], to: [q.to[0], p.to[1]] }
+      continue
+    }
+    out.push(p)
+  }
+  return out
 }
 
 // ─── The plan: pieces resampled pairwise ────────────────────────────
@@ -560,10 +587,20 @@ export interface PlannedPiece {
   to: Vec3Like[]
   /** Is the target end longer than the source end? (see blendPlan's lag) */
   grows: boolean
+  /**
+   * The piece as a RIGID body (see blendTravel): its two centroids, the
+   * turn (radians, about the plan's normal) and scale that best carry the
+   * source shape onto the target's, and what is left over — the residual
+   * deformation, per point.
+   */
+  motion: { cs: Vec3Like; ct: Vec3Like; turn: number; scale: number; rel: Vec3Like[]; residual: Vec3Like[] }
 }
 
 export interface MorphPlan {
   pieces: PlannedPiece[]
+  /** The plane the travel turns in (its normal) and the plan's centre. */
+  normal: Vec3Like
+  centre: Vec3Like
   correspondence: Correspondence
 }
 
@@ -602,6 +639,7 @@ export const planMorph = (
   const totalS = sCum.reduce((s, c) => s + c.at(-1)!, 0)
   const totalT = tCum.reduce((s, c) => s + c.at(-1)!, 0)
   const step = opts.step ?? Math.max(totalS, totalT, 1e-6) / 400
+  const n3 = norm(opts.normal ?? { x: 0, y: 0, z: 1 })
   const pieces = correspondence.pieces.map((p) => {
     const [a, b] = p.from
     const [c, d] = p.to
@@ -613,15 +651,223 @@ export const planMorph = (
     const ss = [...params].sort((x, y) => x - y)
     const src = sources[p.source]!
     const tgt = targets[p.target]!
+    const from = ss.map((s) => pointAt(src, sCum[p.source]!, a + (b - a) * s))
+    const to = ss.map((s) => pointAt(tgt, tCum[p.target]!, c + (d - c) * s))
     return {
       source: p.source,
       target: p.target,
-      from: ss.map((s) => pointAt(src, sCum[p.source]!, a + (b - a) * s)),
-      to: ss.map((s) => pointAt(tgt, tCum[p.target]!, c + (d - c) * s)),
+      from,
+      to,
       grows: Math.abs(d - c) > Math.abs(b - a),
+      motion: rigidFit(from, to, n3),
     }
   })
-  return { pieces, correspondence }
+  const all = pieces.flatMap((q) => [q.motion.cs, q.motion.ct])
+  const centre = all.length
+    ? all.reduce((acc, q) => ({ x: acc.x + q.x / all.length, y: acc.y + q.y / all.length, z: acc.z + q.z / all.length }), { x: 0, y: 0, z: 0 })
+    : { x: 0, y: 0, z: 0 }
+  return { pieces, correspondence, normal: n3, centre }
+}
+
+/** Rotate v about the unit axis n by angle a (Rodrigues). */
+const rotateAbout = (v: Vec3Like, n: Vec3Like, a: number): Vec3Like => {
+  const c = Math.cos(a)
+  const s = Math.sin(a)
+  const k = dot(n, v) * (1 - c)
+  const x = cross(n, v)
+  return { x: v.x * c + x.x * s + n.x * k, y: v.y * c + x.y * s + n.y * k, z: v.z * c + x.z * s + n.z * k }
+}
+
+/**
+ * The similarity (turn about n, uniform scale) that best carries a
+ * piece's source points onto its target points, centroid to centroid
+ * (2D Procrustes in the plane of n), and the residual it leaves.
+ */
+const rigidFit = (from: readonly Vec3Like[], to: readonly Vec3Like[], n: Vec3Like): PlannedPiece["motion"] => {
+  const mean = (ps: readonly Vec3Like[]) =>
+    ps.reduce((a, q) => ({ x: a.x + q.x / ps.length, y: a.y + q.y / ps.length, z: a.z + q.z / ps.length }), { x: 0, y: 0, z: 0 })
+  const cs = mean(from)
+  const ct = mean(to)
+  const rel = from.map((q) => sub(q, cs))
+  const relT = to.map((q) => sub(q, ct))
+  const [e1, e2] = planeBasis(n)
+  let d = 0
+  let c = 0
+  let ss = 0
+  let tt = 0
+  rel.forEach((q, i) => {
+    const r = relT[i]!
+    const xs = dot(q, e1)
+    const ys = dot(q, e2)
+    const xt = dot(r, e1)
+    const yt = dot(r, e2)
+    d += xs * xt + ys * yt
+    c += xs * yt - ys * xt
+    ss += dot(q, q)
+    tt += dot(r, r)
+  })
+  // The turn is capped: a piece that would have to spin round to fit
+  // (a mirrored match) tumbles, which reads as noise. Past ±60° the bend
+  // does the rest — still exact at the end, since the residual is
+  // measured against the capped pose.
+  const fit = ss > 1e-12 && Math.hypot(c, d) > 1e-12 ? Math.atan2(c, d) : 0
+  const turn = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, fit))
+  // Growth is capped (×2): a letter that would fly at three times its
+  // size to become a long edge reads as a giant glyph, not as a stroke
+  // becoming an edge — it flies small and the bend grows it. Shrinking is
+  // not: a truck's edge bound for a dot shrinks as it flies, so every
+  // piece travels at its smaller size. Exact at the end either way.
+  const scale = ss > 1e-12 && tt > 1e-12 ? Math.min(2, Math.max(1 / 50, Math.sqrt(tt / ss))) : 1
+  const residual = to.map((q, i) => {
+    const r = rotateAbout(rel[i]!, n, turn)
+    return sub(q, { x: ct.x + r.x * scale, y: ct.y + r.y * scale, z: ct.z + r.z * scale })
+  })
+  return { cs, ct, turn, scale, rel, residual }
+}
+
+export interface TravelOptions {
+  /**
+   * Fraction of the morph over which piece starts are spread, in order of
+   * `axis` (reading order for a word): 0 = all together. Default 0.
+   */
+  stagger?: number
+  /** The direction the stagger reads along. Default the plane's first axis. */
+  axis?: Vec3Like
+  /** How far a piece's path bows, as a fraction of its length (away from the centre). Default 0.2. */
+  arc?: number
+  /** When, in a piece's own flight, it starts bending into its exact shape. Default 0.5. */
+  bend?: number
+  /** Translations for a relative plan's two ends. */
+  offset?: { from: Vec3Like; to: Vec3Like }
+}
+
+/**
+ * The morphed curves at completion u — RIGID THEN DEFORM. Each piece flies
+ * as a body: its centroid along a gentle arc (bowing away from the plan's
+ * centre, so neighbours fan out instead of crossing), turning and scaling
+ * steadily toward its target's pose; only in the last part of its flight
+ * (`bend`) does it bend from that pose into its exact target shape. A
+ * piece is a contiguous stretch of a curve, so it stays one polyline the
+ * whole way. With `stagger`, pieces leave one after another along `axis`.
+ * Exact at both ends: u = 0 is the sources, u = 1 the targets, point for
+ * point — so the handover to the real shapes cannot be seen.
+ */
+export const blendTravel = (plan: MorphPlan, u: number, opts: TravelOptions = {}): Vec3Like[][] => {
+  const t = Math.min(1, Math.max(0, u))
+  const stagger = Math.min(0.9, Math.max(0, opts.stagger ?? 0))
+  const arc = opts.arc ?? 0.2
+  const bend = Math.min(0.99, Math.max(0, opts.bend ?? 0.5))
+  const n = norm(plan.normal)
+  const of = opts.offset?.from ?? { x: 0, y: 0, z: 0 }
+  const ot = opts.offset?.to ?? { x: 0, y: 0, z: 0 }
+  const add = (a: Vec3Like, b: Vec3Like): Vec3Like => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z })
+  const centre = add(plan.centre, { x: (of.x + ot.x) / 2, y: (of.y + ot.y) / 2, z: (of.z + ot.z) / 2 })
+  const axis = norm(opts.axis ?? planeBasis(n)[0])
+  const keys = plan.pieces.map((p) => dot(add(p.motion.ct, ot), axis))
+  const lo = Math.min(...keys)
+  const hi = Math.max(...keys)
+  const smooth = (e0: number, e1: number, x: number) => {
+    const k = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+    return k * k * (3 - 2 * k)
+  }
+  return plan.pieces.map((p, i) => {
+    const k = hi > lo ? (keys[i]! - lo) / (hi - lo) : 0
+    const e = stagger > 0 ? Math.min(1, Math.max(0, (t - k * stagger) / (1 - stagger))) : t
+    if (e <= 0) return p.from.map((q) => add(q, of))
+    if (e >= 1) return p.to.map((q) => add(q, ot))
+    const { rel, residual, turn, scale } = p.motion
+    const cs = add(p.motion.cs, of)
+    const ct = add(p.motion.ct, ot)
+    // The centroid's path: a quadratic arc bowing away from the centre.
+    const mid = { x: (cs.x + ct.x) / 2, y: (cs.y + ct.y) / 2, z: (cs.z + ct.z) / 2 }
+    const chord = sub(ct, cs)
+    let bow = cross(n, chord)
+    const bl = Math.hypot(bow.x, bow.y, bow.z)
+    if (bl > 1e-12) {
+      const k2 = (arc * Math.hypot(chord.x, chord.y, chord.z)) / bl
+      bow = { x: bow.x * k2, y: bow.y * k2, z: bow.z * k2 }
+      if (dot(bow, sub(mid, centre)) < 0) bow = { x: -bow.x, y: -bow.y, z: -bow.z }
+    }
+    const ctrl = add(mid, bow)
+    const a = (1 - e) * (1 - e)
+    const b2 = 2 * (1 - e) * e
+    const c2 = e * e
+    const c = { x: a * cs.x + b2 * ctrl.x + c2 * ct.x, y: a * cs.y + b2 * ctrl.y + c2 * ct.y, z: a * cs.z + b2 * ctrl.z + c2 * ct.z }
+    const sc = Math.pow(scale, e)
+    const w = smooth(bend, 1, e)
+    return rel.map((r, j) => {
+      const q = rotateAbout(r, n, turn * e)
+      const d = residual[j]!
+      return { x: c.x + q.x * sc + d.x * w, y: c.y + q.y * sc + d.y * w, z: c.z + q.z * sc + d.z * w }
+    })
+  })
+}
+
+/**
+ * Join curves that meet end to end into longer ones — the truck's edges
+ * meet at its corners, and a morph of a few long strokes reads calmer than
+ * one of many short ones. Greedy and deterministic: from each unused curve
+ * in index order, extend at either end by the curve whose end lies within
+ * `tol` and turns least. Closed curves stay as they are. `members` says
+ * which input curves each output curve is made of, in order.
+ */
+export const chainCurves = (curves: readonly Curve[], tol: number): { curves: Vec3Like[][]; members: number[][] } => {
+  const closed = (c: Curve) => c.length > 3 && Math.sqrt(dist2(c[0]!, c[c.length - 1]!)) <= 1e-9
+  const used = new Set<number>()
+  const out: Vec3Like[][] = []
+  const members: number[][] = []
+  const dir = (a: Vec3Like, b: Vec3Like) => norm(sub(b, a))
+  for (let i = 0; i < curves.length; i++) {
+    if (used.has(i)) continue
+    used.add(i)
+    let chain = [...curves[i]!]
+    const m = [i]
+    if (chain.length < 2 || closed(chain)) {
+      out.push(chain)
+      members.push(m)
+      continue
+    }
+    for (const atEnd of [true, false]) {
+      for (;;) {
+        const tip = atEnd ? chain[chain.length - 1]! : chain[0]!
+        const prev = atEnd ? chain[chain.length - 2]! : chain[1]!
+        const heading = dir(prev, tip)
+        let best = -1
+        let bestRev = false
+        let bestTurn = -Infinity
+        for (let j = 0; j < curves.length; j++) {
+          if (used.has(j)) continue
+          const c = curves[j]!
+          if (c.length < 2 || closed(c)) continue
+          for (const rev of [false, true]) {
+            const start = rev ? c[c.length - 1]! : c[0]!
+            const next = rev ? c[c.length - 2]! : c[1]!
+            if (Math.sqrt(dist2(start, tip)) > tol) continue
+            // Both directions point outward from the tip, at either end.
+            const straight = dot(heading, dir(start, next))
+            if (straight > bestTurn + 1e-12) {
+              bestTurn = straight
+              best = j
+              bestRev = rev
+            }
+          }
+        }
+        if (best < 0) break
+        used.add(best)
+        const c = bestRev ? [...curves[best]!].reverse() : [...curves[best]!]
+        if (atEnd) {
+          chain = [...chain, ...c.slice(1)]
+          m.push(best)
+        } else {
+          chain = [...[...c].reverse().slice(0, -1), ...chain]
+          m.unshift(best)
+        }
+      }
+    }
+    out.push(chain)
+    members.push(m)
+  }
+  return { curves: out, members }
 }
 
 /**
@@ -649,6 +895,7 @@ export const blendPlan = (
   if (offset) {
     const { from: a, to: b } = offset
     const moved: MorphPlan = {
+      ...plan,
       correspondence: plan.correspondence,
       pieces: plan.pieces.map((p) => ({
         ...p,
