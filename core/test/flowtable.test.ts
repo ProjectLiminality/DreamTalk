@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { flowTable, parseCSV, peakVolume, seriesAt, thinning, toRows } from "../vocabulary/FlowMap/table"
+import { flowTable, parseCSV, peakValue, peakVolume, seriesAt, thinning, toRows } from "../vocabulary/FlowMap/table"
 import { FlowMap, MOCK_FLOWMAP, type FlowMapData } from "../vocabulary/FlowMap/FlowMap"
 import { certaintyOf } from "../src/certainty"
 
@@ -123,5 +123,104 @@ describe("a FlowMap over time", () => {
     void m.parts
     const period = m.stateSpace().axes.find((a) => a.id === "period")!
     expect(period.positions.map((p) => p.name)).toEqual(["m1", "m2", "m3"])
+  })
+})
+
+describe("value ↔ money", () => {
+  const priced = flowTable(
+    toRows([
+      { from: "S1", to: "A", stage: "raw", period: "m1", volume: 10, price: 2, currency: "k€" },
+      { from: "S1", to: "A", stage: "raw", period: "m2", volume: 20, value: 50, currency: "k€" },
+      { from: "A", to: "D", stage: "semi", period: "m1", volume: 30 },
+      { from: "A", to: "D", stage: "semi", period: "m2", volume: 30 },
+    ]),
+    base,
+  )
+
+  test("value or volume × price folds into a money series; unpriced periods are unknown", () => {
+    expect(priced.currency).toBe("k€")
+    const raw = priced.flows.find((f) => f.stage === "raw")!
+    expect(raw.valueSeries).toEqual([20, 50])
+    const semi = priced.flows.find((f) => f.stage === "semi")!
+    expect(semi.valueSeries).toEqual([null, null])
+    expect(peakValue(priced)).toBe(50)
+  })
+
+  test("a table that priced nothing carries no money series; mixed currencies are refused", () => {
+    const plain = flowTable(toRows([{ from: "S1", to: "A", stage: "raw", period: "m1", volume: 1 }]), base)
+    expect(plain.flows[0]!.valueSeries).toBeUndefined()
+    expect(() =>
+      flowTable(
+        toRows([
+          { from: "S1", to: "A", stage: "raw", period: "m1", volume: 1, value: 1, currency: "EUR" },
+          { from: "S1", to: "A", stage: "raw", period: "m2", volume: 1, value: 1, currency: "USD" },
+        ]),
+        base,
+      ),
+    ).toThrow(/mixed currencies/)
+  })
+
+  test("money 0 shows value, 1 shows money; ½ shows both, parted into two lanes", () => {
+    const m = new FlowMap({ data: priced })
+    void m.parts
+    m.stage("raw").shown.value = 1
+    m.time.value = 3
+    const f = m.stage("raw").flows[0]!
+    const anyShown = (xs: { opacity: { value: number } }[]) => xs.some((x) => x.opacity.value > 0.5)
+    const coinFaces = f.money!.coins.map((c) => c.parts[0]!.parts[0]!.parts[0]! as unknown as { opacity: { value: number } })
+    expect(anyShown(f.dots)).toBe(true)
+    expect(anyShown(coinFaces)).toBe(false)
+    m.money.value = 1
+    expect(anyShown(f.dots)).toBe(false)
+    expect(anyShown(coinFaces)).toBe(true)
+    // Both: the lanes part — value on one side of the channel, money on the other.
+    m.money.value = 0.5
+    const v = f.line.points
+    const g = f.money!.line.points
+    const mid = (pts: { x: number; y: number }[]) => pts[Math.floor(pts.length / 2)]!
+    expect(Math.hypot(mid(v).x - mid(g).x, mid(v).y - mid(g).y)).toBeGreaterThan(5)
+    m.money.value = 1
+    const v1 = f.line.points
+    const g1 = f.money!.line.points
+    expect(Math.hypot(mid(v1).x - mid(g1).x, mid(v1).y - mid(g1).y)).toBeLessThan(1e-6)
+  })
+
+  test("money runs the other way down the channel", () => {
+    const m = new FlowMap({ data: priced })
+    void m.parts
+    m.stage("raw").shown.value = 1
+    m.money.value = 1
+    const f = m.stage("raw").flows[0]!
+    const g = f.money!.line.points
+    const v = f.line.points
+    // The money channel starts where the value channel ends.
+    expect(Math.hypot(g[0]!.x - v.at(-1)!.x, g[0]!.y - v.at(-1)!.y)).toBeLessThan(1e-6)
+    const carrier = f.money!.coins[0]!
+    m.time.value = 1
+    const a = { x: carrier.x.value, y: carrier.y.value }
+    m.time.value = 1.05
+    const b = { x: carrier.x.value, y: carrier.y.value }
+    const src = v[0]!
+    expect(Math.hypot(b.x - src.x, b.y - src.y)).toBeLessThan(Math.hypot(a.x - src.x, a.y - src.y))
+  })
+
+  test("money lanes are built only where money can be shown (or when asked)", () => {
+    const plain = flowTable(toRows([{ from: "S1", to: "A", stage: "raw", period: "m1", volume: 1 }]), base)
+    const m = new FlowMap({ data: plain })
+    void m.parts
+    expect(m.flows[0]!.money).toBeUndefined()
+    expect(m.stateSpace().axes.some((a) => a.id === "money")).toBe(false)
+    const asked = new FlowMap({ data: plain, moneyLanes: true })
+    void asked.parts
+    expect(asked.flows[0]!.money).toBeDefined()
+  })
+
+  test("an unpriced flow's money is conjecture", () => {
+    const m = new FlowMap({ data: priced })
+    void m.parts
+    const semi = m.stage("semi").flows[0]!
+    expect(certaintyOf(semi.money!.line)).toBeCloseTo(0.15, 12)
+    const raw = m.stage("raw").flows[0]!
+    expect(certaintyOf(raw.money!.line)).toBeCloseTo(1, 12)
   })
 })

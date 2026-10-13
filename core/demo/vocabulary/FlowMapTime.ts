@@ -19,11 +19,11 @@ import { together, type Anim } from "../../src/anim"
 import { FlowMap, MOCK_FLOWMAP } from "../../vocabulary/FlowMap/FlowMap"
 import { flowTable, parseCSV, toRows } from "../../vocabulary/FlowMap/table"
 
-const MONTHS = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`)
+export const MONTHS = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`)
 const _ = null
 
 /** The mock year: one row per flow, its volume per month (null: no data that month). */
-const YEAR: [string, string, string, (number | null)[]][] = [
+export const YEAR: [string, string, string, (number | null)[]][] = [
   ["S1", "A", "raw", [80, 85, 90, 95, 100, 110, 120, 125, 130, 135, 140, 150]],
   ["S2", "B", "raw", [120, 115, 110, 100, 95, 90, 80, 70, 60, 55, 50, 45]],
   ["S3", "G", "raw", [_, _, _, 60, 65, 70, _, _, 75, 80, 85, 90]],

@@ -300,6 +300,31 @@ describe("FlowMap", () => {
     })
   })
 
+  test("a material stage's particles ride along the channel (heading + symbolYaw), sized to the gap", () => {
+    const data: FlowMapData = {
+      ...MOCK_FLOWMAP,
+      stages: MOCK_FLOWMAP.stages.map((st) => (st.id === "semi" ? { ...st, symbol: "reel" as const } : st)),
+    }
+    const m = new FlowMap({ radius: R, data, expand: 1 })
+    void m.parts
+    m.stage("semi").shown.value = 1
+    m.time.value = 2
+    const flow = m.stage("semi").flows[0]!
+    const carrier = flow.carriers[1]!
+    // No billboard: the carrier is the Grain's direct parent and carries a heading.
+    expect(carrier.parts[0]).toBe(flow.dots[1])
+    const pts = flow.path()
+    const a = pts[0]!
+    const b = pts.at(-1)!
+    const chord = Math.atan2(-(b.z - a.z), b.x - a.x)
+    // Along the channel to within its bow, plus the 3/4 offset.
+    expect(Math.abs(carrier.h.value - m.symbolYaw.value - chord)).toBeLessThan(0.8)
+    expect((flow.dots[1] as unknown as { size: { value: number } }).size.value).toBeCloseTo((m.particleSize.value * m.spacing.value) / (MOCK_FLOWMAP.flows.find((f) => f.stage === "semi")!.rate ?? 1), 9)
+    // Dot stages keep their camera-facing carriers.
+    const raw = m.stage("raw").flows[0]!
+    expect(raw.carriers[0]!.parts[0]).not.toBe(raw.dots[0])
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)

@@ -78,3 +78,16 @@ a period WITHOUT data is conjecture — ghosted at the flow's typical level —
 and an explicit 0 is data that nothing moved: the flow draws nothing until
 volume arrives. A small period axis and readout come with it.
 `?scene=flowmap-time` runs a mock year.
+
+**Value ↔ money** ("every material flow comes with the inverse money
+flow"): a table with a `value` or `price` column (and `currency`) gives each
+flow a money series. `money` 0 shows value; 1 shows MONEY — the same
+channels, gold coins running back the other way, arrows reversed; ½ shows
+both, counter-flowing in paired lanes that part sideways. A flow with no
+money data shows its money as conjecture (ghosted). Lanes are built only
+when the data carries money, or with `moneyLanes: true`.
+`?scene=flowmap-money`.
+
+**Material particles** ride along their channel (heading + `symbolYaw`,
+upright, sized `particleSize` of the gap between particles), so a reel
+reads as a reel; dots keep facing the camera.

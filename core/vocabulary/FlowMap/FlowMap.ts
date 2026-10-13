@@ -60,11 +60,11 @@
 
 import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
-import { angle, choice, completion, derive, length, scalar, state, type Readable } from "../../src/params"
+import { angle, choice, completion, derive, length, paramEpoch, scalar, state, type Param, type Readable } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
-import { certainty, presence, wobble } from "../../src/certainty"
+import { certainty, presence, presencesOf, wobble } from "../../src/certainty"
 import type { Observer } from "../../src/dream"
 import type { SolidDrawing } from "../../src/parts/soliddrawing"
 import { Grain, NEUTRAL } from "../Grain/Grain"
@@ -72,8 +72,13 @@ import { Pallet } from "../Pallet/Pallet"
 import { FilmReel } from "../FilmReel/FilmReel"
 import { Pouch } from "../Pouch/Pouch"
 import { SheetStack } from "../SheetStack/SheetStack"
+import { Carton } from "../Carton/Carton"
+import { Sack } from "../Sack/Sack"
+import { LabelRoll } from "../LabelRoll/LabelRoll"
+import { Drum } from "../Drum/Drum"
+import { Coin } from "../Coin/Coin"
 import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
-import { peakVolume, seriesAt, thinning } from "./table"
+import { peakValue, peakVolume, seriesAt, thinning } from "./table"
 import {
   arcTable,
   atArcLength,
@@ -121,29 +126,58 @@ export interface FlowMapData {
      * certainty follows the data's coverage. See table.ts.
      */
     series?: (number | null)[]
+    /**
+     * Money per period for the same flow (in `currency`), when the table
+     * had a value or price. Money runs the OTHER way down the channel —
+     * every value flow comes with its inverse money flow. Without it, the
+     * money lane is drawn as conjecture.
+     */
+    valueSeries?: (number | null)[]
   }[]
   /** The time axis the flows' series run along, in order ("2026-01", …). */
   periods?: string[]
   /** What the series measure ("t", "pallets", …). */
   unit?: string
+  /** What `valueSeries` is counted in ("EUR", "k€", …). */
+  currency?: string
 }
 
 /** What a particle is drawn as: the neutral dot, or a material it can become (a Grain's type symbol). */
-export const PARTICLE_SYMBOLS = ["dot", "pallet", "octabin", "reel", "pouch", "sheets"] as const
+export const PARTICLE_SYMBOLS = [
+  "dot",
+  "pallet",
+  "octabin",
+  "reel",
+  "pouch",
+  "sheets",
+  "carton",
+  "sack",
+  "labels",
+  "drum",
+  "coin",
+] as const
 export type ParticleSymbol = (typeof PARTICLE_SYMBOLS)[number]
 
-/** The material symbols, by name (vocabulary/Pallet, FilmReel, Pouch, SheetStack). */
+/** The material symbols, by name (vocabulary/Pallet, FilmReel, Pouch, SheetStack, Carton, Sack, LabelRoll, Drum, Coin). */
 const MATERIALS: Record<Exclude<ParticleSymbol, "dot">, (o: ConstructorParameters<typeof Pallet>[0]) => SolidDrawing> = {
   pallet: (o) => new Pallet(o),
   octabin: (o) => new Pallet({ ...o, load: "octabin" }),
   reel: (o) => new FilmReel(o),
   pouch: (o) => new Pouch(o),
   sheets: (o) => new SheetStack(o),
+  carton: (o) => new Carton(o),
+  sack: (o) => new Sack(o),
+  labels: (o) => new LabelRoll(o),
+  drum: (o) => new Drum(o),
+  coin: (o) => new Coin({ ...o, count: 3 }),
 }
 
 const CATEGORY_TINTS: Color[] = [RED, BLUE, GREEN, YELLOW, PURPLE]
 const PARTNER_TINT = rgb(150, 150, 150)
 const LABEL_TINT = rgb(170, 170, 170)
+/** Money's colour — the coins and their lane. */
+const GOLD = rgb(236, 190, 72)
+const GOLD_DEEP = rgb(150, 110, 30)
 
 const mix = (a: Color, b: Color, u: number): Color => ({
   r: a.r + (b.r - a.r) * u,
@@ -178,6 +212,8 @@ export class Flow extends Group {
   dots: (Circle | Grain)[] = []
   /** Each particle's carrier: positioned on the channel, turned to face the camera. */
   carriers: Group[] = []
+  /** The inverse flow: money, back down the same channel (see FlowMap.money). */
+  money?: MoneyLane
   /**
    * The channel's full path, in the STACK's frame (`FlowMap.stack` — compose
    * with its transform for world space), sampled evenly in parameter.
@@ -188,6 +224,13 @@ export class Flow extends Group {
    * s ∈ [0, 1] — or −1 while it is hidden in the pipe. Pure f(time).
    */
   particles: () => number[] = () => []
+}
+
+/** A flow's money lane: its channel (pointing back) and its coins. Its certainty is the money data's coverage. */
+export class MoneyLane extends Group {
+  certainty = certainty(1)
+  line!: Line
+  coins: Group[] = []
 }
 
 /** One step of the value chain — a layer of flows that can be shown, opened, ghosted. */
@@ -255,6 +298,27 @@ export class FlowMap extends Null {
   channel = completion(0.38)
   /** Stage and category names: 1 shown, 0 off. */
   labels = completion(1)
+  /**
+   * Value ↔ money: 0 the material/value flows (as drawn so far); 1 the
+   * MONEY flows — the same channels, coins running the other way, the
+   * inverse of every value flow; ½ both at once, counter-flowing in paired
+   * lanes that part sideways so they never collide.
+   */
+  money = completion(0)
+  /**
+   * Build the money lanes? Undefined (the default): only when the data
+   * carries money (any flow's `valueSeries`). true: always — unpriced flows
+   * then show their money as conjecture. false: never. A construction choice:
+   * a lane per flow doubles the particles.
+   */
+  moneyLanes: boolean | undefined = undefined
+  private lanesWanted(): boolean {
+    return this.moneyLanes ?? this.data.flows.some((f) => f.valueSeries !== undefined)
+  }
+  /** A material symbol's turn off its channel's heading — a 3/4 view, so one coming toward you is never seen end-on. */
+  symbolYaw = angle(0.5)
+  /** A material symbol's extent as a share of the arc between particles. */
+  particleSize = scalar(0.75)
   /**
    * Where along the data's periods the map stands — continuous (0 … P−1):
    * between two periods every flow's volume and coverage are interpolated,
@@ -365,6 +429,14 @@ export class FlowMap extends Null {
         )
       }
     })
+    if (this.lanesWanted())
+      axes.push(
+        axis("money", this, { value: { money: 0 }, both: { money: 0.5 }, money: { money: 1 } }, {
+          key: "m",
+          duration: 1.6,
+          handles: () => this.flows.map((f) => f.line),
+        }),
+      )
     const periods = this.data.periods ?? []
     if (periods.length > 1)
       axes.push(
@@ -382,6 +454,15 @@ export class FlowMap extends Null {
   private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number; scale: number }
   private memoKey: number[] = []
   private memoFrame?: Frame
+  private memoEpoch = -1
+  /** Every presence on the map and above it (resolved at first use — a wrapper may adopt the map late). */
+  private presences?: Param<number>[]
+  /** Is anything of the map visible at all? Particles skip their work when not. */
+  private present(): boolean {
+    this.presences ??= presencesOf(this)
+    for (const p of this.presences) if (p.value <= 0) return false
+    return true
+  }
 
   /** A member ring's radius now. */
   private memberSize(): number {
@@ -403,6 +484,12 @@ export class FlowMap extends Null {
 
   /** Everything the picture's geometry depends on, except time. */
   frame(): Frame {
+    // O(1) after the first call per param change: every particle reads this
+    // several times a frame, and the key below reads ~10 params through the
+    // holon proxy (src/params.ts paramEpoch — it moves on any param write).
+    const epoch = paramEpoch()
+    if (this.memoFrame && this.memoEpoch === epoch) return this.memoFrame
+    this.memoEpoch = epoch
     const key = [
       this.radius.value,
       this.memberScale.value,
@@ -635,6 +722,18 @@ export class FlowMap extends Null {
       // What the data says about this flow now: covered = as declared,
       // uncovered = conjecture (but never below the floor of a ghost).
       const sure = () => flowCertainty * (series ? 0.15 + 0.85 * reading().coverage : 1)
+      // The money side: its own series if the table had value/price, else
+      // the value lane's level as conjecture.
+      const valueSeries = f.valueSeries && this.data.periods ? f.valueSeries : undefined
+      const peakMoney = valueSeries ? peakValue(this.data) : 1
+      const moneyReading = () => (valueSeries ? seriesAt(valueSeries, this.period.value) : { volume: 0, coverage: 0 })
+      const moneyShare = () => (valueSeries ? Math.min(1, moneyReading().volume / peakMoney) : share())
+      const moneySure = () => (valueSeries ? 0.15 + 0.85 * moneyReading().coverage : 0.15)
+      // Lanes: value on one side, money on the other, parted only while
+      // both show (money = ½); each alone runs down the middle.
+      const both = () => 1 - Math.abs(2 * this.money.value - 1)
+      const valueShown = () => 1 - smooth(0.5, 1, this.money.value)
+      const moneyShown = () => smooth(0, 0.5, this.money.value)
       // Each flow bows its own way, so flows sharing ends stay apart; staged,
       // a gap's flows also fan apart vertically at their middles (rank in
       // the stage, by source height), so a bundle reads as separate strands
@@ -668,6 +767,15 @@ export class FlowMap extends Null {
         }
         return table
       }
+      // The lane offset: sideways in the picture's plane, across the chord.
+      const lane = (side: 1 | -1) => {
+        const { points } = channel()
+        const a = points[0]!
+        const b = points[points.length - 1]!
+        const L = Math.hypot(b.x - a.x, b.y - a.y) || 1
+        const k = side * R() * 0.035 * both()
+        return { x: (-(b.y - a.y) / L) * k, y: ((b.x - a.x) / L) * k }
+      }
       const line = new Line({
         tint,
         // Width follows volume when there is a series: a trickle is a hair,
@@ -677,19 +785,26 @@ export class FlowMap extends Null {
         arrowSize: 1.05,
         // A flow whose data says nothing moved draws nothing; it appears as
         // volume arrives (a conjectured flow keeps its typical level).
-        opacity: derive(() => this.channel.value * smooth(0, 0.15, stage.shown.value) * (series ? smooth(0, 0.05, share()) : 1)),
+        opacity: derive(
+          () => this.channel.value * smooth(0, 0.15, stage.shown.value) * (series ? smooth(0, 0.05, share()) : 1) * valueShown(),
+        ),
       })
       // The channel draws on from source to target as its layer is shown —
       // never empty, so the host always has a ribbon and an arrowhead.
-      derivePoints(line, () => [this.frame(), stage.shown.value], () => {
+      const lanePoints = (side: 1 | -1, reversed: boolean) => {
         const { points, lengths } = channel()
         const total = lengths[lengths.length - 1]!
         const reach = Math.max(0.02, stage.shown.value) * total
+        const o = lane(side)
         const pts: Vec3Like[] = []
         const N = 32
-        for (let j = 0; j <= N; j++) pts.push(atArcLength(points, lengths, (j / N) * reach))
-        return pts
-      })
+        for (let j = 0; j <= N; j++) {
+          const p = atArcLength(points, lengths, (j / N) * reach)
+          pts.push({ x: p.x + o.x, y: p.y + o.y, z: p.z })
+        }
+        return reversed ? pts.reverse() : pts
+      }
+      derivePoints(line, () => [this.frame(), stage.shown.value, this.money.value], () => lanePoints(1, false))
 
       // Particles: evenly spaced by arc length, `spacing / rate` apart, at
       // `speed`. The pool covers the longest this channel can get; particles
@@ -704,32 +819,44 @@ export class FlowMap extends Null {
       const carriers: Group[] = []
       const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
       for (let j = 0; j < n; j++) {
-        let memoT = Number.NaN
-        let memoF: Frame | undefined
-        let memoShown = Number.NaN
-        let memo = { x: 0, y: 0, z: 0, o: 0 }
+        let memoEpoch = -1
+        let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0 }
         const cur = () => {
-          const fr = this.frame()
           const shown = stage.shown.value
-          if (memoT === this.time.value && memoF === fr && memoShown === shown) return memo
-          memoT = this.time.value
-          memoF = fr
-          memoShown = shown
+          const epoch = paramEpoch()
+          if (memoEpoch === epoch) return memo
+          memoEpoch = epoch
+          // Nothing to see: keep the last place, show nothing, skip the work.
+          if (shown <= 0 || !this.present()) {
+            memo = { ...memo, o: 0 }
+            return memo
+          }
           const { points, lengths } = channel()
           const L = lengths[lengths.length - 1]!
           const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
-          const o = streamFade(s, L, shown) * (series ? thinning(j, share()) : 1)
+          const o = streamFade(s, L, shown) * (series ? thinning(j, share()) : 1) * valueShown()
           const p = atArcLength(points, lengths, Math.min(s, L))
           const c = stage.certainty.value * sure()
           const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
-          memo = { x: p.x + w.x, y: p.y + w.y, z: p.z, o }
+          const off = lane(1)
+          // The channel's heading here (about the vertical), for a material
+          // symbol to ride along it: from a little behind to a little ahead.
+          let heading = 0
+          if (material) {
+            const q = atArcLength(points, lengths, Math.min(s + 2, L))
+            const b = atArcLength(points, lengths, Math.max(s - 2, 0))
+            heading = Math.atan2(-(q.z - b.z), q.x - b.x)
+          }
+          memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o, heading }
           return memo
         }
         const dot = material
           ? new Grain({
               observer: this.seenBy?.(),
               radius: derive(() => R() * 0.02),
-              size: derive(() => R() * 0.1),
+              // As large as the gap between particles allows — symbols never
+              // overlap; a scene that wants them bigger raises `spacing`.
+              size: derive(() => this.particleSize.value * sp()),
               category: tint,
               // Rung 0 is a neutral grey dot — mass only, kind unknown — so a
               // material stage can climb the whole ladder (stage(id).rung 0 → 2).
@@ -746,15 +873,86 @@ export class FlowMap extends Null {
               opacity: derive(() => cur().o),
             })
         dots.push(dot)
+        const at = { x: derive(() => cur().x), y: derive(() => cur().y), z: derive(() => cur().z) }
         carriers.push(
-          this.facing(dot, {
-            x: derive(() => cur().x),
-            y: derive(() => cur().y),
-            z: derive(() => cur().z),
-          }),
+          material
+            ? // A material symbol is a solid: it rides ALONG the channel,
+              // upright, turned by the channel's heading plus a fixed 3/4
+              // (`symbolYaw`), so it shows its 3D side as the stack turns. A
+              // Grain turns its own dot and label to the camera, so it needs
+              // no billboard.
+              new Group({ members: [dot], ...at, h: derive(() => cur().heading + this.symbolYaw.value) })
+            : this.facing(dot, at),
         )
       }
-      const flow = new Flow({ members: [line, ...carriers], certainty: flowCertainty })
+      // --- the money lane: the same channel, back the other way -------------
+      // Built only where money can be shown (see `moneyLanes`): a lane per
+      // flow doubles the particles.
+      let moneyLane: MoneyLane | undefined
+      if (this.lanesWanted()) {
+        const moneyLine = new Line({
+          tint: GOLD,
+          stroke: derive(() => 1 + 4.5 * moneyShare()),
+          arrowEnd: true,
+          arrowSize: 1.05,
+          opacity: derive(() => this.channel.value * smooth(0, 0.15, stage.shown.value) * smooth(0, 0.05, moneyShare()) * moneyShown()),
+        })
+        derivePoints(moneyLine, () => [this.frame(), stage.shown.value, this.money.value], () => lanePoints(-1, true))
+        const coins: Group[] = []
+        for (let j = 0; j < n; j++) {
+          let memoEpoch = -1
+          let memo = { x: 0, y: 0, z: 0, o: 0 }
+          const cur = () => {
+            const epoch = paramEpoch()
+            if (memoEpoch === epoch) return memo
+            memoEpoch = epoch
+            if (stage.shown.value <= 0 || this.money.value <= 0 || !this.present()) {
+              memo = { ...memo, o: 0 }
+              return memo
+            }
+            const { points, lengths } = channel()
+            const L = lengths[lengths.length - 1]!
+            // Money runs from the flow's target back to its source: the arc
+            // position counts down from the end.
+            const s = streamArc(j, n, sp(), this.speed.value, this.time.value, (seed + 0.5) % 1)
+            const o = streamFade(s, L, stage.shown.value) * thinning(j, moneyShare()) * moneyShown()
+            const p = atArcLength(points, lengths, Math.max(0, L - Math.min(s, L)))
+            const c = stage.certainty.value * moneySure()
+            const w = wobble(seed * 17 + j, this.time.value, c, R() * 0.035)
+            const off = lane(-1)
+            memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o }
+            return memo
+          }
+          // A coin: a gold disc with a deeper ring struck inside it.
+          const face = new Circle({
+            radius: derive(() => R() * 0.024),
+            stroke: 0,
+            fillOpacity: 1,
+            tint: GOLD,
+            opacity: derive(() => cur().o),
+          })
+          const ring = new Circle({
+            radius: derive(() => R() * 0.014),
+            stroke: 1.2,
+            tint: GOLD_DEEP,
+            opacity: derive(() => cur().o),
+          })
+          coins.push(
+            this.facing(new Group({ members: [face, ring] }), {
+              x: derive(() => cur().x),
+              y: derive(() => cur().y),
+              z: derive(() => cur().z),
+            }),
+          )
+        }
+        moneyLane = new MoneyLane({ members: [moneyLine, ...coins] })
+        moneyLane.certainty.follow(derive(moneySure))
+        moneyLane.line = moneyLine
+        moneyLane.coins = coins
+      }
+
+      const flow = new Flow({ members: moneyLane ? [line, ...carriers, moneyLane] : [line, ...carriers], certainty: flowCertainty })
+      flow.money = moneyLane
       if (series) flow.certainty.follow(derive(sure))
       flow.line = line
       flow.dots = dots
@@ -841,7 +1039,7 @@ export class FlowMap extends Null {
       // The readout: the nearest period's name, large, above the map.
       timeline.push(
         new Text({
-          content: derive(() => periods[Math.min(P - 1, Math.max(0, Math.round(this.period.value)))]! + (d.unit ? `  ·  volume in ${d.unit}` : "")),
+          content: derive(() => periods[Math.min(P - 1, Math.max(0, Math.round(this.period.value)))]! + (this.money.value > 0.5 ? (d.currency ? `  ·  value in ${d.currency}` : "  ·  value") : d.unit ? `  ·  volume in ${d.unit}` : "")),
           size: derive(() => labelSize() * 1.3),
           tint: WHITE,
           opacity: this.labels,

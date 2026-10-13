@@ -42,6 +42,7 @@ import { EarthDataDream } from "./vocabulary/EarthData"
 import { GeoFlowDream } from "./vocabulary/GeoFlow"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
+import { FlowMapMoneyDream } from "./vocabulary/FlowMapMoney"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
 import { HorizonsDream } from "./vocabulary/Horizons"
 import { Scene00Dream } from "./origins/Scene00"
@@ -255,6 +256,8 @@ export const scenes: Record<string, DreamClass> = {
   gallery: GalleryDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
   "flowmap-time": FlowMapTimeDream,
+  // Value ↔ money: the same channels, coins counter-flowing in paired lanes.
+  "flowmap-money": FlowMapMoneyDream,
   // S&OP as one figure-eight: demand ↔ supply, value running round, untwisting into one loop.
   sop: SOPLoopDream,
   // Planning horizons: when we care, about what, and who — the open seat a ghost.

@@ -18,6 +18,11 @@
  *   null                   — NO DATA for that period: conjecture. The flow
  *                            is drawn ghosted at its typical known level.
  *
+ * A row may also say what the volume was WORTH — a `value` column, or a
+ * `price` per unit (value = volume × price), with an optional `currency`.
+ * Those fold into each flow's `valueSeries`: the money that flowed back the
+ * other way (FlowMap.money draws it).
+ *
  * Entities the base data does not know are added as partners when
  * `autoPartners` is set — a supplier only ever sends ("in"), a customer
  * only ever receives ("out"), anything else is "both" — so a raw export
@@ -36,6 +41,11 @@ export interface FlowRow {
   volume: number
   unit?: string
   item?: string
+  /** What the row's volume was worth (the money that flowed back), in `currency`. */
+  value?: number
+  /** Or its price per unit of volume: value = volume × price. */
+  price?: number
+  currency?: string
 }
 
 /**
@@ -77,6 +87,13 @@ export const parseCSV = (text: string): Record<string, string>[] => {
   return body.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? "").trim()])))
 }
 
+const optionalNumber = (v: unknown, name: string, i: number): number | undefined => {
+  if (v === undefined || v === "") return undefined
+  const n = Number(v)
+  if (!Number.isFinite(n)) throw new Error(`flow table row ${i + 1}: ${name} '${String(v)}' is not a number`)
+  return n
+}
+
 /** Records (from CSV or JSON) as typed rows; a missing required column is an error that names it. */
 export const toRows = (records: readonly Record<string, unknown>[]): FlowRow[] =>
   records.map((r, i) => {
@@ -92,6 +109,9 @@ export const toRows = (records: readonly Record<string, unknown>[]): FlowRow[] =
       volume,
       unit: r.unit === undefined || r.unit === "" ? undefined : String(r.unit),
       item: r.item === undefined || r.item === "" ? undefined : String(r.item),
+      value: optionalNumber(r.value, "value", i),
+      price: optionalNumber(r.price, "price", i),
+      currency: r.currency === undefined || r.currency === "" ? undefined : String(r.currency),
     }
   })
 
@@ -123,8 +143,13 @@ export const flowTable = (rows: readonly FlowRow[], base: FlowMapData, opts: Flo
     }
   }
   const stages = new Set(base.stages.map((s) => s.id))
-  const flows = new Map<string, { from: string; to: string; stage: string; series: (number | null)[] }>()
+  const flows = new Map<
+    string,
+    { from: string; to: string; stage: string; series: (number | null)[]; valueSeries: (number | null)[] }
+  >()
   const units = new Set<string>()
+  const currencies = new Set<string>()
+  let anyValue = false
   for (const r of rows) {
     for (const end of [r.from, r.to]) if (!known.has(end)) throw new Error(`flow table: unknown entity '${end}' (set autoPartners to add it)`)
     if (!stages.has(r.stage)) throw new Error(`flow table: unknown stage '${r.stage}'`)
@@ -133,18 +158,35 @@ export const flowTable = (rows: readonly FlowRow[], base: FlowMapData, opts: Flo
     if (r.unit) units.add(r.unit)
     const key = `${r.from}\u0000${r.to}\u0000${r.stage}`
     let f = flows.get(key)
-    if (!f) flows.set(key, (f = { from: r.from, to: r.to, stage: r.stage, series: periods.map(() => null) }))
+    if (!f)
+      flows.set(key, (f = { from: r.from, to: r.to, stage: r.stage, series: periods.map(() => null), valueSeries: periods.map(() => null) }))
     f.series[at] = (f.series[at] ?? 0) + r.volume
+    // The money that came back for it, if the row says: its value, or its
+    // volume at its price. A row without either leaves that period's money
+    // unknown (null) — unless another row of the period already knew some.
+    const value = r.value ?? (r.price !== undefined ? r.volume * r.price : undefined)
+    if (value !== undefined) {
+      anyValue = true
+      f.valueSeries[at] = (f.valueSeries[at] ?? 0) + value
+      if (r.currency) currencies.add(r.currency)
+    }
   }
   if (units.size > 1) throw new Error(`flow table: mixed units (${[...units].join(", ")}) — convert before drawing`)
+  if (currencies.size > 1) throw new Error(`flow table: mixed currencies (${[...currencies].join(", ")}) — convert before drawing`)
   return {
     ...base,
     partners,
     periods,
     unit: [...units][0] ?? base.unit,
-    flows: [...flows.values()],
+    currency: [...currencies][0] ?? base.currency,
+    // A flow carries a money series only if the table priced anything at all.
+    flows: [...flows.values()].map(({ valueSeries, ...f }) => (anyValue ? { ...f, valueSeries } : f)),
   }
 }
+
+/** The largest money any flow carries back in any period (what 1.0 means for the money lanes). */
+export const peakValue = (data: FlowMapData): number =>
+  Math.max(1e-9, ...data.flows.flatMap((f) => (f.valueSeries ?? []).filter((v): v is number => v !== null)))
 
 /** The largest volume any flow carries in any period (what 1.0 means), at least a hair above 0. */
 export const peakVolume = (data: FlowMapData): number =>
