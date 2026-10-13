@@ -45,7 +45,7 @@
  * bloom last.
  */
 
-import { Circle, Line, Null, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Line, Null, Shape, type Vec3Like } from "../../src/parts/primitives"
 import { color, length } from "../../src/params"
 import { type Color, rgb } from "../../src/constants"
 import { type Anim, restage, together } from "../../src/anim"
@@ -121,7 +121,7 @@ export class SMark extends Null {
   /** One red for all three parts — the mark is single-coloured. */
   tint = color(MARK_RED)
 
-  band!: Stroke
+  band!: Shape
   /** The pen along the S's centreline (sCentreline), SMARK_PEN wide. */
   spine!: Line
   dot!: Circle
@@ -130,15 +130,11 @@ export class SMark extends Null {
   protected override compose(): void {
     const R = this.radius.value
     const k = SMARK.offset * R * Math.SQRT1_2
-    // The band is a DRAWING — a Stroke whose child is one closed Line —
-    // because that is the wash the host triangulates properly (a concave
-    // loop; a lone Line's wash is a centroid fan, right only for convex
-    // shapes). The square is convex, so its own Line's fan is exact. The
-    // outline is the wash's edge only — never inked (even a stroke-0 line
-    // draws a hairline); the pen is the spine.
-    this.band = this.add(new Stroke({ tint: this.tint, stroke: 0, fillOpacity: 1 }))
-    ;(this.band as unknown as { add(h: Line): Line }).add(
-      new Line({ points: sBandOutline(R), tint: this.tint, stroke: 0, opacity: 0 }),
+    // The band is a Shape: a concave loop needs the even-odd wash (a lone
+    // Line's wash is a centroid fan, right only for convex shapes). The
+    // square is convex, so its own Line's fan is exact. The pen is the spine.
+    this.band = this.add(
+      new Shape({ tint: this.tint, outlines: [new Line({ points: sBandOutline(R), tint: this.tint })] }),
     )
     this.spine = this.add(new Line({ points: sCentreline(R), tint: this.tint, stroke: SMARK_PEN }))
     this.dot = this.add(

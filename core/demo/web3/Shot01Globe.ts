@@ -29,7 +29,7 @@
 
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
-import { Circle, Line, Null, Stroke, derivePoints } from "../../src/parts/primitives"
+import { Circle, Line, Null, Shape, derivePoints } from "../../src/parts/primitives"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
 import { decodeSrgb, rgb, type Color } from "../../src/constants"
@@ -107,10 +107,12 @@ export class Shot01GlobeDream extends Dream {
   globe = new Recede({ members: [this.earth], reach: 203 })
 
   seam = new Line({ tint: SEAM_TINT, stroke: 2 })
-  frost = new Stroke({ tint: rgb(255, 255, 255), stroke: 0, fillOpacity: 0 })
+  /** The veil's edge: from the seam round the right limb (derived below). */
+  veil = new Line({ tint: rgb(255, 255, 255) })
+  frost = new Shape({ tint: rgb(255, 255, 255), fillOpacity: 0, outlines: [this.veil] })
   ring = new Circle({ radius: 203, tint: rgb(240, 240, 240), stroke: 1.5, opacity: 0 })
-  glowTop!: Stroke
-  glowBottom!: Stroke
+  glowTop!: Shape
+  glowBottom!: Shape
 
   constructor() {
     super()
@@ -153,24 +155,21 @@ export class Shot01GlobeDream extends Dream {
     const glowAt = (end: "top" | "bottom") => {
       // One disc of light, its brightness falling radially to nothing at its
       // rim (the host's fillFalloff) — white at the limb, gone ~90px out.
-      // A drawing (a Stroke whose one child is the closed outline, never
-      // inked) — a bare Circle draws a hairline rim even at stroke 0.
-      const g = new Stroke({
-        tint: rgb(255, 255, 255),
-        stroke: 0,
-        fillOpacity: c.map(() => 0.014 * keyed(GLOW, t())),
-        fillFalloff: 1,
-      })
+      // A Shape, not a Circle: a bare Circle draws a hairline rim even at
+      // stroke 0.
       const rim = new Line({
         points: Array.from({ length: 49 }, (_, i) => {
           const a = (i / 48) * Math.PI * 2
           return { x: (Math.cos(a) * 100) / PX, y: (Math.sin(a) * 72) / PX, z: 0 }
         }),
         tint: rgb(255, 255, 255),
-        stroke: 0,
-        opacity: 0,
       })
-      ;(g as unknown as { add(h: Line): Line }).add(rim)
+      const g = new Shape({
+        tint: rgb(255, 255, 255),
+        fillOpacity: c.map(() => 0.014 * keyed(GLOW, t())),
+        fillFalloff: 1,
+        outlines: [rim],
+      })
       const point = () => {
         const pts = seamPoints()
         const p = end === "top" ? pts[0] : pts[pts.length - 1]
@@ -186,8 +185,7 @@ export class Shot01GlobeDream extends Dream {
     this.glowBottom = glowAt("bottom")
 
     // The veil: from the seam round the right limb, a closed outline.
-    const veil = new Line({ tint: rgb(255, 255, 255), stroke: 0, opacity: 0 })
-    derivePoints(veil, () => [t()], () => {
+    derivePoints(this.veil, () => [t()], () => {
       const seam = seamPoints()
       if (seam.length < 2) return []
       const top = seam[0]!
@@ -201,7 +199,6 @@ export class Shot01GlobeDream extends Dream {
       }
       return [...seam, ...arc, top]
     })
-    ;(this.frost as unknown as { add(h: Line): Line }).add(veil)
     this.frost.fillOpacity.follow(c.map(() => FROST * land()))
 
     // The outer ring: the limb, pushed outward from 3.0s.

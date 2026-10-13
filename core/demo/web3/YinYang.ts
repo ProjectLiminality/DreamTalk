@@ -119,7 +119,7 @@
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, Shape, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, seen, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
@@ -465,16 +465,13 @@ export class YinYangDream extends Dream {
     }
 
     // Lightning bolts in the band, one on each axis and diagonal. Each is
-    // a DRAWING — a Stroke whose one child is the closed outline — because
-    // that is the wash the host fills properly for a concave shape (SMark's
-    // band); the outline itself is never inked.
+    // a Shape — a concave outline, washed even-odd, never inked.
     for (let i = 0; i < BOLT_COUNT; i++) {
       const a = (i / BOLT_COUNT) * TAU
-      const glyph = new Stroke({ tint: WHITE, stroke: 0, fillOpacity: 0 })
-      glyph.fillOpacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
-      const outline = new Line({ tint: WHITE, stroke: 0, opacity: 0 })
+      const outline = new Line({ tint: WHITE })
       deriveRot(outline, this, () => bolt(a, ring()))
-      ;(glyph as unknown as { add(h: Line): Line }).add(outline)
+      const glyph = new Shape({ tint: WHITE, fillOpacity: 0, outlines: [outline] })
+      glyph.fillOpacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
       members.push(glyph)
     }
 

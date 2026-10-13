@@ -621,6 +621,35 @@ export const derivePoints = (
 }
 
 /**
+ * A filled area of ANY outline — concave, with holes: its `outlines` are
+ * closed Lines, and the host washes them together as one even-odd interior
+ * (a lone Line's wash is a centroid fan, right only for convex shapes). The
+ * public form of the "drawing" (a Stroke whose children are all closed
+ * Lines), so no scene reaches past `add`'s protection to build one.
+ *
+ * An outline is the wash's edge, never ink (even a stroke-0 line draws a
+ * hairline), so a Shape turns its outlines' pen off; to ink the edge, draw
+ * the same points as a Line beside it. The wash is the Shape's own `tint`
+ * × `fillOpacity` × `opacity` (and `fillFalloff`, as any fill).
+ */
+export class Shape extends Stroke {
+  /** The closed outlines that bound the area (adopted at construction). */
+  outlines: Line[] = []
+  /** A shape is its wash. */
+  override stroke = length(0)
+  override fillOpacity = completion(1)
+
+  constructor(overrides: Overrides = {}) {
+    super(overrides)
+    for (const outline of this.outlines) {
+      if (!outline.opacity.isBound) outline.opacity.value = 0
+      if (!outline.stroke.isBound) outline.stroke.value = 0
+      this.add(outline)
+    }
+  }
+}
+
+/**
  * A rectangle, width × height, with the video-01 rounding morph:
  * `rounding` 0 → 1 maps to corner radius min(w,h)/2 · rounding
  * (rounding 1 on a square is literally a circle — the "cornered
