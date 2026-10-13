@@ -79,7 +79,9 @@ export class AgentArenaDream extends Dream {
   arena = new Arena({ radius: 210 })
   agent = new Figure({ height: 210 })
   arenaLabel = new Text({ content: "arena", size: LABEL, tint: BLUE, y: 255 })
-  agentLabel = new Text({ content: "agent", size: LABEL, tint: RED, y: -110 })
+  // Beneath the figure's feet (−height/2), its cap height clear of them:
+  // the baseline at y sits LABEL·0.75 of ink above itself.
+  agentLabel = new Text({ content: "agent", size: LABEL, tint: RED, y: -(210 / 2) - 14 - LABEL * 0.75 })
   primitive = new Group({ members: [this.arena, this.agent, this.arenaLabel, this.agentLabel] })
 
   // --- Beat 2: agency flows --------------------------------------------
