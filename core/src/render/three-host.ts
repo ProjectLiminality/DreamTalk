@@ -2406,6 +2406,18 @@ export class ThreeHost {
     for (const binding of this.fills) {
       consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
     }
+    // A stroke's WASH (its fillOpacity interior: a filled dot), a drawing's
+    // even-odd fill (a word) and a Surface (a mesh's fill) are areas too —
+    // clicking the middle of a filled shape picks it. Only while the fill
+    // is actually seen: a hidden form's fills must not steal the click.
+    for (const binding of [...this.washes, ...this.drawingWashes]) {
+      if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01) continue
+      consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
+    }
+    for (const binding of this.surfaces) {
+      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01) continue
+      consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
+    }
     for (const binding of this.arrows) {
       consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
     }
