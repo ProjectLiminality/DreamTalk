@@ -58,7 +58,7 @@
  * colour; `rung` 2 morphs every particle into that material's symbol.
  */
 
-import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { angle, choice, completion, derive, length, scalar, state, type Readable } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
@@ -67,7 +67,7 @@ import type { Holon } from "../../src/holon"
 import { certainty, presence, wobble } from "../../src/certainty"
 import type { Observer } from "../../src/dream"
 import type { SolidDrawing } from "../../src/parts/soliddrawing"
-import { Grain } from "../Grain/Grain"
+import { Grain, NEUTRAL } from "../Grain/Grain"
 import { Pallet } from "../Pallet/Pallet"
 import { FilmReel } from "../FilmReel/FilmReel"
 import { Pouch } from "../Pouch/Pouch"
@@ -202,8 +202,9 @@ export class FlowStage extends Group {
   symbol = choice("dot", PARTICLE_SYMBOLS)
   /**
    * How much of its particles' kind shows, when its data names a material
-   * symbol (vocabulary/Grain's rungs): 1 = the dot in the stage's colour,
-   * 2 = each particle morphed into the material's symbol.
+   * symbol (vocabulary/Grain's rungs): 0 = a neutral grey dot (mass only),
+   * 1 = the dot in the stage's colour, 2 = each particle morphed into the
+   * material's symbol.
    */
   rung = scalar(1)
   stageId = ""
@@ -680,7 +681,7 @@ export class FlowMap extends Null {
       })
       // The channel draws on from source to target as its layer is shown —
       // never empty, so the host always has a ribbon and an arrowhead.
-      deriveChannel(line, () => [this.frame(), stage.shown.value], () => {
+      derivePoints(line, () => [this.frame(), stage.shown.value], () => {
         const { points, lengths } = channel()
         const total = lengths[lengths.length - 1]!
         const reach = Math.max(0.02, stage.shown.value) * total
@@ -730,7 +731,9 @@ export class FlowMap extends Null {
               radius: derive(() => R() * 0.02),
               size: derive(() => R() * 0.1),
               category: tint,
-              neutral: tint,
+              // Rung 0 is a neutral grey dot — mass only, kind unknown — so a
+              // material stage can climb the whole ladder (stage(id).rung 0 → 2).
+              neutral: NEUTRAL,
               symbol: material,
               grain: derive(() => stage.rung.value),
               opacity: derive(() => cur().o),
@@ -800,14 +803,14 @@ export class FlowMap extends Null {
       const xAt = (i: number) => left() + ((right() - left()) * i) / (P - 1)
       const timeline: Holon[] = []
       const track = new Line({ stroke: 1.5, tint: LABEL_TINT, opacity: this.labels })
-      deriveChannel(track, () => [this.radius.value], () => [
+      derivePoints(track, () => [this.radius.value], () => [
         { x: left(), y: axisY(), z: 0 },
         { x: right(), y: axisY(), z: 0 },
       ])
       timeline.push(track)
       for (let i = 0; i < P; i++) {
         const tick = new Line({ stroke: 1.5, tint: LABEL_TINT, opacity: this.labels })
-        deriveChannel(tick, () => [this.radius.value], () => [
+        derivePoints(tick, () => [this.radius.value], () => [
           { x: xAt(i), y: axisY() - R() * 0.025, z: 0 },
           { x: xAt(i), y: axisY() + R() * 0.025, z: 0 },
         ])
@@ -936,29 +939,6 @@ interface Frame {
 /** The board's own colours: raw material blue, semi-finished white, finished red. */
 const STAGE_TINTS: Color[] = [BLUE, WHITE, RED]
 
-/**
- * Give a Line derived `points`, recomputed when any of `deps` changes —
- * bumping `geomVersion` so the host regenerates its ribbon (the memo pattern
- * of Globe's deriveRing and curves.ts's derivePoints).
- */
-const deriveChannel = (line: Line, deps: () => unknown[], compute: () => Vec3Like[]): void => {
-  let key: unknown[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = deps()
-      if (!key || next.length !== key.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}
 
 // --- Mock data: generic, illustrative, no real organisation ---------------------
 

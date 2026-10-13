@@ -25,7 +25,7 @@
  * people.
  */
 
-import { Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { completion, derive, length, scalar, type Readable } from "../../src/params"
 import { BLUE, RED, WHITE, rgb, type Color } from "../../src/constants"
@@ -160,12 +160,12 @@ export class Horizons extends Null {
     // --- the two axes -------------------------------------------------------
     const pad = () => this.row.value * 0.35
     this.timeAxis = new Line({ arrowEnd: true, stroke: 2.5, tint: WHITE })
-    deriveLine(this.timeAxis, () => [this.column.value, this.row.value], () => [
+    derivePoints(this.timeAxis, () => [this.column.value, this.row.value], () => [
       { x: 0, y: 0, z: 0 },
       { x: this.extent().W + pad(), y: 0, z: 0 },
     ])
     this.whatAxis = new Line({ arrowEnd: true, stroke: 2.5, tint: WHITE })
-    deriveLine(this.whatAxis, () => [this.column.value, this.row.value], () => [
+    derivePoints(this.whatAxis, () => [this.column.value, this.row.value], () => [
       { x: 0, y: 0, z: 0 },
       { x: 0, y: -this.extent().D - pad(), z: 0 },
     ])
@@ -200,7 +200,7 @@ export class Horizons extends Null {
         }
         for (let run = 0; run < (note ? 2 : 1); run++) {
           const region = new Line({ stroke: 2.5, tint: WHITE, creation: shown(k) })
-          deriveLine(region, () => [this.column.value, this.row.value], () =>
+          derivePoints(region, () => [this.column.value, this.row.value], () =>
             (runs()[run] ?? []).map((p) => ({ x: p.x, y: p.y, z: 0 })),
           )
           this.regions.push(region)
@@ -384,23 +384,4 @@ const wrapMiddle = (s: string): string => {
   return best < 0 ? s : `${s.slice(0, best)}\n${s.slice(best + 1)}`
 }
 
-/** Derived points, recomputed when `deps` change (the FlowMap/Globe memo pattern). */
-const deriveLine = (line: Line, deps: () => number[], compute: () => Vec3Like[]): void => {
-  let key: number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = deps()
-      if (!key || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}
 

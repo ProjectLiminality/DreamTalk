@@ -29,7 +29,7 @@
  * Supply/Operations.
  */
 
-import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { bipolar, completion, derive, length, scalar, type Readable } from "../../src/params"
 import { BLUE, RED, WHITE, type Color } from "../../src/constants"
@@ -168,7 +168,7 @@ export class SOPLoop extends Null {
         return f >= 0 ? 1 : 1 + 0.65 * f
       })
       const lobe = new Line({ tint, stroke: derive(() => 3 + 1.5 * Math.max(0, this.focus.value * (left ? -1 : 1))), opacity: presence })
-      deriveLine(lobe, () => [this.radius.value, this.round.value], () => this.lobe(left))
+      derivePoints(lobe, () => [this.radius.value, this.round.value], () => this.lobe(left))
       const named = (content: string, size: () => number, y: () => number, x: () => number, alpha: number) =>
         new Text({
           content,
@@ -316,22 +316,3 @@ export class SOPLoop extends Null {
   }
 }
 
-/** Derived points, recomputed when `deps` change (the FlowMap/Globe memo pattern). */
-const deriveLine = (line: Line, deps: () => number[], compute: () => Vec3Like[]): void => {
-  let key: number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = deps()
-      if (!key || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}

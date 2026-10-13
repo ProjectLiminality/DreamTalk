@@ -65,11 +65,7 @@ describe("one symbol, one implementation", () => {
 
   test("derived Line points go through primitives.ts derivePoints, not a private copy", () => {
     // Holons whose copy awaits their owner's next pass — this list only shrinks.
-    const PENDING = new Set([
-      "vocabulary/FlowMap/FlowMap.ts",
-      "vocabulary/SOPLoop/SOPLoop.ts",
-      "vocabulary/Horizons/Horizons.ts",
-    ])
+    const PENDING = new Set<string>([])
     const copy = /defineProperty\(\s*[\w.]+\s*,\s*"points"/
     const offenders = ALL.map(rel).filter(
       (f) => f !== "src/parts/primitives.ts" && !PENDING.has(f) && copy.test(readFileSync(join(core, f), "utf8")),
