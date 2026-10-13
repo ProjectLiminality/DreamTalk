@@ -41,6 +41,9 @@ export class LensFlowMapDream extends Dream {
       align: 1,
       alignTo: this.stack,
       dotRadius: 6,
+      // Free play: clicking this flow's line opens the lens (the line is
+      // nearer the click than the Flow group FlowMap's own gap axis owns).
+      handles: () => [this.map.stage("raw").flows[0]!.line],
       symbolSize: 1.15,
       creation: 0,
     },

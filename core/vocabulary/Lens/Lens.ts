@@ -34,12 +34,21 @@ import { rotHPB } from "../../src/parts/curves"
 import type { View } from "../../src/geometry/hiddenline"
 import { atArcLength, smooth } from "../../src/geometry/flowmap"
 import { MorphCurves, morphPhases } from "../Morph/MorphCurves"
+import { axis, type StateSpace } from "../../src/automaton"
+import { together, type Anim } from "../../src/anim"
 import { Road } from "../Road/Road"
 import { Truck } from "../Truck/Truck"
 
 export interface LensOptions {
   /** The scene's observer — the lens's contour lines and `inside` are camera-relative. */
   observer?: Observer
+  /**
+   * What else, clicked in free play, opens and closes the lens (its own far
+   * face always does) — the flow's line, so "click the arrow, the lens
+   * opens". A handle nearer the click than the owner of another axis wins
+   * (src/automaton.ts), so the line itself, not its whole group.
+   */
+  handles?: () => Holon[]
 }
 
 export class Lens extends Stroke {
@@ -59,7 +68,7 @@ export class Lens extends Stroke {
    */
   zoom = scalar(1)
 
-  protected seen!: { observer?: Observer }
+  protected seen!: { observer?: Observer; handles?: () => Holon[] }
 
   /** The near face's centre now, lens-local. */
   nearCenter(): Vec3Like {
@@ -106,9 +115,9 @@ export class Lens extends Stroke {
   })
 
   constructor(overrides: Overrides & LensOptions = {}) {
-    const { observer, ...rest } = overrides
+    const { observer, handles, ...rest } = overrides
     super({ tint: WHITE, ...rest })
-    this.seen = { observer }
+    this.seen = { observer, handles }
     for (const [i, side] of [this.sideA, this.sideB].entries())
       derivePoints(side, () => this.sideKey(), () => this.sides()[i] ?? [])
   }
@@ -197,6 +206,42 @@ export class Lens extends Stroke {
       q = { x: p.x + v.toward.x * t, y: p.y + v.toward.y * t, z: c.z }
     }
     return Math.hypot(q.x - c.x, q.y - c.y) < this.nearRadius()
+  }
+
+  /**
+   * The walkable state space (src/automaton.ts): one axis, closed ↔ open,
+   * fired by clicking the lens or its `handles` (key "o"). The opening is
+   * a verb (`openVia`), reversible: clicking again mid-flight retargets
+   * smoothly from wherever it is.
+   */
+  override stateSpace(): StateSpace {
+    const { closed, open } = this.openPositions()
+    return {
+      axes: [
+        axis("lens", this, { closed, open }, {
+          label: "lens",
+          key: "o",
+          duration: this.openDuration(),
+          handles: () => [this.far, ...(this.seen.handles?.() ?? [])],
+          via: (from, to) => this.openVia(to === "open"),
+        }),
+      ],
+    }
+  }
+
+  /** The two positions of the lens axis. */
+  protected openPositions(): { closed: Record<string, number>; open: Record<string, number> } {
+    return { closed: { lift: 0 }, open: { lift: 1 } }
+  }
+
+  /** How long the opening takes, seconds. */
+  protected openDuration(): number {
+    return 2.4
+  }
+
+  /** The opening (or closing) as a verb. */
+  protected openVia(opening: boolean): Anim {
+    return this.lift.to(opening ? 1 : 0)
   }
 
   /** Numbers that move whenever `inside` would answer differently. */
@@ -340,6 +385,22 @@ export class FlowLens extends Lens {
   }
   private localEpoch = -1
   private localMemo?: { key: string; value: { points: Vec3Like[]; lengths: number[]; s0: number; s1: number } }
+
+  // Open = lifted AND concrete: the abstract flow lifts into the window,
+  // then becomes road and trucks; closing goes back the same way.
+  protected override openPositions(): { closed: Record<string, number>; open: Record<string, number> } {
+    return { closed: { lift: 0, concrete: 0 }, open: { lift: 1, concrete: 1 } }
+  }
+
+  protected override openDuration(): number {
+    return 5
+  }
+
+  protected override openVia(opening: boolean): Anim {
+    return opening
+      ? together([this.lift.to(1), 0, 0.45], [this.concrete.to(1), 0.5, 1])
+      : together([this.concrete.to(0), 0, 0.5], [this.lift.to(0), 0.55, 1])
+  }
 
   /** A point of the flow at fraction s, carried up into the near face (and scaled with it). */
   private lifted(s: number): Vec3Like {

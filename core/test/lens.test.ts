@@ -183,3 +183,26 @@ describe("FlowLens alignment", () => {
     expect(lens.sides().length).toBe(2)
   })
 })
+
+describe("the lens in free play", () => {
+  test("one axis, closed ↔ open: its handles are the lens and what it was given; opening is lift THEN concrete", () => {
+    const stream = new Stream({ path: PATH })
+    const arrow = new Road()
+    const lens = new FlowLens(stream, { observer: new Observer(), x: -300, y: -200, handles: () => [arrow] })
+    const [ax] = lens.stateSpace().axes
+    expect(ax!.id).toBe("lens")
+    expect(ax!.positions.map((p) => p.name)).toEqual(["closed", "open"])
+    expect(ax!.handles()).toEqual([lens.far, arrow])
+    const open = ax!.via!("closed", "open").tracks
+    const w = (param: unknown) => open.filter((t) => t.param === param).map((t) => [t.relStart, t.relStop])
+    expect(w(lens.lift)[0]![1]).toBeLessThanOrEqual(w(lens.concrete)[0]![0]!)
+    const close = ax!.via!("open", "closed").tracks
+    const c = (param: unknown) => close.filter((t) => t.param === param).map((t) => [t.relStart, t.relStop])
+    expect(c(lens.concrete)[0]![1]).toBeLessThanOrEqual(c(lens.lift)[0]![0]!)
+  })
+
+  test("a Stream keeps running in free play: its time is a clock", () => {
+    const s = new Stream({ path: PATH })
+    expect(s.stateSpace().clocks).toEqual([s.time])
+  })
+})

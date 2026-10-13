@@ -3,6 +3,7 @@ import type { Holon, Overrides } from "../../src/holon"
 import { derive, integer, length, scalar } from "../../src/params"
 import { Circle, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { atArcLength, smooth, streamArc } from "../../src/geometry/flowmap"
+import type { StateSpace } from "../../src/automaton"
 
 /**
  * A stream of particles running along a path — the abstract flow: dots
@@ -66,6 +67,11 @@ export class Stream extends Stroke {
         symbol ??
         ((o) => new Circle({ radius: this.radius, tint: this.tint, stroke: 0, fillOpacity: 1, ...o })),
     }
+  }
+
+  /** In free play the stream keeps running: `time` is a clock (src/automaton.ts). */
+  override stateSpace(): StateSpace {
+    return { axes: [], clocks: [this.time] }
   }
 
   /** The path, in this holon's frame. */

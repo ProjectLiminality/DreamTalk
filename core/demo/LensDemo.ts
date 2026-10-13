@@ -32,6 +32,8 @@ export class LensDream extends Dream {
     liftY: 290,
     liftZ: 800,
     creation: 0,
+    // Free play (?play=free): click the arrow — or the lens — to open it.
+    handles: () => [this.arrow],
   })
 
   /** A beat: `dt` seconds in which the flow keeps running. */
