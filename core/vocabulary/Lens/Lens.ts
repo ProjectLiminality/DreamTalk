@@ -34,7 +34,7 @@ import { rotHPB } from "../../src/parts/curves"
 import type { View } from "../../src/geometry/hiddenline"
 import { atArcLength, smooth } from "../../src/geometry/flowmap"
 import { MorphCurves, morphPhases } from "../Morph/MorphCurves"
-import { axis, type StateSpace } from "../../src/automaton"
+import { axis, toggle, type StateSpace } from "../../src/automaton"
 import { certainty } from "../../src/certainty"
 import { together, type Anim } from "../../src/anim"
 import { Road } from "../Road/Road"
@@ -339,6 +339,27 @@ export class FlowLens extends Lens {
   align = completion(0)
   /** How far the road curves across the window, radians (0 = straight). */
   bend = angle(0.5)
+
+  /**
+   * The lens's own axis, plus — when it lies over a map's ground (`alignTo`)
+   * — the ground it shows: tipped toward the viewer, or aligned with the map.
+   */
+  override stateSpace(): StateSpace {
+    const base = super.stateSpace()
+    if (!this.flow?.opts.alignTo || this.align.isBound) return base
+    return {
+      axes: [
+        ...base.axes,
+        toggle("lens.align", this.align, {
+          label: "lens ground",
+          off: ["tipped", 0],
+          on: ["aligned", 1],
+          duration: 1.2,
+          handles: () => [this.far],
+        }),
+      ],
+    }
+  }
 
   private flow!: { source: FlowSource; opts: FlowLensOptions }
 

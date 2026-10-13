@@ -18,7 +18,7 @@ import { FlowMap } from "../vocabulary/FlowMap/FlowMap"
 import { FlowLens } from "../vocabulary/Lens/Lens"
 
 export class LensFlowMapDream extends Dream {
-  map = new FlowMap({ radius: 300 })
+  map = new FlowMap({ radius: 300, seenBy: () => this.observer })
 
   /** The map composed up front, so its stack — the flows' frame — exists. */
   stack = (void this.map.parts, this.map.stack)

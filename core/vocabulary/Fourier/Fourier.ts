@@ -59,6 +59,7 @@ import {
   type Epicycle,
   type Vec2,
 } from "../../src/geometry/fourier"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 export class FourierTrace extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
@@ -98,6 +99,17 @@ export class FourierTrace extends Null {
   inkTint = color(WHITE)
   /** Show the rotating machinery. Off leaves only the drawing. */
   showMachine = bool(true)
+
+  /** Walkable (src/automaton.ts): the drawing unmade or drawn, and the machine shown or hidden. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.turn.isBound) return undefined
+    return {
+      axes: [
+        toggle("turn", this.turn, { label: "drawing", off: ["blank", 0], on: ["drawn", 1], duration: 4, handles: [this] }),
+        toggle("machine", this.showMachine, { off: ["hidden", false], on: ["shown", true], duration: 0.2, handles: [this] }),
+      ],
+    }
+  }
 
   /** Resolution of the ink — samples per lap. */
   inkSamples = integer(1400)

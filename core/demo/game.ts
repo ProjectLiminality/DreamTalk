@@ -634,6 +634,12 @@ export class GameLoop {
       this.#owners.length >= 2
         ? `<div class="dt-game-focus">‹ ${esc(f ? f.constructor.name : "all")} ›  <i>←→</i></div>`
         : ""
+    // Seeing many symbols at once, the HUD names the walk, not every axis:
+    // visit one (←→) and its axes appear.
+    if (!f && this.#owners.length >= 4) {
+      this.#hud.innerHTML = head
+      return
+    }
     this.#hud.innerHTML = head + this.state()
       .filter((s) => s.enabled)
       .map((s) => {

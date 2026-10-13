@@ -64,6 +64,7 @@ import { Recede } from "../../src/parts/recede"
 import type { Observer } from "../../src/dream"
 import { GREAT_CIRCLE_NORMALS, greatCircleHalves, outsideDisc } from "./lattice"
 import { MARK_RED, SMark } from "./SMark"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 /** The frame's gold, lifted from the measured median for a thin line. */
 export const REGEN_GOLD: Color = rgb(196, 150, 72)
@@ -107,6 +108,12 @@ export class Regenaissance extends Null {
 
   /** The mark in the eye — its presence and colour. */
   mark = bool(true)
+
+  /** Walkable (src/automaton.ts): the mark in the eye, there or not. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.mark.isBound) return undefined
+    return { axes: [toggle("mark", this.mark, { off: ["unmarked", false], on: ["marked", true], duration: 0.3, handles: [this] })] }
+  }
   markTint = color(MARK_RED)
   /** The white ring the mark sits in. */
   eyeTint = color(WHITE)

@@ -45,6 +45,7 @@
 import { Group, Line, Null, derivePoints } from "../../src/parts/primitives"
 import { color, completion, integer, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
+import { toggle, type StateSpace } from "../../src/automaton"
 
 export interface Vec2 {
   readonly x: number
@@ -69,6 +70,12 @@ export class Plot extends Null {
 
   /** How much of the curve is drawn, left to right. */
   reveal = completion(0)
+
+  /** Walkable (src/automaton.ts): the curve undrawn or drawn, left to right. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.reveal.isBound) return undefined
+    return { axes: [toggle("reveal", this.reveal, { off: ["undrawn", 0], on: ["drawn", 1], duration: 2, handles: [this] })] }
+  }
 
   /** Samples across the domain. A divergence needs plenty near its pole. */
   samples = integer(900)
