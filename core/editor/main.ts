@@ -40,6 +40,7 @@ import { onTextLayout } from "../src/render/text"
 import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
+import { touchCamera } from "./touchcamera"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
@@ -1619,6 +1620,23 @@ const boot = async (resume?: Transport) => {
     },
     listen,
   )
+
+  // Touch (editor/touchcamera.ts, shared with the player): one finger flies
+  // through the pointer handlers above; two pinch to dolly and drag to pan;
+  // a double-tap frames. The editor never scrolls, so the stage keeps
+  // touch-action none from the start.
+  canvas.style.touchAction = "none"
+  touchCamera(canvas, {
+    live: () => !playing,
+    view: () => view,
+    onPinchStart: () => {
+      flight = null
+      canvas.classList.remove("flying")
+    },
+    onChange: () => void host.renderFrame(current).then(() => syncPanel()),
+    onDoubleTap: (x, y) => frameHolon(pickAt(x, y) ?? null),
+    signal: ac.signal,
+  })
 
   // --- Transport -----------------------------------------------------------
   let playing = false

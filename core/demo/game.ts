@@ -46,7 +46,8 @@ import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
-import { DOLLY_PER_NOTCH, ViewLayer, keepOutsOf } from "../src/view"
+import { ViewLayer, keepOutsOf } from "../src/view"
+import { touchCamera } from "../editor/touchcamera"
 import type { Observer } from "../src/dream"
 
 export interface GameHost {
@@ -113,9 +114,6 @@ export class GameLoop {
   #installed = false
   #drag: { x: number; y: number; pan: boolean; moved: boolean; id: number } | null = null
   #lastClick: { x: number; y: number; at: number; fired?: { axis: string; from: string } } | null = null
-  /** Fingers on the glass (touch pointers), for the two-finger pinch/pan. */
-  readonly #touches = new Map<number, { x: number; y: number }>()
-  #pinch: { dist: number; mid: { x: number; y: number } } | null = null
   #lastPointerTouch = false
   #on = false
   /** Wall-clock origin of the automaton's clock (ms); undefined = manual clock. */
@@ -188,13 +186,6 @@ export class GameLoop {
       "pointermove",
       (e) => {
         if (!this.#live()) return
-        if (e.pointerType === "touch" && this.#touches.has(e.pointerId)) {
-          this.#touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
-          if (this.#pinch) {
-            this.#pinchMove()
-            return
-          }
-        }
         const d = this.#drag
         if (d && this.view) {
           const dx = e.clientX - d.x
@@ -227,16 +218,6 @@ export class GameLoop {
       (e) => {
         if (!this.#live() || e.button > 2) return
         this.#lastPointerTouch = e.pointerType === "touch"
-        if (e.pointerType === "touch") {
-          this.#touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
-          if (this.#touches.size >= 2 && this.view) {
-            // A second finger: no click, no one-finger orbit — a pinch.
-            this.#press = null
-            this.#drag = null
-            this.#pinch = this.#pinchState()
-            return
-          }
-        }
         if (e.button === 0) this.#press = { x: e.clientX, y: e.clientY }
         this.#drag = { x: e.clientX, y: e.clientY, pan: e.button !== 0 || e.shiftKey, moved: false, id: e.pointerId }
       },
@@ -253,21 +234,21 @@ export class GameLoop {
       },
       { ...listen, passive: false },
     )
-    const lift = (e: PointerEvent): boolean => {
-      if (e.pointerType !== "touch") return false
-      this.#touches.delete(e.pointerId)
-      if (!this.#pinch) return false
-      // The pinch ends with the gesture: the finger left behind neither
-      // clicks nor orbits until it lifts too.
-      if (this.#touches.size < 2) this.#pinch = null
-      this.#press = null
-      this.#drag = null
-      return true
-    }
+    // Two fingers pinch and pan (editor/touchcamera.ts — the editor shares
+    // it); its events never reach the handlers here. A double-tap is a
+    // double-click to `click()`, which frames without firing.
+    touchCamera(canvas, {
+      live: () => this.#live(),
+      view: () => this.view,
+      onPinchStart: () => {
+        this.#press = null
+        this.#drag = null
+      },
+      signal: opts.signal,
+    })
     canvas.addEventListener(
       "pointercancel",
-      (e) => {
-        lift(e)
+      () => {
         this.#press = null
         this.#drag = null
       },
@@ -276,7 +257,6 @@ export class GameLoop {
     canvas.addEventListener(
       "pointerup",
       (e) => {
-        if (lift(e)) return
         const press = this.#press
         this.#press = null
         const drag = this.#drag
@@ -315,24 +295,6 @@ export class GameLoop {
     return this.#release !== undefined
   }
 
-  /** The two-finger span and midpoint now. */
-  #pinchState(): { dist: number; mid: { x: number; y: number } } {
-    const [a, b] = [...this.#touches.values()]
-    return { dist: Math.hypot(b!.x - a!.x, b!.y - a!.y), mid: { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 } }
-  }
-
-  /** Pinch: the span's ratio dollies (apart = closer), the midpoint's travel pans. */
-  #pinchMove(): void {
-    const view = this.view
-    const prev = this.#pinch
-    if (!view || !prev || this.#touches.size < 2) return
-    const now = this.#pinchState()
-    const box = this.#host.canvas.getBoundingClientRect()
-    if (prev.dist > 0 && now.dist > 0) view.dolly(-Math.log(now.dist / prev.dist) / DOLLY_PER_NOTCH)
-    view.pan(now.mid.x - prev.mid.x, now.mid.y - prev.mid.y, box.height)
-    this.#pinch = now
-  }
-
   #live(): boolean {
     return this.#on && !this.#opts.suspended()
   }
@@ -345,7 +307,9 @@ export class GameLoop {
     this.#release = undefined
     this.#on = true
     this.#heldAt = t
-    // Touch belongs to the game while it is on: no page scroll or browser zoom.
+    // Touch belongs to the game while it is on: no page scroll or browser
+    // zoom. Set before any gesture — a browser decides a touch's fate at
+    // its first contact, so setting it then is already too late.
     this.#host.canvas.style.touchAction = "none"
     this.#origin = now
     this.#pausedAt = undefined
@@ -363,8 +327,6 @@ export class GameLoop {
     this.#setHovered(null)
     this.#release = { from: now, clock: this.automaton.clock }
     this.#drag = null
-    this.#pinch = null
-    this.#touches.clear()
     this.#host.canvas.style.touchAction = ""
     this.view?.reset(now, RELEASE)
     this.#renderHud()
