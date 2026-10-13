@@ -406,6 +406,31 @@ export const atArcLength = (points: readonly Vec3[], lengths: readonly number[],
   return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u }
 }
 
+/**
+ * Where particle j of a stream is, as ARC LENGTH along its channel: n
+ * particles `spacing` apart circulate a loop of length n·spacing at `speed`
+ * units per second, `phase` (in spacings) offsetting the whole stream. Those
+ * past the channel's current length L are "in the pipe" — hidden — so a
+ * short channel carries few at the same spacing. Pure f(time).
+ */
+export const streamArc = (j: number, n: number, spacing: number, speed: number, time: number, phase: number): number => {
+  const cycle = n * spacing
+  if (!(cycle > 0)) return 0
+  const v = (time * speed + (j + phase) * spacing) % cycle
+  return v < 0 ? v + cycle : v
+}
+
+/**
+ * How visible a particle at arc length s is on a channel of length L drawn
+ * to `shown` of its length: soft at both ends and at the draw front, 0 in
+ * the pipe beyond L.
+ */
+export const streamFade = (s: number, L: number, shown: number): number => {
+  if (s > L) return 0
+  const edge = Math.min(22, L / 4)
+  return smooth(0, edge, s) * smooth(L, L - edge, s) * smooth(0, edge, shown * L - s)
+}
+
 /** Smoothstep — the soft edge every fade here uses. */
 export const smooth = (e0: number, e1: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))

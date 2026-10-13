@@ -73,6 +73,8 @@ import {
   partnerLayout,
   sliceDepths,
   smooth,
+  streamArc,
+  streamFade,
   trimToRim,
   type Disc,
   type PartnerSide,
@@ -137,6 +139,16 @@ export class Flow extends Group {
   dots: Circle[] = []
   /** Each particle's carrier: positioned on the channel, turned to face the camera. */
   carriers: Group[] = []
+  /**
+   * The channel's full path, in the STACK's frame (`FlowMap.stack` — compose
+   * with its transform for world space), sampled evenly in parameter.
+   */
+  path: () => Vec3[] = () => []
+  /**
+   * Each particle's place along `path()` as a fraction of its arc length,
+   * s ∈ [0, 1] — or −1 while it is hidden in the pipe. Pure f(time).
+   */
+  particles: () => number[] = () => []
 }
 
 /** One step of the value chain — a layer of flows that can be shown, opened, ghosted. */
@@ -488,11 +500,8 @@ export class FlowMap extends Null {
           memoShown = shown
           const { points, lengths } = channel()
           const L = lengths[lengths.length - 1]!
-          const cycle = n * sp()
-          const v = (this.time.value * this.speed.value + j * sp() + (seed % 1) * sp()) % cycle
-          const s = v < 0 ? v + cycle : v
-          const edge = Math.min(22, L / 4)
-          const o = s > L ? 0 : smooth(0, edge, s) * smooth(L, L - edge, s) * smooth(0, edge, shown * L - s)
+          const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
+          const o = streamFade(s, L, shown)
           const p = atArcLength(points, lengths, Math.min(s, L))
           const c = stage.certainty.value * flowCertainty
           const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
@@ -519,6 +528,15 @@ export class FlowMap extends Null {
       flow.line = line
       flow.dots = dots
       flow.carriers = carriers
+      flow.path = () => channel().points
+      flow.particles = () => {
+        const { lengths } = channel()
+        const L = lengths[lengths.length - 1]!
+        return dots.map((_, j) => {
+          const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
+          return s > L || L <= 0 ? -1 : s / L
+        })
+      }
       flows.push(flow)
       ;(stage as unknown as { add(h: Holon): Holon }).add(flow)
       stage.flows.push(flow)

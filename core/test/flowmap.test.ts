@@ -253,6 +253,24 @@ describe("FlowMap", () => {
     expect(inner.p.value).toBeCloseTo(-m.stack.p.value, 12)
   })
 
+  test("a flow exposes its path and its particles' places along it", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    m.stage("semi").shown.value = 1
+    m.time.value = 4
+    const flow = m.stage("semi").flows[0]!
+    expect(flow.path().length).toBeGreaterThan(10)
+    const s = flow.particles()
+    expect(s.length).toBe(flow.dots.length)
+    for (const v of s) expect(v === -1 || (v >= 0 && v <= 1)).toBe(true)
+    // A visible particle sits where its place says.
+    const j = s.findIndex((v, i) => v > 0.2 && v < 0.8 && flow.dots[i]!.opacity.value > 0.99)
+    const pts = flow.path()
+    const t = arcTable((u) => pts[Math.round(u * (pts.length - 1))]!, pts.length - 1)
+    const p = atArcLength(t.points, t.lengths, s[j]! * t.lengths[t.lengths.length - 1]!)
+    expect(Math.hypot(p.x - flow.carriers[j]!.x.value, p.y - flow.carriers[j]!.y.value)).toBeLessThan(1e-6)
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)
