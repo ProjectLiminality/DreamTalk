@@ -25,7 +25,7 @@
 import { Euler, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from "three/webgpu"
 import { Circle, Null } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
-import { derive } from "../../src/params"
+import { derive, paramEpoch } from "../../src/params"
 // A cycle with Earth.ts, safe: these are only called once both modules have loaded.
 import { chainAt, lod as lodOf, worldMatrixOf as worldMatrix, type Earth } from "./Earth"
 import { latLonToUnit } from "../../src/geometry/sphere"
@@ -77,7 +77,11 @@ export const billboard = (earth: Earth): Billboard => {
   const world = new Matrix4()
   const scratch = new Vector3()
 
+  let seenEpoch = Number.NaN
   const refresh = (): void => {
+    const epoch = paramEpoch()
+    if (epoch === seenEpoch) return
+    seenEpoch = epoch
     let i = 0
     let moved = false
     const at = (v: number) => {

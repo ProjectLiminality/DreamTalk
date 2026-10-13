@@ -168,7 +168,12 @@ export class GeoFlow extends Null {
   protected override compose(): void {
     const observer = this.seenBy?.()
     if (!observer) throw new Error("GeoFlow: give it the scene's observer (seenBy: () => this.observer)")
-    const a = () => this.view.value
+    // Hot readings capture their params once: a derived reading runs every
+    // frame, and a read through the holon proxy costs more than the param.
+    const viewParam = this.view
+    const descentParam = this.descent
+    const landInParam = this.landIn
+    const a = () => viewParam.value
     const data = this.data
     const geo = this.geo
 
@@ -276,7 +281,7 @@ export class GeoFlow extends Null {
       radius: EARTH_R,
       limbStroke: 1.2,
       land: rgb(0x0e, 0x0e, 0x0e),
-      landOpacity: derive(() => this.landIn.value * fade(0.35)),
+      landOpacity: derive(() => landInParam.value * fade(0.35)),
       coastOpacity: derive(() => fade(0.35)),
       borderOpacity: derive(() => fade(0.25)),
       limbOpacity: derive(() => fade(1)),
@@ -286,7 +291,7 @@ export class GeoFlow extends Null {
       lat: geo.region.lat,
       lon: geo.region.lon,
       tilt: this.tilt,
-      zoom: derive(() => this.descent.value - 1.1 * ss(W.pull[0], W.pull[1], a())),
+      zoom: derive(() => descentParam.value - 1.1 * ss(W.pull[0], W.pull[1], a())),
     })
     observer.fov.defaultValue = this.fov
     observer.fov.value = this.fov

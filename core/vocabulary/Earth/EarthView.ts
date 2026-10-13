@@ -39,7 +39,7 @@
 
 import { Euler, Vector3 } from "three/webgpu"
 import { Null } from "../../src/parts/primitives"
-import { completion, derive, scalar, type AnimOpts } from "../../src/params"
+import { completion, derive, paramEpoch, scalar, type AnimOpts } from "../../src/params"
 import { chain, together, type Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { latLonToUnit, type Vec3 } from "../../src/geometry/sphere"
@@ -153,7 +153,12 @@ export const followEarth = (
   ]
   const key = new Float64Array(inputs.length).fill(Number.NaN)
   let pose = viewPose(earth, view, observer.fov.value)
+  let seenEpoch = Number.NaN
   const now = () => {
+    // Same frame, same params: answer without re-reading the inputs.
+    const epoch = paramEpoch()
+    if (epoch === seenEpoch) return pose
+    seenEpoch = epoch
     let moved = false
     for (let i = 0; i < inputs.length; i++) {
       const v = inputs[i]!.value

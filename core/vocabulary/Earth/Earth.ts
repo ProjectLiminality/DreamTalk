@@ -88,7 +88,7 @@ import { Euler, Matrix4, Vector3 } from "three/webgpu"
 import { Holon, type Overrides } from "../../src/holon"
 import { derivePoints, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Surface } from "../../src/parts/surface"
-import { color, completion, derive, length, scalar } from "../../src/params"
+import { color, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
@@ -748,7 +748,14 @@ export class Earth extends Null {
     let lastPen = Number.NaN
     let lo = 0
     let hi = 0
+    let seenEpoch = Number.NaN
     const remeasure = (): void => {
+      // Nothing any param says has changed since the last call (paramEpoch
+      // moves on every write): the ~1,600 shorelines after the first in a
+      // frame answer from here.
+      const epoch = paramEpoch()
+      if (epoch === seenEpoch) return
+      seenEpoch = epoch
       let i = 0
       let moved = false
       const o = earth.seer
