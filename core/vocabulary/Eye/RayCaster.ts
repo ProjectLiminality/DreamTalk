@@ -54,6 +54,7 @@ import {
   Rectangle,
   Square,
   Stroke,
+  derivePoints,
   type Vec3Like,
 } from "../../src/parts/primitives"
 import { rotHPB } from "../../src/parts/curves"
@@ -97,26 +98,6 @@ const outlineReading = (shape: Stroke): number[] => {
 interface RayHit {
   angle: number
   hit?: { distance: number; point: Vec2 }
-}
-
-/** Pull-based derived points with a memo — the idiom Morph and Connection use. */
-const derivePoints = (line: Line, sourceKey: () => readonly number[], compute: () => Vec3Like[]): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
 }
 
 export class RayCaster extends Stroke {

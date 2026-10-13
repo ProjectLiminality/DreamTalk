@@ -54,7 +54,7 @@
 
 import { type Overrides } from "../../src/holon"
 import { length } from "../../src/params"
-import { Circle, Ellipse, Line, Polygon, Rectangle, Square, Stroke } from "../../src/parts/primitives"
+import { Circle, Ellipse, Line, Polygon, Rectangle, Square, Stroke, derivePoints } from "../../src/parts/primitives"
 import { Create } from "../../src/verbs"
 import type { Anim } from "../../src/anim"
 import { outlineOf, worldOutlineOf } from "../../src/geometry/morph"
@@ -108,26 +108,6 @@ const assertSketchable = (holon: Stroke): void => {
 }
 
 // ─── THE HOLON ──────────────────────────────────────────────────────
-
-/** Pull-based derived points with a memo — the idiom Morph and Connection use. */
-const derivePoints = (line: Line, sourceKey: () => readonly number[], compute: () => Vec3Like[]): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
-}
 
 /**
  * The annotation of one shape's angles: one mark Line per sharp corner,

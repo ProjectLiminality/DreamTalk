@@ -586,6 +586,41 @@ export class Line extends Stroke {
 }
 
 /**
+ * Give a Line DERIVED points: `compute` runs only when `sourceKey` changes
+ * (element-wise ===, so numbers, strings and object identities all key),
+ * the memo is what every reader sees, and `geomVersion` bumps exactly then
+ * — the host's O(1) dirty-check regenerates the ribbon iff the polyline
+ * moved. The ONE implementation: every holon whose line is a function of
+ * its params uses this (it lived as ~20 private copies, one of which had
+ * lost the version bump).
+ */
+export const derivePoints = (
+  line: Line,
+  sourceKey: () => readonly unknown[],
+  compute: () => Vec3Like[],
+): void => {
+  let key: readonly unknown[] | undefined
+  let memo: Vec3Like[] = []
+  Object.defineProperty(line, "points", {
+    configurable: true,
+    enumerable: true,
+    get(): Vec3Like[] {
+      const next = sourceKey()
+      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
+        key = next
+        memo = compute()
+        line.geomVersion++
+      }
+      return memo
+    },
+    // The host never writes points, but a Line's field initializer does
+    // (`points: Vec3Like[] = []`) — accept and discard so construction
+    // order can't clobber the accessor.
+    set(_v: Vec3Like[]) {},
+  })
+}
+
+/**
  * A rectangle, width × height, with the video-01 rounding morph:
  * `rounding` 0 → 1 maps to corner radius min(w,h)/2 · rounding
  * (rounding 1 on a square is literally a circle — the "cornered

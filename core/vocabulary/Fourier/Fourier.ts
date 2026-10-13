@@ -49,7 +49,7 @@
  * exactly where the full series says, it is only the scaffolding that thins.
  */
 
-import { Group, Line, Null, Circle } from "../../src/parts/primitives"
+import { Group, Line, Null, Circle, derivePoints } from "../../src/parts/primitives"
 import { bool, color, integer, length, completion } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import {
@@ -156,7 +156,7 @@ export class FourierTrace extends Null {
         stroke: this.stroke.times(0.5),
         opacity: this.showMachine.value ? 0.75 : 0,
       })
-      derivePolyline(arm, () => [this.turn.value], () => {
+      derivePoints(arm, () => [this.turn.value], () => {
         const t = this.turn.value
         const c = centreOf(t)
         const p = tipOf(t)
@@ -174,7 +174,7 @@ export class FourierTrace extends Null {
     // pen is always exactly at the end of its own line.
     this.ink = this.add(new Line({ tint: this.inkTint, stroke: this.stroke }))
     const samples = Math.max(16, Math.round(this.inkSamples.value))
-    derivePolyline(this.ink, () => [this.turn.value], () => {
+    derivePoints(this.ink, () => [this.turn.value], () => {
       const t = this.turn.value
       if (t <= 0) return []
       const upto = Math.max(2, Math.ceil(t * samples))
@@ -201,33 +201,3 @@ export class FourierTrace extends Null {
   }
 }
 
-/**
- * Give a Line derived points with a memo keyed on `sourceKey`.
- *
- * The fourth copy of this pattern in the codebase (curves.ts, Morph.ts,
- * Cable.ts) and the third time its version counter has mattered — so it is
- * written here the same way deliberately: bump `geomVersion` whenever the
- * memo recomputes, or the host's O(1) dirty-check will serve stale geometry.
- */
-const derivePolyline = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => { x: number; y: number; z: number }[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: { x: number; y: number; z: number }[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}

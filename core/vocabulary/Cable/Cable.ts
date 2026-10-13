@@ -79,7 +79,7 @@
 
 import { Holon } from "../../src/holon"
 import { bool, color, completion, length, scalar } from "../../src/params"
-import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { TAU, WHITE } from "../../src/constants"
 import { bake, type BakedTrack, type Simulation } from "../../src/bake"
 import {
@@ -436,20 +436,7 @@ export class Cable extends Stroke {
       // complete dependency set for the current corpus (the only reader not in
       // it, `view`, is a build-time constant and never animated); an animated
       // `view` would have to enter the key here, exactly as the memo needs.
-      let lastMemo: CableGeometry | undefined
-      Object.defineProperty(line, "points", {
-        configurable: true,
-        enumerable: true,
-        get(): Vec3Like[] {
-          const g = cable.geometry()
-          if (g !== lastMemo) {
-            lastMemo = g
-            line.geomVersion++
-          }
-          return pick(g)
-        },
-        set(_v: Vec3Like[]) {},
-      })
+      derivePoints(line, () => [cable.geometry()], () => pick(cable.geometry()))
     }
     derivedLine(this.edgeA, (g) => g.a)
     derivedLine(this.edgeB, (g) => g.b)

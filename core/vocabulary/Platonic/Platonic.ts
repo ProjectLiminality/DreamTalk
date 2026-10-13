@@ -39,7 +39,7 @@
  * as it turns — the derived-geometry pattern (soliddrawing.ts derivePoints).
  */
 
-import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { color, length, scalar, angle } from "../../src/params"
 import { type Color, WHITE } from "../../src/constants"
 import { SOLIDS, project, type SolidName } from "../../src/geometry/platonic"
@@ -92,7 +92,16 @@ export class Platonic extends Null {
     // pitch) changes, bumping geomVersion so the host regenerates the ribbon.
     const edgeLines = data.edges.map((_, e) => {
       const line = new Line({ tint: this.edgeTint, stroke: this.edgeStroke })
-      deriveEdge(line, this, e)
+      // The edge is a function of the cage's turn: recomputed exactly when
+      // spin, radius or pitch move.
+      derivePoints(line, () => [this.spin.value, this.radius.value, this.pitch.value], () => {
+        const { edges } = project(SOLIDS[this.solid], this.radius.value, this.spin.value, this.pitch.value)
+        const edge = edges[e]!
+        return [
+          { x: edge.a.x, y: edge.a.y, z: 0 },
+          { x: edge.b.x, y: edge.b.y, z: 0 },
+        ]
+      })
       return line
     })
     this.edges = this.add(new Group({ members: edgeLines }))
@@ -126,40 +135,6 @@ export class Platonic extends Null {
     const { vertices } = project(data, this.radius.value, this.spin.value, this.pitch.value)
     return vertices[i]!
   }
-}
-
-/**
- * Give an edge Line derived `points` recomputed whenever the Platonic's spin
- * (or radius / pitch) changes — the derivePoints pattern. The memo keys on
- * the source scalars and bumps geomVersion on every recompute, so the host's
- * O(1) dirty-check regenerates exactly when the cage turns and never otherwise.
- */
-const deriveEdge = (line: Line, holon: Platonic, edgeIndex: number): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const spin = holon.spin.value
-      const radius = holon.radius.value
-      const pitch = holon.pitch.value
-      const next = [spin, radius, pitch]
-      if (!key || next.some((v, i) => v !== key![i])) {
-        key = next
-        const data = SOLIDS[holon.solid]
-        const { edges } = project(data, radius, spin, pitch)
-        const e = edges[edgeIndex]!
-        memo = [
-          { x: e.a.x, y: e.a.y, z: 0 },
-          { x: e.b.x, y: e.b.y, z: 0 },
-        ]
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
 }
 
 /** The white the reference nodes and edges are drawn in. */

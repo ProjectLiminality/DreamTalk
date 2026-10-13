@@ -42,6 +42,14 @@ old code is archaeology, not authority.
   (appreciator mode = authored path over t; creator mode = scrub).
 - WGSL constraints are law: no recursion in shaders (flatten holonic
   traversal CPU-side), no dynamic allocation, f32 precision.
+- **One symbol, one implementation** (David, for the Figure and again for
+  the Earth: "imported everywhere … so all improvements propagate to all
+  DreamSongs"). A symbol that appears anywhere is the sovereign holon,
+  imported; a scene composes it and never redraws it. A look a scene needs
+  is an ability (a param) of that holon, not a second class or a local
+  copy; a helper two holons need lives once in core. Retiring a duplicate
+  keeps old boards opening (sketch/board.ts RENAMED_SYMBOLS).
+  test/one-implementation.test.ts guards it.
 
 ## Parameters (settled)
 - Every holon exposes standard transform parameters (position,

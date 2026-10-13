@@ -42,7 +42,7 @@
  * continuity.
  */
 
-import { Group, Line, Null } from "../../src/parts/primitives"
+import { Group, Line, Null, derivePoints } from "../../src/parts/primitives"
 import { color, completion, integer, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
 
@@ -119,7 +119,7 @@ export class Plot extends Null {
     // Derived from `reveal` so the draw is a pure function of one param,
     // the shape every holon in this vocabulary shares.
     this.curve = this.add(new Line({ tint: this.curveTint, stroke: this.stroke }))
-    derivePolyline(
+    derivePoints(
       this.curve,
       () => [this.reveal.value],
       () => {
@@ -170,32 +170,3 @@ export class Plot extends Null {
   }
 }
 
-/**
- * Give a Line derived points with a memo keyed on `sourceKey`.
- *
- * The fifth copy of this pattern (curves.ts, Morph.ts, Cable.ts, Fourier.ts).
- * Written the same way each time deliberately: bump `geomVersion` whenever the
- * memo recomputes, or the host's O(1) dirty-check serves stale geometry.
- */
-const derivePolyline = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => { x: number; y: number; z: number }[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: { x: number; y: number; z: number }[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}

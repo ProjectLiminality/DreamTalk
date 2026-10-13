@@ -34,40 +34,9 @@
  * `slope` is how a caller knows which is happening.
  */
 
-import { Group, Line, Null } from "../../src/parts/primitives"
+import { Group, Line, Null, derivePoints } from "../../src/parts/primitives"
 import { color, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
-
-/**
- * Give a Line derived points with a memo keyed on `sourceKey`.
- *
- * The sixth copy of this pattern (curves.ts, Morph.ts, Cable.ts, Fourier.ts,
- * Plot.ts). Written identically each time on purpose: bump `geomVersion`
- * whenever the memo recomputes, or the host's O(1) dirty-check serves stale
- * geometry.
- */
-const derivePolyline = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => { x: number; y: number; z: number }[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: { x: number; y: number; z: number }[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}
 
 export interface Vec2 {
   readonly x: number
@@ -116,7 +85,7 @@ export class RightTriangle extends Null {
     const key = () => [this.base.value, this.rise.value, this.foot.x, this.foot.y]
 
     this.baseLine = new Line({ tint: this.legTint, stroke: this.stroke.times(0.75) })
-    derivePolyline(this.baseLine, key, () => {
+    derivePoints(this.baseLine, key, () => {
       const { x, y } = this.foot
       return [
         { x, y, z: 0 },
@@ -125,7 +94,7 @@ export class RightTriangle extends Null {
     })
 
     this.riseLine = new Line({ tint: this.legTint, stroke: this.stroke.times(0.75) })
-    derivePolyline(this.riseLine, key, () => {
+    derivePoints(this.riseLine, key, () => {
       const { x, y } = this.foot
       const b = this.base.value
       return [
@@ -136,7 +105,7 @@ export class RightTriangle extends Null {
 
     // Foot → apex: the average rate of climb over the whole base.
     this.hypotenuse = new Line({ tint: this.hypotenuseTint, stroke: this.stroke })
-    derivePolyline(this.hypotenuse, key, () => {
+    derivePoints(this.hypotenuse, key, () => {
       const { x, y } = this.foot
       return [
         { x, y, z: 0 },

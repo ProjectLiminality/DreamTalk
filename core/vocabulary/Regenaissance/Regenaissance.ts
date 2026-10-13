@@ -55,7 +55,7 @@
  * it rather than inside it.
  */
 
-import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { bool, color, completion, length, scalar, angle } from "../../src/params"
 import { BLACK, type Color, WHITE, rgb } from "../../src/constants"
 import { type Anim, restage, together } from "../../src/anim"
@@ -167,7 +167,7 @@ export class Regenaissance extends Null {
             stroke: this.latticeStroke,
             ...(side === "back" ? { opacity: this.backOpacity } : {}),
           })
-          deriveRun(line, this, () => {
+          derivePoints(line, () => [this.latticeSpin.value, this.latticePitch.value, this.radius.value], () => {
             const halves = greatCircleHalves(k, r, this.latticeSpin.value, this.latticePitch.value)
             const run = outsideDisc(halves[side], 0, -r, r)[s]
             return run ? run.map((p) => ({ x: p.x, y: p.y + h, z: 0 })) : []
@@ -243,26 +243,3 @@ export const vesicaOutline = (r: number, samples = 48): Vec3Like[] => {
   return pts
 }
 
-/**
- * Give a lattice Line derived `points`, recomputed when the noosphere turns
- * (latticeSpin / latticePitch / radius) — the Globe.deriveRing pattern: the
- * memo keys on the source scalars and bumps geomVersion on every recompute.
- */
-const deriveRun = (line: Line, holon: Regenaissance, compute: () => Vec3Like[]): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = [holon.latticeSpin.value, holon.latticePitch.value, holon.radius.value]
-      if (!key || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}

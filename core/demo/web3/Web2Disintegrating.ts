@@ -72,7 +72,7 @@
  */
 
 import { Dream } from "../../src/index"
-import { Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { hashUnit } from "../../src/geometry/flower"
 import { type Color } from "../../src/constants"
 
@@ -332,27 +332,11 @@ export class Web2DisintegratingDream extends Dream {
       b: this.collapse.creation.map(() => tumble * fallAt()),
     })
 
-    // The morphing outline: memoised on the cell's fall progress so the
-    // polyline recomputes (and geomVersion bumps) only when the shape moves.
-    let key = -1
-    let memo: Vec3Like[] = []
-    Object.defineProperty(line, "points", {
-      configurable: true,
-      enumerable: true,
-      get(this: Line): Vec3Like[] {
-        const f = fallAt()
-        // Round the key so tiny float wobble does not thrash the memo; the
-        // triangle→circle morph reads fully by the time a cell is ~70% down.
-        const k = Math.round(smooth(f / 0.7) * 64)
-        if (k !== key) {
-          key = k
-          memo = cellRing(cell.up, k / 64)
-          this.geomVersion++
-        }
-        return memo
-      },
-      set() {},
-    })
+    // The morphing outline: memoised on the cell's fall progress, rounded so
+    // tiny float wobble does not thrash the memo; the triangle→circle morph
+    // reads fully by the time a cell is ~70% down.
+    const step = () => Math.round(smooth(fallAt() / 0.7) * 64)
+    derivePoints(line, () => [step()], () => cellRing(cell.up, step() / 64))
 
     return line
   }

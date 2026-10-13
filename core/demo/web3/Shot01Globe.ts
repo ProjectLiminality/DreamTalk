@@ -29,7 +29,7 @@
 
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
-import { Circle, Line, Null, Stroke } from "../../src/parts/primitives"
+import { Circle, Line, Null, Stroke, derivePoints } from "../../src/parts/primitives"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
 import { rgb, type Color } from "../../src/constants"
@@ -87,26 +87,6 @@ const grey = (v: number): Color => {
 /** The globe's radius and the outer ring's, in pixels — YinYang's curves. */
 const globePx = (t: number) => 258.5 - 223.5 * c4dEaseWith((t - 3) / 2.95, 0.35, 0.35)
 const ringPx = (t: number) => 259 + 21 * c4dEaseWith((t - 3) / 3, 0.25, 0.25)
-
-/** Give a Line points recomputed (and its geomVersion bumped) when `key` moves. */
-const derive = (line: Line, key: () => number, compute: () => { x: number; y: number; z: number }[]) => {
-  let at: number | undefined
-  let memo: { x: number; y: number; z: number }[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const k = key()
-      if (k !== at) {
-        at = k
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}
 
 export class Shot01GlobeDream extends Dream {
   /** The shot's clock, 0 → 1 over its 4.5s: every reading below is a pure
@@ -166,7 +146,7 @@ export class Shot01GlobeDream extends Dream {
       }
       return pts
     }
-    derive(this.seam, t, seamPoints)
+    derivePoints(this.seam, () => [t()], seamPoints)
     this.seam.opacity.follow(c.map(() => land()))
 
     // The glow at the seam's two ends, riding the seam's end points
@@ -208,7 +188,7 @@ export class Shot01GlobeDream extends Dream {
 
     // The veil: from the seam round the right limb, a closed outline.
     const veil = new Line({ tint: rgb(255, 255, 255), stroke: 0, opacity: 0 })
-    derive(veil, t, () => {
+    derivePoints(veil, () => [t()], () => {
       const seam = seamPoints()
       if (seam.length < 2) return []
       const top = seam[0]!

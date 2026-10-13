@@ -119,7 +119,7 @@
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null, Stroke } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, rgb, type Color } from "../../src/constants"
 import { hexPack } from "../../src/geometry/flower"
@@ -650,42 +650,13 @@ export class YinYangDream extends Dream {
 }
 
 /**
- * Give a Line derived `points` recomputed whenever the figure's rotation (the
- * `orbit`/`divide` readings the node geometry depends on) changes, bumping
- * `geomVersion` so the host regenerates the ribbon — the LightSpread/Globe memo
- * pattern, written the same way deliberately. Keyed on the live `turn` value AND
- * the two scale-driving beats, so a size-swap or a rotation both re-emit.
+ * Give a Line derived `points` (primitives.ts derivePoints), keyed on the
+ * live `turn` AND the three beats that drive the nodes' sizes, so a
+ * size-swap or a rotation both re-emit.
  */
-const deriveRot = (
-  line: Line,
-  dream: YinYangDream,
-  compute: () => { x: number; y: number; z: number }[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: { x: number; y: number; z: number }[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const d = dream as unknown as {
-        turnValue: number
-        birth: Null
-        divide: Null
-        orbit: Null
-      }
-      const next = [
-        d.turnValue,
-        d.birth.creation.value,
-        d.divide.creation.value,
-        d.orbit.creation.value,
-      ]
-      if (!key || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
-}
+const deriveRot = (line: Line, dream: YinYangDream, compute: () => Vec3Like[]): void =>
+  derivePoints(
+    line,
+    () => [dream.turnValue, dream.birth.creation.value, dream.divide.creation.value, dream.orbit.creation.value],
+    compute,
+  )

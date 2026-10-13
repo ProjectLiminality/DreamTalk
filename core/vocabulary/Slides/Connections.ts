@@ -125,7 +125,7 @@
 
 import { color, completion, length } from "../../src/params"
 import { together, type Anim, type Windowed } from "../../src/anim"
-import { Line, Group, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Group, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { Holon, type Overrides } from "../../src/holon"
 import { WHITE, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
@@ -1053,36 +1053,6 @@ export const maxDashes = (spec: GlidingSpec, steps = 8): number => {
   }
   if (longest <= 0) return 0
   return Math.ceil(longest / spec.period) + 1
-}
-
-/**
- * Install a pull-based `points` accessor on a Line: `compute` runs only
- * when `sourceKey` changes, and the memo is what every reader sees.
- *
- * The idiom `curves.ts` and `Morph.ts` both carry, written out a third
- * time for the reason Morph.ts states about the second: it is six lines,
- * and exporting it would couple modules that otherwise share nothing.
- */
-const derivePoints = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => Vec3Like[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
 }
 
 /**

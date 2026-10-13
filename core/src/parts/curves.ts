@@ -30,43 +30,8 @@
 import { Holon, type Overrides } from "../holon"
 import { angle, completion, length, scalar } from "../params"
 import { PI } from "../constants"
-import { Stroke, Line, type Vec3Like } from "./primitives"
+import { Stroke, Line, derivePoints, type Vec3Like } from "./primitives"
 import { cylinderPlaneSection, type Section } from "../geometry/section"
-
-/**
- * Install a pull-based `points` accessor on a Line: `compute` runs only
- * when `sourceKey` changes, and the memo is what every reader sees. The
- * returned array identity is stable across unchanged frames, so the
- * host's value-comparison dirty-check stays cheap and honest.
- */
-const derivePoints = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => Vec3Like[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        // Signal the recompute so the host regenerates the ribbon exactly
-        // when the polyline changed — the O(1) counterpart to the old
-        // per-frame flatten+compare (primitives.ts: Line.geomVersion).
-        line.geomVersion++
-      }
-      return memo
-    },
-    // The host never writes points, but a Line's field initializer does
-    // (`points: Vec3Like[] = []`) — accept and discard so construction
-    // order can't clobber the accessor.
-    set(_v: Vec3Like[]) {},
-  })
-}
 
 // --- Pure helpers -----------------------------------------------------------
 
