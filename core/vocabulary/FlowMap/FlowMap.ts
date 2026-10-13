@@ -58,11 +58,12 @@
 
 import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
+import type { Observer } from "../../src/dream"
 import { angle, choice, completion, derive, length, scalar, state, type Readable } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
-import { certainty, wobble } from "../../src/certainty"
+import { certainty, presence, wobble } from "../../src/certainty"
 import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import {
   arcTable,
@@ -177,6 +178,18 @@ export class FlowMap extends Null {
 
   /** The organisation, as plain data. A construction choice: it decides the parts. */
   data: FlowMapData = MOCK_FLOWMAP
+  /**
+   * Who sees the map — `() => this.observer` from the Dream. A material
+   * stage's particle symbols draw their visible 3D edges for this camera.
+   */
+  seenBy: (() => Observer) | undefined = undefined
+
+  /**
+   * Everything the map draws, at once: 1 present, 0 gone — strokes, fills,
+   * text, particles alike (src/certainty.ts `presence`, inherited by every
+   * leaf). For blending the whole map with another view.
+   */
+  presence = presence(1)
 
   /** The group circle's radius, scene units. */
   radius = length(300)
@@ -392,10 +405,20 @@ export class FlowMap extends Null {
   /**
    * Wrap a part so it always faces the camera, however the stack turns: the
    * stack is Rx(pitch)·Ry(heading), so a carrier turned Ry(−heading) holding
-   * the part turned Rx(−pitch) cancels it exactly. Position the carrier.
+   * the part turned Rx(−pitch) cancels it exactly. When the map knows who
+   * sees it (`seenBy`), two more turns, Ry(φ)·Rx(−θ) of that observer, face
+   * the part toward the camera as the viewer orbits (the host composes
+   * Rz(b)·Rx(p)·Ry(h)); without, nothing extra is built. Position the carrier.
    */
   private facing(part: Holon, at: { x?: Readable<number>; y?: Readable<number>; z?: Readable<number> }): Group {
-    const inner = new Group({ members: [part], p: derive(() => -this.frame().pitch) })
+    const seenBy = this.seenBy
+    const toward = seenBy
+      ? new Group({
+          members: [new Group({ members: [part], p: derive(() => -seenBy().theta.value) })],
+          h: derive(() => seenBy().phi.value),
+        })
+      : part
+    const inner = new Group({ members: [toward], p: derive(() => -this.frame().pitch) })
     return new Group({ members: [inner], h: derive(() => -this.frame().heading), ...at })
   }
 
@@ -777,7 +800,7 @@ const STAGE_TINTS: Color[] = [BLUE, WHITE, RED]
 /**
  * Give a Line derived `points`, recomputed when any of `deps` changes —
  * bumping `geomVersion` so the host regenerates its ribbon (the memo pattern
- * of soliddrawing.ts's derivePoints).
+ * of Globe's deriveRing and curves.ts's derivePoints).
  */
 const deriveChannel = (line: Line, deps: () => unknown[], compute: () => Vec3Like[]): void => {
   let key: unknown[] | undefined

@@ -22,7 +22,8 @@ import { MorphCurves, MorphMany } from "../../vocabulary/Morph/MorphCurves"
 import { Circle, Line } from "../../src/parts/primitives"
 
 export class FlowMapDream extends Dream {
-  map = new FlowMap({ radius: 300 })
+  // Who sees it: labels and particles face the camera as the viewer orbits.
+  map = new FlowMap({ radius: 300, seenBy: () => this.observer })
 
   /** Play `anim` over `dt` seconds while the flow keeps running. */
   private flowing(dt: number, ...anims: Anim[]): void {
