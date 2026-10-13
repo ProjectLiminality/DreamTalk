@@ -6,7 +6,8 @@
 import * as THREE from "three/webgpu"
 import { ThreeHost } from "../src/render/three-host"
 import { onTextLayout } from "../src/render/text"
-import { scenes, defaultScene } from "./scenes"
+import { scenes as publicScenes, defaultScene } from "./scenes"
+import { localScenes } from "./localHolons"
 import { httpBakeCache } from "../src/bakecache"
 import { httpVoiceCache } from "../src/voice"
 import { Narrator } from "../src/render/narrator"
@@ -34,6 +35,9 @@ declare global {
     }
   }
 }
+
+/** The public registry plus whatever local holon scenes this build found (demo/localHolons.ts). */
+const scenes = { ...publicScenes, ...localScenes }
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement
 const readout = document.getElementById("readout") as HTMLDivElement
