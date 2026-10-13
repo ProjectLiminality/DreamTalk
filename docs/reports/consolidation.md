@@ -21,65 +21,51 @@ shrinks.
 | 2 | **`derivePoints` once**, exported from `src/parts/primitives.ts` beside `Line`. It lived as ~20 private copies ("the fifth copy … written the same way deliberately"); Slides/Connections' copy had lost its `geomVersion` bump. 14 files migrated. | 7fb786c | Byte-identical, 26 frames over 11 scenes. |
 | 3 | **`seen()` / `decodeSrgb()`** in `src/constants.ts`: six copies of "a sampled screen colour, handed to the host decoded". The pending colour-space question now has one place in scene code. | 9d57d4c | Byte-identical (web2, yinyang). |
 | 4 | Regenaissance's lattice turns through `rotHPB` instead of its own copy of the h/p rotation. | 86976ad | Same numbers (max diff 0). |
+| 5 | **`vocabulary/LightNode`**: the Web3 decentralised node (Earth in a bloom, flower of life, red ring, rays) was drawn in Shot15Hero/HeroShot, YinYang's red lobe and GlobeDemo. One holon, `radius` its one size, layer presences as params; on the shelf. | 5227d27 | YinYang byte-identical; the hero differs by ~50 px at the ray tips; GlobeDemo's hero panel now is the real node (intended). |
+| 6 | **`src/math.ts`** `clamp` / `clamp01`: nine private copies (text, geometry, view, sketch, Web3). | 58173b0 | Byte-identical. |
+| 7 | **`Shape`** (primitives.ts): a filled area of any outline as a public primitive, replacing the cast past `add()` in SMark, YinYang's bolts and Shot 1's glows and veil. | 8d90684 | Byte-identical. |
 
-## Inventory — ranked by value
+Since then the owners have moved Earth, Connection and Morph onto `derivePoints` too.
 
-Value ≈ copies × songs that benefit × how far the copies have drifted. "Owner
-busy" means another agent was mid-work in that holon on 2026-10-13; those are
-left for the owner's next pass (they have been told).
+## Inventory — what is left
 
-1. **Derived-points memo — the rest.** Earth, Connection and Morph have
-   since switched (their owners, the same day). Left: `FlowMap/FlowMap.ts`
-   (`deriveChannel`), `SOPLoop`, `Horizons` — the guard's PENDING list
-   names them. Earth's `deriveSurface` is the Surface twin (a `deriveMesh`
-   beside `Surface` once a second surface needs it).
-2. **The eye, computed from an Observer — 7 copies.** `soliddrawing.ts`
-   `viewOf`/`toWorld`/`toLocal` (canonical), `Earth.ts` `seenFrom` +
-   `worldMatrixOf` + `DEFAULT_EYE`, `Earth/Labels.ts`, `sketch/mirror.ts`
-   `pageProjector`, `src/view.ts`, `holons/ValueFlow`, `parts/recede.ts`
-   (uses the canonical one), `three-host.ts syncCamera` (the source of
-   truth). Drift risk is real: a camera change (the viewer's orbit layer,
-   `tilt`) has to be taught to each copy. Target: one `eyeOf(observer)` +
-   world/local in `src/parts/soliddrawing.ts` (or a small `src/eye.ts`),
-   every view-dependent holon reading it. Earth owner busy.
-3. **The Web3 "light node" — 3 copies.** Globe in a bloom of falling-opacity
-   rings, flower-of-life lattice, red ring, twelve rays: `demo/web3/Shot15Hero.ts`
-   (+ `Web3Song` HeroShot re-fits), `YinYang.ts` red node (the same recipe at
-   lobe scale: globe 0.415 vs 0.419 of the ring, rays 1.25/1.17 — the hero's
-   248/232 exactly), `GlobeDemo.ts` hero. Same symbol, drifted constants and
-   colours. Target: `vocabulary/LightNode` (radius = the ring; promoted
-   `bloom`/`lattice`/`rays` presences; the Earth inside a Recede). Also
-   `disc()` masks ×3 (ClarityField, Shot15Hero, GlobeDemo) fold into it.
-4. **Particles along a path — 3 implementations.** `vocabulary/Stream`
-   (dots by arc length, pure f(time)), FlowMap's `flows[i].dots`,
-   SOPLoop's particles (spacing at a world speed). Same idea, different
-   spacing rules and certainty handling. Target: Stream as the one
-   particle carrier, FlowMap/SOPLoop composing it. Owners busy.
-5. **The Web2 node — 2 copies.** Blue ring, triangular grid in the band,
-   lightning bolts, red field-line spirals: `YinYang.ts` blue node and
-   `Web2Disintegrating.ts` (the lattice that falls). Target:
-   `vocabulary/Web2Node` or an ability of a shared node holon with #3.
-6. **The noosphere lattice sphere.** `Regenaissance/lattice.ts` draws the 15
-   great circles flat (front/back halves, clipped analytically); `Platonic`
-   is another flat-projected cage; the Earth has a true 3D graticule. The
-   Regenaissance source names a separate "NoosphereAndBiosphere" DreamTalk,
-   so this lattice globe recurs. Target: a 3D `Noosphere` holon (lines on a
-   true sphere, hidden by the Earth's horizon technique), set on the page
-   with Recede where a flat picture needs it.
-7. **The Vitruvian man.** `demo/web3/VitruvianMan.ts` + `vitruvian-path.ts`
-   (Shot 12, FourierDemo) is a scene-local symbol; pl02 shows it as an image.
-   Target: `vocabulary/Vitruvian` (FourierTrace inside), imported by both.
-8. **The "drawing" cast** — `(stroke as unknown as { add(h: Line): Line }).add(outline)`
-   to make a filled closed shape: 9 sites (FlowMap ×2, Shot01 ×2, SMark,
-   prism, Labels, Earth, YinYang). Target: one public way to build a
-   filled outline (a `Stroke` ability or a `Shape` primitive) — no casts.
-9. **Small numeric helpers.** `clamp01` ×8 (ClarityField, YinYang,
-   LightSpread, Grain, three-host, parts/text, render/text, journey),
-   piecewise-linear `keyed` (Shot01), `lerp` ×3. Target: one
-   `src/math.ts`. Low drift risk; do it with the next touch of each file.
-10. **Cylinders.** `vocabulary/Cylinder` is the one implementation (src/parts
-    re-exports it); `holons/Cylinder` extends it as the founding DreamNode.
-    Not a duplicate — noted because it looks like one.
+"Owner" means another agent owns that holon; they have been told what the
+shared piece is.
+
+1. **The eye, computed from an Observer.** Canonical: `soliddrawing.ts`
+   `viewOf` / `toWorld` / `toLocal` (Recede uses them). Copies: `Earth.ts`
+   `seenFrom` / `worldMatrixOf` / `DEFAULT_EYE` / `localEye`, `Earth/Labels.ts`,
+   `holons/ValueFlow`. `sketch/mirror.ts` builds a THREE camera with
+   perspective-only maths (deliberately, for the page projection), and
+   `three-host syncCamera` is the source of truth. Drift risk: every camera
+   change (orbit layer, tilt) has to reach each copy. Owner: earth, valueflow.
+2. **Derived points, the rest:** `FlowMap` (`deriveChannel`), `SOPLoop`,
+   `Horizons`. Owner: symbols/flowmap. The guard's PENDING list names them.
+3. **Parts added after construction:** `prism.ts`, `Earth/Labels.ts`,
+   `Earth.ts` (`addTo`) and FlowMap's stages cast past `add()` to compose
+   into a plain Null. `Group({ members })` is the public form when the
+   members are known up front. If they can't be, `add` may want a public
+   twin. That is a core API decision, so propose it, don't decide it.
+4. **The Vitruvian man.** `demo/web3/VitruvianMan.ts` (standalone) and
+   `Shot12Vitruvian.ts` both build Da Vinci's circle + square + FourierTrace
+   from shared constants. A `vocabulary/Vitruvian` holon would hold all
+   three. Blocked: `Shot12Vitruvian.ts` has an uncommitted edit
+   (`terms: 500`) from before this session, whose owner is unknown.
+5. **Particles along a path.** `Stream`, FlowMap's flows and SOPLoop
+   already share the maths (`src/geometry/flowmap.ts` `streamArc`,
+   `atArcLength`); what repeats is the per-particle wiring (memo, placement,
+   symbol hook). Target: FlowMap and SOPLoop compose `Stream`. Owner:
+   flowmap/symbols. Low drift risk now that the maths is shared.
+6. **The noosphere lattice** (`Regenaissance/lattice.ts`) has only one use.
+   Promote it to a 3D `Noosphere` holon when a second song wants it, not
+   before.
+7. **Small helpers left:** `clamp01` in Grain, three-host and MorphCurves
+   (owners' files). The vector `lerp`s differ by type and are not duplicates.
+
+Checked, not duplicates: the YinYang "Web2 node" (ring, triangular grid,
+bolts, field spirals) appears once. `Web2Disintegrating` is a different
+symbol (a triangle lattice that falls apart). `holons/Cylinder` extends the
+one Cylinder.
 
 Spot-checked, no second implementation found: arrows (scenes use Line's own
 arrowheads), the human figure (`vocabulary/Figure` is already the one

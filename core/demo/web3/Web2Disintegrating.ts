@@ -44,11 +44,9 @@
  * the cheap "polygon whose rounding is driven by the same param" reading the
  * brief names, and it keeps a cell at one primitive instead of a whole holon.
  *
- * The derived-`points` idiom (a memoised accessor that recomputes only when
- * the cell's fall key changes, bumping `geomVersion` so the host regenerates
- * the ribbon) is exactly what Morph.ts and parts/curves.ts do; it is ten pure
- * lines, said again here rather than reaching into a private helper — the same
- * choice Morph made. Everything a cell shows (its shape, position, tumble,
+ * Its points are derived (primitives.ts `derivePoints`: recomputed only when
+ * the cell's fall key changes, `geomVersion` bumped so the host regenerates
+ * the ribbon). Everything a cell shows (its shape, position, tumble,
  * tint and opacity) is a pure function of the single `collapse` param, so the
  * scene scrubs backwards exactly and re-renders identically: no Math.random
  * (the horizontal scatter and tumble are seeded through flower.ts's hashUnit,
