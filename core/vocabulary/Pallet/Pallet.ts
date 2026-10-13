@@ -8,9 +8,9 @@ export const PALLET_LOADS = ["sacks", "octabin", "none"] as const
 export type PalletLoad = (typeof PALLET_LOADS)[number]
 
 /**
- * A pallet, platonic — raw material as it arrives: a deck on nine blocks
- * and three runners (the fork openings are what say PALLET), loaded with
- * three layers of flat sacks or one octabin under its lid.
+ * A pallet, platonic — raw material as it arrives: a deck on three
+ * stringers (the fork openings are what say PALLET), loaded with three
+ * layers of flat sacks or one octabin under its lid.
  *
  * Drawn as its visible 3D edges and fills (src/parts/soliddrawing.ts), so
  * it is a morph target like the Truck: a dot in a flow can become the
@@ -35,7 +35,7 @@ export class Pallet extends SolidDrawing {
   load = choice("sacks", PALLET_LOADS)
 
   constructor(overrides: ConstructorParameters<typeof SolidDrawing>[0] = {}) {
-    super({ lineSlots: 200, faceSlots: 64, ...overrides })
+    super({ lineSlots: 88, faceSlots: 20, ...overrides })
   }
 
   solids(): Solid[] {
@@ -49,40 +49,35 @@ export class Pallet extends SolidDrawing {
       size: { x: x1 - x0, y: y1 - y0, z: z1 - z0 },
       fill,
     })
-    // Built on the ground (y = 0) from the corner (x = 0, z = 0).
-    const runner = 6 // the bottom boards
-    const block = 18 // the blocks between
-    const deck = 6
-    const top = runner + block + deck // 30
+    // Built on the ground (y = 0) from the corner (x = 0, z = 0): a deck
+    // on three blocks-in-a-row (stringers) across its depth, so the long
+    // side shows the two fork openings — the silhouette that says PALLET,
+    // in four solids (a particle may be a pallet, hundreds at once).
+    const leg = 22 // the stringers' height and width
+    const deck = 8
+    const top = leg + deck // 30
     const raw: Solid[] = []
-    const bw = 22 // block / runner width
-    const along = [0, L / 2 - bw / 2, L - bw]
-    const across = [0, D / 2 - bw / 2, D - bw]
     // The wood is UNFILLED: it hides lines all the same (hidden-line
-    // occlusion is geometric), and what lies behind it is black ground and
-    // black wood. Filled, its long low parts sort in front of the load by
-    // the painter's rule and black out the sacks' faces.
-    for (const z of across) raw.push(box(0, L, 0, runner, z, z + bw, undefined))
-    for (const z of across) for (const x of along) raw.push(box(x, x + bw, runner, runner + block, z, z + bw, undefined))
-    // The deck: five boards across the runners, unfilled likewise.
-    const boards = 5
-    const bd = (D - (boards - 1) * 4) / boards
-    for (let k = 0; k < boards; k++) raw.push(box(0, L, runner + block, top, k * (bd + 4), k * (bd + 4) + bd, undefined))
+    // occlusion is geometric), and what lies behind it is black ground.
+    // Filled, its long low parts sort in front of the load by the
+    // painter's rule and black out the sacks' faces.
+    for (const x of [0, L / 2 - leg / 2, L - leg]) raw.push(box(x, x + leg, 0, leg, 0, D, undefined))
+    raw.push(box(0, L, leg, top, 0, D, undefined))
 
     const load = this.load.value as PalletLoad
     if (load === "sacks") {
-      // Three layers of four flat sacks, two by two, each layer laid a
-      // little off the one below — a hand-stacked load, not a wall.
+      // Three layers of two flat sacks, each layer laid a little off the
+      // one below — a hand-stacked load, not a wall; six sacks, so a flow
+      // of pallets stays light.
       const h = 40
       const gap = 3
-      const jog = [0, 4, -2]
+      const jog = [0, 5, -3]
+      const inset = 6
       for (let layer = 0; layer < 3; layer++) {
         const y0 = top + layer * h
         const j = jog[layer]!
-        const inset = 6
         for (const [x0, x1] of [[inset, L / 2 - gap / 2], [L / 2 + gap / 2, L - inset]] as const)
-          for (const [z0, z1] of [[inset, D / 2 - gap / 2], [D / 2 + gap / 2, D - inset]] as const)
-            raw.push(box(x0 + j, x1 + j, y0, y0 + h, z0 - j / 2, z1 - j / 2, mat))
+          raw.push(box(x0 + j, x1 + j, y0, y0 + h, inset - j / 2, D - inset - j / 2, mat))
       }
     } else if (load === "octabin") {
       // A bulk bin with its lid, the lid a little proud of the walls.
@@ -97,6 +92,6 @@ export class Pallet extends SolidDrawing {
     const cx = L / 2
     const cy = y1 / 2
     const cz = D / 2
-    return raw.map((s) => ({ ...s, center: { x: s.center.x - cx, y: s.center.y - cy, z: s.center.z - cz } }))
+    return raw.map((s) => (s.kind === "mesh" ? s : { ...s, center: { x: s.center.x - cx, y: s.center.y - cy, z: s.center.z - cz } }))
   }
 }

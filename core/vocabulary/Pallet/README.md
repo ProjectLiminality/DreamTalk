@@ -2,10 +2,11 @@
 
 ![Pallet](Pallet.png)
 
-A pallet, platonic — raw material as it arrives: a deck of five boards on
-nine blocks and three runners (the fork openings are what say PALLET),
-loaded with three layers of flat sacks, laid a little off each other the
-way a hand-stacked load is — or with one octabin under its lid, or bare.
+A pallet, platonic — raw material as it arrives: a deck on three
+stringers (the two fork openings are what say PALLET), loaded with three
+layers of flat sacks, laid a little off each other the way a hand-stacked
+load is — or with one octabin under its lid, or bare. Few solids on
+purpose: a flow may carry hundreds of pallets at once.
 Drawn as its **visible 3D edges** and one fill colour, recomputed for
 wherever the camera is (`src/parts/soliddrawing.ts`), like the Truck.
 

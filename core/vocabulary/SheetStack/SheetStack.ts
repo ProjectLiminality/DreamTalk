@@ -24,7 +24,7 @@ export class SheetStack extends SolidDrawing {
   sheets = integer(6)
 
   constructor(overrides: ConstructorParameters<typeof SolidDrawing>[0] = {}) {
-    super({ lineSlots: 120, faceSlots: 48, ...overrides })
+    super({ lineSlots: 60, faceSlots: 20, ...overrides })
   }
 
   solids(): Solid[] {

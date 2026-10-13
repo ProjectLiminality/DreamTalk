@@ -52,19 +52,28 @@
  * SEAMS for other abilities (Morph, the truck lens): every slice's group
  * circle is `slices[k].hull`, a plain Circle; every flow's channel is
  * `flows[i].line`, a Line; every particle is `flows[i].dots[j]`, a filled
- * Circle — the neutral `symbol` "dot". A stage's `symbol` names what its
- * particles will become (pallets, reels…) once those symbols exist.
+ * Circle — the neutral `symbol` "dot". A stage whose data names a material
+ * `symbol` (pallet, octabin, reel, pouch, sheets) carries Grains instead
+ * (vocabulary/Grain): at its `rung` 1 a Grain IS the dot in the stage's
+ * colour; `rung` 2 morphs every particle into that material's symbol.
  */
 
 import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
-import type { Observer } from "../../src/dream"
 import { angle, choice, completion, derive, length, scalar, state, type Readable } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
 import { certainty, presence, wobble } from "../../src/certainty"
+import type { Observer } from "../../src/dream"
+import type { SolidDrawing } from "../../src/parts/soliddrawing"
+import { Grain } from "../Grain/Grain"
+import { Pallet } from "../Pallet/Pallet"
+import { FilmReel } from "../FilmReel/FilmReel"
+import { Pouch } from "../Pouch/Pouch"
+import { SheetStack } from "../SheetStack/SheetStack"
 import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
+import { peakVolume, seriesAt, thinning } from "./table"
 import {
   arcTable,
   atArcLength,
@@ -99,12 +108,38 @@ export interface FlowMapData {
    */
   stages: { id: string; label?: string; tint?: Color; certainty?: number; symbol?: ParticleSymbol }[]
   /** A flow of value from one entity (member or partner id) to another, in a stage. */
-  flows: { from: string; to: string; stage: string; rate?: number; certainty?: number }[]
+  flows: {
+    from: string
+    to: string
+    stage: string
+    rate?: number
+    certainty?: number
+    /**
+     * Volume per period (in `periods` order): a number is data (0 = nothing
+     * moved), null is no data — drawn as conjecture. With a series, the
+     * flow's density and width follow its volume at `period`, and its
+     * certainty follows the data's coverage. See table.ts.
+     */
+    series?: (number | null)[]
+  }[]
+  /** The time axis the flows' series run along, in order ("2026-01", …). */
+  periods?: string[]
+  /** What the series measure ("t", "pallets", …). */
+  unit?: string
 }
 
-/** What a particle is drawn as. Only the neutral dot exists yet — the hook for pallets, reels, products. */
-export const PARTICLE_SYMBOLS = ["dot"] as const
+/** What a particle is drawn as: the neutral dot, or a material it can become (a Grain's type symbol). */
+export const PARTICLE_SYMBOLS = ["dot", "pallet", "octabin", "reel", "pouch", "sheets"] as const
 export type ParticleSymbol = (typeof PARTICLE_SYMBOLS)[number]
+
+/** The material symbols, by name (vocabulary/Pallet, FilmReel, Pouch, SheetStack). */
+const MATERIALS: Record<Exclude<ParticleSymbol, "dot">, (o: ConstructorParameters<typeof Pallet>[0]) => SolidDrawing> = {
+  pallet: (o) => new Pallet(o),
+  octabin: (o) => new Pallet({ ...o, load: "octabin" }),
+  reel: (o) => new FilmReel(o),
+  pouch: (o) => new Pouch(o),
+  sheets: (o) => new SheetStack(o),
+}
 
 const CATEGORY_TINTS: Color[] = [RED, BLUE, GREEN, YELLOW, PURPLE]
 const PARTNER_TINT = rgb(150, 150, 150)
@@ -139,8 +174,8 @@ export class FlowSlice extends Group {
 export class Flow extends Group {
   certainty = certainty(1)
   line!: Line
-  /** The particles themselves — filled Circles, the neutral "dot" symbol. */
-  dots: Circle[] = []
+  /** The particles themselves — filled Circles (the neutral "dot"), or Grains in a material stage. */
+  dots: (Circle | Grain)[] = []
   /** Each particle's carrier: positioned on the channel, turned to face the camera. */
   carriers: Group[] = []
   /**
@@ -165,6 +200,12 @@ export class FlowStage extends Group {
   certainty = certainty(1)
   /** What its particles are — the neutral dot until a richer symbol is asked for. */
   symbol = choice("dot", PARTICLE_SYMBOLS)
+  /**
+   * How much of its particles' kind shows, when its data names a material
+   * symbol (vocabulary/Grain's rungs): 1 = the dot in the stage's colour,
+   * 2 = each particle morphed into the material's symbol.
+   */
+  rung = scalar(1)
   stageId = ""
   flows: Flow[] = []
   label?: Text
@@ -213,6 +254,12 @@ export class FlowMap extends Null {
   channel = completion(0.38)
   /** Stage and category names: 1 shown, 0 off. */
   labels = completion(1)
+  /**
+   * Where along the data's periods the map stands — continuous (0 … P−1):
+   * between two periods every flow's volume and coverage are interpolated,
+   * so scrubbing or animating it is smooth. Only meaningful with `periods`.
+   */
+  period = scalar(0)
   /**
    * Member names (each member's `label`) as small text inside its ring,
    * tinted as the ring is: 1 shown, 0 off (the default). Shown flat; they
@@ -317,6 +364,14 @@ export class FlowMap extends Null {
         )
       }
     })
+    const periods = this.data.periods ?? []
+    if (periods.length > 1)
+      axes.push(
+        axis("period", this, Object.fromEntries(periods.map((name, i) => [name, { period: i }])), {
+          key: "p",
+          duration: 1.2,
+        }),
+      )
     return { axes, clocks: [this.time] }
   }
 
@@ -570,6 +625,15 @@ export class FlowMap extends Null {
       const sd = d.stages[si]!
       const tint = sd.tint ?? STAGE_TINTS[si % STAGE_TINTS.length]!
       const flowCertainty = f.certainty ?? 1
+      // Over time: the flow's volume (as a share of the busiest flow's
+      // busiest period) and its data coverage at the current `period`.
+      const series = f.series && this.data.periods ? f.series : undefined
+      const peak = series ? peakVolume(this.data) : 1
+      const reading = () => (series ? seriesAt(series, this.period.value) : { volume: peak, coverage: 1 })
+      const share = () => Math.min(1, reading().volume / peak)
+      // What the data says about this flow now: covered = as declared,
+      // uncovered = conjecture (but never below the floor of a ghost).
+      const sure = () => flowCertainty * (series ? 0.15 + 0.85 * reading().coverage : 1)
       // Each flow bows its own way, so flows sharing ends stay apart; staged,
       // a gap's flows also fan apart vertically at their middles (rank in
       // the stage, by source height), so a bundle reads as separate strands
@@ -605,7 +669,9 @@ export class FlowMap extends Null {
       }
       const line = new Line({
         tint,
-        stroke: 2,
+        // Width follows volume when there is a series: a trickle is a hair,
+        // the busiest flow a band.
+        stroke: series ? derive(() => 1 + 4.5 * share()) : 2,
         arrowEnd: true,
         arrowSize: 1.05,
         opacity: derive(() => this.channel.value * smooth(0, 0.15, stage.shown.value)),
@@ -631,8 +697,9 @@ export class FlowMap extends Null {
       const longest = 1.15 * Math.hypot(2.9 * this.radius.value, this.gap.value)
       const n = Math.max(2, Math.ceil(longest / (this.spacing.value / rate)))
       const seed = fi * 7.31 + 0.37
-      const dots: Circle[] = []
+      const dots: (Circle | Grain)[] = []
       const carriers: Group[] = []
+      const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
       for (let j = 0; j < n; j++) {
         let memoT = Number.NaN
         let memoF: Frame | undefined
@@ -648,20 +715,31 @@ export class FlowMap extends Null {
           const { points, lengths } = channel()
           const L = lengths[lengths.length - 1]!
           const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
-          const o = streamFade(s, L, shown)
+          const o = streamFade(s, L, shown) * (series ? thinning(j, share()) : 1)
           const p = atArcLength(points, lengths, Math.min(s, L))
-          const c = stage.certainty.value * flowCertainty
+          const c = stage.certainty.value * sure()
           const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
           memo = { x: p.x + w.x, y: p.y + w.y, z: p.z, o }
           return memo
         }
-        const dot = new Circle({
-          radius: derive(() => R() * 0.02),
-          stroke: 0,
-          fillOpacity: 1,
-          tint,
-          opacity: derive(() => cur().o),
-        })
+        const dot = material
+          ? new Grain({
+              observer: this.seenBy?.(),
+              radius: derive(() => R() * 0.02),
+              size: derive(() => R() * 0.1),
+              category: tint,
+              neutral: tint,
+              symbol: material,
+              grain: derive(() => stage.rung.value),
+              opacity: derive(() => cur().o),
+            })
+          : new Circle({
+              radius: derive(() => R() * 0.02),
+              stroke: 0,
+              fillOpacity: 1,
+              tint,
+              opacity: derive(() => cur().o),
+            })
         dots.push(dot)
         carriers.push(
           this.facing(dot, {
@@ -672,6 +750,7 @@ export class FlowMap extends Null {
         )
       }
       const flow = new Flow({ members: [line, ...carriers], certainty: flowCertainty })
+      if (series) flow.certainty.follow(derive(sure))
       flow.line = line
       flow.dots = dots
       flow.carriers = carriers
@@ -708,6 +787,64 @@ export class FlowMap extends Null {
         }),
       )
     })
+
+    // --- the period: a readout above, a small axis below --------------------
+    const periods = d.periods ?? []
+    if (periods.length > 1) {
+      const P = periods.length
+      const left = () => -R() * 1.4
+      const right = () => R() * 1.4
+      const axisY = () => -R() * 1.72
+      const xAt = (i: number) => left() + ((right() - left()) * i) / (P - 1)
+      const timeline: Holon[] = []
+      const track = new Line({ stroke: 1.5, tint: LABEL_TINT, opacity: this.labels })
+      deriveChannel(track, () => [this.radius.value], () => [
+        { x: left(), y: axisY(), z: 0 },
+        { x: right(), y: axisY(), z: 0 },
+      ])
+      timeline.push(track)
+      for (let i = 0; i < P; i++) {
+        const tick = new Line({ stroke: 1.5, tint: LABEL_TINT, opacity: this.labels })
+        deriveChannel(tick, () => [this.radius.value], () => [
+          { x: xAt(i), y: axisY() - R() * 0.025, z: 0 },
+          { x: xAt(i), y: axisY() + R() * 0.025, z: 0 },
+        ])
+        timeline.push(tick)
+      }
+      // The marker rides the continuous period.
+      timeline.push(
+        new Circle({
+          radius: derive(() => R() * 0.028),
+          stroke: 0,
+          fillOpacity: 1,
+          tint: WHITE,
+          opacity: this.labels,
+          x: derive(() => left() + ((right() - left()) * Math.min(P - 1, Math.max(0, this.period.value))) / (P - 1)),
+          y: derive(axisY),
+        }),
+      )
+      const ends = (i: number) =>
+        new Text({
+          content: periods[i]!,
+          size: derive(() => labelSize() * 0.75),
+          tint: LABEL_TINT,
+          opacity: this.labels,
+          x: derive(() => xAt(i)),
+          y: derive(() => axisY() - R() * 0.1 - labelSize() * 0.75 * 0.35),
+        })
+      timeline.push(ends(0), ends(P - 1))
+      // The readout: the nearest period's name, large, above the map.
+      timeline.push(
+        new Text({
+          content: derive(() => periods[Math.min(P - 1, Math.max(0, Math.round(this.period.value)))]! + (d.unit ? `  ·  ${d.unit}` : "")),
+          size: derive(() => labelSize() * 1.3),
+          tint: WHITE,
+          opacity: this.labels,
+          y: derive(() => R() * 1.62 - labelSize() * 1.3 * 0.35),
+        }),
+      )
+      this.add(new Group({ members: timeline }))
+    }
 
     // --- the legend: categories, top left, while staged --------------------
     const legendRows: Holon[] = []

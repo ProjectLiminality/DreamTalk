@@ -39,6 +39,7 @@ import { RegenaissanceDream } from "./vocabulary/Regenaissance"
 import { EarthDream } from "./vocabulary/Earth"
 import { EarthFeaturesDream } from "./vocabulary/EarthFeatures"
 import { FlowMapDream } from "./vocabulary/FlowMap"
+import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
 import { HorizonsDream } from "./vocabulary/Horizons"
 import { Scene00Dream } from "./origins/Scene00"
@@ -101,7 +102,7 @@ import { FillGlowDream } from "./FillGlow"
 import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { LensDream } from "./LensDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
-import { GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
+import { FlowMapGrainDream, GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
@@ -124,6 +125,7 @@ export const scenes: Record<string, DreamClass> = {
   materials: MaterialsDream,
   grain: GrainDream,
   "materials-faces": MaterialsFacesDream,
+  "flowmap-grain": FlowMapGrainDream,
   // A symbol becoming its written word and back (MorphToWord).
   "morph-word": MorphWordDream,
   "morph-word-virus": MorphWordVirusDream,
@@ -238,6 +240,8 @@ export const scenes: Record<string, DreamClass> = {
   "earth-features": EarthFeaturesDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
+  // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
+  "flowmap-time": FlowMapTimeDream,
   // S&OP as one figure-eight: demand ↔ supply, value running round, untwisting into one loop.
   sop: SOPLoopDream,
   // Planning horizons: when we care, about what, and who — the open seat a ghost.

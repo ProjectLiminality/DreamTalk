@@ -42,11 +42,11 @@ import { WHITE, rgb, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Overrides } from "../../src/holon"
 import { certainty } from "../../src/certainty"
-import { Param, completion, derive, length, scalar } from "../../src/params"
+import { Param, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { derivePoints, localView, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
-import type { View } from "../../src/geometry/hiddenline"
+import type { Solid, View } from "../../src/geometry/hiddenline"
 import { blendPlan, planMorph, type MorphPlan } from "../../src/geometry/correspond"
 import { morphPhases } from "../Morph/MorphCurves"
 
@@ -81,17 +81,36 @@ const mixColor = (a: Color, b: Color, u: number): Color => ({
 })
 const clamp01 = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x)
 
+/** A solid's axis-aligned bounds in its drawing's space. */
+export const solidBounds = (s: Solid): { lo: Vec3Like; hi: Vec3Like } => {
+  if (s.kind === "mesh") {
+    const lo = { x: Infinity, y: Infinity, z: Infinity }
+    const hi = { x: -Infinity, y: -Infinity, z: -Infinity }
+    for (const p of s.positions)
+      for (const a of ["x", "y", "z"] as const) {
+        lo[a] = Math.min(lo[a], p[a])
+        hi[a] = Math.max(hi[a], p[a])
+      }
+    return { lo, hi }
+  }
+  const h =
+    s.kind === "cylinder"
+      ? { x: s.axis === "x" ? s.height / 2 : s.radius, y: s.axis === "y" ? s.height / 2 : s.radius, z: s.axis === "z" ? s.height / 2 : s.radius }
+      : { x: s.size.x / 2, y: s.size.y / 2, z: s.size.z / 2 }
+  const c = s.center
+  return { lo: { x: c.x - h.x, y: c.y - h.y, z: c.z - h.z }, hi: { x: c.x + h.x, y: c.y + h.y, z: c.z + h.z } }
+}
+
 /** A drawing's solids' bounds: the largest extent (what `size` measures) and the lowest y. */
 const boundsOf = (sym: SolidDrawing): { extent: number; bottom: number } => {
-  let lo = { x: Infinity, y: Infinity, z: Infinity }
-  let hi = { x: -Infinity, y: -Infinity, z: -Infinity }
+  const lo = { x: Infinity, y: Infinity, z: Infinity }
+  const hi = { x: -Infinity, y: -Infinity, z: -Infinity }
   for (const s of sym.solids()) {
-    const h =
-      s.kind === "cylinder"
-        ? { x: s.axis === "x" ? s.height / 2 : s.radius, y: s.axis === "y" ? s.height / 2 : s.radius, z: s.axis === "z" ? s.height / 2 : s.radius }
-        : { x: s.size.x / 2, y: s.size.y / 2, z: s.size.z / 2 }
-    lo = { x: Math.min(lo.x, s.center.x - h.x), y: Math.min(lo.y, s.center.y - h.y), z: Math.min(lo.z, s.center.z - h.z) }
-    hi = { x: Math.max(hi.x, s.center.x + h.x), y: Math.max(hi.y, s.center.y + h.y), z: Math.max(hi.z, s.center.z + h.z) }
+    const b = solidBounds(s)
+    for (const a of ["x", "y", "z"] as const) {
+      lo[a] = Math.min(lo[a], b.lo[a])
+      hi[a] = Math.max(hi[a], b.hi[a])
+    }
   }
   return { extent: Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 1e-6), bottom: lo.y }
 }
@@ -170,11 +189,18 @@ export class Grain extends Stroke {
 
   /** The unit direction toward the viewer, grain-local. */
   private toward(): Vec3Like {
+    // Read by every slot of every grain each frame: answered once per
+    // param epoch (nothing it reads can change between two equal epochs).
+    const e = paramEpoch()
+    if (this.towardMemo?.epoch === e) return this.towardMemo.k
     const v = this.view()
     const d = "eye" in v ? v.eye : v.toward
     const l = Math.hypot(d.x, d.y, d.z) || 1
-    return { x: d.x / l, y: d.y / l, z: d.z / l }
+    const k = { x: d.x / l, y: d.y / l, z: d.z / l }
+    this.towardMemo = { epoch: e, k }
+    return k
   }
+  private towardMemo?: { epoch: number; k: Vec3Like }
 
   /** The dot's outline: a circle facing the viewer, grain-local, closed. */
   dotOutline(n = 48): Vec3Like[] {
@@ -258,13 +284,20 @@ export class Grain extends Stroke {
     derivePoints(dot, () => [...Object.values(this.toward()), this.radius.value], () => this.dotOutline())
     this.add(dot)
 
-    // The morph in flight: one Line per piece, grain-local.
-    const capacity = symbol ? 2 + Math.max(32, this.symbolCurves().length * 2) : 0
+    // The morph in flight: one Line per piece, grain-local. One dot outline
+    // into M curves makes at most 1 + M pieces; M is read for the view at
+    // construction, with room for a view that shows a few more spans (a
+    // flow may carry hundreds of grains — every slot is a mounted line).
+    const capacity = symbol ? 16 + this.symbolCurves().length : 0
     let version = 0
     let lastKey = ""
     const piecesNow = () => this.pieces()
     let memo: Vec3Like[][] = []
+    let lastEpoch = -1
     const current = () => {
+      const e = paramEpoch()
+      if (e === lastEpoch) return memo
+      lastEpoch = e
       const key = `${this.grain.value}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}`
       if (key !== lastKey) {
         lastKey = key

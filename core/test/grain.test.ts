@@ -12,7 +12,7 @@ import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
-import { Grain, NEUTRAL, RUNG, grainPhases, rungCertainty } from "../vocabulary/Grain/Grain"
+import { Grain, NEUTRAL, RUNG, grainPhases, rungCertainty, solidBounds } from "../vocabulary/Grain/Grain"
 
 /** A three-quarter view from above, orthographic — the grain scene's camera. */
 const observer = (): Observer => {
@@ -37,13 +37,10 @@ const bounds = (d: SolidDrawing) => {
   const lo = { x: Infinity, y: Infinity, z: Infinity }
   const hi = { x: -Infinity, y: -Infinity, z: -Infinity }
   for (const s of d.solids()) {
-    const h =
-      s.kind === "cylinder"
-        ? { x: s.axis === "x" ? s.height / 2 : s.radius, y: s.axis === "y" ? s.height / 2 : s.radius, z: s.axis === "z" ? s.height / 2 : s.radius }
-        : { x: s.size.x / 2, y: s.size.y / 2, z: s.size.z / 2 }
+    const b = solidBounds(s)
     for (const a of ["x", "y", "z"] as const) {
-      lo[a] = Math.min(lo[a], s.center[a] - h[a])
-      hi[a] = Math.max(hi[a], s.center[a] + h[a])
+      lo[a] = Math.min(lo[a], b.lo[a])
+      hi[a] = Math.max(hi[a], b.hi[a])
     }
   }
   return { lo, hi }

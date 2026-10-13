@@ -16,6 +16,7 @@ import type { Overrides } from "../src/holon"
 import { Group, Line } from "../src/parts/index"
 import type { SolidDrawing } from "../src/parts/soliddrawing"
 import { Factory } from "../vocabulary/Earth/Factory"
+import { FlowMap, MOCK_FLOWMAP } from "../vocabulary/FlowMap/FlowMap"
 import { Grain, RUNG } from "../vocabulary/Grain/Grain"
 import { Stream } from "../vocabulary/Stream/Stream"
 import { Pallet } from "../vocabulary/Pallet/Pallet"
@@ -202,5 +203,48 @@ export class MaterialsFacesDream extends Dream {
       if (i > 0) this.play(this.observer.x.to(s.x.value), 0.001)
       this.wait(0.999)
     })
+  }
+}
+
+/**
+ * `?scene=flowmap-grain` — the grain of knowledge on the FlowMap: the mock
+ * organisation's three stages carry pallets, reels and pouches. Staged
+ * into the value-chain stack, each stage's dots become their material
+ * (`stage(id).rung` 1 → 2); the raw-material inflow, conjecture in the
+ * data, stays ghosted until its data arrives.
+ */
+export class FlowMapGrainDream extends Dream {
+  map = new FlowMap({
+    radius: 300,
+    // Materials are bigger than dots: sparser, so each reads as one thing.
+    spacing: 130,
+    seenBy: () => this.observer,
+    data: {
+      ...MOCK_FLOWMAP,
+      // Pallets in, reels between, pouches out. The middle stage's white
+      // would hide a reel's lines in its own fill, so it takes green here.
+      stages: MOCK_FLOWMAP.stages.map((s, i) => ({ ...s, symbol: (["pallet", "reel", "pouch"] as const)[i], ...(i === 1 ? { tint: GREEN } : {}) })),
+    },
+  })
+
+  private flowing(dt: number, ...anims: Anim[]): void {
+    this.play(together(this.map.time.by(dt, { easing: "linear" }), ...anims), dt)
+  }
+
+  unfold() {
+    const m = this.map
+    const o = this.observer
+    o.orthographic.value = o.orthographic.defaultValue = true
+    o.zoom.value = o.zoom.defaultValue = 1023 / (1300 * (16 / 9))
+    this.stage(m)
+    void m.parts // composed: its stages exist
+    this.set(m.grain.to(1), m.expand.to(1), ...["raw", "semi", "finished"].map((id) => m.stage(id).shown.to(1)))
+    this.flowing(2.5)
+    for (const id of ["raw", "semi", "finished"]) this.flowing(2.2, m.stage(id).rung.to(2))
+    this.flowing(2.5)
+    this.flowing(2.5, m.stage("raw").certainty.to(1))
+    this.flowing(2.5)
+    this.flowing(2.5, ...["raw", "semi", "finished"].map((id) => m.stage(id).rung.to(1)))
+    this.flowing(1)
   }
 }

@@ -29,7 +29,7 @@ export class FilmReel extends SolidDrawing {
   width = length(190)
 
   constructor(overrides: ConstructorParameters<typeof SolidDrawing>[0] = {}) {
-    super({ lineSlots: 48, faceSlots: 16, ...overrides })
+    super({ lineSlots: 24, faceSlots: 12, ...overrides })
   }
 
   solids(): Solid[] {
