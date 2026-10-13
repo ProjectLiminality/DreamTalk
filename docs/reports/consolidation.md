@@ -28,12 +28,11 @@ Value ≈ copies × songs that benefit × how far the copies have drifted. "Owne
 busy" means another agent was mid-work in that holon on 2026-10-13; those are
 left for the owner's next pass (they have been told).
 
-1. **Derived-points memo — the rest.** `vocabulary/Earth/Earth.ts`
-   (`deriveLine`; `deriveSurface` is its Surface twin),
-   `Earth/Connection.ts`, `FlowMap/FlowMap.ts` (`deriveChannel`),
-   `Morph/Morph.ts` (×2), `SOPLoop`, `Horizons`. Target: `derivePoints`
-   (and a `deriveMesh` beside `Surface` if a second surface needs it).
-   Identical idea; the guard's PENDING list names them. Owners busy.
+1. **Derived-points memo — the rest.** Earth, Connection and Morph have
+   since switched (their owners, the same day). Left: `FlowMap/FlowMap.ts`
+   (`deriveChannel`), `SOPLoop`, `Horizons` — the guard's PENDING list
+   names them. Earth's `deriveSurface` is the Surface twin (a `deriveMesh`
+   beside `Surface` once a second surface needs it).
 2. **The eye, computed from an Observer — 7 copies.** `soliddrawing.ts`
    `viewOf`/`toWorld`/`toLocal` (canonical), `Earth.ts` `seenFrom` +
    `worldMatrixOf` + `DEFAULT_EYE`, `Earth/Labels.ts`, `sketch/mirror.ts`
