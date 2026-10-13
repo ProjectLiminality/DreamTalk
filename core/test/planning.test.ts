@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { lemniscate, loopPoint, onLeftLobe } from "../src/geometry/lemniscate"
-import { cellSpan, horizonEdges, regionBoundary, roleSpot } from "../src/geometry/horizons"
+import { cellSpan, cornerPoint, horizonEdges, regionBoundary, regionRightAt, roleSpot, splitAround } from "../src/geometry/horizons"
 import { SOPLoop } from "../vocabulary/SOPLoop/SOPLoop"
 import { Horizons, MOCK_HORIZONS } from "../vocabulary/Horizons/Horizons"
 import { certaintyOf } from "../src/certainty"
@@ -73,6 +73,27 @@ describe("horizons geometry", () => {
   })
 })
 
+describe("horizons: names written on lines, and names kept in their cells", () => {
+  test("a line opens around a name written on it, its ends on the gap's circle", () => {
+    const line = Array.from({ length: 21 }, (_, i) => ({ x: -10 + i, y: 0 }))
+    const runs = splitAround(line, { x: 0, y: 0 }, 3)
+    expect(runs.length).toBe(2)
+    expect(runs[0]!.at(-1)!.x).toBeCloseTo(-3, 6)
+    expect(runs[1]![0]!.x).toBeCloseTo(3, 6)
+  })
+
+  test("a region reaches its full width above its corner, less within it, nothing below it", () => {
+    const hs = [{ width: 300, reach: 1 }, { width: 300, reach: 2 }, { width: 300, reach: 3 }]
+    expect(regionRightAt(hs, 1, 100, -10)).toBe(600)
+    const low = regionRightAt(hs, 1, 100, -190)
+    expect(low).toBeLessThan(600)
+    expect(low).toBeGreaterThan(0)
+    expect(regionRightAt(hs, 1, 100, -250)).toBe(-Infinity)
+    const c = cornerPoint(hs, 1, 100, 0.5)
+    expect(regionRightAt(hs, 1, 100, c.y)).toBeCloseTo(c.x, 9)
+  })
+})
+
 describe("SOPLoop", () => {
   test("particles take the certainty of the side they are on", () => {
     const l = new SOPLoop()
@@ -100,7 +121,8 @@ describe("Horizons", () => {
     expect(certaintyOf(open.figure)).toBeCloseTo(0.12, 12)
     expect(open.name.content).toContain("(open)")
     open.certainty.value = 1
-    expect(open.name.content).toBe("Demand manager")
+    expect(open.name.content).not.toContain("(open)")
+    expect(open.name.content.replace("\n", " ")).toBe("Demand manager")
   })
 
   test("people step in with their horizon", () => {

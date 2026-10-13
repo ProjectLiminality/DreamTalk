@@ -34,7 +34,16 @@ import { certainty } from "../../src/certainty"
 import { together, type Anim } from "../../src/anim"
 import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import { smooth } from "../../src/geometry/flowmap"
-import { horizonEdges, regionBoundary, roleSpot, type HorizonSpec } from "../../src/geometry/horizons"
+import {
+  cellSpan,
+  cornerPoint,
+  horizonEdges,
+  regionBoundary,
+  regionRightAt,
+  roleSpot,
+  splitAround,
+  type HorizonSpec,
+} from "../../src/geometry/horizons"
 import { Figure } from "../Figure/Figure"
 
 export interface HorizonsData {
@@ -81,7 +90,7 @@ export const MOCK_HORIZONS: HorizonsData = {
 export class Role extends Group {
   /** Is the seat held (1) or open — conjecture about who (0)? */
   certainty = certainty(1)
-  /** Brought forward: 0 as is, 1 emphasised. */
+  /** Brought forward: 0 as is, 1 emphasised (the person larger, the name bright). */
   emphasis = completion(0)
   roleId = ""
   figure!: Figure
@@ -179,12 +188,24 @@ export class Horizons extends Null {
       parts.push(text(h.label, h.tint ?? WHITE, mid, () => size() * 2.2, ink(k), 1.6))
       if (h.span) parts.push(text(h.span, WHITE, mid, () => -size() * 1.3, ink(k), 1.0))
       if (k < H - 1) {
-        const region = new Line({ stroke: 2.5, tint: WHITE, creation: shown(k) })
-        deriveLine(region, () => [this.column.value, this.row.value], () =>
-          regionBoundary(this.specs(), k, this.row.value).map((p) => ({ x: p.x, y: p.y, z: 0 })),
-        )
-        this.regions.push(region)
-        parts.push(region)
+        // A process written ON this boundary (a note at the next horizon's
+        // "edge") opens the line around its name — two runs, as a whiteboard
+        // line breaks for the word written across it.
+        const note = (d.notes ?? []).find((n) => n.at === "edge" && d.horizons.findIndex((x) => x.id === n.horizon) === k + 1)
+        const runs = () => {
+          const pts = regionBoundary(this.specs(), k, this.row.value)
+          if (!note) return [pts]
+          const r = textWidth(note.label, size() * NOTE_SCALE) / 2 + size() * 0.35
+          return splitAround(pts, cornerPoint(this.specs(), k, this.row.value, 0.5), r)
+        }
+        for (let run = 0; run < (note ? 2 : 1); run++) {
+          const region = new Line({ stroke: 2.5, tint: WHITE, creation: shown(k) })
+          deriveLine(region, () => [this.column.value, this.row.value], () =>
+            (runs()[run] ?? []).map((p) => ({ x: p.x, y: p.y, z: 0 })),
+          )
+          this.regions.push(region)
+          parts.push(region)
+        }
       }
     })
 
@@ -193,19 +214,14 @@ export class Horizons extends Null {
       const k = d.horizons.findIndex((h) => h.id === n.horizon)
       const r = d.domains.findIndex((x) => x.id === n.domain)
       if (k < 0 || r < 0) throw new Error(`Horizons: note '${n.label}' names an unknown horizon or domain`)
-      // "edge": just outside the inner region's rounded corner, where the
-      // process meets the horizon below it.
+      // "edge": ON the inner region's rounded corner — the process lives on
+      // the boundary between the two horizons (the line opens around it).
       const at = (): { x: number; y: number } => {
-        if (n.at === "edge" && k > 0) {
-          const s = this.specs()
-          const W = edges()[k - 1]!
-          const D = s[k - 1]!.reach * this.row.value
-          return { x: W - Math.min(W, D) * 0.12, y: -D - size() * 1.2 }
-        }
+        if (n.at === "edge" && k > 0) return cornerPoint(this.specs(), k - 1, this.row.value, 0.5)
         const p = roleSpot(this.specs(), k, r, this.row.value, 0, 1)
         return p
       }
-      parts.push(text(n.label, WHITE, () => at().x, () => at().y, ink(k), 1.05))
+      parts.push(text(n.label, WHITE, () => at().x, () => at().y, ink(k), NOTE_SCALE))
     }
 
     // --- the people ----------------------------------------------------------
@@ -222,23 +238,62 @@ export class Horizons extends Null {
       if (k < 0 || r < 0) throw new Error(`Horizons: role '${role.id}' names an unknown horizon or domain`)
       const tint = d.domains[r]!.tint ?? WHITE
       const count = cellCount.get(`${role.horizon}|${role.domain}`)!
-      const spot = () => roleSpot(this.specs(), k, r, this.row.value, cellIndex[ri]!, count)
+      // The room its name has: its own slot of the cell (the cell shared
+      // evenly among the roles in it), and — in a bounded horizon — the
+      // region's edge at the name's lowest point (the rounded corner pulls
+      // in as it goes down).
+      const NAME_SCALE = 0.72
+      const room = () => {
+        const p = roleSpot(this.specs(), k, r, this.row.value, cellIndex[ri]!, count)
+        const [a, b] = cellSpan(this.specs(), k, r)
+        const w = (b - a) / count
+        const y = p.y - (this.row.value * 0.3 + size() * 0.4)
+        const edge = k < H - 1 ? regionRightAt(this.specs(), k, this.row.value, y) : Infinity
+        const left = a + w * cellIndex[ri]!
+        return { p, left, right: Math.min(left + w, edge) }
+      }
+      const halfOf = (label: string) => textWidth(label, size() * NAME_SCALE) / 2 + size() * 0.3
+      // Too wide for its slot: wrap at the space nearest its middle.
+      const base = (() => {
+        const { left, right } = room()
+        return 2 * halfOf(role.label) <= right - left || !role.label.includes(" ") ? role.label : wrapMiddle(role.label)
+      })()
+      // Then step it within its slot, clear of the region's edge.
+      const spot = () => {
+        const { p, left, right } = room()
+        const half = halfOf(base)
+        return { x: Math.max(left + half, Math.min(p.x, right - half)), y: p.y }
+      }
       const present = shown(k)
+      let named: Text | undefined
+      const lines = () => (named ? named.content.split("\n").length : base.split("\n").length)
       // Hidden by its pen, not by scale alone: a stroke scaled to nothing
       // still draws a dot of its width. (stroke is the Figure's own param.)
       const figure = new Figure({
         height: derive(() => this.row.value * 0.36),
         tint,
         stroke: derive(() => 2.5 * present.value),
-        y: derive(() => -this.row.value * 0.02),
+        // Lifted by any extra lines its name grows upward by.
+        // …and by half its own growth when emphasised, so its feet stay put.
+        y: derive(() => -this.row.value * 0.02 + (lines() - 1) * size() * NAME_SCALE * 1.15 + this.row.value * 0.36 * 0.15 * (self?.emphasis.value ?? 0)),
       })
       // The name reads the role's emphasis — the role holds it, so refer late.
       let self: Role | undefined
-      const name = text(role.label, tint, () => 0, () => -this.row.value * 0.3, derive(() => this.labels.value * present.value * (0.75 + 0.25 * (self?.emphasis.value ?? 0))), 0.72)
+      // A name of several lines grows UP (its figure lifts with it), so a
+      // vacancy line never hangs below the region it belongs to.
+      const name = text(
+        base,
+        tint,
+        () => 0,
+        () => -this.row.value * 0.3 + (lines() - 1) * size() * NAME_SCALE * 1.15,
+        derive(() => this.labels.value * present.value * (0.75 + 0.25 * (self?.emphasis.value ?? 0))),
+        NAME_SCALE,
+      )
+      named = name
       // An open seat says so — until it is filled.
       if (role.vacancy) {
         const vacancy = role.vacancy
-        name.params.get("content")!.follow(derive(() => ((self?.certainty.value ?? 0) < 0.95 ? `${role.label}\n${vacancy}` : role.label)))
+        name.params.get("content")!.follow(derive(() => ((self?.certainty.value ?? 0) < 0.95 ? `${base}\n${vacancy}` : base)))
       }
       const placed = new Role({
         roleId: role.id,
@@ -250,9 +305,12 @@ export class Horizons extends Null {
       self = placed
       placed.figure = figure
       placed.name = name
-      // Its people step in as their horizon is revealed, and come forward
-      // with emphasis — by scale, so the shared Figure is never reached into.
-      placed.scale.follow(derive(() => smooth(k, k + 0.6, this.reveal.value) * (1 + 0.3 * placed.emphasis.value)))
+      // Its people step in as their horizon is revealed (by scale — the
+      // shared Figure is never reached into). Emphasis enlarges the PERSON
+      // (the Figure's own scale) and brightens the name in place, so a name
+      // never leaves the room it was fitted to.
+      placed.scale.follow(derive(() => smooth(k, k + 0.6, this.reveal.value)))
+      figure.scale.follow(derive(() => 1 + 0.3 * placed.emphasis.value))
       this.roles.push(placed)
       parts.push(placed)
     })
@@ -305,6 +363,25 @@ export class Horizons extends Null {
     })
     return { axes }
   }
+}
+
+/** A note's text size, as a multiple of the picture's base size. */
+const NOTE_SCALE = 1.05
+
+/**
+ * A text block's width estimate: its longest line at ~0.6 em per glyph
+ * (the default face's average advance). Layout is async, so placement
+ * decides from this rather than waiting for glyphs.
+ */
+const textWidth = (s: string, size: number): number =>
+  Math.max(...s.split("\n").map((l) => l.length)) * 0.6 * size
+
+/** Break a label at the space nearest its middle. */
+const wrapMiddle = (s: string): string => {
+  const mid = s.length / 2
+  let best = -1
+  for (let i = 0; i < s.length; i++) if (s[i] === " " && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i
+  return best < 0 ? s : `${s.slice(0, best)}\n${s.slice(best + 1)}`
 }
 
 /** Derived points, recomputed when `deps` change (the FlowMap/Globe memo pattern). */
