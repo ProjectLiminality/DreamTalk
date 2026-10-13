@@ -26,11 +26,12 @@ export class FlowMapDream extends Dream {
 
   unfold() {
     const m = this.map
-    // A long lens: the stage stack reads like the board's drawing — every
-    // slice at the same slant — instead of fanning open under perspective.
+    // Orthographic: the stage stack reads like the board's drawing — every
+    // slice the same size at the same slant — instead of fanning open under
+    // perspective. ~1300 units of picture height.
     const o = this.observer
-    o.radius.value = o.radius.defaultValue = 3200
-    o.fov.value = o.fov.defaultValue = 2 * Math.atan(1300 / 2 / 3200)
+    o.orthographic.value = o.orthographic.defaultValue = true
+    o.zoom.value = o.zoom.defaultValue = 1023 / (1300 * (16 / 9))
     this.stage(m)
 
     this.flowing(2.5, Create(m))

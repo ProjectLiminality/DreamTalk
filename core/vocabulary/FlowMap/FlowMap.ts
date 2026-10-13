@@ -154,7 +154,7 @@ export class FlowMap extends Null {
   /** How far the expanded stack turns to the side, radians (the map's heading at expand 1). */
   tilt = angle(1.05)
   /** Depth between consecutive slices of the expanded stack. */
-  gap = length(330)
+  gap = length(400)
   /** Seconds of flow — advance it linearly and the particles run. */
   time = scalar(0)
   /** Particle speed: fraction of a channel travelled per second. */

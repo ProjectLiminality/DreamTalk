@@ -5,6 +5,19 @@ to act on, but were left unfinished as attention moved on. Kept here so they
 never have to be explained from scratch again. Newest first; strike through
 when done.
 
+## Value flow map (2026-10-13, whiteboard transmission)
+- **Built:** `core/vocabulary/FlowMap` (`?scene=flowmap`) — group/members/
+  partners as nested circles; `grain` (category discs shrink in from the rim
+  into a vesica, N categories); flow layers with particles (`stage(id).shown`);
+  `expand` tilts it into the value-chain stage stack (`stage(id).open` per gap,
+  never reorders). **Certainty** is a core ability (`src/certainty.ts`):
+  inherited product, drawn as `ghost(c)` opacity + particle `wobble`.
+- Open: the real "quantum blur" (shader-side, reading `certaintyOf`);
+  certainty on Text and the Cylinder (host reads their opacity directly);
+  stage/entity labels; particle symbols beyond the dot (pallets, reels);
+  splitting a stage in two (production step); wiring Morph (connection lines
+  → the group circle, dot → truck); a clickable creator-mode toggle per param.
+
 ## The whiteboard loop (2026-10-03, active)
 - **Tablet screen driven by DreamTalk** — the e-ink mirror of the whiteboard
   (AppLoad + qtfb installed on the tablet; `tablet/dreamtalk-pad/`).

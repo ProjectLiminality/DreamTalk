@@ -37,6 +37,7 @@ import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
 import { Globe } from "../vocabulary/Globe/Globe"
+import { FlowMap } from "../vocabulary/FlowMap/FlowMap"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { Logo } from "../vocabulary/Logo/Logo"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
@@ -60,6 +61,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Eye", folder: "Eye", cls: Eye },
   { className: "Figure", folder: "Figure", cls: Figure },
   { className: "FoldableCube", folder: "FoldableCube", cls: FoldableCube },
+  { className: "FlowMap", folder: "FlowMap", cls: FlowMap },
   { className: "Globe", folder: "Globe", cls: Globe },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
   { className: "Logo", folder: "Logo", cls: Logo },
