@@ -82,7 +82,8 @@ class FlowDream extends Dream {
 | opts `order` | `"angular"` (default) · `"sweep"` · `"given"` — see below |
 | opts `observer` | the Dream's observer: angular order is then read in the VIEW plane |
 | opts `snap` | tape fraction; target boundaries within it snap onto source boundaries (whole sources grouped, fewer pieces) |
-| opts `lag` | 0…1, default 0.5: pieces travel at their smaller size (see below) |
+| opts `travel`, `stagger`, `arc`, `bend`, `chain` | how pieces fly (see below): rigid-then-deform by default |
+| opts `lag` | with `travel: "lerp"`: pieces keep their shape for the journey |
 | opts `capacity`, `step`, `normal`, `axis`, `rotate` | pool size; sample spacing; the angular plane; the sweep axis; rotation search on/off |
 
 The mathematics is `src/geometry/correspond.ts` (`correspond`,
@@ -108,17 +109,21 @@ the ORDER on the tapes:
 - **given** — the caller's order and directions, untouched (a route's legs
   onto a route's legs).
 
-**Travel at the smaller size (`lag`).** Each piece's centroid moves
-straight; its shape changes on its own curve — late if the piece grows,
-early if it shrinks. So the dot's arcs fly out as arcs and become truck
-edges on arrival, and on the way back the edges shrink to arcs first and
-then fly home: the return is the time-reverse of the trip, and long edges
-never slide across each other at full length. Both ends are exact for any
-lag (u = 0 is the sources, u = 1 the targets, corner for corner), so the
-handover to the real targets cannot pop.
+**Travel: rigid, then deform (default).** Each side's curves are first
+joined end to end into strokes (`chain`, default on — the truck's 88 edges
+become 42 strokes, a few of them long), so pieces are long and few, and a
+piece stays one polyline while it flies. Each piece then flies as a BODY:
+its centroid on a gentle arc bowing away from the morph's centre (`arc`,
+0.2), turning (capped at ±60°) and scaling (growth capped at ×2; shrinking
+free, so a truck bound for a dot travels at its smaller size) toward its
+target's pose, and only in the last part of its flight (`bend`, from 0.5)
+does it bend into its exact target shape. `stagger` spreads the pieces'
+departures along `axis` — reading order for a word — so the eye can follow.
+Both ends are exact point for point, so the landing and the handover to
+the real holon cannot be seen. `travel: "lerp"` keeps the older point-wise
+blend (with `lag`: pieces keep their shape for the journey).
 
-**What is not here yet.** One straight-line path per point (no arcing
-paths, no stagger); one tint per piece (blended source→target), no fill
+**What is not here yet.** One tint per piece (blended source→target), no fill
 morph — fill is its own channel, faded; view-dependent targets re-plan if
 the camera moves DURING the morph (move it before or after); hidden-line
 solids are boxes and capped cylinders, axis-aligned in the holon's frame,
