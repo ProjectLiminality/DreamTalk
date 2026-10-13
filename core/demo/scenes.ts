@@ -40,6 +40,7 @@ import { EarthDream } from "./vocabulary/Earth"
 import { EarthFeaturesDream } from "./vocabulary/EarthFeatures"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
+import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
 import { HorizonsDream } from "./vocabulary/Horizons"
 import { Scene00Dream } from "./origins/Scene00"
@@ -241,6 +242,8 @@ export const scenes: Record<string, DreamClass> = {
   "earth-features": EarthFeaturesDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
+  // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
+  "flowmap-time": FlowMapTimeDream,
   // The walkable symbols side by side: ← → visit each, its axes live (play=free).
   gallery: GalleryDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.

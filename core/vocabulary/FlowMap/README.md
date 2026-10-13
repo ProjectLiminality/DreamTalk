@@ -66,3 +66,15 @@ a stage's `symbol` names what its particles will become) — ready for Morph
 Particles and labels face the camera however the stack turns (a carrier
 cancels the stack's heading, its inner part the pitch). `?scene=flowmap`
 walks it all. Best seen orthographic (the demo's observer).
+
+**Over time** (`table.ts`): a plain table — `from, to, stage, period,
+volume[, unit, item]`, as CSV (`parseCSV`) or JSON records (`toRows`) —
+folds into flows with a volume SERIES per period (`flowTable`; unknown
+entities refused, or added as partners with `autoPartners`). Then `period`
+(continuous, scrubbable; an axis of the state space) drives each flow:
+width and particle density follow its volume (particles thin out one by one
+along a golden-ratio sequence, never sliding), a period with data is solid,
+a period WITHOUT data is conjecture — ghosted at the flow's typical level —
+and an explicit 0 is data that nothing moved: the flow draws nothing until
+volume arrives. A small period axis and readout come with it.
+`?scene=flowmap-time` runs a mock year.
