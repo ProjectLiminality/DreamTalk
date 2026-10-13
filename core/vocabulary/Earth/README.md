@@ -16,7 +16,7 @@ The planet as one programmatic object: a true 3D sphere with its land filled on 
 | coast | ~1,600 shore runs, derived from the land rings | `coastTint` `coastStroke` `coastOpacity` `coastDraw` |
 | borders | 393 admin-0 land boundaries | `borderTint` `borderStroke` `borderOpacity` `borderDraw` |
 | limb | the silhouette circle as a stroke (off by default) | `limbTint` `limbStroke` `limbOpacity` `limbDraw` |
-| places | whatever a scene anchors (`Place`) | `places` |
+| places | whatever a scene anchors (`Place`s, and `Connection` arcs between them) | `places` |
 
 `coastDraw`, `borderDraw` and `limbDraw` are each **one** param shared by every Line in their set. The whole shore draws on together, and the borders can arrive on their own later. `detail` is the map zoom the Earth is drawn for. Each feature carries Natural Earth's own `min_zoom`, and anything ranked above `detail` fades out. At any half-integer `detail` every feature is wholly in or wholly out.
 
@@ -34,6 +34,8 @@ FrameRegion(view, { lat: 49, lon: 12, span: 17 }, { earth, observer: this.observ
 view.tilt.to(38)                         // lean off straight-down, looking north
 ```
 
+`new Connection({ ends: [site, hq] })` is a great-circle arc lifted off the surface (higher for longer reaches) whose pen runs from its first place to its second. It states its curve in world space (`worldCurves()`), which is what MorphCurves/MorphMany read. Shorelines also have screen-size LOD: a feature narrower on screen than 2–4 pen widths keeps its fill and drops its outline, so thin islands never read as doubled lines.
+
 `EarthView.zoom` is log2 magnification (each +1 halves the altitude), so animating it at an even pace descends at an even pace for the eye. Rising buildings animate `place.altitude` from sunk to 0, and the ground hides them until they break the surface.
 
 **Sites** (`Sites.ts`): plain data, `{ name, lat, lon, kind: "hq" | "red" | "blue" }`. A real dataset swaps in for `mockSites.ts`. The positions there are invented and generic, and the names are placeholders, because this repo is public. `Factory` (a sawtooth-roofed hall) and `Headquarters` (a tower on a podium) are prisms (`prism.ts`) drawn as lines. Their black solid bodies write depth, which gives true hidden lines from the GPU at any camera angle.
@@ -50,4 +52,4 @@ Natural Earth 1:50m, public domain: "No permission is needed to use Natural Eart
 
 ## Not yet
 
-Country polygons (per-country fill and colour), 1:10m for views below a country's scale, rivers, lakes, cities and labels, a graticule, day/night, and a great-circle arc verb between places.
+Country polygons (per-country fill and colour), 1:10m for views below a country's scale, rivers, lakes, cities and labels, a graticule, and day/night.
