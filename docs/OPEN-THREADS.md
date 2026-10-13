@@ -36,6 +36,10 @@ when done.
   DURING a morph onto a view-dependent target; fill morphing (not only
   fading); the graft (`.morphInto([...])`) once a scene wants the method
   spelling.
+- **Lens (built 2026-10-13):** `vocabulary/Lens` (Lens + FlowLens), `Road`,
+  `Stream` — `?scene=lens`. Open: a curved/two-way road and landscape in
+  the window; aligning the window's ground to a tilted FlowMap stack;
+  per-frame re-planning cost of mid-morph particles for realtime.
 
 ## Value flow map (2026-10-13, whiteboard transmission)
 - **Built:** `core/vocabulary/FlowMap` (`?scene=flowmap`) — group/members/

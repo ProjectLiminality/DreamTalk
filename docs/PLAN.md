@@ -639,6 +639,9 @@ ruling (translation + the three deleted labels from footage).
       `morph-lines-circle`, `morph-dot-truck`. MorphShape (pydeation's
       1→1) untouched: no existing scene's pixels change. Advances Ch 14's
       mesh-silhouette item for box/cylinder solids; general meshes open.
+      Then the Lens (`?scene=lens`): magnification by proximity; inside
+      the near face a flow's line → Road and dots → Trucks, continuously
+      (vocabulary/Lens, Road, Stream).
 - [x] **The Earth** (2026-10-13) — `vocabulary/Earth`: Natural Earth
       1:50m (305 KB packed, `gen-data.ts` regenerates from pinned v5.1.2),
       land triangulated ON the sphere (`geometry/sphere.ts`, cube-face
