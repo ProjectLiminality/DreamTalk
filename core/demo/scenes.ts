@@ -103,6 +103,7 @@ import { LensDream } from "./LensDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
 import { GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
+import { MeshDream, MeshMorphDream } from "./MeshDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -126,6 +127,9 @@ export const scenes: Record<string, DreamClass> = {
   // A symbol becoming its written word and back (MorphToWord).
   "morph-word": MorphWordDream,
   "morph-word-virus": MorphWordVirusDream,
+  // General mesh silhouettes: creases + smooth contours, hidden lines removed.
+  meshes: MeshDream,
+  "morph-mesh": MeshMorphDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

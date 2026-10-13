@@ -28,10 +28,14 @@ import type { Overrides } from "../holon"
 import type { Color } from "../constants"
 import { BLACK } from "../constants"
 import { derive, paramEpoch } from "../params"
-import { Line, Stroke, type Vec3Like } from "./primitives"
+import { Line, Stroke, derivePoints, type Vec3Like } from "./primitives"
+import { Surface } from "./surface"
 import { invRotHPB, rotHPB } from "./curves"
 import { hiddenLineDrawing, type Drawing, type Solid, type View } from "../geometry/hiddenline"
 import type { Holon } from "../holon"
+
+/** Re-exported for the holons that import it from here (it lives beside Line). */
+export { derivePoints }
 
 // ─── The view ───────────────────────────────────────────────────────
 
@@ -90,35 +94,6 @@ export const localView = (holon: Holon, view: View): View => {
   return { toward: { x: t.x / l, y: t.y / l, z: t.z / l } }
 }
 
-/**
- * Install a pull-based `points` accessor on a Line (the Connection /
- * MorphShape idiom, said again here rather than widened out of curves.ts):
- * `compute` runs only when `sourceKey` changes, and the Line's
- * geomVersion bumps exactly then.
- */
-export const derivePoints = (
-  line: Line,
-  sourceKey: () => readonly number[],
-  compute: () => Vec3Like[],
-): void => {
-  let key: readonly number[] | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get(): Vec3Like[] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v: Vec3Like[]) {},
-  })
-}
-
 const EMPTY: Drawing = { lines: [], faces: [] }
 
 /**
@@ -150,9 +125,19 @@ export interface SolidDrawingOptions {
   viewBucket?: number
 }
 
+/** A mesh's identity for the signature: meshes are data — a new array is a new shape. */
+const meshIds = new WeakMap<object, number>()
+let nextMeshId = 1
+const meshId = (positions: object): number => {
+  let id = meshIds.get(positions)
+  if (id === undefined) meshIds.set(positions, (id = nextMeshId++))
+  return id
+}
+
 const flattenSolids = (solids: readonly Solid[]): number[] =>
   solids.flatMap((s) => {
     const fill = s.fill ? [s.fill.r, s.fill.g, s.fill.b] : [-1, -1, -1]
+    if (s.kind === "mesh") return [3, meshId(s.positions), meshId(s.triangles), s.crease ?? -1, ...fill]
     if (s.kind === "panel")
       return [2, s.center.x, s.center.y, s.center.z, s.size.x, s.size.y, s.size.z, s.normal.x, s.normal.y, s.normal.z, ...fill]
     return s.kind === "box"
@@ -254,6 +239,27 @@ export abstract class SolidDrawing extends Stroke {
       derivePoints(slot, () => [this.drawingVersion()], () => this.shown().faces[i]?.points ?? NO_FACE)
       this.add(slot)
     }
+    // Filled meshes: one opaque, depth-writing Surface each (their fill
+    // occludes by depth, not by painting order), sized by the solids the
+    // drawing declares now.
+    const meshes = this.solids().filter((x) => x.kind === "mesh" && x.fill).length
+    for (let i = 0; i < meshes; i++) {
+      const surface = new Surface({
+        solid: true,
+        tint: derive((): Color => {
+          const c = this.drawing().surfaces?.[i]?.fill ?? BLACK
+          const k = this.fillOpacity.value
+          return { r: c.r * k, g: c.g * k, b: c.b * k }
+        }),
+        fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
+        opacity: this.opacity,
+      })
+      deriveSurface(surface, () => {
+        const m = this.drawing().surfaces?.[i]
+        return m ? [meshId(m.positions), meshId(m.triangles)] : [0, 0]
+      }, () => this.drawing().surfaces?.[i])
+      this.add(surface)
+    }
     for (let i = 0; i < this.seen.lineSlots; i++) {
       const slot = new Line({ tint: this.tint, stroke: this.stroke, opacity: this.opacity })
       derivePoints(slot, () => [this.drawingVersion()], () => this.shown().lines[i] ?? [])
@@ -283,4 +289,31 @@ export abstract class SolidDrawing extends Stroke {
     }
     return this.version
   }
+}
+
+/**
+ * A Surface whose triangles are a derived reading: recomputed (and its
+ * geomVersion bumped) only when `key` changes — derivePoints for meshes.
+ */
+const deriveSurface = (
+  surface: Surface,
+  key: () => readonly number[],
+  compute: () => { positions: readonly Vec3Like[]; triangles: readonly (readonly [number, number, number])[] } | undefined,
+): void => {
+  let last: readonly number[] | undefined
+  let version = 0
+  let positions = new Float32Array(0)
+  let indices = new Uint32Array(0)
+  const refresh = () => {
+    const k = key()
+    if (last && last.length === k.length && k.every((v, i) => v === last![i])) return
+    last = k
+    const m = compute()
+    positions = new Float32Array(m ? m.positions.flatMap((p) => [p.x, p.y, p.z]) : [])
+    indices = new Uint32Array(m ? m.triangles.flat() : [])
+    version++
+  }
+  Object.defineProperty(surface, "geomVersion", { configurable: true, get: () => (refresh(), version), set() {} })
+  Object.defineProperty(surface, "positions", { configurable: true, get: () => (refresh(), positions), set() {} })
+  Object.defineProperty(surface, "indices", { configurable: true, get: () => (refresh(), indices), set() {} })
 }

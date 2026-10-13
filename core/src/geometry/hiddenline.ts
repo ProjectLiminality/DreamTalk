@@ -55,6 +55,7 @@
 import type { Color } from "../constants"
 import type { Vec3Like } from "../parts/primitives"
 import { silhouetteAngles } from "../render/silhouette"
+import { meshHits, meshLines, prepareMesh } from "./meshlines"
 
 export type Axis = "x" | "y" | "z"
 
@@ -91,7 +92,23 @@ export interface Panel {
   fill?: Color
 }
 
-export type Solid = Box | CylinderSolid | Panel
+/**
+ * Any closed (or open) triangle mesh — a sphere, cone, torus, lathe or
+ * extrusion from geometry/meshes.ts, or anything else. Drawn by its
+ * creases (faces meeting at more than `crease` radians, default 0.6) and
+ * its smooth contours (geometry/meshlines.ts); it occludes everything,
+ * itself included. Its fill is returned as triangles (`Drawing.surfaces`)
+ * for a depth-writing Surface rather than as painter faces.
+ */
+export interface MeshSolid {
+  kind: "mesh"
+  positions: Vec3Like[]
+  triangles: [number, number, number][]
+  fill?: Color
+  crease?: number
+}
+
+export type Solid = Box | CylinderSolid | Panel | MeshSolid
 
 /**
  * Where the drawing is seen from. `eye` is a perspective camera position;
@@ -113,6 +130,11 @@ export interface Drawing {
   lines: Vec3Like[][]
   /** Visible faces of filled solids, back to front. */
   faces: Face[]
+  /**
+   * Filled meshes, whole (view-independent): their triangles for an
+   * opaque, depth-writing Surface — the GPU hides what is behind them.
+   */
+  surfaces?: { solid: number; positions: Vec3Like[]; triangles: [number, number, number][]; fill: Color }[]
 }
 
 export interface HiddenLineOptions {
@@ -176,6 +198,7 @@ const mantleNormal = (c: CylinderSolid, theta: number): Vec3Like => {
  */
 const hits = (s: Solid, o: Vec3Like, d: Vec3Like, tMin: number, tMax: number): boolean => {
   if (s.kind === "panel") return false
+  if (s.kind === "mesh") return meshHits(prepared(s), o, d, tMin, tMax)
   if (s.kind === "box") {
     let lo = tMin
     let hi = tMax
@@ -235,17 +258,45 @@ const hits = (s: Solid, o: Vec3Like, d: Vec3Like, tMin: number, tMax: number): b
   return false
 }
 
-/** Is point p (on solid `self`) hidden from the viewer by any OTHER solid? */
+/**
+ * Is point p (on solid `self`) hidden from the viewer? By any OTHER solid
+ * — and, for a mesh, by itself too (a torus hides its own far side): the
+ * test then starts toward the viewer by about a facet and a half, because a
+ * smooth contour lies a little OFF the polygonal surface and its ray would
+ * otherwise graze the neighbouring facets.
+ */
 const occluded = (solids: readonly Solid[], self: number, view: View, p: Vec3Like): boolean => {
+  const me = solids[self]
+  const selfTest = me?.kind === "mesh"
   if ("eye" in view) {
     const d = sub(view.eye, p)
-    for (let i = 0; i < solids.length; i++) if (i !== self && hits(solids[i]!, p, d, 1e-6, 1)) return true
+    const dl = Math.hypot(d.x, d.y, d.z) || 1
+    for (let i = 0; i < solids.length; i++) {
+      if (i === self) {
+        if (!selfTest) continue
+        const eps = prepared(me as MeshSolid).facet * 1.5
+        if (hits(me!, p, d, eps / dl, 1)) return true
+        continue
+      }
+      if (hits(solids[i]!, p, d, 1e-6, 1)) return true
+    }
     return false
   }
-  for (let i = 0; i < solids.length; i++)
-    if (i !== self && hits(solids[i]!, p, view.toward, 1e-6, Number.POSITIVE_INFINITY)) return true
+  for (let i = 0; i < solids.length; i++) {
+    if (i === self) {
+      if (!selfTest) continue
+      const eps = prepared(me as MeshSolid).facet * 1.5
+      if (hits(me!, p, view.toward, eps, Number.POSITIVE_INFINITY)) return true
+      continue
+    }
+    if (hits(solids[i]!, p, view.toward, 1e-6, Number.POSITIVE_INFINITY)) return true
+  }
   return false
 }
+
+/** A mesh solid's preparation (cached on its positions array). */
+const prepared = (s: MeshSolid) => prepareMesh(s, s.crease ?? DEFAULT_CREASE)
+const DEFAULT_CREASE = 0.6
 
 // ─── Visible runs along a parametric edge ───────────────────────────
 
@@ -366,10 +417,29 @@ const boxEdges = (b: Box): { a: Vec3Like; b: Vec3Like; n1: Vec3Like; n2: Vec3Lik
   })
 }
 
+/** A solid's axis-aligned bounding box, whatever its kind. */
+export const solidBounds = (s: Solid): { lo: Vec3Like; hi: Vec3Like } => {
+  if (s.kind === "mesh") {
+    const b = prepared(s).bvh
+    return { lo: { ...b.lo }, hi: { ...b.hi } }
+  }
+  const h =
+    s.kind === "cylinder"
+      ? {
+          x: s.axis === "x" ? s.height / 2 : s.radius,
+          y: s.axis === "y" ? s.height / 2 : s.radius,
+          z: s.axis === "z" ? s.height / 2 : s.radius,
+        }
+      : { x: s.size.x / 2, y: s.size.y / 2, z: s.size.z / 2 }
+  const c = s.center
+  return { lo: { x: c.x - h.x, y: c.y - h.y, z: c.z - h.z }, hi: { x: c.x + h.x, y: c.y + h.y, z: c.z + h.z } }
+}
+
 /** Distance of a solid from the viewer — the painter's sort key. */
 const depthOf = (view: View, s: Solid): number => {
-  if (!("eye" in view)) return -dot(s.center, view.toward)
-  const d = sub(s.center, view.eye)
+  const c = s.kind === "mesh" ? prepared(s).centroid : s.center
+  if (!("eye" in view)) return -dot(c, view.toward)
+  const d = sub(c, view.eye)
   return Math.hypot(d.x, d.y, d.z)
 }
 
@@ -387,8 +457,51 @@ export const hiddenLineDrawing = (
   const lines: Vec3Like[][] = []
   const faces: (Face & { depth: number })[] = []
 
+  const surfaces: NonNullable<Drawing["surfaces"]> = []
   solids.forEach((s, si) => {
     const depth = depthOf(view, s)
+    if (s.kind === "mesh") {
+      const m = prepared(s)
+      const toward = (q: Vec3Like) => towardViewer(view, q)
+      const step = m.size / 160
+      for (const pl of meshLines(m, toward, s.crease ?? DEFAULT_CREASE)) {
+        if (pl.length < 2) continue
+        const cum = [0]
+        for (let i = 1; i < pl.length; i++) cum.push(cum[i - 1]! + Math.hypot(pl[i]!.x - pl[i - 1]!.x, pl[i]!.y - pl[i - 1]!.y, pl[i]!.z - pl[i - 1]!.z))
+        const L = cum.at(-1)!
+        if (L <= 0) continue
+        const at = (u: number): Vec3Like => {
+          const target = Math.min(1, Math.max(0, u)) * L
+          let lo = 0
+          let hi = cum.length - 1
+          while (hi - lo > 1) {
+            const mid = (lo + hi) >> 1
+            if (cum[mid]! <= target) lo = mid
+            else hi = mid
+          }
+          const span = cum[hi]! - cum[lo]!
+          return lerp(pl[lo]!, pl[hi]!, span > 0 ? (target - cum[lo]!) / span : 0)
+        }
+        const a = pl[0]!
+        const b = pl[pl.length - 1]!
+        const closed = pl.length > 3 && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9 * m.size
+        const straight = pl.length === 2
+        // Each visible point moves toward the eye along its OWN line of
+        // sight, by about a facet: its projection is exactly unchanged, but
+        // it can never sink into the mesh's depth-writing fill (a contour
+        // grazes its surface, and a ribbon there would lose half its width).
+        const lift = m.facet
+        const lifted = (q: Vec3Like): Vec3Like => {
+          const d = towardViewer(view, q)
+          const l = Math.hypot(d.x, d.y, d.z) || 1
+          return { x: q.x + (d.x / l) * lift, y: q.y + (d.y / l) * lift, z: q.z + (d.z / l) * lift }
+        }
+        for (const run of visibleRuns(at, () => true, solids, si, view, Math.max(straight ? edgeN : 8, Math.ceil(L / step)), closed, straight))
+          lines.push(run.map(lifted))
+      }
+      if (s.fill) surfaces.push({ solid: si, positions: s.positions, triangles: s.triangles, fill: s.fill })
+      return
+    }
     if (s.kind === "panel") {
       const { center: c, size: z } = s
       if (!facing(view, c, s.normal)) return
@@ -486,7 +599,11 @@ export const hiddenLineDrawing = (
 
   const order = paintOrder(solids, view, faces)
   faces.sort((a, b) => order.get(a.solid)! - order.get(b.solid)! || b.depth - a.depth)
-  return { lines, faces: faces.map(({ points, fill, solid }) => ({ points, fill, solid })) }
+  return {
+    lines,
+    faces: faces.map(({ points, fill, solid }) => ({ points, fill, solid })),
+    ...(surfaces.length ? { surfaces } : {}),
+  }
 }
 
 /**
