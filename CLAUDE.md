@@ -135,6 +135,14 @@ The symbol **contains the logic that created it**, which can be applied elsewher
 
 **PascalCase everywhere** — `MindVirus/MindVirus.py` renders `MindVirus.mp4`.
 
+**Inputs live in the DreamNode.** Every human input David gives for building a
+DreamSong or symbol — whiteboard photos, sketches, scans, voice transcriptions —
+is saved into that DreamNode under `inputs/<YYYY-MM-DD>/`, with an
+`inputs/README.md` noting what each input is and what it fed. The node then
+holds its own (human input → perfected output) pairs, the corpus for honing
+the system over time. Confidential inputs go only into private (local,
+unpushed) DreamNodes, never into this public repo.
+
 ### Single Python File Pattern
 
 ```python
