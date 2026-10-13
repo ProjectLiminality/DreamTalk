@@ -32,7 +32,7 @@ import { color, derive, scalar } from "../../src/params"
 import { WHITE } from "../../src/constants"
 import { atArcLength, streamArc, streamFade } from "../../src/geometry/flowmap"
 import type { StateSpace } from "../../src/automaton"
-import { toWorld } from "../../src/parts/soliddrawing"
+import { toWorld } from "../../src/geometry/frames"
 import { latLonToUnit } from "../../src/geometry/sphere"
 import type { Place } from "./Earth"
 

@@ -115,7 +115,9 @@ export type Solid = Box | CylinderSolid | Panel | MeshSolid
  * `toward` is an orthographic view, the unit direction FROM the scene
  * TOWARD the viewer.
  */
-export type View = { eye: Vec3Like } | { toward: Vec3Like }
+import type { View } from "./frames"
+/** Where a view sees from — defined with the frame maths (frames.ts). */
+export type { View }
 
 export interface Face {
   /** Closed polygon (last point repeats the first), planar. */

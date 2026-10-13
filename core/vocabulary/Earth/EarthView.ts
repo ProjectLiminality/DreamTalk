@@ -37,12 +37,14 @@
  * { lat: 50, lon: 12, span: 20 }.
  */
 
-import { Euler, Vector3 } from "three/webgpu"
+import { Vector3 } from "three/webgpu"
+import type { Holon } from "../../src/holon"
+import { toWorld } from "../../src/geometry/frames"
 import { Null } from "../../src/parts/primitives"
 import { completion, derive, paramEpoch, scalar, type AnimOpts } from "../../src/params"
 import { chain, together, type Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
-import { latLonToUnit, type Vec3 } from "../../src/geometry/sphere"
+import { latLonToUnit } from "../../src/geometry/sphere"
 import type { Earth } from "./Earth"
 
 export class EarthView extends Null {
@@ -87,15 +89,6 @@ export const zoomForSpan = (radius: number, span: number, fill: number, fov: num
   return Math.log2(altitude0 / Math.max(1e-9, d - radius))
 }
 
-const euler = new Euler()
-
-/** A local direction on an Earth turned by its own h/p/b, into world space. */
-const turned = (earth: Earth, v: Vec3): Vector3 => {
-  // The host's convention (three-host: rotation.set(p, h, b, "ZXY")).
-  euler.set(earth.p.value, earth.h.value, earth.b.value, "ZXY")
-  return new Vector3(v.x, v.y, v.z).applyEuler(euler)
-}
-
 /**
  * Where the camera is for a view: the point it looks at (on the ground at
  * lat/lon, world space), and the direction from there back to the eye
@@ -107,7 +100,10 @@ export const viewPose = (
   view: EarthView,
   fov: number,
 ): { focus: Vector3; dir: Vector3; distance: number } => {
-  const radius = earth.radius.value * earth.scale.value
+  // The Earth's world scale and frame, through every whole above it (frames.ts).
+  let scale = 1
+  for (let h: Holon | undefined = earth; h; h = h.parent) scale *= h.scale.value
+  const radius = earth.radius.value * Math.abs(scale)
   const lat = view.lat.value
   const lon = view.lon.value
   const up = latLonToUnit(lat, lon)
@@ -125,9 +121,12 @@ export const viewPose = (
     y: up.y * Math.cos(t) + south.y * Math.sin(t),
     z: up.z * Math.cos(t) + south.z * Math.sin(t),
   }
-  const centre = new Vector3(earth.x.value, earth.y.value, earth.z.value)
-  const focus = turned(earth, up).multiplyScalar(radius).add(centre)
-  const dir = turned(earth, local).normalize()
+  const R = earth.radius.value
+  const c = toWorld(earth, { x: 0, y: 0, z: 0 })
+  const f = toWorld(earth, { x: up.x * R, y: up.y * R, z: up.z * R })
+  const d = toWorld(earth, local)
+  const focus = new Vector3(f.x, f.y, f.z)
+  const dir = new Vector3(d.x - c.x, d.y - c.y, d.z - c.z).normalize()
   const distance = viewDistance(radius, view.zoom.value, view.fill.value, fov) - radius
   return { focus, dir, distance }
 }

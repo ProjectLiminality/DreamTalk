@@ -86,4 +86,16 @@ describe("one symbol, one implementation", () => {
     const offenders = ALL.map(rel).filter((f) => !PENDING.has(f) && cast.test(readFileSync(join(core, f), "utf8")))
     expect(offenders).toEqual([])
   })
+
+  test("the eye's distance is stated once: frames.ts eyeDistance/viewOf, not a private copy", () => {
+    // The host's own camera placement is the source of truth; the viewer's
+    // keep-out inverts the camera; the sketch mirror builds its own THREE
+    // camera. Everything else asks frames.ts (viewOf / eyeDistance).
+    const ALLOWED = new Set(["src/geometry/frames.ts", "src/render/three-host.ts", "src/view.ts", "sketch/mirror.ts"])
+    const copy = /\.radius\.value\s*\/\s*\(\s*\w+\.zoom\.value/
+    const offenders = ALL.map(rel).filter(
+      (f) => !ALLOWED.has(f) && !f.includes("ValueFlow") && copy.test(readFileSync(join(core, f), "utf8")),
+    )
+    expect(offenders).toEqual([])
+  })
 })

@@ -22,12 +22,13 @@
  * the black sea and on dimmed land without competing with the coast.
  */
 
-import { Euler, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from "three/webgpu"
+import { Euler, Matrix4, PerspectiveCamera, Vector3 } from "three/webgpu"
 import { Circle, Null } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { derive, paramEpoch } from "../../src/params"
 // A cycle with Earth.ts, safe: these are only called once both modules have loaded.
-import { chainAt, lod as lodOf, worldMatrixOf as worldMatrix, type Earth } from "./Earth"
+import { chainAt, lod as lodOf, type Earth } from "./Earth"
+import { localView, toWorld, viewOf, type View } from "../../src/geometry/frames"
 import { latLonToUnit } from "../../src/geometry/sphere"
 import { ARIMO } from "../../src/geometry/fonts/arimo"
 
@@ -62,9 +63,6 @@ const HORIZON_FADE = 0.25
  */
 export const billboard = (earth: Earth): Billboard => {
   const cam = new PerspectiveCamera()
-  const qEarth = new Quaternion()
-  const pos = new Vector3()
-  const scl = new Vector3()
   const euler = new Euler()
   const own = [earth.x, earth.y, earth.z, earth.h, earth.p, earth.b, earth.scale, earth.radius]
   const key: number[] = []
@@ -74,7 +72,7 @@ export const billboard = (earth: Earth): Billboard => {
   let ortho = false
   let orthoUnits = 1
   let version = 0
-  const world = new Matrix4()
+  const basis = new Matrix4()
   const scratch = new Vector3()
 
   let seenEpoch = Number.NaN
@@ -105,16 +103,16 @@ export const billboard = (earth: Earth): Billboard => {
     if (!moved) return
     version++
 
-    // The camera exactly as the host places it (three-host syncCamera).
-    const phi = o ? o.phi.value : 0
-    const theta = o ? o.theta.value : 0
-    const r = o ? (o.orthographic.value ? o.radius.value : o.radius.value / (o.zoom.value || 1)) : 1500
+    // The camera as the host places it — its eye from frames.ts `viewOf`
+    // (orthographic: stood back along the view direction), aimed at the
+    // focus, rolled by the tilt.
     const focus = new Vector3(o ? o.x.value : 0, o ? o.y.value : 0, o ? o.z.value : 0)
-    cam.position.set(
-      focus.x + r * Math.sin(phi) * Math.cos(theta),
-      focus.y + r * Math.sin(theta),
-      focus.z + r * Math.cos(phi) * Math.cos(theta),
-    )
+    const view: View = o ? viewOf(o) : { eye: { x: 0, y: 0, z: 1500 } }
+    if ("eye" in view) cam.position.set(view.eye.x, view.eye.y, view.eye.z)
+    else {
+      const r = o ? o.radius.value : 1500
+      cam.position.set(focus.x + view.toward.x * r, focus.y + view.toward.y * r, focus.z + view.toward.z * r)
+    }
     cam.up.set(0, 1, 0)
     cam.lookAt(focus)
     if (o && o.tilt.value !== 0) cam.rotateZ(o.tilt.value)
@@ -124,12 +122,18 @@ export const billboard = (earth: Earth): Billboard => {
     cam.far = 100000
     cam.updateProjectionMatrix()
     cam.updateMatrixWorld()
-    world.copy(worldMatrix(earth))
 
-    // Into the Earth's frame: q_label = q_earth⁻¹ · q_camera.
-    worldMatrix(earth).decompose(pos, qEarth, scl)
-    const q = qEarth.clone().invert().multiply(cam.quaternion)
-    euler.setFromQuaternion(q, "ZXY")
+    // Into the Earth's frame: the camera's own axes carried down through
+    // every rotation above the Earth (frames.ts localView, rotations only),
+    // then read back as the host's h/p/b ('ZXY').
+    const axis = (x: number, y: number, z: number) => {
+      const w = new Vector3(x, y, z).applyQuaternion(cam.quaternion)
+      const t = localView(earth, { toward: { x: w.x, y: w.y, z: w.z } })
+      const d = "toward" in t ? t.toward : t.eye
+      return new Vector3(d.x, d.y, d.z)
+    }
+    basis.makeBasis(axis(1, 0, 0), axis(0, 1, 0), axis(0, 0, 1))
+    euler.setFromRotationMatrix(basis, "ZXY")
     hpb = [euler.y, euler.x, euler.z]
 
     const local = earth.localEye()
@@ -153,7 +157,8 @@ export const billboard = (earth: Earth): Billboard => {
     toScreen: (x, y, z) => {
       refresh()
       if (ortho) return undefined
-      const v = scratch.set(x, y, z).applyMatrix4(world).project(cam)
+      const w = toWorld(earth, { x, y, z })
+      const v = scratch.set(w.x, w.y, w.z).project(cam)
       if (!(v.z < 1)) return undefined
       return [((v.x + 1) / 2) * 1280, ((1 - v.y) / 2) * 720]
     },

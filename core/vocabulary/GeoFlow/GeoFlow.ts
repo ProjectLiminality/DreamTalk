@@ -41,7 +41,7 @@
 import type { Holon, Overrides } from "../../src/holon"
 import type { Observer } from "../../src/dream"
 import { Text } from "../../src/parts/text"
-import { toLocal, toWorld } from "../../src/parts/soliddrawing"
+import { eyeDistance, toLocal, toWorld } from "../../src/geometry/frames"
 import { Circle, Group, Null } from "../../src/parts/primitives"
 import { rgb, WHITE, type Color } from "../../src/constants"
 import { completion, derive, length, scalar, type Param, type ParamValue } from "../../src/params"
@@ -355,7 +355,7 @@ export class GeoFlow extends Null {
     })()
     const hover = HOVER_K * pose.distance
     const mapScale = derive(() => {
-      const d = Math.max(1, observer.radius.value / (observer.zoom.value || 1) - hover)
+      const d = Math.max(1, eyeDistance(observer) - hover)
       return (d * Math.tan(observer.fov.value / 2) * this.fill.value * this.breadth.value) / MAP_R
     })
     const twin = new Circle({ radius: MAP_R, stroke: 3, opacity: 0 })
@@ -367,7 +367,7 @@ export class GeoFlow extends Null {
     const onPlane = (place: Place): { x: number; y: number } => {
       const P = toWorld(place, { x: 0, y: 0, z: 0 })
       const { focus: F, dir } = pose
-      const dist = observer.radius.value / (observer.zoom.value || 1)
+      const dist = eyeDistance(observer)
       const C = { x: F.x + dir.x * dist, y: F.y + dir.y * dist, z: F.z + dir.z * dist }
       const along = (v: { x: number; y: number; z: number }) => v.x * dir.x + v.y * dir.y + v.z * dir.z
       const t = (hover - dist) / Math.min(-1e-6, along({ x: P.x - C.x, y: P.y - C.y, z: P.z - C.z }))

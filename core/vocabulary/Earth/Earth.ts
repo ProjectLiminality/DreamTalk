@@ -92,6 +92,7 @@ import { color, completion, derive, length, paramEpoch, scalar } from "../../src
 import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
+import { localView, toWorld, viewOf, type View } from "../../src/geometry/frames"
 import type { KeepOut } from "../../src/view"
 import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import {
@@ -808,51 +809,29 @@ export class Earth extends Null {
   /** The observer the Earth was told about (`seenFrom`). */
   seer?: Observer
 
-  /** Where the eye is, in world space — set by `seenFrom`. */
-  eye?: () => { point: Vec3; orthographic: boolean }
+  /** Where the eye is, in world space (frames.ts View) — set by `seenFrom`. */
+  eye?: () => View
 
   /**
    * Let the Earth know the camera, so it can hide its far side exactly
-   * (the horizon disc) and draw its limb. The eye is computed from the
-   * observer's params the way the host places its camera
-   * (three-host syncCamera), so it is a pure function of t like
-   * everything else.
+   * (the horizon disc) and draw its limb. The eye is the observer's view
+   * as frames.ts `viewOf` states it — the one restatement of the host's
+   * camera — so a camera change (the viewer's orbit layer, a tilt)
+   * reaches the Earth through the same function as everything else.
    */
   seenFrom(observer: Observer): void {
     this.lens = () => observer.fov.value
     this.seer = observer
-    this.eye = () => {
-      const r = observer.orthographic.value
-        ? observer.radius.value
-        : observer.radius.value / (observer.zoom.value || 1)
-      const phi = observer.phi.value
-      const theta = observer.theta.value
-      return {
-        point: {
-          x: observer.x.value + r * Math.sin(phi) * Math.cos(theta),
-          y: observer.y.value + r * Math.sin(theta),
-          z: observer.z.value + r * Math.cos(phi) * Math.cos(theta),
-        },
-        orthographic: observer.orthographic.value,
-      }
-    }
+    this.eye = () => viewOf(observer)
   }
 
-  /** The eye in the Earth's own frame (through every transform above it). */
+  /**
+   * The eye in the Earth's own frame (through every transform above it):
+   * a point, or — orthographic — a direction toward the viewer.
+   */
   localEye(): { point: Vec3; orthographic: boolean } | undefined {
-    const eye = this.eye?.() ?? DEFAULT_EYE
-    if (!eye) return undefined
-    const m = worldMatrixOf(this)
-    const inv = scratchInv.copy(m).invert()
-    if (eye.orthographic) {
-      // A direction: the eye at infinity along (eye − focus) — carry the
-      // eye and the world origin, and take the difference.
-      const a = new Vector3(eye.point.x, eye.point.y, eye.point.z).applyMatrix4(inv)
-      const o = new Vector3(0, 0, 0).applyMatrix4(inv)
-      return { point: { x: a.x - o.x, y: a.y - o.y, z: a.z - o.z }, orthographic: true }
-    }
-    const p = new Vector3(eye.point.x, eye.point.y, eye.point.z).applyMatrix4(inv)
-    return { point: { x: p.x, y: p.y, z: p.z }, orthographic: false }
+    const v = localView(this, this.eye?.() ?? DEFAULT_VIEW)
+    return "eye" in v ? { point: v.eye, orthographic: false } : { point: v.toward, orthographic: true }
   }
 
   private horizonKey(): string {
@@ -925,14 +904,9 @@ export class Earth extends Null {
    * surface — clear of every stroke and of the buildings standing on it.
    */
   override keepOut(): KeepOut[] {
-    const m = worldMatrixOf(this)
-    const e = m.elements
-    return [
-      {
-        center: { x: e[12]!, y: e[13]!, z: e[14]! },
-        radius: this.radius.value * m.getMaxScaleOnAxis() * 1.02,
-      },
-    ]
+    let scale = 1
+    for (let h: Holon | undefined = this; h; h = h.parent) scale *= h.scale.value
+    return [{ center: toWorld(this, { x: 0, y: 0, z: 0 }), radius: this.radius.value * Math.abs(scale) * 1.02 }]
   }
 
   /** A point on (or `altitude` above) the surface, in the Earth's local space. */
@@ -966,10 +940,8 @@ export class Earth extends Null {
   }
 }
 
-const scratchInv = new Matrix4()
-
 /** Where an untold Earth assumes the camera is: a default Observer's pose (dream.ts). */
-const DEFAULT_EYE = { point: { x: 0, y: 0, z: 1500 }, orthographic: false }
+const DEFAULT_VIEW: View = { eye: { x: 0, y: 0, z: 1500 } }
 
 /**
  * Feed every ancestor's transform to a cache key (`at`), returning the
@@ -983,23 +955,6 @@ export const chainAt = (holon: Holon, at: (v: number) => void): number => {
     depth++
   }
   return depth
-}
-
-/** A holon's world matrix as the host composes it (three-host: ZXY h/p/b, uniform scale). */
-export const worldMatrixOf = (holon: Holon): Matrix4 => {
-  const chain: Holon[] = []
-  for (let h: Holon | undefined = holon; h; h = h.parent) chain.unshift(h)
-  const m = new Matrix4()
-  const local = new Matrix4()
-  const e = new Euler()
-  for (const h of chain) {
-    e.set(h.p.value, h.h.value, h.b.value, "ZXY")
-    local.makeRotationFromEuler(e)
-    local.scale(new Vector3(h.scale.value, h.scale.value, h.scale.value))
-    local.setPosition(h.x.value, h.y.value, h.z.value)
-    m.multiply(local)
-  }
-  return m
 }
 
 type Circle3 = NonNullable<ReturnType<typeof horizonCircle>>

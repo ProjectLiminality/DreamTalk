@@ -36,8 +36,8 @@ import { bool, derive, length } from "../params"
 import type { Holon, Overrides } from "../holon"
 import type { Observer } from "../dream"
 import { Surface } from "./surface"
-import { toLocal, viewOf } from "./soliddrawing"
-import type { View } from "../geometry/hiddenline"
+import { toLocal, viewOf, type View } from "../geometry/frames"
+
 
 /** A default Observer's view (dream.ts): perspective, 1500 out on +z. */
 const DEFAULT_VIEW: View = { eye: { x: 0, y: 0, z: 1500 } }
