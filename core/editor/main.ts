@@ -43,7 +43,7 @@ import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
-import { anchorOf, type SourceAnchor } from "./anchors"
+import { anchorOf, sceneFileOf, type SourceAnchor } from "./anchors"
 import { scenes, defaultScene } from "../demo/scenes"
 import { loadBoards } from "../demo/boards/Board"
 import { Selection, pathOf, type SelectionPath } from "./selection"
@@ -177,29 +177,6 @@ declare global {
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
-
-/** Source file per registry key — semantic ops (setBackdrop/setOverride) target this. */
-const SCENE_FILES: Record<string, string> = {
-  smoke: "core/demo/FoundingSmoke.ts",
-  calibration: "core/demo/StrokeCalibration.ts",
-  vocab: "core/demo/VocabShowcase.ts",
-  curves: "core/demo/CurvesShowcase.ts",
-  text: "core/demo/TextShowcase.ts",
-  cameracal: "core/demo/video01/CameraCal.ts",
-  s01: "core/demo/video01/S01.ts",
-  s02: "core/demo/video01/S02.ts",
-  s03: "core/demo/video01/S03.ts",
-  s04: "core/demo/video01/S04.ts",
-  s06: "core/demo/video01/S06.ts",
-  s09: "core/demo/video01/S09.ts",
-  s05: "core/demo/video01/S05.ts",
-  s10: "core/demo/video01/S10.ts",
-  s07: "core/demo/video01/S07.ts",
-  s08: "core/demo/video01/S08.ts",
-  video01: "core/demo/video01/DialecticalThinking.ts",
-}
-const sceneFileFor = (key: string): string =>
-  SCENE_FILES[key] ?? "core/demo/FoundingSmoke.ts"
 
 // --- Daemon link (module-independent singleton) ----------------------------
 
@@ -349,6 +326,8 @@ const boot = async (resume?: Transport) => {
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
   const sceneName = dream.constructor.name.replace(/Dream$/, "")
+  /** This DreamWeaving's own file, read off its anchors (editor/anchors.ts) — what scene-level ops target. */
+  const sceneFile = sceneFileOf(dream.clips, dream.roots)
 
   // --- The live layer (EDITOR-V4) ------------------------------------------
   //
@@ -476,9 +455,10 @@ const boot = async (resume?: Transport) => {
   if (!playerMode) void populateRefs().catch(() => {})
 
   const commitBackdrop = async (path: string, offset: number) => {
-    const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFileFor(sceneKey))}`)
+    if (!sceneFile) return showNote("no scene file to write the backdrop into")
+    const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFile)}`)
     const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
-    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: sceneFileFor(sceneKey) })
+    sendOp({ type: "op", op: "setBackdrop", path, offset, baseHash, file: sceneFile })
   }
 
   bdRef.addEventListener(
@@ -772,7 +752,7 @@ const boot = async (resume?: Transport) => {
       nameEl.textContent = sceneName
       nameEl.classList.remove("selected")
       metaEl.textContent = `${duration.toFixed(2)}s · ${dream.roots.length} root holon(s)`
-      metaEl.title = sceneFileFor(sceneKey)
+      metaEl.title = sceneFile ?? ""
       if (sceneKey.startsWith("board:")) {
         const a = document.createElement("a")
         a.className = "boardlink"
@@ -1922,7 +1902,7 @@ const boot = async (resume?: Transport) => {
       track: $("track"),
       isPlaying: () => playing,
       currentT: () => current,
-      sceneFile: () => sceneFileFor(sceneKey),
+      sceneFile: () => sceneFile,
       send: sendOp,
       seconds: () => walk?.seconds,
       walk: () => walk?.capture((h) => holonPathOf(dream, h)),
@@ -2011,7 +1991,7 @@ const boot = async (resume?: Transport) => {
       const holon = selection.current
       if (holon) code.show(anchorOf(holon))
       else if (selectedClip) code.show(anchorOf(selectedClip.clip as unknown as object))
-      else void code.load(sceneFileFor(sceneKey))
+      else if (sceneFile) void code.load(sceneFile)
     }
     return open
   }

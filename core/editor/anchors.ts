@@ -38,3 +38,25 @@ export const __dt = <T>(value: T, anchor: string): T => {
 
 /** The source location that created a value, if the build anchored it. */
 export const anchorOf = (value: object): SourceAnchor | undefined => anchors.get(value)
+
+/**
+ * The DreamWeaving's own file, read off the build's anchors — no table to
+ * keep in step with the scene registry. The file most of its anchored
+ * play() clips were written in (a helper in the same file counts the
+ * same), else the file most of its root holons were constructed in;
+ * undefined when nothing is anchored (a whiteboard page, a scene built
+ * outside the anchored directories).
+ */
+export const sceneFileOf = (clips: readonly object[], roots: readonly object[]): string | undefined => {
+  const vote = (values: readonly object[]): string | undefined => {
+    const counts = new Map<string, number>()
+    for (const v of values) {
+      const file = anchorOf(v)?.file
+      if (file) counts.set(file, (counts.get(file) ?? 0) + 1)
+    }
+    let best: string | undefined
+    for (const [file, n] of counts) if (!best || n > counts.get(best)!) best = file
+    return best
+  }
+  return vote(clips) ?? vote(roots)
+}

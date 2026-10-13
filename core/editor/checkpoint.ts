@@ -182,7 +182,7 @@ export interface CheckpointOpts {
   isPlaying: () => boolean
   currentT: () => number
   /** The scene's own file — the op target when no clip anchor names one. */
-  sceneFile: () => string
+  sceneFile: () => string | undefined
   send: (op: Record<string, unknown>) => void
   /** The clip length a capture writes when none is given (a walked transition's own). */
   seconds?: () => number | undefined
@@ -246,6 +246,7 @@ export const mountCheckpoint = (opts: CheckpointOpts): CheckpointHandle => {
     if (targets.length === 0 && transitions.length === 0) return undefined
     const { placement, anchor } = placementAt(dream.clips, t)
     const file = anchor?.file ?? opts.sceneFile()
+    if (!file) return undefined
     let baseHash: string | undefined
     try {
       const res = await fetch(`/api/source?file=${encodeURIComponent(file)}`)

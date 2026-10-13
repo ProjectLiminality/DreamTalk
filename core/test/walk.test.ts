@@ -464,3 +464,13 @@ describe("the written line plays as walked", () => {
     expect(() => lamp.stateAxis("nope")).toThrow(/no axis 'nope'/)
   })
 })
+
+describe("the scene's file — read off its anchors, no table", () => {
+  test("most anchored clips win; roots are the fallback; nothing anchored is undefined", async () => {
+    const { sceneFileOf } = await import("../editor/anchors")
+    const a = (file: string) => __dt({}, `${file}:1:2`)
+    expect(sceneFileOf([a("core/demo/S.ts"), a("core/demo/S.ts"), a("core/demo/Helper.ts")], [a("core/demo/R.ts")])).toBe("core/demo/S.ts")
+    expect(sceneFileOf([{}, {}], [a("core/demo/R.ts")])).toBe("core/demo/R.ts")
+    expect(sceneFileOf([], [{}])).toBeUndefined()
+  })
+})
