@@ -160,7 +160,13 @@ export const RIBBON_KEYS = {
 } as const
 
 export class RibbonMaterial extends THREE.NodeMaterial {
-  constructor() {
+  /**
+   * `soft`: a gaussian cross-section instead of the crisp capsule edge —
+   * full at the centreline, ~5% at the half-width. Chosen here, in JS, so
+   * the crisp material's shader is untouched by its existence. It draws
+   * uncertainty (render/superposition.ts).
+   */
+  constructor(opts: { soft?: boolean } = {}) {
     super()
     this.transparent = true
     this.depthWrite = false
@@ -296,7 +302,9 @@ export class RibbonMaterial extends THREE.NodeMaterial {
       const d = length(vec2(u.sub(clamp(u, uBegin, uEnd)), v))
 
       const hw = halfWidth()
-      const coverage = smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
+      const coverage = opts.soft
+        ? d.div(max(hw, 1e-3)).pow(2).mul(-3.0).exp()
+        : smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
       const a = coverage.mul(fade)
       // Premultiplied on black — max-blended (see module header).
       return vec4(vec3(tint).mul(a), a)
@@ -309,6 +317,10 @@ export class RibbonMaterial extends THREE.NodeMaterial {
  *  side-effect free. */
 let shared: RibbonMaterial | undefined
 export const sharedRibbonMaterial = (): RibbonMaterial => (shared ??= new RibbonMaterial())
+
+let sharedSoft: RibbonMaterial | undefined
+/** The soft (gaussian-edged) twin — uncertainty's echoes draw with it. */
+export const sharedSoftRibbonMaterial = (): RibbonMaterial => (sharedSoft ??= new RibbonMaterial({ soft: true }))
 
 /**
  * A stroke mesh whose polyline can be rewritten per frame — the one

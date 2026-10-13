@@ -45,7 +45,9 @@ export class FlowMapDream extends Dream {
     // into one, each a complementary arc of it). A twin of the group circle
     // receives them and hands over to the map's own rim.
     const R = m.radius.value
-    const spokes = m.frame().members.map((p) => {
+    // A member sitting at the centre already IS where the lines meet — it
+    // gets no line of its own (it would be a stub shorter than its ring).
+    const spokes = m.frame().members.filter((p) => Math.hypot(p.x, p.y) > R * 0.25).map((p) => {
       const d = Math.hypot(p.x, p.y)
       const k = (d - R * 0.07) / d
       return new Line({ points: [{ x: 0, y: 0, z: 0 }, { x: p.x * k, y: p.y * k, z: 0 }], stroke: 2.5, creation: 0 })

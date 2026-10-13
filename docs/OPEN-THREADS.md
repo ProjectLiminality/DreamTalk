@@ -49,7 +49,8 @@ when done.
   never reorders). **Certainty** is a core ability (`src/certainty.ts`):
   inherited product, drawn as `ghost(c)` opacity + particle `wobble`.
 - Built 2026-10-13: the certainty blur as a render ability
-  (`src/render/superposition.ts`, echo clouds that crystallise as c → 1) and
+  (`src/render/superposition.ts`, echo clouds drawn with a gaussian-edged
+  ribbon twin, crystallising as c → 1) and
   a Morph opening (relations → the group circle).
 - Open: David's eye on the superposition (echo count, spread, breath);
   entity labels (stage + category labels exist); particle symbols beyond the dot (pallets, reels);

@@ -7,9 +7,10 @@
  * places at once. So an uncertain leaf is drawn with a small cloud of
  * ECHOES — copies of its own stroke or fill, each displaced by a few pixels
  * along a slowly orbiting, breathing offset, a little wider and much
- * fainter than the original. Ribbons composite by MAX, so the echoes never
- * pile into a brighter line: they smear the stroke into a soft band that
- * shimmers. Fills (a particle) become a faint probability cloud flickering
+ * fainter than the original, drawn with a GAUSSIAN cross-section (the soft
+ * ribbon material) rather than a crisp edge. Ribbons composite by MAX, so
+ * the echoes never pile into a brighter line: they merge into one soft band
+ * that shimmers. Fills (a particle) become a faint probability cloud flickering
  * between candidate positions.
  *
  * Everything scales with 1 − c. As certainty rises the echoes draw in onto
@@ -26,7 +27,7 @@
 import * as THREE from "three/webgpu"
 import type { Color } from "../constants"
 import type { Readable } from "../params"
-import { RIBBON_KEYS, RibbonStroke } from "./ribbon"
+import { RIBBON_KEYS, RibbonStroke, sharedSoftRibbonMaterial } from "./ribbon"
 import { FillShape } from "./fill"
 
 /** Echoes per uncertain leaf — enough for a cloud, few enough to be free. */
@@ -72,6 +73,8 @@ export class RibbonSuperposition {
     for (let k = 0; k < ECHOES; k++) {
       const echo = new RibbonStroke(main.mesh.userData[RIBBON_KEYS.widthPx] as number)
       echo.mesh.renderOrder = main.mesh.renderOrder
+      // A gaussian cross-section: the echoes overlap into one soft band.
+      echo.mesh.material = sharedSoftRibbonMaterial()
       echo.mesh.matrixAutoUpdate = false
       group.add(echo.mesh)
       this.echoes.push(echo)
@@ -104,7 +107,7 @@ export class RibbonSuperposition {
       }
       const o = echoOffset(k, this.seed, t, BLUR_PX * u)
       place(echo.mesh, o.x * upp, o.y * upp)
-      echo.style(fraction, opacity * u * 0.32 * echoBreath(k, this.seed, t), tint, widthPx * (1 + 2.2 * u), erased)
+      echo.style(fraction, opacity * u * 0.5 * echoBreath(k, this.seed, t), tint, widthPx * (1.5 + 3.5 * u), erased)
     }
   }
 }
