@@ -39,7 +39,7 @@
 import { onTextLayout } from "../src/render/text"
 import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
-import { ViewLayer } from "../src/view"
+import { ViewLayer, keepOutsOf } from "../src/view"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, type SourceAnchor } from "./anchors"
@@ -357,6 +357,7 @@ const boot = async (resume?: Transport) => {
   // The viewer's camera rides above the overrides (see "Flying the Observer").
   const obs = dream.observer
   const view = new ViewLayer(obs)
+  view.keepOuts = keepOutsOf(dream.roots)
   host.beforeSync = () => {
     overrides.apply()
     view.apply()

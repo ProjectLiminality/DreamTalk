@@ -83,4 +83,38 @@ describe("the viewer's camera layer", () => {
     expect(o.y.value).toBeGreaterThan(0)
     expect(o.radius.value).toBeLessThan(1500)
   })
+
+  test("a keep-out: an orbit about a focus on the ground rolls over it, never under", () => {
+    const o = new Observer()
+    // An Earth of radius 400 at the origin; the focus is on its surface
+    // (top), the eye 200 above it looking straight down-ish.
+    o.y.value = 400
+    o.theta.value = 1.2
+    o.radius.value = 200
+    const v = new ViewLayer(o)
+    v.keepOuts = () => [{ center: { x: 0, y: 0, z: 0 }, radius: 420 }]
+    const eye = () => {
+      const r = o.radius.value / o.zoom.value
+      return {
+        x: o.x.value + r * Math.sin(o.phi.value) * Math.cos(o.theta.value),
+        y: o.y.value + r * Math.sin(o.theta.value),
+        z: o.z.value + r * Math.cos(o.phi.value) * Math.cos(o.theta.value),
+      }
+    }
+    let prev = eye()
+    for (let i = 0; i < 60; i++) {
+      v.orbit(0, -40, 1280) // keep tilting the eye down past the horizon
+      v.apply()
+      const e = eye()
+      expect(Math.hypot(e.x, e.y, e.z)).toBeGreaterThanOrEqual(420 - 1e-6)
+      // It slides: each step moves the eye about one orbit step's arc (0.2 rad
+      // at its distance from the focus), never a jump through the solid.
+      const r = o.radius.value / o.zoom.value
+      expect(Math.hypot(e.x - prev.x, e.y - prev.y, e.z - prev.z)).toBeLessThan(0.3 * r)
+      prev = e
+    }
+    // Releasing still lands exactly on the authored camera.
+    v.release()
+    expect([o.theta.value, o.radius.value]).toEqual([1.2, 200])
+  })
 })

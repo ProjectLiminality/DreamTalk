@@ -24,6 +24,7 @@
 
 import { together, type Anim } from "./anim"
 import type { StateSpace } from "./automaton"
+import type { KeepOut } from "./view"
 import {
   angle,
   completion,
@@ -263,6 +264,15 @@ export class Holon {
    * holon is not walkable on its own.
    */
   stateSpace(): StateSpace | undefined {
+    return undefined
+  }
+
+  /**
+   * Optional: world-space spheres the viewer's eye must stay outside
+   * (src/view.ts KEEP-OUTS) — an Earth declares itself, so a close-up orbit
+   * rolls over the ground instead of passing under it. Read every frame.
+   */
+  keepOut(): KeepOut[] | undefined {
     return undefined
   }
 

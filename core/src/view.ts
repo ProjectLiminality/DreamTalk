@@ -24,11 +24,22 @@
  * a glide to zero, framing a holon a glide to the delta that centres it.
  * Release = delta zero = every bias 0 and gate 1: the pure timeline, exactly.
  *
+ * KEEP-OUTS. Orbiting about a focus on a surface (an Earth close-up) can
+ * swing the eye inside the solid. A holon may declare `keepOut()`
+ * (Holon): world-space spheres the viewer's eye must stay outside. After
+ * each write the layer checks the effective eye and, if it is inside one,
+ * slides it radially out onto the sphere's shell — re-expressed as the
+ * orbit/dolly that puts it there, so the gesture continues from where the
+ * eye actually is (the camera rolls over the surface, it never passes
+ * through). Perspective only: an orthographic eye has no position that
+ * matters to the picture.
+ *
  * Nothing in a Dream creates one. Exports, the gauntlet and render-song
  * never see it.
  */
 
 import { orthoHalfHeight, type Observer } from "./dream"
+import type { Holon } from "./holon"
 import { C4D_SMOOTHING, c4dEaseWith } from "./timeline"
 
 export interface ViewDelta {
@@ -41,6 +52,23 @@ export interface ViewDelta {
   x: number
   y: number
   z: number
+}
+
+/** A world-space sphere the viewer's eye must stay outside (Holon.keepOut). */
+export interface KeepOut {
+  center: { x: number; y: number; z: number }
+  radius: number
+}
+
+/**
+ * The keep-outs declared under these roots, as a per-frame reading: the
+ * declaring holons are found once (a walk of a big scene is not a per-frame
+ * cost), their spheres read on every call (they move with their holons).
+ */
+export const keepOutsOf = (roots: readonly Holon[]): (() => KeepOut[]) => {
+  const declarers: Holon[] = []
+  for (const r of roots) for (const h of r.walk()) if (h.keepOut() !== undefined) declarers.push(h)
+  return () => declarers.flatMap((h) => h.keepOut() ?? [])
 }
 
 export const ZERO_VIEW: ViewDelta = { phi: 0, theta: 0, dolly: 0, x: 0, y: 0, z: 0 }
@@ -74,6 +102,8 @@ const biased = (o: Observer) => [o.phi, o.theta, o.x, o.y, o.z]
 export class ViewLayer {
   readonly observer: Observer
   delta: ViewDelta = { ...ZERO_VIEW }
+  /** The solids the eye stays out of — read on every apply. */
+  keepOuts: () => readonly KeepOut[] = () => []
   #glide: { from: ViewDelta; to: ViewDelta; start: number; seconds: number } | undefined
 
   constructor(observer: Observer) {
@@ -183,7 +213,51 @@ export class ViewLayer {
     } else {
       o.radius.gate = k
       o.zoom.gate = 1
+      this.#keepOut()
     }
+  }
+
+  /** Slide an eye that ended inside a keep-out onto its shell (see KEEP-OUTS). */
+  #keepOut(): void {
+    const spheres = this.keepOuts()
+    if (spheres.length === 0) return
+    const o = this.observer
+    const f = { x: o.x.value, y: o.y.value, z: o.z.value }
+    const zoom = o.zoom.value || 1
+    let phi = o.phi.value
+    let theta = o.theta.value
+    let r = o.radius.value / zoom
+    const eye = () => ({
+      x: f.x + r * Math.sin(phi) * Math.cos(theta),
+      y: f.y + r * Math.sin(theta),
+      z: f.z + r * Math.cos(phi) * Math.cos(theta),
+    })
+    let moved = false
+    for (const s of spheres) {
+      const e = eye()
+      const d = { x: e.x - s.center.x, y: e.y - s.center.y, z: e.z - s.center.z }
+      const len = Math.hypot(d.x, d.y, d.z)
+      if (len >= s.radius) continue
+      const u = len > 1e-9 ? { x: d.x / len, y: d.y / len, z: d.z / len } : { x: 0, y: 1, z: 0 }
+      const p = { x: s.center.x + u.x * s.radius - f.x, y: s.center.y + u.y * s.radius - f.y, z: s.center.z + u.z * s.radius - f.z }
+      const dist = Math.hypot(p.x, p.y, p.z)
+      if (dist < 1e-9) continue
+      phi = Math.atan2(p.x, p.z)
+      theta = clamp(Math.asin(clamp(p.y / dist, -1, 1)), -THETA_LIMIT, THETA_LIMIT)
+      r = dist
+      moved = true
+    }
+    if (!moved) return
+    // Re-express the corrected eye as this layer's own delta, so the next
+    // gesture starts from it: the short way round in azimuth.
+    const dPhi = Math.atan2(Math.sin(phi - o.phi.value), Math.cos(phi - o.phi.value))
+    const kR = (r * zoom) / (o.radius.value || 1)
+    this.delta.phi += dPhi
+    this.delta.theta += theta - o.theta.value
+    this.delta.dolly += Math.log(kR)
+    o.phi.bias += dPhi
+    o.theta.bias += theta - o.theta.value
+    o.radius.gate *= kR
   }
 
   /** Every bias 0, every gate 1 — the authored camera, exactly. */

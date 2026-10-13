@@ -30,7 +30,7 @@
  * THE VIEW. In the game loop the viewer may always look around (src/view.ts,
  * the same layer the editor flies when paused): drag orbits, shift- or
  * right-drag pans, the wheel (or a pinch) dollies, double-click frames what
- * is under the pointer, `f` frames the hovered handle, `r` glides home.
+ * is under the pointer (without firing it — see DOUBLE_MS), `f` frames the hovered handle, `r` glides home.
  * A drag never fires; a click that did not travel does — so transitions
  * keep firing from any angle, and picking reads the effective camera.
  * Leaving, the view glides back to the song's camera with the walked state.
@@ -45,7 +45,7 @@ import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
-import { ViewLayer } from "../src/view"
+import { ViewLayer, keepOutsOf } from "../src/view"
 import type { Observer } from "../src/dream"
 
 export interface GameHost {
@@ -79,8 +79,15 @@ const TICK = 10
 const HOVER_STEP = 4
 const CLICK_SLOP = 4
 const FLASH_MS = 320
-/** A second click this soon, this near, after a fire is a double-click's tail — it frames, it does not fire again. */
-const DOUBLE_MS = 350
+/**
+ * A second click this soon and this near is a DOUBLE-click: it frames, and
+ * whatever the first click fired is taken back — so a double-click frames
+ * without firing, while a single click still fires at once (no waiting to
+ * see whether a second one comes). The take-back is a fire to the previous
+ * position mid-ease, ~0.1 of the way in: a barely visible swing and home.
+ */
+const DOUBLE_MS = 300
+const DOUBLE_PX = 6
 const AUTO_KEYS = "1234567890"
 /** The player's own keys in game mode — no axis may claim them (m: sound, h: HUD, r/f: view). */
 const RESERVED = ["m", "h", "r", "f", " ", "`", "~"]
@@ -99,7 +106,7 @@ export class GameLoop {
   readonly view: ViewLayer | undefined
   #installed = false
   #drag: { x: number; y: number; pan: boolean; moved: boolean; id: number } | null = null
-  #lastFire: { x: number; y: number; at: number } | null = null
+  #lastClick: { x: number; y: number; at: number; fired?: { axis: string; from: string } } | null = null
   #on = false
   /** Wall-clock origin of the automaton's clock (ms); undefined = manual clock. */
   #origin: number | undefined = 0
@@ -124,6 +131,7 @@ export class GameLoop {
     this.#hudShown = opts.hud
     this.automaton = new Automaton(gatherStateSpace(opts.roots))
     this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
+    if (this.view) this.view.keepOuts = keepOutsOf(opts.roots)
     // Declared keys first; then the free digits, in declaration order.
     for (const a of this.automaton.axes) if (a.key && !RESERVED.includes(a.key) && !this.#keys.has(a.key)) this.#keys.set(a.key, a)
     const free = [...AUTO_KEYS].filter((k) => !this.#keys.has(k))
@@ -205,14 +213,6 @@ export class GameLoop {
       { ...listen, passive: false },
     )
     canvas.addEventListener(
-      "dblclick",
-      (e) => {
-        if (!this.#live() || !this.view) return
-        this.frameAt(e.clientX, e.clientY)
-      },
-      listen,
-    )
-    canvas.addEventListener(
       "pointerup",
       (e) => {
         const press = this.#press
@@ -227,11 +227,8 @@ export class GameLoop {
           return
         }
         if (!this.#live() || !press) return
-        const last = this.#lastFire
-        if (last && performance.now() - last.at < DOUBLE_MS && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) return
-        this.#lastFire = { x: e.clientX, y: e.clientY, at: performance.now() }
         if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP) return
-        this.clickAt(e.clientX, e.clientY)
+        this.click(e.clientX, e.clientY)
       },
       listen,
     )
@@ -382,6 +379,32 @@ export class GameLoop {
     if (!this.#live()) return undefined
     this.#setHovered(this.#ownerAt(clientX, clientY))
     return this.#hovered?.axis.id
+  }
+
+  /**
+   * One released click, as the pointer gives it — single or the tail of a
+   * double (see DOUBLE_MS). A host routing its own pointer (the editor's
+   * walk) calls this, not clickAt, so double-click means the same there.
+   */
+  click(clientX: number, clientY: number, now = performance.now()): void {
+    const last = this.#lastClick
+    if (last && now - last.at < DOUBLE_MS && Math.hypot(clientX - last.x, clientY - last.y) < DOUBLE_PX) {
+      this.#lastClick = null
+      if (last.fired) this.automaton.fire(last.fired.axis, last.fired.from)
+      if (this.view) this.frameAt(clientX, clientY)
+      this.#renderHud()
+      return
+    }
+    const hit = this.#ownerAt(clientX, clientY)
+    const from = hit ? this.automaton.position(hit.axis.id) : undefined
+    const fired = this.clickAt(clientX, clientY)
+    this.#lastClick = { x: clientX, y: clientY, at: now, fired: fired && from !== undefined ? { axis: fired, from } : undefined }
+  }
+
+  /** Headless: a double-click here, as the pointer would give it. */
+  doubleClickAt(clientX: number, clientY: number, now = performance.now()): void {
+    this.click(clientX, clientY, now)
+    this.click(clientX, clientY, now + 150)
   }
 
   /** Click as if here: fires the owning axis, if any. */
