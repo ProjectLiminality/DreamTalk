@@ -3,7 +3,10 @@
  *
  * Serves the editor like serve.ts, plus the bidirectional loop:
  *   - watches core/demo + core/src, rebuilds the editor bundle (debounced
- *     ~50 ms), pushes {type:"reload"} to clients over /ws
+ *     ~50 ms), pushes {type:"reload"} to clients over /ws; rebuilds the
+ *     player bundle too (demo/dist, with any local holon scenes —
+ *     local-holons.ts — so a holons/ scene never drops out), and watches
+ *     holons/ for it
  *   - GET /api/refs   → reference material under refs/ (JSON list)
  *   - GET /api/source → a DreamWeaving's text + sha256 (the op base hash)
  *   - GET/PUT /api/bake-cache/<hash> → baked tracks, so the browser gets
@@ -40,7 +43,7 @@
  *     to skip), its log lines prefixed [tablet]
  */
 
-import { watch } from "node:fs"
+import { existsSync, watch } from "node:fs"
 import { mkdir, readdir, rename } from "node:fs/promises"
 import { bakeCacheDir, isValidHash } from "../src/bakecache"
 import { isValidVoiceKey, voiceCacheDir, VOICE_EXT } from "../src/voice"
@@ -50,6 +53,7 @@ import { whereIs } from "./where"
 import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
+import { buildPlayer } from "./local-holons"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
@@ -405,12 +409,13 @@ const noteBoardChange = (name: string) => {
 const noteChange = (dir: string, filename: string | null) => {
   const board = filename ? boardNameOf(filename) : undefined
   if (board) return noteBoardChange(board)
-  if (!filename || !filename.endsWith(".ts")) return
+  if (!filename || !(filename.endsWith(".ts") || filename.endsWith("dreamtalk.json"))) return
   changed.add(`${repoRoot}${dir}/${filename}`)
   scheduleFlush()
 }
 
-for (const dir of ["core/demo", "core/src", "core/editor"]) {
+for (const dir of ["core/demo", "core/src", "core/editor", "holons"]) {
+  if (!existsSync(`${repoRoot}${dir}`)) continue
   watch(`${repoRoot}${dir}`, { recursive: true }, (_event, filename) =>
     noteChange(dir, filename),
   )
@@ -801,8 +806,16 @@ const server = Bun.serve<SocketData>({
 })
 
 const rebuildAndReload = async (cause?: { external: string[] }) => {
-  if (await buildEditor())
-    server.publish("editor", JSON.stringify({ type: "reload", external: cause?.external }))
+  const editorOk = await buildEditor()
+  await rebuildPlayer()
+  if (editorOk) server.publish("editor", JSON.stringify({ type: "reload", external: cause?.external }))
+}
+
+/** The player bundle (/demo), local holon scenes included — the same build as `bun run build:demo`. */
+const rebuildPlayer = async () => {
+  const started = performance.now()
+  const { ok, scenes } = await buildPlayer()
+  if (ok) log(`player rebuilt in ${(performance.now() - started).toFixed(0)}ms${scenes.length ? ` · local scenes: ${scenes.join(", ")}` : ""}`)
 }
 
 // --- The reMarkable bridge, as a child (DT_REMARKABLE=off to skip) ----------
@@ -863,5 +876,6 @@ const startTabletBridge = () => {
 }
 
 await buildEditor()
+await rebuildPlayer()
 if (process.env.DT_REMARKABLE !== "off") startTabletBridge()
 log(`daemon at http://localhost:${port} · demo at /demo · ws at /ws`)
