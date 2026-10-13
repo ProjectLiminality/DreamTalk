@@ -98,7 +98,7 @@ export class Pouch extends SolidDrawing {
  * capped flat at both ends. Counter-clockwise from outside, like
  * meshes.ts (a ring point at angle a sits at (w cos a, −d·sin a·|sin a|)).
  */
-const loft = (rings: readonly [number, number, number][], segments: number): Mesh => {
+export const loft = (rings: readonly [number, number, number][], segments: number): Mesh => {
   const positions: Vec3Like[] = []
   const triangles: [number, number, number][] = []
   const idx: number[][] = []

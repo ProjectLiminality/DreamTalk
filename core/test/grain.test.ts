@@ -12,6 +12,11 @@ import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
+import { Coin } from "../vocabulary/Coin/Coin"
+import { Carton } from "../vocabulary/Carton/Carton"
+import { Sack } from "../vocabulary/Sack/Sack"
+import { LabelRoll } from "../vocabulary/LabelRoll/LabelRoll"
+import { Drum } from "../vocabulary/Drum/Drum"
 import { Grain, NEUTRAL, RUNG, grainPhases, rungCertainty } from "../vocabulary/Grain/Grain"
 import { solidBounds } from "../src/geometry/hiddenline"
 
@@ -31,6 +36,12 @@ const SYMBOLS: [string, (o: { observer: Observer }) => SolidDrawing][] = [
   ["FilmReel", (o) => new FilmReel(o)],
   ["Pouch", (o) => new Pouch(o)],
   ["SheetStack", (o) => new SheetStack(o)],
+  ["Coin", (o) => new Coin(o)],
+  ["Coin (stack of 4)", (o) => new Coin({ ...o, count: 4 })],
+  ["Carton", (o) => new Carton(o)],
+  ["Sack", (o) => new Sack(o)],
+  ["LabelRoll", (o) => new LabelRoll(o)],
+  ["Drum", (o) => new Drum(o)],
 ]
 
 /** The bounding box of a set of solids. */

@@ -86,7 +86,9 @@ describe("the generic adapter", () => {
       expect(Math.abs(box.x + box.w / 2 - 900)).toBeLessThan(item.entry.id === "mindVirus" ? 200 : 1)
     }
     expect(placeParams(vocabById("platonic")!, { x: 1, y: 2 })).toMatchObject({ cx: 1, cy: 2, size: DEFAULT_SIZE, rotation: 0 })
-  })
+    // The whole shelf, built: FlowMap alone takes ~3.7 s, Earth and
+    // LightNode ~1 s each — past bun's 5 s default as the shelf grows.
+  }, 20_000)
 })
 
 describe("the Cylinder", () => {

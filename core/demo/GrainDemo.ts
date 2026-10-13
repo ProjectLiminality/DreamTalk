@@ -23,6 +23,11 @@ import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
+import { Coin } from "../vocabulary/Coin/Coin"
+import { Carton } from "../vocabulary/Carton/Carton"
+import { Sack } from "../vocabulary/Sack/Sack"
+import { LabelRoll } from "../vocabulary/LabelRoll/LabelRoll"
+import { Drum } from "../vocabulary/Drum/Drum"
 
 const PHI = 0.55
 const THETA = 0.42
@@ -232,6 +237,11 @@ export class MaterialsFacesDream extends Dream {
     new FilmReel({ observer: this.observer, x: 1000 }),
     new Pouch({ observer: this.observer, x: 2000 }),
     new SheetStack({ observer: this.observer, x: 3000 }),
+    new Coin({ observer: this.observer, x: 4000, count: 3, scale: 1.6 }),
+    new Carton({ observer: this.observer, x: 5000 }),
+    new Sack({ observer: this.observer, x: 6000 }),
+    new LabelRoll({ observer: this.observer, x: 7000 }),
+    new Drum({ observer: this.observer, x: 8000 }),
   ]
 
   unfold() {
