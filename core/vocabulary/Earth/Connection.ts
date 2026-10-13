@@ -14,11 +14,24 @@
  * hidden by its horizon like everything else. It also states its curve in
  * WORLD space (`worldCurves`) — what MorphCurves/MorphMany read — so many
  * connections can later gather into one circle.
+ *
+ * A FLOW. With `particles` (construction-time, a pool), the relation carries
+ * traffic: short dashes travel the arc from its first place to its second,
+ * by FlowMap's own stream maths (geometry/flowmap.ts `streamArc`,
+ * `streamFade`, `arcTable`, `atArcLength`) — positions a pure function of
+ * `time`, faded in and out at the arc's ends and at its draw front, so a
+ * flow only runs where its line has been drawn. `volume` 0…1 is the flow's
+ * strength: how many of the pool are on the arc at once, and how heavy each
+ * dash is. `time` is a CLOCK — it advances with the timeline, and on its own
+ * in free play (stateSpace clocks).
  */
 
 import type { Holon, Overrides } from "../../src/holon"
 import { derivePoints, Line, type Vec3Like } from "../../src/parts/primitives"
-import { scalar } from "../../src/params"
+import { color, derive, scalar } from "../../src/params"
+import { WHITE } from "../../src/constants"
+import { atArcLength, streamArc, streamFade } from "../../src/geometry/flowmap"
+import type { StateSpace } from "../../src/automaton"
 import { toWorld } from "../../src/parts/soliddrawing"
 import { latLonToUnit } from "../../src/geometry/sphere"
 import type { Place } from "./Earth"
@@ -66,6 +79,22 @@ export class Connection extends Line {
    */
   ends: Place[] = []
 
+  /** Dashes in the flow's pool; 0 = a plain relation line. Construction-time. */
+  particles = 0
+  /** The flow's strength, 0…1: dashes on the arc at once, and their weight. */
+  volume = scalar(1)
+  /** The flow's clock, seconds. */
+  time = scalar(0)
+  /** How fast traffic travels: arc lengths per second. */
+  pace = scalar(0.22)
+  /** A dash's length, as a fraction of the arc. */
+  dash = scalar(0.035)
+  /** The traffic's colour — bright against the relation's own (dimmer) line. */
+  particleTint = color(WHITE)
+
+  /** The dashes, in pool order. */
+  flow: Line[] = []
+
   constructor(overrides: Overrides = {}) {
     super(overrides)
     const [from, to] = this.ends
@@ -82,6 +111,58 @@ export class Connection extends Line {
           this.base.value,
         ),
     )
+
+    // The flow: n dashes circulating a loop at least as long as the arc;
+    // those past its end are in the pipe, hidden (streamArc's model).
+    const n = Math.max(0, Math.round(this.particles))
+    let table: { key: number; points: Vec3Like[]; lengths: number[] } | undefined
+    const arc = () => {
+      void this.points
+      if (!table || table.key !== this.geomVersion) {
+        const pts = this.points
+        const lengths = [0]
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1]!
+          const b = pts[i]!
+          lengths.push(lengths[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z))
+        }
+        table = { key: this.geomVersion, points: pts, lengths }
+      }
+      return table
+    }
+    // One phase per relation, from its ends, so neighbouring flows do not
+    // march in step.
+    const seed = Math.abs(Math.sin(from.lat.value * 12.9898 + to.lon.value * 78.233) * 43758.5453) % 1
+    for (let j = 0; j < n; j++) {
+      const at = () => {
+        const { lengths } = arc()
+        const L = lengths[lengths.length - 1] ?? 0
+        const live = Math.max(1, n * Math.max(0.05, Math.min(1, this.volume.value)))
+        const spacing = L / live
+        const s = streamArc(j, n, spacing, this.pace.value * L, this.time.value, seed)
+        return { s, L, fade: streamFade(s, L, this.creation.value) }
+      }
+      const dash = new Line({
+        tint: this.particleTint,
+        stroke: derive(() => this.stroke.value * (1.4 + this.volume.value)),
+        opacity: derive(() => this.opacity.value * at().fade),
+      })
+      derivePoints(dash, () => [this.time.value, this.pace.value, this.volume.value, this.dash.value, this.geomVersion], () => {
+        const { points, lengths } = arc()
+        const { s, L } = at()
+        if (!(L > 0) || s > L) return []
+        const d = this.dash.value * L
+        const out: Vec3Like[] = []
+        for (let k = 0; k <= 5; k++) out.push(atArcLength(points, lengths, Math.max(0, s - d + (d * k) / 5)))
+        return out
+      })
+      this.flow.push(this.add(dash))
+    }
+  }
+
+  /** A flow keeps moving in free play: its clock runs with wall time. */
+  override stateSpace(): StateSpace | undefined {
+    return this.particles > 0 ? { axes: [], clocks: [this.time] } : undefined
   }
 
   /** Numbers that move whenever `worldCurves()` would — the morph's cheap dirty key. */

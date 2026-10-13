@@ -447,6 +447,14 @@ export class Earth extends Null {
    */
   places: Holon[] = []
 
+  /**
+   * Data layers that lie ON the land — a Choropleth's country sheets.
+   * Adopted like places, but composited with the fills: over the land and
+   * its highlights, under the lakes and every stroke, so coasts and
+   * borders stay drawn over the data.
+   */
+  layers: Holon[] = []
+
   ball!: Surface
   horizon!: Surface
   limb!: Line
@@ -474,9 +482,11 @@ export class Earth extends Null {
 
   constructor(overrides: Overrides = {}) {
     super(overrides)
-    for (const place of this.places) {
-      if (place instanceof Place) place.seatOn(this)
-      this.add(place)
+    for (const held of [...this.layers, ...this.places]) {
+      // Anything anchored on the Earth may ask to be seated: a Place binds
+      // its radius, a data layer learns the planet it draws on.
+      ;(held as Partial<Seated>).seatOn?.(this)
+      this.add(held)
     }
   }
 
@@ -524,6 +534,8 @@ export class Earth extends Null {
       sheet.indices = mesh.indices
       this.countrySheets.set(iso, sheet)
     }
+    // Data layers (re-adopted here: attach order is composite order).
+    for (const layer of this.layers) this.add(layer)
     const lakes = lakeGeometry(region)
     for (const [rank, mesh] of [...lakes.sheets].sort((a, b) => a[0] - b[0])) {
       if (mesh.indices.length === 0) continue
@@ -1017,7 +1029,7 @@ const discMesh = (c: Circle3): { positions: Float32Array; indices: Uint32Array }
  * through its `geomVersion` (the host's dirty check reads that first, then
  * the arrays) — the Surface twin of a derived Line's `points`.
  */
-const deriveSurface = (
+export const deriveSurface = (
   surface: Surface,
   key: () => string,
   build: () => { positions: Float32Array; indices: Uint32Array },
@@ -1046,6 +1058,11 @@ const deriveSurface = (
 /** `add` is protected; Earth composes its stroke sets into a plain Null. */
 const addTo = <T extends Holon>(parent: Holon, child: T): T =>
   (parent as unknown as { add(h: T): T }).add(child)
+
+/** Something an Earth seats when it adopts it (Place, data layers). */
+export interface Seated {
+  seatOn(earth: Earth): void
+}
 
 /**
  * A spot on the Earth: holds its members at (lat, lon), lifted `altitude`

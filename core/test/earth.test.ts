@@ -28,6 +28,10 @@ import { EarthView, FlyTo, Focus, followEarth, viewDistance, viewPose, zoomForSp
 import { cities, countries, countryMesh, graticuleLines, lakeGeometry, regionOf, riverGeometry } from "../vocabulary/Earth/features"
 import { ALPS_10M } from "../vocabulary/Earth/packs/alps10m"
 import { textWidth } from "../vocabulary/Earth/Labels"
+import { Choropleth, sampleSeries, tableDomain } from "../vocabulary/Earth/Choropleth"
+import { PointData } from "../vocabulary/Earth/PointData"
+import { Connection } from "../vocabulary/Earth/Connection"
+import { GHOST_FLOOR } from "../src/certainty"
 import { sitePlaces } from "../vocabulary/Earth/Sites"
 import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
@@ -624,5 +628,68 @@ describe("a scene owns what it drives", () => {
     expect(ids).not.toContain("land")
     expect(ids).not.toContain("borders")
     expect(ids).toContain("time")
+  })
+})
+
+describe("data layers", () => {
+  test("sampleSeries interpolates between periods and crossfades into a gap", () => {
+    expect(sampleSeries([10, 20, 30], 1.5)).toEqual({ value: 25, sure: 1 })
+    expect(sampleSeries([10, null, 30], 0.25)).toEqual({ value: 10, sure: 0.75 })
+    expect(sampleSeries([10, null, 30], 1.5)).toEqual({ value: 30, sure: 0.5 })
+    expect(sampleSeries([null, null], 0.5).sure).toBe(0)
+    expect(tableDomain({ A: [3, null, 9], B: [1] })).toEqual([1, 9])
+  })
+  test("a choropleth gives each known country a sheet on the sphere, tinted by its value, ghosted where data is missing", () => {
+    const map = new Choropleth({ data: { AT: [0, 10], DE: [10, null], XX: [5] } })
+    const earth = new Earth({ radius: 300, layers: [map] })
+    void earth.parts
+    void map.parts
+    expect([...map.sheets.keys()]).toEqual(["AT", "DE"])
+    expect(map.unknown).toEqual(["XX"])
+    const at = map.sheets.get("AT")!
+    const de = map.sheets.get("DE")!
+    const same = (a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) =>
+      expect(Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)).toBeLessThan(1e-9)
+    map.period.value = 0
+    same(at.tint.value, map.low.value)
+    same(de.tint.value, map.high.value)
+    map.period.value = 1
+    same(at.tint.value, map.high.value)
+    expect(de.fillOpacity.value).toBeCloseTo(GHOST_FLOOR, 9) // DE has no value in period 1
+    // Composited under the strokes: the layer sits before the stroke group.
+    const parts = earth.parts
+    expect(parts.indexOf(map)).toBeLessThan(parts.findIndex((p) => p === earth.coastLines[0]!.parent))
+  })
+  test("point data: one Place per row; a column's height is the value's share of the maximum", () => {
+    const pts = new PointData({ rows: [{ lat: 48, lon: 16, values: [10, 20] }, { lat: 50, lon: 8, values: 5 }], size: 40 })
+    const earth = new Earth({ radius: 300, places: [pts] })
+    void earth.parts
+    expect(pts.spots.length).toBe(2)
+    for (const s of pts.spots) expect(Math.hypot(s.x.value, s.y.value, s.z.value)).toBeCloseTo(300, 6)
+    const tallest = () => {
+      const col = pts.spots[0]!.members[0]!
+      return Math.max(...[...col.walk()].flatMap((h) => ((h as { points?: { y: number }[] }).points ?? []).map((p) => p.y)))
+    }
+    pts.period.value = 0
+    expect(tallest()).toBeCloseTo(20, 6) // 10 of a max of 20 → half of 40
+    pts.period.value = 1
+    expect(tallest()).toBeCloseTo(40, 6)
+  })
+  test("a flow: particles run its arc by FlowMap's stream maths, a pure function of time, denser with volume", () => {
+    const a = new Place({ lat: 48, lon: 16 })
+    const b = new Place({ lat: 50, lon: 8 })
+    const flow = new Connection({ ends: [a, b], particles: 10 })
+    const earth = new Earth({ radius: 300, places: [a, b, flow] })
+    void earth.parts
+    const live = () => flow.flow.filter((d) => d.points.length > 0 && d.opacity.value > 0.01).length
+    flow.time.value = 3
+    const first = flow.flow.map((d) => d.points[5])
+    flow.time.value = 3
+    expect(flow.flow.map((d) => d.points[5])).toEqual(first)
+    flow.volume.value = 1
+    const full = live()
+    flow.volume.value = 0.3
+    expect(live()).toBeLessThan(full)
+    expect(flow.stateSpace()!.clocks).toEqual([flow.time])
   })
 })

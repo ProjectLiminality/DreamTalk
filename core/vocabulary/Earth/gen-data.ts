@@ -114,8 +114,10 @@ if (packAt >= 0) {
   process.exit(0)
 }
 
+type Box = [number, number, number, number]
+
 /** Sutherland–Hodgman of a lon/lat ring against an axis-aligned box. */
-function cropRing(ring: Position[], [w, s, e, n]: number[]): Position[] {
+function cropRing(ring: Position[], [w, s, e, n]: Box): Position[] {
   let pts = ring
   const edges: [number, number, boolean][] = [[0, w, true], [0, e, false], [1, s, true], [1, n, false]]
   for (const [axis, k, above] of edges) {
@@ -138,7 +140,7 @@ function cropRing(ring: Position[], [w, s, e, n]: number[]): Position[] {
 }
 
 /** The parts of a lon/lat polyline that come within the box (one point of overhang kept each side). */
-function cropLine(line: Position[], [w, s, e, n]: number[]): Position[][] {
+function cropLine(line: Position[], [w, s, e, n]: Box): Position[][] {
   const inBox = (p: Position) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n
   const out: Position[][] = []
   let run: Position[] = []
@@ -156,7 +158,7 @@ function cropLine(line: Position[], [w, s, e, n]: number[]): Position[][] {
 
 async function writePack(name: string, box: [number, number, number, number]): Promise<void> {
   const MARGIN = 1
-  const crop = [box[0] - MARGIN, box[1] - MARGIN, box[2] + MARGIN, box[3] + MARGIN]
+  const crop: Box = [box[0] - MARGIN, box[1] - MARGIN, box[2] + MARGIN, box[3] + MARGIN]
   const Q = 1000
   const polys = (f: Feature) =>
     (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as Position[][][]

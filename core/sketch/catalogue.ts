@@ -99,6 +99,8 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
  * nothing — each needs something only a scene can hand it.
  */
 export const NOT_SYMBOLS: Readonly<Record<string, string>> = {
+  Choropleth: "paints a table of values per country it is handed, on an Earth",
+  PointData: "stands a table of values at places it is handed, on an Earth",
   Cable: "a trail needs a carrier to follow",
   RayCaster: "casts rays at colliders an Eye is given",
   GeometrySketch: "an ability: annotates a shape it is handed",
