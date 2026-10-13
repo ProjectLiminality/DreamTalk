@@ -16,6 +16,7 @@ import { mountCreatorPanel } from "./creatorpanel"
 import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
+import { GameLoop } from "./game"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -132,8 +133,44 @@ const main = async () => {
   /** The t on screen — where creator mode freezes the world, and resumes it. */
   let current = startT
 
+  // --- The game loop (demo/game.ts) — Space: the world holds and is walkable.
+  const ac = new AbortController()
+  const game = new GameLoop(
+    {
+      canvas,
+      pick: (x, y) => pickAt(x, y),
+      boundsOf: (h) => host.boundsOf(h),
+      setBeforeSync: (fn) => (host.beforeSync = fn),
+    },
+    {
+      roots: dream.roots,
+      animated: new Set(dream.build().params),
+      suspended: () => creator.on || explorer.on,
+      hud: query.get("hud") !== "0",
+      signal: ac.signal,
+    },
+  )
+  const toggleGame = async () => {
+    if (game.on) {
+      game.leave()
+      t0 = performance.now() - game.heldAt * 1000
+      playing = true
+      return
+    }
+    playing = false
+    narrator.update(Number.NaN, false)
+    sfx.update(Number.NaN, false)
+    await host.renderFrame(current)
+    game.enter(current)
+  }
+
   const frame = async (now: number) => {
-    if (playing) {
+    game.hold(creator.on || explorer.on, now)
+    game.tick(now)
+    if (game.on && !creator.on && !explorer.on) {
+      await host.renderFrame(game.heldAt)
+      readout.textContent = `t = ${game.heldAt.toFixed(2)}s · free ${game.automaton.clock.toFixed(1)}s (space: song)`
+    } else if (playing) {
       const t = ((now - t0) / 1000) % duration
       current = t
       await host.renderFrame(t)
@@ -169,7 +206,6 @@ const main = async () => {
     )
   }
   let resumeOnExit = false
-  const ac = new AbortController()
   const creator: CreatorMode = new CreatorMode(
     { canvas, pick: pickAt, boundsOf: (h) => host.boundsOf(h) },
     {
@@ -284,6 +320,12 @@ const main = async () => {
       toggleSound()
       return
     }
+    if (e.code === "Space" && !creator.on && !explorer.on && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      void toggleGame()
+      return
+    }
+    if (!creator.on && !explorer.on && game.key(e)) return
     if (isCreatorToggle(e) || (e.code === "Escape" && creator.on)) {
       e.preventDefault()
       creator.toggle(e.code === "Escape" ? false : undefined)
@@ -292,6 +334,34 @@ const main = async () => {
   ;(window as unknown as Record<string, unknown>).__dtCreator = creator
 
   ;(window as unknown as Record<string, unknown>).__dtHost = host
+  // Headless driving of the game loop: enter at t, fire, render at a clock.
+  ;(window as unknown as Record<string, unknown>).__dtGame = {
+    game,
+    enter: async (t: number) => {
+      playing = false
+      current = t
+      await host.renderFrame(t)
+      game.enter(t)
+      game.at(0)
+    },
+    fire: (id: string, position?: string) => game.fire(id, position),
+    at: async (clock: number) => {
+      game.at(clock)
+      await host.renderFrame(game.heldAt)
+      await host.renderFrame(game.heldAt)
+    },
+    state: () => game.state(),
+    hoverAt: (x: number, y: number) => game.hoverAt(x, y),
+    clickAt: (x: number, y: number) => game.clickAt(x, y),
+  }
+  // `?play=free`: open in the game loop, at ?t= or the song's last pose.
+  if (query.get("play") === "free") {
+    playing = false
+    current = query.has("t") ? startT : duration
+    await host.renderFrame(current)
+    await host.renderFrame(current)
+    game.enter(current)
+  }
   window.__dt = {
     ready: true,
     duration,

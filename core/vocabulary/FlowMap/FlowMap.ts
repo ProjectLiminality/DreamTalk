@@ -63,6 +63,7 @@ import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
 import { certainty, wobble } from "../../src/certainty"
+import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import {
   arcTable,
   atArcLength,
@@ -224,6 +225,76 @@ export class FlowMap extends Null {
     const s = this.stages.find((x) => x.stageId === id)
     if (!s) throw new Error(`FlowMap: no stage '${id}' (stages: ${this.stages.map((x) => x.stageId).join(", ")})`)
     return s
+  }
+
+  /**
+   * The walkable state space (src/automaton.ts) — the player's game loop
+   * (`?scene=flowmap&play=free`). Click the group circle or a category disc:
+   * the grain. Click a stage name: its layer off/on. Staged, click a flow:
+   * its gap folds/unfolds; flat, click a conjectural flow: its certainty
+   * collapses into data (and back). Keys: g grain, e expand, l labels, the
+   * digits for the rest. `time` is the clock, so the particles keep running.
+   *
+   * SEAMS. A flow's handle lists its axes in priority order and the first
+   * walkable one fires — a Lens axis prepended there (`when` a lens exists)
+   * makes "click the arrow, the lens opens" one line.
+   */
+  override stateSpace(): StateSpace {
+    const flat = () => this.expand.value < 0.5
+    const axes: Axis[] = [
+      axis("grain", this, { uncategorised: this.states.uncategorised, categorised: this.states.categorised }, {
+        key: "g",
+        duration: 1.8,
+        handles: () => this.slices.flatMap((s) => [s.hull, ...s.discs]),
+      }),
+      axis("expand", this, { flat: this.states.flat, staged: this.states.staged }, { key: "e", duration: 2.4 }),
+      toggle("labels", this.labels, {
+        key: "l",
+        off: ["hidden", 0],
+        on: ["shown", 1],
+        handles: () => [...this.categoryLabels, ...this.stages.flatMap((s) => (s.label ? [s.label] : []))],
+      }),
+    ]
+    this.data.stages.forEach((sd, i) => {
+      const stage = this.stages[i]!
+      const name = sd.label ?? sd.id
+      axes.push(
+        toggle(sd.id, stage.shown, {
+          label: name,
+          key: String(i + 1),
+          off: ["hidden", 0],
+          on: ["shown", 1],
+          handles: () => (stage.label ? [stage.label] : []),
+        }),
+      )
+    })
+    this.data.stages.forEach((sd, i) => {
+      const stage = this.stages[i]!
+      const name = sd.label ?? sd.id
+      axes.push(
+        toggle(`${sd.id}.open`, stage.open, {
+          label: `${name} gap`,
+          off: ["closed", 0],
+          on: ["open", 1],
+          when: () => !flat() && stage.shown.value > 0.5,
+          handles: () => stage.flows,
+        }),
+      )
+      const declared = sd.certainty ?? 1
+      if (declared < 1) {
+        axes.push(
+          toggle(`${sd.id}.certainty`, stage.certainty, {
+            label: `${name} certainty`,
+            off: ["conjecture", declared],
+            on: ["data", 1],
+            duration: 2,
+            when: () => stage.shown.value > 0.5,
+            handles: () => stage.flows,
+          }),
+        )
+      }
+    })
+    return { axes, clocks: [this.time] }
   }
 
   // --- the pure state of the picture, memoised per param change ---------------
