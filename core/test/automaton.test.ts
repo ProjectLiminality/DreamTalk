@@ -158,3 +158,29 @@ describe("automaton", () => {
     expect(space.axes.map((x) => x.id)).toEqual(["grain", "shown", "grain#2", "shown#2"])
   })
 })
+
+describe("FlowMap as the first citizen", () => {
+  test("declares its axes; the adjacent possible follows the picture", async () => {
+    const { FlowMap } = await import("../vocabulary/FlowMap/FlowMap")
+    const m = new FlowMap({ radius: 300 })
+    void m.parts
+    const a = new Automaton(gatherStateSpace([m]))
+    expect(a.axes.map((x) => x.id)).toEqual([
+      "grain", "expand", "labels", "raw", "semi", "finished",
+      "raw.open", "raw.certainty", "semi.open", "finished.open",
+    ])
+    a.enter()
+    expect(a.position("expand")).toBe("flat")
+    expect(a.position("raw.certainty")).toBe("conjecture")
+    expect(a.enabled("raw.open")).toBe(false) // a gap exists only once staged
+    a.fire("raw", "shown")
+    a.fire("expand", "staged")
+    a.clock = 3
+    a.apply()
+    expect(m.expand.value).toBe(1)
+    expect(a.enabled("raw.open")).toBe(true)
+    expect(m.time.value).toBeCloseTo(3, 9) // the particles kept running
+    // Every handle a flow offers is one of its own stage's axes.
+    expect(a.axis("raw.open").handles()).toEqual(m.stage("raw").flows)
+  })
+})

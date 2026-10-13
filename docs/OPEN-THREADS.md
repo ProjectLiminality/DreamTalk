@@ -5,6 +5,33 @@ to act on, but were left unfinished as attention moved on. Kept here so they
 never have to be explained from scratch again. Newest first; strike through
 when done.
 
+## The visual automaton (2026-10-13)
+- **Built:** `src/automaton.ts` (axes over States, deterministic C¹
+  retargeting, verbs via Anims, clocks) and the player's game loop
+  `demo/game.ts`: **Space** holds the song and makes it walkable, Space
+  again releases back into it; `?play=free` opens there (`&hud=0` hides the
+  HUD, `h` toggles it). FlowMap is the first citizen
+  (`?scene=flowmap&play=free`): click the group circle/discs → grain, a
+  stage name → its layer, a flow → its gap (staged) or its certainty
+  (flat, conjectural); keys g/e/l/1–3/4… . Headless: `window.__dtGame`
+  (`enter(t)`, `fire(id, pos)`, `at(clock)`, `state()`, `hoverAt`, `clickAt`).
+- **Seams (one declaration each, nothing else to build):**
+  - *Lens on a flow:* in `FlowMap.stateSpace()`, prepend to the per-stage
+    axes `toggle("raw.lens", lens.open, { handles: () => stage.flows,
+    when: () => …, via: (f, t) => … })` — a flow's handle fires its FIRST
+    walkable axis, so the lens wins the click; `via` may be the Lens's own
+    opening Anim (it plays from rest; interrupted, it retargets smoothly).
+    Or the Lens declares its own `stateSpace()` with the flow as handle.
+  - *Earth globe ↔ abstract:* an axis on whatever param blends the two
+    views (`axis("view", scene, { globe: {…}, abstract: {…} }, { key: "v" })`)
+    in the holon that owns that param — gathered automatically from the
+    scene's roots.
+- Open: the song's path recorded from a walk (`automaton.journal` →
+  `this.play(axis.to(…), d)` lines via a semantic op — "walk it, keep it");
+  camera flight in the game loop (LOOPS.md: the Observer as live override);
+  hover affordance on handles hidden at opacity 0 (unpickable by design —
+  their keys/HUD still work); David's eye on the ticks + caption; touch.
+
 ## The Earth (2026-10-13)
 - **Built:** `core/vocabulary/Earth` (`?scene=earth`). A true 3D sphere
   from Natural Earth 1:50m: land triangulated on the sphere, coast and

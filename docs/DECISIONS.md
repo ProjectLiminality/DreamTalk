@@ -399,3 +399,17 @@ operational decisions are entered by the working agent. Format:
   depth across its width; a ball is steep near its silhouette) nor leaks.
   Rebuilt from the observer each frame (`Earth.seenFrom`).
 
+- 2026-10-13 · **The visual automaton: a state space is a naming of States,
+  not a second system** (`src/automaton.ts`, `demo/game.ts`). A holon may
+  declare `stateSpace()`: AXES (named positions, each a `State`; `toggle`
+  for one param) with handles, keys, `when` (the adjacent possible) and an
+  optional `via` verb, plus CLOCKS (params that run with wall time). The
+  song is one authored path through it (`axis.to(pos)` = `transitionTo`);
+  the player's game loop (Space, `?play=free`) is the free walk, written as
+  a live layer over the held timeline via the host's `beforeSync` — the
+  Dream and every export see only the pure timeline. Motions are pure
+  f(fires, clock): from rest exactly the C4D ease of `param.to()`;
+  interrupted, C¹-continuous retarget (value + velocity carried, Hermite
+  h10 term), so a reversal swings and returns instead of popping. Leaving
+  blends back into the song over 0.6 s. Affordance: white hairline corner
+  ticks + a one-line caption (creator mode keeps gold).
