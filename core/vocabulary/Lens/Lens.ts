@@ -235,7 +235,9 @@ export class FlowLens extends Lens {
   /** The road's turn within the ground, radians. */
   heading = angle(-0.32)
   /** The concrete symbol's scale (a Truck is 650 long). */
-  symbolScale = scalar(0.17)
+  symbolScale = scalar(0.21)
+  /** How far the road curves across the window, radians (0 = straight). */
+  bend = angle(0.5)
 
   private flow!: { source: FlowSource; opts: FlowLensOptions }
 
@@ -335,12 +337,16 @@ export class FlowLens extends Lens {
       length: derive(() => this.radius.value * 3),
       width: derive(() => this.radius.value * 0.55),
       dash: derive(() => this.radius.value * 0.12),
+      bend: this.bend,
+      horizon: 1,
       bound: (p) => this.inside(p),
       boundKey: () => this.insideKey(),
     })
     const concreteOf = (overrides: Overrides) =>
       (opts.concreteSymbol ?? ((o: Overrides) => new Truck({ observer, viewBucket: 0.01, ...o })))(overrides)
-    const span = () => this.radius.value * 2.0
+    const span = () => this.radius.value * 1.85
+    // The near lane: a quarter of the road's width toward the viewer.
+    const lane = () => -this.radius.value * 0.55 * 0.25
     const states = Array.from({ length: K }, (_, k) => {
       let memoEpoch = -1
       let memo = { active: false, c: 0, ck: 0, fade: 0 }
@@ -351,7 +357,7 @@ export class FlowLens extends Lens {
         if (!sl) return (memo = { active: false, c: 0, ck: 0, fade: 0 })
         const { c } = sl
         // Concrete only across the middle: dots arrive and leave as dots.
-        const bump = smooth(0.12, 0.36, c) * smooth(0.88, 0.64, c)
+        const bump = smooth(0.2, 0.42, c) * smooth(0.84, 0.62, c)
         const fade = smooth(0, 0.05, c) * smooth(1, 0.95, c)
         return (memo = { active: true, c, ck: this.concrete.value * bump, fade })
       }
@@ -360,10 +366,11 @@ export class FlowLens extends Lens {
       concreteOf({
         scale: this.symbolScale,
         stroke: 0,
-        x: derive(() => (st().c - 0.5) * span()),
-        // In the near lane, standing ON the road: the symbol's origin is
-        // its middle, so it rises by its half height.
-        z: derive(() => this.radius.value * 0.12),
+        // In the near lane, following the road's curve, standing ON it: the
+        // symbol's origin is its middle, so it rises by its half height.
+        x: derive(() => road.pointAt((st().c - 0.5) * span(), lane()).x),
+        z: derive(() => road.pointAt((st().c - 0.5) * span(), lane()).z),
+        h: derive(() => road.headingAt((st().c - 0.5) * span())),
         y: derive(() => (opts.symbolHalfHeight ?? 116) * this.symbolScale.value),
         fillOpacity: derive(() => (st().active ? morphPhases(st().ck).fillIn : 0)),
         opacity: derive(() => (st().active && morphPhases(st().ck).fillIn > 0 ? shown() : 0)),
@@ -403,7 +410,7 @@ export class FlowLens extends Lens {
         const onLine = this.lifted(s0 + (s1 - s0) * c)
         const w = morphPhases(this.concrete.value).morph
         if (w <= 0) return onLine
-        const onRoad = toLocal(this, toWorld(ground, { x: (c - 0.5) * span(), y: 0, z: this.radius.value * 0.12 }))
+        const onRoad = toLocal(this, toWorld(ground, road.pointAt((c - 0.5) * span(), lane())))
         return {
           x: onLine.x + (onRoad.x - onLine.x) * w,
           y: onLine.y + (onRoad.y - onLine.y) * w,

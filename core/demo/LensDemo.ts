@@ -22,12 +22,12 @@ const PATH = [
 
 export class LensDream extends Dream {
   arrow = new Line({ points: PATH, tint: WHITE, arrowEnd: true, arrowSize: 1.6 })
-  stream = new Stream({ path: PATH, count: 12, spacing: 130, speed: 70, radius: 9 })
+  stream = new Stream({ path: PATH, count: 11, spacing: 140, speed: 70, radius: 9 })
   lens = new FlowLens(this.stream, {
     observer: this.observer,
     x: -330,
     y: -230,
-    radius: 132,
+    radius: 140,
     liftX: 330,
     liftY: 290,
     liftZ: 800,
