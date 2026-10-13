@@ -72,6 +72,7 @@ import { rotHPB } from "../../src/parts/curves"
 import { Recede } from "../../src/parts/recede"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { greatCircleArc } from "../../vocabulary/Earth/Connection"
+import { clamp01 } from "../../src/math"
 
 /** The globe's drawn size and lean — matched to GlobeDemo's outline globe so
  *  the sphere reads the same as the rest of the campaign. */
@@ -140,8 +141,6 @@ const ARC_LIFT = 1.2
 /** Hotspot ripple-ring count and their reach, in globe radii. */
 const RIPPLE_RINGS = 4
 const RIPPLE_REACH = 0.62
-
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 /** One arc's two endpoints, seeded and deterministic. One end near the hotspot
  *  region (the light originates there), the other anywhere on the globe — so the

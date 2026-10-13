@@ -24,6 +24,8 @@
  * (S03's sweeping cut, S06's morph in between).
  */
 
+import { clamp } from "../math"
+
 export interface Vec3 {
   x: number
   y: number
@@ -49,8 +51,6 @@ export interface Section {
 }
 
 const EPS = 1e-9
-
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
 /** A point on the mantle at azimuth θ, height y. */
 export const mantlePoint = (theta: number, radius: number, y: number): Vec3 => ({

@@ -41,6 +41,7 @@
 import { ZOOM_REFERENCE_WIDTH, orthoHalfHeight, type Observer } from "./dream"
 import type { Holon } from "./holon"
 import { C4D_SMOOTHING, c4dEaseWith } from "./timeline"
+import { clamp } from "./math"
 
 export interface ViewDelta {
   /** Orbit: added to the observer's azimuth / elevation (radians). */
@@ -85,7 +86,6 @@ export const THETA_LIMIT = Math.PI / 2 - (5 * Math.PI) / 180
 const FRAME_FILL = 0.6
 
 const ease = (u: number): number => c4dEaseWith(u, C4D_SMOOTHING, C4D_SMOOTHING)
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 const isZero = (d: ViewDelta) => d.phi === 0 && d.theta === 0 && d.dolly === 0 && d.x === 0 && d.y === 0 && d.z === 0
 const lerp = (a: ViewDelta, b: ViewDelta, k: number): ViewDelta => ({
   phi: a.phi + (b.phi - a.phi) * k,

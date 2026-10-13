@@ -33,6 +33,7 @@ import { asData, color, completion, length, text, type Param, type ParamValue } 
 import { WHITE } from "../constants"
 import { dominoWindows } from "./primitives"
 import type { Anim, Track } from "../anim"
+import { clamp01 } from "../math"
 
 /** pydeation Write(): Domino(rel_overlap=0.7, global_smoothing=0.7). */
 export const WRITE_REL_OVERLAP = 0.7
@@ -41,8 +42,6 @@ export const WRITE_GLOBAL_SMOOTHING = 0.7
 export const DRAW_WINDOW: readonly [number, number] = [0, 0.6]
 /** …and the solid fill fades in over [0.5, 1] (they overlap by design). */
 export const FILL_WINDOW: readonly [number, number] = [0.5, 1]
-
-const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
 /**
  * The per-letter domino windows for a glyph count, exactly as the 2021

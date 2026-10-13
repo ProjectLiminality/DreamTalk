@@ -45,6 +45,8 @@
  * Everything here is plain numbers and Vec3 — no Holon, no render.
  */
 
+import { clamp01 } from "../math"
+
 /** A point in world space. */
 export interface Vec3 {
   x: number
@@ -123,8 +125,6 @@ export const SCALE_CRUISE_END = 0.65
 export const SCALE_CRUISE_VALUE = 0.35
 export const SCALE_RAMP_END = 0.75
 export const SCALE_RAMP_VALUE = 0.75
-
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 
 /** The source's smoothstep, spelled out everywhere it appears (:1289). */
 export const smoothstep = (t: number): number => t * t * (3 - 2 * t)

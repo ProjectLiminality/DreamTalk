@@ -126,6 +126,7 @@ import { c4dEaseWith } from "../../src/timeline"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
 import { LightNode } from "../../vocabulary/LightNode/LightNode"
+import { clamp01 } from "../../src/math"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
  *  (f_00005: the outer ring spans ~y0.13→0.87, ~530px of 720, so ~265 at
@@ -204,8 +205,6 @@ const BLUE_LATTICE = seen(40, 120, 190)
 const RED_FIELD = seen(212, 76, 60)
 const RED_RING = seen(250, 86, 65)
 const LATTICE_RED = seen(150, 60, 52)
-
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 /**
  * The yin-yang divider as one polyline, for a blue-lobe share `split`: the

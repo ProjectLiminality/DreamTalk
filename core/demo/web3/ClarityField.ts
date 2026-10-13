@@ -62,6 +62,7 @@ import { Dream } from "../../src/index"
 import { Circle, Group, Null } from "../../src/parts/primitives"
 import { hashUnit, hexPack, type Vec2 } from "../../src/geometry/flower"
 import { rgb, seen, type Color } from "../../src/constants"
+import { clamp01 } from "../../src/math"
 
 /**
  * Measured from the reference frames, then the red DELIBERATELY lifted: the
@@ -107,7 +108,6 @@ const mix = (a: Color, b: Color, u: number): Color => ({
   b: a.b + (b.b - a.b) * u,
 })
 
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 const smooth = (u: number) => {
   const v = clamp01(u)
   return v * v * (3 - 2 * v)

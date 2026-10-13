@@ -42,6 +42,7 @@ import { PAGE_H, PAGE_W, type InkStroke, type PlacedSymbol } from "./protocol"
 import { eulerToMat3, isMat3Identity, mat3Apply, mat3Mul, mat3ToEuler, wrapAngle, xfOf, xfPoint, type Mat3, type Xf } from "./xform"
 import { rotHPB } from "../src/parts/curves"
 import { genericById } from "./catalogue"
+import { clamp } from "../src/math"
 
 /**
  * What a param MEANS geometrically — which is all a whiteboard transform
@@ -95,8 +96,6 @@ const num = (p: Record<string, unknown>, key: string, fallback: number): number 
   const v = Number(p[key])
   return Number.isFinite(v) ? v : fallback
 }
-
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
 /** A page point, lifted off the page by `z` (scene z, toward the viewer)
  *  once a tumble has turned it out of the plane. */

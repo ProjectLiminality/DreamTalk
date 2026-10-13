@@ -87,6 +87,7 @@ import type { Vec3Like } from "../parts/index"
 import { RibbonStroke } from "./ribbon"
 import { seenOpacity } from "../certainty"
 import { fontChain } from "./fonts"
+import { clamp01 } from "../math"
 
 /**
  * Same escape hatch as ribbon.ts: @types/three's TSL typings lag the
@@ -585,8 +586,6 @@ const buildOutlines = (
   }
   return outlines
 }
-
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 
 /**
  * Drive one text's outline strokes from the two fronts — the CPU mirror
