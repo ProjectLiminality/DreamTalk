@@ -41,6 +41,7 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [Sketch](Sketch/) | david portrait, `?scene=sketch` | primitives (geometry/svg; 32 assets) | svg tests (37 subpaths); o1/o2 composites |
 | [Logo](Logo/) | finished mark, `?scene=o09` | primitives | o3 scores 30/30 + 25/26; logo tests (Cramer) |
 | [System](System/) | gears+icon, `?scene=o03` | Sketch (six assets) | o5: 16/16 pixel-exact layout predictions; system tests |
+| [Vitruvian](Vitruvian/) | traced, `?scene=vitruvian` | Fourier + primitives | Web3 shot 12; vitruvian scene |
 | [LightNode](LightNode/) | the hero, `?scene=web3s15` | Earth + primitives | Web3 shots 2–3 (red lobe), 15; GlobeDemo |
 | [Regenaissance](Regenaissance/) | fully drawn, `?scene=regenaissance` | Earth + SMark (+ great-circle lattice) | regenaissance tests; recognizer on David's own sketch |
 | [Earth](Earth/) | whole Earth, Europe facing, `?scene=earth` | primitives + Surface (Natural Earth 1:50m) + Factory/Headquarters | earth tests (31): projection, on-sphere triangulation vs exact area, horizon occluder, data integrity |

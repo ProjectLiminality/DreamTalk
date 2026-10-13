@@ -4,9 +4,9 @@
  *
  * SOURCE. The Liminal Consulting Web3 video (~93-106s) traced the Vitruvian
  * Man with a 3Blue1Brown epicycle chain inside a RED circumscribing circle and
- * a BLUE square (docs/reports/web3-recon.md, set-piece B). David asked for the
- * Fourier tracer to exist as a reusable holon; this scene is that holon
- * (vocabulary/Fourier) carrying the figure it was built for.
+ * a BLUE square (docs/reports/web3-recon.md, set-piece B). The symbol is the
+ * Vitruvian holon (vocabulary/Vitruvian: the traced path, the measured circle
+ * and square, the FourierTrace machine); this scene is its standalone face.
  *
  * DERIVED vs CHOSEN.
  *
@@ -39,64 +39,15 @@
  */
 
 import { Dream } from "../../src/index"
-import { Null, Circle, Square } from "../../src/parts/primitives"
+import { Null } from "../../src/parts/primitives"
 import { Create } from "../../src/verbs"
 import { together } from "../../src/anim"
-import { RED, BLUE } from "../../src/constants"
-import { FourierTrace } from "../../vocabulary/Fourier/Fourier"
-import { VITRUVIAN_PATH } from "./vitruvian-path"
-
-/**
- * The traced path starts at the FEET (index 0), so the pen — and with it the
- * whole epicycle chain — finishes there, collapsing into a knot at the base.
- * The original finishes at the HEAD, which is both where the eye expects a
- * drawing of a person to end and where the original's own machinery tucked
- * away.
- *
- * A Fourier series is periodic, so WHERE a closed path starts is free: rolling
- * the start point changes only the phase of every coefficient, never the curve.
- * Index 355 is the crown (the topmost point of the trace).
- */
-export const START_AT_HEAD = 355
-export const rollToHead = <T,>(pts: readonly T[], at: number): T[] => [
-  ...pts.slice(at),
-  ...pts.slice(0, at),
-]
-
-/** Da Vinci's circle + square, measured from the frame (see header). */
-export const CIRCLE_R = 314
-export const CIRCLE_Y = 53 // the navel circle sits above the figure centre
-export const SQUARE_SIZE = 524
-export const SQUARE_Y = 2
-
-/**
- * How many epicycles. A handful of big circles carry the pose; the tail
- * (dropped below `minRadius` in the drawing, kept in the sum) smooths the
- * fingers and feet. 130 reads as the figure while the machine stays legible.
- */
-export const TERMS = 130
+import { START_AT_HEAD, Vitruvian } from "../../vocabulary/Vitruvian/Vitruvian"
 
 export class VitruvianManDream extends Dream {
-  // Da Vinci's two figures, drawn first, behind the trace.
-  private circle = new Circle({
-    radius: CIRCLE_R,
-    y: CIRCLE_Y,
-    tint: RED,
-    stroke: 3,
-  })
-  private square = new Square({
-    size: SQUARE_SIZE,
-    y: SQUARE_Y,
-    tint: BLUE,
-    stroke: 3,
-  })
-
-  // The epicycle tracer carrying the figure.
-  private tracer = new FourierTrace({
-    path: rollToHead(VITRUVIAN_PATH, START_AT_HEAD),
-    terms: TERMS,
-    stroke: 3,
-  })
+  // The pen finishes on the HEAD, where the eye expects a drawing of a
+  // person to end and where the original's own machinery tucked away.
+  private man = new Vitruvian({ startAt: START_AT_HEAD })
 
   private root = new Null()
 
@@ -104,16 +55,14 @@ export class VitruvianManDream extends Dream {
     this.observer.look("front")
     this.set(this.observer.zoom.to(0.75))
     this.stage(this.root)
-    this.stage(this.circle)
-    this.stage(this.square)
-    this.stage(this.tracer)
+    this.stage(this.man)
 
     // 1. Da Vinci's frame draws itself in.
-    this.play(together(Create(this.circle), Create(this.square)), 2.4)
+    this.play(together(Create(this.man.circle), Create(this.man.square)), 2.4)
     this.wait(0.4)
 
     // 2. The epicycles trace the figure — the shot's ~13-14s sweep.
-    this.play(this.tracer.turn.to(1, { easing: "linear" }), 13.5)
+    this.play(this.man.pen.turn.to(1, { easing: "linear" }), 13.5)
 
     // 3. Hold on the finished figure.
     this.wait(1.5)

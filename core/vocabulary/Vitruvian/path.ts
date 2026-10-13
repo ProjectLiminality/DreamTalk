@@ -23,7 +23,7 @@
 //      from pixels, and its outer envelope reads identically as the figure).
 //   4. Smoothed, resampled to a fixed count, normalised: ~520 scene units tall,
 //      centred on the origin, y UP. Companion geometry measured under the SAME
-//      scale (for VitruvianMan.ts to match the frame's proportions):
+//      scale (Vitruvian.ts states them, to match the frame's proportions):
 //        RED circle : center ~(9, 53),  radius ~314   (Da Vinci's navel circle)
 //        BLUE square: center ~(11, 2),  side   ~524   (the arms/feet square)
 //

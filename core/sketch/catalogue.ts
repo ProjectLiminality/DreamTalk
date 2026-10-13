@@ -59,6 +59,7 @@ import { RightTriangle } from "../vocabulary/RightTriangle/RightTriangle"
 import { System } from "../vocabulary/System/System"
 import { TheWall } from "../vocabulary/TheWall/TheWall"
 import { Truck } from "../vocabulary/Truck/Truck"
+import { Vitruvian } from "../vocabulary/Vitruvian/Vitruvian"
 import { Carton } from "../vocabulary/Carton/Carton"
 import { Coin } from "../vocabulary/Coin/Coin"
 import { Drum } from "../vocabulary/Drum/Drum"
@@ -99,6 +100,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "System", folder: "System", cls: System },
   { className: "TheWall", folder: "TheWall", cls: TheWall },
   { className: "Truck", folder: "Truck", cls: Truck },
+  { className: "Vitruvian", folder: "Vitruvian", cls: Vitruvian },
   { className: "Carton", folder: "Carton", cls: Carton },
   { className: "Coin", folder: "Coin", cls: Coin },
   { className: "Drum", folder: "Drum", cls: Drum },
