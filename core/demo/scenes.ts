@@ -101,6 +101,7 @@ import { FillGlowDream } from "./FillGlow"
 import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { LensDream } from "./LensDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
+import { GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -118,6 +119,10 @@ export const scenes: Record<string, DreamClass> = {
   lens: LensDream,
   // The lens on a live FlowMap flow, its window's road in the stack's own ground.
   "lens-flowmap": LensFlowMapDream,
+  // Material symbols (Pallet, FilmReel, Pouch, SheetStack) and the grain of knowledge.
+  materials: MaterialsDream,
+  grain: GrainDream,
+  "materials-faces": MaterialsFacesDream,
   // A symbol becoming its written word and back (MorphToWord).
   "morph-word": MorphWordDream,
   "morph-word-virus": MorphWordVirusDream,
