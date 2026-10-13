@@ -18,6 +18,8 @@
  * eye: `outsideDisc` splits a polyline into its runs outside one circle.
  */
 
+import { rotHPB } from "../../src/parts/curves"
+
 export interface P2 {
   x: number
   y: number
@@ -58,14 +60,10 @@ export const GREAT_CIRCLE_NORMALS: [number, number, number][] = (() => {
 })()
 
 /** Spin about the pole (y), then lean the pole by `pitch` about screen x —
- *  the Earth's h/p convention (curves.ts rotHPB), so the two spheres turn alike. */
+ *  the Earth's h/p turn (curves.ts rotHPB), so the two spheres turn alike. */
 const orient = (v: [number, number, number], spin: number, pitch: number): [number, number, number] => {
-  const c = Math.cos(spin), s = Math.sin(spin)
-  const x = v[0] * c + v[2] * s
-  const z0 = -v[0] * s + v[2] * c
-  const y = v[1] * Math.cos(pitch) - z0 * Math.sin(pitch)
-  const z = v[1] * Math.sin(pitch) + z0 * Math.cos(pitch)
-  return [x, y, z]
+  const r = rotHPB({ x: v[0], y: v[1], z: v[2] }, pitch, spin, 0)
+  return [r.x, r.y, r.z]
 }
 
 /**
