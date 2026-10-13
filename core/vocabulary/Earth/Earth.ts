@@ -31,7 +31,9 @@
  * limb of the framed-Europe view; the horizon disc shows nothing there.
  *
  * The disc needs the eye: `seenFrom(observer)` (EarthView's `followEarth`
- * calls it). The BALL stays, sunk 1% under the surface, as the ground:
+ * calls it). Until told, the Earth assumes the framework's DEFAULT observer
+ * (perspective, 1500 out on +z) — exact for any scene that never moves the
+ * camera, and close for a front-on one. The BALL stays, sunk 1% under the surface, as the ground:
  * it hides what is underground — a building rising out of the earth — and
  * is far enough down never to touch a stroke on the surface.
  *
@@ -70,7 +72,8 @@
  * rank of when a feature earns its place. `detail` is the map zoom the
  * Earth is drawn for: a feature ranked above it fades out over one zoom
  * level. 2 is a clean whole-globe (continents and the major islands); 4
- * shows every islet in the 50m data. `EarthView` can drive it from the
+ * shows every islet in the 50m data. A rank fades over the half-level
+ * below its min_zoom, so a half-integer `detail` is always crisp. `EarthView` can drive it from the
  * camera so islands arrive as you descend.
  *
  * SIZE AND COST
@@ -220,8 +223,15 @@ const shoreRuns = (dense: number[], pts: Vec3[]): Vec3[][] => {
   return runs
 }
 
-/** A feature of rank r (min_zoom × 2) fades in over one zoom level below `detail`. */
-const lod = (rank: number, detail: number): number => Math.max(0, Math.min(1, detail - rank / 2 + 1))
+/**
+ * A feature of rank r (min_zoom × 2) is fully drawn once `detail` reaches
+ * its min_zoom and gone half a zoom level before — one rank step, so at any
+ * half-integer `detail` every feature is wholly in or wholly out (no
+ * half-lit islands at rest), and a descending camera fades each rank in
+ * over the half-level that brings it.
+ */
+const lod = (rank: number, detail: number): number =>
+  Math.max(0, Math.min(1, 2 * (detail - rank / 2) + 1))
 
 const scaled = (points: readonly Vec3[], r: number): Vec3Like[] =>
   points.map((p) => ({ x: p.x * r, y: p.y * r, z: p.z * r }))
@@ -268,6 +278,7 @@ export class Earth extends Null {
   limbTint = color(rgb(0x30, 0x30, 0x30))
   limbStroke = length(0)
   limbOpacity = completion(1)
+  limbDraw = completion(1)
 
   /**
    * Holons to anchor on the surface — usually `Place`s, which seat their
@@ -339,7 +350,12 @@ export class Earth extends Null {
     // The limb: the horizon circle, lifted a hair toward the eye so the
     // disc it rims never covers its own edge.
     this.limb = this.add(
-      new Line({ tint: this.limbTint, stroke: this.limbStroke, opacity: this.limbOpacity }),
+      new Line({
+        tint: this.limbTint,
+        stroke: this.limbStroke,
+        opacity: this.limbOpacity,
+        creation: this.limbDraw,
+      }),
     )
     deriveLine(this.limb, () => this.horizonKey(), () => {
       const h = this.horizonNow()
@@ -392,7 +408,7 @@ export class Earth extends Null {
 
   /** The eye in the Earth's own frame (through every transform above it). */
   private localEye(): { point: Vec3; orthographic: boolean } | undefined {
-    const eye = this.eye?.()
+    const eye = this.eye?.() ?? DEFAULT_EYE
     if (!eye) return undefined
     const m = worldMatrixOf(this)
     const inv = scratchInv.copy(m).invert()
@@ -425,13 +441,14 @@ export class Earth extends Null {
   }
 
   /**
-   * Draw on: the shore first, the land flooding in behind it, the borders
-   * last. Every set is one shared param, so this is three tracks however
-   * many Lines the world has.
+   * Draw on: the limb (if it has a stroke), the shore, the land flooding
+   * in behind it, the borders last. Every set is one shared param, so this
+   * is four tracks however many Lines the world has.
    */
   override createAnim(): Anim {
     return together(
-      [this.coastDraw.sequence(0, 1), 0, 0.6],
+      [this.limbDraw.sequence(0, 1), 0, 0.3],
+      [this.coastDraw.sequence(0, 1), 0.1, 0.6],
       [this.landOpacity.sequence(0, 1), 0.45, 0.85],
       [this.borderDraw.sequence(0, 1), 0.6, 1],
     )
@@ -441,12 +458,16 @@ export class Earth extends Null {
     return together(
       [this.borderDraw.to(0), 0, 0.4],
       [this.landOpacity.to(0), 0.15, 0.55],
-      [this.coastDraw.to(0), 0.4, 1],
+      [this.coastDraw.to(0), 0.4, 0.9],
+      [this.limbDraw.to(0), 0.7, 1],
     )
   }
 }
 
 const scratchInv = new Matrix4()
+
+/** Where an untold Earth assumes the camera is: a default Observer's pose (dream.ts). */
+const DEFAULT_EYE = { point: { x: 0, y: 0, z: 1500 }, orthographic: false }
 
 /** A holon's world matrix as the host composes it (three-host: ZXY h/p/b, uniform scale). */
 const worldMatrixOf = (holon: Holon): Matrix4 => {

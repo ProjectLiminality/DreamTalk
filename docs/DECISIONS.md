@@ -383,3 +383,19 @@ operational decisions are entered by the working agent. Format:
   the confirmation-signature rule: a draw-curve change moves mid-draw
   frames and leaves settled ones alone — the ASYMMETRY is the
   confirmation, not the improvement.
+- 2026-10-13 · **Occlusion is depth, written only by solid `Surface`s** —
+  nothing else in the host writes depth, so a scene without a solid renders
+  exactly as before, and a scene with one gets per-pixel 3D hiding for every
+  stroke and fill behind it (the Earth's far side, a building's back edges).
+  The solid material takes a small CONSTANT depth bias, never a slope-scaled
+  one: measured on the Earth, a slope bias grows without bound toward a
+  curved solid's silhouette and leaked Brazil's hidden coast as an arc on the
+  limb. Ink that lies on a solid keeps clear of it geometrically instead (the
+  Earth's ground ball 1% under its surface, a building body inset 3%).
+- 2026-10-13 · **A sphere's far side is hidden by its HORIZON PLANE, not by
+  the ball** — a surface point is visible iff p·ĉ > R²/d, so a solid disc on
+  that plane is an exact occluder for surface geometry, and being flat it
+  neither eats the inner half of front ribbons (a ribbon carries its line's
+  depth across its width; a ball is steep near its silhouette) nor leaks.
+  Rebuilt from the observer each frame (`Earth.seenFrom`).
+

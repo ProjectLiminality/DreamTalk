@@ -11,19 +11,25 @@
  * is a doubling of the picture, so a straight line in distance is a
  * curve in what you see. `zoom` is the log2 of magnification (each +1 is
  * twice as close to the ground), so animating it at an even pace descends
- * at an even pace for the eye — the way a map zooms. lat/lon move with it
- * and the target stays centred because the camera always looks at the
- * Earth's centre through the point it frames.
+ * at an even pace for the eye — the way a map zooms. lat/lon move with it,
+ * and the target stays centred because the camera always looks AT the
+ * ground point it frames.
+ *
+ * `tilt` leans the eye off straight-down toward the south, looking north
+ * — Google Earth's tilt. At 0 it is a map; at ~40 a building shows its
+ * walls and the horizon curves into the top of the frame.
  *
  * HOW IT DRIVES THE OBSERVER
  *
  * `followEarth(observer, earth, view)` binds the observer's focus to the
- * Earth's centre and its phi/theta/radius to derived readings of the view
- * — the observer's own spherical convention is the Earth's lat/lon frame
- * (geometry/sphere.ts), so phi = lon and theta = lat for an Earth that has
- * not been turned; a turned Earth (its h/p/b) is accounted for, so the
- * camera keeps looking at Paris while the planet spins under it. Once
- * bound, the observer is the view's; animate the view.
+ * framed ground point and its phi/theta/radius to the direction and
+ * distance back to the eye — the observer's own spherical convention is
+ * the Earth's lat/lon frame (geometry/sphere.ts), so straight down on an
+ * unturned Earth is phi = lon, theta = lat. A turned Earth (its h/p/b) is
+ * accounted for, so the camera keeps looking at Paris while the planet
+ * spins under it. It also tells the Earth where the eye is (`seenFrom`),
+ * which is what hides the far side exactly. Once bound, the observer is
+ * the view's; animate the view.
  *
  * `zoom = 0` frames the WHOLE Earth with its disc filling `fill` of the
  * frame height. `FrameRegion(view, { lat, lon, span })` flies to a region

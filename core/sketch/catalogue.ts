@@ -33,6 +33,9 @@ import { rotHPB } from "../src/parts/curves"
 import { polyline } from "../src/render/three-host"
 import { Axes } from "../vocabulary/Axes/Axes"
 import { Cylinder } from "../vocabulary/Cylinder/Cylinder"
+import { Earth } from "../vocabulary/Earth/Earth"
+import { Factory } from "../vocabulary/Earth/Factory"
+import { Headquarters } from "../vocabulary/Earth/Headquarters"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
@@ -59,11 +62,14 @@ type HolonClass = new (overrides?: Record<string, unknown>) => Holon
 export const SHELF: readonly { className: string; folder: string; cls: HolonClass }[] = [
   { className: "Axes", folder: "Axes", cls: Axes },
   { className: "Cylinder", folder: "Cylinder", cls: Cylinder },
+  { className: "Earth", folder: "Earth", cls: Earth },
   { className: "Eye", folder: "Eye", cls: Eye },
+  { className: "Factory", folder: "Earth", cls: Factory },
   { className: "Figure", folder: "Figure", cls: Figure },
   { className: "FoldableCube", folder: "FoldableCube", cls: FoldableCube },
   { className: "FlowMap", folder: "FlowMap", cls: FlowMap },
   { className: "Globe", folder: "Globe", cls: Globe },
+  { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
   { className: "Logo", folder: "Logo", cls: Logo },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },

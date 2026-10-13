@@ -639,6 +639,17 @@ ruling (translation + the three deleted labels from footage).
       `morph-lines-circle`, `morph-dot-truck`. MorphShape (pydeation's
       1→1) untouched: no existing scene's pixels change. Advances Ch 14's
       mesh-silhouette item for box/cylinder solids; general meshes open.
+- [x] **The Earth** (2026-10-13) — `vocabulary/Earth`: Natural Earth
+      1:50m (305 KB packed, `gen-data.ts` regenerates from pinned v5.1.2),
+      land triangulated ON the sphere (`geometry/sphere.ts`, cube-face
+      gnomonic cells; area matches the exact ring integral to 0.1%), coast +
+      borders as surface strokes with shared draw-on params, exact far-side
+      occlusion by a horizon-plane disc. New primitive `Surface`
+      (parts/surface.ts): triangle-mesh fills, and SOLID ones that write
+      depth (fill.ts `useSolid`/`setMesh`, one host branch; Web3 frames
+      byte-identical). `EarthView` + `FrameRegion` fly the camera in log
+      zoom with tilt; `Place` anchors holons; Factory/Headquarters show GPU
+      hidden lines. `?scene=earth`; 31 tests.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

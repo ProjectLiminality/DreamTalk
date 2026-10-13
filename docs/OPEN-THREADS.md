@@ -5,6 +5,25 @@ to act on, but were left unfinished as attention moved on. Kept here so they
 never have to be explained from scratch again. Newest first; strike through
 when done.
 
+## The Earth (2026-10-13)
+- **Built:** `core/vocabulary/Earth` (`?scene=earth`). A true 3D sphere
+  from Natural Earth 1:50m: land triangulated on the sphere, coast and
+  borders as surface strokes with their own draw-ons, the far side hidden
+  exactly by a horizon-plane disc (solid `Surface`s write depth, the host's
+  first occluder), NE `min_zoom` LOD, `Place` anchoring, `EarthView`
+  (lat/lon/zoom/tilt + `FrameRegion`), Factory/Headquarters with GPU hidden
+  lines, and mock European sites (the real ones stay private).
+- Open: per-country polygons (fill and colour each country); 1:10m below a
+  country's scale; rivers, lakes, cities and labels; a great-circle arc
+  verb between places (flows between sites); a graticule; the draw-on cost
+  (~80 ms a frame while ~2,000 strokes meter their pens in screen space,
+  three-host measureScreenArc; 6–15 ms otherwise); and the colour-space
+  question below.
+- **Colour space (framework-wide, not Earth's):** tints are fed to three as
+  LINEAR and sRGB-encoded on output, so `RED` #FF644E renders ≈ #FAA593 and
+  a fill of 0x2a reads as #717171. Measured on the Earth's factories and
+  land; every scene shares it. Is that the intended palette?
+
 ## The universal morph (2026-10-13)
 - **Built:** `MorphCurves`/`MorphMany` (vocabulary/Morph/README.md) — N→M
   curves by arc length, 3D, fill as its own channel; `SolidDrawing` +

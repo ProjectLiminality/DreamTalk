@@ -22,16 +22,25 @@ import { MOCK_SITES } from "../../vocabulary/Earth/mockSites"
 export const EUROPE = { lat: 49, lon: 12, span: 17 }
 
 export class EarthDream extends Dream {
-  sites = sitePlaces(MOCK_SITES, { sunk: true })
-  earth = new Earth({ coastDraw: 0, landOpacity: 0, borderDraw: 0, places: this.sites })
+  sites = sitePlaces(MOCK_SITES, { sunk: true, scale: 1.25 })
+  earth = new Earth({
+    limbStroke: 1.2,
+    limbDraw: 0,
+    coastDraw: 0,
+    landOpacity: 0,
+    borderDraw: 0,
+    places: this.sites,
+  })
   view = new EarthView({ lat: 18, lon: -62 })
 
   unfold() {
-    followEarth(this.observer, this.earth, this.view, { detail: 1.5 })
+    followEarth(this.observer, this.earth, this.view, { detail: 2 })
     this.stage(this.earth)
     this.stage(this.view)
 
-    // The planet turns toward Europe as its shore draws on and fills.
+    // The planet's outline, then it turns toward Europe as its shore
+    // draws on and the land fills.
+    this.play(this.earth.limbDraw.to(1), 1.2)
     this.play(
       together(
         [this.earth.coastDraw.to(1, { easing: "easeOut" }), 0, 0.55],
