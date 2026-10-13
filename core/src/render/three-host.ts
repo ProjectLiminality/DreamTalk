@@ -831,7 +831,7 @@ export class ThreeHost {
   private readonly superpositions: { blur: RibbonSuperposition | FillSuperposition; group: THREE.Group }[] = []
   private readonly blurOf = new Map<RibbonStroke, RibbonSuperposition>()
   /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
-  private readonly surfaces: { holon: Surface; fill: FillShape; version: number }[] = []
+  private readonly surfaces: { holon: Surface; fill: FillShape; version: number; gradient: boolean }[] = []
   /**
    * Drawings that wash as one even-odd surface across their subpaths —
    * a Sketch and anything else composed of closed Lines
@@ -992,7 +992,7 @@ export class ThreeHost {
    * bound one, or one a track moves. Only such fills switch to the
    * radial-light material; every other fill keeps its flat one exactly.
    */
-  private lightsRadially(holon: Stroke, fill: FillShape): boolean {
+  private lightsRadially(holon: Stroke, fill: FillShape, curved = false): boolean {
     const f = holon.fillFalloff
     let uses = f.value > 0 || f.isBound
     for (const clip of this.dream.clips) {
@@ -1000,7 +1000,10 @@ export class ThreeHost {
         if (track.param === (f as unknown as typeof track.param)) uses = true
       }
     }
-    if (uses) fill.useGradient()
+    if (uses) {
+      if (curved) fill.useSurfaceGradient()
+      else fill.useGradient()
+    }
     return uses
   }
 
@@ -1079,12 +1082,13 @@ export class ThreeHost {
       // A curved area carries its own triangles; a solid one writes depth
       // and is the only thing in the host anything can be behind.
       const fill = new FillShape(this.claimFillOrder())
-      if (holon.solid.value) fill.useSolid()
+      if (holon.solid.value) fill.useSolid(holon.composite === "inOrder")
+      const gradient = !holon.solid.value && this.lightsRadially(holon, fill, true)
       // The version first: a DERIVED surface builds its arrays on that read.
       const version = holon.geomVersion
       fill.setMesh(holon.positions, holon.indices)
       group.add(fill.mesh)
-      this.surfaces.push({ holon, fill, version })
+      this.surfaces.push({ holon, fill, version, gradient })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -1459,6 +1463,10 @@ export class ThreeHost {
         fill.setMesh(holon.positions, holon.indices)
       }
       fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)))
+      if (binding.gradient) {
+        fill.setGradient(holon.fillFalloff.value, holon.fillFalloffRadius.value)
+        fill.setGradientAt(holon.fillFalloffX.value, holon.fillFalloffY.value, holon.fillFalloffZ.value)
+      }
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding

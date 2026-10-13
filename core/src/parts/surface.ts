@@ -29,7 +29,7 @@
  * (the setter does it) for the host to rebuild the mesh.
  */
 
-import { bool, completion, length } from "../params"
+import { bool, completion, length, scalar } from "../params"
 import { Stroke } from "./primitives"
 
 const MESH: unique symbol = Symbol("Surface.mesh")
@@ -37,6 +37,22 @@ const MESH: unique symbol = Symbol("Surface.mesh")
 export class Surface extends Stroke {
   /** Opaque and depth-writing — an occluder (see the class note). */
   solid = bool(false)
+  /**
+   * When a SOLID composites. "first" (the default): before every
+   * transparent stroke and fill, so all of them depth-test against it.
+   * "inOrder": at its place in attach order, like a fill — it covers what
+   * was attached before it, and what comes after depth-tests against it.
+   * A 3D globe set on a flat page (parts/recede.ts) needs the second.
+   */
+  composite: "first" | "inOrder" = "first"
+  /**
+   * Where the radial light (`fillFalloff`, `fillFalloffRadius`) stands, in
+   * local space: a sheet is lit by its 3D distance from this point — land
+   * lit from a place on a globe. Unused while `fillFalloff` stays 0.
+   */
+  fillFalloffX = scalar(0)
+  fillFalloffY = scalar(0)
+  fillFalloffZ = scalar(0)
   /** A surface draws no line; its wash is the whole of it. */
   override stroke = length(0)
   /** Washed by default — a surface IS its fill. */

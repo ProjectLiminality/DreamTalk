@@ -37,6 +37,7 @@ const FILL_KEYS = {
   fade: "dtFillFade",
   falloff: "dtFillFalloff",
   radius: "dtFillFalloffRadius",
+  at: "dtFillFalloffAt",
 } as const
 
 /** The one fill material every FillShape shares. Lazy so importing this
@@ -81,6 +82,53 @@ const sharedSolidMaterial = (): THREE.MeshBasicNodeMaterial => {
     sharedSolid = m
   }
   return sharedSolid
+}
+
+/**
+ * The same solid composited IN ATTACH ORDER (Surface `composite:
+ * "inOrder"`): still opaque in colour and still depth-writing, but drawn
+ * in the transparent pass at its renderOrder instead of before it — so it
+ * covers what was attached before it (a bloom behind a globe) and
+ * whatever is attached after it depth-tests against it as usual. Opacity
+ * stays 1, so normal blending writes exactly the solid's colour.
+ */
+let sharedSolidInOrder: THREE.MeshBasicNodeMaterial | undefined
+const sharedSolidInOrderMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedSolidInOrder) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = true
+    m.depthWrite = true
+    m.side = THREE.DoubleSide
+    m.polygonOffset = true
+    m.polygonOffsetFactor = 0
+    m.polygonOffsetUnits = 2
+    m.colorNode = userData(FILL_KEYS.tint, "color")
+    sharedSolidInOrder = m
+  }
+  return sharedSolidInOrder
+}
+
+/**
+ * The radial light for a CURVED sheet (a Surface): r is the 3D distance
+ * from a local-space point (`Surface.fillFalloffX/Y/Z`), not from the
+ * origin in the plane — land lit from a place on the globe. Its own
+ * material, so the flat radial fill above is untouched.
+ */
+let sharedSurfaceGradient: THREE.MeshBasicNodeMaterial | undefined
+const sharedSurfaceGradientMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedSurfaceGradient) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = true
+    m.depthWrite = false
+    m.side = THREE.DoubleSide
+    const r = positionLocal.sub(userData(FILL_KEYS.at, "vec3")).length()
+    const radius = max(userData(FILL_KEYS.radius, "float"), float(1e-6))
+    const light = float(1).sub(userData(FILL_KEYS.falloff, "float").mul(smoothstep(0, radius, r)))
+    m.colorNode = userData(FILL_KEYS.tint, "color").mul(light)
+    m.opacityNode = userData(FILL_KEYS.fade, "float")
+    sharedSurfaceGradient = m
+  }
+  return sharedSurfaceGradient
 }
 
 /** A flat ellipse as a triangle fan around its center. */
@@ -148,9 +196,23 @@ export class FillShape {
     this.mesh.userData[FILL_KEYS.radius] = 0
   }
 
-  /** Switch this fill to the opaque, depth-writing solid material (once, at attach). */
-  useSolid(): void {
-    this.mesh.material = sharedSolidMaterial()
+  /** Switch this fill to the opaque, depth-writing solid material (once, at attach);
+   *  `inOrder` composites it at its renderOrder (see sharedSolidInOrderMaterial). */
+  useSolid(inOrder = false): void {
+    this.mesh.material = inOrder ? sharedSolidInOrderMaterial() : sharedSolidMaterial()
+  }
+
+  /** Switch this fill to the curved sheet's radial light (once, at attach). */
+  useSurfaceGradient(): void {
+    this.mesh.material = sharedSurfaceGradientMaterial()
+    this.mesh.userData[FILL_KEYS.falloff] = 0
+    this.mesh.userData[FILL_KEYS.radius] = 0
+    this.mesh.userData[FILL_KEYS.at] = new THREE.Vector3()
+  }
+
+  /** Where a curved sheet's light stands this frame, local space. */
+  setGradientAt(x: number, y: number, z: number): void {
+    ;(this.mesh.userData[FILL_KEYS.at] as THREE.Vector3).set(x, y, z)
   }
 
   /** The falloff this frame; a radius of 0 means the shape's own extent. */
