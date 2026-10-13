@@ -136,6 +136,13 @@ export interface MorphCurvesOptions extends CorrespondOptions {
   capacity?: number
   /** Uniform sample spacing over each piece, world units (see planMorph). */
   step?: number
+  /**
+   * How long pieces keep the shape they left with before taking the one
+   * they arrive at (blendPlan's `lag`): 0 = every point on a straight line,
+   * 0.5 = pieces fly as pieces and become their targets on arrival.
+   * Default 0.5.
+   */
+  lag?: number
 }
 
 /**
@@ -158,14 +165,14 @@ export class MorphCurves extends Stroke {
   private frames = 0
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
-    const { observer, capacity, step, order, normal, axis, snap, rotate, ...rest } = options
+    const { observer, capacity, step, lag, order, normal, axis, snap, rotate, ...rest } = options
     super(rest)
     if (!sources.length || !targets.length)
       throw new Error(
         `MorphCurves: needs at least one source and one target holon (got ${sources.length} → ${targets.length}). ` +
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
-    this.ends = { sources, targets, opts: { observer, capacity, step, order, normal, axis, snap, rotate } }
+    this.ends = { sources, targets, opts: { observer, capacity, step, lag, order, normal, axis, snap, rotate } }
   }
 
   /** The current plan — re-planned only when an input's curves change. */
@@ -205,7 +212,7 @@ export class MorphCurves extends Stroke {
     const u = this.morph.value
     const f = this.frameMemo
     if (f && f.plan === plan && f.u === u) return f
-    this.frameMemo = { plan, u, curves: blendPlan(plan, u), version: ++this.frames }
+    this.frameMemo = { plan, u, curves: blendPlan(plan, u, this.ends.opts.lag ?? 0.5), version: ++this.frames }
     return this.frameMemo
   }
 

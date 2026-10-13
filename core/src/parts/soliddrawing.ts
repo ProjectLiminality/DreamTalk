@@ -185,10 +185,21 @@ export abstract class SolidDrawing extends Stroke {
     // Fills first: they take the earlier render order, so every edge
     // draws over every fill (hiddenline already removed the hidden ones).
     for (let i = 0; i < this.seen.faceSlots; i++) {
+      // A solid stays SOLID while its fill fades: the fill dims toward the
+      // black ground (colour × fillOpacity) at full coverage, rather than
+      // turning translucent — a translucent cab would show the cargo's
+      // blue through itself, since each face fades on its own and the
+      // host has no per-holon layer to fade them as one. Exact on the
+      // black ground every DreamTalk scene stands on; at fillOpacity 0
+      // the fills are gone and only the lines remain.
       const slot = new Line({
         stroke: 0,
-        tint: derive((): Color => this.drawing().faces[i]?.fill ?? BLACK),
-        fillOpacity: this.fillOpacity,
+        tint: derive((): Color => {
+          const c = this.drawing().faces[i]?.fill ?? BLACK
+          const k = this.fillOpacity.value
+          return { r: c.r * k, g: c.g * k, b: c.b * k }
+        }),
+        fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
         opacity: this.opacity,
       })
       derivePoints(slot, () => [this.drawingVersion()], () => this.drawing().faces[i]?.points ?? [])

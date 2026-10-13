@@ -502,6 +502,8 @@ export interface PlannedPiece {
   target: number
   from: Vec3Like[]
   to: Vec3Like[]
+  /** Is the target end longer than the source end? (see blendPlan's lag) */
+  grows: boolean
 }
 
 export interface MorphPlan {
@@ -560,20 +562,61 @@ export const planMorph = (
       target: p.target,
       from: ss.map((s) => pointAt(src, sCum[p.source]!, a + (b - a) * s)),
       to: ss.map((s) => pointAt(tgt, tCum[p.target]!, c + (d - c) * s)),
+      grows: Math.abs(d - c) > Math.abs(b - a),
     }
   })
   return { pieces, correspondence }
 }
 
-/** The morphed curves at completion u ∈ [0, 1]: one polyline per piece. */
-export const blendPlan = (plan: MorphPlan, u: number): Vec3Like[][] => {
+/**
+ * The morphed curves at completion u ∈ [0, 1]: one polyline per piece.
+ *
+ * `lag` ∈ [0, 1] separates a piece's JOURNEY from its BECOMING: its
+ * centroid travels with u, but its shape (the points about that centroid)
+ * changes on a curve of its own, so that EVERY PIECE TRAVELS AT ITS
+ * SMALLER SIZE. A piece that grows (an arc of the dot becoming a truck's
+ * edge) keeps its old shape for the journey and becomes its target on
+ * arrival — u^(1 + 3·lag); a piece that shrinks takes its small new shape
+ * first and then travels — 1 − (1 − u)^(1 + 3·lag). The morph back is
+ * then the time-reverse of the morph there, and long edges never slide
+ * across each other at full length. 0 is the plain straight-line lerp of
+ * every point. Both ends are exact for any lag (u = 0 → sources, u = 1 →
+ * targets).
+ */
+export const blendPlan = (plan: MorphPlan, u: number, lag = 0): Vec3Like[][] => {
   const t = Math.min(1, Math.max(0, u))
-  return plan.pieces.map(({ from, to }) =>
-    from.map((p, i) => {
+  const k = Math.min(1, Math.max(0, lag))
+  const g = 1 + 3 * k
+  const mean = (ps: readonly Vec3Like[]): Vec3Like => {
+    let x = 0
+    let y = 0
+    let z = 0
+    for (const p of ps) {
+      x += p.x
+      y += p.y
+      z += p.z
+    }
+    const n = ps.length || 1
+    return { x: x / n, y: y / n, z: z / n }
+  }
+  return plan.pieces.map(({ from, to, grows }) => {
+    const v = k <= 0 ? t : grows ? Math.pow(t, g) : 1 - Math.pow(1 - t, g)
+    if (v === t)
+      return from.map((p, i) => {
+        const q = to[i]!
+        return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, z: p.z + (q.z - p.z) * t }
+      })
+    const a = mean(from)
+    const b = mean(to)
+    const c = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }
+    return from.map((p, i) => {
       const q = to[i]!
-      return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, z: p.z + (q.z - p.z) * t }
-    }),
-  )
+      const ox = p.x - a.x + (q.x - b.x - (p.x - a.x)) * v
+      const oy = p.y - a.y + (q.y - b.y - (p.y - a.y)) * v
+      const oz = p.z - a.z + (q.z - b.z - (p.z - a.z)) * v
+      return { x: c.x + ox, y: c.y + oy, z: c.z + oz }
+    })
+  })
 }
 
 /** Total arc length of a set of curves. */

@@ -222,10 +222,9 @@ const hits = (s: Solid, o: Vec3Like, d: Vec3Like, tMin: number, tMax: number): b
 
 /** Is point p (on solid `self`) hidden from the viewer by any OTHER solid? */
 const occluded = (solids: readonly Solid[], self: number, view: View, p: Vec3Like): boolean => {
-  const scale = 1e-7
   if ("eye" in view) {
     const d = sub(view.eye, p)
-    for (let i = 0; i < solids.length; i++) if (i !== self && hits(solids[i]!, p, d, 1e-6 + scale, 1)) return true
+    for (let i = 0; i < solids.length; i++) if (i !== self && hits(solids[i]!, p, d, 1e-6, 1)) return true
     return false
   }
   for (let i = 0; i < solids.length; i++)
@@ -290,7 +289,8 @@ const visibleRuns = (
     const last = runs.pop()!
     runs[0] = [last[0] - 1, runs[0]![1]]
   }
-  const wrap = (s: number) => at(((s % 1) + 1) % 1)
+  // Only a closed curve's parameter wraps; an open edge's s = 1 is its far end.
+  const wrap = (s: number) => at(closed && (s < 0 || s > 1) ? ((s % 1) + 1) % 1 : s)
   return runs
     .filter(([a, b]) => b - a > 1e-6)
     .map(([a, b]) => {
@@ -352,8 +352,11 @@ const boxEdges = (b: Box): { a: Vec3Like; b: Vec3Like; n1: Vec3Like; n2: Vec3Lik
 }
 
 /** Distance of a solid from the viewer — the painter's sort key. */
-const depthOf = (view: View, s: Solid): number =>
-  "eye" in view ? Math.hypot(...[sub(s.center, view.eye)].map((d) => [d.x, d.y, d.z]).flat()) : -dot(s.center, view.toward)
+const depthOf = (view: View, s: Solid): number => {
+  if (!("eye" in view)) return -dot(s.center, view.toward)
+  const d = sub(s.center, view.eye)
+  return Math.hypot(d.x, d.y, d.z)
+}
 
 /**
  * The visible line drawing of a set of solids from a view. Pure and

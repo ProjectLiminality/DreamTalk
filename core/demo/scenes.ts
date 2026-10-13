@@ -94,6 +94,7 @@ import { SquareCircleDream } from "./SquareCircle"
 import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
 import { RayCasterDemoDream } from "./RayCasterDemo"
 import { FillGlowDream } from "./FillGlow"
+import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -103,6 +104,9 @@ export const scenes: Record<string, DreamClass> = {
   geometrysketch: GeometrySketchDemoDream,
   raycaster: RayCasterDemoDream,
   fillglow: FillGlowDream,
+  // The universal morph: N curves → M curves, in 3D (vocabulary/Morph/MorphCurves).
+  "morph-lines-circle": MorphLinesCircleDream,
+  "morph-dot-truck": MorphDotTruckDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,
