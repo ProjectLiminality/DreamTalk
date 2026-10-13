@@ -543,8 +543,8 @@ export const VOCABULARY: VocabEntry[] = [
     id: "figure",
     name: "Figure",
     holon: "Figure",
-    blurb: "A person, as a stick figure.",
-    description: "A person: a stick figure (round head, body line, arms, legs).",
+    blurb: "A person, line-drawn.",
+    description: "A person: a round head over one arch of shoulders and arms, a spine, two legs.",
     params: {
       cx: { type: "number", role: "x", description: "centre x (the figure's middle), page units" },
       cy: { type: "number", role: "y", description: "centre y (halfway between crown and feet), page units" },
