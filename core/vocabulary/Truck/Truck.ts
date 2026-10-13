@@ -1,6 +1,6 @@
 import { BLACK, BLUE } from "../../src/constants"
 import { color } from "../../src/params"
-import type { Solid } from "../../src/geometry/hiddenline"
+import { translateSolid, type Solid } from "../../src/geometry/hiddenline"
 import { SolidDrawing } from "../../src/parts/soliddrawing"
 
 /**
@@ -75,6 +75,6 @@ export class Truck extends SolidDrawing {
     // Centre on the bounding box: x 0…650, y 0…232, z ±94.
     const cx = 325
     const cy = 116
-    return raw.map((s) => ({ ...s, center: { x: s.center.x - cx, y: s.center.y - cy, z: s.center.z } }))
+    return raw.map((s) => translateSolid(s, { x: -cx, y: -cy, z: 0 }))
   }
 }

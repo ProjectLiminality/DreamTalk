@@ -417,6 +417,23 @@ const boxEdges = (b: Box): { a: Vec3Like; b: Vec3Like; n1: Vec3Like; n2: Vec3Lik
   })
 }
 
+/** A solid moved by `d`, whatever its kind (a mesh's points move; its triangles stay). */
+export const translateSolid = <S extends Solid>(s: S, d: Vec3Like): S => {
+  if (s.kind === "mesh") {
+    const moved = translatedMeshes.get(s.positions)
+    const key = `${d.x},${d.y},${d.z}`
+    if (moved?.key === key) return { ...s, positions: moved.positions }
+    const positions = s.positions.map((p) => ({ x: p.x + d.x, y: p.y + d.y, z: p.z + d.z }))
+    // Remember it, so a holon re-centring the same mesh every call hands the
+    // drawing the SAME array (meshes are data: a new array is a new shape).
+    translatedMeshes.set(s.positions, { key, positions })
+    return { ...s, positions }
+  }
+  const c = (s as Box | CylinderSolid | Panel).center
+  return { ...s, center: { x: c.x + d.x, y: c.y + d.y, z: c.z + d.z } }
+}
+const translatedMeshes = new WeakMap<object, { key: string; positions: Vec3Like[] }>()
+
 /** A solid's axis-aligned bounding box, whatever its kind. */
 export const solidBounds = (s: Solid): { lo: Vec3Like; hi: Vec3Like } => {
   if (s.kind === "mesh") {
