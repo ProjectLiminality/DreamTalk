@@ -642,6 +642,11 @@ ruling (translation + the three deleted labels from footage).
       Then the Lens (`?scene=lens`): magnification by proximity; inside
       the near face a flow's line → Road and dots → Trucks, continuously
       (vocabulary/Lens, Road, Stream).
+      Then symbol ↔ word (`MorphToWord`, vocabulary/Word, fonts as data —
+      Horizons #4) and GENERAL MESH SILHOUETTES (the Ch 14 item, CPU
+      path): `mesh` solids drawn by creases + smooth contour generators
+      with BVH hidden-line removal and depth-writing fills; generators for
+      sphere/cone/torus/lathe/extrusion (`?scene=meshes`).
 - [x] **The Earth** (2026-10-13) — `vocabulary/Earth`: Natural Earth
       1:50m (305 KB packed, `gen-data.ts` regenerates from pinned v5.1.2),
       land triangulated ON the sphere (`geometry/sphere.ts`, cube-face

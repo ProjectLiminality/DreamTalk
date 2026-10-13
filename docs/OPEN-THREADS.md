@@ -79,6 +79,15 @@ when done.
   DURING a morph onto a view-dependent target; fill morphing (not only
   fading); the graft (`.morphInto([...])`) once a scene wants the method
   spelling.
+- **Symbol ↔ word (built 2026-10-13, Horizons #4):** `MorphToWord`,
+  `Word`, fonts baked as data (Arimo, ASCII + Latin-1). Open: kerning and
+  other faces (bake more with scripts/font2ts.ts); mid-morph of a
+  detailed symbol into many letters still reads as a scribble for a beat.
+- **General mesh silhouettes (built 2026-10-13):** `mesh` solids
+  (meshlines.ts). Open: intersection curves between interpenetrating
+  solids; painter order between box faces (Lines) and mesh fills
+  (depth-writing Surfaces) in one drawing; view-bucket caching under
+  orthographic cameras; GPU path for very large meshes.
 - **Lens (built 2026-10-13):** `vocabulary/Lens` (Lens + FlowLens), `Road`,
   `Stream` — `?scene=lens`. Open: a curved/two-way road and landscape in
   the window; aligning the window's ground to a tilted FlowMap stack;

@@ -130,6 +130,46 @@ determinism and input-order independence, snapping, a point growing into a
 shape), `test/hiddenline.test.ts`, `test/morphcurves.test.ts`, and the two
 scenes: `/demo/?scene=morph-lines-circle`, `/demo/?scene=morph-dot-truck`.
 
+## A symbol becoming its word — `MorphToWord`
+
+"Words are symbols of symbols, twice removed from reality. DreamTalk
+symbols are the universal layer beneath language." So the word is not a
+label beside the symbol: the symbol's own lines become the letters.
+
+```ts
+import { MorphToWord } from "../../vocabulary/Morph/MorphToWord"
+
+class TruckWord extends Dream {
+  truck = new Truck({ observer: this.observer })
+  m = MorphToWord(this.truck, "truck", { observer: this.observer })   // word, toWord, toSymbol
+  unfold() {
+    this.stage(this.truck); this.stage(this.m.word); this.stage(this.m.toWord); this.stage(this.m.toSymbol)
+    this.play(this.m.there(), 3.5)   // the truck's colour goes, its edges become "truck", the ink fills in
+    this.play(this.m.back(), 3.5)    // and the word becomes the thing again
+  }
+}
+```
+
+The word (`vocabulary/Word`) is the glyph contours as closed Lines, filled
+by even-odd so counters stay open, standing where the symbol is, as wide
+as it, and facing the camera. Its letters come from a font baked as data
+(`src/geometry/ttf.ts` reads TrueType outlines; `scripts/font2ts.ts` bakes
+`src/geometry/fonts/arimo.ts`), so text is curves synchronously. The order
+is `"sweep-angular"`: the sweep along the reading direction decides which
+share of the symbol each letter gets, then each letter gathers its share
+around itself. The default `lag` is 0, so the drawing melts continuously
+into the writing. Composites work as wholes: MindVirus →
+"Mind Virus" hides every part that owns its opacity, and each piece leaves
+in its own part's colour. Scenes: `?scene=morph-word`,
+`?scene=morph-word-virus`; tests: `test/word.test.ts`.
+
+**3D targets beyond boxes and cylinders.** Any triangle mesh is a
+`SolidDrawing` solid (`{ kind: "mesh" }`) and so a morph target, drawn by
+its creases and its smooth contours with hidden lines removed
+(`src/geometry/meshlines.ts`; sphere, cone, torus, lathe, extrusion in
+`src/geometry/meshes.ts`). `?scene=meshes`, `?scene=morph-mesh` (a dot
+becomes a torus).
+
 ## What makes this different from every other vocabulary entry
 
 The other twelve are **nouns** — Eye, Cylinder, Logo, MolochEye: things
