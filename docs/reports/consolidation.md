@@ -25,7 +25,10 @@ shrinks.
 | 6 | **`src/math.ts`** `clamp` / `clamp01`: nine private copies (text, geometry, view, sketch, Web3). | 58173b0 | Byte-identical. |
 | 7 | **`Shape`** (primitives.ts): a filled area of any outline as a public primitive, replacing the cast past `add()` in SMark, YinYang's bolts and Shot 1's glows and veil. | 8d90684 | Byte-identical. |
 
-Since then the owners have moved Earth, Connection and Morph onto `derivePoints` too.
+| 8 | **`vocabulary/Vitruvian`**: Da Vinci's man (traced path, measured circle and square, FourierTrace pen, optional held figure) was built twice (the standalone scene and shot 12). Shot 12 keeps its uncommitted `terms: 500` tweak as `figureTerms: 500`. | d5eb624 | Byte-identical against the working tree. |
+| 9 | **`Holon.attach(part)`** (team-lead's decision): the one public way to attach a part after construction, the same one-parent adoption as `add`. prism.ts uses it; the guard flags `as unknown as { add(` casts. | 46cf9e1 | No change (attach is add). |
+
+The owners have since moved Earth, Connection, Morph, FlowMap, SOPLoop and Horizons onto `derivePoints`. The guard's derived-points PENDING list is empty.
 
 ## Inventory — what is left
 
@@ -35,31 +38,23 @@ shared piece is.
 1. **The eye, computed from an Observer.** Canonical: `soliddrawing.ts`
    `viewOf` / `toWorld` / `toLocal` (Recede uses them). Copies: `Earth.ts`
    `seenFrom` / `worldMatrixOf` / `DEFAULT_EYE` / `localEye`, `Earth/Labels.ts`,
-   `holons/ValueFlow`. `sketch/mirror.ts` builds a THREE camera with
+   `holons/ValueFlow`. earth is moving them into a shared
+   `src/geometry/frames.ts` (soliddrawing re-exports it). `sketch/mirror.ts` builds a THREE camera with
    perspective-only maths (deliberately, for the page projection), and
    `three-host syncCamera` is the source of truth. Drift risk: every camera
    change (orbit layer, tilt) has to reach each copy. Owner: earth, valueflow.
-2. **Derived points, the rest:** `FlowMap` (`deriveChannel`), `SOPLoop`,
-   `Horizons`. Owner: symbols/flowmap. The guard's PENDING list names them.
-3. **Parts added after construction:** `prism.ts`, `Earth/Labels.ts`,
-   `Earth.ts` (`addTo`) and FlowMap's stages cast past `add()` to compose
-   into a plain Null. `Group({ members })` is the public form when the
-   members are known up front. If they can't be, `add` may want a public
-   twin. That is a core API decision, so propose it, don't decide it.
-4. **The Vitruvian man.** `demo/web3/VitruvianMan.ts` (standalone) and
-   `Shot12Vitruvian.ts` both build Da Vinci's circle + square + FourierTrace
-   from shared constants. A `vocabulary/Vitruvian` holon would hold all
-   three. Blocked: `Shot12Vitruvian.ts` has an uncommitted edit
-   (`terms: 500`) from before this session, whose owner is unknown.
-5. **Particles along a path.** `Stream`, FlowMap's flows and SOPLoop
+2. **Casts past `add()`:** Earth.ts (`addTo`), Labels.ts, PointData.ts,
+   GeoFlow.ts and FlowMap.ts switch to `attach()` on their owners' next
+   pass (the guard's cast PENDING list). Owners: earth, flowmap.
+3. **Particles along a path.** `Stream`, FlowMap's flows and SOPLoop
    already share the maths (`src/geometry/flowmap.ts` `streamArc`,
    `atArcLength`); what repeats is the per-particle wiring (memo, placement,
    symbol hook). Target: FlowMap and SOPLoop compose `Stream`. Owner:
    flowmap/symbols. Low drift risk now that the maths is shared.
-6. **The noosphere lattice** (`Regenaissance/lattice.ts`) has only one use.
+4. **The noosphere lattice** (`Regenaissance/lattice.ts`) has only one use.
    Promote it to a 3D `Noosphere` holon when a second song wants it, not
    before.
-7. **Small helpers left:** `clamp01` in Grain, three-host and MorphCurves
+5. **Small helpers left:** `clamp01` in Grain, three-host and MorphCurves
    (owners' files). The vector `lerp`s differ by type and are not duplicates.
 
 Checked, not duplicates: the YinYang "Web2 node" (ring, triangular grid,
