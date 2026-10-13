@@ -44,6 +44,7 @@ import { Horizons } from "../vocabulary/Horizons/Horizons"
 import { SOPLoop } from "../vocabulary/SOPLoop/SOPLoop"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
+import { LightNode } from "../vocabulary/LightNode/LightNode"
 import { Logo } from "../vocabulary/Logo/Logo"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { MolochEye } from "../vocabulary/MolochEye/MolochEye"
@@ -78,6 +79,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
+  { className: "LightNode", folder: "LightNode", cls: LightNode },
   { className: "Logo", folder: "Logo", cls: Logo },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
   { className: "MolochEye", folder: "MolochEye", cls: MolochEye },

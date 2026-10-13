@@ -461,46 +461,34 @@ class HeroShot extends Shot15HeroDream {
     super()
     // Measured at 135s: ring (252,93,75), lattice (109,46,39) on screen —
     // handed over decoded, as the host encodes tints for display.
-    this.ring.tint.value = seen(252, 93, 75)
-    for (const h of this.lattice.members) (h as Circle).tint.value = seen(150, 58, 50)
+    this.node.ringTint.value = seen(252, 93, 75)
+    this.node.latticeTint.value = seen(150, 58, 50)
     // The bloom, re-fitted to the frame's radial profile at 135s (its
     // whiteness 134/104/77/55/37/23/11 at 120–180px): a touch wider and
     // fainter in the middle than the standalone's.
-    const n = this.bloom.members.length
-    this.bloom.members.forEach((h, i) => {
-      const c = h as Circle
-      c.radius.value = (c.radius.value / (1.02 + i * 0.04)) * (1.02 + i * 0.046)
-    })
-    this.bloomLevel = (i: number) => 0.42 * (1 - i / n) ** 2.6
+    this.node.bloomSpread.value = 0.046
+    this.node.bloomStrength.value = 0.42
+    this.node.bloomFalloff.value = 2.6
   }
-
-  private bloomLevel = (_i: number) => 0
 
   override unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(HERO_OPEN_ZOOM))
-    this.globe.seenFrom(this.observer)
-    this.stage(this.bloom)
-    this.stage(this.lattice)
-    this.stage(this.rays)
-    this.stage(this.globe)
-    this.stage(this.ring)
-    const bloomLevels = this.bloom.members.map((h, i) =>
-      h.opacity.to(this.bloomLevel(i), { easing: "easeOut" }),
-    )
+    this.node.seenFrom(this.observer)
+    this.stage(this.node)
     this.play(
       together(
         this.observer.zoom.to(1, { easing: "easeOut" }),
-        [this.earth.landOpacity.to(1, { easing: "linear" }), 0, 0.5],
-        together(...bloomLevels),
+        [this.node.landOpacity.to(1, { easing: "linear" }), 0, 0.5],
+        this.node.bloomOpacity.to(1, { easing: "easeOut" }),
         // Brighter than the standalone 0.55: its tint is now the decoded (darker) red.
-        together(...this.lattice.members.map((h) => h.opacity.to(0.9))),
-        [together(...this.rays.members.map((h) => h.opacity.to(0.85))), 0.05, 0.6],
-        this.earth.h.to(0.1, { easing: "linear" }),
+        this.node.latticeOpacity.to(0.9),
+        [this.node.rayOpacity.to(0.85), 0.05, 0.6],
+        this.node.spin.to(0.1, { easing: "linear" }),
       ),
       3,
     )
-    this.play(this.earth.h.to(-0.25, { easing: "linear" }), 13.8)
+    this.play(this.node.spin.to(-0.25, { easing: "linear" }), 13.8)
   }
 }
 

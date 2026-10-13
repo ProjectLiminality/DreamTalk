@@ -14,30 +14,16 @@
  * Each is set on the page (Recede), so the hero's decoration composites
  * around it in attach order, as a flat picture's would.
  *
- * WHAT THE DEMO OWNS, NOT THE HOLON. The halo, the red ring and the rays are
- * DECORATION composed here, not part of the Earth. The halo reuses the
- * existing flower packing (src/geometry/flower.ts hexPack) over a disc mask,
- * which is exactly the flower-of-life the reference draws; the rays and ring
- * are a handful of primitives.
+ * The hero's halo, ring and rays are the LightNode holon — the same symbol
+ * shots 2–3 and 15 use — not decoration drawn here.
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
-import { hexPack } from "../../src/geometry/flower"
-import { RED, WHITE, rgb, TAU } from "../../src/constants"
-
-/** A disc of the given radius, as a one-polygon mask for hexPack. */
-const disc = (radius: number, segments = 64): { x: number; y: number }[][] => {
-  const poly: { x: number; y: number }[] = []
-  for (let i = 0; i <= segments; i++) {
-    const a = (i / segments) * TAU
-    poly.push({ x: Math.cos(a) * radius, y: Math.sin(a) * radius })
-  }
-  return [poly]
-}
+import { rgb, TAU } from "../../src/constants"
+import { LightNode } from "../../vocabulary/LightNode/LightNode"
 
 const HERO_R = 52
 const HALO_R = 128
@@ -67,44 +53,9 @@ export class GlobeDemoDream extends Dream {
   })
   outline = new Recede({ members: [this.outlineEarth], reach: 105, x: 270, y: 120 })
 
-  // BELOW — the hero Earth (shot 15): small, bright, land-on-black.
-  heroEarth = new Earth({ radius: HERO_R, land: WHITE, coastOpacity: 0, borderOpacity: 0, p: 0.1 })
-  hero = new Recede({ members: [this.heroEarth], reach: HERO_R })
-
-  // The flower-of-life halo: overlapping circles in a hex packing over a disc.
-  private halo = new Group({
-    members: hexPack(disc(HALO_R), { spacing: HALO_R / 3 }).map(
-      (c) =>
-        new Circle({
-          radius: HALO_R / 3,
-          x: c.x,
-          y: c.y,
-          tint: rgb(0x8a, 0x3a, 0x30),
-          stroke: 1.2,
-          opacity: 0.7,
-        }),
-    ),
-  })
-
-  private ring = new Circle({ radius: HALO_R + 6, tint: RED, stroke: 4 })
-
-  private rays = new Group({
-    members: Array.from({ length: 12 }, (_, i) => {
-      const a = (i / 12) * TAU
-      return new Line({
-        points: [
-          { x: Math.cos(a) * (HERO_R + 8), y: Math.sin(a) * (HERO_R + 8), z: 0 },
-          { x: Math.cos(a) * (HALO_R + 70), y: Math.sin(a) * (HALO_R + 70), z: 0 },
-        ],
-        tint: WHITE,
-        stroke: 1,
-        opacity: 0.85,
-      })
-    }),
-  })
-
-  // The hero and its decoration, positioned together below the pair.
-  heroScene = new Group({ members: [this.halo, this.ring, this.rays, this.hero], y: -125 })
+  // BELOW — the hero (shot 15): the LightNode, the Earth in its bloom,
+  // flower of life, red ring and rays, at this sheet's size.
+  hero = new LightNode({ radius: HALO_R + 6, globe: HERO_R / (HALO_R + 6), y: -125 })
 
   unfold() {
     this.observer.look("front")
@@ -112,14 +63,14 @@ export class GlobeDemoDream extends Dream {
     for (const g of [this.fill, this.outline, this.hero]) g.seenFrom(this.observer)
     this.stage(this.fill)
     this.stage(this.outline)
-    this.stage(this.heroScene)
+    this.stage(this.hero)
 
     // All three turn together — one full-ish rotation over the take.
     this.play(
       together(
         this.fillEarth.h.to(TAU * 0.6, { easing: "linear" }),
         this.outlineEarth.h.to(TAU * 0.6, { easing: "linear" }),
-        this.heroEarth.h.to(TAU * 0.6, { easing: "linear" }),
+        this.hero.spin.to(TAU * 0.6, { easing: "linear" }),
       ),
       6,
     )

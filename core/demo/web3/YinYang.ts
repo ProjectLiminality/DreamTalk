@@ -122,10 +122,10 @@ import { Dream } from "../../src/index"
 import { Circle, Group, Line, Null, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, seen, type Color } from "../../src/constants"
-import { hexPack } from "../../src/geometry/flower"
 import { c4dEaseWith } from "../../src/timeline"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
+import { LightNode } from "../../vocabulary/LightNode/LightNode"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
  *  (f_00005: the outer ring spans ~y0.13→0.87, ~530px of 720, so ~265 at
@@ -193,16 +193,11 @@ const globePx = (tl: number) => 258.5 - 223.5 * c4dEaseWith((tl + 1) / 2.95, 0.3
 const separation = (tl: number) => c4dEaseWith((tl + 0.65) / 2.7, 0.2, 0.4)
 const outerPx = (tl: number) => 259 + 21 * c4dEaseWith((tl + 1) / 3, 0.25, 0.25)
 
-/** Blue-node lightning glyphs, red-node light rays, blue field-line spirals. */
+/** Blue-node lightning glyphs and field-line spirals. */
 const BOLT_COUNT = 8
-const RAY_COUNT = 12
 const FIELD_COUNT = 8
 /** The blue grid's line spacing, as a fraction of the ring's radius. */
 const GRID_SPACING = 0.42
-/** Concentric rings make the red bloom; enough that they read as one glow
- *  (Shot15Hero's recipe). */
-const BLOOM_RINGS = 18
-
 /** Colours sampled from the full-resolution frames (14.4s, 19.0s). */
 const BLUE_RING = seen(2, 148, 246)
 const BLUE_LATTICE = seen(40, 120, 190)
@@ -235,17 +230,6 @@ const sCurve = (split: number, segments = 48): { x: number; y: number; z: number
   }
   return pts
 }
-
-/** The red flower of life: circle centres hex-packed inside a unit ring,
- *  each circle a third of the ring (Shot15Hero's lattice). Unit space. */
-const LATTICE_UNIT = 1 / 3
-const FLOWER_UNIT = hexPack(
-  [Array.from({ length: 64 }, (_, i) => {
-    const a = (i / 64) * TAU
-    return { x: Math.cos(a) * (1 - LATTICE_UNIT * 0.9), y: Math.sin(a) * (1 - LATTICE_UNIT * 0.9) }
-  })],
-  { spacing: LATTICE_UNIT },
-)
 
 /**
  * One grid line's two pieces inside the band r0 < |p| < r1: the line runs
@@ -321,13 +305,6 @@ const fieldLine = (
   return pts
 }
 
-/** A light ray: a straight radial line from just outside the globe to well past
- *  the halo, at angle `a`. */
-const ray = (a: number, r0: number, r1: number): { x: number; y: number; z: number }[] => [
-  { x: Math.cos(a) * r0, y: Math.sin(a) * r0, z: 0 },
-  { x: Math.cos(a) * r1, y: Math.sin(a) * r1, z: 0 },
-]
-
 /** The radius the Earths are built at; the lobes resize them by `scale`. */
 const EARTH_R = 33
 
@@ -348,10 +325,21 @@ export class YinYangDream extends Dream {
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
   blueEarth = earthOf(0)
-  redEarth = earthOf(0.5)
-  /** Each set on the page, so its node's decoration composites around it. */
+  /** Set on the page, so its node's decoration composites around it. */
   blueGlobe = new Recede({ members: [this.blueEarth], reach: EARTH_R })
-  redGlobe = new Recede({ members: [this.redEarth], reach: EARTH_R })
+  /** The red node is the hero's LightNode at the lobe's scale (its Earth a touch turned). */
+  redLight = new LightNode({
+    globe: RED_GLOBE_OF_RING,
+    spin: 0.5,
+    tilt: 0.12,
+    ringTint: RED_RING,
+    latticeTint: LATTICE_RED,
+    bloomSpread: 0.045,
+    bloomOpacity: 0,
+    latticeOpacity: 0,
+    rayOpacity: 0,
+    ringOpacity: 0,
+  })
 
   /** The big outer circle — the yin-yang's boundary: shot 1's limb, pushed
    *  outward over `birth`. */
@@ -507,60 +495,22 @@ export class YinYangDream extends Dream {
   }
 
   /**
-   * The RED / Web3 node — the hero's construction at the lobe's scale: a
-   * black-sea globe IN a white bloom, a red flower of life, the red ring,
-   * twelve white rays. Follows the red lobe's share and `redCentre`.
+   * The RED / Web3 node — the LightNode (the hero's construction) at the
+   * lobe's scale: it swells and shrinks with the red lobe's share and comes
+   * up layer by layer on `divide`. The bloom is spaced a touch wider than
+   * the hero's: its whiteness at 0.5/0.6/0.7/0.8 of the ring reads
+   * 146/92/25/0 against the frame's 150/80/27/0.
    */
   private buildRedNode(): Group {
     const orbitSrc = this.orbit.creation
-    const ring = () => this.ringR(this.redScale01(), RED_RING_PER_LOBE)
-    const gr = () => ring() * RED_GLOBE_OF_RING
-
-    this.redEarth.scale.follow(orbitSrc.map(() => gr() / EARTH_R))
-    this.redGlobe.reach.follow(orbitSrc.map(() => gr()))
-
-    // The bloom: concentric rings of falling opacity from the limb out, not
-    // a filled disc — the globe's black sea is drawn over its inner edge.
-    // Spaced a touch wider than the hero's: its whiteness at 0.5/0.6/0.7/0.8
-    // of the ring reads 146/92/25/0 against the frame's 150/80/27/0.
-    const bloom: Circle[] = []
-    for (let i = 0; i < BLOOM_RINGS; i++) {
-      const c = new Circle({ tint: WHITE, stroke: 4, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => gr() * (1.02 + i * 0.045)))
-      const level = 0.5 * (1 - i / BLOOM_RINGS) ** 2.2
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * level))
-      bloom.push(c)
-    }
-
-    // The flower of life inside the ring.
-    const lattice: Circle[] = []
-    for (const u of FLOWER_UNIT) {
-      const c = new Circle({ tint: LATTICE_RED, stroke: 1.1, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => ring() * LATTICE_UNIT))
-      c.x.follow(orbitSrc.map(() => u.x * ring()))
-      c.y.follow(orbitSrc.map(() => u.y * ring()))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.55))
-      lattice.push(c)
-    }
-
-    // Twelve rays from the limb, the four on the axes reaching further.
-    const rays: Line[] = []
-    for (let i = 0; i < RAY_COUNT; i++) {
-      const a = (i / RAY_COUNT) * TAU
-      const reach = i % 3 === 0 ? 1.25 : 1.17
-      const line = new Line({ tint: WHITE, stroke: 1.2, opacity: 0 })
-      deriveRot(line, this, () => ray(a, gr() * 1.1, ring() * reach))
-      line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.2) / 0.8) * 0.85))
-      rays.push(line)
-    }
-
-    // The red ring, on top.
-    const redRing = new Circle({ tint: RED_RING, stroke: 3, opacity: 0 })
-    redRing.radius.follow(orbitSrc.map(() => ring()))
-    redRing.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
-
-    // Bloom behind, then the lattice, rays, globe and ring (Shot15Hero's order).
-    const group = new Group({ members: [...bloom, ...lattice, ...rays, this.redGlobe, redRing] })
+    const node = this.redLight
+    node.radius.follow(orbitSrc.map(() => this.ringR(this.redScale01(), RED_RING_PER_LOBE)))
+    const d = this.divide.creation
+    node.bloomOpacity.follow(d.map((v) => clamp01(v)))
+    node.latticeOpacity.follow(d.map((v) => clamp01(v) * 0.55))
+    node.rayOpacity.follow(d.map((v) => clamp01((v - 0.2) / 0.8) * 0.85))
+    node.ringOpacity.follow(d.map((v) => clamp01(v)))
+    const group = new Group({ members: [node] })
     group.x.follow(orbitSrc.map(() => this.redCentre().x))
     group.y.follow(orbitSrc.map(() => this.redCentre().y))
     return group
@@ -578,7 +528,7 @@ export class YinYangDream extends Dream {
     // figure was built at one consistent scale, so the camera corrects it.
     this.set(this.observer.zoom.to(0.82))
     this.blueGlobe.seenFrom(this.observer)
-    this.redGlobe.seenFrom(this.observer)
+    this.redLight.seenFrom(this.observer)
 
     // Draw order: the S-curve and outer ring under the nodes; the two globes
     // slowly turning throughout.
@@ -595,13 +545,13 @@ export class YinYangDream extends Dream {
       const local = t - 4
       const spin = (-lon * Math.PI) / 180
       if (local <= 0) {
-        this.set(this.blueEarth.h.to(spin), this.redEarth.h.to(spin))
+        this.set(this.blueEarth.h.to(spin), this.redLight.spin.to(spin))
         continue
       }
       this.play(
         together(
           this.blueEarth.h.to(spin, { easing: "linear" }),
-          this.redEarth.h.to(spin, { easing: "linear" }),
+          this.redLight.spin.to(spin, { easing: "linear" }),
         ),
         local - at,
       )
