@@ -47,6 +47,33 @@ export const certainty = (v = 1): Param<number> => {
 export const isCertainty = (p: unknown): p is Param<number> =>
   typeof p === "object" && p !== null && CERTAINTIES.has(p as Param<number>)
 
+const PRESENCES = new WeakSet<Param<number>>()
+
+/**
+ * Declare a holon's PRESENCE: 1 there, 0 gone — for everything under it at
+ * once. Opacity is per leaf; presence, like certainty, INHERITS (a product
+ * down the tree), so one param fades a whole picture — strokes, fills,
+ * text, particles — e.g. to blend one view into another. Unlike certainty
+ * it is plain: no ghost floor, no blur.
+ */
+export const presence = (v = 1): Param<number> => {
+  const p = completion(v)
+  PRESENCES.add(p)
+  return p
+}
+
+export const isPresence = (p: unknown): p is Param<number> =>
+  typeof p === "object" && p !== null && PRESENCES.has(p as Param<number>)
+
+/** Every presence on this holon and above it. */
+export const presencesOf = (holon: Holon): Param<number>[] => {
+  const out: Param<number>[] = []
+  for (let node: Holon | undefined = holon; node; node = node.parent) {
+    for (const p of node.params.values()) if (isPresence(p)) out.push(p as Param<number>)
+  }
+  return out
+}
+
 /** The ink pure conjecture keeps — a ghost is faint, never gone. */
 export const GHOST_FLOOR = 0.28
 
@@ -89,21 +116,24 @@ export const seenCertainty = (holon: Holon): Readable<number> | undefined => {
 }
 
 /**
- * The opacity the renderer should draw a leaf with: its own fade times the
- * ghost of its inherited certainty. With no certainty anywhere above it,
- * this IS `holon.opacity` (same object), so nothing changes for anyone
- * who never asked. The chain is captured once — a built holon's parents
+ * The opacity the renderer should draw a leaf with: its own fade times its
+ * inherited presence times the ghost of its inherited certainty. With no
+ * certainty and no presence anywhere above it, this IS `holon.opacity`
+ * (same object), so nothing changes for anyone who never asked. The chain is captured once — a built holon's parents
  * are final — and read live, so certainty animates like any param.
  */
 export const seenOpacity = (holon: Holon): Readable<number> => {
   const chain = certaintiesOf(holon)
-  if (chain.length === 0) return holon.opacity
+  const there = presencesOf(holon)
+  if (chain.length === 0 && there.length === 0) return holon.opacity
   const own = holon.opacity
   return {
     get value() {
       let c = 1
       for (const p of chain) c *= p.value
-      return own.value * ghost(c)
+      let k = 1
+      for (const p of there) k *= p.value
+      return own.value * k * ghost(c)
     },
   }
 }
