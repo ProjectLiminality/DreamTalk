@@ -653,6 +653,14 @@ ruling (translation + the three deleted labels from footage).
       byte-identical). `EarthView` + `FrameRegion` fly the camera in log
       zoom with tilt; `Place` anchors holons; Factory/Headquarters show GPU
       hidden lines. `?scene=earth`; 31 tests.
+- [x] **Material symbols + the grain of knowledge** (2026-10-13) —
+      `Pallet` (sacks / octabin), `FilmReel`, `Pouch`, `SheetStack`:
+      SolidDrawings on the shelf, READMEs, faces. `vocabulary/Grain`: a
+      particle that climbs mass (neutral dot) → category (colour) → type
+      (symbol, own-frame N→M morph) → item (named), each rung its own
+      certainty (ghost while mocked, solid when data). `localView` carries
+      an orthographic direction by rotations only (memos hold while a
+      solid travels). `?scene=grain`, `?scene=materials`; 26 tests.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

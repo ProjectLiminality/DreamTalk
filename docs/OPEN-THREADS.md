@@ -82,7 +82,7 @@ when done.
   ribbon twin, crystallising as c → 1) and
   a Morph opening (relations → the group circle).
 - Open: David's eye on the superposition (echo count, spread, breath);
-  entity labels (stage + category labels exist); particle symbols beyond the dot (pallets, reels);
+  entity labels (stage + category labels exist); ~~particle symbols beyond the dot (pallets, reels)~~ (Grain + Pallet/FilmReel/Pouch/SheetStack built 2026-10-13, `?scene=grain` — open: Grain riding FlowMap's channels; an item rung that also adjusts its symbol; the superposition cloud on ghosted symbol FILLS is heavy at symbol size);
   splitting a stage in two (production step); wiring Morph (connection lines
   → the group circle, dot → truck); a clickable creator-mode toggle per param.
 
