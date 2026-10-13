@@ -26,6 +26,16 @@ when done.
     views (`axis("view", scene, { globe: {…}, abstract: {…} }, { key: "v" })`)
     in the holon that owns that param — gathered automatically from the
     scene's roots.
+- **Orbit everywhere (built 2026-10-13):** `src/view.ts` — the viewer's
+  camera as `Param.bias`/`gate` over the observer's READINGS (works on
+  bound rigs, ortho, moving song cameras; every view-dependent holon sees
+  it). Game mode always, editor when paused: drag orbit, shift/right-drag
+  pan, wheel/pinch dolly, double-click or `f` frame (a double-click never
+  fires), `r` home; play glides back. `Holon.keepOut()` spheres keep the
+  eye out of solids (Earth to declare its own). Overlays share one
+  stage→page mapping (`editor/overlay.ts`; the DPR-2 offset bug).
+  Open: FlowMap's labels/carriers to face the effective camera (flowmap);
+  touch; a pivot-aware orbit for scenes whose focus is far from the subject.
 - Open: the song's path recorded from a walk (`automaton.journal` →
   `this.play(axis.to(…), d)` lines via a semantic op — "walk it, keep it");
   camera flight in the game loop (LOOPS.md: the Observer as live override);
