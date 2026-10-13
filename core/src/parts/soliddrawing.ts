@@ -27,7 +27,7 @@ import type { Observer } from "../dream"
 import type { Overrides } from "../holon"
 import type { Color } from "../constants"
 import { BLACK } from "../constants"
-import { derive } from "../params"
+import { derive, paramEpoch } from "../params"
 import { Line, Stroke, type Vec3Like } from "./primitives"
 import { invRotHPB, rotHPB } from "./curves"
 import { hiddenLineDrawing, type Drawing, type Solid, type View } from "../geometry/hiddenline"
@@ -135,6 +135,15 @@ export interface SolidDrawingOptions {
   lineSlots?: number
   /** Fill slots (visible faces). Default 32. */
   faceSlots?: number
+  /**
+   * Snap the eye to a grid of this many RADIANS (and the distance to the
+   * same relative step) and keep every drawing made — so a solid that
+   * moves (a truck driving through a lens) recomputes its hidden lines
+   * once per bucket, and a looping flow not at all after its first lap.
+   * The drawing is then exact for a camera at most half a bucket away:
+   * 0.01 rad is invisible at symbol size. 0 (default) = exact, no cache.
+   */
+  viewBucket?: number
 }
 
 const flattenSolids = (solids: readonly Solid[]): number[] =>
@@ -153,15 +162,17 @@ export abstract class SolidDrawing extends Stroke {
 
   // Off the field scan (a reference, not a part — registering the
   // observer would reparent it).
-  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number }
+  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number }
+  private buckets = new Map<string, Drawing>()
   private memo?: { key: number[]; drawing: Drawing }
+  private memoEpoch = -1
 
   constructor(overrides: Overrides & SolidDrawingOptions = {}) {
-    const { observer, lineSlots, faceSlots, ...rest } = overrides
+    const { observer, lineSlots, faceSlots, viewBucket, ...rest } = overrides
     // A solid drawing is filled unless told otherwise — the fill colours
     // are its solids' own; fillOpacity is how much of them shows.
     super({ fillOpacity: 1, ...rest })
-    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32 }
+    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0 }
   }
 
   /** The world-space view this drawing is seen from. */
@@ -181,10 +192,31 @@ export abstract class SolidDrawing extends Stroke {
 
   /** The visible drawing in LOCAL space, memoised on the view and the solids. */
   drawing(): Drawing {
+    const epoch = paramEpoch()
+    if (this.memo && this.memoEpoch === epoch) return this.memo.drawing
+    this.memoEpoch = epoch
     const key = this.signature()
     const m = this.memo
     if (!m || m.key.length !== key.length || key.some((x, i) => x !== m.key[i])) {
-      this.memo = { key, drawing: hiddenLineDrawing(this.solids(), localView(this, this.view())) }
+      const view = localView(this, this.view())
+      const b = this.seen.viewBucket
+      if (b > 0 && "eye" in view) {
+        const { x, y, z } = view.eye
+        const r = Math.hypot(x, y, z) || 1
+        const q = (v: number, step: number) => Math.round(v / step) * step
+        const az = q(Math.atan2(x, z), b)
+        const el = q(Math.asin(Math.max(-1, Math.min(1, y / r))), b)
+        const rr = Math.exp(q(Math.log(r), b))
+        const bucket = `${az.toFixed(6)}|${el.toFixed(6)}|${rr.toFixed(3)}|${flattenSolids(this.solids()).join(",")}`
+        let drawing = this.buckets.get(bucket)
+        if (!drawing) {
+          const eye = { x: rr * Math.cos(el) * Math.sin(az), y: rr * Math.sin(el), z: rr * Math.cos(el) * Math.cos(az) }
+          drawing = hiddenLineDrawing(this.solids(), { eye })
+          if (this.buckets.size > 512) this.buckets.delete(this.buckets.keys().next().value!)
+          this.buckets.set(bucket, drawing)
+        }
+        this.memo = { key, drawing }
+      } else this.memo = { key, drawing: hiddenLineDrawing(this.solids(), view) }
     }
     return this.memo!.drawing
   }

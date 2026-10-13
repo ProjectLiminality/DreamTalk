@@ -7,7 +7,7 @@
  */
 
 import { Holon, type Overrides } from "../holon"
-import { color, length, angle, integer, completion, bool } from "../params"
+import { color, length, angle, integer, completion, bool, bumpParamEpoch } from "../params"
 import { together, type Anim, type Windowed } from "../anim"
 import { WHITE, RED, PI, TAU } from "../constants"
 
@@ -578,6 +578,7 @@ export class Line extends Stroke {
       set(this: Line, v: Vec3Like[]) {
         this[LINE_POINTS] = v
         this.geomVersion++
+        bumpParamEpoch()
       },
     })
     ;(this as { points: Vec3Like[] }).points = initial

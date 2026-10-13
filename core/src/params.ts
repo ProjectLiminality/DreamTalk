@@ -33,6 +33,20 @@ export interface Readable<T extends ParamValue> {
 
 let nextParamId = 1
 
+/**
+ * A counter that moves on EVERY param write (value, gate, binding) — and on
+ * a Line's points being assigned (parts/primitives.ts). Between two reads
+ * with the same epoch, nothing any param could say has changed, so a
+ * derived reading may answer from a memo: the per-frame fast path for
+ * holons whose dirty-keys are expensive (a morph reading a solid's
+ * visible edges). It never makes a memo stale — only cheaper to confirm.
+ */
+let epoch = 0
+export const paramEpoch = (): number => epoch
+export const bumpParamEpoch = (): void => {
+  epoch++
+}
+
 export class Param<T extends ParamValue = number> implements Readable<T> {
   readonly id: number
   readonly kind: ParamKind
@@ -97,6 +111,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   set gate(k: number) {
     this.#gate = k
+    epoch++
   }
 
   set value(v: T) {
@@ -106,11 +121,13 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
       )
     }
     this.#value = v
+    epoch++
   }
 
   /** Delegate this param to a derived reading (a read-only binding). */
   follow(source: Readable<T>): void {
     this.#source = source
+    epoch++
   }
 
   get isBound(): boolean {

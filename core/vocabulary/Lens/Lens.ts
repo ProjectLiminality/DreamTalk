@@ -27,7 +27,7 @@
 import { BLACK, BLUE, WHITE, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Holon, Overrides } from "../../src/holon"
-import { angle, completion, derive, length, scalar } from "../../src/params"
+import { angle, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { Circle, Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { derivePoints, localView, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import type { View } from "../../src/geometry/hiddenline"
@@ -97,6 +97,15 @@ export class Lens extends Stroke {
 
   /** The view, lens-local. */
   protected view(): View {
+    const epoch = paramEpoch()
+    if (this.viewMemo && this.viewMemo.epoch === epoch) return this.viewMemo.view
+    const view = this.viewNow()
+    this.viewMemo = { epoch, view }
+    return view
+  }
+  private viewMemo?: { epoch: number; view: View }
+
+  private viewNow(): View {
     const v: View = this.seen.observer ? viewOf(this.seen.observer) : { eye: { x: 0, y: 0, z: 1500 } }
     return localView(this, v)
   }
@@ -238,6 +247,9 @@ export class FlowLens extends Lens {
 
   /** The flow's path in lens-local space, with arc lengths, and the window under the far face. */
   private local(): { points: Vec3Like[]; lengths: number[]; s0: number; s1: number } {
+    const epoch = paramEpoch()
+    if (this.localMemo && this.localEpoch === epoch) return this.localMemo.value
+    this.localEpoch = epoch
     const { source } = this.flow
     const frame = source.frame
     const path = source.path()
@@ -273,6 +285,7 @@ export class FlowLens extends Lens {
     this.localMemo = { key, value }
     return value
   }
+  private localEpoch = -1
   private localMemo?: { key: string; value: { points: Vec3Like[]; lengths: number[]; s0: number; s1: number } }
 
   /** A point of the flow at fraction s, carried up into the near face. */
@@ -326,15 +339,14 @@ export class FlowLens extends Lens {
       boundKey: () => this.insideKey(),
     })
     const concreteOf = (overrides: Overrides) =>
-      (opts.concreteSymbol ?? ((o: Overrides) => new Truck({ observer, ...o })))(overrides)
+      (opts.concreteSymbol ?? ((o: Overrides) => new Truck({ observer, viewBucket: 0.01, ...o })))(overrides)
     const span = () => this.radius.value * 2.0
     const states = Array.from({ length: K }, (_, k) => {
-      let memoKey = ""
+      let memoEpoch = -1
       let memo = { active: false, c: 0, ck: 0, fade: 0 }
       return () => {
-        const key = `${this.concrete.value}|${this.lift.value}|${this.flow.source.particles().join(",")}`
-        if (key === memoKey) return memo
-        memoKey = key
+        if (memoEpoch === paramEpoch()) return memo
+        memoEpoch = paramEpoch()
         const sl = this.slot(k, K)
         if (!sl) return (memo = { active: false, c: 0, ck: 0, fade: 0 })
         const { c } = sl
@@ -418,6 +430,7 @@ export class FlowLens extends Lens {
           opacity: derive(() => (st().active ? st().fade * shown() : 0)),
           stroke: this.stroke,
           capacity: 200,
+          relative: true,
         }),
       ),
     )

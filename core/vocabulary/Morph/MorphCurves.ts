@@ -51,7 +51,7 @@
 import { together, type Anim, type Windowed } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { Holon, type Overrides } from "../../src/holon"
-import { completion } from "../../src/params"
+import { completion, paramEpoch } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import { derive } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
@@ -112,6 +112,26 @@ const signatureOf = (h: Holon): number[] => {
   return curvesOf(h).flatMap((c) => c.flatMap((p) => [p.x, p.y, p.z]))
 }
 
+/** A shape's fingerprint: FNV-1a over its points rounded to 1e-3. */
+const hashCurves = (cs: Vec3Like[][]): string => {
+  let h1 = 0x811c9dc5
+  let h2 = 0x01000193
+  const mixIn = (v: number) => {
+    const k = Math.round(v * 1000) | 0
+    h1 = Math.imul(h1 ^ k, 0x01000193) >>> 0
+    h2 = Math.imul(h2 ^ (k + 0x9e3779b9), 0x85ebca6b) >>> 0
+  }
+  for (const c of cs) {
+    mixIn(c.length)
+    for (const p of c) {
+      mixIn(p.x)
+      mixIn(p.y)
+      mixIn(p.z)
+    }
+  }
+  return `${cs.length}:${h1.toString(36)}${h2.toString(36)}`
+}
+
 const sameKey = (a: readonly number[] | undefined, b: readonly number[]): boolean =>
   !!a && a.length === b.length && a.every((x, i) => x === b[i])
 
@@ -137,6 +157,15 @@ export interface MorphCurvesOptions extends CorrespondOptions {
   /** Uniform sample spacing over each piece, world units (see planMorph). */
   step?: number
   /**
+   * Plan the shapes relative to their own centroids and cache the plans
+   * by shape — for morphs whose ends mostly MOVE (particles on a flow):
+   * the correspondence is then computed once per distinct pair of shapes,
+   * not once per frame. The ordering's centre becomes the pair's midpoint
+   * rather than the common centroid; for one source and one target that
+   * is the same morph. Default false.
+   */
+  relative?: boolean
+  /**
    * How long pieces keep the shape they left with before taking the one
    * they arrive at (blendPlan's `lag`): 0 = every point on a straight line,
    * 0.5 = pieces fly as pieces and become their targets on arrival.
@@ -160,24 +189,39 @@ export class MorphCurves extends Stroke {
     targets: Holon[]
     opts: MorphCurvesOptions
   }
-  private planMemo?: { key: number[]; plan: MorphPlan; srcOwner: number[]; tgtOwner: number[] }
-  private frameMemo?: { plan: MorphPlan; u: number; curves: Vec3Like[][]; version: number }
+  private planMemo?: {
+    key: number[]
+    plan: MorphPlan
+    srcOwner: number[]
+    tgtOwner: number[]
+    offset?: { from: Vec3Like; to: Vec3Like }
+  }
+  private relativePlans = new Map<string, MorphPlan>()
+  private frameMemo?: { plan: MorphPlan; u: number; offset?: { from: Vec3Like; to: Vec3Like }; curves: Vec3Like[][]; version: number }
   private restMemo?: { key: number[]; curves: Vec3Like[][]; owners: number[]; version: number }
   private frames = 0
+  private planEpoch = -1
+  private curvesEpoch = -1
+  private curvesMemo?: { curves: Vec3Like[][]; version: number }
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
-    const { observer, capacity, step, lag, order, normal, axis, snap, rotate, ...rest } = options
+    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, ...rest } = options
     super(rest)
     if (!sources.length || !targets.length)
       throw new Error(
         `MorphCurves: needs at least one source and one target holon (got ${sources.length} → ${targets.length}). ` +
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
-    this.ends = { sources, targets, opts: { observer, capacity, step, lag, order, normal, axis, snap, rotate } }
+    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate } }
   }
 
   /** The current plan — re-planned only when an input's curves change. */
-  plan(): { plan: MorphPlan; srcOwner: number[]; tgtOwner: number[] } {
+  plan(): { plan: MorphPlan; srcOwner: number[]; tgtOwner: number[]; offset?: { from: Vec3Like; to: Vec3Like } } {
+    // Same frame (no param written since), same plan — the slots ask
+    // hundreds of times a frame, the key below need only be read once.
+    const epoch = paramEpoch()
+    if (this.planMemo && this.planEpoch === epoch) return this.planMemo
+    this.planEpoch = epoch
     const { sources, targets, opts } = this.ends
     const obs = opts.observer
     const key = [
@@ -202,6 +246,36 @@ export class MorphCurves extends Stroke {
         normal = { x: view.eye.x - c.x / n, y: view.eye.y - c.y / n, z: view.eye.z - c.z / n }
       }
     }
+    if (opts.relative) {
+      // Plan the SHAPES, not their places: each side centred on its own
+      // centroid, keyed by what it looks like there (and the view plane,
+      // bucketed), and translated back at blend time. A dot and a truck
+      // that only move — a particle riding a flow — plan once per shape.
+      const centroid = (cs: Vec3Like[][]) => {
+        const pts = cs.flat()
+        const n = pts.length || 1
+        return pts.reduce((a, p) => ({ x: a.x + p.x / n, y: a.y + p.y / n, z: a.z + p.z / n }), { x: 0, y: 0, z: 0 })
+      }
+      const cs = centroid(src)
+      const ct = centroid(tgt)
+      const shift = (cs2: Vec3Like[][], c: Vec3Like) => cs2.map((cv) => cv.map((p) => ({ x: p.x - c.x, y: p.y - c.y, z: p.z - c.z })))
+      const rs = shift(src, cs)
+      const rt = shift(tgt, ct)
+      const nn = normal ? Math.hypot(normal.x, normal.y, normal.z) || 1 : 1
+      const shapeKey = [
+        hashCurves(rs),
+        hashCurves(rt),
+        ...(normal ? [normal.x / nn, normal.y / nn, normal.z / nn].map((v) => Math.round(v * 50)) : []),
+      ].join("|")
+      let plan = this.relativePlans.get(shapeKey)
+      if (!plan) {
+        plan = planMorph(rs, rt, { ...opts, normal })
+        if (this.relativePlans.size > 256) this.relativePlans.delete(this.relativePlans.keys().next().value!)
+        this.relativePlans.set(shapeKey, plan)
+      }
+      this.planMemo = { key, plan, srcOwner, tgtOwner, offset: { from: cs, to: ct } }
+      return this.planMemo
+    }
     const plan = planMorph(src, tgt, { ...opts, normal })
     this.planMemo = { key, plan, srcOwner, tgtOwner }
     return this.planMemo
@@ -209,6 +283,13 @@ export class MorphCurves extends Stroke {
 
   /** The blended curves at the current `morph`, one per piece. */
   curves(): { curves: Vec3Like[][]; version: number } {
+    const epoch = paramEpoch()
+    if (this.curvesMemo && this.curvesEpoch === epoch) return this.curvesMemo
+    this.curvesEpoch = epoch
+    return (this.curvesMemo = this.curvesNow())
+  }
+
+  private curvesNow(): { curves: Vec3Like[][]; version: number } {
     const u = this.morph.value
     // AT REST (u = 0 or 1) the morph is exactly its sources' or its
     // targets' curves — drawn whole rather than as pieces, which is the
@@ -224,10 +305,10 @@ export class MorphCurves extends Stroke {
       this.restMemo = { key, curves, owners, version: ++this.frames }
       return this.restMemo
     }
-    const { plan } = this.plan()
+    const { plan, offset } = this.plan()
     const f = this.frameMemo
-    if (f && f.plan === plan && f.u === u) return f
-    this.frameMemo = { plan, u, curves: blendPlan(plan, u, this.ends.opts.lag ?? 0.5), version: ++this.frames }
+    if (f && f.plan === plan && f.u === u && f.offset === offset) return f
+    this.frameMemo = { plan, u, offset, curves: blendPlan(plan, u, this.ends.opts.lag ?? 0.5, offset), version: ++this.frames }
     return this.frameMemo
   }
 

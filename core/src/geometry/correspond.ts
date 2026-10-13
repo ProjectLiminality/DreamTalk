@@ -583,7 +583,25 @@ export const planMorph = (
  * every point. Both ends are exact for any lag (u = 0 → sources, u = 1 →
  * targets).
  */
-export const blendPlan = (plan: MorphPlan, u: number, lag = 0): Vec3Like[][] => {
+export const blendPlan = (
+  plan: MorphPlan,
+  u: number,
+  lag = 0,
+  /** Translations to apply to the plan's two ends (a relative plan's placement). */
+  offset?: { from: Vec3Like; to: Vec3Like },
+): Vec3Like[][] => {
+  if (offset) {
+    const { from: a, to: b } = offset
+    const moved: MorphPlan = {
+      correspondence: plan.correspondence,
+      pieces: plan.pieces.map((p) => ({
+        ...p,
+        from: p.from.map((q) => ({ x: q.x + a.x, y: q.y + a.y, z: q.z + a.z })),
+        to: p.to.map((q) => ({ x: q.x + b.x, y: q.y + b.y, z: q.z + b.z })),
+      })),
+    }
+    return blendPlan(moved, u, lag)
+  }
   const t = Math.min(1, Math.max(0, u))
   const k = Math.min(1, Math.max(0, lag))
   const g = 1 + 3 * k
