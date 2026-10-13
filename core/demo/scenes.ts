@@ -96,6 +96,7 @@ import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
 import { RayCasterDemoDream } from "./RayCasterDemo"
 import { FillGlowDream } from "./FillGlow"
 import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
+import { LensDream } from "./LensDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -108,6 +109,8 @@ export const scenes: Record<string, DreamClass> = {
   // The universal morph: N curves → M curves, in 3D (vocabulary/Morph/MorphCurves).
   "morph-lines-circle": MorphLinesCircleDream,
   "morph-dot-truck": MorphDotTruckDream,
+  // The abstract made concrete: a lens on a flow — line → road, dots → trucks.
+  lens: LensDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

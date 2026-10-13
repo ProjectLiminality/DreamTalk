@@ -55,7 +55,7 @@ import { completion } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import { derive } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
-import { SolidDrawing, derivePoints, toWorld, viewOf } from "../../src/parts/soliddrawing"
+import { SolidDrawing, derivePoints, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import { worldOutlineOf } from "../../src/geometry/morph"
 import {
   blendPlan,
@@ -162,6 +162,7 @@ export class MorphCurves extends Stroke {
   }
   private planMemo?: { key: number[]; plan: MorphPlan; srcOwner: number[]; tgtOwner: number[] }
   private frameMemo?: { plan: MorphPlan; u: number; curves: Vec3Like[][]; version: number }
+  private restMemo?: { key: number[]; curves: Vec3Like[][]; owners: number[]; version: number }
   private frames = 0
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
@@ -208,8 +209,22 @@ export class MorphCurves extends Stroke {
 
   /** The blended curves at the current `morph`, one per piece. */
   curves(): { curves: Vec3Like[][]; version: number } {
-    const { plan } = this.plan()
     const u = this.morph.value
+    // AT REST (u = 0 or 1) the morph is exactly its sources' or its
+    // targets' curves — drawn whole rather than as pieces, which is the
+    // same ink and needs no plan. That matters when many morphers sit at
+    // rest on moving inputs (a lens full of dots that are not yet trucks).
+    if (u <= 0 || u >= 1) {
+      const side = u <= 0 ? this.ends.sources : this.ends.targets
+      const key = [u <= 0 ? 0 : 1, ...side.flatMap((h) => [-1, ...signatureOf(h)])]
+      const r = this.restMemo
+      if (r && sameKey(r.key, key)) return r
+      const owners: number[] = []
+      const curves = side.flatMap((h, i) => curvesOf(h).map((c) => (owners.push(i), c)))
+      this.restMemo = { key, curves, owners, version: ++this.frames }
+      return this.restMemo
+    }
+    const { plan } = this.plan()
     const f = this.frameMemo
     if (f && f.plan === plan && f.u === u) return f
     this.frameMemo = { plan, u, curves: blendPlan(plan, u, this.ends.opts.lag ?? 0.5), version: ++this.frames }
@@ -218,13 +233,19 @@ export class MorphCurves extends Stroke {
 
   /** The tint of piece i: its source holon's blended into its target holon's. */
   private pieceTint(i: number): Color {
+    const u = this.morph.value
+    if (u <= 0 || u >= 1) {
+      const side = u <= 0 ? this.ends.sources : this.ends.targets
+      const owner = this.restMemo?.owners[i]
+      return owner === undefined ? WHITE : tintOf(side[owner])
+    }
     const { plan, srcOwner, tgtOwner } = this.plan()
     const p = plan.pieces[i]
     if (!p) return WHITE
     return mix(
       tintOf(this.ends.sources[srcOwner[p.source]!]),
       tintOf(this.ends.targets[tgtOwner[p.target]!]),
-      this.morph.value,
+      u,
     )
   }
 
@@ -244,7 +265,17 @@ export class MorphCurves extends Stroke {
         opacity: this.opacity,
         creation: this.creation,
       })
-      derivePoints(slot, () => [this.curves().version], () => this.curves().curves[i] ?? [])
+      // The curves are WORLD space; a morpher staged at the root draws them
+      // as they are, one placed inside a transformed whole (a lens) carries
+      // them into its own frame first.
+      derivePoints(
+        slot,
+        () => [this.curves().version, ...(this.parent ? chainOf(this) : [])],
+        () => {
+          const c = this.curves().curves[i] ?? []
+          return this.parent ? c.map((p) => toLocal(slot, p)) : c
+        },
+      )
       this.add(slot)
     }
   }
@@ -255,6 +286,31 @@ export class MorphCurves extends Stroke {
   }
   get targets(): readonly Holon[] {
     return this.ends.targets
+  }
+}
+
+// ─── Param-driven morphs ────────────────────────────────────────────
+
+/**
+ * The verb's three channels as a pure function of ONE completion c ∈ [0, 1]
+ * — for a morph driven by a param rather than played on the timeline (a
+ * lens's `concrete`, a particle's place along its path). The source's
+ * fill is gone by `fadeOut`, the outlines travel in between, the target's
+ * fill arrives over the last `fadeIn`. Bind `morph` to `.morph`, the
+ * source's fillOpacity to `1 − fillOut`, the target's to `fillIn`.
+ */
+export const morphPhases = (
+  c: number,
+  fadeOut = 0.2,
+  fadeIn = 0.2,
+): { fillOut: number; morph: number; fillIn: number } => {
+  const k = Math.min(1, Math.max(0, c))
+  const clamp = (x: number) => Math.min(1, Math.max(0, x))
+  const b = 1 - fadeIn
+  return {
+    fillOut: fadeOut > 0 ? clamp(k / fadeOut) : k > 0 ? 1 : 0,
+    morph: b > fadeOut ? clamp((k - fadeOut) / (b - fadeOut)) : k >= 0.5 ? 1 : 0,
+    fillIn: fadeIn > 0 ? clamp((k - b) / fadeIn) : k >= 1 ? 1 : 0,
   }
 }
 

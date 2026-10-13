@@ -77,7 +77,7 @@ export const toLocal = (holon: Holon, p: Vec3Like): Vec3Like => {
 }
 
 /** A world-space view carried into `holon`'s local space. */
-const localView = (holon: Holon, view: View): View => {
+export const localView = (holon: Holon, view: View): View => {
   if ("eye" in view) return { eye: toLocal(holon, view.eye) }
   const o = toLocal(holon, { x: 0, y: 0, z: 0 })
   const d = toLocal(holon, view.toward)
@@ -114,6 +114,17 @@ export const derivePoints = (
     set(_v: Vec3Like[]) {},
   })
 }
+
+const EMPTY: Drawing = { lines: [], faces: [] }
+
+/**
+ * An empty face slot is a closed loop of zero area, never an empty line:
+ * the host gives a Line its fill only if it is a closed loop when the
+ * scene mounts (three-host's wash gate), and a solid that is hidden at
+ * mount — a truck waiting to be morphed into — must still own its fills.
+ */
+const ORIGIN = { x: 0, y: 0, z: 0 }
+const NO_FACE: Vec3Like[] = [ORIGIN, ORIGIN, ORIGIN, ORIGIN]
 
 // ─── The holon ──────────────────────────────────────────────────────
 
@@ -197,21 +208,31 @@ export abstract class SolidDrawing extends Stroke {
       const slot = new Line({
         stroke: 0,
         tint: derive((): Color => {
-          const c = this.drawing().faces[i]?.fill ?? BLACK
+          const c = this.shown().faces[i]?.fill ?? BLACK
           const k = this.fillOpacity.value
           return { r: c.r * k, g: c.g * k, b: c.b * k }
         }),
         fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
         opacity: this.opacity,
       })
-      derivePoints(slot, () => [this.drawingVersion()], () => this.drawing().faces[i]?.points ?? [])
+      derivePoints(slot, () => [this.drawingVersion()], () => this.shown().faces[i]?.points ?? NO_FACE)
       this.add(slot)
     }
     for (let i = 0; i < this.seen.lineSlots; i++) {
       const slot = new Line({ tint: this.tint, stroke: this.stroke, opacity: this.opacity })
-      derivePoints(slot, () => [this.drawingVersion()], () => this.drawing().lines[i] ?? [])
+      derivePoints(slot, () => [this.drawingVersion()], () => this.shown().lines[i] ?? [])
       this.add(slot)
     }
+  }
+
+  /**
+   * What the slots draw: the drawing, or nothing while unseen — a hidden
+   * solid computes nothing for its own slots (a fleet of hidden trucks
+   * riding a lens must not each run hidden-line removal). `worldCurves()`
+   * still answers, since a morph reads a target before it is shown.
+   */
+  private shown(): Drawing {
+    return this.opacity.value <= 0 ? EMPTY : this.drawing()
   }
 
   // A counter that moves exactly when the memo is rebuilt — the slots'
@@ -219,7 +240,7 @@ export abstract class SolidDrawing extends Stroke {
   private version = 0
   private lastDrawing?: Drawing
   private drawingVersion(): number {
-    const d = this.drawing()
+    const d = this.shown()
     if (d !== this.lastDrawing) {
       this.lastDrawing = d
       this.version++
