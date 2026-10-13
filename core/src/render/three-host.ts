@@ -25,7 +25,8 @@ import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
 import type { Param, Readable } from "../params"
-import { seenOpacity } from "../certainty"
+import { seenCertainty, seenOpacity } from "../certainty"
+import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import {
   AnnularSector,
   Arc,
@@ -822,6 +823,13 @@ export class ThreeHost {
   private readonly cylinders: CylinderBinding[] = []
   private readonly fills: FillBinding[] = []
   private readonly washes: WashBinding[] = []
+  /**
+   * The echo clouds of uncertain leaves (render/superposition.ts), synced
+   * in the view-dependent pass — their offsets are stated in pixels.
+   * Empty unless some holon declares a certainty.
+   */
+  private readonly superpositions: { blur: RibbonSuperposition | FillSuperposition; group: THREE.Group }[] = []
+  private readonly blurOf = new Map<RibbonStroke, RibbonSuperposition>()
   /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
   private readonly surfaces: { holon: Surface; fill: FillShape; version: number }[] = []
   /**
@@ -1112,7 +1120,13 @@ export class ThreeHost {
         const fill = new FillShape(this.claimFillOrder())
         fill.setPolygon(washed.points, washed.triangles)
         group.add(fill.mesh)
-        this.washes.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
+        const wash: WashBinding = { holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) }
+        this.washes.push(wash)
+        const sure = seenCertainty(holon)
+        if (sure) {
+          const look = () => ({ opacity: wash.look.fillOpacity.value * wash.look.opacity.value, tint: wash.look.tint.value })
+          this.superpositions.push({ blur: new FillSuperposition(sure, this.superpositions.length + 1, fill, group, look), group })
+        }
       }
       const pts = polyline(holon)
       // A Line's polyline may be DERIVED (parts/curves.ts) and therefore
@@ -1128,6 +1142,13 @@ export class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
         strokeBinding = { holon, ribbon, sig: freshSig(holon), group, look: styleOf(holon) }
+        const sure = seenCertainty(holon)
+        if (sure) {
+          const blur = new RibbonSuperposition(ribbon, sure, this.superpositions.length + 1, group)
+          blur.setPoints(pts ?? [])
+          this.blurOf.set(ribbon, blur)
+          this.superpositions.push({ blur, group })
+        }
         if (this.useInstancedRibbons) {
           // Instancing on: one batch mesh draws every ribbon. The stroke's
           // own mesh STILL joins the group — so its world matrix updates
@@ -1363,7 +1384,10 @@ export class ThreeHost {
         // `undefined` from a Line means its derived polyline has emptied
         // out this frame — pass it through so the ribbon empties too.
         const pts = polyline(holon)
-        if (pts || holon instanceof Line) ribbon.setPoints(pts ?? [])
+        if (pts || holon instanceof Line) {
+          ribbon.setPoints(pts ?? [])
+          this.blurOf.get(ribbon)?.setPoints(pts ?? [])
+        }
       }
       const lift = this.highlightOf(holon)
       const { look } = binding
@@ -1464,7 +1488,8 @@ export class ThreeHost {
       this.cylinders.length > 0 ||
       this.arrows.length > 0 ||
       this.texts.length > 0 ||
-      this.ribbonBatches.length > 0
+      this.ribbonBatches.length > 0 ||
+      this.superpositions.length > 0
     ) {
       this.settleScene()
       for (const binding of this.cylinders) if (!this.asleep(binding.holon)) this.syncCylinder(binding)
@@ -1475,6 +1500,10 @@ export class ThreeHost {
       for (const { binding, group, holon } of this.texts) {
         if (this.asleep(holon)) continue
         binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
+      }
+      // Uncertainty's echoes: offsets in pixels, so after the settle.
+      for (const { blur, group } of this.superpositions) {
+        blur.sync(this.frameT, this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
       // A contour rebuild parents fresh ribbon meshes whose world
       // matrices are not yet settled.

@@ -197,6 +197,11 @@ export class FlowMap extends Null {
   channel = completion(0.38)
   /** Stage and category names: 1 shown, 0 off. */
   labels = completion(1)
+  /**
+   * The group circle's presence. 1 drawn; 0 absent — so a morph can bring
+   * it from elsewhere (the opening's connection lines) and hand over.
+   */
+  rim = completion(1)
 
   override states = {
     uncategorised: state({ grain: 0 }),
@@ -211,6 +216,8 @@ export class FlowMap extends Null {
   stages: FlowStage[] = []
   flows: Flow[] = []
   categoryLabels: Text[] = []
+  /** The categories' legend, shown while the map is staged (where names by the discs would crowd). */
+  legend!: Group
 
   /** A stage by id — its `shown`, `open`, `certainty` and `symbol` are the layer's controls. */
   stage(id: string): FlowStage {
@@ -273,6 +280,7 @@ export class FlowMap extends Null {
       R,
       depths,
       visible,
+      spread,
       heading: this.tilt.value * turn,
       pitch: this.pitch.value * turn,
       discs: categoryDiscs((this.data.categories ?? []).length, R, g),
@@ -334,7 +342,8 @@ export class FlowMap extends Null {
     const slices: FlowSlice[] = []
     for (let k = 0; k < sliceCount; k++) {
       const vis: Readable<number> = derive(() => this.frame().visible[k]!)
-      const hull = new Circle({ radius: this.radius, stroke: 3, opacity: vis })
+      const ringed: Readable<number> = derive(() => this.frame().visible[k]! * this.rim.value)
+      const hull = new Circle({ radius: this.radius, stroke: 3, opacity: ringed })
       const discs = cats.map(
         (c, i) =>
           new Circle({
@@ -343,7 +352,8 @@ export class FlowMap extends Null {
             x: derive(() => this.frame().discs[i]!.x),
             y: derive(() => this.frame().discs[i]!.y),
             tint: derive(() => mix(WHITE, c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!, smooth(0, 0.45, this.grain.value))),
-            opacity: vis,
+            // At grain 0 a disc IS the group circle, so it shares the rim's presence.
+            opacity: derive(() => this.frame().visible[k]! * Math.max(this.rim.value, smooth(0, 0.3, this.grain.value))),
           }),
       )
       const members = d.members.map((m, i) => {
@@ -403,14 +413,13 @@ export class FlowMap extends Null {
             content: c.label,
             size: derive(labelSize),
             tint: c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!,
-            opacity: derive(() => this.labels.value * smooth(0.5, 1, this.grain.value)),
+            // By its disc while flat; the legend takes over once staged.
+            opacity: derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * (1 - smooth(0, 0.5, this.expand.value))),
           })
           this.categoryLabels.push(text)
           named.push(
             this.facing(text, {
-              // Turned, the slice foreshortens across: step further out so
-              // the name stays clear of its rim.
-              x: derive(() => Math.cos(a) * R() * 1.28 - R() * 1.1 * this.frame().heading / Math.max(1e-6, Math.abs(this.tilt.value) || 1)),
+              x: derive(() => Math.cos(a) * R() * 1.28),
               y: derive(() => Math.sin(a) * R() * 1.28 - labelSize() * 0.35),
             }),
           )
@@ -436,8 +445,20 @@ export class FlowMap extends Null {
       const sd = d.stages[si]!
       const tint = sd.tint ?? STAGE_TINTS[si % STAGE_TINTS.length]!
       const flowCertainty = f.certainty ?? 1
-      // Each flow bows its own way, so flows sharing ends stay apart.
+      // Each flow bows its own way, so flows sharing ends stay apart; staged,
+      // a gap's flows also fan apart vertically at their middles (rank in
+      // the stage, by source height), so a bundle reads as separate strands
+      // instead of funnelling through one spot.
       const bend = 0.16 * (fi % 2 === 0 ? 1 : -1)
+      const peers = d.flows.filter((g) => g.stage === f.stage)
+      const height = (id: string): number => {
+        const m = this.memberIndex.get(id)
+        const L = this.layout()
+        return m !== undefined ? L.categorised[m]!.y : L.partners[this.partnerIndex.get(id)!]!.y
+      }
+      const order = peers.map((g, i) => ({ i, y: height(g.from) + 0.5 * height(g.to) })).sort((x, y) => y.y - x.y || x.i - y.i)
+      const rank = order.findIndex((o) => peers[o.i] === f)
+      const fan = (rank - (peers.length - 1) / 2) / Math.max(1, peers.length - 1)
       const ends = (): [Vec3, Vec3] => {
         const a0 = this.where(f.from, si)
         const b0 = this.where(f.to, si + 1)
@@ -452,7 +473,8 @@ export class FlowMap extends Null {
         if (tableFrame !== fr) {
           tableFrame = fr
           const [a, b] = ends()
-          table = arcTable((u) => flowPoint(a, b, u, bend), 48)
+          const lift = fan * R() * 1.5 * fr.spread
+          table = arcTable((u) => flowPoint(a, b, u, bend, lift), 48)
         }
         return table
       }
@@ -460,7 +482,7 @@ export class FlowMap extends Null {
         tint,
         stroke: 2,
         arrowEnd: true,
-        arrowSize: 1.3,
+        arrowSize: 1.05,
         opacity: derive(() => this.channel.value * smooth(0, 0.15, stage.shown.value)),
       })
       // The channel draws on from source to target as its layer is shown —
@@ -562,6 +584,27 @@ export class FlowMap extends Null {
       )
     })
 
+    // --- the legend: categories, top left, while staged --------------------
+    const legendRows: Holon[] = []
+    cats.forEach((c, i) => {
+      const tint = c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!
+      const shown = derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * smooth(0.5, 1, this.expand.value))
+      const y = derive(() => R() * (1.62 - 0.16 * i))
+      legendRows.push(
+        new Circle({ radius: derive(() => R() * 0.03), stroke: 0, fillOpacity: 1, tint, opacity: shown, x: derive(() => -R() * 2.05), y }),
+        new Text({
+          content: c.label ?? c.id,
+          size: derive(labelSize),
+          tint,
+          align: "left",
+          opacity: shown,
+          x: derive(() => -R() * 1.97),
+          y: derive(() => R() * (1.62 - 0.16 * i) - labelSize() * 0.35),
+        }),
+      )
+    })
+    this.legend = this.add(new Group({ members: legendRows }))
+
     this.stack = this.add(
       new Group({
         members: [...slices, ...stages],
@@ -616,6 +659,8 @@ interface Frame {
   R: number
   depths: number[]
   visible: number[]
+  /** How far the slices have fanned out (0 flat … 1 staged). */
+  spread: number
   /** The stack's turn this frame: heading, then pitch (radians). */
   heading: number
   pitch: number

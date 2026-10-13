@@ -26,10 +26,10 @@
  * What a ghost LOOKS like is one function, `ghost(c)`: today translucency
  * with a floor, so even pure conjecture stays legible. The "quantum blur"
  * David wants later (a Heisenberg shimmer — the microscopic state unknown,
- * only the macroscopic one known) has its hook here too: `wobble()` is a
- * deterministic, smooth positional uncertainty a holon can add to its own
- * moving parts, scaled by 1 − c. A shader-side blur would read the same
- * `certaintyOf()` and take over from the opacity floor.
+ * only the macroscopic one known) is drawn by the renderer itself:
+ * render/superposition.ts gives every uncertain stroke and fill a small
+ * cloud of breathing echoes that crystallise onto it as c → 1. `wobble()`
+ * is the positional counterpart a holon can add to its own moving parts.
  */
 
 import type { Holon } from "./holon"
@@ -70,6 +70,22 @@ export const certaintyOf = (holon: Holon): number => {
   let c = 1
   for (const p of certaintiesOf(holon)) c *= p.value
   return c
+}
+
+/**
+ * A leaf's inherited certainty as a live reading — or undefined when nothing
+ * on or above it declares one (the renderer then adds no blur at all).
+ */
+export const seenCertainty = (holon: Holon): Readable<number> | undefined => {
+  const chain = certaintiesOf(holon)
+  if (chain.length === 0) return undefined
+  return {
+    get value() {
+      let c = 1
+      for (const p of chain) c *= p.value
+      return c
+    },
+  }
 }
 
 /**

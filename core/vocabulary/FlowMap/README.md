@@ -44,7 +44,15 @@ categories), `partners` (with a side), `stages` (the value chain, in order),
 or partner declared conjectural in the data is drawn GHOSTED —
 translucent, its particles hovering (`wobble`) rather than running a crisp
 line; real data is solid. Strokes, fills, arrowheads, Text and the Cylinder
-all honour it. Certainty inherits down the tree as a product.
+all honour it. Below full certainty the renderer adds a SUPERPOSITION
+(`src/render/superposition.ts`): each uncertain stroke and fill carries a
+cloud of breathing echoes a few pixels off — potentiality, many microstates
+behind one macrostate — that crystallise onto it as certainty rises
+(`stage("raw").certainty.to(1)` is the collapse the demo ends on).
+- `rim` — the group circle's presence, so a morph can bring it in: the demo
+  opens with the members' relations to the centre morphing (Morph's
+  `MorphCurves`) into the group circle. Staged, a `legend` names the
+  categories; a gap's flows fan apart at their middles. Certainty inherits down the tree as a product.
 
 **Seams**: `slices[k].hull` (the group circle, a Circle), `flows[i].line`
 (a Line), `flows[i].dots[j]` (filled Circles — the neutral `symbol` "dot";

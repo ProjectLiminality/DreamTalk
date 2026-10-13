@@ -25,7 +25,10 @@ when done.
   `expand` tilts it into the value-chain stage stack (`stage(id).open` per gap,
   never reorders). **Certainty** is a core ability (`src/certainty.ts`):
   inherited product, drawn as `ghost(c)` opacity + particle `wobble`.
-- Open: the real "quantum blur" (shader-side, reading `certaintyOf`);
+- Built 2026-10-13: the certainty blur as a render ability
+  (`src/render/superposition.ts`, echo clouds that crystallise as c → 1) and
+  a Morph opening (relations → the group circle).
+- Open: David's eye on the superposition (echo count, spread, breath);
   entity labels (stage + category labels exist); particle symbols beyond the dot (pallets, reels);
   splitting a stage in two (production step); wiring Morph (connection lines
   → the group circle, dot → truck); a clickable creator-mode toggle per param.

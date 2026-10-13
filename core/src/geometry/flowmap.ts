@@ -287,7 +287,7 @@ export const memberLayouts = (
   for (const members of regions.values()) {
     const set = discs.map((_, k) => categoriesOf[members[0]!]!.includes(k))
     // Within a region, data order reads round the region from its first slot.
-    const cluster = regionCluster(set, discs, R, members.length, margin, memberRadius * 3.5, regionIndex++)
+    const cluster = regionCluster(set, discs, R, members.length, margin, memberRadius * 5, regionIndex++)
     const slots = cluster ?? regionSlots(set, discs, R, members.length, margin)
     members.forEach((m, j) => (categorised[m] = slots[j]!))
   }
@@ -331,14 +331,15 @@ export const partnerLayout = (sides: readonly PartnerSide[], R: number): Vec2[] 
 /**
  * Where a flow's channel runs: a quadratic arc from A to B, bowed sideways by
  * `bend` of its in-plane length (so flows overlaid in one plane separate
- * instead of coinciding). The bow is in the picture's plane, whatever depth
+ * instead of coinciding), and lifted by `lift` in y at its middle (the
+ * staged stack fans a gap's flows apart this way). The bow is in the picture's plane, whatever depth
  * the two ends sit at — flat or staged, the channel is the same shape.
  */
-export const flowPoint = (a: Vec3, b: Vec3, u: number, bend: number): Vec3 => {
+export const flowPoint = (a: Vec3, b: Vec3, u: number, bend: number, lift = 0): Vec3 => {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const cx = (a.x + b.x) / 2 - dy * bend
-  const cy = (a.y + b.y) / 2 + dx * bend
+  const cy = (a.y + b.y) / 2 + dx * bend + lift
   const cz = (a.z + b.z) / 2
   const v = 1 - u
   return {
