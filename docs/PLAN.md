@@ -627,6 +627,18 @@ ruling (translation + the three deleted labels from footage).
       0.997, S02 unchanged; all frames pass). State gate: only s07/s09/s10
       and web3 (its glows lose the rim — docs/reports/perf/stroke0-rim-
       web3-111.png) change. Also: gauntlet.ts waits for the ready flag.
+- [x] **The universal morph — N curves into M, in 3D** (2026-10-13) —
+      `vocabulary/Morph/MorphCurves.ts` (`MorphCurves` + `MorphMany`) over
+      `src/geometry/correspond.ts`: two-tape arc-length correspondence
+      (angular / sweep / given order, rotation search, `snap` grouping,
+      `lag` = pieces travel at their smaller size), fill as its own
+      channel (fade out → travel → fade in). 3D targets: `src/geometry/
+      hiddenline.ts` (boxes + capped cylinders, visible edges + contour
+      generators, CPU HLR, painter fills) → `src/parts/soliddrawing.ts`
+      (`SolidDrawing`, `worldCurves()`) → `vocabulary/Truck`. Scenes
+      `morph-lines-circle`, `morph-dot-truck`. MorphShape (pydeation's
+      1→1) untouched: no existing scene's pixels change. Advances Ch 14's
+      mesh-silhouette item for box/cylinder solids; general meshes open.
 - [ ] **Node-graph visualisation — UNDER-SPECIFIED, not built.** ONTOLOGY
       2026-09-16/17 fixes the principle (object-level relationships only —
       "circle and square feed into Morph" — internal param wiring folded

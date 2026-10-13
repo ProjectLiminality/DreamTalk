@@ -49,6 +49,7 @@ import { SMark } from "../vocabulary/Regenaissance/SMark"
 import { RightTriangle } from "../vocabulary/RightTriangle/RightTriangle"
 import { System } from "../vocabulary/System/System"
 import { TheWall } from "../vocabulary/TheWall/TheWall"
+import { Truck } from "../vocabulary/Truck/Truck"
 import { DEFAULT_IMPORTS, VOCABULARY, type ParamSpec, type VocabEntry } from "./vocabulary"
 import type { SketchState } from "./state"
 
@@ -74,6 +75,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "RightTriangle", folder: "RightTriangle", cls: RightTriangle },
   { className: "System", folder: "System", cls: System },
   { className: "TheWall", folder: "TheWall", cls: TheWall },
+  { className: "Truck", folder: "Truck", cls: Truck },
 ]
 
 /**

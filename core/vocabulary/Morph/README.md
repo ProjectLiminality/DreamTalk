@@ -45,6 +45,91 @@ place, and is the reason the morpher comes back rather than being
 conjured — a Dream's holons are its declared fields, so neither spelling
 smuggles one in.
 
+## N curves into M, in 3D — `MorphCurves` + `MorphMany`
+
+`MorphShape` above is pydeation's morph and stays exactly that (one closed
+outline into one, index by index — the corpus is scored against it). The
+general verb lives beside it in `MorphCurves.ts`: **any set of holons'
+curves into any other set's**. Twelve scattered arcs become one circle,
+each arc a complementary piece of the circumference; a filled blue dot
+lets go of its fill and its outline flies apart onto the visible 3D edges
+of a truck; and back.
+
+```ts
+import { MorphCurves, MorphMany } from "../../vocabulary/Morph/MorphCurves"
+
+class FlowDream extends Dream {
+  dot = new Circle({ radius: 46, tint: BLUE, fillOpacity: 1 })
+  truck = new Truck({ observer: this.observer, opacity: 0 })       // targets start hidden
+  toTruck = new MorphCurves([this.dot], [this.truck], { observer: this.observer, opacity: 0 })
+  toDot = new MorphCurves([this.truck], [this.dot], { observer: this.observer, opacity: 0 })
+
+  unfold() {
+    this.stage(this.truck); this.stage(this.toTruck); this.stage(this.toDot)
+    this.play(MorphMany(this.toTruck), 4)   // fill out → pieces travel → fill in
+    this.play(MorphMany(this.toDot), 4)     // and back
+  }
+}
+```
+
+**The surface.**
+
+| | |
+|---|---|
+| `new MorphCurves(sources: Holon[], targets: Holon[], opts)` | the morph in flight — a pool of Lines, one per piece. `morph` param 0→1. |
+| `MorphMany(shape, { copy?, fadeOut?, fadeIn? })` | the verb: sources' fill fades over `fadeOut` of the clip (default 0.2 if any is filled), the pieces travel, targets appear exactly where they landed and fill over `fadeIn`. Sources hide as the pieces depart (unless `copy`). |
+| `curvesOf(holon)` | what a holon offers: `worldCurves()` if it has one (a `SolidDrawing` answers its VISIBLE edges for the current camera — implement it on any holon to make it morphable), else a primitive's outline, else every descendant Line. |
+| opts `order` | `"angular"` (default) · `"sweep"` · `"given"` — see below |
+| opts `observer` | the Dream's observer: angular order is then read in the VIEW plane |
+| opts `snap` | tape fraction; target boundaries within it snap onto source boundaries (whole sources grouped, fewer pieces) |
+| opts `lag` | 0…1, default 0.5: pieces travel at their smaller size (see below) |
+| opts `capacity`, `step`, `normal`, `axis`, `rotate` | pool size; sample spacing; the angular plane; the sweep axis; rotation search on/off |
+
+The mathematics is `src/geometry/correspond.ts` (`correspond`,
+`planMorph`, `blendPlan` — pure, deterministic, 3D throughout); the 3D
+targets come from `src/geometry/hiddenline.ts` via
+`src/parts/soliddrawing.ts`.
+
+**The model: two tapes.** Lay the sources end to end into one tape, the
+targets into another, both normalised to length 1. The correspondence is
+the identity between the tapes (plus, for a cyclic order, a rotation
+offset found by minimising travel), cut at the union of both sides' curve
+boundaries. So a source that is 8% of the source ink becomes 8% of the
+target ink; many small sources GROUP into one long target, one long
+source SPLITS across short ones; every target is covered exactly once —
+complementary, never stacked; at most N + M pieces. The strategy is only
+the ORDER on the tapes:
+
+- **angular** — curves sorted by the angle of their arc-length midpoint
+  about the common centre, each oriented counter-clockwise, then the
+  rotation that minimises travel. Pieces land on the side they came from;
+  nothing crosses the middle.
+- **sweep** — sorted along an axis, oriented along it, no rotation.
+- **given** — the caller's order and directions, untouched (a route's legs
+  onto a route's legs).
+
+**Travel at the smaller size (`lag`).** Each piece's centroid moves
+straight; its shape changes on its own curve — late if the piece grows,
+early if it shrinks. So the dot's arcs fly out as arcs and become truck
+edges on arrival, and on the way back the edges shrink to arcs first and
+then fly home: the return is the time-reverse of the trip, and long edges
+never slide across each other at full length. Both ends are exact for any
+lag (u = 0 is the sources, u = 1 the targets, corner for corner), so the
+handover to the real targets cannot pop.
+
+**What is not here yet.** One straight-line path per point (no arcing
+paths, no stagger); one tint per piece (blended source→target), no fill
+morph — fill is its own channel, faded; view-dependent targets re-plan if
+the camera moves DURING the morph (move it before or after); hidden-line
+solids are boxes and capped cylinders, axis-aligned in the holon's frame,
+touching but not interpenetrating.
+
+Proven by `test/correspond.test.ts` (length conservation for N>M, N<M, N=M
+under all three orders, proportional shares, exact ends for any lag,
+determinism and input-order independence, snapping, a point growing into a
+shape), `test/hiddenline.test.ts`, `test/morphcurves.test.ts`, and the two
+scenes: `/demo/?scene=morph-lines-circle`, `/demo/?scene=morph-dot-truck`.
+
 ## What makes this different from every other vocabulary entry
 
 The other twelve are **nouns** — Eye, Cylinder, Logo, MolochEye: things

@@ -48,7 +48,7 @@
  * view-dependent target re-plans — move the camera before or after.
  */
 
-import { restage, together, type Anim } from "../../src/anim"
+import { together, type Anim, type Windowed } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { Holon, type Overrides } from "../../src/holon"
 import { completion } from "../../src/params"
@@ -283,21 +283,22 @@ export const MorphMany = (shape: MorphCurves, opts: MorphManyOptions = {}): Anim
   const a = Math.min(0.45, Math.max(0, opts.fadeOut ?? (srcFilled ? 0.2 : 0)))
   const b = 1 - Math.min(0.45, Math.max(0, opts.fadeIn ?? (tgtFilled ? 0.2 : 0)))
   const eps = 0.01
-  const tracks: Anim[] = [
-    restage(shape.morph.sequence(0, 1), a, b),
+  // Plain sub-windows (not `restage`): each phase keeps its own ease —
+  // this verb has no pydeation group-rescale to be faithful to.
+  const items: Windowed[] = [
+    [shape.morph.sequence(0, 1), a, b],
     // The morpher takes over from the sources at `a` …
-    restage(shape.opacity.sequence(0, 1), a, a + eps),
+    [shape.opacity.sequence(0, 1), a, a + eps],
     // … and hands over to the targets just before `b`.
-    restage(shape.opacity.to(0), b - eps, b),
+    [shape.opacity.to(0), b - eps, b],
   ]
   for (const s of shape.sources) {
-    if (s instanceof Stroke && a > 0) tracks.push(restage(s.fillOpacity.to(0), 0, a))
-    if (!opts.copy) tracks.push(restage(s.opacity.to(0), a, a + eps))
+    if (s instanceof Stroke && a > 0) items.push([s.fillOpacity.to(0), 0, a])
+    if (!opts.copy) items.push([s.opacity.to(0), a, a + eps])
   }
   for (const t of shape.targets) {
-    tracks.push(restage(t.opacity.to(1), b - eps, b))
-    if (t instanceof Stroke && filled(t) > 0)
-      tracks.push(restage(t.fillOpacity.sequence(0, filled(t)), b - eps, b < 1 ? 1 : b))
+    items.push([t.opacity.to(1), b - eps, b])
+    if (t instanceof Stroke && filled(t) > 0) items.push([t.fillOpacity.sequence(0, filled(t)), b - eps, b < 1 ? 1 : b])
   }
-  return together(...tracks)
+  return together(...items)
 }

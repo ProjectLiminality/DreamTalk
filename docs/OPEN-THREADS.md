@@ -5,6 +5,19 @@ to act on, but were left unfinished as attention moved on. Kept here so they
 never have to be explained from scratch again. Newest first; strike through
 when done.
 
+## The universal morph (2026-10-13)
+- **Built:** `MorphCurves`/`MorphMany` (vocabulary/Morph/README.md) — N→M
+  curves by arc length, 3D, fill as its own channel; `SolidDrawing` +
+  `Truck` give view-dependent 3D outlines to land on. `?scene=morph-lines-
+  circle`, `?scene=morph-dot-truck`.
+- Open: arcing / staggered travel paths; a "nearest-target" strategy for
+  clustered many→many (letters, map regions); hidden-line for general
+  meshes (crease + silhouette edges from triangles) and rotated /
+  interpenetrating solids; re-planning stability when the camera moves
+  DURING a morph onto a view-dependent target; fill morphing (not only
+  fading); the graft (`.morphInto([...])`) once a scene wants the method
+  spelling.
+
 ## Value flow map (2026-10-13, whiteboard transmission)
 - **Built:** `core/vocabulary/FlowMap` (`?scene=flowmap`) — group/members/
   partners as nested circles; `grain` (category discs shrink in from the rim
