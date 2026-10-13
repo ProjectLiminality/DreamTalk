@@ -44,7 +44,7 @@ import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
-import { bufferToClient, type PixelBox } from "../editor/creator"
+import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
 import { ViewLayer } from "../src/view"
 import type { Observer } from "../src/dream"
 
@@ -91,7 +91,6 @@ const STYLE = `
 .dt-game-hud div:hover { color: #888; }
 .dt-game-hud b { font-weight: normal; color: #bbb; }
 .dt-game-hud i { font-style: normal; color: #444; display: inline-block; width: 1.6em; }
-.dt-game-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 45; }
 `
 
 export class GameLoop {
@@ -141,8 +140,7 @@ export class GameLoop {
     this.#hud = document.createElement("div")
     this.#hud.className = "dt-game-hud"
     this.#hud.style.display = "none"
-    this.#overlay = document.createElement("canvas")
-    this.#overlay.className = "dt-game-overlay"
+    this.#overlay = makeOverlay("dt-game-overlay", 45)
     document.body.append(this.#overlay, this.#hud)
     opts.signal.addEventListener("abort", () => {
       this.#hud.remove()
@@ -490,25 +488,12 @@ export class GameLoop {
         this.#renderHud()
       }
     }
-    const o = this.#overlay
-    const dpr = window.devicePixelRatio || 1
-    const w = Math.round(window.innerWidth * dpr)
-    const h = Math.round(window.innerHeight * dpr)
-    if (o.width !== w || o.height !== h) {
-      o.width = w
-      o.height = h
-    }
-    const ctx = o.getContext("2d")
+    const ctx = beginOverlay(this.#overlay)
     if (!ctx) return
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, w, h)
     const hov = this.#hovered
     if (!hov || !this.#live()) return
-    const box = this.#host.boundsOf(hov.handle)
-    if (!box) return
-    ctx.scale(dpr, dpr)
-    const canvas = this.#host.canvas
-    const r = bufferToClient(box, canvas.getBoundingClientRect(), canvas)
+    const r = clientBox(this.#host.canvas, this.#host.boundsOf(hov.handle))
+    if (!r) return
     const x0 = r.x - PAD
     const y0 = r.y - PAD
     const x1 = r.x + r.w + PAD

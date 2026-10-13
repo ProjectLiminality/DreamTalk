@@ -36,6 +36,7 @@ import type { ThreeHost } from "../src/render/three-host"
 import type { Dream } from "../src/dream"
 import type { Holon } from "../src/holon"
 import type { Param } from "../src/params"
+import { OVERLAY_CSS } from "../editor/overlay"
 import {
   carrierOf,
   dreamNodesOf,
@@ -69,7 +70,7 @@ const BLUE = "0, 162, 255"
 const WHITE = "255, 255, 255"
 
 const STYLE = `
-#dt-explorer { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+#dt-explorer { ${OVERLAY_CSS} z-index: 50; }
 #dt-crumbs { position: fixed; top: 14px; left: 16px; z-index: 72; color: #777;
   font: 12px/1.5 -apple-system, system-ui, sans-serif; opacity: 0; transition: opacity .35s; pointer-events: none; }
 #dt-crumbs.on { opacity: 1; pointer-events: auto; }
