@@ -36,6 +36,7 @@ import { FoldableCubeDream } from "./vocabulary/FoldableCube"
 import { CableDream } from "./vocabulary/Cable"
 import { SketchDream } from "./vocabulary/Sketch"
 import { RegenaissanceDream } from "./vocabulary/Regenaissance"
+import { EarthDream } from "./vocabulary/Earth"
 import { FlowMapDream } from "./vocabulary/FlowMap"
 import { Scene00Dream } from "./origins/Scene00"
 import { Scene01Dream } from "./origins/Scene01"
@@ -209,6 +210,8 @@ export const scenes: Record<string, DreamClass> = {
   web3s15: Shot15HeroDream,
   // The noosphere over the biosphere, the eye where they meet, one ring round both.
   regenaissance: RegenaissanceDream,
+  // The black Earth turns to Europe, the eye descends, the sites rise.
+  earth: EarthDream,
   // An organisation's value flows as a visual automaton: grain, flow layers, the stage stack.
   flowmap: FlowMapDream,
   // p02h: MagicMove03Dream, // p6 died before writing it

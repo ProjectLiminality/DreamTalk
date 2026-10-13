@@ -45,6 +45,7 @@ import {
 } from "../parts/index"
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
+import { Surface } from "../parts/surface"
 import { RibbonStroke, RIBBON_KEYS } from "./ribbon"
 import { BatchTable, RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
@@ -821,6 +822,8 @@ export class ThreeHost {
   private readonly cylinders: CylinderBinding[] = []
   private readonly fills: FillBinding[] = []
   private readonly washes: WashBinding[] = []
+  /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
+  private readonly surfaces: { holon: Surface; fill: FillShape; version: number }[] = []
   /**
    * Drawings that wash as one even-odd surface across their subpaths —
    * a Sketch and anything else composed of closed Lines
@@ -1063,6 +1066,16 @@ export class ThreeHost {
       )
       group.add(fill.mesh)
       this.fills.push({ holon, fill, sig: freshSig(holon), look: styleOf(holon), gradient: this.lightsRadially(holon, fill) })
+    } else if (holon instanceof Surface) {
+      // A curved area carries its own triangles; a solid one writes depth
+      // and is the only thing in the host anything can be behind.
+      const fill = new FillShape(this.claimFillOrder())
+      if (holon.solid.value) fill.useSolid()
+      // The version first: a DERIVED surface builds its arrays on that read.
+      const version = holon.geomVersion
+      fill.setMesh(holon.positions, holon.indices)
+      group.add(fill.mesh)
+      this.surfaces.push({ holon, fill, version })
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -1409,6 +1422,15 @@ export class ThreeHost {
         liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
       if (binding.gradient) fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value)
+    }
+    for (const binding of this.surfaces) {
+      const { holon, fill } = binding
+      if (this.dormant && this.asleep(holon)) continue
+      if (holon.geomVersion !== binding.version) {
+        binding.version = holon.geomVersion
+        fill.setMesh(holon.positions, holon.indices)
+      }
+      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)))
     }
     for (const binding of this.drawingWashes) {
       const { holon, fill } = binding

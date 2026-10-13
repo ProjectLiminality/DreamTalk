@@ -54,6 +54,35 @@ const sharedFillMaterial = (): THREE.MeshBasicNodeMaterial => {
   return shared
 }
 
+/**
+ * The SOLID material (parts/surface.ts `solid`): opaque and depth-writing —
+ * the one thing in the host that anything can be behind. It renders in
+ * three's opaque pass, before every transparent stroke and fill, so they
+ * all depth-test against it. Never used by a shape that does not ask.
+ *
+ * Pushed back by a small CONSTANT depth bias only, against rounding where
+ * ink lies exactly on a solid. Not slope-scaled: a slope bias grows without
+ * bound toward a curved solid's silhouette, and on the Earth it let the far
+ * side's coasts leak through as an arc along the limb. Ink that lies ON a
+ * solid keeps clear of it geometrically instead (the Earth's ground sits
+ * under its surface; a building's body is inset from its edges).
+ */
+let sharedSolid: THREE.MeshBasicNodeMaterial | undefined
+const sharedSolidMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedSolid) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = false
+    m.depthWrite = true
+    m.side = THREE.DoubleSide
+    m.polygonOffset = true
+    m.polygonOffsetFactor = 0
+    m.polygonOffsetUnits = 2
+    m.colorNode = userData(FILL_KEYS.tint, "color")
+    sharedSolid = m
+  }
+  return sharedSolid
+}
+
 /** A flat ellipse as a triangle fan around its center. */
 /**
  * The radial-light fill (Stroke.fillFalloff): the same flat fill, its
@@ -119,6 +148,11 @@ export class FillShape {
     this.mesh.userData[FILL_KEYS.radius] = 0
   }
 
+  /** Switch this fill to the opaque, depth-writing solid material (once, at attach). */
+  useSolid(): void {
+    this.mesh.material = sharedSolidMaterial()
+  }
+
   /** The falloff this frame; a radius of 0 means the shape's own extent. */
   setGradient(falloff: number, radius: number): void {
     this.mesh.userData[FILL_KEYS.falloff] = falloff
@@ -154,6 +188,24 @@ export class FillShape {
     this.mesh.geometry = geometry
     let extent = 0
     for (const p of pts) extent = Math.max(extent, Math.hypot(p.x, p.y))
+    this.extent = extent
+  }
+
+  /**
+   * Replace the shape with a ready triangle mesh (parts/surface.ts) — flat
+   * xyz and triangle indices, taken as they are: a surface knows its own
+   * triangulation, and a curved one has no plane to triangulate in.
+   */
+  setMesh(positions: Float32Array, indices: Uint32Array): void {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    this.mesh.geometry.dispose()
+    this.mesh.geometry = geometry
+    let extent = 0
+    for (let i = 0; i < positions.length; i += 3) {
+      extent = Math.max(extent, Math.hypot(positions[i]!, positions[i + 1]!))
+    }
     this.extent = extent
   }
 
