@@ -35,6 +35,8 @@ import { MOCK_SITES } from "../vocabulary/Earth/mockSites"
 import { Surface } from "../src/parts/surface"
 import { Group } from "../src/parts/primitives"
 import { Observer } from "../src/dream"
+import { derive } from "../src/params"
+import { WHITE } from "../src/constants"
 
 const DEG = Math.PI / 180
 const close = (a: Vec3, b: Vec3, digits = 9) => {
@@ -610,5 +612,17 @@ describe("label boxes are measured", () => {
     expect(textWidth("M")).toBeCloseTo(1706 / 2048, 6)
     // Tracking adds per gap between glyphs.
     expect(textWidth("AB", 0.14) - textWidth("AB")).toBeCloseTo(0.14, 9)
+  })
+})
+
+describe("a scene owns what it drives", () => {
+  test("an axis is offered only while its params are free (a followed land drops the land axis, nothing throws)", () => {
+    const earth = new Earth()
+    earth.land.follow(derive(() => WHITE))
+    earth.borderOpacity.follow(derive(() => 1))
+    const ids = earth.stateSpace().axes.map((a) => a.id)
+    expect(ids).not.toContain("land")
+    expect(ids).not.toContain("borders")
+    expect(ids).toContain("time")
   })
 })

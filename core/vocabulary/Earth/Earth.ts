@@ -93,7 +93,7 @@ import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { KeepOut } from "../../src/view"
-import { axis, toggle, type StateSpace } from "../../src/automaton"
+import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import {
   angleBetween,
   densifyLonLat,
@@ -866,24 +866,34 @@ export class Earth extends Null {
    */
   override stateSpace(): StateSpace {
     void this.parts
-    const axes = [
-      axis(
-        "time",
-        this,
-        {
-          day: { sunLat: 12, sunLon: 15, nightOpacity: 0, terminatorOpacity: 0 },
-          dusk: { sunLat: 12, sunLon: -75, nightOpacity: 0.92, terminatorOpacity: 0.9 },
-          night: { sunLat: 12, sunLon: -165, nightOpacity: 0.92, terminatorOpacity: 0.9 },
-        },
-        { key: "n", duration: 2.4 },
-      ),
-      axis("land", this, { globe: { land: WHITE }, map: { land: rgb(0x0e, 0x0e, 0x0e) } }, { key: "d" }),
-      toggle("borders", this.borderOpacity, { key: "b" }),
-      axis("water", this, { dry: { lakeOpacity: 0, riverOpacity: 0 }, wet: { lakeOpacity: 1, riverOpacity: 1 } }, { key: "w" }),
-      toggle("graticule", this.graticuleOpacity, { key: "g", on: ["on", 0.6] }),
-      toggle("atmosphere", this.atmosphereOpacity, { key: "a" }),
-    ]
-    if (this.countryLabels.length + this.cityLabels.length > 0) {
+    // A scene that drives a param (follows it, or shares a param it moves
+    // itself) OWNS it: the walk offers only axes whose params are all free.
+    const free = (...ps: { isBound: boolean }[]) => ps.every((p) => !p.isBound)
+    const axes: Axis[] = []
+    if (free(this.sunLat, this.sunLon, this.nightOpacity, this.terminatorOpacity)) {
+      axes.push(
+        axis(
+          "time",
+          this,
+          {
+            day: { sunLat: 12, sunLon: 15, nightOpacity: 0, terminatorOpacity: 0 },
+            dusk: { sunLat: 12, sunLon: -75, nightOpacity: 0.92, terminatorOpacity: 0.9 },
+            night: { sunLat: 12, sunLon: -165, nightOpacity: 0.92, terminatorOpacity: 0.9 },
+          },
+          { key: "n", duration: 2.4 },
+        ),
+      )
+    }
+    if (free(this.land)) {
+      axes.push(axis("land", this, { globe: { land: WHITE }, map: { land: rgb(0x0e, 0x0e, 0x0e) } }, { key: "d" }))
+    }
+    if (free(this.borderOpacity)) axes.push(toggle("borders", this.borderOpacity, { key: "b" }))
+    if (free(this.lakeOpacity, this.riverOpacity)) {
+      axes.push(axis("water", this, { dry: { lakeOpacity: 0, riverOpacity: 0 }, wet: { lakeOpacity: 1, riverOpacity: 1 } }, { key: "w" }))
+    }
+    if (free(this.graticuleOpacity)) axes.push(toggle("graticule", this.graticuleOpacity, { key: "g", on: ["on", 0.6] }))
+    if (free(this.atmosphereOpacity)) axes.push(toggle("atmosphere", this.atmosphereOpacity, { key: "a" }))
+    if (this.countryLabels.length + this.cityLabels.length > 0 && free(this.labelOpacity)) {
       axes.push(toggle("labels", this.labelOpacity, { key: "l" }))
     }
     return { axes }
