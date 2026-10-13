@@ -2,6 +2,7 @@ import { BLACK, RED } from "../../src/constants"
 import { choice, color } from "../../src/params"
 import { translateSolid, type Solid } from "../../src/geometry/hiddenline"
 import { SolidDrawing } from "../../src/parts/soliddrawing"
+import { choices, type StateSpace } from "../../src/automaton"
 
 /** What stands on the pallet. */
 export const PALLET_LOADS = ["sacks", "octabin", "none"] as const
@@ -93,5 +94,11 @@ export class Pallet extends SolidDrawing {
     const cy = y1 / 2
     const cz = D / 2
     return raw.map((s) => translateSolid(s, { x: -cx, y: -cy, z: -cz }))
+  }
+
+  /** Walkable (src/automaton.ts): what is loaded — sacks · octabin · empty, in PALLET_LOADS order. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.load.isBound) return undefined
+    return { axes: [choices("load", this.load, { duration: 0.5, handles: [this] })] }
   }
 }

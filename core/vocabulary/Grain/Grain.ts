@@ -50,6 +50,7 @@ import { derivePoints, localView, viewOf, type SolidDrawing } from "../../src/pa
 import { solidBounds, type View } from "../../src/geometry/hiddenline"
 import { blendPlan, planMorph, type MorphPlan } from "../../src/geometry/correspond"
 import { morphPhases } from "../Morph/MorphCurves"
+import { axis, type StateSpace } from "../../src/automaton"
 
 /** A dot of mass whose kind we do not know — neither white nor any category. */
 export const NEUTRAL: Color = rgb(170, 170, 170)
@@ -392,6 +393,21 @@ export class Grain extends Stroke {
       this.label = text
       const tilt = new Group({ members: [text], p: derive(() => -(observer?.theta.value ?? 0)) })
       this.add(new Group({ members: [tilt], h: derive(() => observer?.phi.value ?? 0) }))
+    }
+  }
+
+  /** Walkable (src/automaton.ts): the rung of knowledge — mass · category · type · item. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.grain.isBound) return undefined
+    return {
+      axes: [
+        axis(
+          "grain",
+          this,
+          { mass: { grain: RUNG.mass }, category: { grain: RUNG.category }, type: { grain: RUNG.type }, item: { grain: RUNG.item } },
+          { duration: 1.2, handles: [this] },
+        ),
+      ],
     }
   }
 }
