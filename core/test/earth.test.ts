@@ -15,6 +15,7 @@ import {
   latLonToUnit,
   lonLatToUnits,
   meshArea,
+  sphereBand,
   triangulateSphere,
   unitToLatLon,
   type SphereMesh,
@@ -23,8 +24,9 @@ import {
 import { decodeRings, encodeRings, QUANTUM } from "../vocabulary/Earth/codec"
 import { BORDERS_50M, LAND_50M } from "../vocabulary/Earth/naturalEarth"
 import { Earth, geography, placeFrame, Place } from "../vocabulary/Earth/Earth"
-import { EarthView, FlyTo, Focus, viewDistance, viewPose, zoomForSpan } from "../vocabulary/Earth/EarthView"
-import { cities, countries, countryMesh, graticuleLines, lakeGeometry, riverGeometry } from "../vocabulary/Earth/features"
+import { EarthView, FlyTo, Focus, followEarth, viewDistance, viewPose, zoomForSpan } from "../vocabulary/Earth/EarthView"
+import { cities, countries, countryMesh, graticuleLines, lakeGeometry, regionOf, riverGeometry } from "../vocabulary/Earth/features"
+import { ALPS_10M } from "../vocabulary/Earth/packs/alps10m"
 import { sitePlaces } from "../vocabulary/Earth/Sites"
 import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
@@ -432,5 +434,118 @@ describe("Focus and FlyTo", () => {
     expect(zooms.map((t) => [t.relStart, t.relStop, t.values[0]])).toEqual([[0, 0.5, 1], [0.5, 1, 3]])
     const tilts = a.tracks.filter((t) => t.param === view.tilt)
     expect(tilts.map((t) => t.values[0])).toEqual([0, 30])
+  })
+})
+
+describe("light on the land", () => {
+  test("every land sheet is lit from (lightLat, lightLon), off by default", () => {
+    const earth = new Earth({ radius: 300 })
+    void earth.parts
+    for (const s of earth.landSheets) expect(s.fillFalloff.value).toBe(0)
+    earth.lightLat.value = 48.2
+    earth.lightLon.value = 16.4
+    earth.lightFalloff.value = 0.8
+    earth.lightReach.value = 120
+    const c = earth.latLonToLocal(48.2, 16.4)
+    for (const s of earth.landSheets) {
+      expect(s.fillFalloff.value).toBe(0.8)
+      expect(s.fillFalloffRadius.value).toBe(120)
+      close({ x: s.fillFalloffX.value, y: s.fillFalloffY.value, z: s.fillFalloffZ.value }, c, 9)
+    }
+  })
+})
+
+describe("day, night and air", () => {
+  test("a sphere band has its closed-form area (a cap of angle a: 2π(1 − cos a))", () => {
+    const c = latLonToUnit(10, 20)
+    const cap = sphereBand(c, 0, Math.PI / 3)
+    expect(Math.abs(meshArea(cap) - 2 * Math.PI * (1 - Math.cos(Math.PI / 3))) / Math.PI).toBeLessThan(2e-3)
+    const ring = sphereBand(c, Math.PI / 3, Math.PI / 2)
+    const want = 2 * Math.PI * (Math.cos(Math.PI / 3) - Math.cos(Math.PI / 2))
+    expect(Math.abs(meshArea(ring) - want) / want).toBeLessThan(2e-3)
+  })
+  test("the night lies opposite the sun; the terminator is the great circle between", () => {
+    const earth = new Earth({ radius: 200 })
+    void earth.parts
+    expect(earth.nightOpacity.value).toBe(0)
+    expect(earth.terminatorOpacity.value).toBe(0)
+    expect(earth.atmosphereOpacity.value).toBe(0)
+    earth.sunLat.value = 23
+    earth.sunLon.value = -40
+    const sun = latLonToUnit(23, -40)
+    // The full-strength night cap: every vertex more than 90° − twilight/2 from the sun's antipode… i.e. on the night side.
+    const core = earth.nightSheets[0]!
+    void core.geomVersion
+    const P = core.positions
+    for (let i = 0; i < P.length; i += 3) {
+      const d = (P[i]! * sun.x + P[i + 1]! * sun.y + P[i + 2]! * sun.z) / 200
+      expect(d).toBeLessThan(Math.sin((earth.twilight / 2) * DEG) + 1e-6)
+    }
+    for (const p of earth.terminator.points) {
+      expect(Math.abs(p.x * sun.x + p.y * sun.y + p.z * sun.z)).toBeLessThan(1e-6)
+    }
+  })
+  test("the atmosphere rings stand outside the limb, each a larger sphere's silhouette", () => {
+    const earth = new Earth({ radius: 200, atmosphereOpacity: 1 })
+    void earth.parts
+    const radii = earth.atmosphereRings.map((l) => Math.hypot(l.points[0]!.x, l.points[0]!.y, l.points[0]!.z))
+    for (let k = 1; k < radii.length; k++) expect(radii[k]!).toBeGreaterThan(radii[k - 1]!)
+    expect(radii[0]!).toBeGreaterThan(200)
+    expect(radii[radii.length - 1]!).toBeCloseTo(200 * 1.03, 6)
+  })
+})
+
+describe("label declutter", () => {
+  test("is deterministic, and a weaker name yields to a stronger one it overprints", () => {
+    const build = () => {
+      const earth = new Earth({ labels: { countries: 6, cities: 5 } })
+      const observer = new Observer()
+      const view = new EarthView({ lat: 48, lon: 12, zoom: 2, tilt: 30 })
+      followEarth(observer, earth, view, { detail: 2 })
+      void earth.parts
+      return earth
+    }
+    const a = build()
+    const b = build()
+    const op = (e: Earth) => [...e.countryLabels, ...e.cityLabels].map((l) => (l.parts[0] as unknown as { opacity: { value: number } }).opacity.value)
+    const oa = op(a)
+    expect(oa).toEqual(op(b))
+    const shown = oa.filter((o) => o > 0.5).length
+    const partly = oa.filter((o) => o > 0.02 && o < 0.98).length
+    expect(shown).toBeGreaterThan(15)
+    // Without decluttering, every in-range name on the near face would be at full presence;
+    // with it, some yield (fully or in part).
+    expect(oa.filter((o) => o === 0).length + partly).toBeGreaterThan(0)
+  })
+})
+
+describe("1:10m detail packs", () => {
+  const region = regionOf([ALPS_10M])
+  test("a pack replaces whole grid cells inside its box, and nothing outside it", () => {
+    const vienna = latLonToUnit(48.2, 16.37)
+    const paris = latLonToUnit(48.85, 2.35)
+    expect(region.contains(vienna)).toBe(true)
+    expect(region.contains(paris)).toBe(false)
+    expect(regionOf().contains(vienna)).toBe(false)
+  })
+  test("the 1:50m and 1:10m land meet without gap or overlap (world land area unchanged to 0.05%)", () => {
+    const plain = geography().land.reduce((a, m) => a + meshArea(m), 0)
+    const packed = geography(region).land.reduce((a, m) => a + meshArea(m), 0)
+    expect(Math.abs(packed - plain) / plain).toBeLessThan(5e-4)
+  })
+  test("inside the pack the strokes are 1:10m — denser — and outside they are untouched", () => {
+    const pts = (g: ReturnType<typeof geography>, inside: boolean) =>
+      [...g.coast, ...g.borders].reduce(
+        (n, l) => n + l.points.filter((p) => region.contains(p) === inside).length,
+        0,
+      )
+    expect(pts(geography(region), true)).toBeGreaterThan(2 * pts(geography(), true))
+    // Outside, only the cut ends at the region's edge differ.
+    expect(Math.abs(pts(geography(region), false) - pts(geography(), false))).toBeLessThan(200)
+  })
+  test("a country lit across the seam keeps its true area (Austria, 1:10m inside)", () => {
+    const R_KM = 6371.0088
+    const at = meshArea(countryMesh("AT", region)) * R_KM * R_KM
+    expect(Math.abs(at - 83879) / 83879).toBeLessThan(0.02)
   })
 })

@@ -10,14 +10,17 @@
  */
 
 import {
+  cellOfPoint,
+  cellsInBox,
   densifyLonLat,
   lonLatToUnits,
+  splitRuns,
   triangulateSphere,
   type SphereMesh,
   type SpherePolygon,
   type Vec3,
 } from "../../src/geometry/sphere"
-import { decodeRings, type Ring } from "./codec"
+import { decodeRings, type DetailPack, type Ring } from "./codec"
 import {
   CITIES,
   COUNTRIES,
@@ -33,6 +36,67 @@ import {
 const MAX_STEP = 0.5
 /** Grid cells per cube face for sheets (as the land). */
 const CELLS_PER_FACE = 64
+
+// --- Regions: where 1:10m packs replace 1:50m ------------------------------
+
+/**
+ * The cells a set of detail packs covers, and the two questions every layer
+ * asks of it: which cells to triangulate from which dataset, and which side
+ * of the region a point is on. The empty region (no packs) changes nothing.
+ */
+export interface Region {
+  key: string
+  packs: readonly DetailPack[]
+  /** Triangulate 1:50m here (outside every pack). */
+  outside: ((cell: number) => boolean) | undefined
+  /** Triangulate a pack's 1:10m here. */
+  inside: (cell: number) => boolean
+  /** Is a surface point inside the region? */
+  contains: (p: Vec3) => boolean
+}
+
+const regions = new Map<string, Region>()
+export const regionOf = (packs: readonly DetailPack[] = []): Region => {
+  const key = packs.map((p) => p.name).join("+")
+  const hit = regions.get(key)
+  if (hit) return hit
+  const cells = new Set<number>()
+  for (const pack of packs) for (const c of cellsInBox(pack.box, CELLS_PER_FACE)) cells.add(c)
+  const region: Region = {
+    key,
+    packs,
+    outside: packs.length ? (c) => !cells.has(c) : undefined,
+    inside: (c) => cells.has(c),
+    contains: (p) => cells.size > 0 && cells.has(cellOfPoint(p, CELLS_PER_FACE)),
+  }
+  regions.set(key, region)
+  return region
+}
+
+/** The 1:50m part of a line outside the region (all of it when there is none). */
+export const outsideOf = (region: Region, pts: Vec3[]): Vec3[][] =>
+  region.packs.length ? splitRuns(pts, region.contains).outside : [pts]
+
+/** The 1:10m part of a pack's line inside the region. */
+export const insideOf = (region: Region, pts: Vec3[]): Vec3[][] => splitRuns(pts, region.contains).inside
+
+/** Several meshes as one. */
+export const mergeMeshes = (meshes: readonly SphereMesh[]): SphereMesh => {
+  const nP = meshes.reduce((n, m) => n + m.positions.length, 0)
+  const nI = meshes.reduce((n, m) => n + m.indices.length, 0)
+  const positions = new Float32Array(nP)
+  const indices = new Uint32Array(nI)
+  let p = 0
+  let i = 0
+  for (const m of meshes) {
+    positions.set(m.positions, p)
+    const base = p / 3
+    for (let k = 0; k < m.indices.length; k++) indices[i + k] = m.indices[k]! + base
+    p += m.positions.length
+    i += m.indices.length
+  }
+  return { positions, indices }
+}
 
 /** A polyline on the unit sphere with its LOD rank. */
 export interface RankedLine {
@@ -67,28 +131,48 @@ export interface Lakes {
   shores: RankedLine[]
 }
 
-let lakes: Lakes | undefined
-export const lakeGeometry = (): Lakes => {
-  if (lakes) return lakes
-  const rings = decodeRings(LAKES_50M, LAKE_Q)
-  const sheets = new Map<number, SphereMesh>()
-  for (const [rank, polys] of polygonsByKey(rings)) sheets.set(rank, triangulateSphere(polys, CELLS_PER_FACE))
-  const shores = rings.map((r) => ({
-    rank: r.meta >> 1,
-    points: closed(lonLatToUnits(densifyLonLat(r.coords, MAX_STEP))),
-  }))
-  lakes = { sheets, shores }
-  return lakes
+const lakeMemo = new Map<string, Lakes>()
+export const lakeGeometry = (region: Region = regionOf()): Lakes => {
+  const hit = lakeMemo.get(region.key)
+  if (hit) return hit
+  const sheets = new Map<number, SphereMesh[]>()
+  const shores: RankedLine[] = []
+  const take = (rings: readonly Ring[], keep: ((c: number) => boolean) | undefined, part: (pts: Vec3[]) => Vec3[][]) => {
+    for (const [rank, polys] of polygonsByKey(rings)) {
+      const list = sheets.get(rank) ?? []
+      list.push(triangulateSphere(polys, CELLS_PER_FACE, keep))
+      sheets.set(rank, list)
+    }
+    for (const r of rings) {
+      for (const points of part(closed(lonLatToUnits(densifyLonLat(r.coords, MAX_STEP))))) {
+        shores.push({ rank: r.meta >> 1, points })
+      }
+    }
+  }
+  take(decodeRings(LAKES_50M, LAKE_Q), region.outside, (pts) => outsideOf(region, pts))
+  for (const pack of region.packs) take(decodeRings(pack.lakes, pack.quantum), region.inside, (pts) => insideOf(region, pts))
+  const out: Lakes = { sheets: new Map([...sheets].map(([k, v]) => [k, mergeMeshes(v)])), shores }
+  lakeMemo.set(region.key, out)
+  return out
 }
 
 // --- Rivers ------------------------------------------------------------------
 
-let rivers: RankedLine[] | undefined
-export const riverGeometry = (): RankedLine[] =>
-  (rivers ??= decodeRings(RIVERS_50M, RIVER_Q).map((r) => ({
-    rank: r.meta,
-    points: lonLatToUnits(densifyLonLat(r.coords, MAX_STEP)),
-  })))
+const riverMemo = new Map<string, RankedLine[]>()
+export const riverGeometry = (region: Region = regionOf()): RankedLine[] => {
+  const hit = riverMemo.get(region.key)
+  if (hit) return hit
+  const out: RankedLine[] = []
+  const take = (rings: readonly Ring[], part: (pts: Vec3[]) => Vec3[][]) => {
+    for (const r of rings) {
+      for (const points of part(lonLatToUnits(densifyLonLat(r.coords, MAX_STEP)))) out.push({ rank: r.meta, points })
+    }
+  }
+  take(decodeRings(RIVERS_50M, RIVER_Q), (pts) => outsideOf(region, pts))
+  for (const pack of region.packs) take(decodeRings(pack.rivers, pack.quantum), (pts) => insideOf(region, pts))
+  riverMemo.set(region.key, out)
+  return out
+}
 
 // --- Countries ---------------------------------------------------------------
 
@@ -112,14 +196,22 @@ const countryMeshes = new Map<string, SphereMesh>()
  * (or Natural Earth's ADM0_A3 where it has no alpha-2). Built on first
  * ask and remembered — only the countries a scene highlights are paid for.
  */
-export const countryMesh = (iso: string): SphereMesh => {
-  const hit = countryMeshes.get(iso)
+export const countryMesh = (iso: string, region: Region = regionOf()): SphereMesh => {
+  const key = `${iso}@${region.key}`
+  const hit = countryMeshes.get(key)
   if (hit) return hit
   const row = COUNTRIES.findIndex((c) => c[0] === iso)
   if (row < 0) throw new Error(`Earth: no country '${iso}' in Natural Earth 1:50m`)
   countryPolys ??= polygonsByKey(decodeRings(COUNTRY_RINGS_50M, COUNTRY_Q))
-  const mesh = triangulateSphere(countryPolys.get(row) ?? [], CELLS_PER_FACE)
-  countryMeshes.set(iso, mesh)
+  const parts = [triangulateSphere(countryPolys.get(row) ?? [], CELLS_PER_FACE, region.outside)]
+  for (const pack of region.packs) {
+    const packRow = pack.countryIsos.indexOf(iso)
+    if (packRow < 0) continue
+    const polys = polygonsByKey(decodeRings(pack.countries, pack.quantum)).get(packRow) ?? []
+    parts.push(triangulateSphere(polys, CELLS_PER_FACE, region.inside))
+  }
+  const mesh = parts.length === 1 ? parts[0]! : mergeMeshes(parts)
+  countryMeshes.set(key, mesh)
   return mesh
 }
 

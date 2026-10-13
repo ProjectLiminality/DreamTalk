@@ -97,6 +97,7 @@ import {
   angleBetween,
   densifyLonLat,
   horizonCircle,
+  sphereBand,
   tangentFrame,
   latLonToUnit,
   lonLatToUnits,
@@ -106,10 +107,22 @@ import {
   type SpherePolygon,
   type Vec3,
 } from "../../src/geometry/sphere"
-import { decodeRings } from "./codec"
+import { decodeRings, type DetailPack, type Ring } from "./codec"
 import { BORDERS_50M, LAND_50M } from "./naturalEarth"
-import { cities, countries, countryMesh, graticuleLines, lakeGeometry, riverGeometry } from "./features"
-import { billboard, makeLabel, type Label } from "./Labels"
+import {
+  cities,
+  countries,
+  countryMesh,
+  graticuleLines,
+  insideOf,
+  lakeGeometry,
+  mergeMeshes,
+  outsideOf,
+  regionOf,
+  riverGeometry,
+  type Region,
+} from "./features"
+import { billboard, LabelLayout, makeLabel, type Label } from "./Labels"
 
 /** Longest step a stroke takes along the surface, degrees (chord sag ~1e-5·R). */
 const MAX_STEP = 0.5
@@ -165,49 +178,71 @@ interface Geography {
   ball: SphereMesh
 }
 
-let memo: Geography | undefined
+const memo = new Map<string, Geography>()
 
 /**
- * Decode and build the geography once per process. Coast runs are the land
- * rings with the dataset's ARTEFACT edges removed: the cut along the
- * antimeridian (a polygon split at ±180 has a straight edge there that is
- * no shore) and Antarctica's walk along the pole at −90. Each surviving
- * run is a Line; an uncut ring stays one closed loop.
+ * Decode and build the geography once per process (per set of detail
+ * packs). Coast runs are the land rings with the dataset's ARTEFACT edges
+ * removed: the cut along the antimeridian (a polygon split at ±180 has a
+ * straight edge there that is no shore) and Antarctica's walk along the
+ * pole at −90. Each surviving run is a Line; an uncut ring stays one
+ * closed loop.
+ *
+ * With packs, every layer is 1:50m outside the packs' cells and the pack's
+ * 1:10m inside them: fills meet exactly along the cell lines, strokes are
+ * cut where they cross the region's edge (features.ts Region).
  */
-export const geography = (): Geography => {
-  if (memo) return memo
-  const landRings = decodeRings(LAND_50M)
-  const byRank: SpherePolygon[][] = Array.from({ length: RANKS }, () => [])
+export const geography = (region: Region = regionOf()): Geography => {
+  const hit = memo.get(region.key)
+  if (hit) return hit
+  const byRank: SpherePolygon[][][] = [Array.from({ length: RANKS }, () => [])]
   const coast: GeoLine[] = []
-  let rankOfOuter = 0
-  for (const ring of landRings) {
-    const rank = Math.min(RANKS - 1, ring.meta & 15)
-    const hole = (ring.meta & 16) !== 0
-    const dense = densifyLonLat(ring.coords, MAX_STEP)
-    const pts = lonLatToUnits(dense)
-    if (hole) {
-      const polys = byRank[rankOfOuter]!
-      ;(polys[polys.length - 1]!.holes as Vec3[][]).push(pts)
-    } else {
-      rankOfOuter = rank
-      byRank[rank]!.push({ outer: pts, holes: [] })
+  const takeLand = (rings: readonly Ring[], polys: SpherePolygon[][], part: (pts: Vec3[]) => Vec3[][]) => {
+    let rankOfOuter = 0
+    for (const ring of rings) {
+      const rank = Math.min(RANKS - 1, ring.meta & 15)
+      const hole = (ring.meta & 16) !== 0
+      const dense = densifyLonLat(ring.coords, MAX_STEP)
+      const pts = lonLatToUnits(dense)
+      if (hole) {
+        const list = polys[rankOfOuter]!
+        if (list.length) (list[list.length - 1]!.holes as Vec3[][]).push(pts)
+      } else {
+        rankOfOuter = rank
+        polys[rank]!.push({ outer: pts, holes: [] })
+      }
+      const width = ringWidth(dense, pts)
+      for (const run of shoreRuns(dense, pts)) {
+        for (const points of part(run)) coast.push({ rank: hole ? rankOfOuter : rank, cls: -1, points, width })
+      }
     }
-    const width = ringWidth(dense, pts)
-    coast.push(...shoreRuns(dense, pts).map((points) => ({ rank: hole ? rankOfOuter : rank, cls: -1, points, width })))
   }
-  const borders: GeoLine[] = decodeRings(BORDERS_50M).map((line) => ({
-    rank: Math.min(RANKS - 1, line.meta & 15),
-    cls: (line.meta >> 4) & 7,
-    points: lonLatToUnits(densifyLonLat(line.coords, MAX_STEP)),
-    width: Infinity,
-  }))
-  memo = {
-    land: byRank.map((polys) => triangulateSphere(polys, CELLS_PER_FACE)),
-    coast,
-    borders,
-    ball: sphereMesh(),
+  takeLand(decodeRings(LAND_50M), byRank[0]!, (pts) => outsideOf(region, pts))
+  for (const pack of region.packs) {
+    const polys: SpherePolygon[][] = Array.from({ length: RANKS }, () => [])
+    byRank.push(polys)
+    takeLand(decodeRings(pack.land, pack.quantum), polys, (pts) => insideOf(region, pts))
   }
-  return memo
+  const borders: GeoLine[] = []
+  const takeBorders = (rings: readonly Ring[], part: (pts: Vec3[]) => Vec3[][]) => {
+    for (const line of rings) {
+      for (const points of part(lonLatToUnits(densifyLonLat(line.coords, MAX_STEP)))) {
+        borders.push({ rank: Math.min(RANKS - 1, line.meta & 15), cls: (line.meta >> 4) & 7, points, width: Infinity })
+      }
+    }
+  }
+  takeBorders(decodeRings(BORDERS_50M), (pts) => outsideOf(region, pts))
+  for (const pack of region.packs) takeBorders(decodeRings(pack.borders, pack.quantum), (pts) => insideOf(region, pts))
+  const land = Array.from({ length: RANKS }, (_, rank) =>
+    mergeMeshes(
+      byRank.map((polys, k) =>
+        triangulateSphere(polys[rank]!, CELLS_PER_FACE, k === 0 ? region.outside : region.inside),
+      ),
+    ),
+  )
+  const geo: Geography = { land, coast, borders, ball: sphereMesh() }
+  memo.set(region.key, geo)
+  return geo
 }
 
 /** Is the lon/lat step a → b an artefact of the lon/lat cut, not a shore? */
@@ -285,6 +320,18 @@ export class Earth extends Null {
   /** The landmass fill's opacity — 0 leaves the Earth as line art. */
   landOpacity = completion(1)
 
+  /**
+   * LIGHT ON THE LAND: the land's colour falls off radially from a place on
+   * the surface — `land × (1 − lightFalloff · smoothstep(0, lightReach, |p − c|))`,
+   * c at (lightLat, lightLon). An insight lighting the world from one point
+   * and spreading (Web3's LightSpread). Off at `lightFalloff` 0 (the
+   * default); `lightReach` 0 means the sheet's own extent.
+   */
+  lightLat = scalar(0)
+  lightLon = scalar(0)
+  lightFalloff = completion(0)
+  lightReach = length(0)
+
   /** Shoreline stroke: colour, pixel width, opacity, and its shared draw-on. */
   coastTint = color(WHITE)
   coastStroke = length(1.5)
@@ -339,6 +386,15 @@ export class Earth extends Null {
   highlight: string[] = []
 
   /**
+   * Regional 1:10m detail packs (codec.ts DetailPack, e.g. packs/alps10m.ts).
+   * Construction-time: inside a pack's box every layer is drawn from 1:10m,
+   * everywhere else from 1:50m — for the close views 1:50m cannot hold.
+   * A scene imports only the packs it needs, so the default bundle stays
+   * the 1:50m world.
+   */
+  packs: DetailPack[] = []
+
+  /**
    * Labels to build — construction-time, none by default. `countries`:
    * build country names with Natural Earth min_label up to this; `cities`:
    * city names with min_zoom up to this. Each still fades in by `detail`
@@ -347,6 +403,33 @@ export class Earth extends Null {
   labels: { countries?: number; cities?: number } = {}
   labelTint = color(rgb(0xb0, 0xb0, 0xb0))
   labelOpacity = completion(1)
+  /**
+   * DAY AND NIGHT. The sun stands over (sunLat, sunLon); the night side —
+   * every point more than 90° from it — is covered by `nightTint` at
+   * `nightOpacity`, softened across a twilight band of `twilight` degrees
+   * so dusk is a gradient, not a cut. The terminator (the day/night great
+   * circle) is its own stroke. Both off by default.
+   */
+  sunLat = scalar(0)
+  sunLon = scalar(0)
+  nightTint = color(rgb(0, 0, 0))
+  nightOpacity = completion(0)
+  /** Width of the twilight band, degrees (construction-time). */
+  twilight = 12
+  terminatorTint = color(rgb(0x8c, 0x78, 0x50))
+  terminatorStroke = length(1)
+  terminatorOpacity = completion(0)
+
+  /**
+   * ATMOSPHERE: a hatched halo outside the limb — the silhouettes of a few
+   * slightly larger spheres, fading outward, so the planet's edge glows in
+   * lines rather than in a blur. `atmosphereWidth` is the halo's depth as
+   * a fraction of the radius. Needs the eye (`seenFrom`).
+   */
+  atmosphereTint = color(rgb(0x2a, 0x5a, 0x8c))
+  atmosphereOpacity = completion(0)
+  atmosphereWidth = scalar(0.03)
+
   /** Label text height in screen pixels (720-line reference); cities are drawn at 0.85 of it. */
   labelSize = length(11)
   /**
@@ -373,6 +456,9 @@ export class Earth extends Null {
   lakeSheets: Surface[] = []
   lakeShores: Line[] = []
   riverLines: Line[] = []
+  nightSheets: Surface[] = []
+  terminator!: Line
+  atmosphereRings: Line[] = []
   countryLabels: Label[] = []
   cityLabels: Label[] = []
   private countrySheets = new Map<string, Surface>()
@@ -394,7 +480,8 @@ export class Earth extends Null {
   }
 
   protected override compose(): void {
-    const geo = geography()
+    const region = regionOf(this.packs)
+    const geo = geography(region)
     const r = this.radius.value
 
     this.ball = this.add(new Surface({ solid: true, tint: this.sea }))
@@ -415,6 +502,11 @@ export class Earth extends Null {
         new Surface({
           tint: this.land,
           fillOpacity: derive(() => this.landOpacity.value * lod(rank, this.detail.value)),
+          fillFalloff: this.lightFalloff,
+          fillFalloffRadius: this.lightReach,
+          fillFalloffX: derive(() => this.latLonToLocal(this.lightLat.value, this.lightLon.value).x),
+          fillFalloffY: derive(() => this.latLonToLocal(this.lightLat.value, this.lightLon.value).y),
+          fillFalloffZ: derive(() => this.latLonToLocal(this.lightLat.value, this.lightLon.value).z),
         }),
       )
       sheet.positions = scaledMesh(mesh, r)
@@ -425,13 +517,13 @@ export class Earth extends Null {
     // The highlighted countries over the land, then the lakes over both —
     // a lit country's lakes stay water.
     for (const iso of this.highlight) {
-      const mesh = countryMesh(iso)
+      const mesh = countryMesh(iso, region)
       const sheet = this.add(new Surface({ tint: RED, fillOpacity: 0 }))
       sheet.positions = scaledMesh(mesh, r)
       sheet.indices = mesh.indices
       this.countrySheets.set(iso, sheet)
     }
-    const lakes = lakeGeometry()
+    const lakes = lakeGeometry(region)
     for (const [rank, mesh] of [...lakes.sheets].sort((a, b) => a[0] - b[0])) {
       if (mesh.indices.length === 0) continue
       const sheet = this.add(
@@ -444,6 +536,32 @@ export class Earth extends Null {
       sheet.indices = mesh.indices
       this.lakeSheets.push(sheet)
     }
+    // Night over everything filled: a full-strength cap beyond the twilight,
+    // then thin bands across it whose opacity falls toward the day side.
+    const sun = () => latLonToUnit(this.sunLat.value, this.sunLon.value)
+    const sunKey = () => `${this.sunLat.value},${this.sunLon.value}`
+    const anti = (): Vec3 => {
+      const p = sun()
+      return { x: -p.x, y: -p.y, z: -p.z }
+    }
+    const tw = (this.twilight * Math.PI) / 180
+    const BANDS = 12
+    const bands: [number, number, number][] = [[0, Math.PI / 2 - tw / 2, 1]]
+    for (let k = 0; k < BANDS; k++) {
+      const a0 = Math.PI / 2 - tw / 2 + (tw * k) / BANDS
+      bands.push([a0, a0 + tw / BANDS, 1 - (k + 0.5) / BANDS])
+    }
+    for (const [a0, a1, weight] of bands) {
+      const sheet = this.add(
+        new Surface({ tint: this.nightTint, fillOpacity: derive(() => this.nightOpacity.value * weight) }),
+      )
+      deriveSurface(sheet, sunKey, () => {
+        const m = sphereBand(anti(), a0, a1)
+        return { positions: scaledMesh(m, r), indices: m.indices }
+      })
+      this.nightSheets.push(sheet)
+    }
+
     const strokes = new Null()
     this.add(strokes)
     // The graticule lies under every other stroke.
@@ -489,7 +607,7 @@ export class Earth extends Null {
         ),
       )
     }
-    for (const g of riverGeometry()) {
+    for (const g of riverGeometry(region)) {
       this.riverLines.push(
         addTo(
           strokes,
@@ -504,6 +622,34 @@ export class Earth extends Null {
       )
     }
     for (const g of geo.borders) this.borderLines.push(addTo(strokes, lineOf(g, "border")))
+    this.terminator = addTo(
+      strokes,
+      new Line({ tint: this.terminatorTint, stroke: this.terminatorStroke, opacity: this.terminatorOpacity }),
+    )
+    deriveLine(this.terminator, sunKey, () => {
+      const c = sun()
+      return circlePoints({ centre: { x: 0, y: 0, z: 0 }, normal: c, radius: r * 1.0005 })
+    })
+
+    // The atmosphere: silhouettes of slightly larger spheres, fading out.
+    const RINGS = 7
+    for (let k = 1; k <= RINGS; k++) {
+      const f = k / RINGS
+      const ring = this.add(
+        new Line({
+          tint: this.atmosphereTint,
+          stroke: 1,
+          opacity: derive(() => this.atmosphereOpacity.value * Math.pow(1 - f + 1 / RINGS, 1.6)),
+        }),
+      )
+      deriveLine(ring, () => `${this.horizonKey()},${this.atmosphereWidth.value}`, () => {
+        const e = this.localEye()
+        if (!e) return []
+        const h = horizonCircle(e.point, r * (1 + this.atmosphereWidth.value * f), e.orthographic)
+        return h ? circlePoints(h) : []
+      })
+      this.atmosphereRings.push(ring)
+    }
 
     // The limb: the horizon circle, lifted a hair toward the eye so the
     // disc it rims never covers its own edge.
@@ -533,13 +679,14 @@ export class Earth extends Null {
     const { countries: maxCountry, cities: maxCity } = this.labels
     if (maxCountry !== undefined || maxCity !== undefined) {
       const board = billboard(this)
+      const layout = new LabelLayout(this, board)
       const labels = new Null()
       this.add(labels)
       if (maxCountry !== undefined) {
         for (const c of countries()) {
           if (!(c.minLabel <= maxCountry)) continue
           this.countryLabels.push(
-            addTo(labels, makeLabel(this, board, {
+            addTo(labels, makeLabel(this, board, layout, {
               lat: c.labelLat, lon: c.labelLon, text: c.name.toUpperCase(), rank: Math.round(c.minLabel * 2), kind: "country",
             })),
           )
@@ -549,8 +696,9 @@ export class Earth extends Null {
         for (const c of cities()) {
           if (!(c.minZoom <= maxCity)) continue
           this.cityLabels.push(
-            addTo(labels, makeLabel(this, board, {
+            addTo(labels, makeLabel(this, board, layout, {
               lat: c.lat, lon: c.lon, text: c.name, rank: Math.round(c.minZoom * 2), kind: "city",
+              capital: c.capital, population: c.population,
             })),
           )
         }

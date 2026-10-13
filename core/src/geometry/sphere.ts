@@ -263,6 +263,12 @@ const gridLines = (g: number): number[] => {
 export const triangulateSphere = (
   polygons: readonly SpherePolygon[],
   cellsPerFace = 64,
+  /**
+   * Which grid cells to triangulate (`cellKey`) — all when omitted. Two
+   * meshes built with complementary filters meet exactly along the cell
+   * lines, which is how a regional 1:10m pack sits inside the 1:50m world.
+   */
+  keep?: (cell: number) => boolean,
 ): SphereMesh => {
   const lines = gridLines(cellsPerFace)
   const positions: number[] = []
@@ -281,7 +287,7 @@ export const triangulateSphere = (
     return lo
   }
 
-  for (const face of FACES) {
+  for (const [faceIndex, face] of FACES.entries()) {
     const planes = [
       v(face.n.x - face.e1.x, face.n.y - face.e1.y, face.n.z - face.e1.z),
       v(face.n.x + face.e1.x, face.n.y + face.e1.y, face.n.z + face.e1.z),
@@ -347,6 +353,7 @@ export const triangulateSphere = (
         if (sOuter.length < 6) continue
         const sHoles = holes.map(strip)
         for (let cj = cj0; cj <= cj1; cj++) {
+          if (keep && !keep(cellKey(faceIndex, ci, cj))) continue
           const cell = (r: number[]) =>
             clipAxis(clipAxis(r, 1, lines[cj]!, true), 1, lines[cj + 1]!, false)
           const cOuter = cell(sOuter)
@@ -492,3 +499,125 @@ export const sphereBand = (centre: Vec3, a0: number, a1: number, segments = 128,
   }
   return { positions: new Float32Array(positions), indices: new Uint32Array(indices) }
 }
+
+// --- The cell grid, for regional detail -------------------------------------
+
+/** One number naming a grid cell: its cube face and its column/row on it. */
+export const cellKey = (face: number, i: number, j: number): number => face * 1_000_000 + i * 1000 + j
+
+const cellIndex = (lines: readonly number[], c: number): number => {
+  let lo = 0
+  let hi = lines.length - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (lines[mid]! <= c) lo = mid
+    else hi = mid
+  }
+  return lo
+}
+
+const gridMemo = new Map<number, number[]>()
+const gridOf = (g: number): number[] => {
+  let lines = gridMemo.get(g)
+  if (!lines) gridMemo.set(g, (lines = gridLines(g)))
+  return lines
+}
+
+/** The grid cell (`cellKey`) a direction falls in — the face it points at most. */
+export const cellOfPoint = (p: Vec3, cellsPerFace = 64): number => {
+  let best = 0
+  let bestDot = -Infinity
+  FACES.forEach((f, k) => {
+    const d = dot(p, f.n)
+    if (d > bestDot) {
+      bestDot = d
+      best = k
+    }
+  })
+  const f = FACES[best]!
+  const lines = gridOf(cellsPerFace)
+  const u = Math.max(-1, Math.min(1, dot(p, f.e1) / bestDot))
+  const w = Math.max(-1, Math.min(1, dot(p, f.e2) / bestDot))
+  return cellKey(best, Math.min(cellsPerFace - 1, cellIndex(lines, u)), Math.min(cellsPerFace - 1, cellIndex(lines, w)))
+}
+
+/**
+ * Every grid cell lying wholly inside a lon/lat box [west, south, east,
+ * north] (all four corners in it) — the region a regional pack replaces.
+ */
+export const cellsInBox = (box: readonly [number, number, number, number], cellsPerFace = 64): Set<number> => {
+  const [west, south, east, north] = box
+  const lines = gridOf(cellsPerFace)
+  const inBox = (p: Vec3): boolean => {
+    const { lat, lon } = unitToLatLon(p)
+    return lon >= west && lon <= east && lat >= south && lat <= north
+  }
+  const out = new Set<number>()
+  FACES.forEach((f, k) => {
+    // A face whose centre is more than 90° from the box can hold none of it.
+    for (let i = 0; i < cellsPerFace; i++) {
+      for (let j = 0; j < cellsPerFace; j++) {
+        let all = true
+        for (const [a, b] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]] as const) {
+          const u = lines[a]!
+          const w = lines[b]!
+          const x = f.n.x + f.e1.x * u + f.e2.x * w
+          const y = f.n.y + f.e1.y * u + f.e2.y * w
+          const z = f.n.z + f.e1.z * u + f.e2.z * w
+          if (!inBox({ x, y, z })) {
+            all = false
+            break
+          }
+        }
+        if (all) out.add(cellKey(k, i, j))
+      }
+    }
+  })
+  return out
+}
+
+/**
+ * Split a surface polyline into its runs inside and outside a region,
+ * cutting each crossing segment where it meets the region's edge (found
+ * by bisection along the segment, to ~1e-9 of its length), so an inside
+ * run and the outside run beside it share their end point.
+ */
+export const splitRuns = (
+  pts: readonly Vec3[],
+  inside: (p: Vec3) => boolean,
+): { inside: Vec3[][]; outside: Vec3[][] } => {
+  const out = { inside: [] as Vec3[][], outside: [] as Vec3[][] }
+  if (pts.length < 2) return out
+  let state = inside(pts[0]!)
+  let run: Vec3[] = [pts[0]!]
+  const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => {
+    const x = a.x + (b.x - a.x) * t
+    const y = a.y + (b.y - a.y) * t
+    const z = a.z + (b.z - a.z) * t
+    const l = Math.hypot(x, y, z) || 1
+    return { x: x / l, y: y / l, z: z / l }
+  }
+  for (let i = 1; i < pts.length; i++) {
+    const b = pts[i]!
+    const s = inside(b)
+    if (s !== state) {
+      const a = pts[i - 1]!
+      let lo = 0
+      let hi = 1
+      for (let k = 0; k < 30; k++) {
+        const mid = (lo + hi) / 2
+        if (inside(lerp(a, b, mid)) === state) lo = mid
+        else hi = mid
+      }
+      const c = lerp(a, b, (lo + hi) / 2)
+      run.push(c)
+      if (run.length >= 2) (state ? out.inside : out.outside).push(run)
+      run = [c]
+      state = s
+    }
+    run.push(b)
+  }
+  if (run.length >= 2) (state ? out.inside : out.outside).push(run)
+  return out
+}
+

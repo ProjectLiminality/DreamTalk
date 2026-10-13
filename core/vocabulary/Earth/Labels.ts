@@ -22,7 +22,7 @@
  * the black sea and on dimmed land without competing with the coast.
  */
 
-import { Euler, PerspectiveCamera, Quaternion, Vector3 } from "three/webgpu"
+import { Euler, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from "three/webgpu"
 import { Circle, Null } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { derive } from "../../src/params"
@@ -41,11 +41,18 @@ export interface Billboard {
   unitsPerPx(x: number, y: number, z: number): number
   /** 0 behind the horizon, rising to 1 a little in front of it. */
   facing(x: number, y: number, z: number): number
+  /**
+   * A local point on the 1280 × 720 reference frame, or undefined behind
+   * the camera / for an orthographic eye (where labels skip decluttering).
+   */
+  toScreen(x: number, y: number, z: number): [number, number] | undefined
+  /** Bumped whenever the camera or the Earth moved — a cheap memo key. */
+  version(): number
 }
 
 /** How far above the ground a label floats, as a fraction of the radius. */
 const LIFT = 0.003
-/** The band in front of the horizon over which a label fades in (cosine units). */
+/** The sight-line elevation (sine) over which a label fades in from the horizon. */
 const HORIZON_FADE = 0.25
 
 /**
@@ -65,6 +72,9 @@ export const billboard = (earth: Earth): Billboard => {
   let tanHalf = Math.tan(((53.13 * Math.PI) / 180) / 2)
   let ortho = false
   let orthoUnits = 1
+  let version = 0
+  const world = new Matrix4()
+  const scratch = new Vector3()
 
   const refresh = (): void => {
     let i = 0
@@ -83,6 +93,7 @@ export const billboard = (earth: Earth): Billboard => {
     }
     for (const p of own) at(p.value)
     if (!moved) return
+    version++
 
     // The camera exactly as the host places it (three-host syncCamera).
     const phi = o ? o.phi.value : 0
@@ -97,7 +108,13 @@ export const billboard = (earth: Earth): Billboard => {
     cam.up.set(0, 1, 0)
     cam.lookAt(focus)
     if (o && o.tilt.value !== 0) cam.rotateZ(o.tilt.value)
+    cam.fov = ((o ? o.fov.value : (53.13 * Math.PI) / 180) * 180) / Math.PI
+    cam.aspect = 16 / 9
+    cam.near = 1
+    cam.far = 100000
+    cam.updateProjectionMatrix()
     cam.updateMatrixWorld()
+    world.copy(worldMatrix(earth))
 
     // Into the Earth's frame: q_label = q_earth⁻¹ · q_camera.
     worldMatrix(earth).decompose(pos, qEarth, scl)
@@ -123,16 +140,32 @@ export const billboard = (earth: Earth): Billboard => {
       if (ortho) return orthoUnits
       return (Math.hypot(eye.x - x, eye.y - y, eye.z - z) * tanHalf) / 360
     },
+    toScreen: (x, y, z) => {
+      refresh()
+      if (ortho) return undefined
+      const v = scratch.set(x, y, z).applyMatrix4(world).project(cam)
+      if (!(v.z < 1)) return undefined
+      return [((v.x + 1) / 2) * 1280, ((1 - v.y) / 2) * 720]
+    },
+    version: () => {
+      refresh()
+      return version
+    },
     facing: (x, y, z) => {
       refresh()
-      const R = earth.radius.value
-      const d = Math.hypot(eye.x, eye.y, eye.z)
+      // The elevation of the sight line at the label: the ground normal
+      // against the direction to the eye — 1 looking straight down, 0 at
+      // the horizon, below 0 behind it, whatever the altitude.
+      const n = Math.hypot(x, y, z) || 1
       if (ortho) {
-        const m = (x * eye.x + y * eye.y + z * eye.z) / (R * d)
-        return smooth(m / HORIZON_FADE)
+        const d = Math.hypot(eye.x, eye.y, eye.z) || 1
+        return smooth((x * eye.x + y * eye.y + z * eye.z) / (n * d) / HORIZON_FADE)
       }
-      const m = (x * eye.x + y * eye.y + z * eye.z - R * R) / (R * d)
-      return smooth(m / HORIZON_FADE)
+      const vx = eye.x - x
+      const vy = eye.y - y
+      const vz = eye.z - z
+      const v = Math.hypot(vx, vy, vz) || 1
+      return smooth((x * vx + y * vy + z * vz) / (n * v) / HORIZON_FADE)
     },
   }
 }
@@ -142,14 +175,120 @@ const smooth = (t: number): number => {
   return u * u * (3 - 2 * u)
 }
 
+/** One registered label, as the declutter pass sees it. */
+interface Placed {
+  x: number
+  y: number
+  z: number
+  /** Presence before collision: labelOpacity × LOD × horizon. */
+  base: () => number
+  /** Box in label units (× pixel size): left, right, top, bottom around the anchor. */
+  box: [number, number, number, number]
+  /** Lower draws first and wins. */
+  priority: number
+  scale: number
+}
+
+/**
+ * DECLUTTER. Names that would overprint each other yield to the stronger
+ * one — greedy placement in a FIXED priority order (rank, then capitals,
+ * then population; countries before the cities inside them), so which
+ * name wins never depends on the camera, only on the map.
+ *
+ * And it is continuous, which is what keeps it still while the camera
+ * moves. A label is not in or out: its opacity falls with how much of
+ * its (padded) screen box is already covered by the labels placed before
+ * it, each weighted by its own opacity. Overlap changes continuously as
+ * the eye moves, so names cross-fade where a hard in/out would flicker
+ * at the boundary. That is the hysteresis a game would keep as state,
+ * achieved without any — the layout is a pure function of the frame, so
+ * scrubbing backwards shows exactly what playing forwards showed.
+ */
+export class LabelLayout {
+  private readonly items: Placed[] = []
+  private order: number[] = []
+  private result = new Float64Array(0)
+  private key = new Float64Array(5).fill(Number.NaN)
+
+  constructor(
+    private readonly earth: Earth,
+    private readonly board: Billboard,
+  ) {}
+
+  add(item: Placed): number {
+    this.items.push(item)
+    this.order = this.items.map((_, i) => i).sort((a, b) => this.items[a]!.priority - this.items[b]!.priority)
+    this.result = new Float64Array(this.items.length)
+    this.key.fill(Number.NaN)
+    return this.items.length - 1
+  }
+
+  /** The final opacity of label `i` this frame. */
+  opacity(i: number): number {
+    this.layout()
+    return this.result[i]!
+  }
+
+  private layout(): void {
+    const e = this.earth
+    const k = [this.board.version(), e.detail.value, e.labelOpacity.value, e.labelSize.value, e.labelBias.value]
+    if (k.every((v, j) => v === this.key[j])) return
+    k.forEach((v, j) => (this.key[j] = v))
+    const size = e.labelSize.value
+    const placed: { l: number; r: number; t: number; b: number; w: number }[] = []
+    for (const i of this.order) {
+      const it = this.items[i]!
+      const base = it.base()
+      if (base <= 0.002) {
+        this.result[i] = 0
+        continue
+      }
+      const s = this.board.toScreen(it.x, it.y, it.z)
+      if (!s) {
+        this.result[i] = base
+        continue
+      }
+      const px = size * it.scale
+      const l = s[0] + it.box[0] * px - PAD
+      const r = s[0] + it.box[1] * px + PAD
+      const t = s[1] - it.box[2] * px - PAD
+      const b = s[1] - it.box[3] * px + PAD
+      const area = (r - l) * (b - t)
+      let covered = 0
+      for (const q of placed) {
+        const ix = Math.min(r, q.r) - Math.max(l, q.l)
+        const iy = Math.min(b, q.b) - Math.max(t, q.t)
+        if (ix > 0 && iy > 0) covered = Math.max(covered, ((ix * iy) / area) * q.w)
+      }
+      const o = base * (1 - smooth(covered / YIELD))
+      this.result[i] = o
+      if (o > 0.002) placed.push({ l, r, t, b, w: o / Math.max(base, 1e-9) })
+    }
+  }
+}
+
+/** Breathing room round every label box, screen pixels. */
+const PAD = 3
+/** A label is gone once this fraction of its box is covered by stronger ones. */
+const YIELD = 0.12
+
 /**
  * Build one label: anchored at (lat, lon), facing the camera, sized in
- * pixels, fading by rank and toward the horizon.
+ * pixels, fading by rank, toward the horizon, and under stronger names.
  */
 export const makeLabel = (
   earth: Earth,
   board: Billboard,
-  spec: { lat: number; lon: number; text: string; rank: number; kind: "country" | "city" },
+  layout: LabelLayout,
+  spec: {
+    lat: number
+    lon: number
+    text: string
+    rank: number
+    kind: "country" | "city"
+    capital?: boolean
+    population?: number
+  },
 ): Label => {
   const R = earth.radius.value
   const u = latLonToUnit(spec.lat, spec.lon)
@@ -158,19 +297,31 @@ export const makeLabel = (
   const ay = u.y * k
   const az = u.z * k
   const city = spec.kind === "city"
-  const presence = derive(
-    () =>
+  const scale = city ? 0.85 : 1
+  // Glyph advance is ~0.55 em (sentence case) / ~0.66 em (capitals) plus tracking.
+  const width = spec.text.length * (city ? 0.55 : 0.66 + 0.14)
+  const index = layout.add({
+    x: ax,
+    y: ay,
+    z: az,
+    base: () =>
       earth.labelOpacity.value *
       lodOf(spec.rank, earth.detail.value + earth.labelBias.value) *
       board.facing(ax, ay, az),
-  )
+    box: city ? [-0.3, 0.55 + width, 0.55, -0.55] : [-width / 2, width / 2, 0.55, -0.55],
+    priority:
+      spec.rank / 2 -
+      (city ? 0 : 0.75) -
+      (spec.capital ? 0.5 : 0) -
+      (spec.population ? Math.log10(1 + spec.population) * 0.05 : 0),
+    scale,
+  })
+  const presence = derive(() => layout.opacity(index))
   const anchor = new Null({ x: ax, y: ay, z: az })
   anchor.h.follow(derive(() => board.hpb()[0]))
   anchor.p.follow(derive(() => board.hpb()[1]))
   anchor.b.follow(derive(() => board.hpb()[2]))
-  anchor.scale.follow(
-    derive(() => board.unitsPerPx(ax, ay, az) * earth.labelSize.value * (city ? 0.85 : 1)),
-  )
+  anchor.scale.follow(derive(() => board.unitsPerPx(ax, ay, az) * earth.labelSize.value * scale))
   const add = <T extends import("../../src/holon").Holon>(h: T): T =>
     (anchor as unknown as { add(h: T): T }).add(h)
   add(
@@ -183,11 +334,10 @@ export const makeLabel = (
       tracking: city ? 0 : 0.14,
       align: city ? "left" : "center",
       x: city ? 0.55 : 0,
-      y: city ? -0.35 : -0.35,
+      y: -0.35,
       opacity: presence,
     }),
   )
   if (city) add(new Circle({ radius: 0.18, stroke: 0, fillOpacity: 1, tint: earth.labelTint, opacity: presence }))
   return anchor
 }
-

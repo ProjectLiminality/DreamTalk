@@ -3,6 +3,8 @@
  *
  *   bun vocabulary/Earth/gen-data.ts                 fetch from the source below
  *   bun vocabulary/Earth/gen-data.ts --from <dir>    use already-downloaded GeoJSON
+ *   bun vocabulary/Earth/gen-data.ts --pack alps 5,44,20,50.5 [--from <dir>]
+ *                                                    a regional 1:10m detail pack → packs/alps10m.ts
  *
  * Writes `naturalEarth.ts` beside this file. Nothing in the Earth is drawn
  * by hand: every coastline, every border, every island is Natural Earth.
@@ -100,6 +102,137 @@ const flat = (pts: Position[], quantum = 1000): number[] => {
     ly = qy
   }
   return out
+}
+
+// --- Regional 1:10m packs ----------------------------------------------------
+
+const packAt = process.argv.indexOf("--pack")
+if (packAt >= 0) {
+  const name = process.argv[packAt + 1]!
+  const box = process.argv[packAt + 2]!.split(",").map(Number) as [number, number, number, number]
+  await writePack(name, box)
+  process.exit(0)
+}
+
+/** Sutherland–Hodgman of a lon/lat ring against an axis-aligned box. */
+function cropRing(ring: Position[], [w, s, e, n]: number[]): Position[] {
+  let pts = ring
+  const edges: [number, number, boolean][] = [[0, w, true], [0, e, false], [1, s, true], [1, n, false]]
+  for (const [axis, k, above] of edges) {
+    const out: Position[] = []
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]!
+      const b = pts[(i + 1) % pts.length]!
+      const da = above ? a[axis]! - k : k - a[axis]!
+      const db = above ? b[axis]! - k : k - b[axis]!
+      if (da >= 0) out.push(a)
+      if ((da >= 0) !== (db >= 0)) {
+        const t = da / (da - db)
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+      }
+    }
+    pts = out
+    if (pts.length < 3) return []
+  }
+  return pts
+}
+
+/** The parts of a lon/lat polyline that come within the box (one point of overhang kept each side). */
+function cropLine(line: Position[], [w, s, e, n]: number[]): Position[][] {
+  const inBox = (p: Position) => p[0] >= w && p[0] <= e && p[1] >= s && p[1] <= n
+  const out: Position[][] = []
+  let run: Position[] = []
+  line.forEach((p, i) => {
+    const near = inBox(p) || (i > 0 && inBox(line[i - 1]!)) || (i + 1 < line.length && inBox(line[i + 1]!))
+    if (near) run.push(p)
+    else if (run.length) {
+      if (run.length >= 2) out.push(run)
+      run = []
+    }
+  })
+  if (run.length >= 2) out.push(run)
+  return out
+}
+
+async function writePack(name: string, box: [number, number, number, number]): Promise<void> {
+  const MARGIN = 1
+  const crop = [box[0] - MARGIN, box[1] - MARGIN, box[2] + MARGIN, box[3] + MARGIN]
+  const Q = 1000
+  const polys = (f: Feature) =>
+    (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as Position[][][]
+  const lines = (f: Feature) =>
+    (f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.coordinates) as Position[][]
+  const ringsOf = (features: Feature[], metaOf: (f: Feature, hole: boolean) => number) => {
+    const out: { meta: number; coords: number[] }[] = []
+    for (const f of features) {
+      if (!f.geometry) continue
+      for (const poly of polys(f)) {
+        const outer = cropRing(poly[0]!, crop)
+        if (outer.length < 3) continue
+        out.push({ meta: metaOf(f, false), coords: flat([...outer, outer[0]!], Q) })
+        for (const hole of poly.slice(1)) {
+          const h = cropRing(hole, crop)
+          if (h.length >= 3) out.push({ meta: metaOf(f, true), coords: flat([...h, h[0]!], Q) })
+        }
+      }
+    }
+    return out.filter((r) => r.coords.length >= 8)
+  }
+  const linesOf = (features: Feature[], metaOf: (f: Feature) => number) => {
+    const out: { meta: number; coords: number[] }[] = []
+    for (const f of features) {
+      if (!f.geometry) continue
+      for (const l of lines(f)) for (const part of cropLine(l, crop)) out.push({ meta: metaOf(f), coords: flat(part, Q) })
+    }
+    return out.filter((r) => r.coords.length >= 4)
+  }
+
+  const land = ringsOf(await load("ne_10m_land.geojson"), (f, hole) => rankOf(f.properties) | (hole ? 16 : 0))
+  const borders = linesOf(await load("ne_10m_admin_0_boundary_lines_land.geojson"), (f) => {
+    const cls = Math.max(0, BORDER_CLASSES.indexOf(f.properties.FEATURECLA as (typeof BORDER_CLASSES)[number]))
+    return rankOf(f.properties) | (cls << 4)
+  })
+  const lakes = ringsOf(await load("ne_10m_lakes.geojson"), (f, hole) => rankOf(f.properties) * 2 + (hole ? 1 : 0))
+  const rivers = linesOf(await load("ne_10m_rivers_lake_centerlines.geojson"), (f) => rankOf(f.properties))
+  const isos: string[] = []
+  const countries = ringsOf(await load("ne_10m_admin_0_countries.geojson"), (f, hole) => {
+    const p = f.properties
+    const raw = String(p.ISO_A2_EH ?? p.ISO_A2)
+    const iso = raw === "-99" ? String(p.ADM0_A3) : raw
+    let row = isos.indexOf(iso)
+    if (row < 0) row = isos.push(iso) - 1
+    return row * 2 + (hole ? 1 : 0)
+  })
+  const ident = name.replace(/[^a-z0-9]/gi, "").toUpperCase() + "_10M"
+  const n = (rs: { coords: number[] }[]) => rs.reduce((k, r) => k + r.coords.length / 2, 0)
+  const body = `/**
+ * Natural Earth 1:10m detail pack "${name}" — GENERATED by gen-data.ts --pack. Do not edit.
+ *
+ * Source: Natural Earth (public domain), nvkelso/natural-earth-vector @ ${TAG},
+ * cropped to [${box.join(", ")}] + ${MARGIN}°: land ${n(land)}, borders ${n(borders)},
+ * lakes ${n(lakes)}, rivers ${n(rivers)}, countries ${n(countries)} points (1/${Q}°).
+ * Use: new Earth({ packs: [${ident}] }) — see codec.ts DetailPack.
+ */
+
+import type { DetailPack } from "../codec"
+
+export const ${ident}: DetailPack = {
+  name: ${JSON.stringify(name)},
+  box: ${JSON.stringify(box)},
+  quantum: ${Q},
+  land: ${JSON.stringify(encodeRings(land, Q))},
+  borders: ${JSON.stringify(encodeRings(borders, Q))},
+  lakes: ${JSON.stringify(encodeRings(lakes, Q))},
+  rivers: ${JSON.stringify(encodeRings(rivers, Q))},
+  countries: ${JSON.stringify(encodeRings(countries, Q))},
+  countryIsos: ${JSON.stringify(isos)},
+}
+`
+  const { mkdirSync } = await import("node:fs")
+  mkdirSync(join(here, "packs"), { recursive: true })
+  const file = join(here, "packs", `${name}10m.ts`)
+  writeFileSync(file, body)
+  console.log(`packs/${name}10m.ts: ${(body.length / 1024).toFixed(0)} KB — land ${n(land)}, borders ${n(borders)}, lakes ${n(lakes)}, rivers ${n(rivers)}, countries ${n(countries)} pts`)
 }
 
 const land = await load(LAND)
