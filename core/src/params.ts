@@ -69,6 +69,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   #value: T
   #source?: Readable<T>
   #gate = 1
+  #bias = 0
 
   constructor(
     kind: ParamKind,
@@ -91,7 +92,8 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
   get value(): T {
     const v = this.#source ? this.#source.value : this.#value
-    return this.#gate === 1 || typeof v !== "number" ? v : ((v * this.#gate) as unknown as T)
+    if (typeof v !== "number" || (this.#gate === 1 && this.#bias === 0)) return v
+    return (v * this.#gate + this.#bias) as unknown as T
   }
 
   /**
@@ -111,6 +113,28 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   set gate(k: number) {
     this.#gate = k
+    epoch++
+  }
+
+  /**
+   * An offset added to a NUMERIC param's reading, after the gate — 0 (the
+   * default) is transparent. Like the gate it never touches the value or
+   * the binding underneath, so it works on a bound param too.
+   *
+   * It exists for the VIEWER'S camera (src/view.ts): orbiting a paused or
+   * free-play scene biases the observer's phi/theta/x/y/z (and gates its
+   * radius or zoom), so the host's camera AND every holon that reads the
+   * observer (Earth's horizon, a Lens, a Grain's facing) see the one
+   * effective pose — even where a rig binds the observer (EarthView).
+   * Nothing in a Dream sets it; exports and the gauntlet never see it.
+   */
+  get bias(): number {
+    return this.#bias
+  }
+
+  set bias(d: number) {
+    if (d === this.#bias) return
+    this.#bias = d
     epoch++
   }
 
