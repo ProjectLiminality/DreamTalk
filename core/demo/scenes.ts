@@ -100,6 +100,7 @@ import { RayCasterDemoDream } from "./RayCasterDemo"
 import { FillGlowDream } from "./FillGlow"
 import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { LensDream } from "./LensDemo"
+import { GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
@@ -115,6 +116,10 @@ export const scenes: Record<string, DreamClass> = {
   "morph-dot-truck": MorphDotTruckDream,
   // The abstract made concrete: a lens on a flow — line → road, dots → trucks.
   lens: LensDream,
+  // Material symbols (Pallet, FilmReel, Pouch, SheetStack) and the grain of knowledge.
+  materials: MaterialsDream,
+  grain: GrainDream,
+  "materials-faces": MaterialsFacesDream,
   // The lens on a live FlowMap flow, its window's road in the stack's own ground.
   "lens-flowmap": LensFlowMapDream,
   circle: CircleDream,
