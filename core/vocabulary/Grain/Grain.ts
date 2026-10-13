@@ -30,9 +30,10 @@
  * The morph runs in the Grain's OWN frame, not world space: a particle
  * travelling down a flow does not re-plan its morph each frame (under an
  * orthographic camera, never; in perspective, only as the view of it
- * turns). The dot faces the camera; so does the label (from the
- * observer's phi/theta — a Grain under a ROTATED parent should be carried
- * by a facing carrier, as FlowMap does).
+ * turns). The dot and the label face the camera as seen from the grain's
+ * own frame, so a Grain may sit under any parent, turned any way — a flow
+ * can turn its particles along its channel and the symbol shows its 3D
+ * side while the dot and the name still face the viewer.
  *
  *     new Grain({ observer: this.observer, category: BLUE,
  *                 symbol: (o) => new FilmReel(o), label: "BOPP film · 2,400 m" })
@@ -391,8 +392,11 @@ export class Grain extends Stroke {
         opacity: this.opacity,
       })
       this.label = text
-      const tilt = new Group({ members: [text], p: derive(() => -(observer?.theta.value ?? 0)) })
-      this.add(new Group({ members: [tilt], h: derive(() => observer?.phi.value ?? 0) }))
+      // Turned to the viewer as seen from THIS grain's frame (Ry(h)·Rx(p)
+      // carries +z onto the local view direction), so it reads under any
+      // parent — a flow that turns its particles along its channel, a stack.
+      const tilt = new Group({ members: [text], p: derive(() => -Math.asin(Math.max(-1, Math.min(1, this.toward().y)))) })
+      this.add(new Group({ members: [tilt], h: derive(() => Math.atan2(this.toward().x, this.toward().z)) }))
     }
   }
 

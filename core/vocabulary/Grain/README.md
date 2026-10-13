@@ -69,8 +69,10 @@ the Stroke set (`tint` is the symbol's lines). **Options**: `observer`,
 world space, so a particle travelling down a flow does not re-plan it as it
 moves — under an orthographic camera never (the plan is keyed on the view
 direction and the symbol), in perspective only as its view turns. The dot
-and the label face the camera from the observer's phi/theta, so a Grain
-under a ROTATED parent wants a facing carrier (as FlowMap's particles have).
+and the label face the camera as seen from the grain's OWN frame, so a
+Grain may sit under any parent turned any way: a flow can turn its
+particles along the channel, and the symbol shows its 3D side while the
+dot and the name still face the viewer.
 
 **Material symbols** it was made with: `Pallet`, `FilmReel`, `Pouch`,
 `SheetStack` (each its own folder); any `SolidDrawing` works — a `Truck`

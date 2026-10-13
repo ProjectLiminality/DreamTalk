@@ -258,3 +258,24 @@ describe("Grain — the item rung, data-driven", () => {
     expect(shown(3)).toEqual([false, true])
   })
 })
+
+describe("Grain — under a turned parent", () => {
+  test("the label faces the viewer from the grain's own frame: its normal is the local view direction", () => {
+    const o = observer()
+    const g = new Grain({ observer: o, symbol: (x) => new FilmReel(x), label: "PE film", h: 0.9, p: -0.3 })
+    void g.parts
+    const text = g.label!
+    const tilt = text.parent!
+    const turn = tilt.parent!
+    // +z through Rx(p) then Ry(h), in the grain's frame.
+    const p = tilt.p.value
+    const h = turn.h.value
+    const n = { x: Math.cos(p) * Math.sin(h), y: -Math.sin(p), z: Math.cos(p) * Math.cos(h) }
+    // The grain's local view direction, by the same chain the grain uses.
+    const dot = g.dotOutline()
+    const c = dot.reduce((a, q) => ({ x: a.x + q.x, y: a.y + q.y, z: a.z + q.z }), { x: 0, y: 0, z: 0 })
+    // The dot's plane is perpendicular to the view: n ⟂ (dot[0] − centre) and (dot[12] − centre).
+    const m = { x: c.x / dot.length, y: c.y / dot.length, z: c.z / dot.length }
+    for (const q of [dot[0]!, dot[12]!]) expect(Math.abs((q.x - m.x) * n.x + (q.y - m.y) * n.y + (q.z - m.z) * n.z)).toBeLessThan(1e-6 * 9)
+  })
+})
