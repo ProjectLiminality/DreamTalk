@@ -124,8 +124,10 @@ when done.
   beat 5 changes `op` itself. In creator mode: select `+`, open in editor,
   pick `×` in the inspector's menu → `new Calculator({ op: "×" })` is
   written into CreatorMode.ts (a shared param commits to its OWNER), 8
-  becomes 15, reload keeps it. Open: a paused view does not repaint when an
-  async text re-layout lands (needs a "layout landed" hook in render/text).
+  becomes 15, reload keeps it. ~~Open: a paused view does not repaint when an
+  async text re-layout lands~~ — done 2026-10-04: `onTextLayout` in
+  render/text.ts fires when glyphs land; the demo player redraws its held
+  frame and the paused editor repaints (one per animation frame).
 - **Changes are git-tracked**; Claude-artifact-style comment mode generalised to
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its
