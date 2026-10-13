@@ -24,10 +24,10 @@
  * gathering instead.
  */
 
-import type { Anim } from "../../src/anim"
+import { together, type Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import type { Holon, Overrides } from "../../src/holon"
-import { Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import type { Color } from "../../src/constants"
 import { wordOutline } from "../../src/geometry/glyphs"
 import { ARIMO } from "../../src/geometry/fonts/arimo"
@@ -57,6 +57,14 @@ export interface WordMorphOptions {
   stagger?: number
   /** How far the strokes' paths bow. Default 0.15. */
   arc?: number
+  /** Details threshold (MorphCurves `minor`). Default 0.25. */
+  minor?: number
+  /**
+   * "line" (default): through the word's baseline — the symbol settles into
+   * one line, the letters rise from it. "none": straight from the symbol's
+   * strokes to the letters.
+   */
+  via?: "line" | "none"
 }
 
 export interface WordMorph {
@@ -70,6 +78,8 @@ export interface WordMorph {
   there(): Anim
   /** And back. */
   back(): Anim
+  /** Everything it built, for the scene to stage (a Dream's holons are its declared fields). */
+  holons: Holon[]
 }
 
 /** The camera's right on screen (the reading direction), or +x without one. */
@@ -120,27 +130,81 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
     ...opts.word,
   })
   const order = opts.order ?? "sweep-angular"
+  // Reading order follows the camera as it is WHEN THE MORPH RUNS (a scene
+  // sets its camera in unfold, after this is built).
+  const liveAxis = () => readingAxis(observer)
   const morphOpts = {
     observer,
     opacity: 0,
     order,
-    axis,
+    axis: liveAxis,
     // Whole strokes to whole letters where the lengths allow (snap), the
     // letters arriving one after another in reading order (stagger), each
     // stroke flying as a body on a gentle arc.
     snap: opts.snap ?? 0.04,
     stagger: opts.stagger ?? 0.35,
+    // The symbol's small closed details (wheels, windows) fly whole onto
+    // the word's (an i's dot, a counter) or condense where they are.
+    minor: opts.minor ?? 0.25,
     arc: opts.arc ?? 0.15,
     ...(opts.lag !== undefined ? { lag: opts.lag, travel: "lerp" as const } : {}),
     ...(symbol instanceof Stroke ? { stroke: symbol.stroke } : {}),
   }
-  const toWord = new MorphCurves([symbol], [word], morphOpts)
-  const toSymbol = new MorphCurves([word], [symbol], morphOpts)
+  if ((opts.via ?? "line") === "none") {
+    const toWord = new MorphCurves([symbol], [word], morphOpts)
+    const toSymbol = new MorphCurves([word], [symbol], morphOpts)
+    return {
+      word,
+      toWord,
+      toSymbol,
+      holons: [word, toWord, toSymbol],
+      there: () => MorphMany(toWord),
+      back: () => MorphMany(toSymbol),
+    }
+  }
+  // VIA THE LINE: the symbol's strokes settle into one horizontal line —
+  // the word's baseline, laid out in reading order — and the letters rise
+  // from it. The middle of the morph is a single clean line: the essence
+  // held for a beat between the thing and its name.
+  const unitPts = wordOutline(text, ARIMO, { size })
+  const wordWidth = unitPts.length ? Math.max(...unitPts.flat().map((p) => p.x)) - Math.min(...unitPts.flat().map((p) => p.x)) : size
+  const half = wordWidth / 2
+  // The baseline follows the camera (it lies along the camera's right, the
+  // way the word does), so it is level on screen whatever the view.
+  const line = new Line({
+    opacity: 0,
+    ...(tint ? { tint } : {}),
+    ...(symbol instanceof Stroke ? { stroke: symbol.stroke } : {}),
+  })
+  derivePoints(
+    line,
+    () => {
+      const a = liveAxis()
+      return [a.x, a.y, a.z]
+    },
+    () => {
+      const a = liveAxis()
+      return [
+        { x: centre.x - a.x * half, y: centre.y - a.y * half, z: centre.z - a.z * half },
+        { x: centre.x + a.x * half, y: centre.y + a.y * half, z: centre.z + a.z * half },
+      ]
+    },
+  )
+  // Onto the line: strokes laid side by side in reading order, each
+  // straightening as it lands; details condense.
+  const lineOpts = { ...morphOpts, order: "sweep" as const, stagger: (opts.stagger ?? 0.35) * 0.6 }
+  const toLine = new MorphCurves([symbol], [line], lineOpts)
+  const lineToWord = new MorphCurves([line], [word], morphOpts)
+  const wordToLine = new MorphCurves([word], [line], morphOpts)
+  const lineToSymbol = new MorphCurves([line], [symbol], lineOpts)
+  // The line is HELD for a beat between the two halves.
+  const half2 = (a: Anim, b: Anim): Anim => together([a, 0, 0.42], [b, 0.58, 1])
   return {
     word,
-    toWord,
-    toSymbol,
-    there: () => MorphMany(toWord),
-    back: () => MorphMany(toSymbol),
+    toWord: toLine,
+    toSymbol: lineToSymbol,
+    holons: [word, line, toLine, lineToWord, wordToLine, lineToSymbol],
+    there: () => half2(MorphMany(toLine), MorphMany(lineToWord)),
+    back: () => half2(MorphMany(wordToLine), MorphMany(lineToSymbol)),
   }
 }

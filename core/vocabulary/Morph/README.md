@@ -155,6 +155,14 @@ class TruckWord extends Dream {
 }
 ```
 
+By default it goes **through the line**: the symbol's strokes settle into
+one level line — the word's baseline, laid out in reading order, the
+symbol's small closed details (wheels, windows) condensing where they are
+— the line is held for a beat, and the letters rise from it left to right.
+The middle of the morph is a single clean line: the essence held between
+the thing and its name. `via: "none"` goes straight from strokes to letters.
+Stage everything it built: `for (const h of m.holons) this.stage(h)`.
+
 The word (`vocabulary/Word`) is the glyph contours as closed Lines, filled
 by even-odd so counters stay open, standing where the symbol is, as wide
 as it, and facing the camera. Its letters come from a font baked as data
@@ -163,7 +171,7 @@ as it, and facing the camera. Its letters come from a font baked as data
 is `"sweep-angular"`: the sweep along the reading direction decides which
 share of the symbol each letter gets, then each letter gathers its share
 around itself. The default `lag` is 0, so the drawing melts continuously
-into the writing. Composites work as wholes: MindVirus →
+into the writing (`via: "none"`). Composites work as wholes: MindVirus →
 "Mind Virus" hides every part that owns its opacity, and each piece leaves
 in its own part's colour. Scenes: `?scene=morph-word`,
 `?scene=morph-word-virus`; tests: `test/word.test.ts`.

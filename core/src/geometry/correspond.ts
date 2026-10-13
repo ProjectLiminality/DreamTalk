@@ -594,6 +594,12 @@ export interface PlannedPiece {
    * deformation, per point.
    */
   motion: { cs: Vec3Like; ct: Vec3Like; turn: number; scale: number; rel: Vec3Like[]; residual: Vec3Like[] }
+  /**
+   * A DETAIL with nothing to become (planMorphDetailed): "out" shrinks to
+   * its own centre and fades early (`target` is −1); "in" grows from its
+   * centre and fades in late (`source` is −1). Absent: an ordinary piece.
+   */
+  condense?: "out" | "in"
 }
 
 export interface MorphPlan {
@@ -775,6 +781,13 @@ export const blendTravel = (plan: MorphPlan, u: number, opts: TravelOptions = {}
     const e = stagger > 0 ? Math.min(1, Math.max(0, (t - k * stagger) / (1 - stagger))) : t
     if (e <= 0) return p.from.map((q) => add(q, of))
     if (e >= 1) return p.to.map((q) => add(q, ot))
+    if (p.condense) {
+      // A detail that does not fly: it condenses where it is.
+      const c = p.condense === "out" ? add(p.motion.cs, of) : add(p.motion.ct, ot)
+      const pts = p.condense === "out" ? p.from.map((q) => add(q, of)) : p.to.map((q) => add(q, ot))
+      const k = p.condense === "out" ? 1 - smooth(0, 0.6, e) : smooth(0.4, 1, e)
+      return pts.map((q) => ({ x: c.x + (q.x - c.x) * k, y: c.y + (q.y - c.y) * k, z: c.z + (q.z - c.z) * k }))
+    }
     const { rel, residual, turn, scale } = p.motion
     const cs = add(p.motion.cs, of)
     const ct = add(p.motion.ct, ot)
@@ -801,6 +814,105 @@ export const blendTravel = (plan: MorphPlan, u: number, opts: TravelOptions = {}
       return { x: c.x + q.x * sc + d.x * w, y: c.y + q.y * sc + d.y * w, z: c.z + q.z * sc + d.z * w }
     })
   })
+}
+
+/**
+ * Each piece's opacity at u: 1 for a piece that flies; a condensing detail
+ * fades out early ("out") or in late ("in"), with the same stagger.
+ */
+export const pieceAlphas = (plan: MorphPlan, u: number, opts: TravelOptions = {}): number[] => {
+  const t = Math.min(1, Math.max(0, u))
+  const stagger = Math.min(0.9, Math.max(0, opts.stagger ?? 0))
+  const n = norm(plan.normal)
+  const axis = norm(opts.axis ?? planeBasis(n)[0])
+  const keys = plan.pieces.map((p) => dot(p.motion.ct, axis))
+  const lo = Math.min(...keys)
+  const hi = Math.max(...keys)
+  const smooth = (e0: number, e1: number, x: number) => {
+    const k = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
+    return k * k * (3 - 2 * k)
+  }
+  return plan.pieces.map((p, i) => {
+    if (!p.condense) return 1
+    const k = hi > lo ? (keys[i]! - lo) / (hi - lo) : 0
+    const e = stagger > 0 ? Math.min(1, Math.max(0, (t - k * stagger) / (1 - stagger))) : t
+    return p.condense === "out" ? 1 - smooth(0.1, 0.6, e) : smooth(0.4, 0.9, e)
+  })
+}
+
+/**
+ * Plan with DETAILS. On each side, a closed curve shorter than `minor` ×
+ * that side's longest curve is a detail (a wheel, a hub, a window; an
+ * i's dot, a small counter). The large curves correspond as usual; details
+ * pair up in order along `axis`, each pair a whole closed curve flying
+ * onto another; the details left over CONDENSE — a source's shrinks to
+ * its centre and fades, a target's grows from its centre — rather than
+ * being shredded into fragments of strokes they have nothing to do with.
+ * `minor` 0 (default) is planMorph unchanged.
+ */
+export const planMorphDetailed = (
+  sources: readonly Curve[],
+  targets: readonly Curve[],
+  opts: PlanOptions & { minor?: number } = {},
+): MorphPlan => {
+  const minor = opts.minor ?? 0
+  if (minor <= 0) return planMorph(sources, targets, opts)
+  const isClosed = (c: Curve) => c.length > 3 && Math.sqrt(dist2(c[0]!, c[c.length - 1]!)) <= 1e-9
+  const lens = (cs: readonly Curve[]) => cs.map((c) => cumulative(c).at(-1)!)
+  const split = (cs: readonly Curve[]) => {
+    const L = lens(cs)
+    const max = Math.max(0, ...L)
+    const major: number[] = []
+    const small: number[] = []
+    cs.forEach((c, i) => (isClosed(c) && L[i]! < minor * max ? small : major).push(i))
+    return { major, small }
+  }
+  const S = split(sources)
+  const T = split(targets)
+  const n3 = norm(opts.normal ?? { x: 0, y: 0, z: 1 })
+  const axis = norm(opts.axis ?? planeBasis(n3)[0])
+  const base = planMorph(
+    S.major.map((i) => sources[i]!),
+    T.major.map((j) => targets[j]!),
+    opts,
+  )
+  const pieces: PlannedPiece[] = base.pieces.map((p) => ({ ...p, source: S.major[p.source]!, target: T.major[p.target]! }))
+  const centroid = (c: Curve) => c.reduce((a, q) => ({ x: a.x + q.x / c.length, y: a.y + q.y / c.length, z: a.z + q.z / c.length }), { x: 0, y: 0, z: 0 })
+  const byAxis = (cs: readonly Curve[], ids: number[]) => [...ids].sort((a, b) => dot(centroid(cs[a]!), axis) - dot(centroid(cs[b]!), axis) || a - b)
+  const sm = byAxis(sources, S.small)
+  const tm = byAxis(targets, T.small)
+  const pairs = Math.min(sm.length, tm.length)
+  // Spread the pairing evenly when one side has more details than the
+  // other, so the leftovers are spread too, not bunched at one end.
+  const pick = (ids: number[], k: number) => ids[Math.floor(((k + 0.5) * ids.length) / pairs)]!
+  const usedS = new Set<number>()
+  const usedT = new Set<number>()
+  for (let k = 0; k < pairs; k++) {
+    const si = sm.length > tm.length ? pick(sm, k) : sm[k]!
+    const ti = tm.length > sm.length ? pick(tm, k) : tm[k]!
+    usedS.add(si)
+    usedT.add(ti)
+    const one = planMorph([sources[si]!], [targets[ti]!], { ...opts, order: "angular", rotate: true, snap: 0 })
+    for (const p of one.pieces) pieces.push({ ...p, source: si, target: ti })
+  }
+  const still = (c: Curve, ctr: Vec3Like) => c.map(() => ({ ...ctr }))
+  for (const si of sm) {
+    if (usedS.has(si)) continue
+    const c = [...sources[si]!]
+    const ctr = centroid(c)
+    const to = still(c, ctr)
+    pieces.push({ source: si, target: -1, from: c, to, grows: false, motion: rigidFit(c, to, n3), condense: "out" })
+  }
+  for (const ti of tm) {
+    if (usedT.has(ti)) continue
+    const c = [...targets[ti]!]
+    const ctr = centroid(c)
+    const from = still(c, ctr)
+    pieces.push({ source: -1, target: ti, from, to: c, grows: true, motion: rigidFit(from, c, n3), condense: "in" })
+  }
+  const all = pieces.flatMap((q) => [q.motion.cs, q.motion.ct])
+  const centre = all.reduce((a, q) => ({ x: a.x + q.x / all.length, y: a.y + q.y / all.length, z: a.z + q.z / all.length }), { x: 0, y: 0, z: 0 })
+  return { pieces, correspondence: base.correspondence, normal: n3, centre }
 }
 
 /**

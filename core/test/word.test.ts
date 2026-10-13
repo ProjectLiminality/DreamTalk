@@ -102,10 +102,27 @@ describe("sweep-angular", () => {
 })
 
 describe("MorphToWord", () => {
+  test("via the line (default): the symbol settles into one line, the letters rise from it — and it builds all of it", () => {
+    const obs = new Observer({ phi: 0.6, theta: 0.3 })
+    const truck = new Truck({ observer: obs })
+    const m = MorphToWord(truck, "truck", { observer: obs })
+    expect(m.holons.length).toBe(6)
+    const line = m.holons.find((h): h is Line => h instanceof Line)!
+    expect(line.points.length).toBe(2)
+    // At the middle of `there()`, the line is shown and nothing else is drawn.
+    const tracks = m.there().tracks
+    const shows = tracks.filter((t) => t.param === line.opacity && t.values[0] === 1)
+    expect(shows.length).toBe(1)
+    expect(shows[0]!.relStop).toBeCloseTo(0.42, 6)
+    // …and it is held: the word appears only after 0.58.
+    const word = tracks.filter((t) => t.param === m.word.opacity && t.values[0] === 1)
+    expect(word[0]!.relStart).toBeGreaterThan(0.58)
+  })
+
   test("the word stands where the symbol is, as wide as it, and both morphs read both", () => {
     const obs = new Observer({ phi: 0.6, theta: 0.3 })
     const truck = new Truck({ observer: obs, x: 100 })
-    const m = MorphToWord(truck, "truck", { observer: obs })
+    const m = MorphToWord(truck, "truck", { observer: obs, via: "none" })
     expect(m.word.x.value).toBeCloseTo(100, 6)
     expect(m.word.opacity.value).toBe(0)
     m.toWord.morph.value = 1
@@ -118,7 +135,7 @@ describe("MorphToWord", () => {
     const virus = new MindVirus({})
     void virus.parts
     expect(curvesOf(virus).length).toBeGreaterThan(5)
-    const m = MorphToWord(virus, "Mind Virus")
+    const m = MorphToWord(virus, "Mind Virus", { via: "none" })
     const hidden = new Set(MorphMany(m.toWord).tracks.filter((t) => t.values[0] === 0 && t.param.name === "opacity").map((t) => t.param))
     for (const n of virus.walk()) if (!n.opacity.isBound && n.opacity.defaultValue > 0) expect(hidden.has(n.opacity)).toBe(true)
   })

@@ -24,13 +24,11 @@ export class MorphWordDream extends Dream {
   unfold() {
     this.set(...this.observer.orbit({ phi: PHI, theta: THETA }), ...this.observer.dolly(950))
     this.stage(this.truck)
-    this.stage(this.m.word)
-    this.stage(this.m.toWord)
-    this.stage(this.m.toSymbol)
+    for (const h of this.m.holons) this.stage(h)
     this.wait(1)
-    this.play(this.m.there(), 3.5)
+    this.play(this.m.there(), 5)
     this.wait(1.2)
-    this.play(this.m.back(), 3.5)
+    this.play(this.m.back(), 5)
     this.wait(1)
   }
 }
@@ -46,13 +44,11 @@ export class MorphWordVirusDream extends Dream {
 
   unfold() {
     this.stage(this.virus)
-    this.stage(this.m.word)
-    this.stage(this.m.toWord)
-    this.stage(this.m.toSymbol)
+    for (const h of this.m.holons) this.stage(h)
     this.wait(1)
-    this.play(this.m.there(), 3.5)
+    this.play(this.m.there(), 5)
     this.wait(1.2)
-    this.play(this.m.back(), 3.5)
+    this.play(this.m.back(), 5)
     this.wait(1)
   }
 }

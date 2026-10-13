@@ -62,6 +62,8 @@ import {
   blendPlan,
   blendTravel,
   chainCurves,
+  pieceAlphas,
+  planMorphDetailed,
   planMorph,
   type CorrespondOptions,
   type MorphPlan,
@@ -180,7 +182,12 @@ const tintOf = (h: Holon | undefined): Color => (h instanceof Stroke ? h.tint.va
 
 // ─── The holon ──────────────────────────────────────────────────────
 
-export interface MorphCurvesOptions extends CorrespondOptions {
+export interface MorphCurvesOptions extends Omit<CorrespondOptions, "axis"> {
+  /**
+   * The direction "sweep" and `stagger` read along — or a function of the
+   * moment (the camera's right, which moves with the camera). Default +X.
+   */
+  axis?: Vec3Like | (() => Vec3Like)
   /**
    * The scene's observer. With it, "angular" ordering reads angles in the
    * VIEW plane, so pieces sort as they are seen — what keeps a 3D morph
@@ -225,6 +232,14 @@ export interface MorphCurvesOptions extends CorrespondOptions {
    * before matching (chainCurves) — fewer, longer pieces. Default true.
    */
   chain?: boolean
+  /**
+   * Details (planMorphDetailed): a closed curve shorter than this fraction
+   * of its side's longest is a DETAIL — it flies whole onto a target
+   * detail, or condenses where it is (shrinks and fades; grows and fades
+   * in) — instead of being shredded into stroke fragments. 0 = off
+   * (default); MorphToWord uses 0.25.
+   */
+  minor?: number
 }
 
 /**
@@ -258,14 +273,14 @@ export class MorphCurves extends Stroke {
   private curvesMemo?: { curves: Vec3Like[][]; version: number }
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
-    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, ...rest } = options
+    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, ...rest } = options
     super(rest)
     if (!sources.length || !targets.length)
       throw new Error(
         `MorphCurves: needs at least one source and one target holon (got ${sources.length} → ${targets.length}). ` +
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
-    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain } }
+    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor } }
   }
 
   /** The current plan — re-planned only when an input's curves change. */
@@ -282,6 +297,7 @@ export class MorphCurves extends Stroke {
       -2,
       ...targets.flatMap((h) => [-1, ...signatureOf(h)]),
       ...(obs ? [obs.phi.value, obs.theta.value, obs.orthographic.value ? 1 : 0] : []),
+      ...((a) => (a ? [a.x, a.y, a.z] : []))(this.axisNow()),
     ]
     if (this.planMemo && sameKey(this.planMemo.key, key)) return this.planMemo
     const srcOwner: Holon[] = []
@@ -342,14 +358,14 @@ export class MorphCurves extends Stroke {
       ].join("|")
       let plan = this.relativePlans.get(shapeKey)
       if (!plan) {
-        plan = planMorph(rs, rt, { ...opts, normal })
+        plan = planMorphDetailed(rs, rt, { ...opts, axis: this.axisNow(), normal })
         if (this.relativePlans.size > 256) this.relativePlans.delete(this.relativePlans.keys().next().value!)
         this.relativePlans.set(shapeKey, plan)
       }
       this.planMemo = { key, plan, srcOwner, tgtOwner, offset: { from: cs, to: ct } }
       return this.planMemo
     }
-    const plan = planMorph(src, tgt, { ...opts, normal })
+    const plan = planMorphDetailed(src, tgt, { ...opts, axis: this.axisNow(), normal })
     this.planMemo = { key, plan, srcOwner, tgtOwner }
     return this.planMemo
   }
@@ -384,7 +400,7 @@ export class MorphCurves extends Stroke {
     const o = this.ends.opts
     const curves =
       (o.travel ?? "rigid") === "rigid"
-        ? blendTravel(plan, u, { stagger: o.stagger, axis: o.axis, arc: o.arc, bend: o.bend, offset })
+        ? blendTravel(plan, u, { stagger: o.stagger, axis: this.axisNow(), arc: o.arc, bend: o.bend, offset })
         : blendPlan(plan, u, o.lag ?? 0.5, offset)
     this.frameMemo = { plan, u, offset, curves, version: ++this.frames }
     return this.frameMemo
@@ -401,12 +417,36 @@ export class MorphCurves extends Stroke {
     const { plan, srcOwner, tgtOwner } = this.plan()
     const p = plan.pieces[i]
     if (!p) return WHITE
+    // A condensing detail keeps its own side's colour.
+    if (p.source < 0) return tintOf(tgtOwner[p.target])
+    if (p.target < 0) return tintOf(srcOwner[p.source])
     return mix(
       tintOf(srcOwner[p.source]),
       tintOf(tgtOwner[p.target]),
       u,
     )
   }
+
+  /** The reading axis now (a function of the moment, or a constant). */
+  private axisNow(): Vec3Like | undefined {
+    const a = this.ends.opts.axis
+    return typeof a === "function" ? a() : a
+  }
+
+  /** Piece i's opacity: 1, or a condensing detail's fade (pieceAlphas). */
+  private pieceAlpha(i: number): number {
+    const u = this.morph.value
+    if (u <= 0 || u >= 1) return 1
+    const o = this.ends.opts
+    const { plan } = this.plan()
+    if (!plan.pieces.some((p) => p.condense)) return 1
+    const epoch = paramEpoch()
+    if (this.alphaMemo?.epoch !== epoch || this.alphaMemo.plan !== plan) {
+      this.alphaMemo = { epoch, plan, alphas: pieceAlphas(plan, u, { stagger: o.stagger, axis: this.axisNow() }) }
+    }
+    return this.alphaMemo.alphas[i] ?? 1
+  }
+  private alphaMemo?: { epoch: number; plan: MorphPlan; alphas: number[] }
 
   /** The curves in flight, world space (this holon sits at the identity). */
   worldCurves(): Vec3Like[][] {
@@ -421,7 +461,7 @@ export class MorphCurves extends Stroke {
       const slot = new Line({
         tint: derive((): Color => this.pieceTint(i)),
         stroke: this.stroke,
-        opacity: this.opacity,
+        opacity: derive(() => this.opacity.value * this.pieceAlpha(i)),
         creation: this.creation,
       })
       // The curves are WORLD space; a morpher staged at the root draws them
