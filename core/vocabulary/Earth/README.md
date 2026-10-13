@@ -32,6 +32,13 @@ The planet as one programmatic object: a true 3D sphere with its land filled on 
 | atmosphere | a hatched halo outside the limb: the silhouettes of 7 slightly larger spheres, fading outward | `atmosphereTint` `atmosphereOpacity` `atmosphereWidth` |
 | light | the land lit radially from a place, `land × (1 − lightFalloff · smoothstep(0, lightReach, d))` (Web3's LightSpread) | `lightLat` `lightLon` `lightFalloff` `lightReach` |
 
+**Data layers: give any piece of information a home on the planet.** Each is fed by a plain table:
+- `Choropleth({ data: { AT: [..12 months..], … } })` gives every country its own sheet, tinted along a quiet ramp from `low` to `high` by its value at `period`. The period is continuous and values are interpolated between periods, so a year is one smooth param. Missing values are ghosted in DreamTalk's own language for uncertainty: faint, never gone, crossfading as data begins or ends. Pass it to `layers`, which draws over the land and under the lakes, coasts and borders.
+- `PointData({ rows: [{ lat, lon, values }] })` stands each row on the ground as a Place, either as a column (height ∝ value, line-drawn with true hidden lines) or as a disc (area ∝ value). `strength` raises them all out of the ground.
+- A `Connection` carries traffic when given `particles`. Short dashes run the great-circle arc from its first place to its second, using FlowMap's stream functions (`streamArc`, `streamFade`). `volume` controls how many are on the arc and how heavy each is, and `time` is a clock that keeps running in free play.
+
+`?scene=earth-data` shows a mock year: a value per country, columns at eight places, and six flows into one hub.
+
 **A visual automaton.** In free play (`?play=free` or Space), the Earth's own axes are keys:
 - **n**: time, cycling day → dusk → night (the sun's place and the night shown together)
 - **d**: land, white globe ↔ dim map
