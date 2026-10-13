@@ -22,7 +22,8 @@
  *     it (and `curveSignature()` to make change-detection cheap);
  *   - a morphable Stroke (Circle, Ellipse, Square, Polygon, Rectangle,
  *     Line) — its own outline, as Morph reads it (worldOutlineOf);
- *   - any other composite — every descendant Line with ink.
+ *   - any other composite — what it shows: every visible descendant with
+ *     curves of its own (a primitive's outline, a Line, a CurveBearing).
  *
  *
  * THREE CHANNELS, ONE VERB
@@ -51,7 +52,7 @@
 import { together, type Anim, type Windowed } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { Holon, type Overrides } from "../../src/holon"
-import { completion, paramEpoch } from "../../src/params"
+import { completion, paramEpoch, type Param } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import { derive } from "../../src/params"
 import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
@@ -76,18 +77,50 @@ export interface CurveBearing {
 const bearsCurves = (h: unknown): h is CurveBearing =>
   typeof (h as { worldCurves?: unknown }).worldCurves === "function"
 
-/** The world-space curves a holon offers a morph. See the header. */
-export const curvesOf = (h: Holon): Vec3Like[][] => {
-  if (bearsCurves(h)) return h.worldCurves()
+/**
+ * The world-space curves a holon offers a morph, each with the PART it was
+ * read from — whose tint a piece leaving or arriving there wears (a
+ * MindVirus's cube is blue, its eye white, the creature itself has no
+ * colour). See the header for what counts.
+ */
+export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => {
+  if (bearsCurves(h)) return h.worldCurves().map((curve) => ({ curve, part: h }))
   if (h instanceof Stroke) {
     const o = worldOutlineOf(h)
-    if (o) return [o]
+    if (o) return [{ curve: o, part: h }]
   }
-  const out: Vec3Like[][] = []
-  for (const n of h.walk())
-    if (n !== h && n instanceof Line && n.points.length >= 2) out.push(n.points.map((p) => toWorld(n, p)))
+  // A composite: what it SHOWS — every visible descendant that offers
+  // curves of its own (worldCurves, or a primitive's outline), not
+  // descending into one that already answered for its subtree.
+  const out: { curve: Vec3Like[]; part: Holon }[] = []
+  const visit = (n: Holon) => {
+    if (n !== h) {
+      // Hidden only by ITS OWN declaration: a part whose opacity/creation is
+      // its whole's own param (a Word's contours, bound to the Word) is
+      // as visible as the whole — which a morph target, staged hidden,
+      // is not yet, and must still offer. And by its DECLARED value
+      // (defaultValue), not its current one: a morph hides its source's
+      // parts as it leaves — they are still its shape.
+      const own = (k: "opacity" | "creation") => n[k] !== h[k] && n[k] !== n.parent?.[k]
+      const seen =
+        !(own("opacity") && n.opacity.defaultValue <= 0) && !(own("creation") && n.creation.defaultValue <= 0)
+      if (bearsCurves(n)) {
+        if (seen) for (const curve of n.worldCurves()) out.push({ curve, part: n })
+        return
+      }
+      if (n instanceof Stroke && seen) {
+        const o = n instanceof Line ? (n.points.length >= 2 ? n.points.map((p) => toWorld(n, p)) : undefined) : worldOutlineOf(n)
+        if (o) out.push({ curve: o, part: n })
+      }
+    }
+    for (const c of n.parts) visit(c)
+  }
+  visit(h)
   return out
 }
+
+/** The world-space curves a holon offers a morph (`partCurvesOf` without the parts). */
+export const curvesOf = (h: Holon): Vec3Like[][] => partCurvesOf(h).map((c) => c.curve)
 
 const chainOf = (h: Holon): number[] => {
   const out: number[] = []
@@ -192,13 +225,13 @@ export class MorphCurves extends Stroke {
   private planMemo?: {
     key: number[]
     plan: MorphPlan
-    srcOwner: number[]
-    tgtOwner: number[]
+    srcOwner: Holon[]
+    tgtOwner: Holon[]
     offset?: { from: Vec3Like; to: Vec3Like }
   }
   private relativePlans = new Map<string, MorphPlan>()
   private frameMemo?: { plan: MorphPlan; u: number; offset?: { from: Vec3Like; to: Vec3Like }; curves: Vec3Like[][]; version: number }
-  private restMemo?: { key: number[]; curves: Vec3Like[][]; owners: number[]; version: number }
+  private restMemo?: { key: number[]; curves: Vec3Like[][]; owners: Holon[]; version: number }
   private frames = 0
   private planEpoch = -1
   private curvesEpoch = -1
@@ -216,7 +249,7 @@ export class MorphCurves extends Stroke {
   }
 
   /** The current plan — re-planned only when an input's curves change. */
-  plan(): { plan: MorphPlan; srcOwner: number[]; tgtOwner: number[]; offset?: { from: Vec3Like; to: Vec3Like } } {
+  plan(): { plan: MorphPlan; srcOwner: Holon[]; tgtOwner: Holon[]; offset?: { from: Vec3Like; to: Vec3Like } } {
     // Same frame (no param written since), same plan — the slots ask
     // hundreds of times a frame, the key below need only be read once.
     const epoch = paramEpoch()
@@ -231,10 +264,10 @@ export class MorphCurves extends Stroke {
       ...(obs ? [obs.phi.value, obs.theta.value, obs.orthographic.value ? 1 : 0] : []),
     ]
     if (this.planMemo && sameKey(this.planMemo.key, key)) return this.planMemo
-    const srcOwner: number[] = []
-    const tgtOwner: number[] = []
-    const src = sources.flatMap((h, i) => curvesOf(h).map((c) => (srcOwner.push(i), c)))
-    const tgt = targets.flatMap((h, i) => curvesOf(h).map((c) => (tgtOwner.push(i), c)))
+    const srcOwner: Holon[] = []
+    const tgtOwner: Holon[] = []
+    const src = sources.flatMap((h) => partCurvesOf(h).map((c) => (srcOwner.push(c.part), c.curve)))
+    const tgt = targets.flatMap((h) => partCurvesOf(h).map((c) => (tgtOwner.push(c.part), c.curve)))
     let normal = opts.normal
     if (!normal && obs) {
       const view = viewOf(obs)
@@ -300,8 +333,8 @@ export class MorphCurves extends Stroke {
       const key = [u <= 0 ? 0 : 1, ...side.flatMap((h) => [-1, ...signatureOf(h)])]
       const r = this.restMemo
       if (r && sameKey(r.key, key)) return r
-      const owners: number[] = []
-      const curves = side.flatMap((h, i) => curvesOf(h).map((c) => (owners.push(i), c)))
+      const owners: Holon[] = []
+      const curves = side.flatMap((h) => partCurvesOf(h).map((c) => (owners.push(c.part), c.curve)))
       this.restMemo = { key, curves, owners, version: ++this.frames }
       return this.restMemo
     }
@@ -312,20 +345,20 @@ export class MorphCurves extends Stroke {
     return this.frameMemo
   }
 
-  /** The tint of piece i: its source holon's blended into its target holon's. */
+  /** The tint of piece i: its source part's blended into its target part's. */
   private pieceTint(i: number): Color {
     const u = this.morph.value
     if (u <= 0 || u >= 1) {
-      const side = u <= 0 ? this.ends.sources : this.ends.targets
+      void this.curves() // the rest memo names the owners
       const owner = this.restMemo?.owners[i]
-      return owner === undefined ? WHITE : tintOf(side[owner])
+      return owner === undefined ? WHITE : tintOf(owner)
     }
     const { plan, srcOwner, tgtOwner } = this.plan()
     const p = plan.pieces[i]
     if (!p) return WHITE
     return mix(
-      tintOf(this.ends.sources[srcOwner[p.source]!]),
-      tintOf(this.ends.targets[tgtOwner[p.target]!]),
+      tintOf(srcOwner[p.source]),
+      tintOf(tgtOwner[p.target]),
       u,
     )
   }
@@ -406,14 +439,26 @@ export interface MorphManyOptions {
   fadeIn?: number
 }
 
-const filled = (h: Holon): number => (h instanceof Stroke ? h.fillOpacity.value : 0)
+const filled = (h: Holon): number =>
+  Math.max(0, ...fillParams(h).map((p) => p.value))
 
 /**
- * N curves becoming M: fill out → outlines travel → fill in. See the
- * header for the three channels. The targets' fill values are read at
- * construction (destination constants, DECISIONS 2026-09-07); everything
- * departing resolves chronologically (`.to`).
+ * A holon's own surfaces: its param of `key`, and every descendant's that
+ * is a param of its OWN (not bound — a bound one follows its source). A
+ * composite's parts do not inherit opacity in the host, so a verb that
+ * hides or shows a whole must address each of them.
  */
+const ownParams = (h: Holon, key: "opacity" | "fillOpacity"): Param<number>[] => {
+  const out = new Set<Param<number>>()
+  for (const n of h.walk()) {
+    if (key === "fillOpacity" && !(n instanceof Stroke)) continue
+    const p = (n as unknown as Record<string, Param<number>>)[key]
+    if (p && !p.isBound) out.add(p)
+  }
+  return [...out]
+}
+const fillParams = (h: Holon) => ownParams(h, "fillOpacity")
+
 export const MorphMany = (shape: MorphCurves, opts: MorphManyOptions = {}): Anim => {
   const srcFilled = shape.sources.some((h) => filled(h) > 0)
   const tgtFilled = shape.targets.some((h) => filled(h) > 0)
@@ -429,13 +474,19 @@ export const MorphMany = (shape: MorphCurves, opts: MorphManyOptions = {}): Anim
     // … and hands over to the targets just before `b`.
     [shape.opacity.to(0), b - eps, b],
   ]
+  // Leaving: every surface the source owns goes — its fills first, then
+  // (as the pieces take over) its lines.
   for (const s of shape.sources) {
-    if (s instanceof Stroke && a > 0) items.push([s.fillOpacity.to(0), 0, a])
-    if (!opts.copy) items.push([s.opacity.to(0), a, a + eps])
+    if (a > 0) for (const f of fillParams(s)) items.push([f.to(0), 0, a])
+    if (!opts.copy) for (const o of ownParams(s, "opacity")) items.push([o.to(0), a, a + eps])
   }
+  // Arriving: the whole comes up; each part returns to what it was
+  // DECLARED as (a part hidden by design stays hidden) — destination
+  // values read at construction, per the verb rule (DECISIONS 2026-09-07).
   for (const t of shape.targets) {
-    items.push([t.opacity.to(1), b - eps, b])
-    if (t instanceof Stroke && filled(t) > 0) items.push([t.fillOpacity.sequence(0, filled(t)), b - eps, b < 1 ? 1 : b])
+    for (const o of ownParams(t, "opacity")) items.push([o.to(o === t.opacity ? 1 : o.value), b - eps, b])
+    for (const f of fillParams(t))
+      if (f.value > 0) items.push([f.sequence(0, f.value), b - eps, b < 1 ? 1 : b])
   }
   return together(...items)
 }

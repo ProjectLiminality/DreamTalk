@@ -45,6 +45,13 @@
  *              what keeps pieces from crossing.
  *   "sweep"    sorted by midpoint projection onto an axis, oriented
  *              along it — a left-to-right reading, no rotation.
+ *   "sweep-angular"  two stages: "sweep" decides WHICH share of the
+ *              source ink each target gets (lengths exactly as "sweep"),
+ *              then each target gathers its share "angular"-ly about
+ *              itself, with its own best rotation. Many curves into a
+ *              row of shapes (a symbol into the letters of its word):
+ *              the left of the symbol becomes the first letter, and each
+ *              letter closes around itself without its pieces crossing.
  *   "given"    the caller's order and the curves' own directions,
  *              untouched — order-preserving along a path (a route's legs
  *              becoming a route's legs).
@@ -80,7 +87,7 @@ import type { Vec3Like } from "../parts/primitives"
 /** A curve: a polyline in 3D. A closed curve ends on its first point. */
 export type Curve = readonly Vec3Like[]
 
-export type CorrespondOrder = "angular" | "sweep" | "given"
+export type CorrespondOrder = "angular" | "sweep" | "sweep-angular" | "given"
 
 export interface CorrespondOptions {
   /** How curves are ordered on each tape. Default "angular". */
@@ -329,6 +336,7 @@ export const correspond = (
   targets: readonly Curve[],
   opts: CorrespondOptions = {},
 ): Correspondence => {
+  if (opts.order === "sweep-angular") return sweepThenGather(sources, targets, opts)
   const order = opts.order ?? "angular"
   const rotate = opts.rotate ?? order === "angular"
   const snap = Math.max(0, opts.snap ?? 0)
@@ -492,6 +500,54 @@ export const correspond = (
     })
   }
   return { pieces, offset, cost }
+}
+
+/** The sub-polyline of a curve between arc lengths a → b (b < a walks it backward). */
+const subCurve = (c: Curve, cum: readonly number[], a: number, b: number): Vec3Like[] => {
+  const lo = Math.min(a, b)
+  const hi = Math.max(a, b)
+  const pts = [pointAt(c, cum, lo)]
+  for (let i = 0; i < c.length; i++) if (cum[i]! > lo + 1e-9 && cum[i]! < hi - 1e-9) pts.push(c[i]!)
+  pts.push(pointAt(c, cum, hi))
+  return a <= b ? pts : pts.reverse()
+}
+
+/**
+ * "sweep-angular": the sweep's shares, then each target gathering its own
+ * share angularly (see CorrespondOrder). Every piece of the result still
+ * lies inside one source curve and one target curve, and every target is
+ * covered exactly once, so it is a correspondence like any other.
+ */
+const sweepThenGather = (
+  sources: readonly Curve[],
+  targets: readonly Curve[],
+  opts: CorrespondOptions,
+): Correspondence => {
+  const first = correspond(sources, targets, { ...opts, order: "sweep" })
+  const cums = sources.map(cumulative)
+  const pieces: MorphPiece[] = []
+  let cost = 0
+  const byTarget = new Map<number, MorphPiece[]>()
+  for (const p of first.pieces) byTarget.set(p.target, [...(byTarget.get(p.target) ?? []), p])
+  for (const [t, share] of [...byTarget].sort((a, b) => a[0] - b[0])) {
+    // The share as curves of its own, remembering where each came from.
+    const subs = share.map((p) => subCurve(sources[p.source]!, cums[p.source]!, p.from[0], p.from[1]))
+    const local = correspond(subs, [targets[t]!], { ...opts, order: "angular", rotate: true, snap: 0 })
+    cost += local.cost
+    for (const q of local.pieces) {
+      const origin = share[q.source]!
+      // Arc length along the sub-curve → along the original source curve.
+      const [a, b] = origin.from
+      const dir = b >= a ? 1 : -1
+      pieces.push({
+        source: origin.source,
+        from: [a + dir * q.from[0], a + dir * q.from[1]],
+        target: t,
+        to: q.to,
+      })
+    }
+  }
+  return { pieces, offset: first.offset, cost: byTarget.size ? cost / byTarget.size : 0 }
 }
 
 // ─── The plan: pieces resampled pairwise ────────────────────────────
