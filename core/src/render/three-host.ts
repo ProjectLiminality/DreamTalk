@@ -144,6 +144,14 @@ interface StyleParams {
   fillFalloffRadius: Param<number>
 }
 
+/** A holon's seen opacity (certainty.ts), resolved once — for the bindings that hold no StyleParams. */
+const SEEN = new WeakMap<Holon, Readable<number>>()
+const seenOf = (holon: Holon): Readable<number> => {
+  let seen = SEEN.get(holon)
+  if (!seen) SEEN.set(holon, (seen = seenOpacity(holon)))
+  return seen
+}
+
 const styleOf = (holon: Stroke): StyleParams => ({
   creation: holon.creation,
   opacity: seenOpacity(holon),
@@ -2210,7 +2218,7 @@ export class ThreeHost {
 
     const creation = holon.creation.value
     const erasure = holon.erasure.value
-    const opacity = holon.opacity.value
+    const opacity = seenOf(holon).value
     const lift = this.highlightOf(holon)
     const tint: Color = liftTint(holon.tint.value, lift)
     const width = holon.stroke.value * (1 + 2 * lift)

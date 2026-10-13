@@ -85,6 +85,7 @@ import {
 import { boundaryLoops, closeLoop, insetLoopDeepest } from "../parts/outline"
 import type { Vec3Like } from "../parts/index"
 import { RibbonStroke } from "./ribbon"
+import { seenOpacity } from "../certainty"
 import { fontChain } from "./fonts"
 
 /**
@@ -599,10 +600,9 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
  * stroke_method "single" means, and what the reference shows for `a`,
  * `e` and `p`.
  */
-const syncOutlines = (outlines: readonly GlyphOutline[], holon: Text): void => {
+const syncOutlines = (outlines: readonly GlyphOutline[], holon: Text, opacity: number): void => {
   const creation = holon.creation.value
   const erasure = holon.erasure.value
-  const opacity = holon.opacity.value
   const tint = holon.tint.value
   const width = holon.stroke.value
   for (const { window, loops } of outlines) {
@@ -829,6 +829,7 @@ export const onTextLayout = (fn: () => void): (() => void) => {
  * and the material's uniforms.
  */
 export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
+  const seen = seenOpacity(holon)
   let mesh: THREE.Mesh | undefined
   let material: TextGlyphMaterial | undefined
   let handle: TextHandle | undefined
@@ -953,12 +954,14 @@ export const attachText = (holon: Text, group: THREE.Object3D): TextBinding => {
       if (!mesh || !material) return
       material.progress.value = holon.creation.value
       material.erasure.value = holon.erasure.value
-      material.fade.value = holon.opacity.value
+      // Seen opacity: its own fade times its inherited certainty (certainty.ts).
+      const opacity = seen.value
+      material.fade.value = opacity
       const tint: Color = holon.tint.value
       material.tint.value.setRGB(tint.r, tint.g, tint.b)
       mesh.visible =
-        holon.opacity.value > 0 && holon.creation.value > 0 && holon.erasure.value < 1
-      syncOutlines(outlines, holon)
+        opacity > 0 && holon.creation.value > 0 && holon.erasure.value < 1
+      syncOutlines(outlines, holon, opacity)
     },
     dispose(): void {
       disposed = true

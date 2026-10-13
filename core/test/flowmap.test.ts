@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
+  arcTable,
+  atArcLength,
   categoryDiscs,
   flowPoint,
   memberLayouts,
@@ -97,6 +99,16 @@ describe("flow-map geometry", () => {
   })
 })
 
+describe("arc length", () => {
+  test("a sampled curve walks by arc length, clamped to its ends", () => {
+    const t = arcTable((u) => ({ x: 100 * u, y: 0, z: 0 }), 10)
+    expect(t.lengths[10]).toBeCloseTo(100, 9)
+    expect(atArcLength(t.points, t.lengths, 37).x).toBeCloseTo(37, 9)
+    expect(atArcLength(t.points, t.lengths, -5).x).toBe(0)
+    expect(atArcLength(t.points, t.lengths, 500).x).toBe(100)
+  })
+})
+
 describe("certainty", () => {
   test("ghost: hard data is untouched, conjecture keeps a floor", () => {
     expect(ghost(1)).toBe(1)
@@ -173,7 +185,9 @@ describe("FlowMap", () => {
     void m.parts
     expect(m.slices.length).toBe(MOCK_FLOWMAP.stages.length + 1)
     expect(m.flows.length).toBe(MOCK_FLOWMAP.flows.length)
-    expect(m.flows[0]!.dots.length).toBe(Math.round(4 * 1.5))
+    // One carrier per particle; a denser (rate 1.5) flow gets the bigger pool.
+    for (const f of m.flows) expect(f.carriers.length).toBe(f.dots.length)
+    expect(m.flows[0]!.dots.length).toBeGreaterThan(m.flows[1]!.dots.length)
     // Raw material is conjecture in the mock: its particles are ghosted.
     expect(certaintyOf(m.flows[0]!.dots[0]!)).toBeCloseTo(0.15, 12)
     expect(certaintyOf(m.flows[MOCK_FLOWMAP.flows.length - 1]!.dots[0]!)).toBe(1)
@@ -183,12 +197,60 @@ describe("FlowMap", () => {
     const m = new FlowMap({ radius: R })
     void m.parts
     m.stage("semi").shown.value = 1
-    const dot = m.stage("semi").flows[0]!.dots[1]!
+    const flow = m.stage("semi").flows[0]!
+    const dot = flow.dots[1]!
+    const at = flow.carriers[1]!
     m.time.value = 3.25
-    const a = [dot.x.value, dot.y.value, dot.z.value, dot.opacity.value]
+    const a = [at.x.value, at.y.value, at.z.value, dot.opacity.value]
     m.time.value = 7
     m.time.value = 3.25
-    expect([dot.x.value, dot.y.value, dot.z.value, dot.opacity.value]).toEqual(a)
+    expect([at.x.value, at.y.value, at.z.value, dot.opacity.value]).toEqual(a)
+  })
+
+  test("particles run evenly spaced by arc length, `spacing / rate` apart", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    m.stage("finished").shown.value = 1
+    m.time.value = 2.5
+    const flow = m.stage("finished").flows[0]! // rate 1.5
+    const pts = flow.line.points
+    const table = arcTable((u) => pts[Math.round(u * (pts.length - 1))]!, pts.length - 1)
+    // Arc position of each visible particle, by its nearest channel sample.
+    const along = flow.carriers
+      .filter((_, j) => flow.dots[j]!.opacity.value > 0.999)
+      .map((c) => {
+        let best = 0
+        pts.forEach((p, i) => {
+          const q = pts[best]!
+          if (Math.hypot(p.x - c.x.value, p.y - c.y.value) < Math.hypot(q.x - c.x.value, q.y - c.y.value)) best = i
+        })
+        return table.lengths[best]!
+      })
+      .sort((a, b) => a - b)
+    expect(along.length).toBeGreaterThan(2)
+    for (let i = 1; i < along.length; i++) expect(Math.abs(along[i]! - along[i - 1]! - m.spacing.value / 1.5)).toBeLessThan(8)
+  })
+
+  test("the turn leads and the slices fan out behind it — both exact at the ends", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    m.expand.value = 0.5
+    const f = m.frame()
+    expect(f.heading / m.tilt.value).toBeGreaterThan(0.6)
+    const z = f.depths
+    expect(z[1]! - z[0]!).toBeLessThan(m.gap.value * 0.5)
+    m.expand.value = 1
+    expect(m.frame().pitch).toBeCloseTo(m.pitch.value, 12)
+  })
+
+  test("particles and labels face the camera however the stack turns", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    m.expand.value = 0.8
+    const carrier = m.flows[3]!.carriers[0]!
+    const inner = carrier.parts[0]!
+    expect(carrier.h.value).toBeCloseTo(-m.stack.h.value, 12)
+    expect(inner.p.value).toBeCloseTo(-m.stack.p.value, 12)
   })
 
   test("a flow naming an unknown entity is refused", () => {

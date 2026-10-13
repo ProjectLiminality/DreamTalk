@@ -170,6 +170,75 @@ export const regionSlots = (
   return pts
 }
 
+/** A deterministic hash of an integer into [0, 1). */
+const hash = (n: number): number => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/**
+ * A region's members as one compact HONEYCOMB cluster round the region's
+ * deepest point (the spot farthest from every rim). Evenly relaxed points
+ * follow a region's shape — in a crescent they line up along its curve and
+ * the picture reads as a face; a tight hexagonal cluster reads as what it
+ * is, a set of entities. The lattice is turned per region (deterministic),
+ * so no two clusters line up. Undefined when the region cannot hold the
+ * cluster — the caller falls back to `regionSlots`.
+ */
+export const regionCluster = (
+  set: readonly boolean[],
+  discs: readonly Disc[],
+  R: number,
+  count: number,
+  margin: number,
+  pitch: number,
+  turn: number,
+): Vec2[] | undefined => {
+  if (count <= 0) return []
+  const reach = R - margin
+  const inRegion = (p: Vec2): boolean => {
+    if (Math.hypot(p.x, p.y) > reach) return false
+    const m = membership(p, discs, margin)
+    return !!m && sameSet(m, set)
+  }
+  // The deepest point: the fine-grid point of the region with most clearance.
+  const step = R / 40
+  let deep: Vec2 | undefined
+  let best = -Infinity
+  for (let j = -40; j <= 40; j++) {
+    for (let i = -40; i <= 40; i++) {
+      const p = { x: i * step, y: j * step }
+      if (!inRegion(p)) continue
+      let clear = R - Math.hypot(p.x, p.y)
+      for (const d of discs) clear = Math.min(clear, Math.abs(Math.hypot(p.x - d.x, p.y - d.y) - d.radius))
+      if (clear > best + 1e-9) {
+        best = clear
+        deep = p
+      }
+    }
+  }
+  if (!deep) return undefined
+  const a = 0.35 + hash(turn * 17 + 1) * (Math.PI / 3)
+  const ux = { x: Math.cos(a) * pitch, y: Math.sin(a) * pitch }
+  const uy = { x: Math.cos(a + Math.PI / 3) * pitch, y: Math.sin(a + Math.PI / 3) * pitch }
+  const nodes: { p: Vec2; d: number; k: number }[] = []
+  let k = 0
+  for (let j = -8; j <= 8; j++)
+    for (let i = -8; i <= 8; i++) {
+      const p = { x: deep.x + i * ux.x + j * uy.x, y: deep.y + i * ux.y + j * uy.y }
+      if (inRegion(p)) nodes.push({ p, d: Math.hypot(p.x - deep.x, p.y - deep.y), k: k++ })
+      else k++
+    }
+  if (nodes.length < count) return undefined
+  nodes.sort((x, y) => x.d - y.d || x.k - y.k)
+  const chosen = nodes.slice(0, count).map((n) => n.p)
+  // Centre the cluster on the deepest point, if that keeps it inside.
+  const cx = chosen.reduce((s, p) => s + p.x, 0) / count - deep.x
+  const cy = chosen.reduce((s, p) => s + p.y, 0) / count - deep.y
+  const moved = chosen.map((p) => ({ x: p.x - cx, y: p.y - cy }))
+  return moved.every(inRegion) ? moved : chosen
+}
+
 /**
  * Assign each item one slot, nearest pairs first (global greedy) — so a
  * member's two layouts are as close as the slots allow and the transition
@@ -214,10 +283,12 @@ export const memberLayouts = (
     list.push(i)
     regions.set(key, list)
   })
+  let regionIndex = 0
   for (const members of regions.values()) {
     const set = discs.map((_, k) => categoriesOf[members[0]!]!.includes(k))
-    const slots = regionSlots(set, discs, R, members.length, margin)
     // Within a region, data order reads round the region from its first slot.
+    const cluster = regionCluster(set, discs, R, members.length, margin, memberRadius * 3.5, regionIndex++)
+    const slots = cluster ?? regionSlots(set, discs, R, members.length, margin)
     members.forEach((m, j) => (categorised[m] = slots[j]!))
   }
   // The flat sunflower, each member taking the petal nearest its categorised
@@ -297,6 +368,42 @@ export const sliceDepths = (open: readonly number[], gap: number, expand: number
   for (const o of open) z.push(z[z.length - 1]! + gap * expand * o)
   const mid = (z[0]! + z[z.length - 1]!) / 2
   return z.map((v) => v - mid)
+}
+
+/** Sample a parametric curve into points with cumulative arc lengths. */
+export const arcTable = (f: (u: number) => Vec3, n: number): { points: Vec3[]; lengths: number[] } => {
+  const points: Vec3[] = []
+  const lengths: number[] = []
+  let total = 0
+  for (let i = 0; i <= n; i++) {
+    const p = f(i / n)
+    if (i > 0) {
+      const q = points[i - 1]!
+      total += Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z)
+    }
+    points.push(p)
+    lengths.push(total)
+  }
+  return { points, lengths }
+}
+
+/** The point at arc length s along a sampled curve (clamped to its ends). */
+export const atArcLength = (points: readonly Vec3[], lengths: readonly number[], s: number): Vec3 => {
+  const n = points.length
+  if (n === 1 || s <= 0) return points[0]!
+  if (s >= lengths[n - 1]!) return points[n - 1]!
+  let lo = 0
+  let hi = n - 1
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (lengths[mid]! <= s) lo = mid
+    else hi = mid
+  }
+  const span = lengths[hi]! - lengths[lo]!
+  const u = span > 0 ? (s - lengths[lo]!) / span : 0
+  const a = points[lo]!
+  const b = points[hi]!
+  return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, z: a.z + (b.z - a.z) * u }
 }
 
 /** Smoothstep — the soft edge every fade here uses. */

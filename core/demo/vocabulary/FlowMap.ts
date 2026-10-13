@@ -34,7 +34,7 @@ export class FlowMapDream extends Dream {
     o.zoom.value = o.zoom.defaultValue = 1023 / (1300 * (16 / 9))
     this.stage(m)
 
-    this.flowing(2.5, Create(m))
+    this.flowing(3, Create(m))
     this.flowing(1)
     // Grain: the categorical dimension, revealed and folded away again.
     this.flowing(2.5, m.grain.to(1))

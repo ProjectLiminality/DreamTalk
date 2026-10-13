@@ -23,23 +23,34 @@ categories), `partners` (with a side), `stages` (the value chain, in order),
 - `stage(id).shown` switches a flow layer on: its channels draw on and
   its particles start to run.
 - `expand` 0 → 1 reveals the value chain's ORDER as a dimension: the map
-  tilts to the side into a stack of identical slices, one per step, and
+  turns to the side (`tilt`) and dips into a 3/4 view (`pitch`) — the turn
+  leading, the slices fanning out behind it — into a stack of identical
+  slices, one per step, and
   each stage's flows run from its slice to the next. Inflow converges,
   outflow fans out. Collapsing lays it flat and face-on, exactly.
 - `stage(id).open` opens or closes one gap of the stack — stages collapse
   individually but can never reorder.
-- `time` (seconds; advance it linearly) and `speed` run the particles —
-  a pure function of time. States: `uncategorised`, `categorised`,
+- `time` (seconds; advance it linearly) runs the particles — a pure
+  function of time, evenly spaced by arc length (`spacing`, divided by a
+  flow's rate) at `speed` units per second: short channels carry few.
+- `labels` — stage names under the stack, category names by their discs.
+- Members of one region pack as a small honeycomb round the region's
+  deepest point, so a region reads as a set, never a face.
+- Create: the group circle draws, members ripple out from the centre,
+  partners round the ring; channels draw from source to target as shown. States: `uncategorised`, `categorised`,
   `flat`, `staged`.
 
 **Certainty** (`src/certainty.ts`, a core ability): a stage, flow, member
 or partner declared conjectural in the data is drawn GHOSTED —
 translucent, its particles hovering (`wobble`) rather than running a crisp
-line; real data is solid. Certainty inherits down the tree as a product.
+line; real data is solid. Strokes, fills, arrowheads, Text and the Cylinder
+all honour it. Certainty inherits down the tree as a product.
 
 **Seams**: `slices[k].hull` (the group circle, a Circle), `flows[i].line`
 (a Line), `flows[i].dots[j]` (filled Circles — the neutral `symbol` "dot";
 a stage's `symbol` names what its particles will become) — ready for Morph
 (lines → one circle, dot → truck).
 
-`?scene=flowmap` walks it all. Best seen orthographic (the demo's observer).
+Particles and labels face the camera however the stack turns (a carrier
+cancels the stack's heading, its inner part the pitch). `?scene=flowmap`
+walks it all. Best seen orthographic (the demo's observer).

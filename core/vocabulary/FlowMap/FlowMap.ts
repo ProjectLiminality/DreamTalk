@@ -26,7 +26,9 @@
  *                    particles start to run.
  *   expand   0 → 1   the value chain's order revealed. Flat, every flow is
  *                    overlaid in one plane, face-on. Expanded, the whole map
- *                    tilts to the side and becomes a stack of identical
+ *                    turns to the side — heading `tilt`, then dipping by
+ *                    `pitch` into a 3/4 view, the turn leading and the
+ *                    slices fanning out behind it — and becomes a stack of identical
  *                    slices along a depth axis — one per step of the chain —
  *                    and each stage's flows run from its slice to the next.
  *                    Inflow converges (contraction), outflow fans out
@@ -35,7 +37,12 @@
  *   stage(id).open   one gap of the stack opened or closed — stages collapse
  *                    and expand individually but can never reorder: a slice's
  *                    depth is the running sum of the gaps before it.
- *   time             seconds of flow — particles are a pure f(time).
+ *   time             seconds of flow — particles are a pure f(time), spaced
+ *                    evenly by ARC LENGTH (`spacing`, scaled by a flow's
+ *                    rate) and running at `speed` units per second, so a
+ *                    short channel carries few particles and a long one many.
+ *   labels   0 → 1   stage names under the stack, category names by their
+ *                    discs — quiet, and off-able.
  *
  * CERTAINTY (src/certainty.ts) is the universal visual language here: a
  * stage, a flow, a member or a partner can be declared conjectural in the
@@ -50,11 +57,17 @@
  */
 
 import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
-import { angle, choice, completion, derive, integer, length, scalar, state, type Readable } from "../../src/params"
+import { Text } from "../../src/parts/text"
+import { angle, choice, completion, derive, length, scalar, state, type Readable } from "../../src/params"
+import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
+import type { Holon } from "../../src/holon"
 import { certainty, wobble } from "../../src/certainty"
 import {
+  arcTable,
+  atArcLength,
   categoryDiscs,
+  categoryDirection,
   flowPoint,
   memberLayouts,
   partnerLayout,
@@ -91,6 +104,7 @@ export type ParticleSymbol = (typeof PARTICLE_SYMBOLS)[number]
 
 const CATEGORY_TINTS: Color[] = [RED, BLUE, GREEN, YELLOW, PURPLE]
 const PARTNER_TINT = rgb(150, 150, 150)
+const LABEL_TINT = rgb(170, 170, 170)
 
 const mix = (a: Color, b: Color, u: number): Color => ({
   r: a.r + (b.r - a.r) * u,
@@ -119,7 +133,10 @@ export class FlowSlice extends Group {
 export class Flow extends Group {
   certainty = certainty(1)
   line!: Line
+  /** The particles themselves — filled Circles, the neutral "dot" symbol. */
   dots: Circle[] = []
+  /** Each particle's carrier: positioned on the channel, turned to face the camera. */
+  carriers: Group[] = []
 }
 
 /** One step of the value chain — a layer of flows that can be shown, opened, ghosted. */
@@ -134,6 +151,7 @@ export class FlowStage extends Group {
   symbol = choice("dot", PARTICLE_SYMBOLS)
   stageId = ""
   flows: Flow[] = []
+  label?: Text
 }
 
 // --- The holon -----------------------------------------------------------------
@@ -149,20 +167,24 @@ export class FlowMap extends Null {
   radius = length(300)
   /** The categorical dimension: 0 uncategorised, 1 every member in its category's region. */
   grain = completion(0)
-  /** The value chain's order: 0 flat and face-on, 1 tilted into the stage stack. */
+  /** The value chain's order: 0 flat and face-on, 1 turned into the stage stack. */
   expand = completion(0)
-  /** How far the expanded stack turns to the side, radians (the map's heading at expand 1). */
-  tilt = angle(1.05)
+  /** How far the expanded stack turns to the side, radians (its heading at expand 1). */
+  tilt = angle(1.22)
+  /** How far it then dips toward the viewer, radians — the 3/4 view (its pitch at expand 1). */
+  pitch = angle(0.42)
   /** Depth between consecutive slices of the expanded stack. */
-  gap = length(400)
+  gap = length(380)
   /** Seconds of flow — advance it linearly and the particles run. */
   time = scalar(0)
-  /** Particle speed: fraction of a channel travelled per second. */
-  speed = scalar(0.16)
-  /** Particles per flow at rate 1 (construction: decides how many particles exist). */
-  particles = integer(4)
+  /** Particle speed along a channel, scene units per second. */
+  speed = scalar(70)
+  /** Arc length between consecutive particles at rate 1 (a rate-2 flow runs twice as dense). */
+  spacing = length(52)
   /** How faint a channel is beside its particles. */
   channel = completion(0.38)
+  /** Stage and category names: 1 shown, 0 off. */
+  labels = completion(1)
 
   override states = {
     uncategorised: state({ grain: 0 }),
@@ -171,11 +193,12 @@ export class FlowMap extends Null {
     staged: state({ expand: 1 }),
   }
 
-  /** The tilting frame — every slice and flow lives in it. */
+  /** The turning frame — every slice and flow lives in it. */
   stack!: Group
   slices: FlowSlice[] = []
   stages: FlowStage[] = []
   flows: Flow[] = []
+  categoryLabels: Text[] = []
 
   /** A stage by id — its `shown`, `open`, `certainty` and `symbol` are the layer's controls. */
   stage(id: string): FlowStage {
@@ -205,16 +228,29 @@ export class FlowMap extends Null {
 
   /** Everything the picture's geometry depends on, except time. */
   frame(): Frame {
-    const key = [this.radius.value, this.grain.value, this.expand.value, this.gap.value, ...this.stages.map((s) => s.open.value)]
-    if (this.memoFrame && key.every((v, i) => v === this.memoKey[i]) && key.length === this.memoKey.length) return this.memoFrame
+    const key = [
+      this.radius.value,
+      this.grain.value,
+      this.expand.value,
+      this.gap.value,
+      this.tilt.value,
+      this.pitch.value,
+      ...this.stages.map((s) => s.open.value),
+    ]
+    if (this.memoFrame && key.length === this.memoKey.length && key.every((v, i) => v === this.memoKey[i])) return this.memoFrame
     this.memoKey = key
     const R = this.radius.value
     const g = this.grain.value
+    const e = this.expand.value
     const L = this.layout()
+    // One continuous motion: the turn leads, the slices fan out behind it.
+    // Both are exactly 0 at expand 0 and exactly 1 at expand 1.
+    const turn = smooth(0, 0.7, e)
+    const spread = smooth(0.2, 1, e)
     const depths = sliceDepths(
       this.stages.map((s) => s.open.value),
       this.gap.value,
-      this.expand.value,
+      spread,
     )
     const members = L.flat.map((f, i) => {
       const c = L.categorised[i]!
@@ -225,6 +261,8 @@ export class FlowMap extends Null {
       R,
       depths,
       visible,
+      heading: this.tilt.value * turn,
+      pitch: this.pitch.value * turn,
       discs: categoryDiscs((this.data.categories ?? []).length, R, g),
       members,
       partners: L.partners,
@@ -235,20 +273,38 @@ export class FlowMap extends Null {
   /** Where entity `id` sits in slice k, in the stack's frame. */
   private where(id: string, k: number): Vec3 {
     const f = this.frame()
-    const m = this.data.members.findIndex((x) => x.id === id)
-    const p = m >= 0 ? f.members[m]! : f.partners[(this.data.partners ?? []).findIndex((x) => x.id === id)]!
+    const m = this.memberIndex.get(id)
+    const p = m !== undefined ? f.members[m]! : f.partners[this.partnerIndex.get(id)!]!
     return { x: p.x, y: p.y, z: f.depths[k]! }
+  }
+
+  private memberIndex = new Map<string, number>()
+  private partnerIndex = new Map<string, number>()
+
+  /**
+   * Wrap a part so it always faces the camera, however the stack turns: the
+   * stack is Rx(pitch)·Ry(heading), so a carrier turned Ry(−heading) holding
+   * the part turned Rx(−pitch) cancels it exactly. Position the carrier.
+   */
+  private facing(part: Holon, at: { x?: Readable<number>; y?: Readable<number>; z?: Readable<number> }): Group {
+    const inner = new Group({ members: [part], p: derive(() => -this.frame().pitch) })
+    return new Group({ members: [inner], h: derive(() => -this.frame().heading), ...at })
   }
 
   protected override compose(): void {
     const d = this.data
     const cats = d.categories ?? []
     const partners = d.partners ?? []
-    const ids = new Set([...d.members.map((m) => m.id), ...partners.map((p) => p.id)])
+    d.members.forEach((m, i) => this.memberIndex.set(m.id, i))
+    partners.forEach((p, i) => this.partnerIndex.set(p.id, i))
     for (const f of d.flows) {
-      for (const end of [f.from, f.to]) if (!ids.has(end)) throw new Error(`FlowMap: flow names unknown entity '${end}'`)
+      for (const end of [f.from, f.to])
+        if (!this.memberIndex.has(end) && !this.partnerIndex.has(end)) throw new Error(`FlowMap: flow names unknown entity '${end}'`)
       if (!d.stages.some((s) => s.id === f.stage)) throw new Error(`FlowMap: flow names unknown stage '${f.stage}'`)
     }
+    const R = () => this.radius.value
+    const stageIndex = (id: string): number => d.stages.findIndex((s) => s.id === id)
+    const labelSize = () => R() * 0.085
 
     // --- the stages first: the slices' depths read their `open` -------------
     const stages = d.stages.map(
@@ -261,10 +317,7 @@ export class FlowMap extends Null {
     )
     this.stages = stages
 
-    const stageIndex = (id: string): number => d.stages.findIndex((s) => s.id === id)
-
     // --- the slices: one more than the stages (stage k runs k → k + 1) -------
-    const R = () => this.radius.value
     const sliceCount = d.stages.length + 1
     const slices: FlowSlice[] = []
     for (let k = 0; k < sliceCount; k++) {
@@ -326,8 +379,33 @@ export class FlowMap extends Null {
         e.ring = ring
         return e
       })
+      // Category names ride the front slice, by their discs, outside the rim
+      // on the left (clear of the partners): shown with the grain.
+      const named: Holon[] = []
+      if (k === 0) {
+        cats.forEach((c, i) => {
+          if (!c.label) return
+          const dir = categoryDirection(i, cats.length)
+          const a = Math.atan2(dir.y, dir.x) + (dir.y >= 0 ? 0.62 : -0.62)
+          const text = new Text({
+            content: c.label,
+            size: derive(labelSize),
+            tint: c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!,
+            opacity: derive(() => this.labels.value * smooth(0.5, 1, this.grain.value)),
+          })
+          this.categoryLabels.push(text)
+          named.push(
+            this.facing(text, {
+              // Turned, the slice foreshortens across: step further out so
+              // the name stays clear of its rim.
+              x: derive(() => Math.cos(a) * R() * 1.28 - R() * 1.1 * this.frame().heading / Math.max(1e-6, Math.abs(this.tilt.value) || 1)),
+              y: derive(() => Math.sin(a) * R() * 1.28 - labelSize() * 0.35),
+            }),
+          )
+        })
+      }
       const slice = new FlowSlice({
-        members: [hull, ...discs, ...members, ...outer],
+        members: [hull, ...discs, ...members, ...outer, ...named],
         z: derive(() => this.frame().depths[k]!),
       })
       slice.hull = hull
@@ -339,11 +417,9 @@ export class FlowMap extends Null {
     this.slices = slices
 
     // --- the flows: channel + particles, in their stage's layer -------------
-    const heading = derive(() => this.tilt.value * this.expand.value)
-    const unturn = derive(() => -this.tilt.value * this.expand.value)
     const flows: Flow[] = []
     d.flows.forEach((f, fi) => {
-      const si = d.stages.findIndex((s) => s.id === f.stage)
+      const si = stageIndex(f.stage)
       const stage = stages[si]!
       const sd = d.stages[si]!
       const tint = sd.tint ?? STAGE_TINTS[si % STAGE_TINTS.length]!
@@ -356,9 +432,17 @@ export class FlowMap extends Null {
         const rim = memberRadius(R()) * 1.9
         return [trimToRim(a0, b0, rim), trimToRim(b0, a0, rim)]
       }
-      const at = (u: number): Vec3 => {
-        const [a, b] = ends()
-        return flowPoint(a, b, u, bend)
+      // The channel's arc-length table, once per frame of the picture.
+      let tableFrame: Frame | undefined
+      let table: { points: Vec3[]; lengths: number[] } = { points: [], lengths: [0] }
+      const channel = () => {
+        const fr = this.frame()
+        if (tableFrame !== fr) {
+          tableFrame = fr
+          const [a, b] = ends()
+          table = arcTable((u) => flowPoint(a, b, u, bend), 48)
+        }
+        return table
       }
       const line = new Line({
         tint,
@@ -367,73 +451,143 @@ export class FlowMap extends Null {
         arrowSize: 1.3,
         opacity: derive(() => this.channel.value * smooth(0, 0.15, stage.shown.value)),
       })
+      // The channel draws on from source to target as its layer is shown —
+      // never empty, so the host always has a ribbon and an arrowhead.
       deriveChannel(line, () => [this.frame(), stage.shown.value], () => {
-        // The channel draws on as its layer is shown: never empty, so the
-        // host always has a ribbon and an arrowhead to drive.
-        const reach = Math.max(0.02, stage.shown.value)
+        const { points, lengths } = channel()
+        const total = lengths[lengths.length - 1]!
+        const reach = Math.max(0.02, stage.shown.value) * total
         const pts: Vec3Like[] = []
         const N = 32
-        for (let j = 0; j <= N; j++) pts.push(at((j / N) * reach))
+        for (let j = 0; j <= N; j++) pts.push(atArcLength(points, lengths, (j / N) * reach))
         return pts
       })
 
-      const n = Math.max(1, Math.round(this.particles.value * (f.rate ?? 1)))
+      // Particles: evenly spaced by arc length, `spacing / rate` apart, at
+      // `speed`. The pool covers the longest this channel can get; particles
+      // past its current end are "in the pipe" and hidden, so a short channel
+      // simply carries fewer, at the same spacing.
+      const rate = f.rate ?? 1
+      const sp = () => this.spacing.value / rate
+      const longest = 1.15 * Math.hypot(2.9 * this.radius.value, this.gap.value)
+      const n = Math.max(2, Math.ceil(longest / (this.spacing.value / rate)))
       const seed = fi * 7.31 + 0.37
       const dots: Circle[] = []
+      const carriers: Group[] = []
       for (let j = 0; j < n; j++) {
-        // u along the channel: evenly spaced, running at `speed`.
-        const u = (): number => {
-          const v = this.time.value * this.speed.value + j / n + (seed % 1)
-          return v - Math.floor(v)
-        }
-        const pos = (): Vec3 => {
-          const p = at(u())
-          const c = stage.certainty.value * flowCertainty
-          const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
-          return { x: p.x + w.x, y: p.y + w.y, z: p.z }
-        }
         let memoT = Number.NaN
         let memoF: Frame | undefined
-        let memoP: Vec3 = { x: 0, y: 0, z: 0 }
-        const cur = (): Vec3 => {
+        let memoShown = Number.NaN
+        let memo = { x: 0, y: 0, z: 0, o: 0 }
+        const cur = () => {
           const fr = this.frame()
-          if (memoT !== this.time.value || memoF !== fr) {
-            memoT = this.time.value
-            memoF = fr
-            memoP = pos()
-          }
-          return memoP
+          const shown = stage.shown.value
+          if (memoT === this.time.value && memoF === fr && memoShown === shown) return memo
+          memoT = this.time.value
+          memoF = fr
+          memoShown = shown
+          const { points, lengths } = channel()
+          const L = lengths[lengths.length - 1]!
+          const cycle = n * sp()
+          const v = (this.time.value * this.speed.value + j * sp() + (seed % 1) * sp()) % cycle
+          const s = v < 0 ? v + cycle : v
+          const edge = Math.min(22, L / 4)
+          const o = s > L ? 0 : smooth(0, edge, s) * smooth(L, L - edge, s) * smooth(0, edge, shown * L - s)
+          const p = atArcLength(points, lengths, Math.min(s, L))
+          const c = stage.certainty.value * flowCertainty
+          const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
+          memo = { x: p.x + w.x, y: p.y + w.y, z: p.z, o }
+          return memo
         }
-        dots.push(
-          new Circle({
-            radius: derive(() => R() * 0.02),
-            stroke: 0,
-            fillOpacity: 1,
-            tint,
+        const dot = new Circle({
+          radius: derive(() => R() * 0.02),
+          stroke: 0,
+          fillOpacity: 1,
+          tint,
+          opacity: derive(() => cur().o),
+        })
+        dots.push(dot)
+        carriers.push(
+          this.facing(dot, {
             x: derive(() => cur().x),
             y: derive(() => cur().y),
             z: derive(() => cur().z),
-            // Particles face the camera however the stack turns.
-            h: unturn,
-            opacity: derive(() => {
-              const s = stage.shown.value
-              const v = u()
-              // Only on the channel already drawn; soft at both ends.
-              return smooth(0, 0.08, v) * smooth(1, 0.9, v) * smooth(0, 0.06, s - v)
-            }),
           }),
         )
       }
-      const flow = new Flow({ members: [line, ...dots], certainty: flowCertainty })
+      const flow = new Flow({ members: [line, ...carriers], certainty: flowCertainty })
       flow.line = line
       flow.dots = dots
+      flow.carriers = carriers
       flows.push(flow)
-      ;(stage as unknown as { add(h: Flow): Flow }).add(flow)
+      ;(stage as unknown as { add(h: Holon): Holon }).add(flow)
       stage.flows.push(flow)
     })
     this.flows = flows
 
-    this.stack = this.add(new Group({ members: [...slices, ...stages], h: heading }))
+    // --- stage names under the stack, between the slices they join ----------
+    d.stages.forEach((sd, si) => {
+      if (!sd.label) return
+      const stage = stages[si]!
+      const text = new Text({
+        content: sd.label,
+        size: derive(labelSize),
+        tint: LABEL_TINT,
+        opacity: derive(() => this.labels.value * stage.shown.value * smooth(0.6, 1, this.expand.value)),
+      })
+      stage.label = text
+      ;(stage as unknown as { add(h: Holon): Holon }).add(
+        this.facing(text, {
+          y: derive(() => -R() * 1.5),
+          z: derive(() => (this.frame().depths[si]! + this.frame().depths[si + 1]!) / 2),
+        }),
+      )
+    })
+
+    this.stack = this.add(
+      new Group({
+        members: [...slices, ...stages],
+        h: derive(() => this.frame().heading),
+        p: derive(() => this.frame().pitch),
+      }),
+    )
+  }
+
+  /**
+   * Create: the group circle draws first, its category discs with it; the
+   * members ripple in from the centre outward; the partners after them,
+   * round the ring. Flows are not created — they are shown, layer by layer.
+   */
+  override createAnim(): Anim {
+    void this.parts // the parts exist once compose() has run
+    const L = this.layout()
+    const byDistance = (pts: readonly Vec2[]) => {
+      const order = pts.map((p, i) => ({ i, d: Math.hypot(p.x, p.y) })).sort((a, b) => a.d - b.d || a.i - b.i)
+      const rank = new Array<number>(pts.length)
+      order.forEach((o, r) => (rank[o.i] = r))
+      return rank
+    }
+    const memberRank = byDistance(L.flat)
+    const partnerAngle = L.partners.map((p) => Math.atan2(p.y, p.x))
+    const partnerOrder = partnerAngle.map((a, i) => ({ a: (Math.PI - a + 2 * Math.PI) % (2 * Math.PI), i })).sort((x, y) => x.a - y.a || x.i - y.i)
+    const partnerRank = new Array<number>(L.partners.length)
+    partnerOrder.forEach((o, r) => (partnerRank[o.i] = r))
+    const parts: [Anim, number, number][] = []
+    const nm = Math.max(1, this.data.members.length)
+    const np = Math.max(1, L.partners.length)
+    for (const slice of this.slices) {
+      parts.push([slice.hull.creation.sequence(0, 1), 0, 0.45])
+      for (const disc of slice.discs) parts.push([disc.creation.sequence(0, 1), 0, 0.45])
+      slice.sites.forEach((e, i) => {
+        const a = 0.25 + 0.4 * (memberRank[i]! / nm)
+        parts.push([e.ring.creation.sequence(0, 1), a, a + 0.18])
+      })
+      slice.partners.forEach((e, i) => {
+        const a = 0.55 + 0.3 * (partnerRank[i]! / np)
+        parts.push([e.ring.creation.sequence(0, 1), a, a + 0.15])
+      })
+    }
+    return together(...parts)
   }
 }
 
@@ -444,6 +598,9 @@ interface Frame {
   R: number
   depths: number[]
   visible: number[]
+  /** The stack's turn this frame: heading, then pitch (radians). */
+  heading: number
+  pitch: number
   discs: Disc[]
   members: Vec2[]
   partners: Vec2[]
@@ -479,14 +636,15 @@ const deriveChannel = (line: Line, deps: () => unknown[], compute: () => Vec3Lik
 // --- Mock data: generic, illustrative, no real organisation ---------------------
 
 /**
- * A mock group: eight sites in two categories (two of them both), suppliers,
- * customers and two-way partners, and a three-step value chain whose first
- * step — raw material in — is conjecture (ghosted) while the rest is data.
+ * A mock group: eleven sites in two categories (three of them both),
+ * suppliers, customers and two-way partners, and a three-step value chain
+ * whose first step — raw material in — is conjecture (ghosted) while the
+ * rest is data.
  */
 export const MOCK_FLOWMAP: FlowMapData = {
   categories: [
-    { id: "extrusion", label: "Extrusion", tint: RED },
-    { id: "conversion", label: "Conversion", tint: BLUE },
+    { id: "extrusion", label: "extrusion", tint: RED },
+    { id: "conversion", label: "conversion", tint: BLUE },
   ],
   members: [
     { id: "A", label: "Site A", categories: ["extrusion"] },
@@ -497,6 +655,9 @@ export const MOCK_FLOWMAP: FlowMapData = {
     { id: "F", label: "Site F", categories: ["conversion"] },
     { id: "G", label: "Site G", categories: ["extrusion", "conversion"] },
     { id: "H", label: "Site H", categories: ["conversion"] },
+    { id: "I", label: "Site I", categories: ["extrusion"] },
+    { id: "J", label: "Site J", categories: ["conversion"] },
+    { id: "K", label: "Site K", categories: ["extrusion", "conversion"] },
   ],
   partners: [
     { id: "S1", label: "Supplier 1", side: "in" },
@@ -510,20 +671,23 @@ export const MOCK_FLOWMAP: FlowMapData = {
   ],
   stages: [
     { id: "raw", label: "raw material in", certainty: 0.15 },
-    { id: "semi", label: "semi-finished product" },
+    { id: "semi", label: "semi-finished" },
     { id: "finished", label: "finished product out" },
   ],
   flows: [
     // Raw material in: suppliers → the extruding sites. Conjecture for now.
     { from: "S1", to: "A", stage: "raw", rate: 1.5 },
+    { from: "S1", to: "I", stage: "raw" },
     { from: "S2", to: "B", stage: "raw" },
     { from: "S2", to: "C", stage: "raw" },
     { from: "S3", to: "G", stage: "raw" },
+    { from: "S3", to: "K", stage: "raw", rate: 0.5 },
     // Semi-finished: intercompany (extrusion → conversion), plus to and from outside.
     { from: "A", to: "D", stage: "semi", rate: 1.5 },
     { from: "B", to: "E", stage: "semi" },
     { from: "C", to: "F", stage: "semi" },
     { from: "G", to: "H", stage: "semi" },
+    { from: "I", to: "J", stage: "semi" },
     { from: "A", to: "P1", stage: "semi", rate: 0.5 },
     { from: "P2", to: "E", stage: "semi", rate: 0.5 },
     // Finished product out: conversion sites → customers.
@@ -531,6 +695,8 @@ export const MOCK_FLOWMAP: FlowMapData = {
     { from: "E", to: "K2", stage: "finished" },
     { from: "F", to: "K2", stage: "finished" },
     { from: "H", to: "K3", stage: "finished" },
+    { from: "J", to: "K3", stage: "finished" },
     { from: "C", to: "K1", stage: "finished", rate: 0.5 },
+    { from: "K", to: "K2", stage: "finished", rate: 0.5 },
   ],
 }

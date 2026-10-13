@@ -26,8 +26,7 @@ when done.
   never reorders). **Certainty** is a core ability (`src/certainty.ts`):
   inherited product, drawn as `ghost(c)` opacity + particle `wobble`.
 - Open: the real "quantum blur" (shader-side, reading `certaintyOf`);
-  certainty on Text and the Cylinder (host reads their opacity directly);
-  stage/entity labels; particle symbols beyond the dot (pallets, reels);
+  entity labels (stage + category labels exist); particle symbols beyond the dot (pallets, reels);
   splitting a stage in two (production step); wiring Morph (connection lines
   → the group circle, dot → truck); a clickable creator-mode toggle per param.
 
