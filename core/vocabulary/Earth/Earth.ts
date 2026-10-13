@@ -3,17 +3,16 @@
  * land filled ON the sphere, its coastlines and country borders as strokes
  * lying on the surface, ready to draw on, zoom into, and build upon.
  *
- * WHY THIS IS NOT THE GLOBE
+ * THE SPHERE ITSELF, NOT A PICTURE OF ONE
  *
- * `vocabulary/Globe` is the Web3 video's globe — lon/lat projected flat to
- * a disc each frame, its far half folded onto the limb in 2D. It is a
- * picture of a sphere, made for one camera that never moves, and Web3
- * depends on its exact pixels. The Earth is the sphere itself: every
- * vertex is a point in 3D, the camera is the scene's observer wherever it
- * goes, and the far side is hidden because it IS behind the planet, by
- * depth, per pixel, on the GPU (solid Surfaces, parts/surface.ts). The two
- * holons share nothing but a data source; the Globe stays exactly as Web3
- * needs it.
+ * DreamTalk's first globe (Web3's, since retired into this one) projected
+ * lon/lat flat to a disc each frame and folded its far half onto the limb
+ * in 2D — a picture of a sphere for one camera that never moved. The
+ * Earth is the sphere itself: every vertex is a point in 3D, the camera is
+ * the scene's observer wherever it goes, and the far side is hidden
+ * because it IS behind the planet, by depth, per pixel, on the GPU (solid
+ * Surfaces, parts/surface.ts). Web3 now sets this Earth on its flat pages
+ * through `parts/recede.ts`.
  *
  * HOW THE FAR SIDE IS HIDDEN — EXACTLY
  *
@@ -93,6 +92,7 @@ import { color, completion, derive, length, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
+import type { KeepOut } from "../../src/view"
 import {
   angleBetween,
   densifyLonLat,
@@ -730,7 +730,7 @@ export class Earth extends Null {
     const own = [this.x, this.y, this.z, this.h, this.p, this.b, this.scale, this.radius]
     const pen = this.coastStroke
     const radius = this.radius
-    const key = new Float64Array(own.length + 9).fill(Number.NaN)
+    const key: number[] = []
     let pxPerUnit = 1
     let lastPen = Number.NaN
     let lo = 0
@@ -751,6 +751,13 @@ export class Earth extends Null {
         at(o.radius.value); at(o.zoom.value); at(o.fov.value); at(o.orthographic.value ? 1 : 0)
       }
       for (const p of own) at(p.value)
+      // Every whole above the Earth moves its screen scale too (a parent
+      // that scales or recedes it, parts/recede.ts).
+      at(chainAt(earth, at))
+      if (key.length !== i) {
+        key.length = i
+        moved = true
+      }
       const w = Math.max(0.5, pen.value)
       if (!moved && w === lastPen) return
       lastPen = w
@@ -838,6 +845,23 @@ export class Earth extends Null {
     return e ? horizonCircle(e.point, this.radius.value, e.orthographic) : undefined
   }
 
+  /**
+   * The viewer's eye may not go underground (src/view.ts KeepOut): a free
+   * orbit around a point on the surface rolls over the ground instead of
+   * passing through the planet into black. The shell is 2% above the
+   * surface — clear of every stroke and of the buildings standing on it.
+   */
+  override keepOut(): KeepOut[] {
+    const m = worldMatrixOf(this)
+    const e = m.elements
+    return [
+      {
+        center: { x: e[12]!, y: e[13]!, z: e[14]! },
+        radius: this.radius.value * m.getMaxScaleOnAxis() * 1.02,
+      },
+    ]
+  }
+
   /** A point on (or `altitude` above) the surface, in the Earth's local space. */
   latLonToLocal(lat: number, lon: number, altitude = 0): Vec3Like {
     const p = latLonToUnit(lat, lon)
@@ -873,6 +897,20 @@ const scratchInv = new Matrix4()
 
 /** Where an untold Earth assumes the camera is: a default Observer's pose (dream.ts). */
 const DEFAULT_EYE = { point: { x: 0, y: 0, z: 1500 }, orthographic: false }
+
+/**
+ * Feed every ancestor's transform to a cache key (`at`), returning the
+ * chain's depth — so a cache keyed on an Earth also notices a parent that
+ * moves, turns or scales it.
+ */
+export const chainAt = (holon: Holon, at: (v: number) => void): number => {
+  let depth = 0
+  for (let n = holon.parent; n; n = n.parent) {
+    at(n.x.value); at(n.y.value); at(n.z.value); at(n.h.value); at(n.p.value); at(n.b.value); at(n.scale.value)
+    depth++
+  }
+  return depth
+}
 
 /** A holon's world matrix as the host composes it (three-host: ZXY h/p/b, uniform scale). */
 export const worldMatrixOf = (holon: Holon): Matrix4 => {
@@ -951,7 +989,7 @@ const deriveSurface = (
   })
 }
 
-/** The same for a Line's `points` (Globe's deriveRing pattern). */
+/** The same for a Line's `points`: recomputed when its key changes, `geomVersion` bumped. */
 const deriveLine = (line: Line, key: () => string, build: () => Vec3Like[]): void => {
   let last: string | undefined
   let memo: Vec3Like[] = []

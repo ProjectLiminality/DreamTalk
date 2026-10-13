@@ -27,7 +27,7 @@ import { Circle, Null } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { derive } from "../../src/params"
 // A cycle with Earth.ts, safe: these are only called once both modules have loaded.
-import { lod as lodOf, worldMatrixOf as worldMatrix, type Earth } from "./Earth"
+import { chainAt, lod as lodOf, worldMatrixOf as worldMatrix, type Earth } from "./Earth"
 import { latLonToUnit } from "../../src/geometry/sphere"
 
 /** A label: a Null at the anchor carrying its text (and a city's dot). */
@@ -66,7 +66,7 @@ export const billboard = (earth: Earth): Billboard => {
   const scl = new Vector3()
   const euler = new Euler()
   const own = [earth.x, earth.y, earth.z, earth.h, earth.p, earth.b, earth.scale, earth.radius]
-  const key = new Float64Array(own.length + 10).fill(Number.NaN)
+  const key: number[] = []
   let hpb: [number, number, number] = [0, 0, 0]
   let eye = { x: 0, y: 0, z: 1500 }
   let tanHalf = Math.tan(((53.13 * Math.PI) / 180) / 2)
@@ -92,6 +92,11 @@ export const billboard = (earth: Earth): Billboard => {
       at(o.radius.value); at(o.zoom.value); at(o.fov.value); at(o.tilt.value); at(o.orthographic.value ? 1 : 0)
     }
     for (const p of own) at(p.value)
+    at(chainAt(earth, at))
+    if (key.length !== i) {
+      key.length = i
+      moved = true
+    }
     if (!moved) return
     version++
 

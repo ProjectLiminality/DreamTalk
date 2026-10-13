@@ -32,6 +32,7 @@ import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
 import { MOCK_SITES } from "../vocabulary/Earth/mockSites"
 import { Surface } from "../src/parts/surface"
+import { Group } from "../src/parts/primitives"
 import { Observer } from "../src/dream"
 
 const DEG = Math.PI / 180
@@ -547,5 +548,33 @@ describe("1:10m detail packs", () => {
     const R_KM = 6371.0088
     const at = meshArea(countryMesh("AT", region)) * R_KM * R_KM
     expect(Math.abs(at - 83879) / 83879).toBeLessThan(0.02)
+  })
+})
+
+describe("the Earth under a parent", () => {
+  test("keepOut: the viewer's shell, 2% above the ground, in world space through every parent", () => {
+    const earth = new Earth({ radius: 100 })
+    const parent = new Group({ members: [earth], x: 30, y: -20, scale: 2 })
+    void parent.parts
+    const [k] = earth.keepOut()
+    close(k!.center, { x: 30, y: -20, z: 0 }, 9)
+    expect(k!.radius).toBeCloseTo(100 * 2 * 1.02, 9)
+  })
+  test("the screen-size shoreline LOD notices a parent that scales the Earth", () => {
+    const earth = new Earth({ radius: 400 })
+    const parent = new Group({ members: [earth] })
+    const observer = new Observer()
+    observer.radius.value = 1500
+    earth.seenFrom(observer)
+    void parent.parts
+    void earth.parts
+    // Every shoreline's outline, as the gauge rates it.
+    const tiny = earth.coastLines
+    earth.detail.value = 10
+    parent.scale.value = 0.5
+    const before = tiny.map((l) => l.opacity.value)
+    parent.scale.value = 2 // four times bigger on screen: more outlines earn their pen
+    const after = tiny.map((l) => l.opacity.value)
+    expect(after.reduce((a, b) => a + b, 0)).toBeGreaterThan(before.reduce((a, b) => a + b, 0))
   })
 })
