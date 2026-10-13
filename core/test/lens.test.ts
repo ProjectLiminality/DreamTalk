@@ -140,3 +140,46 @@ describe("FlowLens", () => {
     for (const m of morphers) expect(m.morph.value).toBe(0)
   })
 })
+
+describe("FlowLens alignment", () => {
+  test("align 1: the window's ground stands on the frame's up, the road along the flow", async () => {
+    const { Group } = await import("../src/parts/primitives")
+    const { rotHPB } = await import("../src/parts/curves")
+    const { toWorld } = await import("../src/parts/soliddrawing")
+    // A frame turned and pitched like an expanded FlowMap stack; the flow
+    // runs along its depth (local z).
+    const frame = new Group({ h: 1.22, p: 0.42 })
+    const lens = new FlowLens(
+      {
+        path: () => [
+          { x: 0, y: 0, z: -300 },
+          { x: 0, y: 0, z: 300 },
+        ],
+        particles: () => [],
+        frame,
+      },
+      { observer: new Observer(), at: 0.5, radius: 50, align: 1, alignTo: frame, lift: 1 },
+    )
+    const { h, p, b } = lens.groundTurn()
+    const up = rotHPB({ x: 0, y: 1, z: 0 }, p, h, b)
+    const along = rotHPB({ x: 1, y: 0, z: 0 }, p, h, b)
+    const o = toWorld(frame, { x: 0, y: 0, z: 0 })
+    const fy = toWorld(frame, { x: 0, y: 1, z: 0 })
+    const fz = toWorld(frame, { x: 0, y: 0, z: 1 })
+    // The lens is unrotated, so lens-local directions are world directions.
+    expect(up.x).toBeCloseTo(fy.x - o.x, 6)
+    expect(up.y).toBeCloseTo(fy.y - o.y, 6)
+    expect(up.z).toBeCloseTo(fy.z - o.z, 6)
+    expect(along.x).toBeCloseTo(fz.x - o.x, 6)
+    expect(along.y).toBeCloseTo(fz.y - o.y, 6)
+    expect(along.z).toBeCloseTo(fz.z - o.z, 6)
+  })
+
+  test("zoom: the near face grows with lift, and the window's contents with it", () => {
+    const lens = new Lens({ observer: new Observer({ orthographic: true }), radius: 50, zoom: 3 })
+    expect(lens.nearRadius()).toBe(50)
+    lens.lift.value = 1
+    expect(lens.nearRadius()).toBeCloseTo(150, 9)
+    expect(lens.sides().length).toBe(2)
+  })
+})

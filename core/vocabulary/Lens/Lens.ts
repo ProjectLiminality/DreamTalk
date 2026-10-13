@@ -30,6 +30,7 @@ import type { Holon, Overrides } from "../../src/holon"
 import { angle, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { Circle, Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { derivePoints, localView, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
+import { rotHPB } from "../../src/parts/curves"
 import type { View } from "../../src/geometry/hiddenline"
 import { atArcLength, smooth } from "../../src/geometry/flowmap"
 import { MorphCurves, morphPhases } from "../Morph/MorphCurves"
@@ -50,6 +51,13 @@ export class Lens extends Stroke {
   liftX = scalar(260)
   liftY = scalar(300)
   liftZ = scalar(800)
+  /**
+   * Extra magnification of the near face, reached at lift 1. Under
+   * perspective 1 is right — closeness magnifies; an ORTHOGRAPHIC camera
+   * has no closeness, so there the lens says it outright (the near face
+   * and everything seen in it grow by this factor).
+   */
+  zoom = scalar(1)
 
   protected seen!: { observer?: Observer }
 
@@ -57,6 +65,16 @@ export class Lens extends Stroke {
   nearCenter(): Vec3Like {
     const k = this.lift.value
     return { x: this.liftX.value * k, y: this.liftY.value * k, z: this.liftZ.value * k }
+  }
+
+  /** The near face's scale against the far one now (1 → zoom with lift). */
+  nearScale(): number {
+    return 1 + (this.zoom.value - 1) * this.lift.value
+  }
+
+  /** The near face's radius now. */
+  nearRadius(): number {
+    return this.radius.value * this.nearScale()
   }
 
   /** Is the window open at all — the near face off the far one? */
@@ -68,7 +86,7 @@ export class Lens extends Stroke {
   sideA = new Line({ tint: this.tint, stroke: this.stroke, opacity: this.opacity })
   sideB = new Line({ tint: this.tint, stroke: this.stroke, opacity: this.opacity })
   disc = new Circle({
-    radius: this.radius,
+    radius: derive(() => this.nearRadius()),
     tint: BLACK,
     stroke: 0,
     fillOpacity: 1,
@@ -78,7 +96,7 @@ export class Lens extends Stroke {
     z: derive(() => this.nearCenter().z),
   })
   near = new Circle({
-    radius: this.radius,
+    radius: derive(() => this.nearRadius()),
     tint: this.tint,
     stroke: this.stroke,
     opacity: derive(() => this.opened()),
@@ -113,7 +131,7 @@ export class Lens extends Stroke {
   private sideKey(): number[] {
     const v = this.view()
     const c = this.nearCenter()
-    return [this.radius.value, c.x, c.y, c.z, ...("eye" in v ? [v.eye.x, v.eye.y, v.eye.z] : [v.toward.x, v.toward.y, v.toward.z, 9])]
+    return [this.radius.value, this.nearRadius(), c.x, c.y, c.z, ...("eye" in v ? [v.eye.x, v.eye.y, v.eye.z] : [v.toward.x, v.toward.y, v.toward.z, 9])]
   }
 
   /**
@@ -124,13 +142,17 @@ export class Lens extends Stroke {
    */
   sides(): Vec3Like[][] {
     const L = this.nearCenter()
-    if (Math.hypot(L.x, L.y, L.z) < 1e-6) return []
+    if (Math.hypot(L.x, L.y, L.z) < 1e-6 && Math.abs(this.nearScale() - 1) < 1e-9) return []
     const r = this.radius.value
+    const r2 = this.nearRadius()
     const v = this.view()
+    // The ruling from A(θ) on the far rim to B(θ) = L + (r2/r)·A(θ) on the
+    // near one (an oblique cylinder, or a cone frustum when zoomed).
     const f = (th: number) => {
       const a = { x: r * Math.cos(th), y: r * Math.sin(th), z: 0 }
       const t = { x: -Math.sin(th), y: Math.cos(th), z: 0 }
-      const n = { x: t.y * L.z - t.z * L.y, y: t.z * L.x - t.x * L.z, z: t.x * L.y - t.y * L.x }
+      const D = { x: L.x + (r2 - r) * Math.cos(th), y: L.y + (r2 - r) * Math.sin(th), z: L.z }
+      const n = { x: t.y * D.z - t.z * D.y, y: t.z * D.x - t.x * D.z, z: t.x * D.y - t.y * D.x }
       const d = "eye" in v ? { x: v.eye.x - a.x, y: v.eye.y - a.y, z: v.eye.z - a.z } : v.toward
       return n.x * d.x + n.y * d.y + n.z * d.z
     }
@@ -154,7 +176,7 @@ export class Lens extends Stroke {
     }
     return roots.slice(0, 2).map((th) => {
       const a = { x: r * Math.cos(th), y: r * Math.sin(th), z: 0 }
-      return [a, { x: a.x + L.x, y: a.y + L.y, z: a.z + L.z }]
+      return [a, { x: L.x + r2 * Math.cos(th), y: L.y + r2 * Math.sin(th), z: L.z }]
     })
   }
 
@@ -174,7 +196,7 @@ export class Lens extends Stroke {
       const t = (c.z - p.z) / v.toward.z
       q = { x: p.x + v.toward.x * t, y: p.y + v.toward.y * t, z: c.z }
     }
-    return Math.hypot(q.x - c.x, q.y - c.y) < this.radius.value
+    return Math.hypot(q.x - c.x, q.y - c.y) < this.nearRadius()
   }
 
   /** Numbers that move whenever `inside` would answer differently. */
@@ -211,6 +233,21 @@ export interface FlowLensOptions extends LensOptions {
   lineTint?: Color
   /** Half the concrete symbol's height in its own units — how far it rises to stand on the road. Default 116 (a Truck). */
   symbolHalfHeight?: number
+  /** The concrete symbol's native length in its own units. Default 650 (a Truck). */
+  symbolLength?: number
+  /**
+   * Ride the flow: the lens's far face sits on the flow's point at this
+   * fraction of its arc length, following it as the flow moves (a FlowMap
+   * expanding into its stack). Omit to place the lens yourself.
+   */
+  at?: number
+  /**
+   * The frame whose ground the concrete world lies on when `align` is 1:
+   * its +y is up, and the road runs along the flow. FlowMap's `stack` —
+   * so a road in the lens lies in the same 3D plane as the flow it
+   * magnifies.
+   */
+  alignTo?: Holon
 }
 
 /**
@@ -234,17 +271,31 @@ export class FlowLens extends Lens {
   tilt = angle(0.72)
   /** The road's turn within the ground, radians. */
   heading = angle(-0.32)
-  /** The concrete symbol's scale (a Truck is 650 long). */
-  symbolScale = scalar(0.21)
+  /** The concrete symbol's length, as a fraction of the lens's radius — so any lens holds the same picture. */
+  symbolSize = scalar(0.98)
+  /**
+   * 0 = the concrete ground tipped toward the viewer by `tilt`/`heading`;
+   * 1 = lying in `alignTo`'s ground, the road along the flow. In between,
+   * a blend — so a lens can turn with a map as it tilts into its stack.
+   */
+  align = completion(0)
   /** How far the road curves across the window, radians (0 = straight). */
   bend = angle(0.5)
 
   private flow!: { source: FlowSource; opts: FlowLensOptions }
 
   constructor(source: FlowSource, overrides: Overrides & FlowLensOptions = {}) {
-    const { slots, dotRadius, dotTint, concreteSymbol, lineTint, symbolHalfHeight, ...rest } = overrides
-    super(rest)
-    this.flow = { source, opts: { slots, dotRadius, dotTint, concreteSymbol, lineTint, symbolHalfHeight, observer: rest.observer as Observer | undefined } }
+    const { slots, dotRadius, dotTint, concreteSymbol, lineTint, symbolHalfHeight, symbolLength, at, alignTo, ...rest } = overrides
+    const riding =
+      at === undefined
+        ? {}
+        : {
+            x: derive(() => worldOn(source, at).x),
+            y: derive(() => worldOn(source, at).y),
+            z: derive(() => worldOn(source, at).z),
+          }
+    super({ ...riding, ...rest })
+    this.flow = { source, opts: { slots, dotRadius, dotTint, concreteSymbol, lineTint, symbolHalfHeight, symbolLength, at, alignTo, observer: rest.observer as Observer | undefined } }
   }
 
   /** The flow's path in lens-local space, with arc lengths, and the window under the far face. */
@@ -290,12 +341,51 @@ export class FlowLens extends Lens {
   private localEpoch = -1
   private localMemo?: { key: string; value: { points: Vec3Like[]; lengths: number[]; s0: number; s1: number } }
 
-  /** A point of the flow at fraction s, carried up into the near face. */
+  /** A point of the flow at fraction s, carried up into the near face (and scaled with it). */
   private lifted(s: number): Vec3Like {
     const { points, lengths } = this.local()
     const p = atArcLength(points, lengths, s * lengths.at(-1)!)
     const c = this.nearCenter()
-    return { x: p.x + c.x, y: p.y + c.y, z: p.z + c.z }
+    const k = this.nearScale()
+    return { x: c.x + p.x * k, y: c.y + p.y * k, z: c.z + p.z * k }
+  }
+
+  /**
+   * The concrete ground's orientation, lens-local, as h/p/b: the view-
+   * tipped basis (tilt, heading) blended by `align` into the aligned one
+   * (up = alignTo's +y, x = the flow's direction across the window, made
+   * perpendicular to up), orthonormalised, then decomposed in rotHPB's
+   * order (M = Rz(b)·Rx(p)·Ry(h): p = asin(ey.z), b = atan2(−ey.x, ey.y),
+   * h = atan2(−ex.z, ez.z)).
+   */
+  groundTurn(): { h: number; p: number; b: number } {
+    const a = this.align.value
+    const frame = this.flow.opts.alignTo
+    if (a <= 0 || !frame) return { h: this.heading.value, p: this.tilt.value, b: 0 }
+    const viewX = rotHPB({ x: 1, y: 0, z: 0 }, this.tilt.value, this.heading.value, 0)
+    const viewY = rotHPB({ x: 0, y: 1, z: 0 }, this.tilt.value, this.heading.value, 0)
+    const o = toLocal(this, toWorld(frame, { x: 0, y: 0, z: 0 }))
+    const u = toLocal(this, toWorld(frame, { x: 0, y: 1, z: 0 }))
+    const up = norm3({ x: u.x - o.x, y: u.y - o.y, z: u.z - o.z })
+    const { points, lengths, s0, s1 } = this.local()
+    const L = lengths.at(-1)!
+    const sm = s0 >= 0 ? (s0 + s1) / 2 : 0.5
+    const pa = atArcLength(points, lengths, Math.max(0, sm - 0.01) * L)
+    const pb = atArcLength(points, lengths, Math.min(1, sm + 0.01) * L)
+    let t = { x: pb.x - pa.x, y: pb.y - pa.y, z: pb.z - pa.z }
+    const tu = dot3(t, up)
+    t = norm3({ x: t.x - up.x * tu, y: t.y - up.y * tu, z: t.z - up.z * tu })
+    const mix3 = (p: Vec3Like, q: Vec3Like) => norm3({ x: p.x + (q.x - p.x) * a, y: p.y + (q.y - p.y) * a, z: p.z + (q.z - p.z) * a })
+    const ex = mix3(viewX, t)
+    let ey = mix3(viewY, up)
+    const d = dot3(ex, ey)
+    ey = norm3({ x: ey.x - ex.x * d, y: ey.y - ex.y * d, z: ey.z - ex.z * d })
+    const ez = { x: ex.y * ey.z - ex.z * ey.y, y: ex.z * ey.x - ex.x * ey.z, z: ex.x * ey.y - ex.y * ey.x }
+    return {
+      p: Math.asin(Math.max(-1, Math.min(1, ey.z))),
+      b: Math.atan2(-ey.x, ey.y),
+      h: Math.atan2(-ex.z, ez.z),
+    }
   }
 
   /** Which particle (if any) slot k shows, and where across the window it is, c ∈ [0, 1]. */
@@ -345,6 +435,8 @@ export class FlowLens extends Lens {
     const concreteOf = (overrides: Overrides) =>
       (opts.concreteSymbol ?? ((o: Overrides) => new Truck({ observer, viewBucket: 0.01, ...o })))(overrides)
     const span = () => this.radius.value * 1.85
+    // The symbol's own scale: `symbolSize` radii long, whatever its native length.
+    const symbolScale = () => (this.symbolSize.value * this.radius.value) / (opts.symbolLength ?? 650)
     // The near lane: a quarter of the road's width toward the viewer.
     const lane = () => -this.radius.value * 0.55 * 0.25
     const states = Array.from({ length: K }, (_, k) => {
@@ -364,14 +456,14 @@ export class FlowLens extends Lens {
     })
     const trucks = states.map((st) =>
       concreteOf({
-        scale: this.symbolScale,
+        scale: derive(() => symbolScale()),
         stroke: 0,
         // In the near lane, following the road's curve, standing ON it: the
         // symbol's origin is its middle, so it rises by its half height.
         x: derive(() => road.pointAt((st().c - 0.5) * span(), lane()).x),
         z: derive(() => road.pointAt((st().c - 0.5) * span(), lane()).z),
         h: derive(() => road.headingAt((st().c - 0.5) * span())),
-        y: derive(() => (opts.symbolHalfHeight ?? 116) * this.symbolScale.value),
+        y: derive(() => (opts.symbolHalfHeight ?? 116) * symbolScale()),
         fillOpacity: derive(() => (st().active ? morphPhases(st().ck).fillIn : 0)),
         opacity: derive(() => (st().active && morphPhases(st().ck).fillIn > 0 ? shown() : 0)),
       }),
@@ -381,8 +473,10 @@ export class FlowLens extends Lens {
       x: derive(() => this.nearCenter().x),
       y: derive(() => this.nearCenter().y),
       z: derive(() => this.nearCenter().z),
-      p: this.tilt,
-      h: this.heading,
+      h: derive(() => this.groundTurn().h),
+      p: derive(() => this.groundTurn().p),
+      b: derive(() => this.groundTurn().b),
+      scale: derive(() => this.nearScale()),
     })
     // Paint order is occlusion order: the line/road first, then the
     // trucks' solid fills over it, then the particles and their outlines.
@@ -418,7 +512,7 @@ export class FlowLens extends Lens {
         }
       }
       return new Circle({
-        radius: R,
+        radius: derive(() => R * this.nearScale()),
         tint: opts.dotTint ?? BLUE,
         stroke: 0,
         fillOpacity: derive(() => 1 - morphPhases(st().ck).fillOut),
@@ -442,4 +536,23 @@ export class FlowLens extends Lens {
       ),
     )
   }
+}
+
+const dot3 = (a: Vec3Like, b: Vec3Like): number => a.x * b.x + a.y * b.y + a.z * b.z
+const norm3 = (a: Vec3Like): Vec3Like => {
+  const l = Math.hypot(a.x, a.y, a.z) || 1
+  return { x: a.x / l, y: a.y / l, z: a.z / l }
+}
+
+/** The flow's point at fraction `at` of its arc length, in world space. */
+const worldOn = (source: FlowSource, at: number): Vec3Like => {
+  const frame = source.frame
+  const pts = source.path().map((p) => (frame ? toWorld(frame, p) : p))
+  const lengths = [0]
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!
+    const b = pts[i]!
+    lengths.push(lengths[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z))
+  }
+  return atArcLength(pts, lengths, Math.min(1, Math.max(0, at)) * lengths.at(-1)!)
 }
