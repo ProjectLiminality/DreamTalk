@@ -44,7 +44,8 @@ import { Text } from "../../src/parts/text"
 import { toLocal, toWorld } from "../../src/parts/soliddrawing"
 import { Circle, Group, Null } from "../../src/parts/primitives"
 import { rgb, WHITE, type Color } from "../../src/constants"
-import { completion, derive, length, scalar } from "../../src/params"
+import { completion, derive, length, scalar, type Param, type ParamValue } from "../../src/params"
+import { together } from "../../src/anim"
 import { axis, type StateSpace } from "../../src/automaton"
 import { certainty } from "../../src/certainty"
 import { BALL_INSET, Earth, Place } from "../Earth/Earth"
@@ -73,8 +74,9 @@ export interface GeoFlowGeo {
   places: Readonly<Record<string, GeoPoint>>
 }
 
-/** The view windows (module header). */
-const W = { pull: [0, 0.27], morph: [0.18, 0.6], dim: [0.12, 0.6], sink: [0.24, 0.57], gone: [0.6, 0.88], partners: [0.74, 0.95] } as const
+/** The view windows (module header) — exported so a song can time its own beats against them. */
+export const GEOFLOW_WINDOWS = { pull: [0, 0.27], morph: [0.18, 0.6], dim: [0.12, 0.6], sink: [0.24, 0.57], gone: [0.6, 0.88], partners: [0.74, 0.95] } as const
+const W = GEOFLOW_WINDOWS
 const GLIDE = 0.36
 const PARTNER_GLIDE = 0.14
 /** The map's own radius (FlowMap's native units). */
@@ -138,6 +140,13 @@ export class GeoFlow extends Null {
   /** Building size on the planet, scene units. */
   siteSize = length(9)
 
+  /**
+   * Extra params the `v` axis also walks: [param, value at the globe, value
+   * at the abstract map] — a song's own abstract-world pieces (a lens) come
+   * and go with the view. Construction-time.
+   */
+  viewExtras: [Param<ParamValue>, ParamValue, ParamValue][] = []
+
   earth!: Earth
   eye!: EarthView
   map!: FlowMap
@@ -162,7 +171,48 @@ export class GeoFlow extends Null {
 
   override stateSpace(): StateSpace {
     if (this.view.isBound) return { axes: [] }
-    return { axes: [axis("view", this, { globe: { view: 0 }, abstract: { view: 1 } }, { key: "v", duration: 6.6 })] }
+    const base = axis("view", this, { globe: { view: 0 }, abstract: { view: 1 } }, { key: "v", duration: 6.6 })
+    const extras = this.viewExtras.filter(([p]) => !p.isBound)
+    if (extras.length === 0) return { axes: [base] }
+    // One axis over several holons' params: the view, and the song's extras.
+    const positions = base.positions.map((pos, i) => ({
+      name: pos.name,
+      values: new Map([...pos.values, ...extras.map(([p, g, ab]): [Param<ParamValue>, ParamValue] => [p, i === 0 ? g : ab])]),
+    }))
+    return {
+      axes: [
+        {
+          ...base,
+          positions,
+          to: (name: string) => together(...[...positions.find((p) => p.name === name)!.values].map(([p, v]) => p.to(v))),
+          params: () => [...positions[0]!.values.keys()],
+        },
+      ],
+    }
+  }
+
+  /** The abstract plane's own group (map-local units: the FlowMap's frame). */
+  private scaledGroup?: Group
+
+  /**
+   * Put a holon into the abstract plane, beside the map, in the map's own
+   * units — a lens on a flow, a mark round a seat. Call after composition
+   * (`void geo.parts`); the holon then rides the plane wherever the eye is.
+   */
+  inPlane<T extends Holon>(h: T): T {
+    void this.parts
+    return (this.scaledGroup as unknown as { add(h: T): T }).add(h)
+  }
+
+  /** A member's or partner's seat in the group circle (front slice), by id. */
+  seat(id: string): FlowEntity {
+    void this.parts
+    const front = this.map.slices[0]!
+    const m = this.data.members.findIndex((x) => x.id === id)
+    if (m >= 0) return front.sites[m]!
+    const p = (this.data.partners ?? []).findIndex((x) => x.id === id)
+    if (p >= 0) return front.partners[p]!
+    throw new Error(`GeoFlow: no member or partner '${id}'`)
   }
 
   protected override compose(): void {
@@ -369,6 +419,7 @@ export class GeoFlow extends Null {
     })
 
     scaled = new Group({ members: [map, twin, ...this.travelers], scale: mapScale })
+    this.scaledGroup = scaled
     const anchor = { x: pose.focus.x + pose.dir.x * hover, y: pose.focus.y + pose.dir.y * hover, z: pose.focus.z + pose.dir.z * hover }
     const phi = Math.atan2(pose.dir.x, pose.dir.z)
     const theta = Math.asin(Math.max(-1, Math.min(1, pose.dir.y)))

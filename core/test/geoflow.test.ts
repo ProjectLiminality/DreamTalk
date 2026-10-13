@@ -10,6 +10,8 @@ import { toWorld } from "../src/parts/soliddrawing"
 import { GeoFlow } from "../vocabulary/GeoFlow/GeoFlow"
 import { MOCK_GEO } from "../vocabulary/GeoFlow/mockGeo"
 import { MOCK_FLOWMAP } from "../vocabulary/FlowMap/FlowMap"
+import { Circle } from "../src/parts/primitives"
+import { completion } from "../src/params"
 
 const build = () => {
   const observer = new Observer()
@@ -55,5 +57,26 @@ describe("GeoFlow", () => {
     const t = toWorld(traveler, { x: 0, y: 0, z: 0 })
     const s = toWorld(seat, { x: 0, y: 0, z: 0 })
     expect(Math.hypot(t.x - s.x, t.y - s.y, t.z - s.z)).toBeLessThan(1e-3 * Math.hypot(s.x, s.y, s.z) + 1e-6)
+  })
+})
+
+describe("GeoFlow's hooks for a song", () => {
+  test("seat(id) finds a member's or partner's seat; inPlane adds to the map's own plane", () => {
+    const { g } = build()
+    expect(g.seat("A")).toBe(g.map.slices[0]!.sites[0]!)
+    expect(g.seat("S1")).toBe(g.map.slices[0]!.partners[0]!)
+    expect(() => g.seat("nope")).toThrow()
+    const mark = new Circle({ radius: 10 })
+    g.inPlane(mark)
+    expect(mark.parent).toBe(g.map.parent)
+  })
+  test("viewExtras ride the v axis: one axis, both ends", () => {
+    const observer = new Observer()
+    const extra = completion(0)
+    const g = new GeoFlow({ seenBy: () => observer, viewExtras: [[extra, 0, 1]] })
+    void g.parts
+    const [ax] = g.stateSpace().axes
+    expect(ax!.positions.map((p) => p.values.get(extra))).toEqual([0, 1])
+    expect(ax!.to("abstract").tracks.map((t) => t.param)).toContain(extra)
   })
 })

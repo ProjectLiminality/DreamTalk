@@ -28,4 +28,10 @@ this.play(geo.view.to(1, { easing: "linear" }), 6.6)
 
 `geo.places` maps member and partner ids to `{ lat, lon, certainty? }`. Any id may be missing; it then has no place and simply draws in with the map. A place given `certainty < 1` is a guess, ghosted on the way to its seat until it is seated. GeoFlow flies the scene's camera (EarthView + `followEarth`, with the lens set to `fov`), so give it the observer and animate GeoFlow, not the camera. It exposes `earth`, `eye`, `map`, `sites`, `links`, `traffics`, `relations` and `travelers` for a song that wants to reach further (`geo.map.grain`, `geo.map.stage("semi").shown`, …).
 
+**Hooks for a song's own pieces:**
+- `geo.inPlane(holon)` adds anything to the abstract plane, in the map's own units (a lens on a flow, a mark round a seat).
+- `geo.seat(id)` returns a member's or partner's seat in the circle.
+- `viewExtras: [[param, atGlobe, atAbstract], …]` makes the **v** axis walk your params too.
+- `GEOFLOW_WINDOWS` exposes the transition's windows, to time your own beats against them.
+
 The technique was proved by a private DreamSong and consolidated here as a generic piece: nothing of that song's data travels with it. The mock geography (`mockGeo.ts`) places FlowMap's own mock organisation across Europe.
