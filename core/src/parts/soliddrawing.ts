@@ -79,9 +79,13 @@ export const toLocal = (holon: Holon, p: Vec3Like): Vec3Like => {
 /** A world-space view carried into `holon`'s local space. */
 export const localView = (holon: Holon, view: View): View => {
   if ("eye" in view) return { eye: toLocal(holon, view.eye) }
-  const o = toLocal(holon, { x: 0, y: 0, z: 0 })
-  const d = toLocal(holon, view.toward)
-  const t = { x: d.x - o.x, y: d.y - o.y, z: d.z - o.z }
+  // A direction: rotations only, root down — no translation, so a holon
+  // that merely moves sees EXACTLY the same local direction (bit for bit),
+  // and every memo keyed on it holds while it travels.
+  const chain: Holon[] = []
+  for (let node: Holon | undefined = holon; node; node = node.parent) chain.push(node)
+  let t = view.toward
+  for (let i = chain.length - 1; i >= 0; i--) t = invRotHPB(t, chain[i]!.p.value, chain[i]!.h.value, chain[i]!.b.value)
   const l = Math.hypot(t.x, t.y, t.z) || 1
   return { toward: { x: t.x / l, y: t.y / l, z: t.z / l } }
 }
