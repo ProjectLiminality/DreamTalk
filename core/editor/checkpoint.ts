@@ -128,6 +128,23 @@ export const placementAt = (clips: readonly Clip[], t: number): Placement => {
   return { placement: "before", anchor: anchored[0]!.anchor }
 }
 
+/**
+ * Which anchored clip the placement names, counted in play order — the
+ * daemon's way into a song that plays through a helper (`this.flowing(…)`
+ * around one `this.play`), where every clip carries the helper's one
+ * span and only the count says which of unfold()'s statements it was.
+ */
+export const clipOrdinalAt = (clips: readonly Clip[], t: number): number => {
+  let ordinal = 0
+  let i = -1
+  for (const clip of clips) {
+    if (!anchorOf(clip as unknown as object)) continue
+    i++
+    if (clip.start <= t + 1e-9) ordinal = i
+  }
+  return ordinal
+}
+
 // --- The affordance ---------------------------------------------------------
 
 export interface CheckpointOpts {
@@ -140,6 +157,8 @@ export interface CheckpointOpts {
   /** The scene's own file — the op target when no clip anchor names one. */
   sceneFile: () => string
   send: (op: Record<string, unknown>) => void
+  /** The clip length a capture writes when none is given (a walked transition's own). */
+  seconds?: () => number | undefined
   signal: AbortSignal
 }
 
@@ -188,7 +207,7 @@ export const mountCheckpoint = (opts: CheckpointOpts): CheckpointHandle => {
   }
 
   const capture = async (
-    clipSeconds = 1,
+    clipSeconds = opts.seconds?.() ?? 1,
   ): Promise<Record<string, unknown> | undefined> => {
     if (opts.isPlaying() || sent) return undefined
     const t = opts.currentT()
@@ -207,6 +226,7 @@ export const mountCheckpoint = (opts: CheckpointOpts): CheckpointHandle => {
       file,
       placement,
       anchor: anchor ? { start: anchor.start, end: anchor.end } : undefined,
+      ordinal: anchor ? clipOrdinalAt(dream.clips, t) : undefined,
       targets,
       duration: clipSeconds,
       baseHash,

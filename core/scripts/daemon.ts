@@ -606,6 +606,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
           op: "appendCheckpoint",
           placement: msg.placement,
           anchor: msg.anchor,
+          ordinal: msg.ordinal,
           targets: msg.targets,
           duration: msg.duration,
           file,

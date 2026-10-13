@@ -413,6 +413,16 @@ operational decisions are entered by the working agent. Format:
   h10 term), so a reversal swings and returns instead of popping. Leaving
   blends back into the song over 0.6 s. Affordance: white hairline corner
   ticks + a one-line caption (creator mode keeps gold).
+- 2026-10-13 · **The editor contains the scene's automaton; t is one of its
+  axes** (docs/reports/editor-automaton.md) — paused in game mode the
+  editor IS the game loop (editor/walk.ts embeds GameLoop): elements that
+  own an axis fire on click (creator mode always selects; elsewhere clicks
+  select), keys fire, the inspector's State group shows and fires every
+  position. The walk writes into the editor's ONE live layer (Overrides),
+  not the params, so a walked pose is inspectable, Esc-discardable,
+  snapped back by time, and ⌘K-capturable as an authored `this.play(…)` at
+  the playhead (with the axis's own duration) — free walk becomes authoring
+  through the existing op. Clocks stay still in the paused editor.
 - 2026-10-13 · **One Earth: the flat Web3 `Globe` is retired into
   `vocabulary/Earth`** (David: "one reusable Earth object imported everywhere
   … so all improvements propagate to all DreamSongs") — every Web3 shot,

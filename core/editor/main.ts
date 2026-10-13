@@ -75,6 +75,7 @@ import { mountCheckpoint, type CaptureTarget, type CheckpointHandle } from "./ch
 import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } from "./player"
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
+import { EditorWalk } from "./walk"
 import { UndoStack, undoAction, type OpDescriptor } from "./undo"
 import { Overrides, type Pose } from "./overrides"
 
@@ -777,6 +778,8 @@ const boot = async (resume?: Transport) => {
         metaEl.append(" · ", a)
         metaEl.title = `core/demo/boards/${sceneKey.slice("board:".length)}.board.json`
       }
+      // The scene's state space: where each axis stands, every position a button.
+      walk?.inspect(paramsRoot, null)
       const hint = document.createElement("div")
       hint.className = "empty"
       hint.textContent = "Nothing selected — click an object in the viewport."
@@ -804,6 +807,7 @@ const boot = async (resume?: Transport) => {
 
     const animated = dream.build().params
     const groups = inspectorGroups(holon, animated)
+    walk?.inspect(paramsRoot, holon)
     if (groups.length === 0) {
       const hint = document.createElement("div")
       hint.className = "empty"
@@ -940,6 +944,31 @@ const boot = async (resume?: Transport) => {
           },
         },
       )
+
+  // --- The walk (editor/walk.ts) ---------------------------------------------
+  //
+  // Paused, in game mode (creator off), the scene's state space is live:
+  // an element that owns an axis is a button — hover ticks it, a click or
+  // its key fires it — and the fired pose rides the live layer, so the
+  // inspector reads it, Escape discards it and ⌘K captures it. Creator
+  // mode selects everything; elsewhere a click still selects.
+  const walk = playerMode
+    ? undefined
+    : new EditorWalk({
+        canvas,
+        pick: pickAt,
+        boundsOf: (h) => host.boundsOf(h),
+        roots: dream.roots,
+        overrides,
+        isPlaying: () => playing,
+        // A camera drag is not a suspension: the GameLoop tells a click from a drag itself.
+        suspended: () => !!creator?.on || !!move || !!axis,
+        currentT: () => current,
+        pause: () => pause(),
+        // The inspector's State group is the HUD here; `h` (or ?hud=1) adds it in the viewport.
+        hud: new URLSearchParams(location.search).get("hud") === "1",
+        signal: ac.signal,
+      })
 
   /** Client coords → the canvas's render-pixel space — the gizmo's coordinates. */
   const canvasPixelAt = (clientX: number, clientY: number): { x: number; y: number } | undefined => {
@@ -1255,6 +1284,16 @@ const boot = async (resume?: Transport) => {
         const grabbed = cp ? hitHandle(geo, cp.x, cp.y) : null
         if (grabbed !== null && beginAxis(e, grabbed)) return
       }
+      // A walkable element is a button (the walk fires it on release): the
+      // selection stays put, and a drag from it still flies the camera.
+      if (walk?.owns(e.clientX, e.clientY)) {
+        flight = { x: e.clientX, y: e.clientY, pan: e.shiftKey }
+        try {
+          canvas.setPointerCapture?.(e.pointerId)
+        } catch {}
+        canvas.classList.add("flying")
+        return
+      }
       const hit = pickAt(e.clientX, e.clientY)
       const selected = selection.current
       if (hit && selected && withinSelection(hit, selected)) {
@@ -1464,7 +1503,8 @@ const boot = async (resume?: Transport) => {
         "moveable",
         !!hit && !!selected && movable(selected) && withinSelection(hit, selected),
       )
-      applyGlow(creator?.on ? null : (sovereignOf(hit) ?? null))
+      // Over a walkable element the walk's ticks are the affordance, not the glow.
+      applyGlow(creator?.on || walk?.owns(e.clientX, e.clientY) ? null : (sovereignOf(hit) ?? null))
     },
     listen,
   )
@@ -1631,6 +1671,11 @@ const boot = async (resume?: Transport) => {
         e.preventDefault()
         creator.toggle()
       }
+      // The scene's axes on their keys (g, e, 1…), paused in game mode.
+      if (!typing && walk?.key(e)) {
+        e.preventDefault()
+        return
+      }
       // Frame stepping: `,`/`.` one frame (1/30s), shift+ one second —
       // "fine-tweak" made literal. Pauses first; the playhead is truth.
       if (
@@ -1774,6 +1819,7 @@ const boot = async (resume?: Transport) => {
       currentT: () => current,
       sceneFile: () => sceneFileFor(sceneKey),
       send: sendOp,
+      seconds: () => walk?.seconds,
       signal: ac.signal,
     })
 
@@ -1866,6 +1912,7 @@ const boot = async (resume?: Transport) => {
 
   const loop = async (now: number) => {
     if (!alive) return
+    const walked = walk?.step(now) ?? false
     if (playing) {
       // A still (a board with no choreography yet) has no time to loop.
       const t = duration > 0 ? ((now - anchor) / 1000) % duration : 0
@@ -1874,7 +1921,7 @@ const boot = async (resume?: Transport) => {
       // observer back from the time-move clear while it is in flight.
       stepReturn(now)
       await paint(t)
-    } else if (stepReturn(now)) {
+    } else if (stepReturn(now) || walked) {
       // A return that outlives a pause still finishes, quietly.
       await host.renderFrame(current)
       syncPanel()
@@ -2094,6 +2141,15 @@ const boot = async (resume?: Transport) => {
       paintMarquee()
     },
     gizmoHandles: () => gizmoGeometry(),
+    // --- The walk (editor/walk.ts), driven headlessly ------------------------
+    walk: walk && {
+      state: () => walk.axes(),
+      fire: (id: string, position?: string) => walk.fire(id, position),
+      handlePoint: (id: string) => walk.handlePoint(id),
+      owns: (x: number, y: number) => walk.owns(x, y),
+      clickAt: (x: number, y: number) => walk.game.clickAt(x, y),
+      seconds: () => walk.seconds,
+    },
   })
 }
 

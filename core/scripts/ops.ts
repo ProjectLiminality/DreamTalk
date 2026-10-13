@@ -6,7 +6,7 @@
  * files and queues; this module owns nothing but the transformation.
  */
 
-import { IndentationText, Project, SyntaxKind } from "ts-morph"
+import { IndentationText, Node, Project, SyntaxKind } from "ts-morph"
 import type { CallExpression, MethodDeclaration, NewExpression, SourceFile } from "ts-morph"
 
 export interface SetBackdropOp {
@@ -377,6 +377,12 @@ export interface AppendCheckpointOp {
   /** Byte span of the play() call the placement is relative to. */
   anchor?: { start: number; end: number }
   /**
+   * Which anchored clip that is, in play order — used only when the span
+   * is not one of unfold()'s statements (a song that plays through a
+   * helper, every clip sharing the helper's one `this.play`).
+   */
+  ordinal?: number
+  /**
    * The captured pose: one `.to()` per overridden param, addressed the
    * way the scene's own code addresses it (`this.circle.x`,
    * `this.observer.phi`, `this.lines[2].y`).
@@ -462,7 +468,10 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
   if (op.placement !== "end") {
     if (!op.anchor) return { ok: false, reason: `placement '${op.placement}' needs an anchor span` }
     const { start, end } = op.anchor
-    const at = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
+    const direct = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
+    const at =
+      direct >= 0 ? direct : op.ordinal !== undefined ? statementOfPlay(unfold, statements, op) : -1
+    if (typeof at === "string") return { ok: false, reason: at }
     if (at < 0)
       return { ok: false, reason: "no statement at the anchored span — reload and recapture" }
     index = op.placement === "before" ? at : at + 1
@@ -488,6 +497,69 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
     if (failure) return { ok: false, reason: failure }
   }
   return { ok: true, text: unfold.getSourceFile().getFullText() }
+}
+
+/**
+ * The unfold() statement that played the `ordinal`-th anchored clip, for a
+ * song that plays through helpers (`this.flowing(3, …)` → one `this.play`).
+ * Plays are counted statement by statement: a `this.play(…)` is one; a
+ * call to a method of the class is the plays of its own statements, by
+ * the same rule. A play inside anything else — a loop, a branch, a
+ * callback — makes the count indeterminate, and the op refuses rather
+ * than guess. Returns the statement index, -1 if the count runs out, or
+ * the refusal.
+ */
+const statementOfPlay = (
+  unfold: MethodDeclaration,
+  statements: readonly Node[],
+  op: AppendCheckpointOp,
+): number | string => {
+  const cls = unfold.getParent()
+  if (!Node.isClassDeclaration(cls)) return "unfold() is not a class method"
+  const helper = cls
+    .getMethods()
+    .find((m) => op.anchor && m.getStart() <= op.anchor.start && m.getEnd() >= op.anchor.end)
+  if (!helper || helper === unfold) return "no statement at the anchored span — reload and recapture"
+  const indeterminate = "the song plays inside a loop or branch — place the transition by hand"
+  const mayPlay = (node: Node, depth: number): boolean =>
+    depth < 8 &&
+    node.getDescendantsOfKind(SyntaxKind.CallExpression).some((c) => {
+      const callee = c.getExpression().getText()
+      if (callee === "this.play") return true
+      const m = callee.startsWith("this.") ? cls.getMethod(callee.slice(5)) : undefined
+      return !!m && m !== unfold && mayPlay(m, depth + 1)
+    })
+  const playsOf = (stmt: Node, depth: number): number | undefined => {
+    if (depth > 8) return undefined
+    const call = stmt.asKind(SyntaxKind.ExpressionStatement)?.getExpression().asKind(SyntaxKind.CallExpression)
+    const callee = call?.getExpression().getText()
+    if (callee === "this.play") return call!.getArguments().some((a) => mayPlay(a, depth)) ? undefined : 1
+    const m = callee?.startsWith("this.") ? cls.getMethod(callee.slice(5)) : undefined
+    if (m && m !== unfold) {
+      if (call!.getArguments().some((a) => mayPlay(a, depth))) return undefined
+      let n = 0
+      for (const inner of m.getStatements()) {
+        const k = playsOf(inner, depth + 1)
+        if (k === undefined) return undefined
+        n += k
+      }
+      return n
+    }
+    return mayPlay(stmt, depth) ? undefined : 0
+  }
+  const ordinal = op.ordinal!
+  let count = 0
+  for (let i = 0; i < statements.length; i++) {
+    const k = playsOf(statements[i]!, 0)
+    if (k === undefined) return indeterminate
+    if (ordinal < count + k) {
+      // Inside a statement that plays several: only its edge is a place.
+      const edge = op.placement === "before" ? count : count + k - 1
+      return ordinal === edge ? i : "that clip is one of several a single statement plays — place it by hand"
+    }
+    count += k
+  }
+  return -1
 }
 
 /** The shortest clip a drag can write — sub-0.1s durations are noise. */
