@@ -1399,8 +1399,11 @@ export class ThreeHost {
       // One screen-arc measurement serves both fronts (perf F): a stroke
       // mid-draw AND mid-erase used to project its polyline twice. Only a
       // front strictly inside (0, 1) needs it — screenArc's own early outs.
-      const creationMid = !(creation <= 0) && !(creation >= 1)
-      const erasureMid = !(erasure <= 0) && !(erasure >= 1)
+      // A stroke that cannot show (opacity or width 0 — ribbon.style hides
+      // it whatever its fronts say) is not measured at all.
+      const seen = opacity > 0 && width > 0
+      const creationMid = seen && !(creation <= 0) && !(creation >= 1)
+      const erasureMid = seen && !(erasure <= 0) && !(erasure >= 1)
       const measured =
         creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined
       ribbon.style(
@@ -2720,7 +2723,13 @@ export class ThreeHost {
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
     const matrix = ribbon.mesh.matrixWorld
-    const projected: ProjectedPoint[] = []
+    // A pooled array of point records, rewritten in place (perf: one fresh
+    // object per point per stroke per frame was the draw-on's GC churn —
+    // ~80k a frame on the Earth). toScreen's arithmetic is inlined
+    // unchanged, so every value is the same as before, bit for bit.
+    const projected = this.arcPool
+    const perspective = this.camera instanceof THREE.PerspectiveCamera
+    let count = 0
     // Two scratch points, swapped each step, in place of a clone per
     // point (perf F) — the same values, so the same arithmetic.
     let v = this.arcPoint
@@ -2731,19 +2740,21 @@ export class ThreeHost {
       v.copy(local).applyMatrix4(matrix)
       if (!first) world += v.distanceTo(previous)
       first = false
-      const screen = this.toScreen(v, width, height)
-      projected.push({
-        x: screen?.x ?? 0,
-        y: screen?.y ?? 0,
-        world,
-        onCamera: screen !== undefined,
-      })
+      const ndc = this.ndcScratch.copy(v).project(this.camera)
+      const onCamera =
+        Number.isFinite(ndc.x) && Number.isFinite(ndc.y) && !(perspective && ndc.z > 1)
+      const p = (projected[count] ??= { x: 0, y: 0, world: 0, onCamera: false })
+      p.x = onCamera ? ((ndc.x + 1) / 2) * width : 0
+      p.y = onCamera ? ((1 - ndc.y) / 2) * height : 0
+      p.world = world
+      p.onCamera = onCamera
+      count++
       const swap = previous
       previous = v
       v = swap
     }
     if (world <= 0) return undefined
-    const remap = screenArcRemap(projected, world, { width, height })
+    const remap = screenArcRemap(projected, world, { width, height }, count)
     // A stroke with no visible ink has no screen parametrisation; the
     // remap already falls back to the identity, so this is the cheap
     // early out.
@@ -2762,6 +2773,8 @@ export class ThreeHost {
   }
 
   /** Scratch for measureScreenArc / toScreen — never held across calls. */
+  /** measureScreenArc's reusable point records (screenArcRemap keeps no reference). */
+  private readonly arcPool: ProjectedPoint[] = []
   private readonly arcPoint = new THREE.Vector3()
   private readonly arcPrevious = new THREE.Vector3()
   private readonly ndcScratch = new THREE.Vector3()

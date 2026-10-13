@@ -91,33 +91,56 @@ export const clipToViewport = (
   by: number,
   view: Viewport,
 ): [number, number] => {
+  clipInto(ax, ay, bx, by, view.width, view.height)
+  return [clipped.t0, clipped.t1]
+}
+
+/** Where `clipInto` leaves its answer — scratch, so the hot loop allocates nothing. */
+const clipped = { t0: 0, t1: 1 }
+
+/**
+ * `clipToViewport` without the allocations (perf: it ran once per segment
+ * of every stroke mid-draw, building five small arrays each time — the
+ * Earth's ~80k shoreline points made it the frame's top cost). The same
+ * four edges in the same order, the same arithmetic, so the same bits.
+ */
+const clipInto = (ax: number, ay: number, bx: number, by: number, width: number, height: number): void => {
   const dx = bx - ax
   const dy = by - ay
   let t0 = 0
   let t1 = 1
-  const edges: [number, number][] = [
-    [-dx, ax - 0],
-    [dx, view.width - ax],
-    [-dy, ay - 0],
-    [dy, view.height - ay],
-  ]
-  for (const [p, q] of edges) {
+  for (let e = 0; e < 4; e++) {
+    const p = e === 0 ? -dx : e === 1 ? dx : e === 2 ? -dy : dy
+    const q = e === 0 ? ax - 0 : e === 1 ? width - ax : e === 2 ? ay - 0 : height - ay
     if (p === 0) {
       // Parallel to this edge: inside iff q >= 0, else the whole
       // segment is out.
-      if (q < 0) return [1, 0]
+      if (q < 0) {
+        clipped.t0 = 1
+        clipped.t1 = 0
+        return
+      }
       continue
     }
     const r = q / p
     if (p < 0) {
-      if (r > t1) return [1, 0]
+      if (r > t1) {
+        clipped.t0 = 1
+        clipped.t1 = 0
+        return
+      }
       if (r > t0) t0 = r
     } else {
-      if (r < t0) return [1, 0]
+      if (r < t0) {
+        clipped.t0 = 1
+        clipped.t1 = 0
+        return
+      }
       if (r < t1) t1 = r
     }
   }
-  return [t0, t1]
+  clipped.t0 = t0
+  clipped.t1 = t1
 }
 
 /**
@@ -142,12 +165,14 @@ export const screenArcRemap = (
   points: readonly ProjectedPoint[],
   totalWorld: number,
   view: Viewport,
+  /** How many of `points` to read — a host reusing a pooled array passes its fill. */
+  count: number = points.length,
 ): ScreenArcRemap => {
   const identity: ScreenArcRemap = {
     screenLength: 0,
     worldAt: (f) => Math.max(0, Math.min(1, f)) * totalWorld,
   }
-  if (points.length < 2 || totalWorld <= 0) return identity
+  if (count < 2 || totalWorld <= 0) return identity
 
   // Per visible sub-segment: the screen length it contributes and the
   // world-arc interval it covers. Walking these in order gives the map.
@@ -156,11 +181,13 @@ export const screenArcRemap = (
   const worldTo: number[] = []
   let screenTotal = 0
 
-  for (let i = 0; i + 1 < points.length; i++) {
+  for (let i = 0; i + 1 < count; i++) {
     const a = points[i]!
     const b = points[i + 1]!
     if (!a.onCamera || !b.onCamera) continue
-    const [t0, t1] = clipToViewport(a.x, a.y, b.x, b.y, view)
+    clipInto(a.x, a.y, b.x, b.y, view.width, view.height)
+    const t0 = clipped.t0
+    const t1 = clipped.t1
     if (t1 <= t0) continue
     const px = Math.hypot(b.x - a.x, b.y - a.y) * (t1 - t0)
     if (px <= 0) continue

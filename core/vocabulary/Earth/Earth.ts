@@ -94,6 +94,7 @@ import { together, type Anim } from "../../src/anim"
 import { rgb, WHITE } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import {
+  angleBetween,
   densifyLonLat,
   horizonCircle,
   tangentFrame,
@@ -132,6 +133,26 @@ interface GeoLine {
   /** Border class (codec BORDER_CLASSES), or -1 for coast. */
   cls: number
   points: Vec3[]
+  /**
+   * The feature's mean width on the unit sphere (2·area / perimeter of
+   * its ring, radians) — Infinity for borders. What the outline's
+   * screen-size LOD reads (see `fineness`).
+   */
+  width: number
+}
+
+/** Mean width 2A/P of a closed lon/lat ring (dense, degrees) on the unit sphere. */
+const ringWidth = (dense: ArrayLike<number>, pts: readonly Vec3[]): number => {
+  const D = Math.PI / 180
+  const n = dense.length / 2
+  let a = 0
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n
+    a += (dense[2 * j]! - dense[2 * i]!) * D * (2 + Math.sin(dense[2 * i + 1]! * D) + Math.sin(dense[2 * j + 1]! * D))
+  }
+  let perimeter = 0
+  for (let i = 0; i < pts.length; i++) perimeter += angleBetween(pts[i]!, pts[(i + 1) % pts.length]!)
+  return perimeter > 0 ? (2 * Math.abs(a / 2)) / perimeter : 0
 }
 
 interface Geography {
@@ -169,12 +190,14 @@ export const geography = (): Geography => {
       rankOfOuter = rank
       byRank[rank]!.push({ outer: pts, holes: [] })
     }
-    coast.push(...shoreRuns(dense, pts).map((points) => ({ rank: hole ? rankOfOuter : rank, cls: -1, points })))
+    const width = ringWidth(dense, pts)
+    coast.push(...shoreRuns(dense, pts).map((points) => ({ rank: hole ? rankOfOuter : rank, cls: -1, points, width })))
   }
   const borders: GeoLine[] = decodeRings(BORDERS_50M).map((line) => ({
     rank: Math.min(RANKS - 1, line.meta & 15),
     cls: (line.meta >> 4) & 7,
     points: lonLatToUnits(densifyLonLat(line.coords, MAX_STEP)),
+    width: Infinity,
   }))
   memo = {
     land: byRank.map((polys) => triangulateSphere(polys, CELLS_PER_FACE)),
@@ -334,6 +357,7 @@ export class Earth extends Null {
 
     const strokes = new Null()
     this.add(strokes)
+    const fineness = this.finenessGauge()
     const lineOf = (g: GeoLine, kind: "coast" | "border"): Line => {
       const coast = kind === "coast"
       const presence = coast ? this.coastOpacity : this.borderOpacity
@@ -342,7 +366,9 @@ export class Earth extends Null {
         tint: coast ? this.coastTint : this.borderTint,
         stroke: coast ? this.coastStroke : this.borderStroke,
         creation: coast ? this.coastDraw : this.borderDraw,
-        opacity: derive(() => presence.value * lod(g.rank, this.detail.value)),
+        opacity: derive(
+          () => presence.value * lod(g.rank, this.detail.value) * (coast ? fineness(g.width) : 1),
+        ),
       })
     }
     for (const g of geo.coast) this.coastLines.push(addTo(strokes, lineOf(g, "coast")))
@@ -379,6 +405,75 @@ export class Earth extends Null {
     for (const place of this.places) this.add(place)
   }
 
+  /**
+   * SCREEN-SIZE LOD for shorelines: a feature narrower on screen than a
+   * few pen widths keeps its fill and loses its outline. A 1.5 px stroke
+   * round a 3 px island draws both shores as one doubled line — the
+   * Dalmatian islands and the narrowest fjord tongues read as smudges, not
+   * coasts. So an outline fades out between 4 and 2 stroke widths of the
+   * feature's mean width (2·area/perimeter) at the eye's distance, as a web
+   * map drops the outlines of what it can only show as a speck.
+   *
+   * ~1,600 shorelines ask every frame, so the gauge is built once over the
+   * raw params (no proxy reads, no allocation): it re-measures the screen
+   * scale only when a number that moves it has moved.
+   */
+  private finenessGauge(): (width: number) => number {
+    const earth = this
+    const own = [this.x, this.y, this.z, this.h, this.p, this.b, this.scale, this.radius]
+    const pen = this.coastStroke
+    const radius = this.radius
+    const key = new Float64Array(own.length + 9).fill(Number.NaN)
+    let pxPerUnit = 1
+    let lastPen = Number.NaN
+    let lo = 0
+    let hi = 0
+    const remeasure = (): void => {
+      let i = 0
+      let moved = false
+      const o = earth.seer
+      const at = (v: number) => {
+        if (key[i] !== v) {
+          key[i] = v
+          moved = true
+        }
+        i++
+      }
+      if (o) {
+        at(o.x.value); at(o.y.value); at(o.z.value); at(o.phi.value); at(o.theta.value)
+        at(o.radius.value); at(o.zoom.value); at(o.fov.value); at(o.orthographic.value ? 1 : 0)
+      }
+      for (const p of own) at(p.value)
+      const w = Math.max(0.5, pen.value)
+      if (!moved && w === lastPen) return
+      lastPen = w
+      const local = earth.localEye()
+      const fov = o ? o.fov.value : (53.13 * Math.PI) / 180
+      if (!local || local.orthographic) pxPerUnit = Infinity
+      else {
+        const altitude = Math.max(1e-6, Math.hypot(local.point.x, local.point.y, local.point.z) - radius.value)
+        pxPerUnit = 360 / (altitude * Math.tan(fov / 2))
+      }
+      // In unit-sphere radians: the outline is gone below `lo`, whole above `hi`.
+      lo = (2 * w) / (radius.value * pxPerUnit)
+      hi = (4 * w) / (radius.value * pxPerUnit)
+    }
+    return (width: number): number => {
+      if (!Number.isFinite(width)) return 1
+      remeasure()
+      if (width >= hi) return 1
+      if (width <= lo) return 0
+      const t = (width - lo) / (hi - lo)
+      return t * t * (3 - 2 * t)
+    }
+  }
+
+  /** The observer's vertical field of view — set by `seenFrom`. */
+  lens?: () => number
+
+  /** The observer the Earth was told about (`seenFrom`). */
+  private seer?: Observer
+
   /** Where the eye is, in world space — set by `seenFrom`. */
   eye?: () => { point: Vec3; orthographic: boolean }
 
@@ -390,6 +485,8 @@ export class Earth extends Null {
    * everything else.
    */
   seenFrom(observer: Observer): void {
+    this.lens = () => observer.fov.value
+    this.seer = observer
     this.eye = () => {
       const r = observer.orthographic.value
         ? observer.radius.value

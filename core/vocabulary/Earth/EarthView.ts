@@ -144,19 +144,25 @@ export const followEarth = (
   opts: { detail?: number } = {},
 ): void => {
   // One pose per frame, shared by the six readings (they are read in a
-  // burst by the host's camera sync; keyed on every input that moves it).
-  let key = ""
+  // burst — by the host's camera sync, and by every shoreline asking the
+  // Earth its screen scale). Keyed on every input that moves it, compared
+  // in place: no allocation on the hot path.
+  const inputs = [
+    view.lat, view.lon, view.zoom, view.tilt, view.fill,
+    earth.x, earth.y, earth.z, earth.h, earth.p, earth.b, earth.scale, earth.radius, observer.fov,
+  ]
+  const key = new Float64Array(inputs.length).fill(Number.NaN)
   let pose = viewPose(earth, view, observer.fov.value)
   const now = () => {
-    const k = [
-      view.lat.value, view.lon.value, view.zoom.value, view.tilt.value, view.fill.value,
-      earth.x.value, earth.y.value, earth.z.value, earth.h.value, earth.p.value, earth.b.value,
-      earth.scale.value, observer.fov.value,
-    ].join(",")
-    if (k !== key) {
-      key = k
-      pose = viewPose(earth, view, observer.fov.value)
+    let moved = false
+    for (let i = 0; i < inputs.length; i++) {
+      const v = inputs[i]!.value
+      if (key[i] !== v) {
+        key[i] = v
+        moved = true
+      }
     }
+    if (moved) pose = viewPose(earth, view, observer.fov.value)
     return pose
   }
   earth.seenFrom(observer)
