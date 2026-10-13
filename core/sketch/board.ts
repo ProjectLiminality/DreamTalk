@@ -35,6 +35,18 @@ export const emptyBoard = (): BoardFile => ({ version: 1, page: { w: PAGE_W, h: 
 
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v)
 
+/**
+ * Symbol ids that were retired into another holon, old → new. A symbol has
+ * one implementation; when two merge, a board saved with the old id still
+ * opens as the one that stands for it now.
+ */
+export const RENAMED_SYMBOLS: Readonly<Record<string, string>> = {
+  /** The flat Web3 Globe became the Earth (2026-10-13). */
+  globe: "earth",
+}
+
+const renamed = (id: string): string => RENAMED_SYMBOLS[id] ?? id
+
 const parseSample = (v: unknown): PenSample | undefined => {
   const p = v as Partial<PenSample> | null
   if (!p || !finite(p.x) || !finite(p.y)) return undefined
@@ -63,10 +75,10 @@ export const parseBoard = (v: unknown): BoardFile | undefined => {
     if (!s || typeof s.id !== "string" || typeof s.symbol !== "string") continue
     const params = typeof s.params === "object" && s.params !== null ? s.params : {}
     const fromStrokes = Array.isArray(s.fromStrokes) ? s.fromStrokes.filter((x) => typeof x === "string") : []
-    symbols.push({ id: s.id, symbol: s.symbol, params, fromStrokes })
+    symbols.push({ id: s.id, symbol: renamed(s.symbol), params, fromStrokes })
   }
   const board: BoardFile = { version: 1, page: { w: PAGE_W, h: PAGE_H }, strokes, symbols }
-  if (Array.isArray(b.vocabulary)) board.vocabulary = [...new Set(b.vocabulary.filter((x) => typeof x === "string"))]
+  if (Array.isArray(b.vocabulary)) board.vocabulary = [...new Set(b.vocabulary.filter((x) => typeof x === "string").map(renamed))]
   return board
 }
 

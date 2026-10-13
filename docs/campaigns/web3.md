@@ -49,7 +49,7 @@ its *parameterisation* the interesting thing?
 | **FourierTrace** | built | David named it. Input is a path + "how many terms"/"how close" — a general draw-verb for any line symbol, not a Vitruvian-specific effect. |
 | **Quote** | built | David named it, on recurrence grounds. Words + attribution + *the recording of them being said* is one unit. |
 | **FlowerText** | built | Recurs 4× in this video alone. The mechanism generalises to any text. |
-| **Globe** | built | Recurs 4×. The modes question was ANSWERED: they share one spine (a projected, spun sphere), and differ only by `continents: fill\|outline` and colour. The halo, rays and hotspot were deliberately left demo-side — folding them in is what would have made it three things wearing one name. |
+| **Globe** | retired 2026-10-13 → `Earth` | Every shot now uses the 3D Earth set on the page (`src/parts/recede.ts`): one implementation, so Earth's improvements reach Web3. History: recurs 4×. The modes question was ANSWERED: they share one spine (a projected, spun sphere), and differ only by `continents: fill\|outline` and colour. The halo, rays and hotspot were deliberately left demo-side — folding them in is what would have made it three things wearing one name. |
 | **Platonic** | built | The "wait for a second use" test was met at once: FOUR of the five appear together in shot 11. Pure maths split out as src/geometry/platonic.ts, 32 tests pinning all five solids' vertex/edge counts. |
 | NodeGraph (centralised↔decentralised) | proposed | Strong idea; the parameterisation is the argument itself. |
 | David's portrait card, PL logo, Web2 triangle | one-offs | Specific to this piece. |

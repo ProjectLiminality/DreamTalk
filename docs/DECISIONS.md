@@ -413,3 +413,11 @@ operational decisions are entered by the working agent. Format:
   h10 term), so a reversal swings and returns instead of popping. Leaving
   blends back into the song over 0.6 s. Affordance: white hairline corner
   ticks + a one-line caption (creator mode keeps gold).
+- 2026-10-13 · **One Earth: the flat Web3 `Globe` is retired into
+  `vocabulary/Earth`** (David: "one reusable Earth object imported everywhere
+  … so all improvements propagate to all DreamSongs") — every Web3 shot,
+  Regenaissance and the whiteboard now use the 3D Earth; a flat picture's
+  layering is kept by `src/parts/recede.ts` (the Earth scaled about the eye
+  until it lies behind the page: same pixels, page ink composites over it,
+  its solids `composite: "inOrder"`). Old boards' `globe` opens as `earth`
+  (sketch/board.ts RENAMED_SYMBOLS).

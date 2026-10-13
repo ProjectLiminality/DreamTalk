@@ -49,7 +49,7 @@ const THUMB_W = 160
 const THUMB_H = 112
 
 /** A tile's one line: the blurb, else the first sentence of what it says
- *  of itself, its own name dropped from the front ("Globe — the world…"). */
+ *  of itself, its own name dropped from the front ("Earth — the planet…"). */
 const lineOf = (item: CatalogueItem): string => {
   const e = item.entry
   if (e.blurb) return e.blurb

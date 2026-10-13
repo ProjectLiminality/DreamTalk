@@ -27,7 +27,8 @@
 import { Dream } from "../../src/index"
 import { Circle, Group, Line } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
-import { Globe } from "../../vocabulary/Globe/Globe"
+import { Earth } from "../../vocabulary/Earth/Earth"
+import { Recede } from "../../src/parts/recede"
 import { hexPack } from "../../src/geometry/flower"
 import { WHITE, rgb, TAU } from "../../src/constants"
 import { HERO_RING_RADIUS } from "./ClarityField"
@@ -49,17 +50,19 @@ const disc = (radius: number, segments = 64) => [
 ]
 
 export class Shot15HeroDream extends Dream {
-  // A black ocean, opaque: the reference's globe is white land on a black
-  // disc that sits IN its bloom, not a transparent sphere over it.
-  globe = new Globe({
+  // The Earth: white land on its black sea, the disc that sits IN its
+  // bloom. Set on the page (Recede), so the bloom and lattice staged before
+  // it pass behind it and the ring after it draws over it.
+  earth = new Earth({
     radius: GLOBE_R,
-    continents: "fill",
     land: WHITE,
-    tilt: 0.1,
-    spin: 0.15,
     landOpacity: 0,
-    oceanTint: rgb(0, 0, 0),
+    coastOpacity: 0,
+    borderOpacity: 0,
+    p: 0.1,
+    h: 0.15,
   })
+  globe = new Recede({ members: [this.earth], reach: GLOBE_R })
 
   ring = new Circle({ radius: RING_R, tint: HERO_RED, stroke: 3 })
 
@@ -95,6 +98,7 @@ export class Shot15HeroDream extends Dream {
   unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
+    this.globe.seenFrom(this.observer)
     // Bloom behind, then the lattice, rays, globe and ring on top.
     this.stage(this.bloom)
     this.stage(this.lattice)
@@ -107,16 +111,15 @@ export class Shot15HeroDream extends Dream {
     )
     this.play(
       together(
-        this.globe.landOpacity.to(1),
-        this.globe.oceanOpacity.to(1),
+        this.earth.landOpacity.to(1),
         together(...bloomLevels),
         together(...this.lattice.members.map((h) => h.opacity.to(0.55))),
         [together(...this.rays.members.map((h) => h.opacity.to(0.85))), 0.2, 1],
-        this.globe.spin.to(0.1, { easing: "linear" }),
+        this.earth.h.to(0.1, { easing: "linear" }),
       ),
       1.25,
     )
     // The globe keeps turning through the hold.
-    this.play(this.globe.spin.to(-0.25, { easing: "linear" }), 14.75)
+    this.play(this.earth.h.to(-0.25, { easing: "linear" }), 14.75)
   }
 }

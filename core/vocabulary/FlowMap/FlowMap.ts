@@ -777,7 +777,7 @@ const STAGE_TINTS: Color[] = [BLUE, WHITE, RED]
 /**
  * Give a Line derived `points`, recomputed when any of `deps` changes —
  * bumping `geomVersion` so the host regenerates its ribbon (the memo pattern
- * of Globe's deriveRing and curves.ts's derivePoints).
+ * of soliddrawing.ts's derivePoints).
  */
 const deriveChannel = (line: Line, deps: () => unknown[], compute: () => Vec3Like[]): void => {
   let key: unknown[] | undefined

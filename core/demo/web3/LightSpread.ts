@@ -36,47 +36,42 @@
  * In f_00114/116 the arcs clearly arch ABOVE the sphere and reach beyond its
  * silhouette; a flat screen curve pinned to the disc could never do that. So an
  * arc is the great-circle path between two surface points, LIFTED off the
- * surface (radius 1 at the endpoints, bulging to `lift` at the apex), then spun
- * and tilted by the SAME projection the globe uses (`projectLatLon`, reused
- * from src/geometry/globe.ts) and orthographically projected. Reusing the
- * globe's own projection is what keeps the arcs locked to the turning sphere
- * rather than sliding independently.
+ * surface (radius 1 at the endpoints, bulging to `lift` at the apex) — the
+ * Earth's own `greatCircleArc`, the curve its Connections draw. The arcs live
+ * IN the Earth's frame (it adopts them as `places`), so they turn with it and
+ * its horizon hides whatever passes behind it, per pixel; a loop lifted past
+ * the limb stays seen.
  *
- * The slerp-and-lift itself lives HERE, in the scene, not in the Globe holon —
- * the campaign map and the Globe header both put the hotspot and arcs demo-side
- * as decoration (folding them in would make the globe "three things wearing one
- * name", the recon's own warning). It reuses `projectLatLon`; it does not touch
- * the holon.
+ * ONE EARTH (2026-10-13; it was two flat Globes, a fill under an outline)
  *
- * WHY TWO GLOBES
- *
- * `Globe.continents` is a CONSTRUCTION choice, not an animated one (the holon's
- * header: "To cross-fade the two, run two Globes"). The frames need exactly
- * that cross-fade — coastlines throughout, land flooding solid — so this scene
- * stacks a FILL globe (its `landOpacity` floods 0 → 1, the "fill spreads") under
- * an OUTLINE globe (coastlines always drawn), both sharing one spin via
- * `.follow()` so they turn as one sphere.
+ * The Earth draws its coastlines over its land, so one sphere does both: the
+ * coasts drawn throughout, `landOpacity` the flood, and the LIGHT on the land
+ * (`lightTheLand`) spreading from the hotspot. It is set on the page
+ * (Recede), so the hotspot's flat rings draw over it.
  *
  * ONE PARAM PER BEAT
  *
- *   spin    — the globe's rotation, turning throughout (Asia → Africa/Europe).
+ *   spin    — the Earth's turn (`earth.h`), throughout (Asia → Africa/Europe).
  *   ignite  — the hotspot blooms and the land floods solid from it (108–112).
  *   spread  — the arc-network sprouts off the surface and wraps the globe
  *             (112–116). Each arc appears over its own slice, so the network
  *             wires up progressively rather than all at once.
  *
- * Every part is a pure function of these numbers (spin/ignite/spread), through
+ * Every part is a pure function of these numbers (earth.h/ignite/spread), through
  * seeded hashes for the arc endpoints — no Math.random, no wall-clock — so the
  * scene scrubs backwards exactly (the FourierTrace `turn` / NodeNetwork shape).
  */
 
+
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { hashUnit } from "../../src/geometry/flower"
-import { projectLatLon } from "../../src/geometry/globe"
-import { WHITE, TAU, rgb } from "../../src/constants"
-import { Globe } from "../../vocabulary/Globe/Globe"
+import { WHITE, rgb } from "../../src/constants"
+import { rotHPB } from "../../src/parts/curves"
+import { Recede } from "../../src/parts/recede"
+import { Earth } from "../../vocabulary/Earth/Earth"
+import { greatCircleArc } from "../../vocabulary/Earth/Connection"
 
 /** The globe's drawn size and lean — matched to GlobeDemo's outline globe so
  *  the sphere reads the same as the rest of the campaign. */
@@ -148,84 +143,6 @@ const RIPPLE_REACH = 0.62
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
-/** A unit-sphere vector for a lon/lat in degrees (pre-spin, pre-tilt). */
-const unitVec = (lonDeg: number, latDeg: number): [number, number, number] => {
-  const lon = (lonDeg * Math.PI) / 180
-  const lat = (latDeg * Math.PI) / 180
-  const cosLat = Math.cos(lat)
-  return [cosLat * Math.sin(lon), Math.sin(lat), cosLat * Math.cos(lon)]
-}
-
-/** Convert a unit-sphere vector back to lon/lat degrees, so a slerped point can
- *  be handed to the globe's own `projectLatLon` (spin + tilt + ortho) and the
- *  arc's radius applied as a scale on the returned screen point. */
-const toLatLon = (v: [number, number, number]): { lon: number; lat: number } => {
-  const [x, y, z] = v
-  const lat = (Math.asin(Math.max(-1, Math.min(1, y))) * 180) / Math.PI
-  const lon = (Math.atan2(x, z) * 180) / Math.PI
-  return { lon, lat }
-}
-
-/**
- * A raised great-circle arc between two lon/lat endpoints, spun and tilted like
- * the globe, orthographically projected to screen points. The path is the slerp
- * of the two unit vectors; each sampled point's distance from centre is scaled
- * from 1 (endpoints) up to `ARC_LIFT` (apex) by a sine bulge, so the arc bows
- * off the surface. Reuses `projectLatLon` for the spin/tilt/ortho so the arc
- * stays locked to the turning sphere.
- */
-const raisedArc = (
-  aLon: number,
-  aLat: number,
-  bLon: number,
-  bLat: number,
-  spin: number,
-): Vec3Like[] => {
-  const a = unitVec(aLon, aLat)
-  const b = unitVec(bLon, bLat)
-  let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-  dot = Math.max(-1, Math.min(1, dot))
-  const omega = Math.acos(dot)
-  const sinOmega = Math.sin(omega)
-  const pts: Vec3Like[] = []
-  for (let i = 0; i <= ARC_SEGMENTS; i++) {
-    const t = i / ARC_SEGMENTS
-    // Slerp a → b along the great circle (falls back to lerp when antipodal-safe).
-    let vx: number, vy: number, vz: number
-    if (sinOmega < 1e-6) {
-      vx = a[0] + (b[0] - a[0]) * t
-      vy = a[1] + (b[1] - a[1]) * t
-      vz = a[2] + (b[2] - a[2]) * t
-    } else {
-      const s0 = Math.sin((1 - t) * omega) / sinOmega
-      const s1 = Math.sin(t * omega) / sinOmega
-      vx = a[0] * s0 + b[0] * s1
-      vy = a[1] * s0 + b[1] * s1
-      vz = a[2] * s0 + b[2] * s1
-    }
-    // Lift off the surface: 1 at the ends, ARC_LIFT at the apex.
-    const bulge = 1 + (ARC_LIFT - 1) * Math.sin(t * Math.PI)
-    const { lon, lat } = toLatLon([vx, vy, vz])
-    const p = projectLatLon(lon, lat, GLOBE_R * bulge, spin, TILT)
-    // NEAR FACE ONLY. projectLatLon returns the camera-facing z and this
-    // scene was discarding it, so back-hemisphere points projected onto the
-    // near side: arcs raked across the whole disc and bulged far past the
-    // limb (measured 1.75x the globe's span, where the reference is 1.00).
-    // Globe's own outline mode drops the far half for exactly this reason.
-    // A break in the polyline is the honest rendering of an arc going behind
-    // the sphere — the eye reads the gap as occlusion, which is what it is.
-    // Behind the sphere AND inside its silhouette is hidden; a lifted arc
-    // that passes behind but outside the limb is still seen — the loops.
-    if (p.z < 0 && Math.hypot(p.x, p.y) < GLOBE_R) {
-      if (pts.length > 1) break
-      pts.length = 0
-      continue
-    }
-    pts.push({ x: p.x, y: p.y, z: 0 })
-  }
-  return pts
-}
-
 /** One arc's two endpoints, seeded and deterministic. One end near the hotspot
  *  region (the light originates there), the other anywhere on the globe — so the
  *  network reads as insight fanning out FROM the lit region across the world. */
@@ -241,79 +158,71 @@ const arcEndpoints = (i: number): { aLon: number; aLat: number; bLon: number; bL
 }
 
 export class LightSpreadDream extends Dream {
-  /**
-   * `spin` drives BOTH globes (the outline follows it) and every arc. It is a
-   * plain scalar animated across the take, not a Null — the two globes carry
-   * their own `spin` params and the arcs read this one.
-   */
-  spin = new Null({ creation: 0 })
-  /** The hotspot blooms and the land floods solid from it. */
+  /** The hotspot blooms and the land is lit from it. */
   ignite = new Null({ creation: 0 })
   /** The arc-network sprouts and wraps the sphere. */
   spread = new Null({ creation: 0 })
 
-  /**
-   * FILL globe underneath: coastlines off (land reads as fill), its land
-   * flooding solid white as `ignite` runs. `landOpacity` is the flood.
-   */
-  fill = new Globe({
-    radius: GLOBE_R,
-    continents: "fill",
-    land: WHITE,
-    tilt: TILT,
-    spin: SPIN_START,
-    landOpacity: 0,
+  arcs = new Group({
+    members: Array.from({ length: ARC_COUNT }, (_, i) => {
+      const ep = arcEndpoints(i)
+      // A constant lift of (ARC_LIFT − 1)·R at the apex: greatCircleArc's
+      // rise is per radian of reach, so divide the reach back out.
+      const a = { lat: ep.aLat, lon: ep.aLon }
+      const b = { lat: ep.bLat, lon: ep.bLon }
+      const reach = Math.max(1e-6, angleBetween(a, b))
+      return new Line({
+        points: greatCircleArc(a, b, GLOBE_R, (ARC_LIFT - 1) / reach, 0, ARC_SEGMENTS),
+        tint: WHITE,
+        stroke: 1.3,
+      })
+    }),
   })
 
   /**
-   * OUTLINE globe on top: white coastlines, drawn throughout (present in every
-   * frame of the shot). Shares the fill globe's rotation via `.follow()` so the
-   * two are one sphere.
+   * The Earth: white coastlines drawn throughout, its land lit and flooded
+   * as `ignite` runs; the arcs ride it.
    */
-  outline = new Globe({
+  earth = new Earth({
     radius: GLOBE_R,
-    continents: "outline",
     land: WHITE,
+    landOpacity: 0,
     coastStroke: 2.5,
+    borderOpacity: 0,
     limbStroke: 1,
     limbTint: rgb(0x44, 0x44, 0x44),
-    tilt: TILT,
-    spin: SPIN_START,
+    p: TILT,
+    h: SPIN_START,
+    places: [this.arcs],
   })
+  globe = new Recede({ members: [this.earth], reach: GLOBE_R })
 
   hotspot!: Group
-  arcs!: Group
-
-  private root = new Null()
 
   constructor() {
     super()
 
     // --- the hotspot: a bright core disc + concentric ripple rings ---------
-    // All ride the globe: their centre is the hotspot lon/lat projected with
-    // the live spin, so the bloom stays pinned to its region as the sphere
-    // turns. Opacity rides `ignite` up, then eases back as the fill takes over
-    // (the frames' bloom fades once the land is solid).
-    const hotAt = (): { x: number; y: number; front: number } => {
-      const p = projectLatLon(HOTSPOT_LON, HOTSPOT_LAT, GLOBE_R, this.spinValue, TILT)
-      return { x: p.x, y: p.y, front: p.z >= 0 ? 1 : 0 }
+    // Flat on the page, standing where the hotspot's place on the turning
+    // Earth shows. Opacity rides `ignite` up, then eases back as the light
+    // takes over (the frames' bloom fades once the land is solid).
+    const spin = this.earth.h
+    const hotAt = () => {
+      const local = this.earth.latLonToLocal(HOTSPOT_LAT, HOTSPOT_LON)
+      return this.globe.toPage(rotHPB(local, this.earth.p.value, spin.value, 0))
     }
 
     const core = new Circle({ radius: GLOBE_R * 0.16, tint: WHITE, stroke: 0, fillOpacity: 1 })
-    bindTo(core, this, () => {
-      const h = hotAt()
-      return { x: h.x, y: h.y }
-    })
+    core.x.follow(spin.map(() => hotAt().x))
+    core.y.follow(spin.map(() => hotAt().y))
     core.opacity.follow(this.ignite.creation.map((g) => this.bloom(g)))
 
     const rings: Circle[] = []
     for (let r = 0; r < RIPPLE_RINGS; r++) {
       const frac = (r + 1) / RIPPLE_RINGS
       const ring = new Circle({ radius: GLOBE_R * RIPPLE_REACH * frac, tint: WHITE, stroke: 1.6 })
-      bindTo(ring, this, () => {
-        const h = hotAt()
-        return { x: h.x, y: h.y }
-      })
+      ring.x.follow(spin.map(() => hotAt().x))
+      ring.y.follow(spin.map(() => hotAt().y))
       // Outer rings appear later and fainter — a ripple expanding outward.
       ring.opacity.follow(
         this.ignite.creation.map((g) => this.bloom(g) * clamp01((g - frac * 0.35) / 0.3) * 0.7),
@@ -325,22 +234,14 @@ export class LightSpreadDream extends Dream {
     this.lightTheLand()
 
     // --- the arc-network ---------------------------------------------------
-    // One Line per arc, its `points` DERIVED from `spin` (so it turns with the
-    // sphere) and its `creation` windowed by index over the `spread` beat, so
-    // arcs sprout progressively — origin-region arcs first — rather than all at
-    // once. Opacity also rides `spread` so nothing is drawn before its turn.
+    // Each arc draws on over its own slice of the `spread` beat, so the
+    // network wires up progressively — origin-region arcs first — and
+    // nothing is drawn before its turn.
     const n = ARC_COUNT
-    const lines: Line[] = []
-    for (let i = 0; i < n; i++) {
-      const ep = arcEndpoints(i)
-      const line = new Line({ tint: WHITE, stroke: 1.3 })
-      deriveArc(line, this, () => raisedArc(ep.aLon, ep.aLat, ep.bLon, ep.bLat, this.spinValue))
-      // Each arc draws on over its own slice of the spread beat.
+    this.arcs.members.forEach((line, i) => {
       line.creation.follow(this.spread.creation.map((c) => clamp01((c - i / n) / (2 / n))))
       line.opacity.follow(this.spread.creation.map((c) => clamp01(c * 3)))
-      lines.push(line)
-    }
-    this.arcs = new Group({ members: lines })
+    })
   }
 
   /**
@@ -351,59 +252,22 @@ export class LightSpreadDream extends Dream {
    * 102 at 30px steps, 112.5–114s). The front stands ~30px out at 110.5 and
    * travels ~47px/s; by ~115 the whole face is white.
    *
-   * The host's radial fill (`fillFalloff`) lights from the holon's LOCAL
-   * ORIGIN, so the land is re-origined at the hotspot: its Stroke stands on
-   * the projected hotspot and every coastline ring is given relative to it
-   * — the same world positions, a different centre. Its time is "seconds
-   * since ignition": 2s of `ignite` (the song's 110.5–112.5), then 5.5s of
-   * `spread`.
+   * The Earth's land light stands ON the hotspot's place, so it turns with
+   * the land. Its time is "seconds since ignition": 2s of `ignite` (the
+   * song's 110.5–112.5), then 5.5s of `spread`.
    */
   private lightTheLand(): void {
-    void this.fill.parts // compose the globe, so its land exists
-    const land = this.fill.landHolon
-    const spin = this.fill.spin
-    const hot = () => projectLatLon(HOTSPOT_LON, HOTSPOT_LAT, GLOBE_R, spin.value, TILT)
-    for (const part of land.parts) {
-      if (!(part instanceof Line)) continue
-      const own = Object.getOwnPropertyDescriptor(part, "points")!.get!
-      let source: Vec3Like[] | undefined
-      let shifted: Vec3Like[] = []
-      Object.defineProperty(part, "points", {
-        configurable: true,
-        enumerable: true,
-        get() {
-          const pts = own.call(part) as Vec3Like[]
-          if (pts !== source) {
-            // The source recomputes (and bumps geomVersion) only when the
-            // spin moves — the only thing the hotspot's position follows.
-            source = pts
-            const h = hot()
-            shifted = pts.map((q) => ({ x: q.x - h.x, y: q.y - h.y, z: q.z }))
-          }
-          return shifted
-        },
-        set(_v) {},
-      })
-    }
-    land.x.follow(spin.map(() => hot().x))
-    land.y.follow(spin.map(() => hot().y))
-
     const since = () => 2 * clamp01(this.ignite.creation.value) + 5.5 * clamp01(this.spread.creation.value)
+    this.earth.lightLat.value = HOTSPOT_LAT
+    this.earth.lightLon.value = HOTSPOT_LON
     // The front P (px), and the light half-strength at ~1.5 P (P + 60 at
     // 112.5s, a small spot at 111): smoothstep(0, R) halves at 0.54 R.
-    land.fillFalloffRadius.follow(
+    this.earth.lightReach.follow(
       this.ignite.creation.map(() => (1.48 * (30 + 47 * since())) / 0.54 / 1.28),
     )
     // The light holds its falloff until the face is lit, then lets go
     // (114 → 115: the far side whitens).
-    land.fillFalloff.follow(
-      this.ignite.creation.map(() => 1 - clamp01((since() - 3.5) / 1)),
-    )
-  }
-
-  /** The live spin value both globes and the arcs read. */
-  private get spinValue(): number {
-    return this.spin.creation.map((c) => SPIN_START + (SPIN_END - SPIN_START) * c).value
+    this.earth.lightFalloff.follow(this.ignite.creation.map(() => 1 - clamp01((since() - 3.5) / 1)))
   }
 
   /** The hotspot bloom envelope: rises with ignite, eases back as the fill
@@ -417,34 +281,22 @@ export class LightSpreadDream extends Dream {
   unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
+    this.globe.seenFrom(this.observer)
 
-    // The outline globe shares the fill globe's rotation — one sphere.
-    this.outline.spin.follow(this.fill.spin.map((s) => s))
-
-    this.stage(this.root)
-    this.stage(this.fill)
-    this.stage(this.outline)
+    this.stage(this.globe)
     this.stage(this.hotspot)
-    this.stage(this.arcs)
 
     // Beat 1 — the globe turns from Asia toward Africa/Europe (106–110).
     this.say("The world turns.")
-    this.play(
-      together(
-        this.spin.creation.to(0.45, { easing: "linear" }),
-        this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.45, { easing: "linear" }),
-      ),
-      4,
-    )
+    this.play(this.earth.h.to(SPIN_START + (SPIN_END - SPIN_START) * 0.45, { easing: "linear" }), 4)
 
     // Beat 2 — a hotspot lights one region and the land floods solid (110–112).
     this.say("A single insight lights up — and floods the world.")
     this.play(
       together(
         this.ignite.creation.to(1),
-        this.fill.landOpacity.to(1),
-        this.spin.creation.to(0.7, { easing: "linear" }),
-        this.fill.spin.to(SPIN_START + (SPIN_END - SPIN_START) * 0.7, { easing: "linear" }),
+        this.earth.landOpacity.to(1),
+        this.earth.h.to(SPIN_START + (SPIN_END - SPIN_START) * 0.7, { easing: "linear" }),
       ),
       3,
     )
@@ -454,8 +306,7 @@ export class LightSpreadDream extends Dream {
     this.play(
       together(
         this.spread.creation.to(1, { easing: "linear" }),
-        this.spin.creation.to(1, { easing: "linear" }),
-        this.fill.spin.to(SPIN_END, { easing: "linear" }),
+        this.earth.h.to(SPIN_END, { easing: "linear" }),
       ),
       4,
     )
@@ -463,43 +314,11 @@ export class LightSpreadDream extends Dream {
   }
 }
 
-/**
- * Bind a Circle's screen position (x, y) to a derived reading recomputed when
- * the Globe's spin changes — for the hotspot core and ripple rings, which ride
- * the turning sphere. Uses `.follow()` on the position params so the binding is
- * live and never replaced by a number (the `holon.x = 5` trap).
- */
-const bindTo = (
-  circle: Circle,
-  dream: LightSpreadDream,
-  compute: () => { x: number; y: number },
-): void => {
-  const spinSrc = (dream as unknown as { spin: Null }).spin.creation
-  circle.x.follow(spinSrc.map(() => compute().x))
-  circle.y.follow(spinSrc.map(() => compute().y))
-}
-
-/**
- * Give a Line derived `points` recomputed whenever the scene's spin changes,
- * bumping `geomVersion` so the host regenerates the ribbon — the same memo
- * pattern Globe's `deriveRing` and FourierTrace use, written the same way
- * deliberately. Keyed on the live spin value.
- */
-const deriveArc = (line: Line, dream: LightSpreadDream, compute: () => Vec3Like[]): void => {
-  let key: number | undefined
-  let memo: Vec3Like[] = []
-  Object.defineProperty(line, "points", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const next = (dream as unknown as { spinValue: number }).spinValue
-      if (key === undefined || next !== key) {
-        key = next
-        memo = compute()
-        line.geomVersion++
-      }
-      return memo
-    },
-    set(_v) {},
-  })
+/** The angle between two lat/lon points on the sphere, radians. */
+const angleBetween = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number => {
+  const D = Math.PI / 180
+  const c =
+    Math.sin(a.lat * D) * Math.sin(b.lat * D) +
+    Math.cos(a.lat * D) * Math.cos(b.lat * D) * Math.cos((a.lon - b.lon) * D)
+  return Math.acos(Math.max(-1, Math.min(1, c)))
 }

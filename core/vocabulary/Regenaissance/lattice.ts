@@ -58,7 +58,7 @@ export const GREAT_CIRCLE_NORMALS: [number, number, number][] = (() => {
 })()
 
 /** Spin about the pole (y), then lean the pole by `pitch` about screen x —
- *  Globe's convention (src/geometry/globe.ts), so the two spheres turn alike. */
+ *  the Earth's h/p convention (curves.ts rotHPB), so the two spheres turn alike. */
 const orient = (v: [number, number, number], spin: number, pitch: number): [number, number, number] => {
   const c = Math.cos(spin), s = Math.sin(spin)
   const x = v[0] * c + v[2] * s

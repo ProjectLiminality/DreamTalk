@@ -124,7 +124,8 @@ import { together } from "../../src/anim"
 import { WHITE, TAU, rgb, type Color } from "../../src/constants"
 import { hexPack } from "../../src/geometry/flower"
 import { c4dEaseWith } from "../../src/timeline"
-import { Globe } from "../../vocabulary/Globe/Globe"
+import { Earth } from "../../vocabulary/Earth/Earth"
+import { Recede } from "../../src/parts/recede"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
  *  (f_00005: the outer ring spans ~y0.13→0.87, ~530px of 720, so ~265 at
@@ -340,6 +341,13 @@ const ray = (a: number, r0: number, r1: number): { x: number; y: number; z: numb
   { x: Math.cos(a) * r1, y: Math.sin(a) * r1, z: 0 },
 ]
 
+/** The radius the Earths are built at; the lobes resize them by `scale`. */
+const EARTH_R = 33
+
+/** A node's Earth: white land on its black sea, near dead-on. */
+const earthOf = (h: number) =>
+  new Earth({ radius: EARTH_R, land: WHITE, coastOpacity: 0, borderOpacity: 0, p: 0.12, h })
+
 export class YinYangDream extends Dream {
   /** Beat 1: the one globe divides into two and the circle widens. */
   birth = new Null({ creation: 0 })
@@ -352,24 +360,11 @@ export class YinYangDream extends Dream {
    *  slowly. The blue node's globe faces Africa/Europe (spin 0); the red node's a
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
-  blueGlobe = new Globe({
-    radius: 33,
-    continents: "fill",
-    land: WHITE,
-    oceanTint: rgb(0, 0, 0),
-    oceanOpacity: 1,
-    tilt: 0.12,
-    spin: 0,
-  })
-  redGlobe = new Globe({
-    radius: 33,
-    continents: "fill",
-    land: WHITE,
-    oceanTint: rgb(0, 0, 0),
-    oceanOpacity: 1,
-    tilt: 0.12,
-    spin: 0.5,
-  })
+  blueEarth = earthOf(0)
+  redEarth = earthOf(0.5)
+  /** Each set on the page, so its node's decoration composites around it. */
+  blueGlobe = new Recede({ members: [this.blueEarth], reach: EARTH_R })
+  redGlobe = new Recede({ members: [this.redEarth], reach: EARTH_R })
 
   /** The big outer circle — the yin-yang's boundary: shot 1's limb, pushed
    *  outward over `birth`. */
@@ -468,9 +463,9 @@ export class YinYangDream extends Dream {
     const ring = () => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE)
     const gr = () => ring() * BLUE_GLOBE_OF_RING
 
-    // The globe rides the node's size; its land and black sea come in on
-    // `birth` (Globe has no single opacity — it composes its own strokes).
-    this.blueGlobe.radius.follow(orbitSrc.map(() => gr()))
+    // The globe rides the node's size: its Earth's scale, its page reach.
+    this.blueEarth.scale.follow(orbitSrc.map(() => gr() / EARTH_R))
+    this.blueGlobe.reach.follow(orbitSrc.map(() => gr()))
 
     const members: Stroke[] = []
 
@@ -534,7 +529,8 @@ export class YinYangDream extends Dream {
     const ring = () => this.ringR(this.redScale01(), RED_RING_PER_LOBE)
     const gr = () => ring() * RED_GLOBE_OF_RING
 
-    this.redGlobe.radius.follow(orbitSrc.map(() => gr()))
+    this.redEarth.scale.follow(orbitSrc.map(() => gr() / EARTH_R))
+    this.redGlobe.reach.follow(orbitSrc.map(() => gr()))
 
     // The bloom: concentric rings of falling opacity from the limb out, not
     // a filled disc — the globe's black sea is drawn over its inner edge.
@@ -594,6 +590,8 @@ export class YinYangDream extends Dream {
     // ~280px at 1280w, and at zoom 1 OUTER_R draws it at ~340px. The whole
     // figure was built at one consistent scale, so the camera corrects it.
     this.set(this.observer.zoom.to(0.82))
+    this.blueGlobe.seenFrom(this.observer)
+    this.redGlobe.seenFrom(this.observer)
 
     // Draw order: the S-curve and outer ring under the nodes; the two globes
     // slowly turning throughout.
@@ -610,13 +608,13 @@ export class YinYangDream extends Dream {
       const local = t - 4
       const spin = (-lon * Math.PI) / 180
       if (local <= 0) {
-        this.set(this.blueGlobe.spin.to(spin), this.redGlobe.spin.to(spin))
+        this.set(this.blueEarth.h.to(spin), this.redEarth.h.to(spin))
         continue
       }
       this.play(
         together(
-          this.blueGlobe.spin.to(spin, { easing: "linear" }),
-          this.redGlobe.spin.to(spin, { easing: "linear" }),
+          this.blueEarth.h.to(spin, { easing: "linear" }),
+          this.redEarth.h.to(spin, { easing: "linear" }),
         ),
         local - at,
       )

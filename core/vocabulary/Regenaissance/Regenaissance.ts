@@ -50,13 +50,18 @@
  * MAX-blend and cannot be covered), the axis is two segments that stop at
  * the eye; the Earth's land is FILL, so a black vesica fill attached after
  * it covers the part of the biosphere the eye overlaps — fill over fill.
+ * The Earth is a true sphere set ON the page (src/parts/recede.ts), so that
+ * flat ink attached after it — the vesica, the rings, the mark — lies over
+ * it rather than inside it.
  */
 
 import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { bool, color, completion, length, scalar, angle } from "../../src/params"
 import { BLACK, type Color, WHITE, rgb } from "../../src/constants"
 import { type Anim, restage, together } from "../../src/anim"
-import { Globe } from "../Globe/Globe"
+import { Earth } from "../Earth/Earth"
+import { Recede } from "../../src/parts/recede"
+import type { Observer } from "../../src/dream"
 import { GREAT_CIRCLE_NORMALS, greatCircleHalves, outsideDisc } from "./lattice"
 import { MARK_RED, SMark } from "./SMark"
 
@@ -84,7 +89,7 @@ export class Regenaissance extends Null {
 
   /** The noosphere's turn about its pole, radians — animate to spin it. */
   latticeSpin = scalar(0.3)
-  /** The lattice's pole lean (fixed framing, like Globe's tilt). */
+  /** The lattice's pole lean (fixed framing, like the Earth's pitch). */
   latticePitch = angle(0.45)
   /** The Earth's turn; the reference's face (Africa/Europe) is the default. */
   earthSpin = scalar(-0.37)
@@ -111,10 +116,20 @@ export class Regenaissance extends Null {
   bottomCircle!: Circle
   axis!: Group
   lattice!: Group
-  earth!: Globe
+  earth!: Earth
+  /** The Earth set on the page. */
+  globe!: Recede
   vesica!: Line
   eyeRing!: Circle
   sMark?: SMark
+
+  private observer?: Observer
+
+  /** Tell the Earth where the eye is (a scene whose camera is not the default). */
+  seenFrom(observer: Observer): void {
+    this.observer = observer
+    this.globe?.seenFrom(observer)
+  }
 
   get r(): number {
     return REGEN.globe * this.radius.value
@@ -126,15 +141,16 @@ export class Regenaissance extends Null {
     const h = r / 2 // each globe's centre, above/below the eye
 
     // --- the biosphere: land fill first, so the eye can cover it ----------
-    this.earth = this.add(
-      new Globe({
-        y: -h,
-        radius: r,
-        land: this.landTint,
-        spin: this.earthSpin,
-        tilt: this.earthTilt,
-      }),
-    )
+    this.earth = new Earth({
+      radius: r,
+      land: this.landTint,
+      coastOpacity: 0,
+      borderOpacity: 0,
+      h: this.earthSpin,
+      p: this.earthTilt,
+    })
+    this.globe = this.add(new Recede({ y: -h, members: [this.earth], reach: r }))
+    if (this.observer) this.globe.seenFrom(this.observer)
 
     // --- the eye's black: the vesica, filled, over the land ---------------
     this.vesica = this.add(

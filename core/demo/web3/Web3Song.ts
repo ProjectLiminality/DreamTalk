@@ -348,19 +348,18 @@ class LightShot extends LightSpreadDream {
   override unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
-    this.outline.spin.follow(this.fill.spin.map((s) => s))
-    for (const h of [this.fill, this.outline, this.hotspot, this.arcs]) this.stage(h)
+    this.globe.seenFrom(this.observer)
+    for (const h of [this.globe, this.hotspot]) this.stage(h)
     // It rises from 105.3, the push's start; its beats still start at 106.
     this.wait(0.7)
     // One continuous turn under all three beats (the frames never pause it).
     this.play(
       together(
-        this.spin.creation.to(1, { easing: "linear" }),
-        this.fill.spin.to(SPIN_END, { easing: "linear" }),
+        this.earth.h.to(SPIN_END, { easing: "linear" }),
         [this.ignite.creation.to(1), 4.5 / 12, 7 / 12],
         // The land is lit at once; how much of it shows is the light's
         // spread (LightSpread.lightTheLand), not a flood.
-        [this.fill.landOpacity.to(1), 4.4 / 12, 4.7 / 12],
+        [this.earth.landOpacity.to(1), 4.4 / 12, 4.7 / 12],
         [this.spread.creation.to(1, { easing: "linear" }), 7 / 12, 1],
       ),
       12,
@@ -488,6 +487,7 @@ class HeroShot extends Shot15HeroDream {
   override unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(HERO_OPEN_ZOOM))
+    this.globe.seenFrom(this.observer)
     this.stage(this.bloom)
     this.stage(this.lattice)
     this.stage(this.rays)
@@ -499,16 +499,16 @@ class HeroShot extends Shot15HeroDream {
     this.play(
       together(
         this.observer.zoom.to(1, { easing: "easeOut" }),
-        [together(this.globe.landOpacity.to(1, { easing: "linear" }), this.globe.oceanOpacity.to(1)), 0, 0.5],
+        [this.earth.landOpacity.to(1, { easing: "linear" }), 0, 0.5],
         together(...bloomLevels),
         // Brighter than the standalone 0.55: its tint is now the decoded (darker) red.
         together(...this.lattice.members.map((h) => h.opacity.to(0.9))),
         [together(...this.rays.members.map((h) => h.opacity.to(0.85))), 0.05, 0.6],
-        this.globe.spin.to(0.1, { easing: "linear" }),
+        this.earth.h.to(0.1, { easing: "linear" }),
       ),
       3,
     )
-    this.play(this.globe.spin.to(-0.25, { easing: "linear" }), 13.8)
+    this.play(this.earth.h.to(-0.25, { easing: "linear" }), 13.8)
   }
 }
 

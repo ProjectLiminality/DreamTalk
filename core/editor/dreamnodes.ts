@@ -9,7 +9,7 @@
  * renderer, so all of it is testable under Bun.
  *
  * WHAT A DREAMNODE IS, HERE. A DreamNode is a repo, and a repo is a
- * CLASS, not an instance: YinYang's four Globes are one Globe, the way
+ * CLASS, not an instance: YinYang's two Earths are one Earth, the way
  * Finder shows a folder once however many aliases point at it. So the
  * tree is class-level — one node per sovereign class (`static sovereign
  * = true`, the cast's rule), its parent the nearest sovereign whole that
@@ -337,7 +337,7 @@ export const dreamNameOf = (Ctor: DreamClass): string => Ctor.name.replace(/Drea
 /**
  * A DreamNode's own standalone scene, if the registry has one: the scene
  * whose Dream is named for the class (EyeDream for Eye) or whose key is
- * its name (globe for Globe).
+ * its name (earth for Earth).
  */
 export const sceneOfNode = (scenes: Record<string, DreamClass>, name: string): string | undefined => {
   const entries = Object.entries(scenes)

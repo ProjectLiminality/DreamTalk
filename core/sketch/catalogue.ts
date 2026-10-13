@@ -13,7 +13,7 @@
  *              native units are
  *   rotation   a page angle, like every flat symbol's
  *   + its own numeric Params, as the symbol declares them (shape, not
- *     place: a Globe's spin, a Labyrinth's seed). They carry no transform
+ *     place: an Earth's sea, a Labyrinth's seed). They carry no transform
  *     role — `size` already scales the whole, so an own length is a
  *     proportion and a page rotation must not turn an own angle twice.
  *
@@ -39,7 +39,6 @@ import { Headquarters } from "../vocabulary/Earth/Headquarters"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Figure } from "../vocabulary/Figure/Figure"
 import { FoldableCube } from "../vocabulary/FoldableCube/FoldableCube"
-import { Globe } from "../vocabulary/Globe/Globe"
 import { FlowMap } from "../vocabulary/FlowMap/FlowMap"
 import { Horizons } from "../vocabulary/Horizons/Horizons"
 import { SOPLoop } from "../vocabulary/SOPLoop/SOPLoop"
@@ -77,7 +76,6 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Horizons", folder: "Horizons", cls: Horizons },
   { className: "SOPLoop", folder: "SOPLoop", cls: SOPLoop },
   { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
-  { className: "Globe", folder: "Globe", cls: Globe },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
   { className: "Logo", folder: "Logo", cls: Logo },
@@ -137,7 +135,7 @@ const num = (p: Record<string, unknown>, key: string, fallback: number): number 
   return Number.isFinite(v) ? v : fallback
 }
 
-/** `Globe` → `globe`, `TheWall` → `theWall`, `SMark` → `sMark`. */
+/** `Earth` → `earth`, `TheWall` → `theWall`, `SMark` → `sMark`. */
 const idOf = (className: string) => className[0]!.toLowerCase() + className.slice(1)
 
 /** The 2D extent of a holon's drawn lines in its OWN frame (its own

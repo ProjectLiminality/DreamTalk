@@ -43,8 +43,8 @@ describe("dreamNodesOf", () => {
   })
 
   test("a class is one node however many instances — the others fade", () => {
-    const globe = treeOf("yinyang").children.find((n) => n.name === "Globe")!
-    // Two globes, listed by the scene AND gathered by their Groups: still two.
+    const globe = treeOf("yinyang").children.find((n) => n.name === "Earth")!
+    // Two Earths, listed by the scene AND gathered by their Groups: still two.
     expect(globe.count).toBe(2)
     expect(globe.others).toHaveLength(1)
     expect(globe.others[0]).not.toBe(globe.rep)

@@ -6,7 +6,7 @@ The noosphere stacked over the biosphere. Two equal circles on one
 vertical axis, overlapping as a vesica piscis (each through the other's
 centre): the top holds a lattice globe — the icosahedron's 15 great
 circles, near face bright, far face dim — the bottom holds the Earth
-(the `Globe` holon, Africa/Europe face). Where they overlap is the eye:
+(the `Earth` holon, Africa/Europe face, set on the page). Where they overlap is the eye:
 black, with a white ring holding the red `SMark`. One outer ring holds
 the whole.
 

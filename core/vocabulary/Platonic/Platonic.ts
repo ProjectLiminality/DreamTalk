@@ -14,7 +14,7 @@
  *
  * FIVE SOLIDS, ONE HOLON — "abilities over classes".
  *
- * `solid` is a CONSTRUCTION param (like Globe's `continents`): it decides which
+ * `solid` is a CONSTRUCTION param (like Earth's `radius`): it decides which
  * figure's vertices and edges are built, so it is set once at construction and
  * not animated. To cross-fade one solid into another, run two Platonics. The
  * campaign map asked this family to "wait for a second use"; shot 11 supplies
@@ -36,7 +36,7 @@
  * THE NODES ARE FILLED DOTS. Each vertex is a small white filled Circle; the
  * host's bloom gives it the soft glow the reference nodes carry. The edges are
  * Lines whose endpoints are DERIVED from `spin`, so the whole cage re-projects
- * as it turns — the same derived-geometry pattern Globe uses for coastlines.
+ * as it turns — the derived-geometry pattern (soliddrawing.ts derivePoints).
  */
 
 import { Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
@@ -67,7 +67,7 @@ export class Platonic extends Null {
   /**
    * A fixed lean of the rotation axis toward the camera (radians), so the
    * crystal tumbles in three dimensions rather than spinning flat. Set once,
-   * not animated — it frames the figure, like Globe's `tilt`. The reference
+   * not animated — it frames the figure, like the Earth's pitch. The reference
    * solids sit a little off-axis; a small value matches that.
    */
   pitch = angle(0.42)
@@ -130,7 +130,7 @@ export class Platonic extends Null {
 
 /**
  * Give an edge Line derived `points` recomputed whenever the Platonic's spin
- * (or radius / pitch) changes — the Globe.deriveRing pattern. The memo keys on
+ * (or radius / pitch) changes — the derivePoints pattern. The memo keys on
  * the source scalars and bumps geomVersion on every recompute, so the host's
  * O(1) dirty-check regenerates exactly when the cage turns and never otherwise.
  */

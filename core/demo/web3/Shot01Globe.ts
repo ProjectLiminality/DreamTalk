@@ -30,8 +30,8 @@
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
 import { Circle, Line, Null, Stroke } from "../../src/parts/primitives"
-import { Globe } from "../../vocabulary/Globe/Globe"
-import { projectLatLon } from "../../src/geometry/globe"
+import { Earth } from "../../vocabulary/Earth/Earth"
+import { Recede } from "../../src/parts/recede"
 import { rgb, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
 
@@ -113,17 +113,19 @@ export class Shot01GlobeDream extends Dream {
    *  function of it (so it scrubs both ways). */
   clock = new Null({ creation: 0 })
 
-  globe = new Globe({
+  /** The Earth, built at the shot's opening size and resized by `scale`. */
+  earth = new Earth({
     radius: 203,
-    continents: "fill",
     land: rgb(0, 0, 0),
+    coastOpacity: 0,
+    borderOpacity: 0,
     limbStroke: 1.5,
     limbTint: rgb(0, 0, 0),
-    // Black, so the ocean disc's hairline edge does not show before the fade.
-    oceanTint: rgb(0, 0, 0),
-    tilt: 0.12,
-    spin: -1.95,
+    p: 0.12,
+    h: -1.95,
   })
+  /** Set on the page, so the seam and veil drawn after it lie over it. */
+  globe = new Recede({ members: [this.earth], reach: 203 })
 
   seam = new Line({ tint: SEAM_TINT, stroke: 2 })
   frost = new Stroke({ tint: rgb(255, 255, 255), stroke: 0, fillOpacity: 0 })
@@ -138,17 +140,29 @@ export class Shot01GlobeDream extends Dream {
     const r = () => globePx(t()) / PX
     const land = () => keyed(LAND, t())
 
-    this.globe.radius.follow(c.map(() => r()))
-    this.globe.land.follow(c.map(() => grey(land())))
-    this.globe.limbTint.follow(c.map(() => grey(land() * 0.94)))
+    this.earth.scale.follow(c.map(() => r() / 203))
+    this.globe.reach.follow(c.map(() => r()))
+    this.earth.land.follow(c.map(() => grey(land())))
+    this.earth.limbTint.follow(c.map(() => grey(land() * 0.94)))
 
-    // The seam: the meridian SEAM° from the centre, its near half.
+    // The seam: the meridian SEAM° from the centre (fixed to the view, not
+    // to the turning land), its visible half, carried onto the page.
     const seamPoints = () => {
-      const theta = keyed(SEAM, t())
+      const theta = (keyed(SEAM, t()) * Math.PI) / 180
+      const tilt = this.earth.p.value
+      const R = r()
+      const eye = this.globe.eyeOfMembers()
       const pts: { x: number; y: number; z: number }[] = []
       for (let lat = 90; lat >= -90; lat -= 5) {
-        const p = projectLatLon(theta, lat, r(), 0, this.globe.tilt.value)
-        if (p.z >= 0) pts.push({ x: p.x, y: p.y, z: 0 })
+        const phi = (lat * Math.PI) / 180
+        const y0 = Math.sin(phi)
+        const z0 = Math.cos(phi) * Math.cos(theta)
+        const q = {
+          x: R * Math.cos(phi) * Math.sin(theta),
+          y: R * (y0 * Math.cos(tilt) - z0 * Math.sin(tilt)),
+          z: R * (y0 * Math.sin(tilt) + z0 * Math.cos(tilt)),
+        }
+        if (q.x * eye.x + q.y * eye.y + q.z * eye.z > R * R) pts.push(this.globe.toPage(q))
       }
       return pts
     }
@@ -219,6 +233,7 @@ export class Shot01GlobeDream extends Dream {
   unfold() {
     this.observer.look("front")
     this.set(this.observer.zoom.to(1))
+    this.globe.seenFrom(this.observer)
     this.stage(this.glowTop)
     this.stage(this.glowBottom)
     this.stage(this.globe)
@@ -230,7 +245,7 @@ export class Shot01GlobeDream extends Dream {
     this.play(
       together(
         this.clock.creation.to(1, { easing: "linear" }),
-        this.globe.spin.to(-1.8, { easing: "linear" }),
+        this.earth.h.to(-1.8, { easing: "linear" }),
       ),
       SPAN,
     )

@@ -44,13 +44,14 @@ describe("the shelf", () => {
     // A hand-written entry speaks for its class: no second Eye.
     expect(ids.filter((id) => vocabById(id)?.holon === "Eye")).toEqual(["eye"])
     expect(ids).toContain("cylinder")
-    expect(ids).toContain("globe")
+    expect(ids).toContain("earth")
+    expect(ids).not.toContain("globe") // retired into the Earth (board.ts RENAMED_SYMBOLS)
   })
 })
 
 describe("the generic adapter", () => {
-  test("a Globe sits centred on (cx, −cy), its largest extent `size`", () => {
-    const h = buildSymbol(placed("globe", { cx: 600, cy: 400, size: 300, rotation: 0 }))
+  test("a Platonic sits centred on (cx, −cy), its largest extent `size`", () => {
+    const h = buildSymbol(placed("platonic", { cx: 600, cy: 400, size: 300, rotation: 0 }))
     // In the placing group's own frame (extentOf leaves the root's transform out).
     const g = extentOf(h)!
     expect(h.x.value).toBe(600)
@@ -84,7 +85,7 @@ describe("the generic adapter", () => {
       const box = symbolBox(placed(item.entry.id, p))
       expect(Math.abs(box.x + box.w / 2 - 900)).toBeLessThan(item.entry.id === "mindVirus" ? 200 : 1)
     }
-    expect(placeParams(vocabById("globe")!, { x: 1, y: 2 })).toMatchObject({ cx: 1, cy: 2, size: DEFAULT_SIZE, rotation: 0 })
+    expect(placeParams(vocabById("platonic")!, { x: 1, y: 2 })).toMatchObject({ cx: 1, cy: 2, size: DEFAULT_SIZE, rotation: 0 })
   })
 })
 
@@ -107,34 +108,40 @@ describe("imports are the board's own", () => {
     const old = parseBoard({ strokes: [], symbols: [] })!
     expect(old.vocabulary).toBeUndefined()
     expect(serializeBoard(old)).not.toContain("vocabulary")
-    const text = serializeBoard({ strokes: [], symbols: [], vocabulary: ["circle", "cylinder", "globe"] })
-    expect(text).toContain(`"vocabulary": ["circle","cylinder","globe"]`)
-    expect(parseBoard(JSON.parse(text))!.vocabulary).toEqual(["circle", "cylinder", "globe"])
+    const text = serializeBoard({ strokes: [], symbols: [], vocabulary: ["circle", "cylinder", "platonic"] })
+    expect(text).toContain(`"vocabulary": ["circle","cylinder","platonic"]`)
+    expect(parseBoard(JSON.parse(text))!.vocabulary).toEqual(["circle", "cylinder", "platonic"])
+  })
+
+  test("a board saved with a retired id opens as the holon that replaced it", () => {
+    const b = parseBoard({ strokes: [], symbols: [{ id: "s1", symbol: "globe", params: {} }], vocabulary: ["circle", "globe", "earth"] })!
+    expect(b.symbols[0]!.symbol).toBe("earth")
+    expect(b.vocabulary).toEqual(["circle", "earth"])
   })
 
   test("an import is one undo step, and survives every other command", () => {
     const h = new History()
-    h.do({ kind: "imports", vocabulary: ["circle", "globe"] })
-    h.do({ kind: "addSymbol", symbol: placed("globe", { cx: 1, cy: 1, size: 10 }) })
-    expect(importsOf(h.state)).toEqual(["circle", "globe"])
+    h.do({ kind: "imports", vocabulary: ["circle", "platonic"] })
+    h.do({ kind: "addSymbol", symbol: placed("platonic", { cx: 1, cy: 1, size: 10 }) })
+    expect(importsOf(h.state)).toEqual(["circle", "platonic"])
     h.do({ kind: "clear" })
-    expect(importsOf(h.state)).toEqual(["circle", "globe"])
+    expect(importsOf(h.state)).toEqual(["circle", "platonic"])
     h.undo()
     h.undo()
     h.undo()
     expect(importsOf(h.state)).toEqual([...DEFAULT_IMPORTS])
     const s = apply({ strokes: [], symbols: [], vocabulary: ["circle"] }, {
       kind: "edit",
-      steps: [{ kind: "imports", vocabulary: ["globe"] }, { kind: "addSymbol", symbol: placed("globe", {}) }],
+      steps: [{ kind: "imports", vocabulary: ["platonic"] }, { kind: "addSymbol", symbol: placed("platonic", {}) }],
       selected: [],
     })
-    expect(s.vocabulary).toEqual(["globe"])
+    expect(s.vocabulary).toEqual(["platonic"])
     expect(s.symbols.length).toBe(1)
   })
 
   test("the recognizer answers only with what is imported — generic ids included", () => {
-    const reply = JSON.stringify({ candidates: [{ symbol: "globe", params: { cx: 1, cy: 2, size: 3, spin: 0.5 }, confidence: 0.8 }] })
-    expect(parseRecognizeReply(reply, ["globe"]).candidates[0]).toMatchObject({ symbol: "globe", params: { cx: 1, cy: 2, size: 3, spin: 0.5 } })
+    const reply = JSON.stringify({ candidates: [{ symbol: "platonic", params: { cx: 1, cy: 2, size: 3, spin: 0.5 }, confidence: 0.8 }] })
+    expect(parseRecognizeReply(reply, ["platonic"]).candidates[0]).toMatchObject({ symbol: "platonic", params: { cx: 1, cy: 2, size: 3, spin: 0.5 } })
     expect(parseRecognizeReply(reply, ["circle"]).candidates).toEqual([])
   })
 })
