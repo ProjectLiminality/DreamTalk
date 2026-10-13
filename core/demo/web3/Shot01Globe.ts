@@ -32,7 +32,7 @@ import { together } from "../../src/anim"
 import { Circle, Line, Null, Stroke, derivePoints } from "../../src/parts/primitives"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
-import { rgb, type Color } from "../../src/constants"
+import { decodeSrgb, rgb, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
 
 /** The shot's length, and pixels per scene unit at its camera. */
@@ -77,10 +77,9 @@ const keyed = (keys: readonly (readonly [number, number])[], t: number): number 
   return keys[keys.length - 1]![1]
 }
 
-/** The screen value a tint must carry to show `v` (the host encodes linear). */
-const decode = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+/** The tint that shows grey level `v` on screen (constants.ts decodeSrgb). */
 const grey = (v: number): Color => {
-  const c = decode(v)
+  const c = decodeSrgb(v)
   return { r: c, g: c, b: c }
 }
 

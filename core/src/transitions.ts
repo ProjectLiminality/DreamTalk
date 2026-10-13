@@ -14,7 +14,7 @@
  */
 
 import { C4D_SMOOTHING, c4dEaseWith } from "./timeline"
-import { isColor, type Color } from "./constants"
+import { decodeSrgb, isColor, type Color } from "./constants"
 import type { Holon } from "./holon"
 import type { Param, ParamValue } from "./params"
 
@@ -75,10 +75,6 @@ export interface Dissolve extends FadeCurve {
   end: number
 }
 
-/** sRGB decode: the linear light a display value stands for. */
-const decodeScreen = (v: number): number =>
-  v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
-
 /** The default boundary: B starts exactly when A ends. */
 export const cut: Transition = { kind: "cut", duration: 0 }
 
@@ -95,7 +91,7 @@ const fadeFactors = (
   fallback: { left: number; right: number },
 ): { from: number; into: number } => {
   const sm = curve.smoothing ?? fallback
-  const out = (k: number) => (curve.screen ? decodeScreen(k) : k)
+  const out = (k: number) => (curve.screen ? decodeSrgb(k) : k)
   if (curve.dip !== undefined) {
     const si = curve.inSmoothing ?? sm
     const eo = c4dEaseWith(u / curve.dip, sm.left, sm.right)

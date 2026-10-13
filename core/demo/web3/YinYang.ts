@@ -121,7 +121,7 @@
 import { Dream } from "../../src/index"
 import { Circle, Group, Line, Null, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
-import { WHITE, TAU, rgb, type Color } from "../../src/constants"
+import { WHITE, TAU, seen, type Color } from "../../src/constants"
 import { hexPack } from "../../src/geometry/flower"
 import { c4dEaseWith } from "../../src/timeline"
 import { Earth } from "../../vocabulary/Earth/Earth"
@@ -202,19 +202,6 @@ const GRID_SPACING = 0.42
 /** Concentric rings make the red bloom; enough that they read as one glow
  *  (Shot15Hero's recipe). */
 const BLOOM_RINGS = 18
-
-/**
- * A colour as the frames SHOW it. The host treats a tint as linear light and
- * encodes it for the screen (0x14 0x95 0xee drew as 79 201 247), so a
- * sampled screen colour is handed over decoded, and lands as sampled.
- */
-const seen = (r: number, g: number, b: number): Color => {
-  const decode = (v: number) => {
-    const c = v / 255
-    return 255 * (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-  }
-  return rgb(decode(r), decode(g), decode(b))
-}
 
 /** Colours sampled from the full-resolution frames (14.4s, 19.0s). */
 const BLUE_RING = seen(2, 148, 246)

@@ -15,6 +15,22 @@ export const rgb = (r: number, g: number, b: number): Color => ({
   b: b / 255,
 })
 
+/** sRGB decode: the linear light a display value (0–1) stands for. */
+export const decodeSrgb = (v: number): number => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+
+/**
+ * A colour as the SCREEN shows it (0–255 per channel, sampled off a
+ * frame), handed to the host decoded — the host treats a tint as linear
+ * light and encodes it for display, so a sampled colour lands as sampled.
+ * The one place that assumption lives for scene colours (OPEN-THREADS,
+ * the colour-space question).
+ */
+export const seen = (r: number, g: number, b: number): Color => ({
+  r: decodeSrgb(r / 255),
+  g: decodeSrgb(g / 255),
+  b: decodeSrgb(b / 255),
+})
+
 export const BLUE: Color = rgb(0, 162, 255)
 export const RED: Color = rgb(255, 100, 78)
 export const PURPLE: Color = {

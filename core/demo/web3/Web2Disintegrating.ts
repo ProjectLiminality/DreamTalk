@@ -74,7 +74,7 @@
 import { Dream } from "../../src/index"
 import { Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { hashUnit } from "../../src/geometry/flower"
-import { type Color } from "../../src/constants"
+import { seen, type Color } from "../../src/constants"
 
 // ── Colour ──────────────────────────────────────────────────────────
 // Lifted from the measured #2f6fd6 (see header) so thin ink reads as blue,
@@ -92,13 +92,6 @@ import { type Color } from "../../src/constants"
  * host treats a tint as linear light and encodes it for display, so the
  * screen colours are handed over decoded (`seen`) and land as sampled.
  */
-const seen = (r: number, g: number, b: number): Color => {
-  const decode = (v: number) => {
-    const c = v / 255
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  }
-  return { r: decode(r), g: decode(g), b: decode(b) }
-}
 const LATTICE_BLUE: Color = seen(30, 130, 205)
 const FALLEN_GREY: Color = seen(105, 130, 150)
 

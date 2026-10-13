@@ -61,7 +61,7 @@
 import { Dream } from "../../src/index"
 import { Circle, Group, Null } from "../../src/parts/primitives"
 import { hashUnit, hexPack, type Vec2 } from "../../src/geometry/flower"
-import { rgb, type Color } from "../../src/constants"
+import { rgb, seen, type Color } from "../../src/constants"
 
 /**
  * Measured from the reference frames, then the red DELIBERATELY lifted: the
@@ -75,13 +75,6 @@ import { rgb, type Color } from "../../src/constants"
  * ~(33,30,31), the ring (25,117,192). The host treats a tint as linear light
  * and encodes it for display, so screen colours go over decoded (`seen`).
  */
-const seen = (r: number, g: number, b: number): Color => {
-  const decode = (v: number) => {
-    const c = v / 255
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  }
-  return { r: decode(r), g: decode(g), b: decode(b) }
-}
 const RED_CORE = seen(150, 62, 60)
 const RIM_GREY = rgb(0x9a, 0x96, 0x96)
 const CLARITY_BLUE = seen(25, 125, 205)

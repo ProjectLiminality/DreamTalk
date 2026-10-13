@@ -75,7 +75,7 @@ import { crossfade, slide } from "../../src/transitions"
 import { together } from "../../src/anim"
 import { Create, FadeIn, FadeOut } from "../../src/verbs"
 import { Write } from "../../src/parts/text"
-import { TAU } from "../../src/constants"
+import { TAU, seen } from "../../src/constants"
 import { DEFAULT_DISTANCE } from "../../src/dream"
 import { Circle, Line } from "../../src/parts/primitives"
 import { c4dEaseWith, ease } from "../../src/timeline"
@@ -381,14 +381,6 @@ const SWELL: readonly (readonly [number, number])[] = [
   [129.5, 227], [129.75, 237],
 ]
 const CALLBACK_IN = 117.85
-/** A screen colour handed to the host decoded (it encodes tints for display). */
-const seenColor = (r: number, g: number, b: number) => {
-  const d = (v: number) => {
-    const c = v / 255
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  }
-  return { r: d(r), g: d(g), b: d(b) }
-}
 
 /** The expand value at which the disc stands `px` pixels in radius. */
 /**
@@ -434,7 +426,7 @@ class CallbackShot extends Shot14CallbackDream {
    */
   haze = new Circle({
     radius: this.expand.creation.map((e) => this.discRadius(e)),
-    tint: seenColor(28, 9, 7),
+    tint: seen(28, 9, 7),
     stroke: 0,
     fillOpacity: this.expand.creation.map((e) => {
       const u = Math.min(1, Math.max(0, e / 0.4))
@@ -469,8 +461,8 @@ class HeroShot extends Shot15HeroDream {
     super()
     // Measured at 135s: ring (252,93,75), lattice (109,46,39) on screen —
     // handed over decoded, as the host encodes tints for display.
-    this.ring.tint.value = seenColor(252, 93, 75)
-    for (const h of this.lattice.members) (h as Circle).tint.value = seenColor(150, 58, 50)
+    this.ring.tint.value = seen(252, 93, 75)
+    for (const h of this.lattice.members) (h as Circle).tint.value = seen(150, 58, 50)
     // The bloom, re-fitted to the frame's radial profile at 135s (its
     // whiteness 134/104/77/55/37/23/11 at 120–180px): a touch wider and
     // fainter in the middle than the standalone's.
