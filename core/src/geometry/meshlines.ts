@@ -103,22 +103,48 @@ export const prepareMesh = (mesh: MeshData, crease: number): PreparedMesh => {
   // average would tilt toward the axis and pull the contour off the tip,
   // so such a corner keeps its own face's normal (along a cone's generator
   // the normal is constant to the tip).
+  // SINGULAR vertices: walk each vertex's fan of faces, joining neighbours
+  // across SMOOTH edges (dihedral within `crease`) — a smooth fan. Where a
+  // fan's normals turn right round the vertex (their mean is short: under
+  // 0.9 of unit), the surface is not smooth there however gently each
+  // neighbour meets the next: a cone's apex. A fillet beside a mantle
+  // bends its normals one way, a little, and is not singular.
   const singular = new Set<number>()
+  const smoothAcross = (f: number, g: number) => dot(faceN[f]!, faceN[g]!) >= cos
+  around.forEach((fs, v) => {
+    if (fs.length < 3) return
+    const seen = new Set<number>()
+    for (const start of fs) {
+      if (seen.has(start)) continue
+      const fan: number[] = []
+      const stack = [start]
+      seen.add(start)
+      while (stack.length) {
+        const f = stack.pop()!
+        fan.push(f)
+        // Neighbours around v: faces sharing an edge (v, w) with f.
+        for (const g of fs) {
+          if (seen.has(g)) continue
+          const shared = T[g]!.filter((x) => T[f]!.includes(x)).length
+          if (shared >= 2 && smoothAcross(f, g)) {
+            seen.add(g)
+            stack.push(g)
+          }
+        }
+      }
+      if (fan.length < 3) continue
+      let u = { x: 0, y: 0, z: 0 }
+      for (const f of fan) u = { x: u.x + faceN[f]!.x, y: u.y + faceN[f]!.y, z: u.z + faceN[f]!.z }
+      if (len(u) / fan.length < 0.9) singular.add(v)
+    }
+  })
   const cornerN = T.map((t, i) =>
     t.map((v) => {
+      if (singular.has(v)) return faceN[i]!
       let s = { x: 0, y: 0, z: 0 }
-      let u = { x: 0, y: 0, z: 0 }
-      let n = 0
       for (const f of around[v]!)
-        if (dot(faceN[f]!, faceN[i]!) >= cos) {
+        if (dot(faceN[f]!, faceN[i]!) >= cos)
           s = { x: s.x + faceN[f]!.x * area[f]!, y: s.y + faceN[f]!.y * area[f]!, z: s.z + faceN[f]!.z * area[f]! }
-          u = { x: u.x + faceN[f]!.x, y: u.y + faceN[f]!.y, z: u.z + faceN[f]!.z }
-          n++
-        }
-      if (n > 1 && len(u) / n < 0.985) {
-        singular.add(v)
-        return faceN[i]!
-      }
       const l = len(s) || 1
       return { x: s.x / l, y: s.y / l, z: s.z / l }
     }) as [V, V, V],

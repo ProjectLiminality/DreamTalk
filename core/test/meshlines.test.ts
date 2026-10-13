@@ -122,3 +122,43 @@ describe("occlusion and fills", () => {
     expect(c.hi).toEqual({ x: 10, y: 20, z: 10 })
   })
 })
+
+describe("singular vertices are only real cone points", () => {
+  test("a filleted reel (symbols' FilmReel profile) keeps its mantle contours", () => {
+    // A thick ring lathed by hand, wound the other way round from latheMesh,
+    // its fillet's second step meeting the mantle at 22.5° (smooth): every
+    // mantle vertex used to read as singular and the mantle went flat.
+    const prof: [number, number][] = [[26, -95], [92, -95], [97.657, -92.657], [100, -87], [100, 87], [97.657, 92.657], [92, 95], [26, 95]]
+    const seg = 48
+    const positions: Vec3Like[] = []
+    const triangles: [number, number, number][] = []
+    for (const [r, y] of prof) for (let j = 0; j < seg; j++) {
+      const a = (2 * Math.PI * j) / seg
+      positions.push({ x: y, y: -r * Math.cos(a), z: -r * Math.sin(a) }) // turned onto +x
+    }
+    for (let i = 0; i < prof.length; i++) {
+      const lo = i * seg
+      const hi = ((i + 1) % prof.length) * seg
+      for (let j = 0; j < seg; j++) {
+        const j1 = (j + 1) % seg
+        triangles.push([lo + j, lo + j1, hi + j1], [lo + j, hi + j1, hi + j])
+      }
+    }
+    const phi = 0.55
+    const th = 0.42
+    const toward = { x: Math.sin(phi) * Math.cos(th), y: Math.sin(th), z: Math.cos(phi) * Math.cos(th) }
+    expect(prepareMesh({ positions, triangles }, 0.6).singular.size).toBe(0)
+    const d = hiddenLineDrawing([{ kind: "mesh", positions, triangles }], { toward })
+    const span = (l: Vec3Like[]) => Math.max(...l.map((p) => p.x)) - Math.min(...l.map((p) => p.x))
+    // The outer mantle's contour generators run (nearly) the full width.
+    expect(Math.max(...d.lines.map(span))).toBeGreaterThan(170)
+  })
+
+  test("a cone's apex is singular, its rim is not", () => {
+    const m = coneMesh(65, 0, 150)
+    const s = prepareMesh(m, 0.6).singular
+    expect(s.size).toBe(1)
+    const apex = [...s][0]!
+    expect(m.positions[apex]!.y).toBeCloseTo(75, 6)
+  })
+})
