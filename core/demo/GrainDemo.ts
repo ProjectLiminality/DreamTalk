@@ -82,14 +82,15 @@ export class GrainDream extends Dream {
             size: f.size,
             category: f.category,
             symbol: f.symbol,
-            label: f.labels[j % f.labels.length],
+            label: f.items[j % f.items.length]!.label,
+            item: f.items[j % f.items.length]!.symbol,
             typeKnown: 0.25,
             itemKnown: 0.25,
           }),
       }),
   )
 
-  // The ladder, at the top left of the screen: the rung we stand on is
+  // The ladder, at the bottom left of the screen: the rung we stand on is
   // white. Laid out in a frame that faces the camera (x right, y up on
   // screen, scene units), as are the flows' titles.
   ladder = ["mass", "category", "type", "item"].map(
@@ -98,8 +99,8 @@ export class GrainDream extends Dream {
         content: word,
         size: 30,
         align: "left",
-        x: -1020,
-        y: 470 - r * 44,
+        x: -880,
+        y: -330 - r * 44,
         tint: derive((): Color => {
           const g = this.grains()[0]?.grain.value ?? 0
           const on = Math.max(0, 1 - Math.abs(g - r))
@@ -110,7 +111,7 @@ export class GrainDream extends Dream {
   titles = FLOWS.map((f) => {
     // A ground point's place on screen: its components along the screen's right and up.
     const x = (f.from + f.to) / 2
-    return new Text({ content: f.title, size: 26, tint: DIM, x: x * Math.cos(PHI_G), y: -x * Math.sin(PHI_G) * Math.sin(THETA_G) + 170 })
+    return new Text({ content: f.title, size: 26, tint: DIM, x: x * Math.cos(PHI_G) - 150, y: -x * Math.sin(PHI_G) * Math.sin(THETA_G) - 120 })
   })
   screen = new Group({
     members: [new Group({ members: [...this.ladder, ...this.titles], p: derive(() => -this.observer.theta.value) })],
@@ -130,10 +131,10 @@ export class GrainDream extends Dream {
   unfold() {
     // Orthographic: every particle sees the camera the same way, so each
     // symbol's hidden-line drawing and its morph plan are computed once,
-    // not again every frame as it travels. ~2200 units of picture width.
+    // not again every frame as it travels. ~1900 units of picture width, the chain on the diagonal.
     const o = this.observer
     o.orthographic.value = o.orthographic.defaultValue = true
-    o.zoom.value = o.zoom.defaultValue = 1023 / 2200
+    o.zoom.value = o.zoom.defaultValue = 1023 / 1900
     this.set(...o.orbit({ phi: PHI_G, theta: THETA_G }))
     for (const p of this.plants) this.stage(p)
     for (const s of this.flows) this.stage(s)
@@ -162,8 +163,8 @@ export class GrainDream extends Dream {
   }
 }
 
-const PHI_G = 0.22
-const THETA_G = 0.42
+const PHI_G = 0.8
+const THETA_G = 0.52
 const DIM = rgb(24, 24, 24)
 const mixColor = (a: Color, b: Color, u: number): Color => ({ r: a.r + (b.r - a.r) * u, g: a.g + (b.g - a.g) * u, b: a.b + (b.b - a.b) * u })
 
@@ -174,11 +175,49 @@ const FLOWS: {
   category: Color
   size: number
   symbol: (o: Overrides) => SolidDrawing
-  labels: string[]
+  /** The exact items, in particle order (cycled): a name, and the symbol their data makes. */
+  items: { label: string; symbol: (o: Overrides) => SolidDrawing }[]
 }[] = [
-  { title: "raw material", from: -980, to: -450, category: RED, size: 92, symbol: (o) => new Pallet(o), labels: ["PE granulate · 1 t", "PP granulate · 1 t", "PE granulate · 750 kg"] },
-  { title: "film", from: -210, to: 210, category: BLUE, size: 84, symbol: (o) => new FilmReel(o), labels: ["BOPP film · 2,400 m", "PE film · 3,000 m"] },
-  { title: "products", from: 450, to: 1030, category: GREEN, size: 76, symbol: (o) => new Pouch(o), labels: ["stand-up pouch · 5,000 pcs", "zip pouch · 2,000 pcs"] },
+  // (Pouches turn their face to the camera's azimuth.)
+  {
+    title: "raw material",
+    from: -980,
+    to: -450,
+    category: RED,
+    size: 92,
+    symbol: (o) => new Pallet(o),
+    items: [
+      { label: "PE granulate · 1 t", symbol: (o) => new Pallet({ ...o, load: "octabin" }) },
+      { label: "PP granulate · 750 kg", symbol: (o) => new Pallet(o) },
+      { label: "PE granulate · 1 t", symbol: (o) => new Pallet({ ...o, load: "octabin" }) },
+    ],
+  },
+  {
+    title: "film",
+    from: -210,
+    to: 210,
+    category: BLUE,
+    size: 84,
+    symbol: (o) => new FilmReel(o),
+    items: [
+      { label: "BOPP film · 2,400 m", symbol: (o) => new FilmReel({ ...o, width: 120, diameter: 230 }) },
+      { label: "PE film · 3,000 m", symbol: (o) => new FilmReel({ ...o, width: 210, diameter: 170 }) },
+      { label: "CPP film · 1,800 m", symbol: (o) => new FilmReel({ ...o, width: 160, diameter: 200 }) },
+    ],
+  },
+  {
+    title: "products",
+    from: 450,
+    to: 1030,
+    category: GREEN,
+    size: 90,
+    symbol: (o) => new Pouch({ ...o, h: PHI_G }),
+    items: [
+      { label: "stand-up pouch · 5,000 pcs", symbol: (o) => new Pouch({ ...o, width: 96, height: 150, h: PHI_G }) },
+      { label: "sheets · 1,200 m²", symbol: (o) => new SheetStack(o) },
+      { label: "zip pouch · 2,000 pcs", symbol: (o) => new Pouch({ ...o, width: 132, height: 200, h: PHI_G }) },
+    ],
+  },
 ]
 
 if (import.meta.main) render(GrainDream)

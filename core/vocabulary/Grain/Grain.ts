@@ -44,6 +44,7 @@ import type { Overrides } from "../../src/holon"
 import { certainty } from "../../src/certainty"
 import { Param, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { rotHPB } from "../../src/parts/curves"
 import { Text } from "../../src/parts/text"
 import { derivePoints, localView, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
 import { solidBounds, type View } from "../../src/geometry/hiddenline"
@@ -219,12 +220,23 @@ export class Grain extends Stroke {
     return pts
   }
 
-  /** A symbol's visible curves, grain-local (it sits on the y axis, scaled, unturned). Default: the type's. */
+  /** A symbol's visible curves, grain-local (its own scale, turn and place). Default: the type's. */
   symbolCurves(sym: SolidDrawing | undefined = this.symbol): Vec3Like[][] {
     if (!sym) return []
     const s = sym.scale.value
-    const y = sym.y.value
-    return sym.drawing().lines.map((l) => l.map((p) => ({ x: p.x * s, y: p.y * s + y, z: p.z * s })))
+    const [x, y, z, p, h, b] = [sym.x.value, sym.y.value, sym.z.value, sym.p.value, sym.h.value, sym.b.value]
+    const turned = p !== 0 || h !== 0 || b !== 0
+    return sym.drawing().lines.map((l) =>
+      l.map((q) => {
+        const r = turned ? rotHPB({ x: q.x * s, y: q.y * s, z: q.z * s }, p, h, b) : { x: q.x * s, y: q.y * s, z: q.z * s }
+        return { x: r.x + x, y: r.y + y, z: r.z + z }
+      }),
+    )
+  }
+
+  /** What a symbol's grain-local curves depend on, besides its own signature. */
+  private placeKey(sym: SolidDrawing): number[] {
+    return [sym.scale.value, sym.x.value, sym.y.value, sym.z.value, sym.p.value, sym.h.value, sym.b.value]
   }
 
   /** The dot → symbol plan, re-planned only when the view of it or the symbol changes. */
@@ -232,7 +244,7 @@ export class Grain extends Stroke {
     const sym = this.symbol
     if (!sym) return undefined
     const k = this.toward()
-    const key = [this.radius.value, sym.scale.value, sym.y.value, k.x, k.y, k.z, ...sym.signature()]
+    const key = [this.radius.value, ...this.placeKey(sym), k.x, k.y, k.z, ...sym.signature()]
     const m = this.planMemo
     if (m && m.key.length === key.length && m.key.every((x, i) => x === key[i])) return m.plan
     const plan = planMorph([this.dotOutline()], this.symbolCurves(), { normal: k })
@@ -246,7 +258,7 @@ export class Grain extends Stroke {
     const b = this.item
     if (!a || !b) return undefined
     const k = this.toward()
-    const key = [a.scale.value, a.y.value, b.scale.value, b.y.value, k.x, k.y, k.z, ...a.signature(), -1, ...b.signature()]
+    const key = [...this.placeKey(a), ...this.placeKey(b), k.x, k.y, k.z, ...a.signature(), -1, ...b.signature()]
     const m = this.itemPlanMemo
     if (m && m.key.length === key.length && m.key.every((x, i) => x === key[i])) return m.plan
     const plan = planMorph(this.symbolCurves(a), this.symbolCurves(b), { normal: k })
@@ -369,7 +381,11 @@ export class Grain extends Stroke {
         content: label,
         size: derive(() => this.size.value * 0.2),
         tint: WHITE,
-        y: derive(() => (this.opts.stand ? -0.3 : -0.74) * this.size.value),
+        align: "left",
+        // Beside the symbol, up and to the right (a flow runs on, so the
+        // next particle is ahead, not above).
+        x: derive(() => this.size.value * 0.58),
+        y: derive(() => (this.opts.stand ? 0.85 : 0.35) * this.size.value),
         creation: derive(() => phases().label),
         opacity: this.opacity,
       })

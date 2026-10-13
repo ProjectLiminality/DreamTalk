@@ -55,7 +55,7 @@ describe("the material symbols", () => {
       const da = a.drawing()
       expect(da.lines.length).toBeGreaterThan(4)
       // A bare pallet is all wood, and the wood is lines only (Pallet.ts).
-      if (name !== "Pallet (bare)") expect(da.faces.length).toBeGreaterThan(0)
+      if (name !== "Pallet (bare)") expect(da.faces.length + (da.surfaces?.length ?? 0)).toBeGreaterThan(0)
       expect(b.drawing()).toEqual(da)
       // Every visible span has a slot to be drawn in.
       const slots = a.parts.length
@@ -193,8 +193,10 @@ describe("Grain — the morph, in its own frame", () => {
   test("standing, the symbol's base is on the dot's plane", () => {
     const g = make()
     const ys = g.symbolCurves().flat().map((p) => p.y)
+    // Nothing below the plane; the lowest VISIBLE line is near it (a
+    // round roll seen from above shows its silhouette a little up).
     expect(Math.min(...ys)).toBeGreaterThan(-1e-6)
-    expect(Math.min(...ys)).toBeLessThan(2)
+    expect(Math.min(...ys)).toBeLessThan(0.15 * 80)
   })
 
   test("the material follows the category", () => {

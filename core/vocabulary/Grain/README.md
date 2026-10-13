@@ -16,13 +16,16 @@ stands for this more complex thing.
 | mass | 0 | kilograms moving | a neutral dot (`NEUTRAL`) |
 | category | 1 | its kind | the dot in its category's colour |
 | type | 2 | its type | the type's symbol (a `SolidDrawing`), `material` = the category's colour |
-| item | 3 | the exact item | the symbol, its label written in under it |
+| item | 3 | the exact item | the item's OWN symbol (from its data), its label written in beside it |
 
 `grain` is continuous: 0.5 is a dot halfway to its colour; 1 → 2 is Morph's
 three channels (`morphPhases`): the dot's fill goes, its outline flies apart
 onto the symbol's visible 3D edges (`planMorph` / `blendPlan`,
 src/geometry/correspond.ts), the symbol's fill comes in; 2 → 3 writes the
-label. Every channel is continuous in `grain`, so a rung can be scrubbed,
+label and, when the data gives the item's own symbol (`item`), morphs the
+type's edges into it — drawn at the TYPE's scale, so a narrower, taller
+reel IS narrower and taller, an octabin replaces the sacks, a pouch takes
+its size or becomes sheets. Every channel is continuous in `grain`, so a rung can be scrubbed,
 reversed, or held halfway.
 
 **Each rung has its own certainty.** `massKnown`, `categoryKnown`,
@@ -40,7 +43,8 @@ grain = new Grain({
   observer: this.observer,
   category: BLUE,                          // rung 1
   symbol: (o) => new FilmReel(o),          // rung 2 (gets observer, size, fades)
-  label: "BOPP film · 2,400 m",            // rung 3
+  label: "BOPP film · 2,400 m",            // rung 3: its name …
+  item: (o) => new FilmReel({ ...o, width: 120, diameter: 230 }),  // … and its own shape
   typeKnown: 0.25,                         // the type is a guess so far
   stand: true,                             // the symbol stands on the dot's plane
 })
@@ -50,13 +54,15 @@ this.play(grain.typeKnown.to(1), 1.4)      // the data arrives: solid
 
 **As a flow's particle**: `Stream`'s `symbol` hook takes it directly —
 `new Stream({ path, symbol: (o, j) => new Grain({ ...o, observer, … }) })` —
-and the Stream places and fades it. (FlowMap's particles are next; see
-OPEN-THREADS.)
+and the Stream places and fades it. **On the FlowMap**: a stage whose data
+names a `symbol` (`pallet` · `octabin` · `reel` · `pouch` · `sheets`)
+carries Grains, and `stage(id).rung` 1 → 2 turns its dots into the
+material (`/demo/?scene=flowmap-grain`; pass the map `seenBy: () => this.observer`).
 
 **Params**: `grain` (0…3), `radius` (the dot), `size` (the symbol's largest
 extent), the four `…Known`, `certainty` (read-only: it follows them), plus
 the Stroke set (`tint` is the symbol's lines). **Options**: `observer`,
-`category`, `symbol`, `label`, `neutral`, `stand`. **Exports**: `RUNG`,
+`category`, `symbol`, `label`, `item`, `neutral`, `stand`. A symbol turned with `h`/`p`/`b` (a pouch facing the camera) morphs as turned. **Exports**: `RUNG`,
 `NEUTRAL`, `grainPhases(g)` and `rungCertainty(g, known)` (pure).
 
 **Why its own frame**: the morph is planned in the Grain's local space, not
@@ -76,8 +82,8 @@ symbols ghosted from mock data → collapsed to solid flow by flow → named →
 and back to dots. `/demo/?scene=materials` turns the symbols on a shelf.
 Proven by `test/grain.test.ts`.
 
-**Not yet**: the item rung is a label only (an item could also adjust its
-symbol — a reel's width, an octabin instead of sacks); the superposition
-cloud on a ghosted symbol's FILLS is heavy at symbol size (render/
-superposition.ts: CLOUD_PX — David's eye); a Grain does not yet ride
-FlowMap's channels.
+**Not yet**: on the FlowMap the particles' carriers face the camera, so a
+material symbol is always seen face-on there, and a stage starts at rung 1
+(its colour), not 0; the FilmReel's rims stay sharp (a rounded lathe loses
+its mantle contours in the mesh line drawing — reported to morph); the
+superposition cloud on ghosted FILLS is glow's to tune.
