@@ -160,6 +160,14 @@ export class DreamSong extends Dream {
   #chapters: Chapter[] = []
   /** Per-chapter flattened holon trees (visibility gating), cached. */
   #holons?: Holon[][]
+  /**
+   * Each chapter's opacity params, resolved once (perf J): the visibility
+   * pass gates every holon every frame, and reading `holon.opacity` went
+   * through the holon's Proxy each time — ~32k trap calls a frame on
+   * Web3. A param shared by several holons appears once: gating and
+   * restoring it are idempotent, so once is the same as many.
+   */
+  #opacities?: Param<number>[][]
   /** Params the composite timeline drives, cached. */
   #driven?: Set<Param<ParamValue>>
   /** Resolved transition windows (chapter order — disjoint), cached. */
@@ -279,6 +287,7 @@ export class DreamSong extends Dream {
       this.#holons = this.#chapters.map((ch) =>
         ch.dream.roots.flatMap((root) => [...root.walk()]),
       )
+      this.#opacities = this.#holons.map((hs) => [...new Set(hs.map((h) => h.opacity))])
       this.#driven = new Set(timeline.params)
       this.#windows = []
       for (let i = 1; i < this.#chapters.length; i++) {
@@ -321,7 +330,7 @@ export class DreamSong extends Dream {
   override applyAt(t: number): void {
     const timeline = this.build()
     timeline.apply(t)
-    const { holons, driven, windows } = this.#resolve()
+    const { driven, windows } = this.#resolve()
 
     // The one window containing t (unfold() sizes them disjoint).
     const window = windows.find((w) => t >= w.start && t < w.end)
@@ -370,8 +379,7 @@ export class DreamSong extends Dream {
       const chapter = this.#chapters[i]!
       const live = chapter === active || chapter === fromChapter
       if (live) for (const root of chapter.dream.roots) this.#live.add(root)
-      for (const holon of holons[i]!) {
-        const opacity = holon.opacity
+      for (const opacity of this.#opacities![i]!) {
         opacity.gate = live ? 1 : 0
         if (live && !opacity.isBound && !driven.has(opacity as Param<ParamValue>)) {
           opacity.value = opacity.defaultValue

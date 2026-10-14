@@ -72,6 +72,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   #source?: Readable<T>
   #gate = 1
   #bias = 0
+  #changedAt = 0
 
   constructor(
     kind: ParamKind,
@@ -114,8 +115,9 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   }
 
   set gate(k: number) {
+    if (Object.is(k, this.#gate)) return
     this.#gate = k
-    epoch++
+    this.#changedAt = ++epoch
   }
 
   /**
@@ -137,7 +139,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   set bias(d: number) {
     if (d === this.#bias) return
     this.#bias = d
-    epoch++
+    this.#changedAt = ++epoch
   }
 
   set value(v: T) {
@@ -151,13 +153,25 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
     // every frame, and a held frame must read as held — three-host sync).
     if (Object.is(v, this.#value)) return
     this.#value = v
-    epoch++
+    this.#changedAt = ++epoch
+  }
+
+  /**
+   * The paramEpoch of this param's last change of its OWN (a value, a gate,
+   * a bias, a binding) — so a reader that remembers the epoch it last read
+   * at can tell, with one integer compare and no reading, that an UNBOUND
+   * param still says what it said (the host's per-holon dirty check). A
+   * bound param's reading can change with no write of its own: ask
+   * `isBound` and read it.
+   */
+  get changedAt(): number {
+    return this.#changedAt
   }
 
   /** Delegate this param to a derived reading (a read-only binding). */
   follow(source: Readable<T>): void {
     this.#source = source
-    epoch++
+    this.#changedAt = ++epoch
   }
 
   get isBound(): boolean {

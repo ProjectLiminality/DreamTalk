@@ -242,6 +242,14 @@ interface GroupBinding {
    * a scene's groups costs a compare a frame, not a compose + trig.
    */
   applied: Float64Array
+  /**
+   * The paramEpoch at which the transform was last read (−1: never). An
+   * unbound param that has not changed since (`changedAt`) still says what
+   * it said then, so a group none of whose params is bound or changed is
+   * skipped without reading any of them (perf J — most of a song's ~32k
+   * groups, every frame).
+   */
+  checkedAt: number
 }
 
 /**
@@ -805,6 +813,36 @@ const sigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
+/**
+ * The scene graph's STRUCTURE epoch: bumped whenever any Object3D gains or
+ * loses a child (add/remove — attach and clear go through them). The
+ * targeted settle (ThreeHost.settleScene) trusts its index of the graph
+ * only while this is unchanged; any reparenting falls back to three's own
+ * full traversal and re-indexes. Patched once, page-wide: a counter bump,
+ * nothing else changes.
+ */
+let structureEpoch = 0
+{
+  const proto = THREE.Object3D.prototype as unknown as {
+    add: (...o: THREE.Object3D[]) => THREE.Object3D
+    remove: (...o: THREE.Object3D[]) => THREE.Object3D
+    __dtStructure?: boolean
+  }
+  if (!proto.__dtStructure) {
+    proto.__dtStructure = true
+    const add = proto.add
+    const remove = proto.remove
+    proto.add = function (this: THREE.Object3D, ...o: THREE.Object3D[]) {
+      structureEpoch++
+      return add.apply(this, o)
+    }
+    proto.remove = function (this: THREE.Object3D, ...o: THREE.Object3D[]) {
+      structureEpoch++
+      return remove.apply(this, o)
+    }
+  }
+}
+
 /** A tint lifted toward white by `amount` — the hover glow's brightness. */
 const liftTint = (tint: Color, amount: number): Color =>
   amount <= 0
@@ -1065,6 +1103,7 @@ export class ThreeHost {
       group,
       transform: [holon.x, holon.y, holon.z, holon.p, holon.h, holon.b, holon.scale],
       applied: new Float64Array(7).fill(Number.NaN),
+      checkedAt: -1,
     })
 
     if (holon instanceof Text) {
@@ -1265,6 +1304,9 @@ export class ThreeHost {
     // recompute the same matrices over every node (perf F) — skip it for
     // this one call. Camera matrices are the renderer's to update, as
     // ever. The flag is restored before anything else can render.
+    // The renderer's own traversal is exactly settleScene()'s; settle the
+    // targeted way if sync() did not, and never let it walk the graph.
+    if (!this.matricesSettled) this.settleScene()
     const settled = this.matricesSettled
     if (settled) this.scene.matrixWorldAutoUpdate = false
     try {
@@ -1356,10 +1398,76 @@ export class ThreeHost {
     }
   }
 
-  /** The frame's settle — not forced: only moved subtrees recompute (I-2). */
+  /**
+   * The frame's settle — exactly three's `scene.updateMatrixWorld()`, but
+   * without walking every node (perf J). That traversal visits the whole
+   * graph (Web3: ~72k nodes, twice a frame with text) to find the few
+   * that need work: the groups sync() moved this frame (updateMatrix flags
+   * them) and the meshes three still auto-updates (Text's). So those are
+   * visited directly, in depth-first order, each subtree once — the same
+   * calls in the same order on the same inputs, so every matrixWorld is
+   * the same float. The index is trusted only while the graph's structure
+   * is unchanged (structureEpoch); otherwise it is the full traversal, and
+   * a fresh index.
+   */
   private settleScene(): void {
-    this.scene.updateMatrixWorld()
+    if (this.settleIndex === undefined || this.indexedStructure !== structureEpoch) {
+      this.scene.updateMatrixWorld()
+      this.indexScene()
+    } else {
+      const index = this.settleIndex
+      // Both lists are depth-first already (the groups attach depth-first;
+      // a list that is not gets sorted): merge them, settling each subtree
+      // once, roots before what they contain.
+      const moved = this.movedGroups
+      for (let k = 1; k < moved.length; k++) {
+        if (index.get(moved[k - 1]!)![0] > index.get(moved[k]!)![0]) {
+          moved.sort((a, b) => index.get(a)![0] - index.get(b)![0])
+          break
+        }
+      }
+      const auto = this.autoNodes
+      let i = 0
+      let j = 0
+      let coveredTo = -1
+      while (i < moved.length || j < auto.length) {
+        const a = i < moved.length ? index.get(moved[i]!)! : undefined
+        const b = j < auto.length ? index.get(auto[j]!)! : undefined
+        const takeMoved = a !== undefined && (b === undefined || a[0] <= b[0])
+        const o = takeMoved ? moved[i++]! : auto[j++]!
+        const span = takeMoved ? a! : b!
+        if (span[0] < coveredTo) continue // inside a subtree already settled
+        o.updateMatrixWorld()
+        coveredTo = span[1]
+      }
+    }
+    this.movedGroups.length = 0
     this.matricesSettled = true
+  }
+
+  /** The groups sync() re-composed this frame — the targeted settle's roots. */
+  private readonly movedGroups: THREE.Object3D[] = []
+  /** Depth-first [first, past-last] index of every node, for the targeted settle. */
+  private settleIndex?: Map<THREE.Object3D, [number, number]>
+  /** The nodes three auto-updates (matrixAutoUpdate), in depth-first order. */
+  private autoNodes: THREE.Object3D[] = []
+  private indexedStructure = -1
+
+  private indexScene(): void {
+    const index = new Map<THREE.Object3D, [number, number]>()
+    const auto: THREE.Object3D[] = []
+    let n = 0
+    const visit = (o: THREE.Object3D) => {
+      const span: [number, number] = [n++, 0]
+      index.set(o, span)
+      if (o.matrixAutoUpdate && o !== this.scene) auto.push(o)
+      for (const c of o.children) visit(c)
+      span[1] = n
+    }
+    visit(this.scene)
+    this.settleIndex = index
+    this.autoNodes = auto
+    this.indexedStructure = structureEpoch
   }
 
   /** The t of the frame in flight — the cull's idle latch reads it. */
@@ -1368,7 +1476,20 @@ export class ThreeHost {
   private sync(): void {
     this.matricesSettled = false
     this.updateDormancy()
-    for (const { group, transform: tr, applied: last } of this.groups) {
+    for (const binding of this.groups) {
+      const { group, transform: tr, applied: last } = binding
+      if (binding.checkedAt >= 0) {
+        let fresh = true
+        for (let k = 0; k < 7; k++) {
+          const p = tr[k]!
+          if (p.isBound || p.changedAt > binding.checkedAt) {
+            fresh = false
+            break
+          }
+        }
+        if (fresh) continue
+      }
+      binding.checkedAt = paramEpoch()
       const x = tr[0]!.value
       const y = tr[1]!.value
       const z = tr[2]!.value
@@ -1408,6 +1529,7 @@ export class ThreeHost {
       group.rotation.set(p, h, b, "ZXY")
       group.scale.set(s, s, s)
       group.updateMatrix()
+      this.movedGroups.push(group)
     }
     // A HELD frame: no param (value, gate, bias, binding) and no Line's
     // points have been written since the last sync (paramEpoch), so no
