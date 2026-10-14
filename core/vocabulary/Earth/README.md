@@ -78,7 +78,7 @@ view.tilt.to(38)                         // lean off straight-down, looking nort
 
 `EarthView.zoom` is log2 magnification (each +1 halves the altitude), so animating it at an even pace descends at an even pace for the eye. Rising buildings animate `place.altitude` from sunk to 0, and the ground hides them until they break the surface.
 
-**Sites** (`Sites.ts`): plain data, `{ name, lat, lon, kind: "hq" | "red" | "blue" }`. A real dataset swaps in for `mockSites.ts`. The positions there are invented and generic, and the names are placeholders, because this repo is public. `Factory` (a sawtooth-roofed hall) and `Headquarters` (a tower on a podium) are prisms (`prism.ts`) drawn as lines. Their black solid bodies write depth, which gives true hidden lines from the GPU at any camera angle.
+**Sites** (`Sites.ts`): plain data, `{ name, lat, lon, kind: "hq" | "red" | "blue" }`. A real dataset swaps in for `mockSites.ts`. The positions there are invented and generic, and the names are placeholders, because this repo is public. `Factory` (a sawtooth-roofed hall) and `Headquarters` (a tower on a podium) are prisms (`prism.ts`) drawn as lines. Their black solid bodies write depth, which gives true hidden lines from the GPU at any camera angle. A `Factory` is also a morph target: give it `seenBy: () => observer`, and `worldCurves()` returns its VISIBLE edges in world space (hidden-line removal on the prism's own mesh), so `MorphCurves([truck], [factory])` lands on what the camera shows.
 
 ## The data
 

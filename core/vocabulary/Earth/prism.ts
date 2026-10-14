@@ -20,6 +20,7 @@ import type { Holon } from "../../src/holon"
 import { Line, type Null, type Vec3Like } from "../../src/parts/primitives"
 import { Surface } from "../../src/parts/surface"
 import { rgb } from "../../src/constants"
+import type { MeshSolid } from "../../src/geometry/hiddenline"
 
 export type P2 = readonly [number, number]
 
@@ -39,6 +40,11 @@ export interface Ink {
 /**
  * Compose a prism into `owner`: `profile` (XY, open ring, any winding, may
  * be concave) extruded from z = −depth/2 to +depth/2, shifted by `offset`.
+ * Returns the same prism as an exact (un-inset) mesh in the owner's space —
+ * what hidden-line removal reads for its visible edges (a morph target) —
+ * finely subdivided: the hidden-line pass scales its self-occlusion margin
+ * and its line lift by the mean facet, which a bare prism's few big
+ * triangles would make a large fraction of the building.
  */
 export const prism = (
   owner: Null,
@@ -46,7 +52,7 @@ export const prism = (
   depth: number,
   ink: Ink,
   offset: Vec3Like = { x: 0, y: 0, z: 0 },
-): void => {
+): MeshSolid => {
   const add = <T extends Holon>(h: T): T => owner.attach(h)
   const z0 = -depth / 2 + offset.z
   const z1 = depth / 2 + offset.z
@@ -83,6 +89,35 @@ export const prism = (
     add(new Line({ ...style, points: [...profile.map((p) => at(p, z)), at(profile[0]!, z)] }))
   }
   for (const p of profile) add(new Line({ ...style, points: [at(p, z1), at(p, z0)] }))
+  const triangles = Array.from({ length: indices.length / 3 }, (_, t): Tri => [indices[3 * t]!, indices[3 * t + 1]!, indices[3 * t + 2]!])
+  return { kind: "mesh", ...subdivide([z0, z1].flatMap((z) => profile.map((p) => at(p, z))), triangles, 3) }
+}
+
+type Tri = [number, number, number]
+
+/** Split every triangle into four, `levels` times, sharing each edge's midpoint (the mesh stays closed). */
+const subdivide = (positions: Vec3Like[], triangles: Tri[], levels: number): { positions: Vec3Like[]; triangles: Tri[] } => {
+  for (let l = 0; l < levels; l++) {
+    const mids = new Map<string, number>()
+    const mid = (a: number, b: number): number => {
+      const k = a < b ? `${a}|${b}` : `${b}|${a}`
+      let m = mids.get(k)
+      if (m === undefined) {
+        const p = positions[a]!
+        const q = positions[b]!
+        m = positions.push({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 }) - 1
+        mids.set(k, m)
+      }
+      return m
+    }
+    triangles = triangles.flatMap(([a, b, c]): Tri[] => {
+      const ab = mid(a, b)
+      const bc = mid(b, c)
+      const ca = mid(c, a)
+      return [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]
+    })
+  }
+  return { positions, triangles }
 }
 
 /** An axis-aligned w × h rectangle standing on y = 0. */

@@ -333,6 +333,33 @@ describe("Place", () => {
     expect(places[1]!.members[0]).toBeInstanceOf(Factory)
     for (const p of places) expect(p.altitude.value).toBeLessThan(0)
   })
+
+  test("a Factory's worldCurves are its VISIBLE edges in world space, for its observer's view", () => {
+    const observer = new Observer()
+    observer.phi.value = 0.6
+    observer.theta.value = 0.4
+    const f = new Factory({ x: 50, size: 100, seenBy: () => observer })
+    const curves = f.worldCurves()
+    expect(curves.length).toBeGreaterThan(0)
+    const near = (q: { x: number; y: number; z: number }) =>
+      Math.min(
+        ...curves.flatMap((c) =>
+          c.slice(1).map((b, i) => {
+            const a = c[i]!
+            const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }
+            const L2 = ab.x ** 2 + ab.y ** 2 + ab.z ** 2 || 1
+            const t = Math.max(0, Math.min(1, ((q.x - a.x) * ab.x + (q.y - a.y) * ab.y + (q.z - a.z) * ab.z) / L2))
+            return Math.hypot(a.x + ab.x * t - q.x, a.y + ab.y * t - q.y, a.z + ab.z * t - q.z)
+          }),
+        ),
+      )
+    // Seen from above, front and right: the near foot of the hall is drawn
+    // (shifted by x = 50 into world space); the far foot is behind the hall.
+    expect(near({ x: 50, y: 0, z: 30 })).toBeLessThan(0.5)
+    expect(near({ x: 50, y: 0, z: -30 })).toBeGreaterThan(5)
+    // The same frame asks again: the same array (memoised).
+    expect(f.worldCurves()).toBe(curves)
+  })
 })
 
 describe("EarthView", () => {
