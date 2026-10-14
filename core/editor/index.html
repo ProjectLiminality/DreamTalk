@@ -276,6 +276,11 @@
       color: var(--text); font: 11px inherit; padding: 2px 5px; }
     .savestate input:focus { outline: none; border-color: var(--blue); }
     .savestate.sent label { color: var(--dim); }
+    /* "Morph to…" (editor/morphto.ts): one quiet action under a selection; the canvas picks with a crosshair. */
+    .morphto { font-size: 11px; color: var(--dim); cursor: pointer; margin: 2px 0 14px; }
+    .morphto:hover { color: var(--blue); }
+    .morphto i { font-style: normal; font-family: var(--mono); color: var(--dimmer); margin-left: 6px; }
+    #stage.picking { cursor: crosshair; }
     /* --- State lanes (editor/statelanes.ts) under the clip rows -------------
        One quiet lane per axis the song moves; each authored transition a
        block `from → to`. A walked, unwritten one is a dashed ghost at the

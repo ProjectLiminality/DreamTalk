@@ -78,6 +78,7 @@ import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { EditorWalk } from "./walk"
 import { mountSaveState, poseParams } from "./savestate"
+import { mountMorphTo } from "./morphto"
 import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
 import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type ChangedRange, type OpDescriptor } from "./undo"
@@ -822,6 +823,14 @@ const boot = async (resume?: Transport) => {
     const groups = inspectorGroups(holon, animated)
     walk?.inspect(paramsRoot, holon)
     mountPoseSaver()
+    if (morphTo) {
+      const into = document.createElement("div")
+      into.className = "morphto"
+      into.innerHTML = "morph into… <i>m</i>"
+      into.title = "then click the holon this one becomes — writes this.play(Morph(a, b), 4) at the playhead"
+      into.addEventListener("click", () => morphTo.start())
+      paramsRoot.appendChild(into)
+    }
     if (groups.length === 0) {
       const hint = document.createElement("div")
       hint.className = "empty"
@@ -1035,6 +1044,27 @@ const boot = async (resume?: Transport) => {
             fire: (p) => void ((p === "shown") !== !!code?.open && toggleCode()),
           },
         ],
+        signal: ac.signal,
+      })
+
+  // --- "Morph to…" (editor/morphto.ts) -------------------------------------
+  //
+  // Select a holon, press m (or the inspector's "morph into…"), click what it
+  // becomes: one appendCheckpoint op writes `this.play(Morph(a, b), 4)` at
+  // the playhead — placed, clocked and undoable exactly like ⌘K.
+  const morphTo = playerMode
+    ? undefined
+    : mountMorphTo({
+        canvas,
+        dream,
+        pick: pickAt,
+        selected: () => selection.current,
+        isPlaying: () => playing,
+        currentT: () => current,
+        sceneFile: () => sceneFile,
+        clocks: () => walk?.capture((h) => holonPathOf(dream, h)).clocks ?? [],
+        send: sendOp,
+        note: (text) => showNote(text),
         signal: ac.signal,
       })
 
@@ -1766,6 +1796,10 @@ const boot = async (resume?: Transport) => {
         creator.toggle()
       }
       // The scene's axes on their keys (g, e, 1…), paused in game mode.
+      if (!typing && e.code === "KeyM" && !e.metaKey && !e.ctrlKey && !e.altKey && morphTo?.start()) {
+        e.preventDefault()
+        return
+      }
       if (!typing && walk?.key(e)) {
         e.preventDefault()
         return
@@ -1819,7 +1853,9 @@ const boot = async (resume?: Transport) => {
         else doUndo()
       }
       if (e.code === "Escape") {
-        if (cancelAxis()) {
+        if (morphTo?.cancel()) {
+          // A morph waiting for its target lets go — nothing written.
+        } else if (cancelAxis()) {
           // An axis drag in flight dies here — the override reverted, nothing written.
         } else if (cancelMove()) {
           // A move in flight dies here — overrides reverted, nothing written.
@@ -2286,6 +2322,12 @@ const boot = async (resume?: Transport) => {
       owns: (x: number, y: number) => walk.owns(x, y),
       clickAt: (x: number, y: number) => walk.game.clickAt(x, y),
       seconds: () => walk.seconds,
+    },
+    // --- "Morph to…", driven headlessly --------------------------------------
+    morphTo: morphTo && {
+      start: () => morphTo.start(),
+      pickAt: (x: number, y: number) => morphTo.pickAt(x, y),
+      picking: () => morphTo.picking,
     },
   })
 }
