@@ -56,6 +56,7 @@ import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
+import { changedRange, type ChangedRange } from "../editor/undo"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
@@ -361,6 +362,12 @@ const buildEditor = async (): Promise<boolean> => {
 
 /** Daemon-written content hashes, consumed by exactly one watcher event each. */
 const pendingEchoes = new Map<string, string>()
+/**
+ * The last bytes the daemon wrote (or saw an outsider write) per file it
+ * has edited — so an external rewrite can be reported as the one range it
+ * changed, and the editor's undo stack keeps every inverse it did not touch.
+ */
+const lastText = new Map<string, string>()
 
 const changed = new Set<string>()
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -380,6 +387,15 @@ const flushChanges = async () => {
   }
   if (external.length === 0) return
   log("change:", external.map((p) => p.slice(repoRoot.length)).join(", "))
+  const edits: { file: string; range?: ChangedRange }[] = []
+  for (const abs of external) {
+    const old = lastText.get(abs)
+    if (old === undefined) continue
+    const now = await Bun.file(abs).text().catch(() => undefined)
+    if (now === undefined) lastText.delete(abs)
+    else lastText.set(abs, now)
+    edits.push({ file: abs.slice(repoRoot.length), range: now === undefined ? undefined : changedRange(old, now) })
+  }
   // This reload came from a write the daemon did NOT make (a hand edit, an
   // agent, a git checkout). The editor's undo stack holds inverses computed
   // against the bytes that write just replaced, so those inverses no longer
@@ -387,6 +403,7 @@ const flushChanges = async () => {
   // through rebuildAndReload() below with no such flag.
   await rebuildAndReload({
     external: external.map((p) => p.slice(repoRoot.length)),
+    edits,
   })
 }
 
@@ -665,6 +682,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     await Bun.write(tmp, result.text)
     await rename(tmp, abs)
     pendingEchoes.set(abs, sha256(result.text))
+    lastText.set(abs, result.text)
     log(`op ${msg.op} → ${file}`)
   }
   ws.send(
@@ -822,10 +840,11 @@ const server = Bun.serve<SocketData>({
   },
 })
 
-const rebuildAndReload = async (cause?: { external: string[] }) => {
+const rebuildAndReload = async (cause?: { external: string[]; edits?: { file: string; range?: ChangedRange }[] }) => {
   const editorOk = await buildEditor()
   await rebuildPlayer()
-  if (editorOk) server.publish("editor", JSON.stringify({ type: "reload", external: cause?.external }))
+  if (editorOk)
+    server.publish("editor", JSON.stringify({ type: "reload", external: cause?.external, edits: cause?.edits }))
 }
 
 /** The player bundle (/demo), local holon scenes included — the same build as `bun run build:demo`. */

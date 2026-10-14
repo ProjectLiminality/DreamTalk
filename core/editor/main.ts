@@ -80,7 +80,7 @@ import { EditorWalk } from "./walk"
 import { mountSaveState, poseParams } from "./savestate"
 import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
 import type { Clip } from "../src/timeline"
-import { UndoStack, undoAction, type OpDescriptor } from "./undo"
+import { UndoStack, undoAction, type ChangedRange, type OpDescriptor } from "./undo"
 import { Overrides, type Pose } from "./overrides"
 
 interface Transport {
@@ -216,6 +216,7 @@ const ensureWs = () => {
       opId?: string
       undo?: OpDescriptor
       external?: string[]
+      edits?: { file: string; range?: ChangedRange }[]
     }
     try {
       msg = JSON.parse(String(e.data)) as typeof msg
@@ -223,14 +224,16 @@ const ensureWs = () => {
       return
     }
     if (msg.type === "reload") {
-      // A reload the daemon attributes to a write it did not make: every
-      // inverse on the stack was computed against bytes that no longer
-      // stand, so history is void. Saying so is part of the contract —
-      // silently emptying the stack would be worse than not having one.
-      // Parked rather than shown: this same reload rebuilds the DOM, so
-      // the fresh mount is what actually says it.
-      if (msg.external?.length && undoStack.clear())
-        setPendingNote("history cleared (file edited)")
+      // A reload the daemon attributes to a write it did not make: the
+      // inverses whose bytes that write reached are void (undo.ts rule 2);
+      // the rest are rebased past it and stay — agents edit the repo all
+      // the time, and an unrelated edit must not cost the user ⌘Z. What was
+      // lost is SAID. Parked rather than shown: this same reload rebuilds
+      // the DOM, so the fresh mount is what actually says it.
+      const lost = undoStack.external(
+        (msg.external ?? []).map((file) => ({ file, range: msg.edits?.find((e) => e.file === file)?.range })),
+      )
+      if (lost) setPendingNote(`history: ${lost} edit${lost === 1 ? "" : "s"} forgotten (file edited)`)
       window.__dtRemount?.()
     } else if (msg.type === "board") {
       // A whiteboard page changed on disk (Board.ts): only the editor

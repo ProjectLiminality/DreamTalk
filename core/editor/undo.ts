@@ -24,13 +24,17 @@
  *     tweak still stands on screen would undo something the user is not
  *     looking at.
  *
- *  2. CLEAR ON EXTERNAL EDIT. Every inverse describes bytes that stood in
- *     a file at a known moment. When someone else rewrites that file — a
- *     hand edit, an agent, a git checkout — those descriptors stop
- *     describing anything, and the honest response is to forget them and
- *     SAY SO, rather than to replay an inverse onto text it was never
- *     computed against. (`setOverride`'s value-carrying inverses would
- *     often still "work" on drifted text; that is exactly the danger.)
+ *  2. FORGET ONLY WHAT AN EXTERNAL EDIT TOUCHED. Every inverse describes
+ *     bytes that stood in a file at a known moment. When someone else
+ *     rewrites that file — a hand edit, an agent, a git checkout — an
+ *     inverse whose bytes the edit reached stops describing anything, and
+ *     the honest response is to forget it and SAY SO, rather than replay
+ *     it onto text it was never computed against. (`setOverride`'s
+ *     value-carrying inverses would often still "work" on drifted text;
+ *     that is exactly the danger.) But an edit to ANOTHER file, or to
+ *     another part of the same file, leaves an inverse true: its spans
+ *     are rebased by the edit's size and it stays (`external()`). Agents
+ *     edit the repo constantly; history must survive what is unrelated.
  *
  * This module is pure: it holds descriptors and decides what to send. The
  * socket, the DOM note and the live layer are the caller's (main.ts).
@@ -139,7 +143,46 @@ export class UndoStack {
   }
 
   /**
-   * Rule 2: someone else rewrote a file, so every inverse computed
+   * Rule 2, precisely: files someone else just rewrote — with, where the
+   * daemon knew the old bytes, the one changed range (old coordinates,
+   * and how much it grew). Entries for other files stand untouched. In a
+   * changed file, an entry whose spans lie clear of the range is rebased
+   * (positions past it shift by its growth); one the range reaches is
+   * forgotten, and so is every OLDER entry of that file, whose
+   * coordinates assumed the forgotten one would be undone first. Redo
+   * entries of a changed file are forgotten (a branch the edit
+   * overwrote). Without a range, every entry of that file goes. Returns
+   * how many entries were forgotten.
+   */
+  external(changes: readonly ExternalChange[]): number {
+    const byFile = new Map(changes.map((c) => [c.file, c.range]))
+    let lost = 0
+    const keep: UndoEntry[] = []
+    const voidedFiles = new Set<string>()
+    // Newest first: a forgotten entry takes everything under it in its file.
+    for (const entry of [...this.#undo].reverse()) {
+      const file = String(entry.inverse.file ?? "")
+      if (!byFile.has(file)) {
+        keep.push(entry)
+        continue
+      }
+      const range = byFile.get(file)
+      const rebased = range && !voidedFiles.has(file) ? rebaseOp(entry.inverse, range) : undefined
+      if (rebased) keep.push({ ...entry, inverse: rebased })
+      else {
+        voidedFiles.add(file)
+        lost++
+      }
+    }
+    this.#undo = keep.reverse()
+    const redo = this.#redo.filter((e) => !byFile.has(String(e.inverse.file ?? "")))
+    lost += this.#redo.length - redo.length
+    this.#redo = redo
+    return lost
+  }
+
+  /**
+   * Forget everything — someone else rewrote a file, so every inverse computed
    * against its old bytes is void. Returns whether anything was actually
    * discarded, so the caller only shows the note when there was history
    * to lose.
@@ -157,6 +200,70 @@ export class UndoStack {
     this.#inFlight.set(opId, role)
     return { ...op, opId }
   }
+}
+
+/** One external rewrite: the file, and (when known) the changed range in its OLD bytes. */
+export interface ExternalChange {
+  file: string
+  range?: ChangedRange
+}
+
+/** Old bytes [start, end) became a region `delta` bytes longer (negative: shorter). */
+export interface ChangedRange {
+  start: number
+  end: number
+  delta: number
+}
+
+/**
+ * The one contiguous region two texts differ in — common prefix and suffix
+ * trimmed (never overlapping) — in the OLD text's coordinates. Several
+ * edits between two looks coalesce into one range: conservative, never wrong.
+ */
+export const changedRange = (before: string, after: string): ChangedRange | undefined => {
+  if (before === after) return undefined
+  const max = Math.min(before.length, after.length)
+  let p = 0
+  while (p < max && before.charCodeAt(p) === after.charCodeAt(p)) p++
+  let s = 0
+  while (s < max - p && before.charCodeAt(before.length - 1 - s) === after.charCodeAt(after.length - 1 - s)) s++
+  return { start: p, end: before.length - s, delta: after.length - before.length }
+}
+
+/**
+ * An inverse op moved past an edit, or undefined when the edit reached it.
+ * Its positions are `span`s (setOverride, setRunTime, deleteSpan and every
+ * `also`) and insertSpan's `at`; an op with none (setBackdrop re-locates by
+ * structure) passes through. A span touches the range when they overlap,
+ * or when the range is a pure insertion strictly inside the span.
+ */
+export const rebaseOp = (op: OpDescriptor, r: ChangedRange): OpDescriptor | undefined => {
+  type Span = { start: number; end: number }
+  const hits = (s: Span) => (r.start === r.end ? s.start < r.start && r.start < s.end : s.start < r.end && s.end > r.start)
+  const move = (n: number) => (n >= r.end ? n + r.delta : n)
+  // A span ENDING where text was inserted keeps its end: the text came after it.
+  const moveEnd = (n: number) => (n > r.end || (n === r.end && r.start !== r.end) ? n + r.delta : n)
+  const shift = (s: Span): Span | undefined => (hits(s) ? undefined : { start: move(s.start), end: moveEnd(s.end) })
+  const out: OpDescriptor = { ...op }
+  if (op.span) {
+    const s = shift(op.span as Span)
+    if (!s) return undefined
+    out.span = s
+  }
+  if (typeof op.at === "number") {
+    if (r.start < op.at && op.at < r.end) return undefined
+    out.at = move(op.at)
+  }
+  if (Array.isArray(op.also)) {
+    const also = []
+    for (const e of op.also as { span: Span }[]) {
+      const s = shift(e.span)
+      if (!s) return undefined
+      also.push({ ...e, span: s })
+    }
+    out.also = also
+  }
+  return out
 }
 
 /** A human word for an op, for the status note. */
