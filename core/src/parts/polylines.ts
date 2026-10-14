@@ -61,16 +61,28 @@ export const deriveLoops = (
 ): void => {
   let key: readonly unknown[] | undefined
   let memo: Vec3Like[][] = []
+  let version = lines.geomVersion
+  // The host checks `geomVersion` before it reads `loops`, so the version
+  // itself must refresh (soliddrawing.ts deriveSurface's shape).
+  const refresh = () => {
+    const next = sourceKey()
+    if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
+      key = next
+      memo = compute()
+      version++
+    }
+  }
+  Object.defineProperty(lines, "geomVersion", {
+    configurable: true,
+    enumerable: true,
+    get: () => (refresh(), version),
+    set(_v: number) {},
+  })
   Object.defineProperty(lines, "loops", {
     configurable: true,
     enumerable: true,
     get(): Vec3Like[][] {
-      const next = sourceKey()
-      if (!key || key.length !== next.length || next.some((v, i) => v !== key![i])) {
-        key = next
-        memo = compute()
-        lines.geomVersion++
-      }
+      refresh()
       return memo
     },
     set(_v: Vec3Like[][]) {},

@@ -42,3 +42,18 @@ describe("Polylines — many lines as one stroke", () => {
     expect(p.creation).toBeDefined()
   })
 })
+
+describe("deriveLoops — the version refreshes itself", () => {
+  test("geomVersion moves when the source changes, without anyone reading loops first (the host's order)", () => {
+    const p = new Polylines()
+    let n = 1
+    deriveLoops(p, () => [n], () => [Array.from({ length: n + 1 }, (_, i) => ({ x: i, y: 0, z: 0 }))])
+    const v0 = p.geomVersion
+    expect(p.geomVersion).toBe(v0)
+    n = 3
+    const v1 = p.geomVersion
+    expect(v1).toBeGreaterThan(v0)
+    expect(p.loops[0]!.length).toBe(4)
+    expect(p.geomVersion).toBe(v1)
+  })
+})
