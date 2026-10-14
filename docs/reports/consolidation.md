@@ -43,9 +43,9 @@ shared piece is.
    perspective-only maths (deliberately, for the page projection), and
    `three-host syncCamera` is the source of truth. Drift risk: every camera
    change (orbit layer, tilt) has to reach each copy. Owner: earth, valueflow.
-2. **Casts past `add()`:** Earth.ts (`addTo`), Labels.ts, PointData.ts,
-   GeoFlow.ts and FlowMap.ts switch to `attach()` on their owners' next
-   pass (the guard's cast PENDING list). Owners: earth, flowmap.
+2. ~~**Casts past `add()`**~~ — done: FlowMap, then Earth, Labels,
+   PointData and GeoFlow (d1c112f) use `attach()`; the guard's lists are
+   all empty.
 3. **Particles along a path.** `Stream`, FlowMap's flows and SOPLoop
    already share the maths (`src/geometry/flowmap.ts` `streamArc`,
    `atArcLength`); what repeats is the per-particle wiring (memo, placement,

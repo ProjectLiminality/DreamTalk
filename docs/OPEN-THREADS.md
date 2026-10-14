@@ -207,9 +207,8 @@ when done.
   guarded by `test/one-implementation.test.ts` (no shelf class redeclared;
   no private derived-points copy; no cast past `add()` — `Holon.attach`;
   the eye-distance formula only in `src/geometry/frames.ts`). Open (how:
-  docs/reports/consolidation.md): Earth/Labels/PointData/GeoFlow still
-  cast past `add()` (switch to `attach`, then shrink the guard's list);
-  FlowMap/SOPLoop could compose `Stream` instead of their own particle
+  docs/reports/consolidation.md): ~~the remaining casts past `add()`~~
+  (all on `attach`, d1c112f — every guard list is empty); FlowMap/SOPLoop could compose `Stream` instead of their own particle
   wiring; promote the Regenaissance lattice to a 3D `Noosphere` holon only
   when a second song needs it.
 - DreamOS as one "dream graph" (Plan 9 / Houdini: a uniform data model through
