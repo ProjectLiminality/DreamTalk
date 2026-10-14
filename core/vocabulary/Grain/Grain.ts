@@ -353,7 +353,17 @@ export class Grain extends Stroke {
 
   protected override compose(): void {
     const { observer, symbol, label, item } = this.opts
-    const phases = () => grainPhases(this.grain.value)
+    // Read by every slot each frame: once per param epoch.
+    let phEpoch = -1
+    let ph = grainPhases(0)
+    const phases = () => {
+      const e = paramEpoch()
+      if (e !== phEpoch) {
+        phEpoch = e
+        ph = grainPhases(this.grain.value)
+      }
+      return ph
+    }
     // With an item symbol the type's symbol hands over to it on 2 → 3.
     const typeFill = () => {
       const ph = phases()
@@ -440,10 +450,20 @@ export class Grain extends Stroke {
       }
       return memo
     }
+    let tintEpoch = -1
+    let poolTint: Color = WHITE
+    const inkTint = (): Color => {
+      const e = paramEpoch()
+      if (e !== tintEpoch) {
+        tintEpoch = e
+        poolTint = this.grain.value > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph)
+      }
+      return poolTint
+    }
     for (let i = 0; i < capacity; i++) {
       const slot = new Line({
         stroke: this.stroke,
-        tint: derive(() => (this.grain.value > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph))),
+        tint: derive(inkTint),
         opacity: derive(() => (current()[i] ? this.opacity.value : 0)),
       })
       derivePoints(slot, () => (current(), [version]), () => current()[i] ?? [])
