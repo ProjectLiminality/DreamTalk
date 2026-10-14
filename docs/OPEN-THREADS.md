@@ -6,41 +6,24 @@ never have to be explained from scratch again. Newest first; strike through
 when done.
 
 ## The visual automaton (2026-10-13)
-- **Built:** `src/automaton.ts` (axes over States, deterministic C¹
-  retargeting, verbs via Anims, clocks) and the player's game loop
-  `demo/game.ts`: **Space** holds the song and makes it walkable, Space
-  again releases back into it; `?play=free` opens there (`&hud=0` hides the
-  HUD, `h` toggles it). FlowMap is the first citizen
-  (`?scene=flowmap&play=free`): click the group circle/discs → grain, a
-  stage name → its layer, a flow → its gap (staged) or its certainty
-  (flat, conjectural); keys g/e/l/1–3/4… . Headless: `window.__dtGame`
-  (`enter(t)`, `fire(id, pos)`, `at(clock)`, `state()`, `hoverAt`, `clickAt`).
-- **Seams (one declaration each, nothing else to build):**
-  - *Lens on a flow:* in `FlowMap.stateSpace()`, prepend to the per-stage
-    axes `toggle("raw.lens", lens.open, { handles: () => stage.flows,
-    when: () => …, via: (f, t) => … })` — a flow's handle fires its FIRST
-    walkable axis, so the lens wins the click; `via` may be the Lens's own
-    opening Anim (it plays from rest; interrupted, it retargets smoothly).
-    Or the Lens declares its own `stateSpace()` with the flow as handle.
-  - *Earth globe ↔ abstract:* an axis on whatever param blends the two
-    views (`axis("view", scene, { globe: {…}, abstract: {…} }, { key: "v" })`)
-    in the holon that owns that param — gathered automatically from the
-    scene's roots.
-- **Orbit everywhere (built 2026-10-13):** `src/view.ts` — the viewer's
-  camera as `Param.bias`/`gate` over the observer's READINGS (works on
-  bound rigs, ortho, moving song cameras; every view-dependent holon sees
-  it). Game mode always, editor when paused: drag orbit, shift/right-drag
-  pan, wheel/pinch dolly, double-click or `f` frame (a double-click never
-  fires), `r` home; play glides back. `Holon.keepOut()` spheres keep the
-  eye out of solids (Earth to declare its own). Overlays share one
-  stage→page mapping (`editor/overlay.ts`; the DPR-2 offset bug).
-  Open: FlowMap's labels/carriers to face the effective camera (flowmap);
-  touch; a pivot-aware orbit for scenes whose focus is far from the subject.
-- Open: the song's path recorded from a walk (`automaton.journal` →
-  `this.play(axis.to(…), d)` lines via a semantic op — "walk it, keep it");
-  camera flight in the game loop (LOOPS.md: the Observer as live override);
-  hover affordance on handles hidden at opacity 0 (unpickable by design —
-  their keys/HUD still work); David's eye on the ticks + caption; touch.
+- **Overview for David: `docs/reports/automaton.md`** (the editor half:
+  `docs/reports/editor-automaton.md`). Every symbol whose params express
+  states declares `stateSpace()` (axes over States; `toggle`, `choices`,
+  `poses` for scene states); free play (Space, `?play=free`) walks it, the
+  song is one path through it (`holon.stateAxis(id).to(pos)`). Try
+  `?scene=gallery&play=free` (← → between symbols).
+- **Built:** `src/automaton.ts` (deterministic C¹ retargeting, verbs via
+  `via`, clocks, one param one axis, per-holon keys), `demo/game.ts` (HUD,
+  hover ticks, focus), `src/view.ts` (orbit/pan/dolly as bias/gate over the
+  observer's readings; keep-outs; surface orbit over an Earth close-up;
+  exact world-space framing), `editor/touchcamera.ts` (pinch/pan, double-
+  tap), `editor/overlay.ts` (one stage→page mapping, the DPR-2 fix).
+- Open: four declared keys collide with the player's reserved ones
+  (Horizons `h`, SOPLoop `f`/`r`, FlowMap `m`) and are silently replaced —
+  new keys or a warning, and the reserved list belongs in automaton.ts;
+  record a walk as a song (the journal exists; ⌘K captures one move);
+  camera flight as part of a path; David's eye on the hover ticks/caption
+  (glow now owns the look).
 
 ## The Earth (2026-10-13)
 - **Built:** `core/vocabulary/Earth` (`?scene=earth`). A true 3D sphere
