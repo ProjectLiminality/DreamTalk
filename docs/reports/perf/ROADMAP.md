@@ -667,3 +667,30 @@ slot range), plus a per-mesh fallback inside fade windows for exactness.
 Estimated: removes most of the ~15 ms native cost on web3 against a pack
 cost already ~8 ms — worth building only if web3-class songs must hit
 60 fps. Geoflow and TheWall are now about as GPU- as CPU-bound.
+
+### Grain perf — material symbols on flows under perspective (2026-10-14)
+
+`?scene=flowmap-grain-persp`: the FlowMap's three stages carry 286 material
+Grains (pallets, reels, pouches) at rung 2, perspective camera, so every
+particle sees the camera from its own angle. Browser = `setT` per frame in
+headless Chrome; JS = Bun, steady state.
+
+| step | browser frame | JS |
+|---|---|---|
+| start (a hidden-line solve + morph plan per particle per frame) | > 10 min to first frame | 665 ms |
+| `shareViews` (one drawing per class + solids + 1.4° view bucket, shared by all), shared plans, one line pool per grain | ~740 ms | 47 → 17 ms |
+| lazy superposition echoes (glow, a789dde) + Perf J | ~190 ms | 16 ms |
+| Grain certainty once per param epoch | ~152 ms | — |
+| `solidFaces` (faces as 1–3 depth-writing Surfaces per symbol, not a fill Line per face) | ~108 ms | — |
+| all of a Grain's lines as ONE `Polylines` stroke (+ the deriveLoops version fix, 0ccf002) | ~54 ms (~50 mid-morph) | 3.6 ms |
+
+**What is left (~54 ms) is per-object submission**, the same ceiling as
+Item I: the frame draws ~1,750 objects — 286 Polylines ribbons, 580 solid
+Surfaces (symbol faces), 592 Lines (grain dots, the map's channels), plus
+the map's circles and text. JS is 3.6 ms; the profile's top item is
+"(program)" (native encoding/uploads). Two host levers, both in glow's
+files: **Polylines ribbons joining the instanced RibbonBatch** (as Line
+ribbons do), and **batching same-material solid Surfaces**. Grain's own
+lever is level of detail (`detailPx`, default 14 px: a smaller symbol is
+drawn as its dot); 20 px was tried and turned the orthographic map's
+symbols back into dots, so the default stays 14.
