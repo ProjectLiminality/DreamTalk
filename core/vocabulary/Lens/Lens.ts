@@ -455,6 +455,16 @@ export class FlowLens extends Lens {
    * h = atan2(−ex.z, ez.z)).
    */
   groundTurn(): { h: number; p: number; b: number } {
+    // Per frame: h, p and b each ask, and so does every toWorld through the ground.
+    const epoch = paramEpoch()
+    if (this.turnMemo?.epoch === epoch) return this.turnMemo.turn
+    const turn = this.groundTurnNow()
+    this.turnMemo = { epoch, turn }
+    return turn
+  }
+  private turnMemo?: { epoch: number; turn: { h: number; p: number; b: number } }
+
+  private groundTurnNow(): { h: number; p: number; b: number } {
     const a = this.align.value
     const frame = this.flow.opts.alignTo
     if (a <= 0 || !frame) return { h: this.heading.value, p: this.tilt.value, b: 0 }
@@ -596,7 +606,10 @@ export class FlowLens extends Lens {
       // On the line while the flow is abstract; settling onto the road's
       // near lane as the road forms, so a dot at the window's edge rides
       // the road beside the trucks rather than hovering in the lens plane.
-      const at = () => {
+      let atEpoch = -1
+      let atMemo: Vec3Like = { x: 0, y: 0, z: 0 }
+      const at = () => (atEpoch === paramEpoch() ? atMemo : ((atEpoch = paramEpoch()), (atMemo = atNow())))
+      const atNow = (): Vec3Like => {
         const sl = this.slot(k, K)
         const { s0, s1 } = this.local()
         const c = sl ? sl.c : 0
@@ -649,8 +662,25 @@ const norm3 = (a: Vec3Like): Vec3Like => {
   return { x: a.x / l, y: a.y / l, z: a.z / l }
 }
 
-/** The flow's point at fraction `at` of its arc length, in world space. */
+/**
+ * The flow's point at fraction `at` of its arc length, in world space. Memoised per
+ * frame (paramEpoch): the lens's x, y and z each ask, and every toWorld
+ * through the lens asks again — unmemoised, a lens riding a FlowMap's
+ * flow re-walked the whole path through the stack's frame thousands of
+ * times a frame (lens-flowmap: seconds per frame).
+ */
+const worldOnMemo = new WeakMap<FlowSource, Map<number, { epoch: number; at: Vec3Like }>>()
 const worldOn = (source: FlowSource, at: number): Vec3Like => {
+  const epoch = paramEpoch()
+  let memo = worldOnMemo.get(source)
+  if (!memo) worldOnMemo.set(source, (memo = new Map()))
+  const hit = memo.get(at)
+  if (hit && hit.epoch === epoch) return hit.at
+  const p = worldOnNow(source, at)
+  memo.set(at, { epoch, at: p })
+  return p
+}
+const worldOnNow = (source: FlowSource, at: number): Vec3Like => {
   const frame = source.frame
   const pts = source.path().map((p) => (frame ? toWorld(frame, p) : p))
   const lengths = [0]
