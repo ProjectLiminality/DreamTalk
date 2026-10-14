@@ -29,6 +29,7 @@
  */
 
 import type { Holon } from "../src/holon"
+import type { StateSpace } from "../src/automaton"
 import type { Param, ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { GameLoop } from "../demo/game"
@@ -50,6 +51,8 @@ export interface WalkOpts {
   /** Pause the transport — a fire from the inspector while playing. */
   pause: () => void
   hud: boolean
+  /** The scene's own axes (Dream.stateSpace()) — walked beside the holons'. */
+  scene?: () => StateSpace | undefined
   /** The editor's own axes, listed above the scene's when nothing is selected. */
   editor?: () => readonly EditorAxis[]
   signal: AbortSignal
@@ -135,6 +138,8 @@ export class EditorWalk {
       { canvas: opts.canvas, pick: opts.pick, boundsOf: opts.boundsOf, setBeforeSync: () => {} },
       {
         roots: opts.roots,
+        // The scene's own axes (owner-less) walk first, beside the holons'.
+        space: opts.scene?.(),
         animated: EVERY_PARAM,
         suspended: () => opts.isPlaying() || opts.suspended(),
         hud: opts.hud,
@@ -245,7 +250,13 @@ export class EditorWalk {
     const covers = new Set<Param<ParamValue>>()
     for (const g of this.ghosts()) {
       const axis = a.axis(g.axis)
-      const path = axis.owner && pathOf(axis.owner)
+      // An owner-less axis is the scene's own: `this.stateAxis(id)`.
+      const path = axis.owner ? pathOf(axis.owner) : ""
+      if (path === "") {
+        transitions.push({ holon: "this", axis: g.axis.replace(/#\d+$/, ""), position: g.to })
+        for (const p of axis.params()) covers.add(p)
+        continue
+      }
       if (!path) continue
       transitions.push({ holon: `this.${path}`, axis: g.axis.replace(/#\d+$/, ""), position: g.to })
       for (const p of axis.params()) covers.add(p)

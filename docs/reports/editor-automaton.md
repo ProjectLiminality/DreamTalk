@@ -82,6 +82,30 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
   and sampled across the inserted clip, time runs on while expand and
   raw.open move.
 
+## Authoring states from the editor ("save as state")
+
+- With a pose standing (inspector, drag, walk), the inspector shows a row:
+  "save pose as [axis] [state] ↵". One `saveState` op writes the pose as a
+  position on one of the **scene's** own axes, in the DreamWeaving's
+  `stateSpace()`. The method and its imports are created on the first save:
+  `poses("look", { rest: [[this.map.grain, 0]], busy: [[this.map.grain, 1]] })`.
+  The base pose (`rest`) is the timeline's values at the playhead.
+- Home: the scene, not the holon. A vocabulary symbol's own states are its
+  author's to declare. A designer's states are compositional, so they span
+  holons, and only the scene can name several.
+- Saving to an existing axis adds the position, or replaces it if the name
+  is already used. A param new to the axis is added to the other positions
+  at its base, so walking back undoes it. A position names only the params
+  that were posed.
+- `poses()` (src/automaton.ts) is the axis over explicit params of any
+  holons. `Dream.stateSpace()` / `Dream.stateAxis(id)` are the scene's
+  hooks. The editor's walk carries the scene's space as one more root (a
+  stand-in holon, never drawn). ⌘K of a walked scene axis writes
+  `this.stateAxis("look").to("busy")`.
+- Undo: the op's span inverse. Refused rather than guessed when the
+  scene's `stateSpace()` is hand-written in another shape (no
+  `axes: [ … ]` literal).
+
 ## Step 2 — the timeline shows the state space
 
 - `editor/statelanes.ts`: under the clip rows, one lane per axis the song

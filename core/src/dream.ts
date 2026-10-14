@@ -8,6 +8,7 @@ import { Timeline, type Clip } from "./timeline"
 import { angle, bool, length, scalar } from "./params"
 import { PI } from "./constants"
 import type { Anim } from "./anim"
+import type { Axis, StateSpace } from "./automaton"
 import { Narration } from "./narration"
 import {
   creationChimes,
@@ -235,6 +236,23 @@ export abstract class Dream {
     for (const anim of anims) {
       this.#clips.push({ anim, start: this.#cursor, duration: 0 })
     }
+  }
+
+  /**
+   * Optional: the SCENE's own walkable states (src/automaton.ts) — axes
+   * that span its holons' params (`poses(...)`), authored in code or by the
+   * editor's "save as state". Walked beside every holon's own stateSpace().
+   */
+  stateSpace(): StateSpace | undefined {
+    return undefined
+  }
+
+  /** One of the scene's own axes, by id — `this.play(this.stateAxis("look").to("busy"), 1.2)`. */
+  stateAxis(id: string): Axis {
+    const axes = this.stateSpace()?.axes ?? []
+    const a = axes.find((x) => x.id === id)
+    if (!a) throw new Error(`${this.constructor.name}: no scene axis '${id}' (axes: ${axes.map((x) => x.id).join(", ") || "none"})`)
+    return a
   }
 
   /** Let time pass. */

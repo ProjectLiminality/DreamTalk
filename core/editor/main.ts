@@ -77,6 +77,7 @@ import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } fro
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { EditorWalk } from "./walk"
+import { mountSaveState, poseParams } from "./savestate"
 import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
 import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type OpDescriptor } from "./undo"
@@ -735,6 +736,29 @@ const boot = async (resume?: Transport) => {
     return handleGeometry(o, axisScreen)
   }
 
+  // --- Save as state (editor/savestate.ts) ----------------------------------
+  //
+  // A pose (the live layer) named as a position on one of the scene's own
+  // axes — written into the DreamWeaving's stateSpace() by one saveState op;
+  // the reload shows it as a clickable state. Undo is the op's span inverse.
+  let poseSaver: { refresh(): void } | undefined
+  const mountPoseSaver = () => {
+    if (playerMode || !sceneFile) return
+    poseSaver = mountSaveState(paramsRoot, {
+      pose: () => (playing ? [] : poseParams(dream, overrides, current)),
+      axes: () => (dream.stateSpace()?.axes ?? []).map((a) => a.id),
+      save: (axis, position, params) => {
+        void (async () => {
+          const res = await fetch(`/api/source?file=${encodeURIComponent(sceneFile)}`)
+          const baseHash = res.ok ? ((await res.json()) as { hash: string }).hash : undefined
+          sendOp({ type: "op", op: "saveState", file: sceneFile, axis, position, params, baseHash })
+          showNote(`saved: ${axis} → ${position}`)
+        })()
+      },
+    })
+  }
+  overrides.subscribe(() => poseSaver?.refresh())
+
   /** Rebuild the whole inspector from the current selection. */
   const renderInspector = (holon: Holon | null) => {
     rows = []
@@ -765,6 +789,7 @@ const boot = async (resume?: Transport) => {
       }
       // The scene's state space: where each axis stands, every position a button.
       walk?.inspect(paramsRoot, null)
+      mountPoseSaver()
       const hint = document.createElement("div")
       hint.className = "empty"
       hint.textContent = "Nothing selected — click an object in the viewport."
@@ -793,6 +818,7 @@ const boot = async (resume?: Transport) => {
     const animated = dream.build().params
     const groups = inspectorGroups(holon, animated)
     walk?.inspect(paramsRoot, holon)
+    mountPoseSaver()
     if (groups.length === 0) {
       const hint = document.createElement("div")
       hint.className = "empty"
@@ -966,6 +992,7 @@ const boot = async (resume?: Transport) => {
         pause: () => pause(),
         // The inspector's State group is the HUD here; `h` (or ?hud=1) adds it in the viewport.
         hud: new URLSearchParams(location.search).get("hud") === "1",
+        scene: () => dream.stateSpace(),
         // The editor's own axes — the machine that contains the scene's.
         editor: () => [
           {

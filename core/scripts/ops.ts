@@ -601,6 +601,136 @@ const playStatement = (
   return undefined
 }
 
+/**
+ * "Save as state" (docs/reports/editor-automaton.md): a pose named as a
+ * position on one of the SCENE's own axes — the DreamWeaving's
+ * `stateSpace()`, never a vocabulary holon's (the scene is where a
+ * designer's states belong; the holon stays sovereign). Each param is
+ * spelled as the scene addresses it, with its posed `value` and its
+ * `base` (what it shows otherwise — the timeline's value at the playhead).
+ *
+ *   new axis      → `poses(axis, { rest: [[p, base]…], name: [[p, value]…] })`
+ *                   appended to `axes: [ … ]` (the method and its imports
+ *                   are created when the scene has none)
+ *   existing axis → the position is added (or replaced, same name), and
+ *                   every other position gains `[p, base]` for a param it
+ *                   did not name yet, so walking back undoes it
+ */
+export interface SaveStateOp {
+  op: "saveState"
+  axis: string
+  position: string
+  params: { path: string; value: number | boolean; base: number | boolean }[]
+  /** The base pose's name when the axis is new (default "rest"). */
+  rest?: string
+  file?: string
+}
+
+const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+const keyOf = (name: string): string => (IDENT.test(name) ? name : JSON.stringify(name))
+const pairs = (entries: { path: string; v: number | boolean }[]): string =>
+  `[${entries.map((e) => `[${e.path}, ${checkpointLiteral(e.v)}]`).join(", ")}]`
+
+/** Make `name` importable from core/src/<module> — extended in place when already imported from there. */
+const ensureImport = (
+  file: SourceFile,
+  name: string,
+  module: string,
+  relFile: string | undefined,
+  typeOnly = false,
+): string | undefined => {
+  const imports = file.getImportDeclarations()
+  for (const decl of imports)
+    for (const named of decl.getNamedImports())
+      if ((named.getAliasNode()?.getText() ?? named.getName()) === name) return undefined
+  const host = imports.find((d) => d.getModuleSpecifierValue().endsWith(`/${module}`) && !d.isTypeOnly())
+  if (host) {
+    host.addNamedImport(typeOnly ? { name, isTypeOnly: true } : name)
+    return undefined
+  }
+  if (!relFile) return `no ${module} import to extend and no file path to compute one from`
+  const last = imports[imports.length - 1]
+  const decl = {
+    moduleSpecifier: relativeSpecifier(relFile, `core/src/${module}`),
+    namedImports: [typeOnly ? { name, isTypeOnly: true } : name],
+  }
+  const added = last ? file.insertImportDeclaration(last.getChildIndex() + 1, decl) : file.insertImportDeclaration(0, decl)
+  // The scene's own style: no semicolons.
+  added.replaceWithText(added.getText().replace(/;$/, ""))
+  return undefined
+}
+
+export const applySaveState = (source: string, op: SaveStateOp): OpResult => {
+  if (!op.axis.trim() || !op.position.trim()) return { ok: false, reason: "a state needs an axis and a position name" }
+  if (op.params.length === 0) return { ok: false, reason: "empty pose — nothing to save" }
+  for (const p of op.params) {
+    if (!CHECKPOINT_PATH.test(p.path)) return { ok: false, reason: `param path '${p.path}' is not a this.* param reference` }
+    for (const v of [p.value, p.base])
+      if (typeof v === "number" && !Number.isFinite(v)) return { ok: false, reason: `'${p.path}' has a non-finite value` }
+  }
+  const unfold = findUnfold(source)
+  if (!unfold) return { ok: false, reason: "no class with an unfold() method found" }
+  const cls = unfold.getParent()
+  if (!Node.isClassDeclaration(cls)) return { ok: false, reason: "unfold() is not a class method" }
+  const file = cls.getSourceFile()
+  const rest = op.rest?.trim() || "rest"
+  if (rest === op.position) return { ok: false, reason: `the new position cannot share the base pose's name '${rest}'` }
+  const posed = op.params.map((p) => ({ path: p.path, v: p.value }))
+  const based = op.params.map((p) => ({ path: p.path, v: p.base }))
+  const newAxis = [
+    `poses(${JSON.stringify(op.axis)}, {`,
+    `  ${keyOf(rest)}: ${pairs(based)},`,
+    `  ${keyOf(op.position)}: ${pairs(posed)},`,
+    `})`,
+  ].join("\n")
+
+  let method = cls.getMethod("stateSpace")
+  if (!method) {
+    method = cls.insertMethod(unfold.getChildIndex(), {
+      name: "stateSpace",
+      hasOverrideKeyword: true,
+      returnType: "StateSpace",
+      docs: ["The scene's own states — authored in the editor (\"save as state\")."],
+      statements: [`return {\n  axes: [\n${newAxis.replace(/^/gm, "    ")},\n  ],\n}`],
+    })
+  } else {
+    const calls = method
+      .getDescendantsOfKind(SyntaxKind.CallExpression)
+      .filter((c) => c.getExpression().getText() === "poses")
+    const call = calls.find((c) => c.getArguments()[0]?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue() === op.axis)
+    if (call) {
+      const positions = call.getArguments()[1]?.asKind(SyntaxKind.ObjectLiteralExpression)
+      if (!positions) return { ok: false, reason: `poses("${op.axis}", …) has no positions object literal — edit it by hand` }
+      for (const prop of positions.getProperties()) {
+        const pa = prop.asKind(SyntaxKind.PropertyAssignment)
+        const list = pa?.getInitializer()?.asKind(SyntaxKind.ArrayLiteralExpression)
+        if (!pa || !list) return { ok: false, reason: `a position of "${op.axis}" is not a [param, value] list — edit it by hand` }
+        const named = new Set(list.getElements().map((e) => e.asKind(SyntaxKind.ArrayLiteralExpression)?.getElements()[0]?.getText()))
+        for (const b of based) if (!named.has(b.path)) list.addElement(`[${b.path}, ${checkpointLiteral(b.v)}]`)
+      }
+      const existing = positions.getProperties().find((p) => {
+        const name = p.asKind(SyntaxKind.PropertyAssignment)?.getNameNode()
+        return name && (name.asKind(SyntaxKind.StringLiteral)?.getLiteralValue() ?? name.getText()) === op.position
+      })
+      if (existing) existing.asKind(SyntaxKind.PropertyAssignment)!.setInitializer(pairs(posed))
+      else positions.addPropertyAssignment({ name: keyOf(op.position), initializer: pairs(posed) })
+    } else {
+      const axes = method
+        .getDescendantsOfKind(SyntaxKind.PropertyAssignment)
+        .find((p) => p.getName() === "axes")
+        ?.getInitializer()
+        ?.asKind(SyntaxKind.ArrayLiteralExpression)
+      if (!axes) return { ok: false, reason: "the scene's stateSpace() has no `axes: [ … ]` literal — edit it by hand" }
+      axes.addElement(newAxis)
+    }
+  }
+  for (const [name, typeOnly] of [["poses", false], ["StateSpace", true]] as const) {
+    const failure = ensureImport(file, name, "automaton", op.file, typeOnly)
+    if (failure) return { ok: false, reason: failure }
+  }
+  return { ok: true, text: file.getFullText() }
+}
+
 /** The shortest clip a drag can write — sub-0.1s durations are noise. */
 const MIN_RUN_TIME = 0.1
 

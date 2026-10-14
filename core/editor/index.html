@@ -268,6 +268,14 @@
     .walkrow.off { opacity: 0.4; }
     /* The editor's own axes sit above the scene's — the containing machine first. */
     .walkrow.last { padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line-soft); }
+    /* Save as state (editor/savestate.ts): one quiet row while a pose stands. */
+    .savestate { display: grid; grid-template-columns: 76px 1fr 1fr; gap: 6px; align-items: center;
+      margin: 4px 0 14px; font-size: 11px; }
+    .savestate label { color: var(--blue); }
+    .savestate input { min-width: 0; background: transparent; border: 1px solid var(--line); border-radius: 3px;
+      color: var(--text); font: 11px inherit; padding: 2px 5px; }
+    .savestate input:focus { outline: none; border-color: var(--blue); }
+    .savestate.sent label { color: var(--dim); }
     /* --- State lanes (editor/statelanes.ts) under the clip rows -------------
        One quiet lane per axis the song moves; each authored transition a
        block `from → to`. A walked, unwritten one is a dashed ghost at the

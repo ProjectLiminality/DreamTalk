@@ -158,6 +158,31 @@ export const axis = (
   )
 
 /**
+ * An axis over explicit params of ANY holons — the scene's own states
+ * (Dream.stateSpace()), where one position may pose several symbols at
+ * once: `poses("look", { rest: [[map.grain, 0]], busy: [[map.grain, 1], [map.expand, 1]] })`.
+ * The editor's "save as state" writes exactly this.
+ */
+export const poses = (
+  id: string,
+  positions: Record<string, ReadonlyArray<readonly [Param<ParamValue>, ParamValue]>>,
+  opts: AxisOpts = {},
+): Axis =>
+  makeAxis(
+    id,
+    Object.entries(positions).map(([name, pairs]) => ({
+      name,
+      values: new Map(
+        pairs.map(([p, v]) => {
+          if (p.isBound) throw new Error(`poses '${id}': '${p.name ?? p.id}' follows a binding — target its source`)
+          return [p, p.clamp(v)] as [Param<ParamValue>, ParamValue]
+        }),
+      ),
+    })),
+    opts,
+  )
+
+/**
  * The common case: one param, two positions — `off`/`on` at 0/1 unless
  * stated (`{ off: ["conjecture", 0.15], on: ["data", 1] }`).
  */
@@ -202,12 +227,21 @@ export const choices = (
  * Every state space declared under these roots (Holon.stateSpace()), one
  * space. Ids stay as declared; a repeat (two FlowMaps) gets `#2`, `#3`.
  */
-export const gatherStateSpace = (roots: readonly Holon[]): StateSpace => {
+export const gatherStateSpace = (roots: readonly Holon[], scene?: StateSpace): StateSpace => {
   const axes: Axis[] = []
   const clocks = new Set<Param<number>>()
   const seen = new Map<string, number>()
   const visited = new Set<Holon>()
   const walked = new Set<Param<ParamValue>>()
+  // The SCENE's own axes first, owner-less (Dream.stateSpace(), `poses`):
+  // they compose holons' params by design, so they never take part in
+  // "one param, one axis" — the holons' own axes over the same params stay.
+  for (const a of scene?.axes ?? []) {
+    const n = (seen.get(a.id) ?? 0) + 1
+    seen.set(a.id, n)
+    axes.push(n === 1 ? a : { ...a, id: `${a.id}#${n}`, label: `${a.label} #${n}` })
+  }
+  for (const c of scene?.clocks ?? []) clocks.add(c)
   for (const root of roots) {
     for (const h of root.walk()) {
       if (visited.has(h)) continue
@@ -413,6 +447,12 @@ export class Automaton {
     const t = this.clock
     this.journal.push({ clock: t, axis: id, position: to })
     this.#position.set(id, to)
+    // Axes that share a param with this one (a scene's `poses` over a
+    // holon's own axes) now head somewhere too: read where, off the goals.
+    for (const other of this.space.axes) {
+      if (other.id === id || !other.params().some((p) => target.values.has(p))) continue
+      this.#position.set(other.id, nearest(other, (p) => target.values.get(p) ?? this.#goal(p)))
+    }
 
     // At rest along every param this axis touches? Then a verb may play.
     const touched = [...this.#motionAxis].filter(([, ax]) => ax === id).map(([p]) => p)
@@ -429,6 +469,11 @@ export class Automaton {
     const goals = new Map(target.values)
     for (const p of touched) if (!goals.has(p)) goals.set(p, this.#base.get(p) ?? p.value)
     for (const [p, goal] of goals) this.#retarget(p, goal, a, t)
+  }
+
+  /** Where a param is heading: its motion's end, else where it stands. */
+  #goal(p: Param<ParamValue>): ParamValue {
+    return this.#motion.get(p)?.to ?? this.#base.get(p) ?? p.value
   }
 
   #retarget(p: Param<ParamValue>, goal: ParamValue, a: Axis, t: number): void {
@@ -485,15 +530,15 @@ export class Automaton {
 }
 
 /** The position whose values lie nearest the params' live values. */
-const nearest = (a: Axis): string => {
+const nearest = (a: Axis, valueOf: (p: Param<ParamValue>) => ParamValue = (p) => p.value): string => {
   let best = a.positions[0]!.name
   let bestD = Infinity
   for (const pos of a.positions) {
     let d = 0
     for (const [p, v] of pos.values) {
-      const x = vec(p.value)
+      const x = vec(valueOf(p))
       const y = vec(v)
-      d += x && y ? x.reduce((s, xi, i) => s + Math.abs(xi - y[i]!), 0) : p.value === v ? 0 : 1
+      d += x && y ? x.reduce((s, xi, i) => s + Math.abs(xi - y[i]!), 0) : valueOf(p) === v ? 0 : 1
     }
     if (d < bestD) {
       bestD = d

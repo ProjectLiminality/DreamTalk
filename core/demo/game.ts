@@ -43,7 +43,7 @@
 
 import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
-import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
+import { Automaton, gatherStateSpace, type Axis, type StateSpace } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { HOVER, SELECTED } from "../src/glow"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
@@ -69,6 +69,8 @@ export interface GameHost {
 
 export interface GameOpts {
   roots: readonly Holon[]
+  /** The scene's own axes (Dream.stateSpace()) — walked first, beside the holons'. */
+  space?: StateSpace
   /**
    * The scene's observer — the game loop's own viewer camera biases its
    * readings. Absent (the editor, which flies its own ViewLayer): no orbit here.
@@ -150,7 +152,7 @@ export class GameLoop {
     this.#host = host
     this.#opts = opts
     this.#hudShown = opts.hud
-    this.automaton = new Automaton(gatherStateSpace(opts.roots))
+    this.automaton = new Automaton(gatherStateSpace(opts.roots, opts.space))
     this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
     if (this.view) this.view.keepOuts = keepOutsOf(opts.roots)
     // Keys per holon: its declared keys first, then the free digits, in
@@ -381,7 +383,8 @@ export class GameLoop {
 
   /** Walkable now, and in focus (keys and the HUD; a click reaches any handle). */
   #live_(a: Axis): boolean {
-    return this.automaton.enabled(a.id) && (!this.#focus || a.owner === this.#focus)
+    // An owner-less axis is the scene's own: always in focus.
+    return this.automaton.enabled(a.id) && (!this.#focus || !a.owner || a.owner === this.#focus)
   }
 
   /** The holon in focus, or null when every holon's axes are live. */

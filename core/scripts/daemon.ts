@@ -59,6 +59,7 @@ import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
+  applySaveState,
   applyDeleteSpan,
   applyInsertSpan,
   applySetBackdrop,
@@ -72,6 +73,7 @@ import {
   type AppendCheckpointOp,
   type DeleteSpanOp,
   type InsertSpanOp,
+  type SaveStateOp,
   type OpResult,
   type SetBackdropOp,
   type SetOverrideOp,
@@ -430,6 +432,7 @@ type OpMessage = (
   | SetRunTimeOp
   | DeleteSpanOp
   | InsertSpanOp
+  | SaveStateOp
 ) & {
   type: "op"
   file?: string
@@ -514,7 +517,7 @@ const inverseFor = (
   }
   // appendCheckpoint INSERTS, and deleteSpan/insertSpan are undo's own
   // ops — all three invert as "put these exact byte ranges back".
-  if (msg.op === "appendCheckpoint" || msg.op === "deleteSpan" || msg.op === "insertSpan")
+  if (msg.op === "appendCheckpoint" || msg.op === "saveState" || msg.op === "deleteSpan" || msg.op === "insertSpan")
     return spanEditInverse(before, after, file)
   return undefined
 }
@@ -578,6 +581,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     "setBackdrop",
     "setOverride",
     "appendCheckpoint",
+    "saveState",
     "setRunTime",
     "deleteSpan",
     "insertSpan",
@@ -602,6 +606,15 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
         return applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
       case "setRunTime":
         return applySetRunTime(current, { op: "setRunTime", span: msg.span, runTime: msg.runTime, ordinal: msg.ordinal })
+      case "saveState":
+        return applySaveState(current, {
+          op: "saveState",
+          axis: msg.axis,
+          position: msg.position,
+          params: msg.params,
+          rest: msg.rest,
+          file,
+        })
       case "appendCheckpoint":
         return applyAppendCheckpoint(current, {
           op: "appendCheckpoint",
