@@ -147,6 +147,39 @@ export class GeoFlow extends Null {
    */
   viewExtras: [Param<ParamValue>, ParamValue, ParamValue][] = []
 
+  /**
+   * A song's own abstract-world pieces, built once GeoFlow is composed (they
+   * may read `geo.map`): returned holons join the plane beside the map, in
+   * map-local units. The same as calling `inPlane` for each. Construction-time.
+   */
+  planeMembers: ((geo: GeoFlow) => Holon[]) | undefined = undefined
+
+  /**
+   * Stagger the rise: the headquarters over the first 30% of `rise`, the
+   * sites over the rest, spread by this fraction (0 = all together, as one).
+   * Construction-time.
+   */
+  stagger = 0
+  /** Stagger the relation arcs over `relate` by this fraction (0 = all together). Construction-time. */
+  relateStagger = 0
+
+  /**
+   * The lens to OPEN at: if set, the observer's field of view flies from
+   * this to `fov` as `descent` goes 0 → regionZoom() — a wider whole Earth
+   * narrowing onto the region. Unset: `fov` throughout. Construction-time.
+   */
+  openFov: number | undefined = undefined
+
+  /**
+   * Hand the camera to an ORTHOGRAPHIC projection once the planet has gone
+   * (view ≥ the end of its `gone` window), framed to match: the ortho
+   * half-height is the perspective half-height at the plane. The flat map
+   * faces the eye on its axis, so the switch is invisible; walking back,
+   * the camera returns to perspective. For maps whose stage stack and
+   * particles are meant for a parallel view. Construction-time.
+   */
+  ortho = false
+
   earth!: Earth
   eye!: EarthView
   map!: FlowMap
@@ -204,6 +237,31 @@ export class GeoFlow extends Null {
     return (this.scaledGroup as unknown as { add(h: T): T }).add(h)
   }
 
+  /**
+   * The eye's distance to the abstract plane in MAP units — a constant,
+   * because the plane is scaled every frame to keep the group circle at
+   * `fill` of the half-frame: MAP_R / (tan(fov/2) · fill · breadth).
+   */
+  eyeDistance(): number {
+    return MAP_R / (Math.tan(this.fov / 2) * this.fill.value * this.breadth.value)
+  }
+
+  /**
+   * The observer's orthographic zoom that matches the perspective framing at
+   * the plane (dream.ts orthoHalfHeight = 1023 / (2 · zoom · aspect)).
+   */
+  orthoZoom(): number {
+    void this.parts
+    // The eye's distance from the view's own pose, never through the
+    // observer (whose zoom this very number drives in ortho).
+    const d = viewPose(this.earth, this.eye, this.fov).distance
+    const H = Math.max(1e-6, d - this.hoverDistance) * Math.tan(this.fov / 2)
+    return 1023 / (2 * H * (16 / 9))
+  }
+
+  /** How far the abstract plane hovers from the focus (set at composition). */
+  private hoverDistance = 0
+
   /** A member's or partner's seat in the group circle (front slice), by id. */
   seat(id: string): FlowEntity {
     void this.parts
@@ -249,15 +307,28 @@ export class GeoFlow extends Null {
     const located = data.members.map((m, i) => ({ m, i, at: geo.places[m.id] })).filter((x) => x.at)
     const n = located.length
     const sinkStart = (k: number) => W.sink[0] + (W.sink[1] - W.sink[0]) * 0.5 * (n <= 1 ? 0 : k / (n - 1))
-    const altitude = (height: number, a0: number) =>
-      derive(() => sunkBy(height) * (1 - this.rise.value * (1 - ss(a0, a0 + (W.sink[1] - W.sink[0]) * 0.5, a()))))
+    const riseParam = this.rise
+    /** Site k's own share of `rise` (k = -1: the headquarters). */
+    const riseOf = (k: number): (() => number) => {
+      const s = this.stagger
+      if (!(s > 0)) return () => riseParam.value
+      if (k < 0) return () => Math.max(0, Math.min(1, riseParam.value / 0.3))
+      const f = n <= 1 ? 0 : k / (n - 1)
+      const lo = 0.3 + 0.7 * f * s
+      const hi = lo + 0.7 * (1 - s)
+      return () => Math.max(0, Math.min(1, (riseParam.value - lo) / Math.max(1e-6, hi - lo)))
+    }
+    const altitude = (height: number, a0: number, k: number) => {
+      const risen = riseOf(k)
+      return derive(() => sunkBy(height) * (1 - risen() * (1 - ss(a0, a0 + (W.sink[1] - W.sink[0]) * 0.5, a()))))
+    }
 
     const hqSize = this.siteSize.value * 1.2
     this.hq = new Site({
       lat: geo.group.lat,
       lon: geo.group.lon,
       certainty: geo.group.certainty ?? 1,
-      altitude: altitude(Headquarters.heightFor(hqSize), sinkStart(0)),
+      altitude: altitude(Headquarters.heightFor(hqSize), sinkStart(0), -1),
       members: [new Headquarters({ tint: WHITE, size: hqSize })],
     })
     this.sites = located.map(
@@ -266,7 +337,7 @@ export class GeoFlow extends Null {
           lat: at!.lat,
           lon: at!.lon,
           certainty: at!.certainty ?? 1,
-          altitude: altitude(Factory.heightFor(this.siteSize.value), sinkStart(k)),
+          altitude: altitude(Factory.heightFor(this.siteSize.value), sinkStart(k), k),
           members: [new Factory({ size: this.siteSize.value, tint: derive(() => memberTint(m.categories)) })],
         }),
     )
@@ -292,12 +363,20 @@ export class GeoFlow extends Null {
 
     // --- every member reports home; the flows run between places -----------
     const morphAt = derive(() => ss(W.morph[0], W.morph[1], a()))
+    const relateParam = this.relate
+    const rs = this.relateStagger
     this.links = this.sites.map(
-      (site) =>
+      (site, k) =>
         new Connection({
           ends: [site, this.hq],
           stroke: 1.4,
-          creation: this.relate,
+          creation:
+            rs > 0
+              ? derive(() => {
+                  const lo = (n <= 1 ? 0 : k / (n - 1)) * rs
+                  return Math.max(0, Math.min(1, (relateParam.value - lo) / Math.max(1e-6, 1 - rs)))
+                })
+              : relateParam,
           opacity: derive(() => (morphAt.value > 0 ? 0 : 0.85)),
         }),
     )
@@ -343,8 +422,17 @@ export class GeoFlow extends Null {
       tilt: this.tilt,
       zoom: derive(() => descentParam.value - 1.1 * ss(W.pull[0], W.pull[1], a())),
     })
-    observer.fov.defaultValue = this.fov
-    observer.fov.value = this.fov
+    const openFov = this.openFov
+    if (openFov !== undefined) {
+      const target = this.fov
+      const zoomEnd = this.regionZoom()
+      observer.fov.follow(
+        derive(() => openFov + (target - openFov) * Math.max(0, Math.min(1, descentParam.value / Math.max(1e-6, zoomEnd)))),
+      )
+    } else {
+      observer.fov.defaultValue = this.fov
+      observer.fov.value = this.fov
+    }
     followEarth(observer, this.earth, this.eye, { detail: 2 })
 
     // --- the abstract plane: hovering over the region, facing the eye -----
@@ -354,6 +442,14 @@ export class GeoFlow extends Null {
       return viewPose(this.earth, v, this.fov)
     })()
     const hover = HOVER_K * pose.distance
+    this.hoverDistance = hover
+    if (this.ortho) {
+      // Past the planet's going, the camera turns parallel, framed to match
+      // the perspective at the plane (orthoZoom); back below, perspective.
+      const flat = () => a() >= W.gone[1]
+      observer.orthographic.follow(derive(flat))
+      observer.zoom.follow(derive(() => (flat() ? this.orthoZoom() : 1)))
+    }
     const mapScale = derive(() => {
       const d = Math.max(1, eyeDistance(observer) - hover)
       return (d * Math.tan(observer.fov.value / 2) * this.fill.value * this.breadth.value) / MAP_R
@@ -432,6 +528,7 @@ export class GeoFlow extends Null {
       opacity: derive(() => (morphAt.value > 0 && morphAt.value < 1 ? 1 : 0)),
     })
 
+    for (const h of this.planeMembers?.(this) ?? []) (scaled as unknown as { add(h: Holon): Holon }).add(h)
     this.add(this.earth)
     this.add(this.eye)
     this.add(this.plane)

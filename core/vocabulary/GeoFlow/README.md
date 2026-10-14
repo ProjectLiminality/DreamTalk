@@ -33,5 +33,12 @@ this.play(geo.view.to(1, { easing: "linear" }), 6.6)
 - `geo.seat(id)` returns a member's or partner's seat in the circle.
 - `viewExtras: [[param, atGlobe, atAbstract], …]` makes the **v** axis walk your params too.
 - `GEOFLOW_WINDOWS` exposes the transition's windows, to time your own beats against them.
+- `planeMembers: (geo) => holons` builds a song's plane pieces once GeoFlow is composed (they may read `geo.map`); the same as `inPlane` for each.
+- `geo.eyeDistance()` is the eye's distance to the abstract plane in map units, which is constant because the plane is rescaled to keep the group at `fill`.
+
+**Options for a song** (construction-time; all off by default):
+- `stagger: 0.7` rises the headquarters over the first 30% of `rise` and then the sites one by one over the rest. `relateStagger: 0.5` draws the relation arcs in one after another over `relate`.
+- `openFov` opens on a wider lens that narrows to `fov` as `descent` reaches `regionZoom()`, so the whole Earth fits wide and the region fits close.
+- `ortho: true` hands the camera to an orthographic projection once the planet has gone, framed to match: the ortho half-height equals the perspective half-height at the plane, so the switch is invisible. Walking back to the globe restores perspective. `geo.orthoZoom()` is that matching zoom, for a lens of your own.
 
 The technique was proved by a private DreamSong and consolidated here as a generic piece: nothing of that song's data travels with it. The mock geography (`mockGeo.ts`) places FlowMap's own mock organisation across Europe.

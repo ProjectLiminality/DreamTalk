@@ -17,7 +17,19 @@ import { together, type Anim } from "../../src/anim"
 import { GeoFlow } from "../../vocabulary/GeoFlow/GeoFlow"
 
 export class GeoFlowDream extends Dream {
-  geo = new GeoFlow({ seenBy: () => this.observer, landIn: 0, rise: 0, relate: 0, traffic: 0 })
+  geo = new GeoFlow({
+    seenBy: () => this.observer,
+    landIn: 0,
+    rise: 0,
+    relate: 0,
+    traffic: 0,
+    // The headquarters first, then the sites in turn; the relations one by one.
+    stagger: 0.7,
+    relateStagger: 0.5,
+    // The whole Earth wide, narrowing onto the region; the flat map in parallel.
+    openFov: (53.13 * Math.PI) / 180,
+    ortho: true,
+  })
 
   private flowing(dt: number, ...anims: Anim[]): void {
     this.play(together(this.geo.time.by(dt, { easing: "linear" }), ...anims), dt)

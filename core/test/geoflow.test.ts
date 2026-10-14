@@ -12,6 +12,7 @@ import { MOCK_GEO } from "../vocabulary/GeoFlow/mockGeo"
 import { MOCK_FLOWMAP } from "../vocabulary/FlowMap/FlowMap"
 import { Circle } from "../src/parts/primitives"
 import { completion } from "../src/params"
+import { EarthView, viewPose } from "../vocabulary/Earth/EarthView"
 
 const build = () => {
   const observer = new Observer()
@@ -80,3 +81,51 @@ describe("GeoFlow's hooks for a song", () => {
     expect(ax!.to("abstract").tracks.map((t) => t.param)).toContain(extra)
   })
 })
+
+describe("GeoFlow's options for a song", () => {
+  test("stagger: the headquarters first, then the sites in turn; relateStagger: links in turn", () => {
+    const observer = new Observer()
+    const g = new GeoFlow({ seenBy: () => observer, stagger: 0.7, relateStagger: 0.5, rise: 0, relate: 0 })
+    void g.parts
+    g.rise.value = 0.3
+    expect(g.hq.altitude.value).toBeCloseTo(0, 9) // fully up
+    expect(g.sites[0]!.altitude.value).toBeLessThan(0) // still underground
+    g.relate.value = 0.25
+    expect(g.links[0]!.creation.value).toBeGreaterThan(g.links[g.links.length - 1]!.creation.value)
+  })
+  test("openFov: the lens narrows from openFov to fov over the descent", () => {
+    const observer = new Observer()
+    const wide = (53.13 * Math.PI) / 180
+    const g = new GeoFlow({ seenBy: () => observer, openFov: wide, descent: 0 })
+    void g.parts
+    expect(observer.fov.value).toBeCloseTo(wide, 9)
+    g.descent.value = g.regionZoom()
+    expect(observer.fov.value).toBeCloseTo(g.fov, 9)
+  })
+  test("ortho: parallel once the planet has gone, framed to match at the plane; perspective again below", () => {
+    const observer = new Observer()
+    const g = new GeoFlow({ seenBy: () => observer, ortho: true })
+    void g.parts
+    g.descent.value = g.regionZoom()
+    g.view.value = 0.5
+    expect(observer.orthographic.value).toBe(false)
+    expect(observer.zoom.value).toBe(1)
+    g.view.value = 1
+    expect(observer.orthographic.value).toBe(true)
+    // The ortho half-height equals the perspective half-height at the plane.
+    const half = 1023 / (2 * observer.zoom.value * (16 / 9))
+    const H = (viewPose(g.earth, g.eye, g.fov).distance - HOVER(g)) * Math.tan(g.fov / 2)
+    expect(half).toBeCloseTo(H, 6)
+  })
+  test("planeMembers join the plane; eyeDistance is the plane's distance in map units", () => {
+    const observer = new Observer()
+    const mark = new Circle({ radius: 5 })
+    const g = new GeoFlow({ seenBy: () => observer, planeMembers: (geo: GeoFlow) => (void geo.map, [mark]) })
+    void g.parts
+    expect(mark.parent).toBe(g.map.parent)
+    expect(g.eyeDistance()).toBeCloseTo(300 / (Math.tan(g.fov / 2) * g.fill.value), 9)
+  })
+})
+
+/** The plane's hover from the focus (half the eye's height over the region). */
+const HOVER = (g: GeoFlow) => 0.5 * viewPose(g.earth, (() => { const v = new EarthView({ lat: g.geo.region.lat, lon: g.geo.region.lon, tilt: g.tilt }); v.zoom.value = g.regionZoom(); return v })(), g.fov).distance
