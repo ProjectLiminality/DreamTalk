@@ -40,6 +40,9 @@ export interface NavigatorHandle {
   dispose(): void
 }
 
+/** A transparent pixel — a tile's frame while its drawing is pending. */
+const PENDING = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+
 export const mountNavigator = (
   root: HTMLElement,
   registry: Record<string, DreamClass>,
@@ -66,7 +69,10 @@ export const mountNavigator = (
     img.className = "sthumb"
     img.width = TILE_W
     img.height = TILE_H
-    img.alt = key
+    // Until its tile is drawn, an empty frame — not a broken image with its
+    // alt text (the label above already names the scene).
+    img.src = PENDING
+    img.alt = ""
     img.draggable = false
     tile.appendChild(img)
     pending.push({ img, key, ctor })
@@ -94,13 +100,23 @@ export const mountNavigator = (
   }
 
   // Fill tiles one per frame: cached ones resolve in the first breaths,
-  // cold ones each get their own so the rail never blocks the editor.
+  // cold ones each get their own so the rail never blocks the editor —
+  // nearest the open slide first, so what is on screen is drawn first.
+  const here = pending.findIndex((p) => p.key === currentKey)
+  if (here >= 0) {
+    const at = new Map(pending.map((p, i) => [p, i]))
+    pending.sort((a, b) => Math.abs(at.get(a)! - here) - Math.abs(at.get(b)! - here))
+  }
   let alive = true
   const fill = () => {
     if (!alive) return
     const next = pending.shift()
     if (!next) return
-    const url = sceneThumbnail(next.key, next.ctor)
+    // One scene that cannot be drawn must not stop the rest of the rail.
+    let url: string | undefined
+    try {
+      url = sceneThumbnail(next.key, next.ctor)
+    } catch {}
     if (url) next.img.src = url
     else next.img.classList.add("blank")
     requestAnimationFrame(fill)
