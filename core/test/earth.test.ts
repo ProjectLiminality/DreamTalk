@@ -262,7 +262,9 @@ describe("the data (Natural Earth 1:50m, packed)", () => {
 })
 
 describe("Earth", () => {
+  // Composed here, not by whichever test happens to run first.
   const earth = new Earth({ radius: 400 })
+  void earth.parts
   test("one object: ground, occluder, land sheets, ~2,000 surface strokes", () => {
     void earth.parts
     expect(earth.ball).toBeInstanceOf(Surface)
@@ -278,6 +280,9 @@ describe("Earth", () => {
     }
   })
   test("the horizon disc stands from the default eye, and follows the observer once told", () => {
+    // Its own Earth: telling it an observer must not leak into the other tests.
+    const earth = new Earth({ radius: 400 })
+    void earth.parts
     void earth.horizon.geomVersion
     expect(earth.horizon.indices.length).toBeGreaterThan(0)
     // The default eye is a default Observer's: 1500 out on +z.
