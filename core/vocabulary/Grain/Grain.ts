@@ -434,6 +434,8 @@ export class Grain extends Stroke {
         // Lines is washed by the host as one even-odd drawing, which would
         // swallow the fills.
         lineSlots: 1,
+        // Faces as a few depth-writing Surfaces, not a fill Line per face.
+        solidFaces: true,
         stroke: this.stroke,
         tint: this.tint,
         fillOpacity: derive(typeFill),
@@ -459,6 +461,8 @@ export class Grain extends Stroke {
           // Lines is washed by the host as one even-odd drawing, which would
           // swallow the fills.
           lineSlots: 1,
+          // Faces as a few depth-writing Surfaces, not a fill Line per face.
+          solidFaces: true,
           stroke: this.stroke,
           tint: this.tint,
           fillOpacity: derive(() => phases().item.fillIn),

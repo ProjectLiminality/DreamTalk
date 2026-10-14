@@ -82,6 +82,16 @@ export interface SolidDrawingOptions {
    * 0 (default) = off.
    */
   shareViews?: number
+  /**
+   * Draw the faces of boxes, cylinders and panels as a few opaque,
+   * DEPTH-WRITING Surfaces — one per group of solids sharing a fill colour
+   * at construction — instead of one painter-ordered fill Line per face.
+   * Occlusion between the faces is then exact (the GPU's depth test), and
+   * a drawing costs two or three meshes rather than twenty: what lets
+   * hundreds of symbols ride a flow. The fills dim toward black with
+   * `fillOpacity` exactly as the painter faces do. Default false.
+   */
+  solidFaces?: boolean
 }
 
 /** A mesh's identity for the signature: meshes are data — a new array is a new shape. */
@@ -137,17 +147,17 @@ export abstract class SolidDrawing extends Stroke {
 
   // Off the field scan (a reference, not a part — registering the
   // observer would reparent it).
-  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number; shareViews: number }
+  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number; shareViews: number; solidFaces: boolean }
   private buckets = new Map<string, Drawing>()
   private memo?: { key: number[]; drawing: Drawing }
   private memoEpoch = -1
 
   constructor(overrides: Overrides & SolidDrawingOptions = {}) {
-    const { observer, lineSlots, faceSlots, viewBucket, shareViews, ...rest } = overrides
+    const { observer, lineSlots, faceSlots, viewBucket, shareViews, solidFaces, ...rest } = overrides
     // A solid drawing is filled unless told otherwise — the fill colours
     // are its solids' own; fillOpacity is how much of them shows.
     super({ fillOpacity: 1, ...rest })
-    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0, shareViews: shareViews ?? 0 }
+    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0, shareViews: shareViews ?? 0, solidFaces: solidFaces ?? false }
   }
 
   /** The observer it is drawn for (a morph reads it to see as the camera does). */
@@ -215,7 +225,8 @@ export abstract class SolidDrawing extends Stroke {
   protected override compose(): void {
     // Fills first: they take the earlier render order, so every edge
     // draws over every fill (hiddenline already removed the hidden ones).
-    for (let i = 0; i < this.seen.faceSlots; i++) {
+    if (this.seen.solidFaces) this.composeSolidFaces()
+    for (let i = 0; i < (this.seen.solidFaces ? 0 : this.seen.faceSlots); i++) {
       // A solid stays SOLID while its fill fades: the fill dims toward the
       // black ground (colour × fillOpacity) at full coverage, rather than
       // turning translucent — a translucent cab would show the cargo's
@@ -265,6 +276,42 @@ export abstract class SolidDrawing extends Stroke {
   }
 
   /**
+   * `solidFaces`: the faces grouped by their solids' fill colour at
+   * construction, each group one depth-writing Surface whose tint is its
+   * first solid's live fill (× fillOpacity, dimming toward black).
+   */
+  private composeSolidFaces(): void {
+    const solids = this.solids()
+    const groupOf: number[] = []
+    const firsts: number[] = []
+    const keys: string[] = []
+    solids.forEach((s, i) => {
+      if (s.kind === "mesh" || !s.fill) return (groupOf[i] = -1)
+      const k = `${s.fill.r},${s.fill.g},${s.fill.b}`
+      let g = keys.indexOf(k)
+      if (g < 0) {
+        g = keys.push(k) - 1
+        firsts.push(i)
+      }
+      groupOf[i] = g
+    })
+    firsts.forEach((first, g) => {
+      const surface = new Surface({
+        solid: true,
+        tint: derive((): Color => {
+          const c = this.solids()[first]?.fill ?? BLACK
+          const k = this.fillOpacity.value
+          return { r: c.r * k, g: c.g * k, b: c.b * k }
+        }),
+        fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
+        opacity: this.opacity,
+      })
+      deriveSurface(surface, () => [this.drawingVersion()], () => faceMesh(this.shown(), groupOf, g))
+      this.add(surface)
+    })
+  }
+
+  /**
    * What the slots draw: the drawing, or nothing while unseen — a hidden
    * solid computes nothing for its own slots (a fleet of hidden trucks
    * riding a lens must not each run hidden-line removal). `worldCurves()`
@@ -292,6 +339,34 @@ export abstract class SolidDrawing extends Stroke {
  * A Surface whose triangles are a derived reading: recomputed (and its
  * geomVersion bumped) only when `key` changes — derivePoints for meshes.
  */
+/** One group's faces as a triangle mesh (fans — every face is convex), cached per drawing. */
+const FACE_MESHES = new WeakMap<Drawing, Map<string, { positions: Vec3Like[]; triangles: [number, number, number][] }>>()
+const faceMesh = (
+  d: Drawing,
+  groupOf: readonly number[],
+  g: number,
+): { positions: Vec3Like[]; triangles: [number, number, number][] } => {
+  let byGroup = FACE_MESHES.get(d)
+  if (!byGroup) FACE_MESHES.set(d, (byGroup = new Map()))
+  const key = `${g}|${groupOf.join(",")}`
+  let m = byGroup.get(key)
+  if (m) return m
+  const positions: Vec3Like[] = []
+  const triangles: [number, number, number][] = []
+  for (const f of d.faces) {
+    if (groupOf[f.solid] !== g) continue
+    // A face is a closed polygon whose last point repeats its first.
+    const n = f.points.length - 1
+    if (n < 3) continue
+    const base = positions.length
+    for (let i = 0; i < n; i++) positions.push(f.points[i]!)
+    for (let i = 1; i + 1 < n; i++) triangles.push([base, base + i, base + i + 1])
+  }
+  m = { positions, triangles }
+  byGroup.set(key, m)
+  return m
+}
+
 const deriveSurface = (
   surface: Surface,
   key: () => readonly number[],
