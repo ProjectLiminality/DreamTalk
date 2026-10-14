@@ -23,7 +23,7 @@
 
 import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
-import { Holon } from "../holon"
+import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
 import { paramEpoch } from "../params"
 import { seenCertainty, seenOpacity } from "../certainty"
@@ -105,6 +105,14 @@ interface ShapeSig {
   params?: readonly { readonly value: unknown }[]
   vals?: Float64Array
   reversedAt?: number
+  /**
+   * Line fast path (perf J): the line behind its proxy and its two phase
+   * params, captured at attach — the per-frame check reads them directly
+   * instead of through the proxy's get trap (4–5 traps a line a frame).
+   */
+  line?: Line
+  drawStartParam?: Param<number>
+  reversedParam?: Param<boolean>
 }
 
 interface StrokeBinding {
@@ -732,6 +740,9 @@ const freshSig = (holon: Stroke): ShapeSig => {
       drawStart: holon.drawStart.value,
       reversed: holon.drawReversed.value ? 1 : 0,
       key: EMPTY_KEY,
+      line: rawHolon(holon),
+      drawStartParam: holon.drawStart,
+      reversedParam: holon.drawReversed,
     }
   }
   // Parametric shapes: no version (a bound Param would miss it) — their
@@ -780,11 +791,12 @@ const EMPTY_KEY: number[] = []
  * case, so no stale geometry is possible.
  */
 const sigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
-  if (holon instanceof Line) {
-    void holon.points // recompute-if-needed before reading the version
-    const version = holon.geomVersion
-    const drawStart = holon.drawStart.value
-    const reversed = holon.drawReversed.value ? 1 : 0
+  if (prev.line) {
+    const line = prev.line
+    void line.points // recompute-if-needed before reading the version
+    const version = line.geomVersion
+    const drawStart = prev.drawStartParam!.value
+    const reversed = prev.reversedParam!.value ? 1 : 0
     if (version === prev.version && drawStart === prev.drawStart && reversed === prev.reversed) {
       return false
     }

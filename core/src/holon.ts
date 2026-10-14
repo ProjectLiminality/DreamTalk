@@ -55,6 +55,8 @@ interface Internals {
   settled: boolean
   /** The public identity (the proxy) — used for parent links. */
   self?: Holon
+  /** The object behind the proxy (rawHolon). */
+  target?: Holon
   /**
    * Fields declared with `asData()` (params.ts): the proxy reads them as
    * the param's live value. Recorded from the DECLARED param at scan, so a
@@ -154,6 +156,15 @@ const complete = (self: Holon): void => {
 // scan() takes the raw target; public accessors hold the proxy — resolve either.
 const scanViaProxy = (h: Holon): void => scan(h)
 
+/**
+ * The object behind a holon's proxy — for a renderer's hot loop that reads
+ * the same PLAIN fields (a Line's points and geomVersion) of thousands of
+ * holons every frame, where the proxy's get trap is the cost. Never for an
+ * `asData` field: through the proxy those read as their param's value,
+ * here as the Param itself. Settled holons only (the scan is not run).
+ */
+export const rawHolon = <T extends Holon>(holon: T): T => (internalsOf(holon).target ?? holon) as T
+
 export class Holon {
   // Standard parameters — on every holon, at every level, by default (TASTE)
   x = scalar(0)
@@ -227,6 +238,7 @@ export class Holon {
     })
     INTERNALS.set(proxy, internals)
     internals.self = proxy as unknown as Holon
+    internals.target = this
     return proxy as unknown as this
   }
 
