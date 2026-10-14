@@ -71,6 +71,17 @@ export interface SolidDrawingOptions {
    * 0.01 rad is invisible at symbol size. 0 (default) = exact, no cache.
    */
   viewBucket?: number
+  /**
+   * SHARE drawings across every SolidDrawing of the same class and solids:
+   * the view is taken as a DIRECTION from this solid's centre (an
+   * orthographic view of the solid alone — exact for small symbols, whose
+   * perspective within themselves is negligible), snapped to a grid of
+   * this many radians, and the drawing kept in one cache for all
+   * instances. Hundreds of particles that are all pallets then cost a
+   * handful of hidden-line solves, under any camera, however they move.
+   * 0 (default) = off.
+   */
+  shareViews?: number
 }
 
 /** A mesh's identity for the signature: meshes are data — a new array is a new shape. */
@@ -93,23 +104,50 @@ const flattenSolids = (solids: readonly Solid[]): number[] =>
       : [1, s.center.x, s.center.y, s.center.z, s.radius, s.height, "xyz".indexOf(s.axis), ...fill]
   })
 
+/** Drawings shared across instances (`shareViews`), by class, solids and view bucket. */
+const SHARED = new Map<string, Drawing>()
+const SHARED_MAX = 4096
+
+/** The direction toward the viewer from a solid's centre, local — snapped to `step` radians. */
+const sharedDirection = (d: SolidDrawing, step: number): { az: number; el: number } => {
+  const v = localView(d, d.view())
+  const t = "eye" in v ? v.eye : v.toward
+  const r = Math.hypot(t.x, t.y, t.z) || 1
+  return { az: Math.round(Math.atan2(t.x, t.z) / step), el: Math.round(Math.asin(Math.max(-1, Math.min(1, t.y / r))) / step) }
+}
+
+const sharedDrawing = (d: SolidDrawing, step: number): Drawing => {
+  const { az, el } = sharedDirection(d, step)
+  const solids = d.solids()
+  const key = `${d.constructor.name}|${step}|${az}|${el}|${flattenSolids(solids).join(",")}`
+  let drawing = SHARED.get(key)
+  if (!drawing) {
+    const A = az * step
+    const E = el * step
+    drawing = hiddenLineDrawing(solids, { toward: { x: Math.cos(E) * Math.sin(A), y: Math.sin(E), z: Math.cos(E) * Math.cos(A) } })
+    if (SHARED.size >= SHARED_MAX) SHARED.delete(SHARED.keys().next().value!)
+    SHARED.set(key, drawing)
+  }
+  return drawing
+}
+
 export abstract class SolidDrawing extends Stroke {
   /** The solids, in local space — the subclass's whole job. */
   abstract solids(): Solid[]
 
   // Off the field scan (a reference, not a part — registering the
   // observer would reparent it).
-  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number }
+  private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number; shareViews: number }
   private buckets = new Map<string, Drawing>()
   private memo?: { key: number[]; drawing: Drawing }
   private memoEpoch = -1
 
   constructor(overrides: Overrides & SolidDrawingOptions = {}) {
-    const { observer, lineSlots, faceSlots, viewBucket, ...rest } = overrides
+    const { observer, lineSlots, faceSlots, viewBucket, shareViews, ...rest } = overrides
     // A solid drawing is filled unless told otherwise — the fill colours
     // are its solids' own; fillOpacity is how much of them shows.
     super({ fillOpacity: 1, ...rest })
-    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0 }
+    this.seen = { observer, lineSlots: lineSlots ?? 64, faceSlots: faceSlots ?? 32, viewBucket: viewBucket ?? 0, shareViews: shareViews ?? 0 }
   }
 
   /** The observer it is drawn for (a morph reads it to see as the camera does). */
@@ -137,6 +175,12 @@ export abstract class SolidDrawing extends Stroke {
     const epoch = paramEpoch()
     if (this.memo && this.memoEpoch === epoch) return this.memo.drawing
     this.memoEpoch = epoch
+    const share = this.seen.shareViews
+    if (share > 0) {
+      const drawing = sharedDrawing(this, share)
+      this.memo = { key: [], drawing }
+      return drawing
+    }
     const key = this.signature()
     const m = this.memo
     if (!m || m.key.length !== key.length || key.some((x, i) => x !== m.key[i])) {

@@ -2,7 +2,6 @@ import { YELLOW } from "../../src/constants"
 import { color, length } from "../../src/params"
 import type { Solid } from "../../src/geometry/hiddenline"
 import type { Mesh } from "../../src/geometry/meshes"
-import type { Vec3Like } from "../../src/parts/primitives"
 import { SolidDrawing } from "../../src/parts/soliddrawing"
 import { loft } from "../Pouch/Pouch"
 
@@ -35,32 +34,35 @@ export class Sack extends SolidDrawing {
     super({ lineSlots: 48, faceSlots: 2, ...overrides })
   }
 
-  private sackMemo?: { key: string; mesh: Mesh; centred: Vec3Like[] }
-
   solids(): Solid[] {
-    const W = this.width.value
-    const H = this.height.value
-    const key = `${W}|${H}`
-    if (this.sackMemo?.key !== key) {
-      const D = W * 0.8
-      const mesh = loft(
-        [
-          [0, W * 0.44, D * 0.4],
-          [H * 0.04, W * 0.49, D * 0.49],
-          [H * 0.3, W / 2, D / 2],
-          [H * 0.6, W * 0.49, D * 0.46],
-          [H * 0.78, W * 0.44, D * 0.32],
-          // Gathered: the bag pinches in, then the stitched band.
-          [H * 0.88, W * 0.36, D * 0.1],
-          [H * 0.9, W * 0.37, D * 0.12],
-          [H * 0.94, W * 0.37, D * 0.06],
-          [H, W * 0.36, D * 0.03],
-        ],
-        40,
-      )
-      this.sackMemo = { key, mesh, centred: mesh.positions.map((p) => ({ x: p.x, y: p.y - H / 2, z: p.z })) }
-    }
-    const { mesh, centred } = this.sackMemo!
-    return [{ kind: "mesh", positions: centred, triangles: mesh.triangles, fill: this.material.value }]
+    const mesh = sackMesh(this.width.value, this.height.value)
+    return [{ kind: "mesh", positions: mesh.positions, triangles: mesh.triangles, fill: this.material.value }]
   }
+}
+
+/** The sack's mesh, centred, built once per shape and shared by every sack of it (see Pouch). */
+const SACKS = new Map<string, Mesh>()
+const sackMesh = (W: number, H: number): Mesh => {
+  const key = `${W}|${H}`
+  let m = SACKS.get(key)
+  if (m) return m
+  const D = W * 0.8
+  const mesh = loft(
+    [
+      [0, W * 0.44, D * 0.4],
+      [H * 0.04, W * 0.49, D * 0.49],
+      [H * 0.3, W / 2, D / 2],
+      [H * 0.6, W * 0.49, D * 0.46],
+      [H * 0.78, W * 0.44, D * 0.32],
+      // Gathered: the bag pinches in, then the stitched band.
+      [H * 0.88, W * 0.36, D * 0.1],
+      [H * 0.9, W * 0.37, D * 0.12],
+      [H * 0.94, W * 0.37, D * 0.06],
+      [H, W * 0.36, D * 0.03],
+    ],
+    40,
+  )
+  m = { positions: mesh.positions.map((p) => ({ x: p.x, y: p.y - H / 2, z: p.z })), triangles: mesh.triangles }
+  SACKS.set(key, m)
+  return m
 }

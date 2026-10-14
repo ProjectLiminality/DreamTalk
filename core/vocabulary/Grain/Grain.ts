@@ -56,6 +56,48 @@ import { axis, type StateSpace } from "../../src/automaton"
 /** A dot of mass whose kind we do not know — neither white nor any category. */
 export const NEUTRAL: Color = rgb(170, 170, 170)
 
+/**
+ * The view grid every grain sees through, radians. A grain's symbol is
+ * small, so it is drawn as seen along ONE direction (from its centre
+ * toward the eye), snapped to this grid — and drawings and morph plans
+ * are SHARED by every grain whose symbol and snapped view agree
+ * (SolidDrawing `shareViews`, and the plan caches below). Hundreds of
+ * pallets on a flow under a perspective camera then cost a few dozen
+ * hidden-line solves in all, not one per particle per frame. 0.025 rad
+ * (1.4°) is invisible at symbol size.
+ */
+export const VIEW_STEP = 0.025
+
+/** Snap a unit direction to the view grid (azimuth about +y, elevation). */
+export const snapDirection = (k: Vec3Like, step = VIEW_STEP): Vec3Like => {
+  const A = Math.round(Math.atan2(k.x, k.z) / step) * step
+  const E = Math.round(Math.asin(Math.max(-1, Math.min(1, k.y))) / step) * step
+  return { x: Math.cos(E) * Math.sin(A), y: Math.sin(E), z: Math.cos(E) * Math.cos(A) }
+}
+
+/** Morph plans shared by every grain: by the target's (shared) drawing, then a key of the rest. */
+const DOT_PLANS = new WeakMap<object, Map<string, MorphPlan>>()
+const ITEM_PLANS = new WeakMap<object, WeakMap<object, Map<string, MorphPlan>>>()
+const PLANS_PER_DRAWING = 256
+const remember = (m: Map<string, MorphPlan>, key: string, make: () => MorphPlan): MorphPlan => {
+  let plan = m.get(key)
+  if (!plan) {
+    plan = make()
+    if (m.size >= PLANS_PER_DRAWING) m.delete(m.keys().next().value!)
+    m.set(key, plan)
+  }
+  return plan
+}
+
+/** A small integer per drawing object — a cheap dirty key for the line pool. */
+const DRAWING_IDS = new WeakMap<object, number>()
+let nextDrawingId = 1
+const drawingId = (d: object): number => {
+  let id = DRAWING_IDS.get(d)
+  if (id === undefined) DRAWING_IDS.set(d, (id = nextDrawingId++))
+  return id
+}
+
 /** The rungs, by name — `grain.to(RUNG.type)` reads as what it says. */
 export const RUNG = { mass: 0, category: 1, type: 2, item: 3 } as const
 
@@ -157,8 +199,6 @@ export class Grain extends Stroke {
   label?: Text
 
   private opts!: GrainOptions
-  private planMemo?: { key: number[]; plan: MorphPlan }
-  private itemPlanMemo?: { key: number[]; plan: MorphPlan }
 
   constructor(overrides: Overrides & GrainOptions = {}) {
     const { observer, category, symbol, label, item, neutral, stand, ...rest } = overrides
@@ -188,7 +228,7 @@ export class Grain extends Stroke {
     return localView(this, o ? viewOf(o) : { eye: { x: 0, y: 0, z: 1500 } })
   }
 
-  /** The unit direction toward the viewer, grain-local. */
+  /** The unit direction toward the viewer, grain-local, snapped to the view grid. */
   private toward(): Vec3Like {
     // Read by every slot of every grain each frame: answered once per
     // param epoch (nothing it reads can change between two equal epochs).
@@ -197,7 +237,7 @@ export class Grain extends Stroke {
     const v = this.view()
     const d = "eye" in v ? v.eye : v.toward
     const l = Math.hypot(d.x, d.y, d.z) || 1
-    const k = { x: d.x / l, y: d.y / l, z: d.z / l }
+    const k = snapDirection({ x: d.x / l, y: d.y / l, z: d.z / l })
     this.towardMemo = { epoch: e, k }
     return k
   }
@@ -225,16 +265,23 @@ export class Grain extends Stroke {
   /** A symbol's visible curves, grain-local (its own scale, turn and place). Default: the type's. */
   symbolCurves(sym: SolidDrawing | undefined = this.symbol): Vec3Like[][] {
     if (!sym) return []
+    const drawing = sym.drawing()
+    const pk = this.placeKey(sym).join(",")
+    const memo = this.curveMemo.get(sym)
+    if (memo && memo.drawing === drawing && memo.pk === pk) return memo.curves
     const s = sym.scale.value
     const [x, y, z, p, h, b] = [sym.x.value, sym.y.value, sym.z.value, sym.p.value, sym.h.value, sym.b.value]
     const turned = p !== 0 || h !== 0 || b !== 0
-    return sym.drawing().lines.map((l) =>
+    const curves = drawing.lines.map((l) =>
       l.map((q) => {
         const r = turned ? rotHPB({ x: q.x * s, y: q.y * s, z: q.z * s }, p, h, b) : { x: q.x * s, y: q.y * s, z: q.z * s }
         return { x: r.x + x, y: r.y + y, z: r.z + z }
       }),
     )
+    this.curveMemo.set(sym, { drawing, pk, curves })
+    return curves
   }
+  private curveMemo = new Map<SolidDrawing, { drawing: object; pk: string; curves: Vec3Like[][] }>()
 
   /** What a symbol's grain-local curves depend on, besides its own signature. */
   private placeKey(sym: SolidDrawing): number[] {
@@ -246,12 +293,11 @@ export class Grain extends Stroke {
     const sym = this.symbol
     if (!sym) return undefined
     const k = this.toward()
-    const key = [this.radius.value, ...this.placeKey(sym), k.x, k.y, k.z, ...sym.signature()]
-    const m = this.planMemo
-    if (m && m.key.length === key.length && m.key.every((x, i) => x === key[i])) return m.plan
-    const plan = planMorph([this.dotOutline()], this.symbolCurves(), { normal: k })
-    this.planMemo = { key, plan }
-    return plan
+    const drawing = sym.drawing()
+    let plans = DOT_PLANS.get(drawing)
+    if (!plans) DOT_PLANS.set(drawing, (plans = new Map()))
+    const key = `${this.radius.value}|${this.placeKey(sym).join(",")}|${k.x},${k.y},${k.z}`
+    return remember(plans, key, () => planMorph([this.dotOutline()], this.symbolCurves(), { normal: k }))
   }
 
   /** The type → item plan (rung 2 → 3), re-planned only when either drawing or the view changes. */
@@ -260,12 +306,14 @@ export class Grain extends Stroke {
     const b = this.item
     if (!a || !b) return undefined
     const k = this.toward()
-    const key = [...this.placeKey(a), ...this.placeKey(b), k.x, k.y, k.z, ...a.signature(), -1, ...b.signature()]
-    const m = this.itemPlanMemo
-    if (m && m.key.length === key.length && m.key.every((x, i) => x === key[i])) return m.plan
-    const plan = planMorph(this.symbolCurves(a), this.symbolCurves(b), { normal: k })
-    this.itemPlanMemo = { key, plan }
-    return plan
+    const da = a.drawing()
+    const db = b.drawing()
+    let byItem = ITEM_PLANS.get(da)
+    if (!byItem) ITEM_PLANS.set(da, (byItem = new WeakMap()))
+    let plans = byItem.get(db)
+    if (!plans) byItem.set(db, (plans = new Map()))
+    const key = `${this.placeKey(a).join(",")}|${this.placeKey(b).join(",")}|${k.x},${k.y},${k.z}`
+    return remember(plans, key, () => planMorph(this.symbolCurves(a), this.symbolCurves(b), { normal: k }))
   }
 
   /** The morph's curves at the current rung — empty unless mid-morph. */
@@ -286,6 +334,23 @@ export class Grain extends Stroke {
     return []
   }
 
+  /**
+   * What the grain's own lines draw: the morph's pieces while it travels,
+   * and at rest the symbol's visible edges themselves — the symbols keep
+   * only their fills (lineSlots 0), so a grain mounts one pool of lines,
+   * not two.
+   */
+  ink(): Vec3Like[][] {
+    const g = this.grain.value
+    if (g <= 1 || !this.symbol) return []
+    const ph = grainPhases(g)
+    const moving = this.pieces()
+    if (moving.length) return moving
+    if (g < 2) return ph.fillIn > 0 ? this.symbolCurves() : []
+    if (this.item && g > 2) return ph.item.fillOut < 1 ? this.symbolCurves() : this.symbolCurves(this.item)
+    return this.symbolCurves()
+  }
+
   protected override compose(): void {
     const { observer, symbol, label, item } = this.opts
     const phases = () => grainPhases(this.grain.value)
@@ -304,6 +369,8 @@ export class Grain extends Stroke {
     if (symbol) {
       const sym = symbol({
         observer,
+        shareViews: VIEW_STEP,
+        lineSlots: 0,
         stroke: this.stroke,
         tint: this.tint,
         fillOpacity: derive(typeFill),
@@ -324,6 +391,8 @@ export class Grain extends Stroke {
       if (item) {
         const exact = item({
           observer,
+          shareViews: VIEW_STEP,
+          lineSlots: 0,
           stroke: this.stroke,
           tint: this.tint,
           fillOpacity: derive(() => phases().item.fillIn),
@@ -345,21 +414,25 @@ export class Grain extends Stroke {
     derivePoints(dot, () => [...Object.values(this.toward()), this.radius.value], () => this.dotOutline())
     this.add(dot)
 
-    // The morph in flight: one Line per piece, grain-local. One dot outline
-    // into M curves makes at most 1 + M pieces; M is read for the view at
-    // construction, with room for a view that shows a few more spans (a
+    // The grain's lines, grain-local: the morph's pieces, or at rest the
+    // symbol's own edges (see `ink`). One dot outline into M curves makes
+    // at most 1 + M pieces, type → item at most M + M'; M is read for the
+    // view at construction, with room for views that show more spans (a
     // flow may carry hundreds of grains — every slot is a mounted line).
-    const capacity = symbol ? 16 + this.symbolCurves().length + (this.item ? this.symbolCurves(this.item).length : 0) : 0
+    const m = this.symbolCurves().length
+    const m2 = this.item ? this.symbolCurves(this.item).length : 0
+    const capacity = symbol ? 16 + Math.ceil(1.5 * Math.max(m, m2)) + (this.item ? Math.min(m, m2) : 0) : 0
     let version = 0
     let lastKey = ""
-    const piecesNow = () => this.pieces()
+    const piecesNow = () => this.ink()
     let memo: Vec3Like[][] = []
     let lastEpoch = -1
     const current = () => {
       const e = paramEpoch()
       if (e === lastEpoch) return memo
       lastEpoch = e
-      const key = `${this.grain.value}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}`
+      const ids = [this.symbol, this.item].map((s) => (s && s.opacity.value > 0 ? drawingId(s.drawing()) : 0))
+      const key = `${this.grain.value}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}|${ids.join(",")}`
       if (key !== lastKey) {
         lastKey = key
         memo = piecesNow()

@@ -263,10 +263,12 @@ export class MaterialsFacesDream extends Dream {
  * data, stays ghosted until its data arrives.
  */
 export class FlowMapGrainDream extends Dream {
+  /** Perspective camera instead of orthographic (the realtime benchmark: `flowmap-grain-persp`). */
+  protected perspective = false
   map = new FlowMap({
     radius: 300,
     // Materials are bigger than dots: sparser, so each reads as one thing.
-    spacing: 130,
+    spacing: this.spacing(),
     seenBy: () => this.observer,
     data: {
       ...MOCK_FLOWMAP,
@@ -276,6 +278,10 @@ export class FlowMapGrainDream extends Dream {
     },
   })
 
+  protected spacing(): number {
+    return 130
+  }
+
   private flowing(dt: number, ...anims: Anim[]): void {
     this.play(together(this.map.time.by(dt, { easing: "linear" }), ...anims), dt)
   }
@@ -283,8 +289,14 @@ export class FlowMapGrainDream extends Dream {
   unfold() {
     const m = this.map
     const o = this.observer
-    o.orthographic.value = o.orthographic.defaultValue = true
-    o.zoom.value = o.zoom.defaultValue = 1023 / (1300 * (16 / 9))
+    if (this.perspective) {
+      o.radius.value = o.radius.defaultValue = 1900
+      o.phi.value = o.phi.defaultValue = 0.25
+      o.theta.value = o.theta.defaultValue = 0.15
+    } else {
+      o.orthographic.value = o.orthographic.defaultValue = true
+      o.zoom.value = o.zoom.defaultValue = 1023 / (1300 * (16 / 9))
+    }
     this.stage(m)
     void m.parts // composed: its stages exist
     this.set(m.grain.to(1), m.expand.to(1), ...["raw", "semi", "finished"].map((id) => m.stage(id).shown.to(1)))
@@ -295,5 +307,17 @@ export class FlowMapGrainDream extends Dream {
     this.flowing(2.5)
     this.flowing(2.5, ...["raw", "semi", "finished"].map((id) => m.stage(id).rung.to(1)))
     this.flowing(1)
+  }
+}
+
+/**
+ * `?scene=flowmap-grain-persp` — the same climb under a PERSPECTIVE camera
+ * and twice as many particles (~300 material symbols): the realtime
+ * benchmark for Grain — every particle sees the camera from its own angle.
+ */
+export class FlowMapGrainPerspDream extends FlowMapGrainDream {
+  protected override perspective = true
+  protected override spacing(): number {
+    return 75
   }
 }

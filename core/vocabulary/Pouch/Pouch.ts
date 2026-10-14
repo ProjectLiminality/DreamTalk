@@ -39,57 +39,54 @@ export class Pouch extends SolidDrawing {
     super({ lineSlots: 48, faceSlots: 2, ...overrides })
   }
 
-  // Built once per shape: hidden-line preparation is keyed on the arrays.
-  private meshMemo?: { key: string; body: Mesh; seal: Mesh }
-
   solids(): Solid[] {
-    const W = this.width.value
-    const H = this.height.value
-    const key = `${W}|${H}`
-    if (this.meshMemo?.key !== key) {
-      const seal = H * 0.1
-      const top = H - seal
-      const D = W * 0.4
-      // (height, half-width, half-depth) from the foot up: a rounded foot,
-      // the belly easing toward the sealed top.
-      const rings: [number, number, number][] = [
-        [0, W * 0.47, D * 0.42],
-        [H * 0.02, W * 0.495, D * 0.49],
-        [H * 0.06, W / 2, D / 2],
-        // The gusset's fold: straight up, then a crease where the faces
-        // turn in — the "smile" every stand-up pouch has above its foot.
-        [H * 0.16, W / 2, D / 2],
-        [H * 0.18, W / 2, D * 0.42],
-        [H * 0.4, W / 2, D * 0.36],
-        [H * 0.6, W / 2, D * 0.26],
-        // The zip: a ridge across both faces (two creases).
-        [H * 0.76, W * 0.495, D * 0.15],
-        [H * 0.775, W * 0.495, D * 0.19],
-        [H * 0.79, W * 0.495, D * 0.13],
-        [top - H * 0.02, W * 0.49, D * 0.05],
-        [top, W * 0.49, D * 0.02],
-      ]
-      this.meshMemo = {
-        key,
-        body: loft(rings, 40),
-        seal: loft([[top, W * 0.49, D * 0.02], [H, W * 0.49, D * 0.02]], 40),
-      }
-    }
-    const { body, seal } = this.meshMemo!
-    const off = (m: Mesh): Vec3Like[] => m.positions.map((p) => ({ x: p.x, y: p.y - H / 2, z: p.z }))
+    const { body, seal } = pouchMeshes(this.width.value, this.height.value)
     return [
-      { kind: "mesh", positions: this.offset(body, off), triangles: body.triangles, fill: this.material.value },
-      { kind: "mesh", positions: this.offset(seal, off), triangles: seal.triangles, fill: this.body.value },
+      { kind: "mesh", positions: body.positions, triangles: body.triangles, fill: this.material.value },
+      { kind: "mesh", positions: seal.positions, triangles: seal.triangles, fill: this.body.value },
     ]
   }
+}
 
-  // The centred positions, kept with their mesh (same arrays every call).
-  private centred = new WeakMap<Mesh, Vec3Like[]>()
-  private offset(m: Mesh, f: (m: Mesh) => Vec3Like[]): Vec3Like[] {
-    let p = this.centred.get(m)
-    if (!p) this.centred.set(m, (p = f(m)))
-    return p
+/**
+ * The pouch's meshes, centred, built once per shape and SHARED by every
+ * pouch of that shape — hidden-line preparation and shared drawings
+ * (SolidDrawing `shareViews`) are keyed on the arrays themselves.
+ */
+const POUCHES = new Map<string, { body: Mesh; seal: Mesh }>()
+const pouchMeshes = (W: number, H: number): { body: Mesh; seal: Mesh } => {
+  const key = `${W}|${H}`
+  let m = POUCHES.get(key)
+  if (m) return m
+  const seal = H * 0.1
+  const top = H - seal
+  const D = W * 0.4
+  // (height, half-width, half-depth) from the foot up: a rounded foot,
+  // the belly easing toward the sealed top.
+  const rings: [number, number, number][] = [
+    [0, W * 0.47, D * 0.42],
+    [H * 0.02, W * 0.495, D * 0.49],
+    [H * 0.06, W / 2, D / 2],
+    // The gusset's fold: straight up, then a crease where the faces
+    // turn in — the "smile" every stand-up pouch has above its foot.
+    [H * 0.16, W / 2, D / 2],
+    [H * 0.18, W / 2, D * 0.42],
+    [H * 0.4, W / 2, D * 0.36],
+    [H * 0.6, W / 2, D * 0.26],
+    // The zip: a ridge across both faces (two creases).
+    [H * 0.76, W * 0.495, D * 0.15],
+    [H * 0.775, W * 0.495, D * 0.19],
+    [H * 0.79, W * 0.495, D * 0.13],
+    [top - H * 0.02, W * 0.49, D * 0.05],
+    [top, W * 0.49, D * 0.02],
+  ]
+  const centre = (mesh: Mesh): Mesh => ({ positions: mesh.positions.map((p) => ({ x: p.x, y: p.y - H / 2, z: p.z })), triangles: mesh.triangles })
+  m = {
+    body: centre(loft(rings, 40)),
+    seal: centre(loft([[top, W * 0.49, D * 0.02], [H, W * 0.49, D * 0.02]], 40)),
   }
+  POUCHES.set(key, m)
+  return m
 }
 
 /**
