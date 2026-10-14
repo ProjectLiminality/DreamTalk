@@ -90,6 +90,14 @@ export class RibbonSuperposition {
     for (const e of this.echoes) e.setPoints(pts)
   }
 
+  /** The ink this cloud echoes, and its own meshes (a clip applies to both). */
+  get source(): THREE.Mesh {
+    return this.main.mesh
+  }
+  meshes(): THREE.Mesh[] {
+    return this.echoes.map((e) => e.mesh)
+  }
+
   /**
    * Restyle the echoes from the main stroke as this frame left it; `upp` is
    * scene units per pixel at the stroke.
@@ -130,6 +138,14 @@ export class FillSuperposition {
       group.add(echo.mesh)
       this.echoes.push(echo)
     }
+  }
+
+  /** The ink this cloud echoes, and its own meshes (a clip applies to both). */
+  get source(): THREE.Mesh {
+    return this.main.mesh
+  }
+  meshes(): THREE.Mesh[] {
+    return this.echoes.map((e) => e.mesh)
   }
 
   sync(t: number, upp: number): void {

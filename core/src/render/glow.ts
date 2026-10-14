@@ -136,6 +136,11 @@ export class StrokeHalo {
     this.aura.mesh.visible = false
     this.mask.mesh.visible = false
   }
+
+  /** Its meshes — a clip on its stroke applies to them too. */
+  meshes(): THREE.Mesh[] {
+    return [this.rim.mesh, this.aura.mesh, this.mask.mesh]
+  }
 }
 
 /**
@@ -232,5 +237,10 @@ export class FillHalo {
     this.rim.mesh.visible = false
     this.aura.mesh.visible = false
     this.mask.visible = false
+  }
+
+  /** Its meshes — a clip on its fill applies to them too. */
+  meshes(): THREE.Mesh[] {
+    return [this.rim.mesh, this.aura.mesh, this.mask]
   }
 }

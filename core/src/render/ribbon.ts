@@ -68,6 +68,7 @@ import * as THREE from "three/webgpu"
 import * as TSLTyped from "three/tsl"
 import type { Color } from "../constants"
 import { packSegments, resamplePolyline } from "./ribbon-math"
+import { clipCoverageNode } from "./clip"
 
 /**
  * @types/three's TSL typings lag the runtime (mat4 has no .element(),
@@ -174,8 +175,12 @@ export class RibbonMaterial extends THREE.NodeMaterial {
    * the centreline before it starts — so a halo can lie around a line
    * without lying on it; inner = 0 is the plain gaussian, unchanged.
    */
-  constructor(opts: { soft?: boolean; mask?: boolean } = {}) {
+  /** The variant this material is — how its clip twin is made (`clippedRibbonMaterial`). */
+  readonly variant: { soft?: boolean; mask?: boolean; clip?: boolean }
+
+  constructor(opts: { soft?: boolean; mask?: boolean; clip?: boolean } = {}) {
     super()
+    this.variant = opts
     this.transparent = true
     this.depthWrite = false
     // Screen-space expansion can flip winding with the segment direction.
@@ -361,6 +366,11 @@ export class RibbonMaterial extends THREE.NodeMaterial {
         coverage = smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
         if (opts.mask) coverage.lessThan(0.5).discard()
       }
+      // `clip`: only what lies inside the clip's disc on screen (src/clip.ts).
+      if (opts.clip) {
+        coverage = coverage.mul(clipCoverageNode())
+        if (opts.mask) coverage.lessThan(0.5).discard()
+      }
       const a = coverage.mul(fade)
       // Premultiplied on black — max-blended (see module header).
       return vec4(vec3(tint).mul(a), a)
@@ -378,6 +388,15 @@ let sharedSoft: RibbonMaterial | undefined
 let sharedMask: RibbonMaterial | undefined
 /** The depth-only twin — a glowing line's mask (render/glow.ts). */
 export const sharedMaskRibbonMaterial = (): RibbonMaterial => (sharedMask ??= new RibbonMaterial({ mask: true }))
+
+const clipTwins = new Map<string, RibbonMaterial>()
+/** A ribbon material's clipped twin (src/clip.ts): the same variant, seen only inside its clip. */
+export const clippedRibbonMaterial = (base: RibbonMaterial): RibbonMaterial => {
+  const key = `${base.variant.soft ? 1 : 0}${base.variant.mask ? 1 : 0}`
+  let twin = clipTwins.get(key)
+  if (!twin) clipTwins.set(key, (twin = new RibbonMaterial({ ...base.variant, clip: true })))
+  return twin
+}
 
 /** The soft (gaussian-edged) twin — every soft echo draws with it (render/echo.ts). */
 export const sharedSoftRibbonMaterial = (): RibbonMaterial => (sharedSoft ??= new RibbonMaterial({ soft: true }))

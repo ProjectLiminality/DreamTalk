@@ -30,6 +30,8 @@ import { seenCertainty, seenOpacity } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
 import { FillHalo, StrokeHalo } from "./glow"
+import { clipOf, type ClipRegion } from "../clip"
+import { CLIP_KEYS, clippedMaterial, initClipSlots } from "./clip"
 import {
   AnnularSector,
   Arc,
@@ -50,7 +52,7 @@ import {
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
 import { Surface } from "../parts/surface"
-import { RibbonMaterial, RibbonStroke, RIBBON_KEYS } from "./ribbon"
+import { RibbonMaterial, RibbonStroke, RIBBON_KEYS, clippedRibbonMaterial } from "./ribbon"
 import { BatchTable, RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
@@ -981,6 +983,10 @@ export class ThreeHost {
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
     for (const root of dream.roots) host.attach(root, host.scene)
+    // Clips (src/clip.ts): their ink switches to clipped materials; a batch
+    // draws with one material, so a scene with clipped strokes renders them
+    // as themselves.
+    if (host.gatherClips() && host.ribbonBatches.length > 0) host.unbatch()
     // "auto" decides the second half here, once the runs exist: short runs
     // lose to the oracle, so the strokes go back to rendering themselves.
     const auto = opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
@@ -1534,6 +1540,7 @@ export class ThreeHost {
       this.texts.length > 0 ||
       this.ribbonBatches.length > 0 ||
       this.superpositions.length > 0 ||
+      this.clips.size > 0 ||
       this.glowing()
     ) {
       this.settleScene()
@@ -1552,6 +1559,8 @@ export class ThreeHost {
       }
       // Attention's halos: after every stroke and fill is styled and settled.
       this.syncGlow()
+      // Clips: their discs as this frame's camera sees them.
+      if (this.clips.size > 0) this.syncClips()
       // A contour rebuild parents fresh ribbon meshes whose world
       // matrices are not yet settled.
       if (this.texts.length > 0) this.matricesSettled = false
@@ -2589,6 +2598,82 @@ export class ThreeHost {
     return true
   }
 
+  /**
+   * CLIPS (src/clip.ts): each region and the meshes drawn under it — the
+   * clipped holons' strokes and fills, their echoes, and any halo made for
+   * them later. Empty unless a scene declares a clip.
+   */
+  private readonly clips = new Map<ClipRegion, Set<THREE.Mesh>>()
+  private readonly clipOfMesh = new Map<THREE.Object3D, ClipRegion>()
+
+  /** Put a mesh under a clip: its material's clipped twin, and its slots. */
+  private clipMesh(mesh: THREE.Mesh, region: ClipRegion): void {
+    if (this.clipOfMesh.has(mesh)) return
+    const m = mesh.material as THREE.Material
+    mesh.material = m instanceof RibbonMaterial ? clippedRibbonMaterial(m) : clippedMaterial(m)
+    initClipSlots(mesh)
+    this.clipOfMesh.set(mesh, region)
+    let set = this.clips.get(region)
+    if (!set) this.clips.set(region, (set = new Set()))
+    set.add(mesh)
+  }
+
+  /** Find every clipped holon's ink at mount; true if there is any. */
+  private gatherClips(): boolean {
+    for (const [holon, ink] of this.inkIndex()) {
+      const region = clipOf(holon)
+      if (!region) continue
+      for (const ribbon of ink.ribbons) this.clipMesh(ribbon.mesh, region)
+      for (const mesh of ink.fills) this.clipMesh(mesh as THREE.Mesh, region)
+    }
+    for (const { blur } of this.superpositions) {
+      const region = this.clipOfMesh.get(blur.source)
+      if (region) for (const mesh of blur.meshes()) this.clipMesh(mesh, region)
+    }
+    return this.clips.size > 0
+  }
+
+  private readonly clipPoint = new THREE.Vector3()
+  /** Write each clip's disc, as this frame projects it, into its meshes (device px, y down). */
+  private syncClips(): void {
+    const w = this.renderer.domElement.width || 1280
+    const h = this.renderer.domElement.height || 720
+    const p = this.clipPoint
+    const toPx = (x: number, y: number, z: number, m: THREE.Matrix4) => {
+      p.set(x, y, z).applyMatrix4(m).project(this.camera)
+      return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h }
+    }
+    for (const [region, meshes] of this.clips) {
+      const disc = region.disc()
+      const group = this.groupOf(disc)
+      const r = (disc as unknown as { radius?: Param<number> }).radius?.value ?? 0
+      let c = { x: -1e9, y: -1e9 }
+      let u = { x: 1, y: 0 }
+      let v = { x: 0, y: 1 }
+      if (group && r > 0) {
+        const m = group.matrixWorld
+        c = toPx(0, 0, 0, m)
+        const a = toPx(r, 0, 0, m)
+        const b = toPx(0, r, 0, m)
+        u = { x: a.x - c.x, y: a.y - c.y }
+        v = { x: b.x - c.x, y: b.y - c.y }
+      }
+      for (const mesh of meshes) {
+        ;(mesh.userData[CLIP_KEYS.c] as THREE.Vector2).set(c.x, c.y)
+        ;(mesh.userData[CLIP_KEYS.u] as THREE.Vector2).set(u.x, u.y)
+        ;(mesh.userData[CLIP_KEYS.v] as THREE.Vector2).set(v.x, v.y)
+      }
+    }
+  }
+
+  private groupIndex?: Map<Holon, THREE.Group>
+  private groupOf(holon: Holon): THREE.Group | undefined {
+    if (!this.groupIndex || this.groupIndex.size !== this.groups.length) {
+      this.groupIndex = new Map(this.groups.map((g) => [g.holon, g.group]))
+    }
+    return this.groupIndex.get(holon)
+  }
+
   /** Does this holon (or anything below it) draw ink a glow can follow? */
   hasInk(holon: Holon): boolean {
     const index = this.inkIndex()
@@ -2669,13 +2754,21 @@ export class ThreeHost {
       const { ribbons, fills } = this.inkMeshes(holon)
       for (const ribbon of ribbons) {
         let halo = this.halos.get(ribbon)
-        if (!halo) this.halos.set(ribbon, (halo = new StrokeHalo(ribbon, layer)))
+        if (!halo) {
+          this.halos.set(ribbon, (halo = new StrokeHalo(ribbon, layer)))
+          const region = this.clipOfMesh.get(ribbon.mesh)
+          if (region) for (const mesh of halo.meshes()) this.clipMesh(mesh, region)
+        }
         ;(halo as StrokeHalo).sync(amount)
         lit.add(halo)
       }
       for (const { mesh, opacity } of fills) {
         let halo = this.halos.get(mesh)
-        if (!halo) this.halos.set(mesh, (halo = new FillHalo(mesh, layer)))
+        if (!halo) {
+          this.halos.set(mesh, (halo = new FillHalo(mesh, layer)))
+          const region = this.clipOfMesh.get(mesh)
+          if (region) for (const m of halo.meshes()) this.clipMesh(m, region)
+        }
         ;(halo as FillHalo).sync(amount, opacity, this.camera)
         lit.add(halo)
       }

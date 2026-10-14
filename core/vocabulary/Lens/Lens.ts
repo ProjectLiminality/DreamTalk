@@ -31,6 +31,7 @@ import { angle, completion, derive, length, paramEpoch, scalar } from "../../src
 import { Circle, Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { derivePoints, localView, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import { rotHPB } from "../../src/parts/curves"
+import { clip } from "../../src/clip"
 import type { View } from "../../src/geometry/hiddenline"
 import { atArcLength, smooth } from "../../src/geometry/flowmap"
 import { MorphCurves, morphPhases } from "../Morph/MorphCurves"
@@ -633,7 +634,12 @@ export class FlowLens extends Lens {
         }),
       ),
     )
-    this.add(new FlowContent({ members: content, certainty: derive(() => source.certainty?.() ?? 1) }))
+    const flowContent = new FlowContent({ members: content, certainty: derive(() => source.certainty?.() ?? 1) })
+    // Seen only through the near face: the road's geometry is trimmed to it
+    // (`bound`), and this keeps every pixel of ink — a stroke's width, an
+    // echo's spread, a glow — inside the window too (src/clip.ts).
+    clip(flowContent, () => this.disc)
+    this.add(flowContent)
   }
 }
 
