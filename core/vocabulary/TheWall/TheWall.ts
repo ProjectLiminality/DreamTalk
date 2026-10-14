@@ -58,7 +58,7 @@
  */
 
 import { Holon } from "../../src/holon"
-import { bool, derive, integer, length, scalar, type Readable } from "../../src/params"
+import { bool, derive, integer, length, paramEpoch, scalar, type Readable } from "../../src/params"
 import { BLUE, type Color } from "../../src/constants"
 import { MindVirus, headingFor } from "../MindVirus/MindVirus"
 import {
@@ -461,6 +461,22 @@ export class TheWall extends Holon {
   private cableClock(): number {
     const target = this.growth.value
     const duration = this.cableDuration.value
+    // Every creature's cable clock reads this, several times a frame, and
+    // each answer is a 40-step bisection (perf J: ~5 ms a frame). It is a
+    // pure function of these inputs while no param has changed — the
+    // paramEpoch is in the key, so even a scene's own growthAt reading
+    // other params cannot see a stale answer.
+    const m = this.clockMemo
+    const epoch = paramEpoch()
+    if (m && m.epoch === epoch && m.target === target && m.duration === duration && m.fn === this.growthAt) return m.clock
+    const clock = this.solveCableClock(target, duration)
+    this.clockMemo = { epoch, target, duration, fn: this.growthAt, clock }
+    return clock
+  }
+
+  private clockMemo?: { epoch: number; target: number; duration: number; fn: (time: number) => number; clock: number }
+
+  private solveCableClock(target: number, duration: number): number {
     let lo = 0
     let hi = duration
     if (this.growthAt(hi) <= target) return hi
