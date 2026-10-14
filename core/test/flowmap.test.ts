@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { rotHPB } from "../src/parts/curves"
 import {
   facingAngles,
+  clearYaw,
   arcTable,
   atArcLength,
   categoryDiscs,
@@ -260,6 +261,18 @@ describe("FlowMap", () => {
       expect(w.y).toBeCloseTo(v.y, 9)
       expect(w.z).toBeCloseTo(v.z, 9)
     }
+  })
+
+  test("clearYaw keeps a spindle at least 35° off the view, as near the base yaw as it can", () => {
+    const view = { x: 0, z: 1 } // looking along z
+    // A spindle along x at yaw π/2 points down z — straight at us: it must turn.
+    const yaw = clearYaw(Math.PI / 2, { x: 1, z: 0 }, view)
+    const sx = Math.cos(yaw)
+    const sz = -Math.sin(yaw)
+    expect(Math.abs(sz) / Math.hypot(sx, sz)).toBeLessThanOrEqual(Math.cos((35 * Math.PI) / 180) + 1e-9)
+    expect(Math.abs(yaw - Math.PI / 2)).toBeLessThan(1.3)
+    // Already clear: untouched.
+    expect(clearYaw(0, { x: 1, z: 0 }, view)).toBe(0)
   })
 
   test("facingAngles is the product it names", () => {

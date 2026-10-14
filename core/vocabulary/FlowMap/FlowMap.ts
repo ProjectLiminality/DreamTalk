@@ -60,6 +60,7 @@
 
 import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
+import { invRotHPB } from "../../src/parts/curves"
 import { angle, choice, completion, derive, length, paramEpoch, scalar, state, type Param, type Readable } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
@@ -93,6 +94,7 @@ import {
   streamFade,
   trimToRim,
   facingAngles,
+  clearYaw,
   type Disc,
   type PartnerSide,
   type Vec2,
@@ -183,6 +185,12 @@ const MATERIALS: Record<Exclude<ParticleSymbol, "dot">, (o: ConstructorParameter
   labels: (o) => new LabelRoll(o),
   drum: (o) => new Drum(o),
   coin: (o) => new Coin({ ...o, count: 3 }),
+}
+
+/** Symbols that must not be seen down an axis (their class's `spindle`), by name. */
+const SPINDLES: Partial<Record<ParticleSymbol, { x: number; z: number }>> = {
+  reel: FilmReel.spindle,
+  labels: LabelRoll.spindle,
 }
 
 const CATEGORY_TINTS: Color[] = [RED, BLUE, GREEN, YELLOW, PURPLE]
@@ -595,6 +603,23 @@ export class FlowMap extends Null {
     })
   }
 
+  private memoViewEpoch = -1
+  private memoView = { x: 0, z: 1 }
+  /** The direction toward the camera, in the stack's frame, on its ground (xz) plane. */
+  private viewInStack(): { x: number; z: number } {
+    const epoch = paramEpoch()
+    if (this.memoViewEpoch === epoch) return this.memoView
+    this.memoViewEpoch = epoch
+    const f = this.frame()
+    const o = this.seenBy?.()
+    const phi = o ? o.phi.value : 0
+    const th = o ? o.theta.value : 0
+    const world = { x: Math.cos(th) * Math.sin(phi), y: Math.sin(th), z: Math.cos(th) * Math.cos(phi) }
+    const v = invRotHPB(world, f.pitch, f.heading, 0)
+    this.memoView = { x: v.x, z: v.z }
+    return this.memoView
+  }
+
   private memoTurnEpoch = -1
   private memoTurn = { h: 0, p: 0, b: 0 }
   /** The carriers' common turn: Ry(−heading)·Rx(−pitch)·Ry(φ)·Rx(−θ) as h/p/b (see geometry/flowmap facingAngles). */
@@ -876,6 +901,7 @@ export class FlowMap extends Null {
       const dots: (Circle | Grain)[] = []
       const carriers: Group[] = []
       const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
+      const spindle = sd.symbol ? SPINDLES[sd.symbol] : undefined
       const stageRate = Math.max(...d.flows.filter((g) => g.stage === f.stage).map((g) => g.rate ?? 1))
       for (let j = 0; j < n; j++) {
         let memoEpoch = -1
@@ -904,7 +930,10 @@ export class FlowMap extends Null {
           if (material) {
             const q = atArcLength(points, lengths, Math.min(s + 2, L))
             const b = atArcLength(points, lengths, Math.max(s - 2, 0))
-            heading = Math.atan2(-(q.z - b.z), q.x - b.x)
+            heading = Math.atan2(-(q.z - b.z), q.x - b.x) + this.symbolYaw.value
+            // A reel is never seen down its spindle: the view, brought into
+            // the stack's frame, keeps the turned spindle ≥ 35° off it.
+            if (spindle) heading = clearYaw(heading, spindle, this.viewInStack())
           }
           memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o, heading }
           return memo
@@ -942,7 +971,7 @@ export class FlowMap extends Null {
               // (`symbolYaw`), so it shows its 3D side as the stack turns. A
               // Grain turns its own dot and label to the camera, so it needs
               // no billboard.
-              new Group({ members: [dot], ...at, h: derive(() => cur().heading + this.symbolYaw.value) })
+              new Group({ members: [dot], ...at, h: derive(() => cur().heading) })
             : this.facing(dot, at),
         )
       }

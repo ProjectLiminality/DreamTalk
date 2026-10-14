@@ -460,3 +460,44 @@ export const facingAngles = (heading: number, pitch: number, phi: number, theta:
   if (Math.abs(m32) < 0.9999999) return { h: Math.atan2(-m[6]!, m[8]!), p, b: Math.atan2(-m[1]!, m[4]!) }
   return { h: 0, p, b: Math.atan2(m[3]!, m[0]!) }
 }
+
+/**
+ * A yaw for a symbol with a SPINDLE (a reel's axis — the axis it must not be
+ * seen along): start from `base` (the channel's heading + the 3/4 offset)
+ * and step out through small turns until the spindle, turned by the yaw
+ * about y, sits at least `minAngle` off the view direction on the ground
+ * plane (both as lines — either end of the spindle counts). The nearest
+ * clear yaw wins; with no view on the ground (looking straight down) base
+ * stands. Pure.
+ */
+export const clearYaw = (
+  base: number,
+  spindle: { x: number; z: number },
+  view: { x: number; z: number },
+  minAngle = (35 * Math.PI) / 180,
+): number => {
+  const vl = Math.hypot(view.x, view.z)
+  const sl = Math.hypot(spindle.x, spindle.z)
+  if (vl < 1e-6 || sl < 1e-6) return base
+  const limit = Math.cos(minAngle)
+  const along = (yaw: number) => {
+    // Ry(yaw) applied to the spindle: (x cos + z sin, −x sin + z cos).
+    const x = spindle.x * Math.cos(yaw) + spindle.z * Math.sin(yaw)
+    const z = -spindle.x * Math.sin(yaw) + spindle.z * Math.cos(yaw)
+    return Math.abs((x * view.x + z * view.z) / (vl * sl))
+  }
+  let best = base
+  let bestCos = along(base)
+  if (bestCos <= limit) return base
+  for (let k = 1; k <= 8; k++) {
+    for (const yaw of [base + k * 0.15, base - k * 0.15]) {
+      const c = along(yaw)
+      if (c <= limit) return yaw
+      if (c < bestCos) {
+        bestCos = c
+        best = yaw
+      }
+    }
+  }
+  return best
+}
