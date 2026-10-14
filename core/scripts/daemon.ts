@@ -641,6 +641,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
           targets: msg.targets,
           transitions: msg.transitions,
           clocks: msg.clocks,
+          morphs: msg.morphs,
           duration: msg.duration,
           file,
         })

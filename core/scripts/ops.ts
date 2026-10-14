@@ -404,6 +404,12 @@ export interface AppendCheckpointOp {
    * recorded transition never freezes the world: `path.by(duration, linear)`.
    */
   clocks?: string[]
+  /**
+   * Morphs, holon into holon, by the universal verb (vocabulary/Morph):
+   * `Morph(this.dot, this.truck)` — an Anim, so it plays alone or under
+   * `together` with the rest of the pose. The editor's "Morph to…".
+   */
+  morphs?: { from: string; to: string }[]
   /** Seconds the transition plays over (default 1). */
   duration?: number
   /** Repo-relative path of the file, for computing an import specifier. */
@@ -459,6 +465,29 @@ const ensureTogetherImport = (file: SourceFile, relFile?: string): string | unde
 }
 
 /**
+ * Make `Morph` importable: already imported (as a value), added to an
+ * existing import of vocabulary/Morph/Morph, or a fresh import computed
+ * from the file's own repo-relative path (no semicolon — the scene's style).
+ */
+const ensureMorphImport = (file: SourceFile, relFile?: string): string | undefined => {
+  const imports = file.getImportDeclarations()
+  for (const decl of imports)
+    for (const named of decl.getNamedImports())
+      if (!named.isTypeOnly() && (named.getAliasNode()?.getText() ?? named.getName()) === "Morph") return undefined
+  const host = imports.find((d) => d.getModuleSpecifierValue().endsWith("/Morph/Morph") && !d.isTypeOnly())
+  if (host) {
+    host.addNamedImport("Morph")
+    return undefined
+  }
+  if (!relFile) return "no Morph import to extend and no file path to compute one from"
+  const last = imports[imports.length - 1]
+  const decl = { moduleSpecifier: relativeSpecifier(relFile, "core/vocabulary/Morph/Morph"), namedImports: ["Morph"] }
+  const added = last ? file.insertImportDeclaration(last.getChildIndex() + 1, decl) : file.insertImportDeclaration(0, decl)
+  added.replaceWithText(added.getText().replace(/;$/, ""))
+  return undefined
+}
+
+/**
  * Append a captured pose as a Magic Move clip (ONTOLOGY.md "Magic Move",
  * case 1): one `this.play(...to()..., d)` statement whose targets ARE the
  * pose, inserted after the clip the playhead was inside. The spelling is
@@ -468,8 +497,14 @@ const ensureTogetherImport = (file: SourceFile, relFile?: string): string | unde
 export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): OpResult => {
   const transitions = op.transitions ?? []
   const clocks = op.clocks ?? []
-  if (op.targets.length === 0 && transitions.length === 0)
+  const morphs = op.morphs ?? []
+  if (op.targets.length === 0 && transitions.length === 0 && morphs.length === 0)
     return { ok: false, reason: "empty pose — nothing to capture" }
+  for (const m of morphs) {
+    for (const path of [m.from, m.to])
+      if (!CHECKPOINT_PATH.test(path)) return { ok: false, reason: `morph holon '${path}' is not a this.* holon reference` }
+    if (m.from === m.to) return { ok: false, reason: `a morph needs two holons ('${m.from}' into itself)` }
+  }
   for (const t of transitions)
     if (!HOLON_PATH.test(t.holon)) return { ok: false, reason: `holon path '${t.holon}' is not a this.* reference` }
   for (const c of clocks)
@@ -512,6 +547,7 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
   const calls = [
     ...clocks.map((c) => `${c}.by(${duration}, { easing: "linear" })`),
     ...transitions.map((t) => `${t.holon}.stateAxis(${JSON.stringify(t.axis)}).to(${JSON.stringify(t.position)})`),
+    ...morphs.map((m) => `Morph(${m.from}, ${m.to})`),
     ...op.targets.map((t) => `${t.path}.to(${checkpointLiteral(t.value)})`),
   ]
   const statement =
@@ -529,6 +565,10 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
   unfold.insertStatements(index, statement)
   if (calls.length > 1) {
     const failure = ensureTogetherImport(unfold.getSourceFile(), op.file)
+    if (failure) return { ok: false, reason: failure }
+  }
+  if (morphs.length) {
+    const failure = ensureMorphImport(unfold.getSourceFile(), op.file)
     if (failure) return { ok: false, reason: failure }
   }
   return { ok: true, text: unfold.getSourceFile().getFullText() }
