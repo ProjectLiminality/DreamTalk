@@ -54,6 +54,7 @@ import { instruct } from "./instruct"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
+import { becomingResponse, history as becomingHistory } from "./becoming"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import { changedRange, type ChangedRange } from "../editor/undo"
@@ -115,6 +116,15 @@ const serveStatic = async (pathname: string): Promise<Response> => {
 }
 
 // --- API -------------------------------------------------------------------
+
+const becomingHistoryResponse = async (file: string | null): Promise<Response> => {
+  if (!file || !resolveSourcePath(file)) return Response.json({ error: "bad file" }, { status: 400 })
+  try {
+    return Response.json({ commits: await becomingHistory(repoRoot, file) })
+  } catch (err) {
+    return Response.json({ error: String((err as Error).message ?? err) }, { status: 500 })
+  }
+}
 
 const REF_EXTENSIONS = /\.(png|jpg|mp4|mkv|webm|mov)$/i
 
@@ -807,6 +817,9 @@ const server = Bun.serve<SocketData>({
     }
     const face = FACE_PATH.exec(url.pathname)
     if (face) return faceResponse(face[1]!)
+    // The becoming (scripts/becoming.ts): a song's history, and each commit's own player.
+    if (url.pathname === "/api/becoming") return becomingHistoryResponse(url.searchParams.get("file"))
+    if (url.pathname.startsWith("/becoming/")) return (await becomingResponse(repoRoot, url.pathname)) ?? serveStatic(url.pathname)
     return serveStatic(url.pathname)
   },
   websocket: {

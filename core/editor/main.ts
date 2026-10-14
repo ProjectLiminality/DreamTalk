@@ -79,6 +79,7 @@ import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { EditorWalk } from "./walk"
 import { mountSaveState, poseParams } from "./savestate"
 import { mountMorphTo } from "./morphto"
+import { mountBecoming } from "./becoming"
 import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
 import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type ChangedRange, type OpDescriptor } from "./undo"
@@ -1786,6 +1787,11 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
+      // The becoming (⇧B, then [ ] and Esc) — the song's history over the viewport.
+      if (!typing && becoming?.key(e)) {
+        e.preventDefault()
+        return
+      }
       if (e.code === "Space") {
         e.preventDefault()
         playing ? pause() : play()
@@ -1975,6 +1981,24 @@ const boot = async (resume?: Transport) => {
   }
   syncLanes()
 
+  // --- The becoming (editor/becoming.ts) -------------------------------------
+  //
+  // ⇧B: the commits that made this song, oldest to now, along the foot of
+  // the viewport; a chip lays that commit's own player over the frame at
+  // this t, following the playhead. Read-only — another document, another
+  // bundle, built from a git archive of the commit.
+  const becoming = playerMode
+    ? undefined
+    : mountBecoming({
+        host: viewport,
+        frame,
+        sceneKey,
+        sceneFile: () => sceneFile,
+        currentT: () => current,
+        note: (text) => showNote(text),
+        signal: ac.signal,
+      })
+
   // --- Checkpoint capture (EDITOR-V5 "Checkpoint capture") -----------------
   //
   // The live layer holds the pose; the chip appears on the playhead the
@@ -2086,6 +2110,7 @@ const boot = async (resume?: Transport) => {
     if (!alive) return
     const walked = walk?.step(now) ?? false
     syncLanes()
+    becoming?.sync(current)
     if (playing) {
       // A still (a board with no choreography yet) has no time to loop.
       const t = duration > 0 ? ((now - anchor) / 1000) % duration : 0
@@ -2322,6 +2347,15 @@ const boot = async (resume?: Transport) => {
       owns: (x: number, y: number) => walk.owns(x, y),
       clickAt: (x: number, y: number) => walk.game.clickAt(x, y),
       seconds: () => walk.seconds,
+    },
+    // --- The becoming, driven headlessly --------------------------------------
+    becoming: becoming && {
+      toggle: (on?: boolean) => becoming.toggle(on),
+      select: (i?: number) => becoming.select(i),
+      step: (by: number) => becoming.step(by),
+      commits: () => becoming.commits().map((c) => ({ sha: c.sha, repo: c.repo, time: c.time, subject: c.subject })),
+      selected: () => becoming.selected?.sha,
+      settled: () => becoming.settled(),
     },
     // --- "Morph to…", driven headlessly --------------------------------------
     morphTo: morphTo && {
