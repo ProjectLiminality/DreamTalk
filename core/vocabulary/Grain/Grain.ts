@@ -47,6 +47,7 @@ import { Param, completion, derive, length, paramEpoch, scalar } from "../../src
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { rotHPB } from "../../src/parts/curves"
 import { Text } from "../../src/parts/text"
+import { Polylines, deriveLoops } from "../../src/parts/polylines"
 import { derivePoints, localView, toWorld, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
 import { orthoHalfHeight } from "../../src/dream"
 import type { Holon } from "../../src/holon"
@@ -485,13 +486,7 @@ export class Grain extends Stroke {
     this.add(dot)
 
     // The grain's lines, grain-local: the morph's pieces, or at rest the
-    // symbol's own edges (see `ink`). One dot outline into M curves makes
-    // at most 1 + M pieces, type → item at most M + M'; M is read for the
-    // view at construction, with room for views that show more spans (a
-    // flow may carry hundreds of grains — every slot is a mounted line).
-    const m = this.symbolCurves().length
-    const m2 = this.item ? this.symbolCurves(this.item).length : 0
-    const capacity = symbol ? 16 + Math.ceil(1.5 * Math.max(m, m2)) + (this.item ? Math.min(m, m2) : 0) : 0
+    // symbol's own edges (see `ink`).
     let version = 0
     let lastKey = ""
     const piecesNow = () => this.ink()
@@ -520,14 +515,13 @@ export class Grain extends Stroke {
       }
       return poolTint
     }
-    for (let i = 0; i < capacity; i++) {
-      const slot = new Line({
-        stroke: this.stroke,
-        tint: derive(inkTint),
-        opacity: derive(() => (current()[i] ? this.opacity.value : 0)),
-      })
-      derivePoints(slot, () => (current(), [version]), () => current()[i] ?? [])
-      this.add(slot)
+    if (symbol) {
+      // ONE stroke for all of it (src/parts/polylines.ts): every piece and
+      // edge a loop of the same ribbon, so a flow of hundreds of grains
+      // mounts hundreds of strokes, not tens of thousands.
+      const pool = new Polylines({ stroke: this.stroke, tint: derive(inkTint), opacity: this.opacity })
+      deriveLoops(pool, () => (current(), [version]), () => current())
+      this.add(pool)
     }
 
     // The name, under the symbol, facing the viewer.
