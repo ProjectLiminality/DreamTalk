@@ -19,6 +19,12 @@ import { SolidDrawing } from "../../src/parts/soliddrawing"
 export class LabelRoll extends SolidDrawing {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
+  /**
+   * The local axis this symbol must NOT be seen along (a roll seen along its axis is a disc, and
+   * reads as nothing). A carrier that turns symbols along a flow (FlowMap)
+   * keeps this axis well off the view direction.
+   */
+  static spindle = { x: 0, y: 0, z: 1 }
   /** The labels' colour — the product's category. */
   material = color(GREEN)
   /** The core — black. */

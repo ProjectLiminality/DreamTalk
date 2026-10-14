@@ -25,6 +25,12 @@ import { SolidDrawing } from "../../src/parts/soliddrawing"
 export class FilmReel extends SolidDrawing {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
+  /**
+   * The local axis this symbol must NOT be seen along (a reel seen along its spindle is a disc, and
+   * reads as nothing). A carrier that turns symbols along a flow (FlowMap)
+   * keeps this axis well off the view direction.
+   */
+  static spindle = { x: 1, y: 0, z: 0 }
   /** The film's colour — the material's category. */
   material = color(BLUE)
   /** The core's fill — black, i.e. solid on the ground. */
