@@ -817,6 +817,29 @@ export const blendTravel = (plan: MorphPlan, u: number, opts: TravelOptions = {}
 }
 
 /**
+ * A plan with no partition at all: curve i becomes curve i, point for
+ * point (the two must have the same number of points). For a morph that
+ * is a deformation of ONE drawing rather than a re-drawing — a symbol
+ * squashed flat onto its baseline, and stood up again.
+ */
+export const planPairwise = (sources: readonly Curve[], targets: readonly Curve[], normal?: Vec3Like): MorphPlan => {
+  const n3 = norm(normal ?? { x: 0, y: 0, z: 1 })
+  const pieces: PlannedPiece[] = []
+  sources.forEach((c, i) => {
+    const t = targets[i]
+    if (!t || t.length !== c.length || c.length < 2) return
+    const from = [...c]
+    const to = [...t]
+    pieces.push({ source: i, target: i, from, to, grows: false, motion: rigidFit(from, to, n3) })
+  })
+  const all = pieces.flatMap((q) => [q.motion.cs, q.motion.ct])
+  const centre = all.length
+    ? all.reduce((a, q) => ({ x: a.x + q.x / all.length, y: a.y + q.y / all.length, z: a.z + q.z / all.length }), { x: 0, y: 0, z: 0 })
+    : { x: 0, y: 0, z: 0 }
+  return { pieces, correspondence: { pieces: [], offset: 0, cost: 0 }, normal: n3, centre }
+}
+
+/**
  * Each piece's opacity at u: 1 for a piece that flies; a condensing detail
  * fades out early ("out") or in late ("in"), with the same stagger.
  */

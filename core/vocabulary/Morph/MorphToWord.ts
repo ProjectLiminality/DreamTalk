@@ -27,7 +27,7 @@
 import { together, type Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import type { Holon, Overrides } from "../../src/holon"
-import { Line, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Null, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import type { Color } from "../../src/constants"
 import { wordOutline } from "../../src/geometry/glyphs"
 import { ARIMO } from "../../src/geometry/fonts/arimo"
@@ -164,15 +164,29 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
       back: () => MorphMany(toSymbol),
     }
   }
-  // VIA THE LINE: the symbol's strokes settle into one horizontal line —
-  // the word's baseline, laid out in reading order — and the letters rise
-  // from it. The middle of the morph is a single clean line: the essence
-  // held for a beat between the thing and its name.
-  const unitPts = wordOutline(text, ARIMO, { size: word.size.value })
-  const wordWidth = unitPts.length ? Math.max(...unitPts.flat().map((p) => p.x)) - Math.min(...unitPts.flat().map((p) => p.x)) : size
-  const half = wordWidth / 2
-  // The baseline follows the camera (it lies along the camera's right, the
-  // way the word does), so it is level on screen whatever the view.
+  // VIA THE LINE: the symbol is squashed flat onto the word's baseline —
+  // every point slides straight across onto the line through its centre
+  // along the reading direction, nothing turns or flies — so the overlapping
+  // flattened strokes ARE the line; then the letters rise from it. The
+  // middle of the morph is a single clean line: the essence held for a
+  // beat between the thing and its name.
+  const along0 = (p: Vec3Like, a: Vec3Like) => (p.x - centre.x) * a.x + (p.y - centre.y) * a.y + (p.z - centre.z) * a.z
+  const flat = new Null()
+  // (The symbol's curves read live, each point projected onto the baseline.)
+  Object.assign(flat, {
+    worldCurves: (): Vec3Like[][] => {
+      const a = liveAxis()
+      return curvesOf(symbol).map((c) =>
+        c.map((p) => {
+          const s = along0(p, a)
+          return { x: centre.x + a.x * s, y: centre.y + a.y * s, z: centre.z + a.z * s }
+        }),
+      )
+    },
+  })
+  // The line spans what the squash covers, and follows the camera (it lies
+  // along the camera's right, the way the word does), level on screen
+  // whatever the view.
   const line = new Line({
     opacity: 0,
     ...(tint ? { tint } : {}),
@@ -186,27 +200,31 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
     },
     () => {
       const a = liveAxis()
+      const s = curvesOf(symbol).flat().map((p) => along0(p, a))
+      const lo = s.length ? Math.min(...s) : -symbolWidth / 2
+      const hi = s.length ? Math.max(...s) : symbolWidth / 2
       return [
-        { x: centre.x - a.x * half, y: centre.y - a.y * half, z: centre.z - a.z * half },
-        { x: centre.x + a.x * half, y: centre.y + a.y * half, z: centre.z + a.z * half },
+        { x: centre.x + a.x * lo, y: centre.y + a.y * lo, z: centre.z + a.z * lo },
+        { x: centre.x + a.x * hi, y: centre.y + a.y * hi, z: centre.z + a.z * hi },
       ]
     },
   )
-  // Onto the line: strokes laid side by side in reading order, each
-  // straightening as it lands; details condense.
-  const lineOpts = { ...morphOpts, order: "sweep" as const, stagger: (opts.stagger ?? 0.35) * 0.6 }
-  const toLine = new MorphCurves([symbol], [line], lineOpts)
+  // Point for point, straight, all at once: a calm settling, not a flight.
+  const squashOpts = { ...morphOpts, pairwise: true, travel: "lerp" as const, lag: 0, chain: false }
+  const toLine = new MorphCurves([symbol], [flat], squashOpts)
   const lineToWord = new MorphCurves([line], [word], morphOpts)
   const wordToLine = new MorphCurves([word], [line], morphOpts)
-  const lineToSymbol = new MorphCurves([line], [symbol], lineOpts)
-  // The line is HELD for a beat between the two halves.
+  const lineToSymbol = new MorphCurves([flat], [symbol], squashOpts)
+  // The line is HELD for a beat between the two halves; it stands in for
+  // the flattened strokes the moment they are flat, and gives way to them
+  // as the symbol stands up again.
   const half2 = (a: Anim, b: Anim): Anim => together([a, 0, 0.45], [b, 0.53, 1])
   return {
     word,
     toWord: toLine,
     toSymbol: lineToSymbol,
-    holons: [word, line, toLine, lineToWord, wordToLine, lineToSymbol],
-    there: () => half2(MorphMany(toLine), MorphMany(lineToWord)),
-    back: () => half2(MorphMany(wordToLine), MorphMany(lineToSymbol)),
+    holons: [word, line, flat, toLine, lineToWord, wordToLine, lineToSymbol],
+    there: () => half2(together([MorphMany(toLine), 0, 1], [line.opacity.to(1), 0.98, 1]), MorphMany(lineToWord)),
+    back: () => half2(MorphMany(wordToLine), together([line.opacity.to(0), 0, 0.02], [MorphMany(lineToSymbol), 0, 1])),
   }
 }

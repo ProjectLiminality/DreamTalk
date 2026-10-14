@@ -55,13 +55,14 @@ import { Holon, type Overrides } from "../../src/holon"
 import { completion, paramEpoch, type Param } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import { derive } from "../../src/params"
-import { Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Null, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { SolidDrawing, derivePoints, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import { worldOutlineOf } from "../../src/geometry/morph"
 import {
   blendPlan,
   blendTravel,
   chainCurves,
+  planPairwise,
   pieceAlphas,
   planMorphDetailed,
   planMorph,
@@ -240,6 +241,13 @@ export interface MorphCurvesOptions extends Omit<CorrespondOptions, "axis"> {
    * (default); MorphToWord uses 0.25.
    */
   minor?: number
+  /**
+   * No partition: the i-th source curve becomes the i-th target curve,
+   * point for point (planPairwise) — for a deformation of one drawing
+   * (MorphToWord's flattening onto the baseline). Chaining and details are
+   * skipped; a side that is only a Null helper wears the other side's colours.
+   */
+  pairwise?: boolean
 }
 
 /**
@@ -273,14 +281,14 @@ export class MorphCurves extends Stroke {
   private curvesMemo?: { curves: Vec3Like[][]; version: number }
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
-    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, ...rest } = options
+    const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, pairwise, ...rest } = options
     super(rest)
     if (!sources.length || !targets.length)
       throw new Error(
         `MorphCurves: needs at least one source and one target holon (got ${sources.length} → ${targets.length}). ` +
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
-    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor } }
+    this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, pairwise } }
   }
 
   /** The current plan — re-planned only when an input's curves change. */
@@ -304,7 +312,7 @@ export class MorphCurves extends Stroke {
     const tgtOwner: Holon[] = []
     let src = sources.flatMap((h) => partCurvesOf(h).map((c) => (srcOwner.push(c.part), c.curve)))
     let tgt = targets.flatMap((h) => partCurvesOf(h).map((c) => (tgtOwner.push(c.part), c.curve)))
-    if (opts.chain ?? true) {
+    if ((opts.chain ?? true) && !opts.pairwise) {
       // Strokes, not shards: join each side's curves that meet end to end.
       // A chain wears its first member's colour.
       const tolOf = (cs: Vec3Like[][]) => {
@@ -334,6 +342,15 @@ export class MorphCurves extends Stroke {
         const n = pts.length || 1
         normal = { x: view.eye.x - c.x / n, y: view.eye.y - c.y / n, z: view.eye.z - c.z / n }
       }
+    }
+    if (opts.pairwise) {
+      // A side that is only a helper (a Null that draws nothing) wears the
+      // other side's colours.
+      if (targets.every((h) => h instanceof Null)) tgtOwner.splice(0, tgtOwner.length, ...srcOwner)
+      else if (sources.every((h) => h instanceof Null)) srcOwner.splice(0, srcOwner.length, ...tgtOwner)
+      const plan = planPairwise(src, tgt, normal)
+      this.planMemo = { key, plan, srcOwner, tgtOwner }
+      return this.planMemo
     }
     if (opts.relative) {
       // Plan the SHAPES, not their places: each side centred on its own

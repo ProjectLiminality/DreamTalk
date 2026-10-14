@@ -14,7 +14,7 @@ import { MorphMany, curvesOf } from "../vocabulary/Morph/MorphCurves"
 import { Truck } from "../vocabulary/Truck/Truck"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { Observer } from "../src/dream"
-import { Line } from "../src/parts/primitives"
+import { Line, type Vec3Like } from "../src/parts/primitives"
 
 const area = (c: { x: number; y: number }[]) => {
   let a = 0
@@ -106,9 +106,23 @@ describe("MorphToWord", () => {
     const obs = new Observer({ phi: 0.6, theta: 0.3 })
     const truck = new Truck({ observer: obs })
     const m = MorphToWord(truck, "truck", { observer: obs })
-    expect(m.holons.length).toBe(6)
+    expect(m.holons.length).toBe(7)
     const line = m.holons.find((h): h is Line => h instanceof Line)!
     expect(line.points.length).toBe(2)
+    // Squashed, not re-drawn: every stroke ends ON the line, within its span.
+    m.toWord.morph.value = 1
+    const [a, b] = line.points as [Vec3Like, Vec3Like]
+    const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
+    const ink = m.toWord.parts.filter((p): p is Line => p instanceof Line).filter((l) => l.points.length >= 2)
+    expect(ink.length).toBeGreaterThan(10)
+    for (const l of ink)
+      for (const p of l.points) {
+        const s = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y) + (p.z - a.z) * (b.z - a.z)) / len
+        expect(s).toBeGreaterThan(-1e-6 * len)
+        expect(s).toBeLessThan(len * (1 + 1e-6))
+        const q = { x: a.x + ((b.x - a.x) * s) / len, y: a.y + ((b.y - a.y) * s) / len, z: a.z + ((b.z - a.z) * s) / len }
+        expect(Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z)).toBeLessThan(1e-6 * len)
+      }
     // At the middle of `there()`, the line is shown and nothing else is drawn.
     const tracks = m.there().tracks
     const shows = tracks.filter((t) => t.param === line.opacity && t.values[0] === 1)
