@@ -34,8 +34,10 @@ export interface Readable<T extends ParamValue> {
 let nextParamId = 1
 
 /**
- * A counter that moves on EVERY param write (value, gate, binding) — and on
- * a Line's points being assigned (parts/primitives.ts). Between two reads
+ * A counter that moves on every param write that CHANGES something (a new
+ * value, a gate, a bias, a binding) — and on a Line's points being assigned
+ * (parts/primitives.ts). Rewriting a param with the value it already holds
+ * leaves it be, so a re-applied but unchanged frame reads as unchanged. Between two reads
  * with the same epoch, nothing any param could say has changed, so a
  * derived reading may answer from a memo: the per-frame fast path for
  * holons whose dirty-keys are expensive (a morph reading a solid's
@@ -144,6 +146,10 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
         `Param '${this.name ?? this.id}' follows a derived binding; animate its source instead`,
       )
     }
+    // An identical write changes nothing any memo could see: the epoch
+    // moves only when a value does (the timeline re-applies every param on
+    // every frame, and a held frame must read as held — three-host sync).
+    if (Object.is(v, this.#value)) return
     this.#value = v
     epoch++
   }

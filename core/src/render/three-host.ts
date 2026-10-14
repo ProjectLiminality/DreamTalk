@@ -25,6 +25,7 @@ import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon } from "../holon"
 import type { Param, Readable } from "../params"
+import { paramEpoch } from "../params"
 import { seenCertainty, seenOpacity } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
@@ -856,6 +857,9 @@ export class ThreeHost {
    */
   private readonly texts: { binding: TextBinding; group: THREE.Object3D; holon: Holon }[] = []
 
+  /** paramEpoch at the end of the last sync — a held frame's proof (see sync). */
+  private syncedEpoch = Number.NaN
+
   /** Every attached holon's root — the chapter it belongs to, in a song. */
   private readonly rootOf = new Map<Holon, Holon>()
   /**
@@ -1399,6 +1403,13 @@ export class ThreeHost {
       group.scale.set(s, s, s)
       group.updateMatrix()
     }
+    // A HELD frame: no param (value, gate, bias, binding) and no Line's
+    // points have been written since the last sync (paramEpoch), so no
+    // stroke's or fill's geometry can have changed — skip every check.
+    // A paused editor, free play standing still: thousands of lines
+    // confirmed in one compare. Playback writes params every frame, so it
+    // never takes this path; nothing it skips could differ.
+    const held = this.syncedEpoch === paramEpoch()
     for (const binding of this.strokes) {
       const { holon, ribbon } = binding
       if (this.dormant && this.asleep(holon)) continue
@@ -1406,7 +1417,7 @@ export class ThreeHost {
       // (the many-point case that dominated this loop), the small
       // shape-param array for a parametric shape. A superset of the old
       // per-frame flatten+compare, so no stale geometry — see ShapeSig.
-      if (sigChanged(holon, binding.sig)) {
+      if (!held && sigChanged(holon, binding.sig)) {
         // `undefined` from a Line means its derived polyline has emptied
         // out this frame — pass it through so the ribbon empties too.
         const pts = polyline(holon)
@@ -1443,7 +1454,7 @@ export class ThreeHost {
     for (const binding of this.fills) {
       const { holon, fill } = binding
       if (this.dormant && this.asleep(holon)) continue
-      if (sigChanged(holon, binding.sig)) {
+      if (!held && sigChanged(holon, binding.sig)) {
         fill.setPolygon(
           holon instanceof Ellipse
             ? ellipsePolygon(holon.radiusX.value, holon.radiusY.value)
@@ -1461,7 +1472,7 @@ export class ThreeHost {
     for (const binding of this.washes) {
       const { holon, fill } = binding
       if (this.dormant && this.asleep(holon)) continue
-      if (sigChanged(holon, binding.sig)) {
+      if (!held && sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon)
         if (washed) fill.setPolygon(washed.points, washed.triangles)
       }
@@ -1547,6 +1558,7 @@ export class ThreeHost {
     }
 
     this.cullOffscreen()
+    this.syncedEpoch = paramEpoch()
 
     // Pack every batched stroke into the single instanced draw — LAST, so
     // it sees the cull's visibility decisions and this frame's settled
