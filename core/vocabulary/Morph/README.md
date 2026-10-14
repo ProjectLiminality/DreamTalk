@@ -159,7 +159,7 @@ the ORDER on the tapes:
 - **nearest** (default) — each source placed on the (angular) target tape
   where its share lies nearest it: a min-travel assignment (seeded at each
   source's nearest tape position and at the angular order, improved by
-  moving one source at a time), then the same rotation. Kept only where it
+  swapping neighbours), then the same rotation. Kept only where it
   crosses fewer paths than angular, or as few with ≥ 2% less travel —
   otherwise the plan is angular's, unchanged. GeoFlow's eleven relation
   arcs → the group circle: 8–11 crossed paths → 0, travel −0.8%.

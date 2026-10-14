@@ -297,10 +297,9 @@ const orderCurves = (
  * The cost of an order is, per source, its share's weight × (its ink's
  * centre to the share's centre² + its ends to the share's ends², the
  * cheaper orientation). Searched from two seeds — each source at its
- * nearest tape position, and the angular order — by moving one source at
- * a time to its best place while anything improves (variable-width shares
- * on a cycle are not a plain matching problem; this local search is
- * exact on every case we have). The tape's rotation is scanned with each
+ * nearest tape position, and the angular order — by swapping neighbours
+ * while any swap is cheaper (variable-width shares on a cycle are not a
+ * plain matching problem; this local search is O(n) a pass). The tape's rotation is scanned with each
  * order and searched again, finely, by the caller.
  */
 const nearestSlots = (
@@ -355,16 +354,23 @@ const nearestSlots = (
     }
     return c
   }
+  // The rotation: a coarse scan, then a fine one around its best.
   const bestDelta = (order: readonly number[]): [number, number] => {
     let best = 0
     let bestC = Infinity
-    for (let j = 0; j < F; j += 4) {
-      const c = costOf(order, j / F)
-      if (c < bestC - 1e-12) {
-        bestC = c
-        best = j / F
+    const scan = (from: number, to: number, step: number) => {
+      const centre = best
+      for (let j = from; j <= to; j += step) {
+        const d = mod1(centre + j / F)
+        const c = costOf(order, d)
+        if (c < bestC - 1e-12) {
+          bestC = c
+          best = d
+        }
       }
     }
+    scan(0, F - 16, 16)
+    scan(-14, 14, 2)
     return [best, bestC]
   }
   // Each source's nearest place on the tape.
@@ -380,32 +386,25 @@ const nearestSlots = (
     }
     return best / F
   })
+  // Improve by swapping neighbours on the tape while any swap is cheaper —
+  // each swap re-costs only its two pieces, so a pass is O(n).
   const improve = (start: readonly number[]): [number[], number, number] => {
-    let order = [...start]
+    const order = [...start]
     let [delta, cost] = bestDelta(order)
-    // (Each round is n² orders of n pieces: past a few dozen curves the
-    // seeds stand as they are.)
-    const rounds = n > 48 ? 0 : 6
-    for (let r = 0; r < rounds; r++) {
+    for (let pass = 0; pass < 8; pass++) {
       let improved = false
-      for (let k = 0; k < n; k++) {
-        const i = order[k]!
-        const rest = order.filter((_, j) => j !== k)
-        let bestAt = k
-        let bestC = cost
-        for (let p = 0; p <= rest.length; p++) {
-          if (p === k) continue
-          const c = costOf([...rest.slice(0, p), i, ...rest.slice(p)], delta)
-          if (c < bestC - 1e-9 * Math.max(1, cost)) {
-            bestC = c
-            bestAt = p
-          }
-        }
-        if (bestAt !== k) {
-          order = [...rest.slice(0, bestAt), i, ...rest.slice(bestAt)]
-          cost = bestC
+      let u = delta
+      for (let k = 0; k + 1 < n; k++) {
+        const a = order[k]!
+        const b = order[k + 1]!
+        const before = pieceCost(a, u) + pieceCost(b, u + w[a]!)
+        const after = pieceCost(b, u) + pieceCost(a, u + w[b]!)
+        if (after < before - 1e-12 * Math.max(1, before)) {
+          order[k] = b
+          order[k + 1] = a
           improved = true
         }
+        u += w[order[k]!]!
       }
       ;[delta, cost] = bestDelta(order)
       if (!improved) break

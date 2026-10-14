@@ -33,7 +33,7 @@ import { wordOutline } from "../../src/geometry/glyphs"
 import { ARIMO } from "../../src/geometry/fonts/arimo"
 import type { CorrespondOrder } from "../../src/geometry/correspond"
 import { Word } from "../Word/Word"
-import { MorphCurves, MorphMany, curvesOf } from "./MorphCurves"
+import { MorphCurves, MorphMany, curvesOf, signatureOf } from "./MorphCurves"
 
 export interface WordMorphOptions {
   observer?: Observer
@@ -174,6 +174,11 @@ export const MorphToWord = (symbol: Holon, text: string, opts: WordMorphOptions 
   const flat = new Null()
   // (The symbol's curves read live, each point projected onto the baseline.)
   Object.assign(flat, {
+    // What moves its curves: the symbol's, and the reading direction.
+    curveSignature: (): number[] => {
+      const a = liveAxis()
+      return [...signatureOf(symbol), a.x, a.y, a.z]
+    },
     worldCurves: (): Vec3Like[][] => {
       const a = liveAxis()
       return curvesOf(symbol).map((c) =>

@@ -139,16 +139,61 @@ const chainOf = (h: Holon): number[] => {
  * for the cases that have a cheap answer, exact (the curves themselves)
  * for the rest.
  */
-const signatureOf = (h: Holon): number[] => {
+export const signatureOf = (h: Holon): number[] => {
   if (bearsCurves(h) && h.curveSignature) return h.curveSignature()
   if (h instanceof SolidDrawing) return [...h.signature(), ...chainOf(h)]
   if (h instanceof Line) return [h.geomVersion, h.drawStart.value, h.drawReversed.value ? 1 : 0, ...chainOf(h)]
   if (h instanceof Stroke && !bearsCurves(h)) {
-    const nums = [...h.params.values()].map((p) => p.value).filter((x): x is number => typeof x === "number")
+    // Geometry only: a morph hides and shows its ends (opacity, fill) as it
+    // goes, which moves no curve and must not re-plan it.
+    const nums = [...h.params.entries()]
+      .filter(([name]) => name !== "opacity" && name !== "fillOpacity")
+      .map(([, p]) => p.value)
+      .filter((x): x is number => typeof x === "number")
     if (worldOutlineOf(h, 8)) return [...nums, ...chainOf(h)]
   }
   return curvesOf(h).flatMap((c) => c.flatMap((p) => [p.x, p.y, p.z]))
 }
+
+/**
+ * The idle planner: every MorphCurves is watched (weakly); in the
+ * browser's idle time each one waiting at its start is asked to prewarm()
+ * its plan, so a morph's first frame does not pay for it. Outside a
+ * browser (tests, renders) nothing is scheduled — the plan is built on the
+ * first frame that needs it, as ever.
+ */
+const restingMorphers = (() => {
+  const watched = new Set<WeakRef<MorphCurves>>()
+  const idle = (globalThis as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void) => number })
+    .requestIdleCallback
+  let scheduled = false
+  const tick = (deadline: { timeRemaining(): number }) => {
+    scheduled = false
+    for (const ref of watched) {
+      if (deadline.timeRemaining() < 4) break
+      const m = ref.deref()
+      if (!m) {
+        watched.delete(ref)
+        continue
+      }
+      m.prewarm()
+    }
+    schedule()
+  }
+  const schedule = () => {
+    if (scheduled || !idle || !watched.size) return
+    scheduled = true
+    // A look every ~100 ms is plenty: a morph is staged long before it plays.
+    setTimeout(() => idle(tick), 100)
+  }
+  return {
+    watch(m: MorphCurves) {
+      if (!idle) return
+      watched.add(new WeakRef(m))
+      schedule()
+    },
+  }
+})()
 
 /** A shape's fingerprint: FNV-1a over its points rounded to 1e-3. */
 const hashCurves = (cs: Vec3Like[][]): string => {
@@ -289,6 +334,42 @@ export class MorphCurves extends Stroke {
           `A morph carries curves from somewhere to somewhere; to make something appear from nothing, Create it.`,
       )
     this.ends = { sources, targets, opts: { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, pairwise } }
+    restingMorphers.watch(this)
+  }
+
+  /** What the plan is a function of: both sides' curves, the view, the reading axis. */
+  private planKey(): number[] {
+    const { sources, targets, opts } = this.ends
+    const obs = opts.observer
+    return [
+      ...sources.flatMap((h) => [-1, ...signatureOf(h)]),
+      -2,
+      ...targets.flatMap((h) => [-1, ...signatureOf(h)]),
+      ...(obs ? [obs.phi.value, obs.theta.value, obs.orthographic.value ? 1 : 0] : []),
+      ...((a) => (a ? [a.x, a.y, a.z] : []))(this.axisNow()),
+    ]
+  }
+
+  private idleKey?: number[]
+  /**
+   * Plan AHEAD, in idle time, while the morph waits at its start: once the
+   * inputs have held still across two idle looks, the plan the first
+   * moving frame will ask for is built now — the same pure function of
+   * the same inputs, so nothing a frame shows changes, only when the work
+   * is done. Inputs that keep moving (a dot riding a flow) are left alone.
+   * Returns whether it planned.
+   */
+  prewarm(): boolean {
+    if (this.morph.value > 0) return false
+    const key = this.planKey()
+    if (this.planMemo && sameKey(this.planMemo.key, key)) return false
+    if (!this.idleKey || !sameKey(this.idleKey, key)) {
+      this.idleKey = key
+      return false
+    }
+    this.planEpoch = -1
+    this.plan()
+    return true
   }
 
   /** The current plan — re-planned only when an input's curves change. */
@@ -300,13 +381,7 @@ export class MorphCurves extends Stroke {
     this.planEpoch = epoch
     const { sources, targets, opts } = this.ends
     const obs = opts.observer
-    const key = [
-      ...sources.flatMap((h) => [-1, ...signatureOf(h)]),
-      -2,
-      ...targets.flatMap((h) => [-1, ...signatureOf(h)]),
-      ...(obs ? [obs.phi.value, obs.theta.value, obs.orthographic.value ? 1 : 0] : []),
-      ...((a) => (a ? [a.x, a.y, a.z] : []))(this.axisNow()),
-    ]
+    const key = this.planKey()
     if (this.planMemo && sameKey(this.planMemo.key, key)) return this.planMemo
     const srcOwner: Holon[] = []
     const tgtOwner: Holon[] = []
