@@ -593,3 +593,77 @@ Note for anyone running worktrees here: DreamTalk is a submodule whose
 shared config sets `core.worktree`, so `git -C <linked-worktree>` status /
 checkout can report on or touch the MAIN tree. Verify a worktree's
 content with `git show <rev>:<path> | cmp` rather than its git status.
+
+## Perf J (2026-10-13/14) — per-holon dirty tracking, and where the ceiling is now
+
+All changes byte-identical: sha1 of screenshots, before/after bundle, 10
+scenes (web3, flowmap, earth, lens, thewall, founding, gallery, geoflow,
+lens-flowmap, s04) × 13 frames — 7 random-access jumps AND 6 inside a run
+of consecutive playback frames, because every skip below depends on the
+previous frame. Live playback (consecutive frames at 30 fps), same session:
+
+| scene | before | after | |
+|---|---|---|---|
+| web3 | 51.3 ms | 21.0 ms | −59% (sync 34.7 → 10.1) |
+| thewall | 31.2 ms | 23.0 ms | −26% |
+| geoflow | 17.1 ms | 13.0 ms | −24% |
+| flowmap | 8.9 ms | 7.0 ms | −22% |
+
+What it took (src/render/three-host.ts unless noted):
+
+1. **Targeted matrix settle.** three's `scene.updateMatrixWorld()` walked
+   every node (Web3 ~72k, twice a frame with Text) to find the few needing
+   work. Now only the groups sync() re-composed and the meshes three still
+   auto-updates are visited, merged in depth-first order, each subtree once
+   — the same calls on the same inputs. Any reparenting (a page-wide
+   add/remove counter) falls back to the full walk and re-indexes.
+2. **Change-driven groups** (`Param.watch`, params.ts). A param's own change
+   (value, gate, bias, binding) flags its watching group bindings; a group
+   with no bound param and no change costs one flag read. A no-op gate
+   write is no change (`Param.changedAt`).
+3. **Awake lists.** A song's sleeping chapters are filtered out of every
+   per-binding loop once per change of dormancy, order kept — the exact set
+   the per-binding `asleep()` check used to let through.
+4. **No proxy in the hot loop.** song.ts resolves each chapter's opacity
+   params once (the visibility pass read `holon.opacity` through the Proxy
+   ~32k times a frame); a Line's geometry check reads past the proxy
+   (`rawHolon`, holon.ts) and its phase params directly.
+5. **TheWall's cable clock** — a 40-step bisection read by every creature's
+   cable several times a frame — memoised per paramEpoch + inputs.
+
+Declined, with the data:
+
+- **Freezing sleeping chapters' transforms**: a waking chapter meters its
+  pens from previous-frame matrices — not exact.
+- **Group-level visibility pruning**: nodes three visits inside subtrees that
+  draw nothing — geoflow 4,249/6,057, web3 849/2,519, flowmap 871/1,597,
+  thewall 0 — but `_projectObject` is ≤0.65 ms; the ceiling is ~0.45 ms.
+- **Batching fills/washes**: draw order IS the composite and fills sit
+  between stroke runs (thewall's 236 fills separate its 237 runs). The
+  existing ribbon batch, forced on: web3 60.2 ms vs per-mesh 22.0 (6,466
+  runs = draws, + ~8 ms pack), flowmap 10.1 vs 7.3; identical to per-mesh
+  except inside crossfade/dissolve windows (fade layers; up to 52/255).
+- **Skipping unchanged `style()`**: it only writes userData; three uploads
+  every drawn object's uniforms regardless — no measurable gain.
+
+### Where the frame goes now (GPU-completion timing, 2026-10-14)
+
+CPU = `renderFrame`; GPU tail = the wait on `queue.onSubmittedWorkDone()`
+after it (GPU work starts at submission):
+
+| scene | CPU | GPU tail | bound by |
+|---|---|---|---|
+| web3 | 22.2 ms | 11.4 ms | CPU |
+| geoflow | 13.1 ms | 10.9 ms | ~balanced |
+| thewall | 20.9 ms | 19.1 ms | ~balanced |
+
+Web3's CPU is now mostly **native WebGPU per drawn object** — the profile's
+"(program)" ~15.5 ms (command encoding, per-object uniform/vertex uploads)
+for ~834 drawn ribbons — not JS: sync() is ~2 ms self. That is the old
+submission ceiling (Item I), unchanged in kind. The one lever left is
+**fewer draws without reordering**: per-frame merging of consecutive batch
+runs that have nothing visible between them (one storage buffer, draws by
+slot range), plus a per-mesh fallback inside fade windows for exactness.
+Estimated: removes most of the ~15 ms native cost on web3 against a pack
+cost already ~8 ms — worth building only if web3-class songs must hit
+60 fps. Geoflow and TheWall are now about as GPU- as CPU-bound.
