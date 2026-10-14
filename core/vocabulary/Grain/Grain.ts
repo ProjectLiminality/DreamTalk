@@ -380,7 +380,10 @@ export class Grain extends Stroke {
       const sym = symbol({
         observer,
         shareViews: VIEW_STEP,
-        lineSlots: 0,
+        // One (empty) line slot, not none: a Stroke whose parts are ALL closed
+        // Lines is washed by the host as one even-odd drawing, which would
+        // swallow the fills.
+        lineSlots: 1,
         stroke: this.stroke,
         tint: this.tint,
         fillOpacity: derive(typeFill),
@@ -402,7 +405,10 @@ export class Grain extends Stroke {
         const exact = item({
           observer,
           shareViews: VIEW_STEP,
-          lineSlots: 0,
+          // One (empty) line slot, not none: a Stroke whose parts are ALL closed
+          // Lines is washed by the host as one even-odd drawing, which would
+          // swallow the fills.
+          lineSlots: 1,
           stroke: this.stroke,
           tint: this.tint,
           fillOpacity: derive(() => phases().item.fillIn),

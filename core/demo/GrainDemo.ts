@@ -269,6 +269,8 @@ export class FlowMapGrainDream extends Dream {
     radius: 300,
     // Materials are bigger than dots: sparser, so each reads as one thing.
     spacing: this.spacing(),
+    // Half the gap between particles: a flow of things, not a queue.
+    particleSize: 0.5,
     seenBy: () => this.observer,
     data: {
       ...MOCK_FLOWMAP,
