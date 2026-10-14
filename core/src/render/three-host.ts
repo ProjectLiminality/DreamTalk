@@ -2560,16 +2560,17 @@ export class ThreeHost {
    * thing that is also hovered simply stays fully lit. `amount` is the
    * intensity (glow.ts HOVER = faint, SELECTED = 1) and may be re-set
    * every frame to animate it. Interaction only: it lives here, never in
-   * the Dream. Takes effect on the next renderFrame().
+   * the Dream. Takes effect on the next renderFrame(); returns whether
+   * anything changed (a held view repaints only then).
    */
-  attend(channel: string, target: Holon | readonly Holon[] | null, amount = 1): void {
+  attend(channel: string, target: Holon | readonly Holon[] | null, amount = 1): boolean {
     const targets: readonly Holon[] = !target ? [] : Array.isArray(target) ? target : [target as Holon]
     const prior = this.attention.get(channel)
     // Unchanged: nothing to do (a caller may re-state its attention every frame).
     if (targets.length === 0 || amount <= 0) {
-      if (!prior) return
+      if (!prior) return false
     } else if (prior && prior.amount === amount && targets.length === prior.roots.length && targets.every((h, i) => h === prior.roots[i])) {
-      return
+      return false
     }
     if (targets.length === 0 || amount <= 0) this.attention.delete(channel)
     else {
@@ -2585,6 +2586,7 @@ export class ThreeHost {
     for (const { holons, amount: a } of this.attention.values()) {
       for (const holon of holons) if (a > (this.attended.get(holon) ?? 0)) this.attended.set(holon, a)
     }
+    return true
   }
 
   /** Does this holon (or anything below it) draw ink a glow can follow? */
