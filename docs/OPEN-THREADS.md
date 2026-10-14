@@ -153,6 +153,13 @@ when done.
   async text re-layout lands~~ — done 2026-10-04: `onTextLayout` in
   render/text.ts fires when glyphs land; the demo player redraws its held
   frame and the paused editor repaints (one per animation frame).
+- **The golden glow is built (2026-10-13, `src/glow.ts`):** hovered = a faint
+  glow, selected = full, around the holon's actual ink (strokes, fill edges,
+  letters, 3D solids' silhouettes) — the editor's selection and hover, the
+  player's creator mode. Open: David's eye on rim/aura widths and the hover
+  intensity (`render/glow.ts` RIM_PX/AURA_PX, glow.ts HOVER); a "fire"
+  breath for the game loop's handles; the whiteboard keeps its own
+  black/white selection frame (the tablet mirror is monochrome).
 - **Changes are git-tracked**; Claude-artifact-style comment mode generalised to
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its
