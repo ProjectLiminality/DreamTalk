@@ -251,13 +251,14 @@ interface GroupBinding {
    */
   applied: Float64Array
   /**
-   * The paramEpoch at which the transform was last read (−1: never). An
-   * unbound param that has not changed since (`changedAt`) still says what
-   * it said then, so a group none of whose params is bound or changed is
+   * Set by any of the transform params changing (Param.watch) — so a group
+   * none of whose params is bound or changed since its last read is
    * skipped without reading any of them (perf J — most of a song's ~32k
-   * groups, every frame).
+   * groups, every frame). Starts true: the first sync reads everything.
    */
-  checkedAt: number
+  dirty: boolean
+  /** Is any transform param bound (its reading may change unwritten)? Re-read whenever dirty. */
+  anyBound: boolean
 }
 
 /**
@@ -931,6 +932,28 @@ export class ThreeHost {
     return this.dormant !== undefined && this.dormant.has(this.rootOf.get(holon)!)
   }
 
+  /** Bumped whenever the SET of dormant roots changes (not every frame). */
+  private dormancyVersion = 0
+  private readonly awakeCache = new WeakMap<readonly unknown[], { version: number; n: number; list: unknown[] }>()
+
+  /**
+   * The bindings of `list` that are awake, in their original order — the
+   * exact set the per-binding `asleep` check used to let through, filtered
+   * once per change of dormancy instead of asked of every binding every
+   * frame (perf J: Web3 asked it of ~32k strokes a frame for ~1.6 ms). The
+   * whole list outside a song.
+   */
+  private awake<B extends { holon: Holon }>(list: readonly B[]): readonly B[] {
+    if (this.dormant === undefined) return list
+    // Keyed on the list and its length too: bindings are appended after
+    // mount (a text's contours), and a grown list must be filtered again.
+    const hit = this.awakeCache.get(list)
+    if (hit && hit.version === this.dormancyVersion && hit.n === list.length) return hit.list as B[]
+    const awake = list.filter((b) => !this.asleep(b.holon))
+    this.awakeCache.set(list, { version: this.dormancyVersion, n: list.length, list: awake })
+    return awake
+  }
+
   /** Read the song's live roots; hide the dormant chapters' root groups. */
   private updateDormancy(): void {
     const live = (this.dream as { liveRoots?: ReadonlySet<Holon> }).liveRoots
@@ -945,6 +968,8 @@ export class ThreeHost {
       if (asleep) dormant.add(root)
       group.visible = !asleep
     }
+    const prev = this.dormant
+    if (!prev || prev.size !== dormant.size || [...dormant].some((r) => !prev.has(r))) this.dormancyVersion++
     this.dormant = dormant
   }
   /** Fills stack over strokes and over earlier fills — see fill.ts. */
@@ -1115,8 +1140,11 @@ export class ThreeHost {
       group,
       transform: [holon.x, holon.y, holon.z, holon.p, holon.h, holon.b, holon.scale],
       applied: new Float64Array(7).fill(Number.NaN),
-      checkedAt: -1,
+      dirty: true,
+      anyBound: true,
     })
+    const binding = this.groups[this.groups.length - 1]!
+    for (const p of binding.transform) p.watch(binding)
 
     if (holon instanceof Text) {
       const order = holon.composite === "first" ? undefined : this.claimFillOrder()
@@ -1489,19 +1517,13 @@ export class ThreeHost {
     this.matricesSettled = false
     this.updateDormancy()
     for (const binding of this.groups) {
+      if (!binding.dirty && !binding.anyBound) continue
       const { group, transform: tr, applied: last } = binding
-      if (binding.checkedAt >= 0) {
-        let fresh = true
-        for (let k = 0; k < 7; k++) {
-          const p = tr[k]!
-          if (p.isBound || p.changedAt > binding.checkedAt) {
-            fresh = false
-            break
-          }
-        }
-        if (fresh) continue
+      if (binding.dirty) {
+        // A follow() is a change too, so a newly bound param re-arms this.
+        binding.dirty = false
+        binding.anyBound = tr.some((p) => p.isBound)
       }
-      binding.checkedAt = paramEpoch()
       const x = tr[0]!.value
       const y = tr[1]!.value
       const z = tr[2]!.value
@@ -1550,9 +1572,8 @@ export class ThreeHost {
     // confirmed in one compare. Playback writes params every frame, so it
     // never takes this path; nothing it skips could differ.
     const held = this.syncedEpoch === paramEpoch()
-    for (const binding of this.strokes) {
+    for (const binding of this.awake(this.strokes)) {
       const { holon, ribbon } = binding
-      if (this.dormant && this.asleep(holon)) continue
       // The geometry dirty-check: an O(1) version+phase compare for a Line
       // (the many-point case that dominated this loop), the small
       // shape-param array for a parametric shape. A superset of the old
@@ -1591,9 +1612,8 @@ export class ThreeHost {
         erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1,
       )
     }
-    for (const binding of this.fills) {
+    for (const binding of this.awake(this.fills)) {
       const { holon, fill } = binding
-      if (this.dormant && this.asleep(holon)) continue
       if (!held && sigChanged(holon, binding.sig)) {
         fill.setPolygon(
           holon instanceof Ellipse
@@ -1609,9 +1629,8 @@ export class ThreeHost {
       )
       if (binding.gradient) fill.setGradient(look.fillFalloff.value, look.fillFalloffRadius.value)
     }
-    for (const binding of this.washes) {
+    for (const binding of this.awake(this.washes)) {
       const { holon, fill } = binding
-      if (this.dormant && this.asleep(holon)) continue
       if (!held && sigChanged(holon, binding.sig)) {
         const washed = washGeometry(holon)
         if (washed) fill.setPolygon(washed.points, washed.triangles)
@@ -1627,9 +1646,8 @@ export class ThreeHost {
       )
       if (binding.gradient) fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value)
     }
-    for (const binding of this.surfaces) {
+    for (const binding of this.awake(this.surfaces)) {
       const { holon, fill } = binding
-      if (this.dormant && this.asleep(holon)) continue
       if (holon.geomVersion !== binding.version) {
         binding.version = holon.geomVersion
         fill.setMesh(holon.positions, holon.indices)
@@ -1640,9 +1658,8 @@ export class ThreeHost {
         fill.setGradientAt(holon.fillFalloffX.value, holon.fillFalloffY.value, holon.fillFalloffZ.value)
       }
     }
-    for (const binding of this.drawingWashes) {
+    for (const binding of this.awake(this.drawingWashes)) {
       const { holon, fill } = binding
-      if (this.dormant && this.asleep(holon)) continue
       // The geometry watched is the SUBPATHS', since the drawing holon
       // has no polyline of its own — tracked by the sum of the subpath
       // Lines' geomVersions plus their count (drawingSig), an O(childCount)
@@ -1976,8 +1993,7 @@ export class ThreeHost {
       cam instanceof THREE.OrthographicCamera ? (cam.top - cam.bottom) / heightPx : 0
     const camPos = cam.position
 
-    for (const { ribbon, group, holon } of this.strokes) {
-      if (this.dormant && this.asleep(holon)) continue
+    for (const { ribbon, group } of this.awake(this.strokes)) {
       const mesh = ribbon.mesh
       // Additive: never reconsider what style() already hid, and leave
       // empty/uninitialised strokes (radius 0) to the existing rule.

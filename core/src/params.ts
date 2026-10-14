@@ -73,6 +73,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   #gate = 1
   #bias = 0
   #changedAt = 0
+  #watchers?: { dirty: boolean }[]
 
   constructor(
     kind: ParamKind,
@@ -117,7 +118,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   set gate(k: number) {
     if (Object.is(k, this.#gate)) return
     this.#gate = k
-    this.#changedAt = ++epoch
+    this.#changed()
   }
 
   /**
@@ -139,7 +140,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   set bias(d: number) {
     if (d === this.#bias) return
     this.#bias = d
-    this.#changedAt = ++epoch
+    this.#changed()
   }
 
   set value(v: T) {
@@ -153,7 +154,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
     // every frame, and a held frame must read as held — three-host sync).
     if (Object.is(v, this.#value)) return
     this.#value = v
-    this.#changedAt = ++epoch
+    this.#changed()
   }
 
   /**
@@ -171,7 +172,24 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   /** Delegate this param to a derived reading (a read-only binding). */
   follow(source: Readable<T>): void {
     this.#source = source
+    this.#changed()
+  }
+
+  /**
+   * Be told when this param changes something of its OWN (a value, a gate,
+   * a bias, a binding): `w.dirty` is set true. The host's group bindings
+   * watch their transform params, so an untouched group costs one flag
+   * read a frame (perf J). A bound param's reading can change with no
+   * write of its own — a watcher must also read bound params itself.
+   */
+  watch(w: { dirty: boolean }): void {
+    ;(this.#watchers ??= []).push(w)
+  }
+
+  #changed(): void {
     this.#changedAt = ++epoch
+    const ws = this.#watchers
+    if (ws) for (let i = 0; i < ws.length; i++) ws[i]!.dirty = true
   }
 
   get isBound(): boolean {
