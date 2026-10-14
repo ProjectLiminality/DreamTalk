@@ -343,7 +343,7 @@ describe("FlowMap", () => {
     const chord = Math.atan2(-(b.z - a.z), b.x - a.x)
     // Along the channel to within its bow, plus the 3/4 offset.
     expect(Math.abs(carrier.h.value - m.symbolYaw.value - chord)).toBeLessThan(0.8)
-    expect((flow.dots[1] as unknown as { size: { value: number } }).size.value).toBeCloseTo((m.particleSize.value * m.spacing.value) / (MOCK_FLOWMAP.flows.find((f) => f.stage === "semi")!.rate ?? 1), 9)
+    expect((flow.dots[1] as unknown as { size: { value: number } }).size.value).toBeCloseTo((m.particleSize.value * m.spacing.value) / Math.max(...MOCK_FLOWMAP.flows.filter((f) => f.stage === "semi").map((f) => f.rate ?? 1)), 9)
     // Dot stages keep their camera-facing carriers (a full turn: p and b
     // bound too); a material carrier turns by heading only.
     const raw = m.stage("raw").flows[0]!

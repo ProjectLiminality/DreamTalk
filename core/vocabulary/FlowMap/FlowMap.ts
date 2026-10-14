@@ -876,6 +876,7 @@ export class FlowMap extends Null {
       const dots: (Circle | Grain)[] = []
       const carriers: Group[] = []
       const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
+      const stageRate = Math.max(...d.flows.filter((g) => g.stage === f.stage).map((g) => g.rate ?? 1))
       for (let j = 0; j < n; j++) {
         let memoEpoch = -1
         let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0 }
@@ -912,9 +913,10 @@ export class FlowMap extends Null {
           ? new Grain({
               observer: this.seenBy?.(),
               radius: derive(() => R() * 0.02),
-              // As large as the gap between particles allows — symbols never
-              // overlap; a scene that wants them bigger raises `spacing`.
-              size: derive(() => this.particleSize.value * sp()),
+              // As large as the gap the stage's DENSEST flow allows — so the
+              // stage's symbols match and never overlap; a scene that wants
+              // them bigger raises `spacing`.
+              size: derive(() => (this.particleSize.value * this.spacing.value) / stageRate),
               category: tint,
               // Rung 0 is a neutral grey dot — mass only, kind unknown — so a
               // material stage can climb the whole ladder (stage(id).rung 0 → 2).
