@@ -11,7 +11,7 @@ import { __dt } from "../editor/anchors"
 import { addressable, morphOp, MORPH_SECONDS } from "../editor/morphto"
 
 class Dot extends Holon {
-  creation = completion(1)
+  lit = completion(1)
 }
 class Pair extends Holon {
   left = new Dot()
@@ -22,9 +22,10 @@ class TwoDream extends Dream {
   dot = new Dot()
   pair = new Pair()
   unfold() {
-    this.stage(this.dot, this.pair)
-    __dt(this.play(this.dot.creation.to(1), 2), "core/demo/Two.ts:100:140")
-    __dt(this.play(this.dot.creation.to(1), 3), "core/demo/Two.ts:150:190")
+    this.stage(this.dot)
+    this.stage(this.pair)
+    __dt(this.play(this.dot.lit.to(1), 2), "core/demo/Two.ts:100:140")
+    __dt(this.play(this.dot.lit.to(1), 3), "core/demo/Two.ts:150:190")
   }
 }
 

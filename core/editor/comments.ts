@@ -182,6 +182,9 @@ export const mountComments = (
 
   section.appendChild(composer)
   host.appendChild(section)
+  // The inspector outlives a remount (#panel is not rebuilt): leave with
+  // the mount that made this, or every reload stacks one more.
+  signal.addEventListener("abort", () => section.remove())
 
   const changed = () => ctx.onChange?.(all)
 

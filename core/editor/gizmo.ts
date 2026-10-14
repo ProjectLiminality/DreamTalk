@@ -191,6 +191,9 @@ export const mountGizmoSwitch = (
 
   section.appendChild(bar)
   host.appendChild(section)
+  // The inspector outlives a remount (#panel is not rebuilt): leave with
+  // the mount that made this, or every reload stacks one more.
+  signal.addEventListener("abort", () => section.remove())
 
   const paint = () => {
     for (const [mode, b] of buttons) b.classList.toggle("active", mode === current)
