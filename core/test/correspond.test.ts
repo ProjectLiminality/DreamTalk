@@ -16,6 +16,7 @@ import { describe, expect, test } from "bun:test"
 import {
   blendPlan,
   correspond,
+  crossingsOf,
   cumulative,
   planMorph,
   totalLength,
@@ -266,5 +267,53 @@ describe("rigid-then-deform travel", () => {
     const one = [arc(0, 0, 100, 0, Math.PI)]
     const { pieces } = correspond(one, [circle(0, 0, 50)], { order: "sweep-angular" })
     expect(pieces.length).toBeLessThanOrEqual(2)
+  })
+})
+
+describe("nearest order", () => {
+  // Relations: arcs from sites scattered round a hub, all converging on it,
+  // bowing to one side — GeoFlow's relation arcs → the group's circle.
+  const hub = { x: 0, y: 0, z: 0 }
+  const sites = [
+    [-73, 57], [86, -112], [-126, 19], [231, -197], [-75, 165], [-261, -123], [-75, 124], [-108, 144], [21, -100], [117, 104],
+  ].map(([x, y]) => ({ x: x!, y: y!, z: 0 }))
+  const arcs = sites.map((s) =>
+    Array.from({ length: 33 }, (_, i) => {
+      const t = i / 32
+      const mx = (s.x + hub.x) / 2 - (hub.y - s.y) * 0.25
+      const my = (s.y + hub.y) / 2 + (hub.x - s.x) * 0.25
+      return {
+        x: (1 - t) ** 2 * s.x + 2 * t * (1 - t) * mx + t * t * hub.x,
+        y: (1 - t) ** 2 * s.y + 2 * t * (1 - t) * my + t * t * hub.y,
+        z: 0,
+      }
+    }),
+  )
+  const ring = Array.from({ length: 129 }, (_, i) => ({
+    x: 220 * Math.cos((i / 128) * 2 * Math.PI),
+    y: -40 + 220 * Math.sin((i / 128) * 2 * Math.PI),
+    z: 0,
+  }))
+
+  test("arcs converging on one place land uncrossed — fewer crossed paths than angular", () => {
+    const near = correspond(arcs, [ring], { order: "nearest" })
+    const ang = correspond(arcs, [ring], { order: "angular" })
+    const xn = crossingsOf(near, arcs, [ring])
+    const xa = crossingsOf(ang, arcs, [ring])
+    expect([xa, xn]).toEqual([2, 0])
+    // still a correspondence: every bit of the ring covered exactly once
+    const covered = near.pieces.reduce((s, p) => s + Math.abs(p.to[1] - p.to[0]), 0)
+    expect(covered).toBeCloseTo(cumulative(ring).at(-1)!, 3)
+  })
+
+  test("the default; where angular is as good (shapes ringing one centre) the plan IS angular's", () => {
+    const around = Array.from({ length: 8 }, (_, k) =>
+      Array.from({ length: 9 }, (_, i) => {
+        const a = ((k + i / 8 * 0.7) / 8) * 2 * Math.PI
+        return { x: 300 * Math.cos(a), y: 300 * Math.sin(a), z: 0 }
+      }),
+    )
+    expect(correspond(around, [ring])).toEqual(correspond(around, [ring], { order: "angular" }))
+    expect(correspond(around, [ring], { order: "nearest" })).toEqual(correspond(around, [ring], { order: "angular" }))
   })
 })

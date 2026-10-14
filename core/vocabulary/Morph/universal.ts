@@ -131,7 +131,7 @@ const routeOptions = (route: MorphRoute): Partial<MorphCurvesOptions> =>
   route === "point"
     ? { travel: "lerp", lag: 0, chain: false, minor: 0, order: "angular" }
     : route === "gather"
-      ? { order: "angular", snap: 0.05, minor: 0 }
+      ? { order: "nearest", snap: 0.05, minor: 0 }
       : { minor: 0.25 }
 
 /** Morph a into b (see the header). */

@@ -35,7 +35,16 @@
  * What remains is a choice of ORDER (which curve goes where on each
  * tape, and which way round it runs). That is the strategy:
  *
- *   "angular"  (default) curves sorted by the angle of their midpoint
+ *   "nearest"  (default) each source laid on the target tape where its
+ *              share lies nearest it (a min-travel assignment over the
+ *              angular target tape, see nearestSlots), then the same
+ *              rotation search. Scattered lines each land on the part of
+ *              the circle nearest them — arcs that all converge on one
+ *              place (a group's relations, an Earth's connections) no
+ *              longer cross on their way. Judged against "angular" by
+ *              crossed paths, then travel; where angular is as good (the
+ *              shapes ring one centre) the result IS angular's.
+ *   "angular"  curves sorted by the angle of their midpoint
  *              about the common centre, read in a plane (the view plane
  *              when a normal is given), each oriented to sweep counter-
  *              clockwise; then the target tape is ROTATED to the offset
@@ -87,10 +96,10 @@ import type { Vec3Like } from "../parts/primitives"
 /** A curve: a polyline in 3D. A closed curve ends on its first point. */
 export type Curve = readonly Vec3Like[]
 
-export type CorrespondOrder = "angular" | "sweep" | "sweep-angular" | "given"
+export type CorrespondOrder = "angular" | "sweep" | "sweep-angular" | "nearest" | "given"
 
 export interface CorrespondOptions {
-  /** How curves are ordered on each tape. Default "angular". */
+  /** How curves are ordered on each tape. Default "nearest" (which falls back to "angular" where that crosses no more paths). */
   order?: CorrespondOrder
   /**
    * The plane "angular" reads angles in, as its normal — pass the
@@ -279,6 +288,146 @@ const orderCurves = (
   return keyed.map(({ index, reversed }) => ({ index, reversed, length: lengths[index]! }))
 }
 
+/**
+ * "nearest": the source curves laid on the tape so each one's share of the
+ * (angularly ordered) target tape lies as near it as the shares allow —
+ * scattered lines each land on the part of the circle nearest them, not
+ * on the part their angle round the common centre happens to point at.
+ *
+ * The cost of an order is, per source, its share's weight × (its ink's
+ * centre to the share's centre² + its ends to the share's ends², the
+ * cheaper orientation). Searched from two seeds — each source at its
+ * nearest tape position, and the angular order — by moving one source at
+ * a time to its best place while anything improves (variable-width shares
+ * on a cycle are not a plain matching problem; this local search is
+ * exact on every case we have). The tape's rotation is scanned with each
+ * order and searched again, finely, by the caller.
+ */
+const nearestSlots = (
+  curves: readonly Curve[],
+  lengths: readonly number[],
+  tgtAt: (u: number) => Vec3Like,
+  /** Another order to start from (the angular one); the cheaper result wins. */
+  seed?: readonly number[],
+): Slot[] => {
+  const n = curves.length
+  const total = lengths.reduce((a, b) => a + b, 0)
+  const w = lengths.map((l) => (total > 0 ? l / total : 1 / n))
+  const cums = curves.map(cumulative)
+  const cen = curves.map((c, i) => pointAt(c, cums[i]!, lengths[i]! / 2))
+  const mid = curves.map((c) => centreOf([c]))
+  const head = curves.map((c) => c[0]!)
+  const tail = curves.map((c) => c[c.length - 1]!)
+  // The target tape, sampled; prefix sums give any interval's centre in O(1).
+  const F = 1024
+  const table = Array.from({ length: F }, (_, j) => tgtAt((j + 0.5) / F))
+  const px = [0]
+  const py = [0]
+  const pz = [0]
+  for (let j = 0; j < 2 * F; j++) {
+    const q = table[j % F]!
+    px.push(px[j]! + q.x)
+    py.push(py[j]! + q.y)
+    pz.push(pz[j]! + q.z)
+  }
+  const at = (u: number) => table[Math.min(F - 1, Math.floor(mod1(u) * F))]!
+  const meanOn = (u0: number, wd: number): Vec3Like => {
+    const a = Math.floor(mod1(u0) * F)
+    const k = Math.min(F, Math.max(1, Math.round(wd * F)))
+    return { x: (px[a + k]! - px[a]!) / k, y: (py[a + k]! - py[a]!) / k, z: (pz[a + k]! - pz[a]!) / k }
+  }
+  const pieceCost = (i: number, u0: number): number => {
+    const wd = w[i]!
+    const m = meanOn(u0, wd)
+    const A = at(u0)
+    const B = at(u0 + wd)
+    const ends = Math.min(dist2(head[i]!, A) + dist2(tail[i]!, B), dist2(tail[i]!, A) + dist2(head[i]!, B))
+    // Judged by where the ink is (its mass centre) and by its middle: a
+    // long bent arc is not only its chord's midpoint.
+    return wd * (dist2(mid[i]!, m) + dist2(cen[i]!, m) + ends / 2)
+  }
+  const costOf = (order: readonly number[], delta: number): number => {
+    let c = 0
+    let u = delta
+    for (const i of order) {
+      c += pieceCost(i, u)
+      u += w[i]!
+    }
+    return c
+  }
+  const bestDelta = (order: readonly number[]): [number, number] => {
+    let best = 0
+    let bestC = Infinity
+    for (let j = 0; j < F; j += 4) {
+      const c = costOf(order, j / F)
+      if (c < bestC - 1e-12) {
+        bestC = c
+        best = j / F
+      }
+    }
+    return [best, bestC]
+  }
+  // Each source's nearest place on the tape.
+  const pref = mid.map((c) => {
+    let best = 0
+    let bd = Infinity
+    for (let j = 0; j < F; j++) {
+      const d = dist2(c, table[j]!)
+      if (d < bd) {
+        bd = d
+        best = j
+      }
+    }
+    return best / F
+  })
+  const improve = (start: readonly number[]): [number[], number, number] => {
+    let order = [...start]
+    let [delta, cost] = bestDelta(order)
+    // (Each round is n² orders of n pieces: past a few dozen curves the
+    // seeds stand as they are.)
+    const rounds = n > 48 ? 0 : 6
+    for (let r = 0; r < rounds; r++) {
+      let improved = false
+      for (let k = 0; k < n; k++) {
+        const i = order[k]!
+        const rest = order.filter((_, j) => j !== k)
+        let bestAt = k
+        let bestC = cost
+        for (let p = 0; p <= rest.length; p++) {
+          if (p === k) continue
+          const c = costOf([...rest.slice(0, p), i, ...rest.slice(p)], delta)
+          if (c < bestC - 1e-9 * Math.max(1, cost)) {
+            bestC = c
+            bestAt = p
+          }
+        }
+        if (bestAt !== k) {
+          order = [...rest.slice(0, bestAt), i, ...rest.slice(bestAt)]
+          cost = bestC
+          improved = true
+        }
+      }
+      ;[delta, cost] = bestDelta(order)
+      if (!improved) break
+    }
+    return [order, delta, cost]
+  }
+  const candidates = [improve([...Array(n).keys()].sort((a, b) => pref[a]! - pref[b]! || a - b))]
+  if (seed && seed.length === n) candidates.push(improve(seed))
+  const [order, delta] = candidates.reduce((a, b) => (b[2] < a[2] - 1e-9 * Math.max(1, a[2]) ? b : a))
+  // Each curve oriented so its start meets its share's start.
+  const slots: Slot[] = []
+  let u = delta
+  for (const i of order) {
+    const A = at(u)
+    const B = at(u + w[i]!)
+    const reversed = dist2(tail[i]!, A) + dist2(head[i]!, B) < dist2(head[i]!, A) + dist2(tail[i]!, B) - 1e-12
+    slots.push({ index: i, reversed, length: lengths[i]! })
+    u += w[i]!
+  }
+  return slots
+}
+
 // ─── The tapes ──────────────────────────────────────────────────────
 
 /** Normalised boundaries of a tape: b[0] = 0 … b[n] = 1. */
@@ -337,8 +486,61 @@ export const correspond = (
   opts: CorrespondOptions = {},
 ): Correspondence => {
   if (opts.order === "sweep-angular") return sweepThenGather(sources, targets, opts)
+  // One source curve has one place on the tape — nearest IS angular.
+  const one = sources.filter((c) => c.length > 0).length <= 1
+  if ((opts.order ?? "nearest") === "nearest" && one) return correspondTapes(sources, targets, { ...opts, order: "angular" })
+  if ((opts.order ?? "nearest") === "nearest") {
+    // Never worse than the angular order it refines: both are planned and
+    // judged by what the eye reads — paths that CROSS first, travel second.
+    // Where the shapes ring one centre the two agree and angular stands;
+    // where they do not (arcs converging on one place), the nearest
+    // assignment uncrosses them.
+    const near = correspondTapes(sources, targets, { ...opts, order: "nearest" })
+    const ang = correspondTapes(sources, targets, { ...opts, order: "angular" })
+    const xn = crossingsOf(near, sources, targets, opts.normal)
+    const xa = crossingsOf(ang, sources, targets, opts.normal)
+    return xn < xa || (xn === xa && near.cost < ang.cost * 0.98) ? near : ang
+  }
+  return correspondTapes(sources, targets, opts)
+}
+
+/**
+ * How many pieces' paths cross, as seen along `normal`: each piece drawn as
+ * the straight segment from its source middle to its target middle.
+ */
+export const crossingsOf = (
+  c: Correspondence,
+  sources: readonly Curve[],
+  targets: readonly Curve[],
+  normal: Vec3Like = { x: 0, y: 0, z: 1 },
+): number => {
+  const [e1, e2] = planeBasis(normal)
+  const sCum = sources.map(cumulative)
+  const tCum = targets.map(cumulative)
+  const flat = (p: Vec3Like): [number, number] => [dot(p, e1), dot(p, e2)]
+  const segs = c.pieces.map((p) => [
+    flat(pointAt(sources[p.source]!, sCum[p.source]!, (p.from[0] + p.from[1]) / 2)),
+    flat(pointAt(targets[p.target]!, tCum[p.target]!, (p.to[0] + p.to[1]) / 2)),
+  ])
+  const side = (a: [number, number], b: [number, number], q: [number, number]) =>
+    (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])
+  let n = 0
+  for (let i = 0; i < segs.length; i++)
+    for (let j = i + 1; j < segs.length; j++) {
+      const [a, b] = segs[i]!
+      const [p, q] = segs[j]!
+      if (side(a!, b!, p!) * side(a!, b!, q!) < 0 && side(p!, q!, a!) * side(p!, q!, b!) < 0) n++
+    }
+  return n
+}
+
+const correspondTapes = (
+  sources: readonly Curve[],
+  targets: readonly Curve[],
+  opts: CorrespondOptions,
+): Correspondence => {
   const order = opts.order ?? "angular"
-  const rotate = opts.rotate ?? order === "angular"
+  const rotate = opts.rotate ?? (order === "angular" || order === "nearest")
   const snap = Math.max(0, opts.snap ?? 0)
   const src = sources.filter((c) => c.length > 0)
   const tgt = targets.filter((c) => c.length > 0)
@@ -357,10 +559,18 @@ export const correspond = (
   const keep = (lens: number[]) => (lens.some((l) => l > 0) ? (i: number) => lens[i]! > 0 : () => true)
   const keepS = keep(srcLen)
   const keepT = keep(tgtLen)
-  const sSlots = orderCurves(src, srcLen, order, centre, basis, axis).filter((s) => keepS(s.index))
-  const tSlots = orderCurves(tgt, tgtLen, order, centre, basis, axis).filter((s) => keepT(s.index))
-  const S = tapeBounds(sSlots)
+  const tSlots = orderCurves(tgt, tgtLen, order === "nearest" ? "angular" : order, centre, basis, axis).filter((s) => keepT(s.index))
   const T = tapeBounds(tSlots)
+  const sSlots =
+    order === "nearest"
+      ? nearestSlots(
+          src,
+          srcLen,
+          tapeSampler(tgt, tSlots, T),
+          orderCurves(src, srcLen, "angular", centre, basis, axis).map((s) => s.index),
+        ).filter((s) => keepS(s.index))
+      : orderCurves(src, srcLen, order, centre, basis, axis).filter((s) => keepS(s.index))
+  const S = tapeBounds(sSlots)
 
   // ROTATION — the offset δ such that source tape u meets target tape
   // u + δ. Scanned on a fine grid (cost Σ|src(u) − tgt(u+δ)|² over K

@@ -134,7 +134,7 @@ class FlowDream extends Dream {
 | `new MorphCurves(sources: Holon[], targets: Holon[], opts)` | the morph in flight — a pool of Lines, one per piece. `morph` param 0→1. |
 | `MorphMany(shape, { copy?, fadeOut?, fadeIn? })` | the verb: sources' fill fades over `fadeOut` of the clip (default 0.2 if any is filled), the pieces travel, targets appear exactly where they landed and fill over `fadeIn`. Sources hide as the pieces depart (unless `copy`). |
 | `curvesOf(holon)` | what a holon offers: `worldCurves()` if it has one (a `SolidDrawing` answers its VISIBLE edges for the current camera — implement it on any holon to make it morphable), else a primitive's outline, else every descendant Line. |
-| opts `order` | `"angular"` (default) · `"sweep"` · `"given"` — see below |
+| opts `order` | `"nearest"` (default) · `"angular"` · `"sweep"` · `"sweep-angular"` · `"given"` — see below |
 | opts `observer` | the Dream's observer: angular order is then read in the VIEW plane |
 | opts `snap` | tape fraction; target boundaries within it snap onto source boundaries (whole sources grouped, fewer pieces) |
 | opts `travel`, `stagger`, `arc`, `bend`, `chain` | how pieces fly (see below): rigid-then-deform by default |
@@ -156,6 +156,13 @@ source SPLITS across short ones; every target is covered exactly once —
 complementary, never stacked; at most N + M pieces. The strategy is only
 the ORDER on the tapes:
 
+- **nearest** (default) — each source placed on the (angular) target tape
+  where its share lies nearest it: a min-travel assignment (seeded at each
+  source's nearest tape position and at the angular order, improved by
+  moving one source at a time), then the same rotation. Kept only where it
+  crosses fewer paths than angular, or as few with ≥ 2% less travel —
+  otherwise the plan is angular's, unchanged. GeoFlow's eleven relation
+  arcs → the group circle: 8–11 crossed paths → 0, travel −0.8%.
 - **angular** — curves sorted by the angle of their arc-length midpoint
   about the common centre, each oriented counter-clockwise, then the
   rotation that minimises travel. Pieces land on the side they came from;
