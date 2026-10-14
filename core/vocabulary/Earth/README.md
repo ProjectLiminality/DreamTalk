@@ -48,7 +48,7 @@ The planet as one programmatic object: a true 3D sphere with its land filled on 
 - **a**: atmosphere
 - **l**: labels, when they were built
 
-Every transition is interruptible and reversible, and a scene can take the same paths on its timeline (`earth.stateSpace()`). `keepOut()` keeps the viewer's orbiting eye 2% above the ground, so a hard drag rolls over the planet instead of going black.
+Every transition is interruptible and reversible, and a scene can take the same paths on its timeline (`this.play(earth.stateAxis("time").to("night"), 2.4)`). `keepOut()` keeps the viewer's orbiting eye 2% above the ground, so a hard drag rolls over the planet instead of going black.
 
 **Labels declutter** in a fixed priority order: rank, then capitals, then population, with countries before the cities inside them. A label yields by how much of its padded screen box is already covered by stronger labels, weighted by their opacity. The boxes are measured: each name's width comes from the glyph advances of the face it is set in (`src/geometry/fonts/arimo.ts`), plus tracking. It is continuous, so names cross-fade instead of flickering as the camera moves, and it keeps no state between frames, so scrubbing backwards shows exactly what playing forwards showed. The horizon fade measures the sight line's elevation at the label, so it behaves the same at every altitude.
 
@@ -78,7 +78,7 @@ view.tilt.to(38)                         // lean off straight-down, looking nort
 
 `EarthView.zoom` is log2 magnification (each +1 halves the altitude), so animating it at an even pace descends at an even pace for the eye. Rising buildings animate `place.altitude` from sunk to 0, and the ground hides them until they break the surface.
 
-**Sites** (`Sites.ts`): plain data, `{ name, lat, lon, kind: "hq" | "red" | "blue" }`. A real dataset swaps in for `mockSites.ts`. The positions there are invented and generic, and the names are placeholders, because this repo is public. `Factory` (a sawtooth-roofed hall) and `Headquarters` (a tower on a podium) are prisms (`prism.ts`) drawn as lines. Their black solid bodies write depth, which gives true hidden lines from the GPU at any camera angle. A `Factory` is also a morph target: give it `seenBy: () => observer`, and `worldCurves()` returns its VISIBLE edges in world space (hidden-line removal on the prism's own mesh), so `MorphCurves([truck], [factory])` lands on what the camera shows.
+**Sites** (`Sites.ts`): plain data, `{ name, lat, lon, kind: "hq" | "red" | "blue" }`. A real dataset swaps in for `mockSites.ts`. The positions there are invented and generic, and the names are placeholders, because this repo is public. `Factory` (a sawtooth-roofed hall) and `Headquarters` (a tower on a podium) are prisms (`prism.ts`) drawn as lines. Their black solid bodies write depth, which gives true hidden lines from the GPU at any camera angle. Both are `Building`s (`prism.ts`) and so morph targets: give one `seenBy: () => observer`, and `worldCurves()` returns its VISIBLE edges in world space (hidden-line removal on the prisms' own meshes, plus the Headquarters' floor lines where their face is seen), so `MorphCurves([truck], [factory])` lands on what the camera shows.
 
 ## The data
 

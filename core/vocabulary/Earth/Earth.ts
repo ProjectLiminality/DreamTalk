@@ -860,7 +860,7 @@ export class Earth extends Null {
    *
    * Every transition is the automaton's own: interruptible, reversible, a
    * pure function of its event log. A scene's timeline can take the same
-   * paths (`earth.stateSpace().axes[i].to("night")`).
+   * paths (`this.play(earth.stateAxis("time").to("night"), 2.4)`).
    */
   override stateSpace(): StateSpace {
     void this.parts

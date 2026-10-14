@@ -8,18 +8,22 @@
  * (Earth.ts) stands it on the planet. `size` is the podium's width; the
  * floor rings are drawn thinner than the edges, as a building's own
  * hierarchy of lines asks.
+ *
+ * A `Building` (prism.ts), so a morph target too: give it `seenBy` and
+ * `worldCurves()` answers its VISIBLE edges and floor lines for that
+ * observer's view.
  */
 
-import { Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Line, type Vec3Like } from "../../src/parts/primitives"
 import { color, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
-import { BODY, prism, rect } from "./prism"
+import { BODY, Building, prism, rect, type FaceLine } from "./prism"
 
 const PODIUM = 0.22
 const TOWER_W = 0.42
 const TOWER_H = 1.15
 
-export class Headquarters extends Null {
+export class Headquarters extends Building {
   static sovereign = true
   tint = color(WHITE)
   stroke = length(1.5)
@@ -36,8 +40,8 @@ export class Headquarters extends Null {
     const podiumH = w * PODIUM
     const towerW = w * TOWER_W
     const towerH = w * TOWER_H
-    prism(this, rect(w, podiumH), w * 0.7, ink)
-    prism(this, rect(towerW, towerH), towerW, ink, { x: 0, y: podiumH, z: 0 })
+    const shapes = [prism(this, rect(w, podiumH), w * 0.7, ink), prism(this, rect(towerW, towerH), towerW, ink, { x: 0, y: podiumH, z: 0 })]
+    const floorLines: FaceLine[] = []
     // A ring round the tower's faces at every floor.
     const n = Math.max(0, Math.round(this.floors.value))
     const t = towerW / 2
@@ -51,6 +55,10 @@ export class Headquarters extends Null {
         { x: -t, y, z: t },
       ]
       this.add(new Line({ tint: this.tint, stroke: this.stroke.times(0.6), points: ring }))
+      // Each side of the ring lies on one face of the tower.
+      const normals = [{ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: -1, y: 0, z: 0 }]
+      normals.forEach((normal, i) => floorLines.push({ points: [ring[i]!, ring[i + 1]!], normal }))
     }
+    this.shape(shapes, floorLines)
   }
 }

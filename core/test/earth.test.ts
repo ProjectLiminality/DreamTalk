@@ -341,18 +341,7 @@ describe("Place", () => {
     const f = new Factory({ x: 50, size: 100, seenBy: () => observer })
     const curves = f.worldCurves()
     expect(curves.length).toBeGreaterThan(0)
-    const near = (q: { x: number; y: number; z: number }) =>
-      Math.min(
-        ...curves.flatMap((c) =>
-          c.slice(1).map((b, i) => {
-            const a = c[i]!
-            const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }
-            const L2 = ab.x ** 2 + ab.y ** 2 + ab.z ** 2 || 1
-            const t = Math.max(0, Math.min(1, ((q.x - a.x) * ab.x + (q.y - a.y) * ab.y + (q.z - a.z) * ab.z) / L2))
-            return Math.hypot(a.x + ab.x * t - q.x, a.y + ab.y * t - q.y, a.z + ab.z * t - q.z)
-          }),
-        ),
-      )
+    const near = nearCurves(curves)
     // Seen from above, front and right: the near foot of the hall is drawn
     // (shifted by x = 50 into world space); the far foot is behind the hall.
     expect(near({ x: 50, y: 0, z: 30 })).toBeLessThan(0.5)
@@ -360,7 +349,35 @@ describe("Place", () => {
     // The same frame asks again: the same array (memoised).
     expect(f.worldCurves()).toBe(curves)
   })
+
+  test("a Headquarters' worldCurves: visible edges of both prisms and the floor lines on the faces it shows", () => {
+    const observer = new Observer()
+    observer.phi.value = 0.6
+    observer.theta.value = 0.4
+    const hq = new Headquarters({ size: 100, floors: 4, seenBy: () => observer })
+    const near = nearCurves(hq.worldCurves())
+    // Podium 100 × 22 × 70; tower 42 wide, 115 tall on top of it; floors every 28.75.
+    expect(near({ x: 0, y: 0, z: 35 })).toBeLessThan(0.5) // the podium's near foot
+    expect(near({ x: 0, y: 0, z: -35 })).toBeGreaterThan(5) // its far foot, behind it
+    expect(near({ x: 0, y: 22 + 28.75, z: 21 })).toBeLessThan(0.5) // a floor line on the near face
+    expect(near({ x: 0, y: 22 + 28.75, z: -21 })).toBeGreaterThan(5) // the same floor round the back
+    expect(near({ x: 21, y: 22 + 57.5, z: 0 })).toBeLessThan(0.5) // the right face is turned to the eye too
+  })
 })
+
+/** How far a point is from the nearest of some polylines — for testing what a curve set draws. */
+const nearCurves = (curves: { x: number; y: number; z: number }[][]) => (q: { x: number; y: number; z: number }) =>
+  Math.min(
+    ...curves.flatMap((c) =>
+      c.slice(1).map((b, i) => {
+        const a = c[i]!
+        const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }
+        const L2 = ab.x ** 2 + ab.y ** 2 + ab.z ** 2 || 1
+        const t = Math.max(0, Math.min(1, ((q.x - a.x) * ab.x + (q.y - a.y) * ab.y + (q.z - a.z) * ab.z) / L2))
+        return Math.hypot(a.x + ab.x * t - q.x, a.y + ab.y * t - q.y, a.z + ab.z * t - q.z)
+      }),
+    ),
+  )
 
 describe("EarthView", () => {
   const fov = (53.13 * Math.PI) / 180
