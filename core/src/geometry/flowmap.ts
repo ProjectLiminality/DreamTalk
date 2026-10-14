@@ -437,3 +437,26 @@ export const smooth = (e0: number, e1: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
   return t * t * (3 - 2 * t)
 }
+
+/**
+ * The single h/p/b turn of Ry(−heading)·Rx(−pitch)·Ry(φ)·Rx(−θ) — a carrier
+ * that cancels a stack turned Rx(pitch)·Ry(heading) and then faces an
+ * observer at azimuth φ, elevation θ — decomposed in the host's composition
+ * order Rz(b)·Rx(p)·Ry(h) (three's 'ZXY'). One group instead of four. Pure.
+ */
+export const facingAngles = (heading: number, pitch: number, phi: number, theta: number): { h: number; p: number; b: number } => {
+  type M = number[] // row-major 3×3
+  const ry = (a: number): M => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)]
+  const rx = (a: number): M => [1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a)]
+  const mul = (a: M, b: M): M => {
+    const o: M = new Array(9).fill(0)
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) o[i * 3 + j]! += a[i * 3 + k]! * b[k * 3 + j]!
+    return o
+  }
+  const m = mul(mul(mul(ry(-heading), rx(-pitch)), ry(phi)), rx(-theta))
+  // ZXY: m32 = sin(p); h from (−m31, m33); b from (−m12, m22).
+  const m32 = Math.max(-1, Math.min(1, m[7]!))
+  const p = Math.asin(m32)
+  if (Math.abs(m32) < 0.9999999) return { h: Math.atan2(-m[6]!, m[8]!), p, b: Math.atan2(-m[1]!, m[4]!) }
+  return { h: 0, p, b: Math.atan2(m[3]!, m[0]!) }
+}

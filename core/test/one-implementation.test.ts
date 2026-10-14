@@ -80,7 +80,6 @@ describe("one symbol, one implementation", () => {
       "vocabulary/Earth/Labels.ts",
       "vocabulary/Earth/PointData.ts",
       "vocabulary/GeoFlow/GeoFlow.ts",
-      "vocabulary/FlowMap/FlowMap.ts",
     ])
     const cast = /as unknown as \{\s*add\(/
     const offenders = ALL.map(rel).filter((f) => !PENDING.has(f) && cast.test(readFileSync(join(core, f), "utf8")))

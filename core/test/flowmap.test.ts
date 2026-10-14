@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { rotHPB } from "../src/parts/curves"
 import {
+  facingAngles,
   arcTable,
   atArcLength,
   categoryDiscs,
@@ -243,14 +245,36 @@ describe("FlowMap", () => {
     expect(m.frame().pitch).toBeCloseTo(m.pitch.value, 12)
   })
 
-  test("particles and labels face the camera however the stack turns", () => {
+  test("particles and labels face the camera however the stack turns — one carrier each", () => {
+    // stack ∘ carrier must undo the stack's turn exactly (no observer)…
     const m = new FlowMap({ radius: R })
     void m.parts
     m.expand.value = 0.8
     const carrier = m.flows[3]!.carriers[0]!
-    const inner = carrier.parts[0]!
-    expect(carrier.h.value).toBeCloseTo(-m.stack.h.value, 12)
-    expect(inner.p.value).toBeCloseTo(-m.stack.p.value, 12)
+    expect(carrier.parts[0]).toBe(m.flows[3]!.dots[0])
+    const apply = (v: { x: number; y: number; z: number }, h: { p: { value: number }; h: { value: number }; b: { value: number } }) =>
+      rotHPB(v, h.p.value, h.h.value, h.b.value)
+    for (const v of [{ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0.3, y: -0.4, z: 0.86 }]) {
+      const w = apply(apply(v, carrier), m.stack)
+      expect(w.x).toBeCloseTo(v.x, 9)
+      expect(w.y).toBeCloseTo(v.y, 9)
+      expect(w.z).toBeCloseTo(v.z, 9)
+    }
+  })
+
+  test("facingAngles is the product it names", () => {
+    // Ry(−H)·Rx(−P)·Ry(φ)·Rx(−θ) applied to v, against one rotHPB with the decomposed angles.
+    const ry = (v: { x: number; y: number; z: number }, a: number) => rotHPB(v, 0, a, 0)
+    const rx = (v: { x: number; y: number; z: number }, a: number) => rotHPB(v, a, 0, 0)
+    for (const [H, P, phi, th] of [[1.2, 0.4, 0.7, 0.3], [-0.5, 0.9, -1.1, 0.2], [0, 0, 0, 0]] as const) {
+      const a = facingAngles(H, P, phi, th)
+      const v = { x: 0.2, y: 0.7, z: -0.5 }
+      const want = ry(rx(ry(rx(v, -th), phi), -P), -H)
+      const got = rotHPB(v, a.p, a.h, a.b)
+      expect(got.x).toBeCloseTo(want.x, 9)
+      expect(got.y).toBeCloseTo(want.y, 9)
+      expect(got.z).toBeCloseTo(want.z, 9)
+    }
   })
 
   test("a flow exposes its path and its particles' places along it", () => {
@@ -320,9 +344,11 @@ describe("FlowMap", () => {
     // Along the channel to within its bow, plus the 3/4 offset.
     expect(Math.abs(carrier.h.value - m.symbolYaw.value - chord)).toBeLessThan(0.8)
     expect((flow.dots[1] as unknown as { size: { value: number } }).size.value).toBeCloseTo((m.particleSize.value * m.spacing.value) / (MOCK_FLOWMAP.flows.find((f) => f.stage === "semi")!.rate ?? 1), 9)
-    // Dot stages keep their camera-facing carriers.
+    // Dot stages keep their camera-facing carriers (a full turn: p and b
+    // bound too); a material carrier turns by heading only.
     const raw = m.stage("raw").flows[0]!
-    expect(raw.carriers[0]!.parts[0]).not.toBe(raw.dots[0])
+    expect(raw.carriers[0]!.p.isBound).toBe(true)
+    expect(carrier.p.isBound).toBe(false)
   })
 
   test("a stage's material type certainty reaches every Grain, with a guess ↔ data toggle", () => {

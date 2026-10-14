@@ -167,7 +167,7 @@ describe("value ↔ money", () => {
     m.time.value = 3
     const f = m.stage("raw").flows[0]!
     const anyShown = (xs: { opacity: { value: number } }[]) => xs.some((x) => x.opacity.value > 0.5)
-    const coinFaces = f.money!.coins.map((c) => c.parts[0]!.parts[0]!.parts[0]! as unknown as { opacity: { value: number } })
+    const coinFaces = f.money!.coins.map((c) => c.parts[0]!.parts[0]! as unknown as { opacity: { value: number } })
     expect(anyShown(f.dots)).toBe(true)
     expect(anyShown(coinFaces)).toBe(false)
     m.money.value = 1

@@ -92,6 +92,7 @@ import {
   streamArc,
   streamFade,
   trimToRim,
+  facingAngles,
   type Disc,
   type PartnerSide,
   type Vec2,
@@ -582,15 +583,29 @@ export class FlowMap extends Null {
    * Rz(b)·Rx(p)·Ry(h)); without, nothing extra is built. Position the carrier.
    */
   private facing(part: Holon, at: { x?: Readable<number>; y?: Readable<number>; z?: Readable<number> }): Group {
-    const seenBy = this.seenBy
-    const toward = seenBy
-      ? new Group({
-          members: [new Group({ members: [part], p: derive(() => -seenBy().theta.value) })],
-          h: derive(() => seenBy().phi.value),
-        })
-      : part
-    const inner = new Group({ members: [toward], p: derive(() => -this.frame().pitch) })
-    return new Group({ members: [inner], h: derive(() => -this.frame().heading), ...at })
+    // ONE carrier, not a nest of four: the turn it needs is the product of
+    // the stack's inverse turn and the observer's, decomposed once per param
+    // change (shared by every carrier) into the host's own h/p/b order.
+    return new Group({
+      members: [part],
+      ...at,
+      h: derive(() => this.facingTurn().h),
+      p: derive(() => this.facingTurn().p),
+      b: derive(() => this.facingTurn().b),
+    })
+  }
+
+  private memoTurnEpoch = -1
+  private memoTurn = { h: 0, p: 0, b: 0 }
+  /** The carriers' common turn: Ry(−heading)·Rx(−pitch)·Ry(φ)·Rx(−θ) as h/p/b (see geometry/flowmap facingAngles). */
+  private facingTurn(): { h: number; p: number; b: number } {
+    const epoch = paramEpoch()
+    if (this.memoTurnEpoch === epoch) return this.memoTurn
+    this.memoTurnEpoch = epoch
+    const f = this.frame()
+    const o = this.seenBy?.()
+    this.memoTurn = facingAngles(f.heading, f.pitch, o ? o.phi.value : 0, o ? o.theta.value : 0)
+    return this.memoTurn
   }
 
   protected override compose(): void {
@@ -604,7 +619,21 @@ export class FlowMap extends Null {
         if (!this.memberIndex.has(end) && !this.partnerIndex.has(end)) throw new Error(`FlowMap: flow names unknown entity '${end}'`)
       if (!d.stages.some((s) => s.id === f.stage)) throw new Error(`FlowMap: flow names unknown stage '${f.stage}'`)
     }
-    const R = () => this.radius.value
+    // Readings every leaf shares, memoised per param change: each would
+    // otherwise cross the holon proxy thousands of times a frame.
+    const epochMemo = <T,>(f: () => T): (() => T) => {
+      let e = -1
+      let v: T
+      return () => {
+        const now = paramEpoch()
+        if (now !== e) {
+          e = now
+          v = f()
+        }
+        return v
+      }
+    }
+    const R = epochMemo(() => this.radius.value)
     const stageIndex = (id: string): number => d.stages.findIndex((s) => s.id === id)
     const labelSize = () => R() * 0.085
 
@@ -851,10 +880,10 @@ export class FlowMap extends Null {
         let memoEpoch = -1
         let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0 }
         const cur = () => {
-          const shown = stage.shown.value
           const epoch = paramEpoch()
           if (memoEpoch === epoch) return memo
           memoEpoch = epoch
+          const shown = stage.shown.value
           // Nothing to see: keep the last place, show nothing, skip the work.
           if (shown <= 0 || !this.present()) {
             memo = { ...memo, o: 0 }
@@ -997,7 +1026,7 @@ export class FlowMap extends Null {
         })
       }
       flows.push(flow)
-      ;(stage as unknown as { add(h: Holon): Holon }).add(flow)
+      stage.attach(flow)
       stage.flows.push(flow)
     })
     this.flows = flows
@@ -1013,7 +1042,7 @@ export class FlowMap extends Null {
         opacity: derive(() => this.labels.value * stage.shown.value * smooth(0.6, 1, this.expand.value)),
       })
       stage.label = text
-      ;(stage as unknown as { add(h: Holon): Holon }).add(
+      stage.attach(
         this.facing(text, {
           y: derive(() => -R() * 1.5),
           z: derive(() => (this.frame().depths[si]! + this.frame().depths[si + 1]!) / 2),

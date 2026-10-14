@@ -33,7 +33,7 @@
  */
 
 import type { Holon } from "./holon"
-import { completion, type Param, type Readable } from "./params"
+import { completion, paramEpoch, type Param, type Readable } from "./params"
 
 const CERTAINTIES = new WeakSet<Param<number>>()
 
@@ -127,13 +127,20 @@ export const seenOpacity = (holon: Holon): Readable<number> => {
   const there = presencesOf(holon)
   if (chain.length === 0 && there.length === 0) return holon.opacity
   const own = holon.opacity
+  // Memoised per param change (paramEpoch): every leaf reads this every frame.
+  let epoch = -1
+  let seen = 0
   return {
     get value() {
+      const now = paramEpoch()
+      if (now === epoch) return seen
+      epoch = now
       let c = 1
       for (const p of chain) c *= p.value
       let k = 1
       for (const p of there) k *= p.value
-      return own.value * k * ghost(c)
+      seen = own.value * k * ghost(c)
+      return seen
     },
   }
 }
