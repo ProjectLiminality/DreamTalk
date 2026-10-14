@@ -234,7 +234,7 @@ export class GeoFlow extends Null {
    */
   inPlane<T extends Holon>(h: T): T {
     void this.parts
-    return (this.scaledGroup as unknown as { add(h: T): T }).add(h)
+    return this.scaledGroup!.attach(h)
   }
 
   /**
@@ -528,7 +528,7 @@ export class GeoFlow extends Null {
       opacity: derive(() => (morphAt.value > 0 && morphAt.value < 1 ? 1 : 0)),
     })
 
-    for (const h of this.planeMembers?.(this) ?? []) (scaled as unknown as { add(h: Holon): Holon }).add(h)
+    for (const h of this.planeMembers?.(this) ?? []) scaled.attach(h)
     this.add(this.earth)
     this.add(this.eye)
     this.add(this.plane)

@@ -1017,9 +1017,9 @@ export const deriveSurface = (
   })
 }
 
-/** `add` is protected; Earth composes its stroke sets into a plain Null. */
+/** Earth composes its stroke sets into a plain Null. */
 const addTo = <T extends Holon>(parent: Holon, child: T): T =>
-  (parent as unknown as { add(h: T): T }).add(child)
+  parent.attach(child)
 
 /** Something an Earth seats when it adopts it (Place, data layers). */
 export interface Seated {

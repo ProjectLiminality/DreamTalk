@@ -90,7 +90,7 @@ export class PointData extends Null {
 
   private column(level: () => number, presence: ReturnType<typeof derive<number>>): Holon {
     const group = new Null()
-    const add = <T extends Holon>(h: T): T => (group as unknown as { add(h: T): T }).add(h)
+    const add = <T extends Holon>(h: T): T => group.attach(h)
     const h = () => this.size.value * this.strength.value * level()
     const w = () => this.width.value / 2
     const key = () => [h(), w()]

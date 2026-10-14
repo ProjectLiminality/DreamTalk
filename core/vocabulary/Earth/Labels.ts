@@ -362,7 +362,7 @@ export const makeLabel = (
   anchor.b.follow(derive(() => board.hpb()[2]))
   anchor.scale.follow(derive(() => board.unitsPerPx(ax, ay, az) * earth.labelSize.value * scale))
   const add = <T extends import("../../src/holon").Holon>(h: T): T =>
-    (anchor as unknown as { add(h: T): T }).add(h)
+    anchor.attach(h)
   add(
     new Text({
       content: spec.text,
