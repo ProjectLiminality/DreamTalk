@@ -263,6 +263,18 @@ describe("FlowMap", () => {
     }
   })
 
+  test("a sparse stage's symbols are capped relative to the map, not grown by their gap", () => {
+    const data: FlowMapData = {
+      ...MOCK_FLOWMAP,
+      stages: MOCK_FLOWMAP.stages.map((st) => (st.id === "semi" ? { ...st, symbol: "reel" as const } : st)),
+      flows: MOCK_FLOWMAP.flows.map((f) => (f.stage === "semi" ? { ...f, rate: 0.1 } : f)),
+    }
+    const m = new FlowMap({ radius: R, data })
+    void m.parts
+    const size = (m.stage("semi").flows[0]!.dots[0] as unknown as { size: { value: number } }).size.value
+    expect(size).toBeCloseTo(m.particleSize.value * m.particleMax.value * R, 9)
+  })
+
   test("clearYaw keeps a spindle at least 35° off the view, as near the base yaw as it can", () => {
     const view = { x: 0, z: 1 } // looking along z
     // A spindle along x at yaw π/2 points down z — straight at us: it must turn.
