@@ -42,6 +42,16 @@ export const YELLOW: Color = rgb(218, 218, 88)
 export const GREEN: Color = rgb(71, 196, 143)
 export const WHITE: Color = rgb(255, 255, 255)
 export const BLACK: Color = rgb(0, 0, 0)
+/**
+ * Attention's gold — not of the symbols' palette but of the light laid on
+ * them: the glow (src/glow.ts), creator mode's dot and panel. Warm,
+ * high-value, unmistakably not the blue/red of the arena.
+ */
+export const GOLD: Color = rgb(255, 199, 84)
+
+/** A palette colour as CSS — for the overlays that speak the same gold. */
+export const cssOf = (c: Color, alpha = 1): string =>
+  `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${alpha})`
 
 export const PI = Math.PI
 export const TAU = 2 * Math.PI

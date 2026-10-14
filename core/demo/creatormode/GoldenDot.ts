@@ -29,14 +29,15 @@
 
 import { Circle, Stroke } from "../../src/parts/primitives"
 import { completion, length } from "../../src/params"
-import { rgb } from "../../src/constants"
+import { GOLD } from "../../src/constants"
 
 /**
- * The gold. Warm, high-value, unmistakably not the blue/red of the arena
- * vocabulary — because this is neither container nor content: it is the
- * human's attention, a third thing.
+ * The gold — constants GOLD, the framework's one colour of attention (the
+ * glow, src/glow.ts). Warm, high-value, unmistakably not the blue/red of
+ * the arena vocabulary — because this is neither container nor content: it
+ * is the human's attention, a third thing.
  */
-export const GOLD = rgb(255, 199, 84)
+export { GOLD }
 
 export class GoldenDot extends Stroke {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */

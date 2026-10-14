@@ -24,51 +24,35 @@
  * and it is the Quake console's key — the oldest "drop out of the game into
  * the engine" gesture there is. One constant; change it here.
  *
- * WHY A RIM AND NOT A RE-TINT. The DreamSong (demo/creatormode) lays a gold
+ * WHY A GLOW AND NOT A RE-TINT. The DreamSong (demo/creatormode) lays a gold
  * halo OVER the element rather than re-colouring it: being looked at does
- * not change a thing, so the light has to be something additional. The rim
- * is drawn on a 2D overlay from boundsOf — no shader, no material, and
- * nothing in the Dream, so a capture can never carry it.
+ * not change a thing, so the light has to be something additional. That
+ * light is the framework's one look of attention (src/glow.ts): the host
+ * draws a golden halo around the holon's actual ink — faint on hover, full
+ * when selected — through `CreatorHost.attend`. It lives in the host's
+ * interaction layer, never in the Dream, so a capture can never carry it.
+ * A host without `attend` falls back to a gold rim on a 2D overlay.
  */
 
 import type { Holon } from "../src/holon"
+import { GOLD, cssOf } from "../src/constants"
+import { HOVER, SELECTED } from "../src/glow"
+import { beginOverlay, bufferToClient, makeOverlay, type PixelBox } from "./overlay"
 
 /** The toggle — the key under Esc, unmodified. */
 export const CREATOR_KEY = { code: "Backquote", label: "`" } as const
 
-/** The gold — GoldenDot.ts's rgb(255,199,84), as CSS. */
-export const GOLD_CSS = "rgb(255, 199, 84)"
-const GOLD_RGBA = (a: number) => `rgba(255, 199, 84, ${a})`
+/** Attention's gold (constants GOLD), as CSS. */
+export const GOLD_CSS = cssOf(GOLD)
+const GOLD_RGBA = (a: number) => cssOf(GOLD, a)
 
 /** Is this keydown the creator toggle? (Unmodified, so ⌘` window-cycling is untouched.) */
 export const isCreatorToggle = (e: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey">): boolean =>
   e.code === CREATOR_KEY.code && !e.metaKey && !e.ctrlKey && !e.altKey
 
-/** A screen box in the canvas's drawing-buffer pixels — what boundsOf returns. */
-export interface PixelBox {
-  min: { x: number; y: number }
-  max: { x: number; y: number }
-}
-
-/**
- * Drawing-buffer pixels → client (CSS) pixels. The stage is rendered at a
- * fixed buffer size and stretched to its CSS box, so the rim has to be
- * carried through the same stretch the pixels were.
- */
-export const bufferToClient = (
-  box: PixelBox,
-  rect: { left: number; top: number; width: number; height: number },
-  buffer: { width: number; height: number },
-): { x: number; y: number; w: number; h: number } => {
-  const sx = rect.width / (buffer.width || 1)
-  const sy = rect.height / (buffer.height || 1)
-  return {
-    x: rect.left + box.min.x * sx,
-    y: rect.top + box.min.y * sy,
-    w: (box.max.x - box.min.x) * sx,
-    h: (box.max.y - box.min.y) * sy,
-  }
-}
+// One definition of the stage → page mapping (editor/overlay.ts); re-exported
+// so the modules that import it from here keep doing so.
+export { bufferToClient, type PixelBox } from "./overlay"
 
 /**
  * A selection path as one URL-safe token — how the player hands the
@@ -92,6 +76,12 @@ export interface CreatorHost {
   canvas: HTMLCanvasElement
   pick(clientX: number, clientY: number): Holon | undefined
   boundsOf(holon: Holon): PixelBox | undefined
+  /**
+   * Lay the golden glow (src/glow.ts) on what the dot hovers and what is
+   * selected, at these intensities — the host's `attend`, plus a repaint
+   * if its frame is held. Without it, rims are drawn on an overlay.
+   */
+  attend?(channel: "hover" | "selection", holon: Holon | null, amount: number): void
 }
 
 export interface CreatorOpts {
@@ -117,11 +107,10 @@ const STYLE = `
 .dt-dot > div { position: absolute; left: 0; top: 0; transform: scale(0); transition: transform ${BLOOM_MS}ms cubic-bezier(.2,.8,.2,1); }
 .dt-dot.on > div { transform: scale(1); }
 .dt-dot i { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); }
-.dt-dot .core { width: 12px; height: 12px; background: ${GOLD_CSS}; box-shadow: 0 0 10px ${GOLD_RGBA(0.9)}; }
-.dt-dot .halo { width: 24px; height: 24px; border: 1.5px solid ${GOLD_RGBA(0.8)}; background: ${GOLD_RGBA(0.18)}; animation: dt-breathe 3.2s ease-in-out infinite; }
-.dt-dot .aura { width: 40px; height: 40px; border: 1px solid ${GOLD_RGBA(0.4)}; background: ${GOLD_RGBA(0.08)}; animation: dt-breathe 3.2s ease-in-out infinite .4s; }
+.dt-dot .core { width: 10px; height: 10px; background: ${GOLD_CSS}; }
+.dt-dot .halo { width: 22px; height: 22px; background: radial-gradient(closest-side, ${GOLD_RGBA(0.95)} 40%, ${GOLD_RGBA(0)}); animation: dt-breathe 3.2s ease-in-out infinite; }
+.dt-dot .aura { width: 56px; height: 56px; background: radial-gradient(closest-side, ${GOLD_RGBA(0.4)} 15%, ${GOLD_RGBA(0)}); animation: dt-breathe 3.2s ease-in-out infinite .4s; }
 @keyframes dt-breathe { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
-.dt-rims { position: fixed; inset: 0; pointer-events: none; z-index: 55; }
 canvas.dt-creator { cursor: none !important; }
 `
 
@@ -150,8 +139,7 @@ export class CreatorMode {
     this.#dot = document.createElement("div")
     this.#dot.className = "dt-dot"
     this.#dot.innerHTML = `<div><i class="aura"></i><i class="halo"></i><i class="core"></i></div>`
-    this.#rims = document.createElement("canvas")
-    this.#rims.className = "dt-rims"
+    this.#rims = makeOverlay("dt-rims", 55)
     document.body.append(this.#rims, this.#dot)
     opts.signal.addEventListener("abort", () => {
       cancelAnimationFrame(this.#raf)
@@ -250,6 +238,7 @@ export class CreatorMode {
   /** The persistent rim — a fired button flashes and releases; a selected one stays lit. */
   select(holon: Holon | null): void {
     this.#selected = holon
+    this.#host.attend?.("selection", holon, SELECTED)
     this.#paint()
   }
 
@@ -268,6 +257,7 @@ export class CreatorMode {
   #setHovered(holon: Holon | null): void {
     if (holon === this.#hovered) return
     this.#hovered = holon
+    this.#host.attend?.("hover", this.#on ? holon : null, HOVER)
     this.#paint()
   }
 
@@ -283,20 +273,9 @@ export class CreatorMode {
   }
 
   #paint(): void {
-    const rims = this.#rims
-    const dpr = window.devicePixelRatio || 1
-    const w = Math.round(window.innerWidth * dpr)
-    const h = Math.round(window.innerHeight * dpr)
-    if (rims.width !== w || rims.height !== h) {
-      rims.width = w
-      rims.height = h
-    }
-    const ctx = rims.getContext("2d")
-    if (!ctx) return
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, w, h)
-    if (!this.#on) return
-    ctx.scale(dpr, dpr)
+    const ctx = beginOverlay(this.#rims)
+    // The host draws the light itself — around the ink, not a box.
+    if (!ctx || !this.#on || this.#host.attend) return
     const canvas = this.#host.canvas
     const rect = canvas.getBoundingClientRect()
     const rim = (holon: Holon, selected: boolean) => {

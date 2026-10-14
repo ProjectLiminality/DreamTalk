@@ -431,3 +431,24 @@ operational decisions are entered by the working agent. Format:
   until it lies behind the page: same pixels, page ink composites over it,
   its solids `composite: "inOrder"`). Old boards' `globe` opens as `earth`
   (sketch/board.ts RENAMED_SYMBOLS).
+- 2026-10-13 · **Attention has ONE look: a golden glow around the ink,
+  never on it** (David: "the quantum blur effect is the perfect basis to
+  create a generic golden glow … unified across the framework";
+  `src/glow.ts`, `src/render/glow.ts`). Certainty's blur and the glow are
+  two voices of one primitive, the SOFT ECHO (`render/echo.ts`: a copy of
+  a piece of ink in the gaussian ribbon material, its own offset / alpha /
+  tint / width / hollow core). A halo = a GOLD rim + an amber (GOLD²) aura,
+  widths in screen pixels; strokes are echoed on their own polyline,
+  fills along their mesh boundary (`geometry/boundary.ts`, one-sided when
+  flat). Ink composites by MAX, so light on a coloured line would tint it:
+  the light SINKS a fraction of its depth behind its ink (pixels unmoved)
+  and the glowing ink writes a depth-only MASK of itself, so the light is
+  hidden wherever the selection's own ink or solid faces are. Two ways in:
+  `host.attend(channel, holon, amount)` — the interaction layer (editor
+  hover + selection, creator mode's dot, the game loop's handles), in the
+  host, never in the Dream, so no export/gauntlet frame can carry it — or
+  an authored `glow = glow(0)` param a scene animates as an effect.
+  Nothing glowing ⇒ no halo object exists: byte-identical frames (checked
+  against a build without the glow code, and after a glow is put out).
+  `GOLD` lives in constants; the CSS dot and panel speak it via `cssOf`.
+  The old hover tint-lift (`highlight()`) is now `attend("hover")`.

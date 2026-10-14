@@ -22,13 +22,17 @@
  * The motion is a pure function of (scene t, seed): deterministic frames,
  * scrubbable backwards. Offsets are stated in PIXELS (converted through the
  * frame's own projection), so the blur reads the same at any scene scale.
+ *
+ * The echoes are render/echo.ts's soft echoes — the same primitive the
+ * golden glow of attention (render/glow.ts) is drawn with.
  */
 
 import * as THREE from "three/webgpu"
 import type { Color } from "../constants"
 import type { Readable } from "../params"
-import { RIBBON_KEYS, RibbonStroke, sharedSoftRibbonMaterial } from "./ribbon"
+import type { RibbonStroke } from "./ribbon"
 import { FillShape } from "./fill"
+import { inkOf, placeEcho, shownOf, softEcho, styleEcho } from "./echo"
 
 /** Echoes per uncertain leaf — enough for a cloud, few enough to be free. */
 export const ECHOES = 6
@@ -54,11 +58,19 @@ export const echoOffset = (k: number, seed: number, t: number, px: number): { x:
 export const echoBreath = (k: number, seed: number, t: number): number =>
   0.725 + 0.275 * Math.sin(1.9 * t + seed * 3.1 + k * 1.7)
 
-const place = (mesh: THREE.Object3D, dx: number, dy: number): void => {
-  mesh.position.set(dx, dy, 0)
-  mesh.updateMatrix()
-  if (mesh.parent) mesh.matrixWorld.multiplyMatrices(mesh.parent.matrixWorld, mesh.matrix)
+/** A geometry's bounding-box centre, cached per geometry object (a fill replaces it on change). */
+const CENTRES = new WeakMap<THREE.BufferGeometry, THREE.Vector3>()
+const centreOf = (geometry: THREE.BufferGeometry): THREE.Vector3 => {
+  let c = CENTRES.get(geometry)
+  if (!c) {
+    geometry.computeBoundingBox()
+    c = geometry.boundingBox ? geometry.boundingBox.getCenter(new THREE.Vector3()) : new THREE.Vector3()
+    CENTRES.set(geometry, c)
+  }
+  return c
 }
+const grow = new THREE.Matrix4()
+const shift = new THREE.Matrix4()
 
 /** The echoes of one uncertain STROKE. */
 export class RibbonSuperposition {
@@ -70,15 +82,8 @@ export class RibbonSuperposition {
     private readonly seed: number,
     group: THREE.Object3D,
   ) {
-    for (let k = 0; k < ECHOES; k++) {
-      const echo = new RibbonStroke(main.mesh.userData[RIBBON_KEYS.widthPx] as number)
-      echo.mesh.renderOrder = main.mesh.renderOrder
-      // A gaussian cross-section: the echoes overlap into one soft band.
-      echo.mesh.material = sharedSoftRibbonMaterial()
-      echo.mesh.matrixAutoUpdate = false
-      group.add(echo.mesh)
-      this.echoes.push(echo)
-    }
+    // A gaussian cross-section: the echoes overlap into one soft band.
+    for (let k = 0; k < ECHOES; k++) this.echoes.push(softEcho(inkOf(main).widthPx, main.mesh.renderOrder, group))
   }
 
   setPoints(pts: readonly THREE.Vector3[]): void {
@@ -92,22 +97,17 @@ export class RibbonSuperposition {
   sync(t: number, upp: number): void {
     const c = this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
-    const ud = this.main.mesh.userData
-    const total = this.main.totalLength || 1
-    const fraction = (ud[RIBBON_KEYS.drawn] as number) / total
-    const erased = (ud[RIBBON_KEYS.erased] as number) / total
-    const opacity = this.main.mesh.visible ? (ud[RIBBON_KEYS.fade] as number) : 0
-    const tint = ud[RIBBON_KEYS.tint] as Color
-    const widthPx = ud[RIBBON_KEYS.widthPx] as number
+    const shown = shownOf(this.main)
+    const { tint, widthPx } = inkOf(this.main)
     for (let k = 0; k < this.echoes.length; k++) {
       const echo = this.echoes[k]!
-      if (u <= 0 || opacity <= 0) {
+      if (u <= 0 || shown.opacity <= 0) {
         echo.mesh.visible = false
         continue
       }
       const o = echoOffset(k, this.seed, t, BLUR_PX * u)
-      place(echo.mesh, o.x * upp, o.y * upp)
-      echo.style(fraction, opacity * u * 0.5 * echoBreath(k, this.seed, t), tint, widthPx * (1.5 + 3.5 * u), erased)
+      placeEcho(echo.mesh, o.x * upp, o.y * upp)
+      styleEcho(echo, shown, { alpha: u * 0.5 * echoBreath(k, this.seed, t), tint, widthPx: widthPx * (1.5 + 3.5 * u) })
     }
   }
 }
@@ -145,9 +145,17 @@ export class FillSuperposition {
       // Share the main fill's geometry — whatever it last became.
       echo.mesh.geometry = this.main.mesh.geometry
       const o = echoOffset(k, this.seed, t, CLOUD_PX * u)
-      // Each candidate position a little larger than the particle: a halo.
-      echo.mesh.scale.setScalar(1 + 0.9 * u)
-      place(echo.mesh, o.x * upp, o.y * upp)
+      // Each candidate position a little larger than the particle: a halo —
+      // grown about the fill's OWN centre, on the fill's own local matrix,
+      // so a shape that sits off its group's origin (a truck's body in a
+      // lens) swells in place instead of sliding away as it grows.
+      const centre = centreOf(echo.mesh.geometry)
+      const swell = 1 + 0.9 * u
+      grow.makeTranslation(centre.x, centre.y, centre.z)
+        .multiply(shift.makeScale(swell, swell, swell))
+        .multiply(shift.makeTranslation(-centre.x, -centre.y, -centre.z))
+      echo.mesh.matrix.multiplyMatrices(this.main.mesh.matrix, grow)
+      placeEcho(echo.mesh, o.x * upp, o.y * upp, echo.mesh.matrix)
       echo.style(opacity * u * 0.24 * echoBreath(k, this.seed, t), tint)
     }
   }

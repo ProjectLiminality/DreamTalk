@@ -80,6 +80,7 @@ const TSL = TSLTyped as any
 const {
   Fn,
   If,
+  abs,
   attribute,
   cameraProjectionMatrix,
   clamp,
@@ -157,6 +158,10 @@ export const RIBBON_KEYS = {
   erased: "dtRibbonErased",
   tint: "dtRibbonTint",
   fade: "dtRibbonFade",
+  inner: "dtRibbonInner",
+  tips: "dtRibbonTips",
+  sink: "dtRibbonSink",
+  side: "dtRibbonSide",
 } as const
 
 export class RibbonMaterial extends THREE.NodeMaterial {
@@ -164,9 +169,12 @@ export class RibbonMaterial extends THREE.NodeMaterial {
    * `soft`: a gaussian cross-section instead of the crisp capsule edge —
    * full at the centreline, ~5% at the half-width. Chosen here, in JS, so
    * the crisp material's shader is untouched by its existence. It draws
-   * uncertainty (render/superposition.ts).
+   * every soft echo (render/echo.ts): uncertainty's blur and attention's
+   * glow. Its gaussian may be HOLLOW — `inner` CSS px of nothing around
+   * the centreline before it starts — so a halo can lie around a line
+   * without lying on it; inner = 0 is the plain gaussian, unchanged.
    */
-  constructor(opts: { soft?: boolean } = {}) {
+  constructor(opts: { soft?: boolean; mask?: boolean } = {}) {
     super()
     this.transparent = true
     this.depthWrite = false
@@ -180,6 +188,14 @@ export class RibbonMaterial extends THREE.NodeMaterial {
     this.blendEquationAlpha = THREE.MaxEquation
     this.blendSrcAlpha = THREE.OneFactor
     this.blendDstAlpha = THREE.OneFactor
+    if (opts.mask) {
+      // `mask`: the crisp line written into DEPTH only, exactly where it
+      // inks (coverage ≥ ½) — so a glow's light, which sinks behind its ink
+      // (render/glow.ts), never lies on the selection's own lines.
+      this.depthWrite = true
+      this.colorWrite = false
+      this.blending = THREE.NoBlending
+    }
 
     // Per-mesh values (module header): OBJECT-updated reference nodes
     // into each mesh's userData — one material, every stroke's own data.
@@ -190,6 +206,24 @@ export class RibbonMaterial extends THREE.NodeMaterial {
     const fade = userData(RIBBON_KEYS.fade, "float")
 
     const halfWidth = () => widthPx.mul(screenDPR).mul(0.5)
+    // The soft profile: a gaussian from `inner` out to the half-width (~5%
+    // there), and nothing within `inner` of the LINE — entered over the AA
+    // band, so a hollow halo meets its line's edge without a seam. "Of the
+    // line", not of this segment: past a segment's end at a JOINT the
+    // neighbour's ink lies on its axis, so there the hollow is measured
+    // across the axis (|v|), or every joint would ring the line with a dot
+    // of light. Only at a true tip — the polyline's ends (`tips`, arc
+    // lengths; open loops only) or a draw/erase front — is it round.
+    // With inner = 0 the select keeps the plain gaussian exactly.
+    const softCoverage = (
+      d: ReturnType<typeof float>,
+      hw: ReturnType<typeof float>,
+      hollowD: ReturnType<typeof float>,
+    ) => {
+      const inner = userData(RIBBON_KEYS.inner, "float").mul(screenDPR)
+      const g = max(d.sub(inner), 0.0).div(max(hw.sub(inner), 1e-3)).pow(2).mul(-3.0).exp()
+      return inner.greaterThan(0.0).select(g.mul(smoothstep(inner.sub(AA_PX), inner.add(AA_PX), hollowD)), g)
+    }
     // Quad half-extent beyond the centerline / segment ends: stroke
     // half-width + AA skirt + 1px guard. Also the cap pad, so each
     // quad fully contains its own round caps and its share of joins.
@@ -227,6 +261,16 @@ export class RibbonMaterial extends THREE.NodeMaterial {
         })
       })
 
+      // A soft echo may SINK: pushed away from the eye by a fraction of
+      // its own depth — along the view ray under perspective, along z
+      // under ortho — so its pixels land exactly where they did while
+      // every solid face of its own holon now lies in front of it. A halo
+      // then shows around a solid's silhouette, never across its faces.
+      if (opts.soft) {
+        const k = userData(RIBBON_KEYS.sink, "float").add(1.0)
+        start.assign(perspective.select(vec4(start.xyz.mul(k), 1.0), vec4(start.xy, start.z.mul(k), 1.0)))
+        end.assign(perspective.select(vec4(end.xyz.mul(k), 1.0), vec4(end.xy, end.z.mul(k), 1.0)))
+      }
       const clipStart = cameraProjectionMatrix.mul(start)
       const clipEnd = cameraProjectionMatrix.mul(end)
       const ndcStart = clipStart.xyz.div(clipStart.w)
@@ -302,9 +346,21 @@ export class RibbonMaterial extends THREE.NodeMaterial {
       const d = length(vec2(u.sub(clamp(u, uBegin, uEnd)), v))
 
       const hw = halfWidth()
-      const coverage = opts.soft
-        ? d.div(max(hw, 1e-3)).pow(2).mul(-3.0).exp()
-        : smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
+      let coverage
+      if (opts.soft) {
+        const tips = userData(RIBBON_KEYS.tips, "vec2")
+        const jointBefore = uBegin.lessThanEqual(0.0).and(distStart.greaterThan(tips.x))
+        const jointAfter = uEnd.greaterThanEqual(lenPx).and(distEnd.lessThan(tips.y))
+        const across = u.lessThan(uBegin).and(jointBefore).or(u.greaterThan(uEnd).and(jointAfter))
+        // One-sided (`side` ±1): light only on that side of the line, by
+        // the sign of v — a fill's halo kept off the fill (render/glow.ts).
+        const side = userData(RIBBON_KEYS.side, "float")
+        const oneSided = side.equal(0.0).select(float(1.0), smoothstep(-AA_PX, AA_PX, v.mul(side)))
+        coverage = softCoverage(d, hw, across.select(abs(v), d)).mul(oneSided)
+      } else {
+        coverage = smoothstep(hw.sub(AA_PX), hw.add(AA_PX), d).oneMinus()
+        if (opts.mask) coverage.lessThan(0.5).discard()
+      }
       const a = coverage.mul(fade)
       // Premultiplied on black — max-blended (see module header).
       return vec4(vec3(tint).mul(a), a)
@@ -319,7 +375,11 @@ let shared: RibbonMaterial | undefined
 export const sharedRibbonMaterial = (): RibbonMaterial => (shared ??= new RibbonMaterial())
 
 let sharedSoft: RibbonMaterial | undefined
-/** The soft (gaussian-edged) twin — uncertainty's echoes draw with it. */
+let sharedMask: RibbonMaterial | undefined
+/** The depth-only twin — a glowing line's mask (render/glow.ts). */
+export const sharedMaskRibbonMaterial = (): RibbonMaterial => (sharedMask ??= new RibbonMaterial({ mask: true }))
+
+/** The soft (gaussian-edged) twin — every soft echo draws with it (render/echo.ts). */
 export const sharedSoftRibbonMaterial = (): RibbonMaterial => (sharedSoft ??= new RibbonMaterial({ soft: true }))
 
 /**
@@ -445,6 +505,12 @@ export class RibbonStroke {
     ud[RIBBON_KEYS.erased] = 0
     ud[RIBBON_KEYS.tint] = new THREE.Color(1, 1, 1)
     ud[RIBBON_KEYS.fade] = 1
+    ud[RIBBON_KEYS.inner] = 0
+    // Arc lengths of the polyline's true tips, for a hollow soft echo:
+    // by default none (every end a joint) — render/echo.ts sets them.
+    ud[RIBBON_KEYS.tips] = new THREE.Vector2(-1, 1e30)
+    ud[RIBBON_KEYS.sink] = 0
+    ud[RIBBON_KEYS.side] = 0
   }
 
   /** Draw front as arc length — this stroke's own styled value. */
@@ -493,6 +559,48 @@ export class RibbonStroke {
     ;(dist.data.array as Float32Array).set(packed.distances)
     dist.data.needsUpdate = true
     this.geometry.instanceCount = packed.count
+  }
+
+  /**
+   * Several disjoint polylines as ONE stroke — a soft echo around the
+   * boundary loops of a fill (render/glow.ts). The segments are packed
+   * end to end with arc length running on across the gaps, and no segment
+   * bridges a gap, so it draws as the loops and nothing between them.
+   * Not resampled: an echo of a whole shape is always fully drawn, so no
+   * pen front ever needs the projective arc-length identity.
+   */
+  setLoops(loops: readonly (readonly THREE.Vector3[])[]): void {
+    let count = 0
+    for (const loop of loops) count += Math.max(0, loop.length - 1)
+    this.points = loops.flat()
+    if (count < 1) {
+      this.geometry.instanceCount = 0
+      this.totalLength = 0
+      this.boundsRadius = 0
+      return
+    }
+    if (count > this.capacity) this.allocate(1 << Math.ceil(Math.log2(count)))
+    const start = this.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute
+    const dist = this.geometry.getAttribute("instanceDistanceStart") as THREE.InterleavedBufferAttribute
+    const positions = start.data.array as Float32Array
+    const distances = dist.data.array as Float32Array
+    let i = 0
+    let acc = 0
+    for (const loop of loops) {
+      for (let k = 0; k + 1 < loop.length; k++, i++) {
+        const a = loop[k]!
+        const b = loop[k + 1]!
+        positions.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6)
+        distances[i * 2] = acc
+        acc += a.distanceTo(b)
+        distances[i * 2 + 1] = acc
+      }
+    }
+    start.data.needsUpdate = true
+    dist.data.needsUpdate = true
+    this.geometry.instanceCount = count
+    this.totalLength = acc
+    this.computeBounds()
   }
 
   /**
@@ -591,8 +699,11 @@ export class RibbonStroke {
     tint: Color,
     widthPx: number,
     erasedFraction = 0,
+    /** The soft material's hollow core in CSS px (render/echo.ts); crisp ribbons ignore it. */
+    innerPx?: number,
   ): void {
     const ud = this.mesh.userData
+    if (innerPx !== undefined) ud[RIBBON_KEYS.inner] = innerPx
     ud[RIBBON_KEYS.drawn] = fraction * this.totalLength
     ud[RIBBON_KEYS.erased] = erasedFraction * this.totalLength
     // A pen of no width draws nothing. (Its SDF still put 0.5 coverage on

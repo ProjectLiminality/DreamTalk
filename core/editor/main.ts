@@ -353,11 +353,11 @@ const boot = async (resume?: Transport) => {
   //
   // A sovereign symbol is a BUTTON (game loop), and the glow is its
   // affordance: pointer over any of its ink — however deep the hit, a
-  // grid line is still the Axes' ink — lifts the SOVEREIGN's strokes.
-  // Non-sovereign parts alone never glow: invisible assets are not
-  // buttons. Editor-only by construction: the lift lives in the host's
-  // per-frame tint/width values (three-host highlight()), never in the
-  // Dream, and nothing in the demo or gauntlet path ever calls it.
+  // grid line is still the Axes' ink — lays attention's faint golden glow
+  // (src/glow.ts) around the SOVEREIGN. Non-sovereign parts alone never
+  // glow: invisible assets are not buttons. Editor-only by construction:
+  // the glow lives in the host's interaction layer (three-host attend()),
+  // never in the Dream, and nothing in the demo or gauntlet path calls it.
 
   /** The nearest sovereign at-or-above a hit — the symbol that is the button. */
   const sovereignOf = (holon: Holon | undefined): Holon | undefined => {
@@ -920,7 +920,21 @@ const boot = async (resume?: Transport) => {
   const creator = playerMode
     ? undefined
     : new CreatorMode(
-        { canvas, pick: pickAt, boundsOf: (h) => host.boundsOf(h) },
+        {
+          canvas,
+          pick: pickAt,
+          boundsOf: (h) => host.boundsOf(h),
+          // The glow (src/glow.ts): faint on what the dot hovers, full on the
+          // selection (selection.subscribe → creator.select), in either mode.
+          attend: (channel, holon, amount) => {
+            host.attend(channel, holon, amount)
+            // The selection store fires once at subscribe, during boot —
+            // before `current` exists; the first paint draws it anyway.
+            try {
+              void host.renderFrame(current)
+            } catch {}
+          },
+        },
         {
           clickSelects: false,
           signal: ac.signal,
@@ -1356,8 +1370,10 @@ const boot = async (resume?: Transport) => {
   // holon that moves keeps its mark).
   const paintMarquee = () => {
     const holon = selection.current
+    // The selection's look is its golden glow; the ticks remain only for a
+    // holon with no ink of its own to glow (a Null, an empty group).
     marquee.draw(
-      holon ? host.boundsOf(holon) : undefined,
+      holon && !host.hasInk(holon) ? host.boundsOf(holon) : undefined,
       host.renderer.domElement.width,
       host.renderer.domElement.height,
     )

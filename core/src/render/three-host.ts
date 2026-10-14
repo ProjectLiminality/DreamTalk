@@ -27,6 +27,8 @@ import { Holon } from "../holon"
 import type { Param, Readable } from "../params"
 import { seenCertainty, seenOpacity } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
+import { HOVER, breathe, seenGlow } from "../glow"
+import { FillHalo, StrokeHalo } from "./glow"
 import {
   AnnularSector,
   Arc,
@@ -47,7 +49,7 @@ import {
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
 import { Surface } from "../parts/surface"
-import { RibbonStroke, RIBBON_KEYS } from "./ribbon"
+import { RibbonMaterial, RibbonStroke, RIBBON_KEYS } from "./ribbon"
 import { BatchTable, RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
@@ -901,6 +903,25 @@ export class ThreeHost {
    */
   private readonly highlighted = new Set<Holon>()
   private highlightAmount = 0
+  /**
+   * ATTENTION (src/glow.ts, render/glow.ts) — the interaction layer's
+   * golden glow, by channel ("hover", "selection", …): each channel's
+   * targets flattened to their subtrees, merged into one holon → amount
+   * map. Empty unless someone calls attend(), which the demo page, the
+   * gauntlet and every export never do — so no capture can glow unless a
+   * scene AUTHORS a glow param.
+   */
+  private readonly attention = new Map<string, { roots: readonly Holon[]; holons: Set<Holon>; amount: number }>()
+  private readonly attended = new Map<Holon, number>()
+  /** Authored glows (`glow()` params), gathered once over the bound holons; undefined until first asked. */
+  private authoredGlow?: Map<Holon, Readable<number>>
+  private authoredGlowOver = -1
+  /** The halos made so far, by the ink they surround (a ribbon or a fill mesh). */
+  private readonly halos = new Map<object, StrokeHalo | FillHalo>()
+  /** The halos lit last frame — the ones to put out when attention moves on. */
+  private litHalos = new Set<StrokeHalo | FillHalo>()
+  /** Where halos live: their own layer, so no binding's group ever measures them. */
+  private glowLayer?: THREE.Group
 
   private constructor(dream: Dream, canvas: HTMLCanvasElement, useInstancedRibbons: boolean) {
     this.dream = dream
@@ -1501,7 +1522,8 @@ export class ThreeHost {
       this.arrows.length > 0 ||
       this.texts.length > 0 ||
       this.ribbonBatches.length > 0 ||
-      this.superpositions.length > 0
+      this.superpositions.length > 0 ||
+      this.glowing()
     ) {
       this.settleScene()
       for (const binding of this.cylinders) if (!this.asleep(binding.holon)) this.syncCylinder(binding)
@@ -1517,6 +1539,8 @@ export class ThreeHost {
       for (const { blur, group } of this.superpositions) {
         blur.sync(this.frameT, this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
+      // Attention's halos: after every stroke and fill is styled and settled.
+      this.syncGlow()
       // A contour rebuild parents fresh ribbon meshes whose world
       // matrices are not yet settled.
       if (this.texts.length > 0) this.matricesSettled = false
@@ -2512,14 +2536,148 @@ export class ThreeHost {
    * no passes, no materials, no postprocessing. Takes effect on the next
    * renderFrame().
    */
-  highlight(target: Holon | readonly Holon[] | null, amount = 0.15): void {
-    this.highlighted.clear()
-    this.highlightAmount = amount
-    if (!target) return
-    const targets: readonly Holon[] = Array.isArray(target) ? target : [target as Holon]
-    for (const root of targets) {
-      for (const holon of root.walk()) this.highlighted.add(holon)
+  highlight(target: Holon | readonly Holon[] | null, amount = HOVER): void {
+    // The tint lift this once was is retired: hover is attention's faint glow.
+    this.attend("hover", target, amount)
+  }
+
+  /**
+   * Lay attention's golden glow (src/glow.ts) on a holon — its whole
+   * subtree — or several, or none (null), on a named CHANNEL: "hover",
+   * "selection", a game handle… Channels overlap by max, so a selected
+   * thing that is also hovered simply stays fully lit. `amount` is the
+   * intensity (glow.ts HOVER = faint, SELECTED = 1) and may be re-set
+   * every frame to animate it. Interaction only: it lives here, never in
+   * the Dream. Takes effect on the next renderFrame().
+   */
+  attend(channel: string, target: Holon | readonly Holon[] | null, amount = 1): void {
+    const targets: readonly Holon[] = !target ? [] : Array.isArray(target) ? target : [target as Holon]
+    if (targets.length === 0 || amount <= 0) this.attention.delete(channel)
+    else {
+      const prior = this.attention.get(channel)
+      const same = prior && targets.length === prior.roots.length && targets.every((h, i) => h === prior.roots[i])
+      if (same) prior.amount = amount
+      else {
+        const holons = new Set<Holon>()
+        for (const root of targets) for (const holon of root.walk()) holons.add(holon)
+        this.attention.set(channel, { holons, amount, roots: targets.slice() })
+      }
     }
+    this.attended.clear()
+    for (const { holons, amount: a } of this.attention.values()) {
+      for (const holon of holons) if (a > (this.attended.get(holon) ?? 0)) this.attended.set(holon, a)
+    }
+  }
+
+  /** Does this holon (or anything below it) draw ink a glow can follow? */
+  hasInk(holon: Holon): boolean {
+    const index = this.inkIndex()
+    for (const h of holon.walk()) if (index.has(h)) return true
+    return false
+  }
+
+  /** Does anything glow this frame (or did, and must be put out)? */
+  private glowing(): boolean {
+    return this.attended.size > 0 || this.litHalos.size > 0 || this.authoredGlows().size > 0
+  }
+
+  /** Every bound holon that declares (or inherits) an authored glow. */
+  private authoredGlows(): Map<Holon, Readable<number>> {
+    if (this.authoredGlow && this.authoredGlowOver === this.groups.length) return this.authoredGlow
+    const found = new Map<Holon, Readable<number>>()
+    for (const { holon } of this.groups) {
+      const g = seenGlow(holon)
+      if (g) found.set(holon, g)
+    }
+    this.authoredGlowOver = this.groups.length
+    return (this.authoredGlow = found)
+  }
+
+  /** The ink a holon draws with its own bindings: its ribbons and its fill meshes. */
+  private inkMeshes(holon: Holon): { ribbons: RibbonStroke[]; fills: { mesh: THREE.Mesh; opacity: number }[] } {
+    const ink = this.inkIndex().get(holon)
+    if (!ink) return { ribbons: [], fills: [] }
+    const fills = ink.fills.map((mesh) => ({ mesh, opacity: (mesh.userData.dtFillFade as number | undefined) ?? 1 }))
+    for (const group of ink.texts) {
+      // The glyphs themselves (not their traced pen contours): a letter's
+      // halo follows its outline and its counters.
+      for (const child of group.children) {
+        if (child instanceof THREE.Mesh && !(child.material instanceof RibbonMaterial) && child.visible) {
+          fills.push({ mesh: child, opacity: seenOf(holon).value })
+        }
+      }
+    }
+    return { ribbons: ink.ribbons, fills }
+  }
+
+  /**
+   * Every holon's own ink, indexed once (and again only when bindings are
+   * added) — so attending to a whole Earth costs a lookup per holon.
+   */
+  private inkIndex(): Map<Holon, { ribbons: RibbonStroke[]; fills: THREE.Mesh[]; texts: THREE.Object3D[] }> {
+    const size =
+      this.strokes.length + this.cylinders.length + this.fills.length + this.arrows.length +
+      this.surfaces.length + this.washes.length + this.drawingWashes.length + this.texts.length
+    if (this.inks && this.inksOver === size) return this.inks
+    const index = new Map<Holon, { ribbons: RibbonStroke[]; fills: THREE.Mesh[]; texts: THREE.Object3D[] }>()
+    const of = (holon: Holon) => {
+      let ink = index.get(holon)
+      if (!ink) index.set(holon, (ink = { ribbons: [], fills: [], texts: [] }))
+      return ink
+    }
+    for (const b of this.strokes) of(b.holon).ribbons.push(b.ribbon)
+    for (const b of this.cylinders) of(b.holon).ribbons.push(b.farCap, b.nearFront, b.nearBack, b.lineA, b.lineB)
+    // A filled shape's interior counts too: its light falls outside it, never across it.
+    for (const b of [...this.fills, ...this.arrows, ...this.surfaces, ...this.washes, ...this.drawingWashes]) {
+      of(b.holon).fills.push(b.fill.mesh)
+    }
+    for (const t of this.texts) of(t.holon).texts.push(t.group)
+    this.inksOver = size
+    return (this.inks = index)
+  }
+  private inks?: Map<Holon, { ribbons: RibbonStroke[]; fills: THREE.Mesh[]; texts: THREE.Object3D[] }>
+  private inksOver = -1
+
+  /** Light every attended or glowing holon's halos; put out the rest. */
+  private syncGlow(): void {
+    if (!this.glowing()) return
+    const authored = this.authoredGlows()
+    const lit = new Set<StrokeHalo | FillHalo>()
+    const light = (holon: Holon, amount: number) => {
+      if (amount <= 0 || this.asleep(holon)) return
+      const layer = (this.glowLayer ??= this.makeGlowLayer())
+      const { ribbons, fills } = this.inkMeshes(holon)
+      for (const ribbon of ribbons) {
+        let halo = this.halos.get(ribbon)
+        if (!halo) this.halos.set(ribbon, (halo = new StrokeHalo(ribbon, layer)))
+        ;(halo as StrokeHalo).sync(amount)
+        lit.add(halo)
+      }
+      for (const { mesh, opacity } of fills) {
+        let halo = this.halos.get(mesh)
+        if (!halo) this.halos.set(mesh, (halo = new FillHalo(mesh, layer)))
+        ;(halo as FillHalo).sync(amount, opacity, this.camera)
+        lit.add(halo)
+      }
+    }
+    // A held glow breathes with the scene's t — still when t stands still.
+    const breath = breathe(Number.isFinite(this.frameT) ? this.frameT : 0)
+    const seen = new Set<Holon>()
+    for (const [holon, amount] of this.attended) {
+      seen.add(holon)
+      light(holon, Math.max(amount, authored.get(holon)?.value ?? 0) * breath)
+    }
+    for (const [holon, g] of authored) if (!seen.has(holon)) light(holon, g.value * breath)
+    for (const halo of this.litHalos) if (!lit.has(halo)) halo.hide()
+    this.litHalos = lit
+  }
+
+  private makeGlowLayer(): THREE.Group {
+    const layer = new THREE.Group()
+    // Identity, never moved: each halo carries its ink's world matrix itself.
+    layer.matrixAutoUpdate = false
+    this.scene.add(layer)
+    return layer
   }
 
   /** This holon's glow amount this frame — 0 for almost everything. */

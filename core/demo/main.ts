@@ -201,8 +201,9 @@ const main = async () => {
   // One key, from anywhere in the song: the world holds still at this t,
   // the arrow becomes the golden dot, and a click selects instead of
   // firing. The key again (or Esc) and the song carries on from where it
-  // stood. Nothing here touches the Dream or the renderer — rims and dot
-  // are an overlay — so the harness's captures are exactly what they were.
+  // stood. Nothing here touches the Dream — the dot is an overlay and the
+  // glow is the host's interaction layer, which the harness never calls —
+  // so the harness's captures are exactly what they were.
   const pickAt = (clientX: number, clientY: number) => {
     const rect = canvas.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return undefined
@@ -213,7 +214,17 @@ const main = async () => {
   }
   let resumeOnExit = false
   const creator: CreatorMode = new CreatorMode(
-    { canvas, pick: pickAt, boundsOf: (h) => host.boundsOf(h) },
+    {
+      canvas,
+      pick: pickAt,
+      boundsOf: (h) => host.boundsOf(h),
+      // The golden glow (src/glow.ts), in the host's interaction layer; the
+      // world is held in creator mode, so the held frame is drawn again.
+      attend: (channel, holon, amount) => {
+        host.attend(channel, holon, amount)
+        if (!playing) void host.renderFrame(current)
+      },
+    },
     {
       clickSelects: true,
       signal: ac.signal,
