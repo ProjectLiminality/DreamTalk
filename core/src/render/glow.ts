@@ -104,12 +104,21 @@ export class StrokeHalo {
 
   /** `amount` in [0, 1] — 0 hides it. */
   sync(amount: number): void {
-    const pts = this.main.worldPoints()
+    const loops = this.main.loops
+    const pts = loops ? (loops as unknown as readonly THREE.Vector3[]) : this.main.worldPoints()
     if (pts !== this.points) {
       this.points = pts
-      this.rim.setPoints(pts)
-      this.aura.setPoints(pts)
-      this.mask.setPoints(pts)
+      if (loops) {
+        // Many polylines (parts/polylines.ts): no hollow across their gaps —
+        // the mask alone keeps the light off the lines.
+        this.rim.setLoops(loops)
+        this.aura.setLoops(loops)
+        this.mask.setLoops(loops)
+      } else {
+        this.rim.setPoints(pts)
+        this.aura.setPoints(pts)
+        this.mask.setPoints(pts)
+      }
       this.closed = isClosed(pts)
     }
     const shown = shownOf(this.main)
@@ -123,12 +132,13 @@ export class StrokeHalo {
     placeEcho(this.mask.mesh, 0, 0, this.main.mesh.matrixWorld)
     setTips(this.rim, this.closed, shown)
     setTips(this.aura, this.closed, shown)
-    const inner = inkOf(this.main).widthPx / 2
-    this.mask.style(shown.fraction, 1, GOLD, inner * 2, shown.erased)
+    const half = inkOf(this.main).widthPx / 2
+    const inner = loops ? 0 : half
+    this.mask.style(shown.fraction, 1, GOLD, half * 2, shown.erased)
     // The light keeps its own strength; only the ink's window is its source's.
     const lit = { ...shown, opacity: presence(shown.opacity) }
-    styleEcho(this.rim, lit, { alpha: amount * RIM_ALPHA, tint: GOLD, widthPx: 2 * (inner + RIM_PX), innerPx: inner, sink: SINK })
-    styleEcho(this.aura, lit, { alpha: amount * AURA_ALPHA, tint: AURA, widthPx: 2 * (inner + AURA_PX), innerPx: inner, sink: SINK })
+    styleEcho(this.rim, lit, { alpha: amount * RIM_ALPHA, tint: GOLD, widthPx: 2 * (half + RIM_PX), innerPx: inner, sink: SINK })
+    styleEcho(this.aura, lit, { alpha: amount * AURA_ALPHA, tint: AURA, widthPx: 2 * (half + AURA_PX), innerPx: inner, sink: SINK })
   }
 
   hide(): void {

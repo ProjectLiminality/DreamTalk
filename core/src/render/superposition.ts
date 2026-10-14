@@ -94,14 +94,23 @@ export class RibbonSuperposition {
 
   setPoints(pts: readonly THREE.Vector3[]): void {
     this.points = pts
+    this.loops = undefined
     for (const e of this.echoes) e.setPoints(pts)
   }
+
+  /** Many polylines as one cloud (parts/polylines.ts). */
+  setLoops(loops: readonly (readonly THREE.Vector3[])[]): void {
+    this.loops = loops
+    for (const e of this.echoes) e.setLoops(loops)
+  }
+  private loops: readonly (readonly THREE.Vector3[])[] | undefined
 
   private make(): void {
     // A gaussian cross-section: the echoes overlap into one soft band.
     for (let k = 0; k < ECHOES; k++) {
       const echo = softEcho(inkOf(this.main).widthPx, this.main.mesh.renderOrder, this.group)
-      echo.setPoints(this.points)
+      if (this.loops) echo.setLoops(this.loops)
+      else echo.setPoints(this.points)
       this.echoes.push(echo)
       this.onEcho?.(echo.mesh)
     }

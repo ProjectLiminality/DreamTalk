@@ -478,6 +478,8 @@ export class RibbonStroke {
    * mesh's whole life keeps that binding valid.
    */
   private capacity = 0
+  /** The loops as last set by `setLoops` — undefined for a single polyline. */
+  loops: readonly (readonly THREE.Vector3[])[] | undefined
 
   /** (Re)allocate the instance buffers to hold `segments` segments. */
   private allocate(segments: number): void {
@@ -543,6 +545,7 @@ export class RibbonStroke {
   }
 
   setPoints(pts: readonly THREE.Vector3[]): void {
+    this.loops = undefined
     this.points = resamplePolyline(
       pts,
       RibbonStroke.SUBDIVISION,
@@ -589,6 +592,7 @@ export class RibbonStroke {
    * pen front ever needs the projective arc-length identity.
    */
   setLoops(loops: readonly (readonly THREE.Vector3[])[]): void {
+    this.loops = loops
     let count = 0
     for (const loop of loops) count += Math.max(0, loop.length - 1)
     this.points = loops.flat()

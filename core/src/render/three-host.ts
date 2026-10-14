@@ -52,6 +52,7 @@ import {
 import type { Color } from "../constants"
 import { Text } from "../parts/text"
 import { Surface } from "../parts/surface"
+import { Polylines } from "../parts/polylines"
 import { RibbonMaterial, RibbonStroke, RIBBON_KEYS, clippedRibbonMaterial } from "./ribbon"
 import { BatchTable, RibbonBatch, type BatchSlot } from "./ribbon-batch"
 import { FillShape, ellipsePolygon } from "./fill"
@@ -888,6 +889,8 @@ export class ThreeHost {
   private readonly blurOf = new Map<RibbonStroke, RibbonSuperposition>()
   /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
   private readonly surfaces: { holon: Surface; fill: FillShape; version: number; gradient: boolean }[] = []
+  /** Many-polyline strokes (parts/polylines.ts) — one ribbon each, no pen front. */
+  private readonly polylines: { holon: Polylines; ribbon: RibbonStroke; version: number; look: StyleParams }[] = []
   /**
    * Drawings that wash as one even-odd surface across their subpaths —
    * a Sketch and anything else composed of closed Lines
@@ -1199,6 +1202,22 @@ export class ThreeHost {
       fill.setMesh(holon.positions, holon.indices)
       group.add(fill.mesh)
       this.surfaces.push({ holon, fill, version, gradient })
+    } else if (holon instanceof Polylines) {
+      // Many lines, one ribbon: its segments skip the gaps between loops.
+      const ribbon = new RibbonStroke(holon.stroke.value)
+      ribbon.mesh.renderOrder = this.nextFillOrder++
+      const version = holon.geomVersion
+      const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+      ribbon.setLoops(loops)
+      group.add(ribbon.mesh)
+      this.polylines.push({ holon, ribbon, version, look: styleOf(holon) })
+      const sure = seenCertainty(holon)
+      if (sure) {
+        const blur = new RibbonSuperposition(ribbon, sure, this.superpositions.length + 1, group)
+        blur.setLoops(loops)
+        this.blurOf.set(ribbon, blur)
+        this.superpositions.push({ blur, group })
+      }
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -1645,6 +1664,18 @@ export class ThreeHost {
         liftTint(binding.look.tint.value, this.highlightOf(holon)),
       )
       if (binding.gradient) fill.setGradient(binding.look.fillFalloff.value, binding.look.fillFalloffRadius.value)
+    }
+    for (const binding of this.awake(this.polylines)) {
+      const { holon, ribbon, look } = binding
+      if (holon.geomVersion !== binding.version) {
+        const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+        binding.version = holon.geomVersion
+        ribbon.setLoops(loops)
+        this.blurOf.get(ribbon)?.setLoops(loops)
+      }
+      // No pen front: shown while created and not erased.
+      const on = look.creation.value > 0 && look.erasure.value < 1 ? 1 : 0
+      ribbon.style(on, look.opacity.value, look.tint.value, look.stroke.value)
     }
     for (const binding of this.awake(this.surfaces)) {
       const { holon, fill } = binding
@@ -2893,7 +2924,7 @@ export class ThreeHost {
    */
   private inkIndex(): Map<Holon, { ribbons: RibbonStroke[]; fills: THREE.Mesh[]; texts: THREE.Object3D[] }> {
     const size =
-      this.strokes.length + this.cylinders.length + this.fills.length + this.arrows.length +
+      this.strokes.length + this.polylines.length + this.cylinders.length + this.fills.length + this.arrows.length +
       this.surfaces.length + this.washes.length + this.drawingWashes.length + this.texts.length
     if (this.inks && this.inksOver === size) return this.inks
     const index = new Map<Holon, { ribbons: RibbonStroke[]; fills: THREE.Mesh[]; texts: THREE.Object3D[] }>()
@@ -2903,6 +2934,7 @@ export class ThreeHost {
       return ink
     }
     for (const b of this.strokes) of(b.holon).ribbons.push(b.ribbon)
+    for (const b of this.polylines) of(b.holon).ribbons.push(b.ribbon)
     for (const b of this.cylinders) of(b.holon).ribbons.push(b.farCap, b.nearFront, b.nearBack, b.lineA, b.lineB)
     // A filled shape's interior counts too: its light falls outside it, never across it.
     for (const b of [...this.fills, ...this.arrows, ...this.surfaces, ...this.washes, ...this.drawingWashes]) {
