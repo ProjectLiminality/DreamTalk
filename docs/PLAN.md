@@ -681,3 +681,79 @@ ruling (translation + the three deleted labels from footage).
       read off a scene today. A small, well-defined first step once David
       picks (1): a declared `inputs(): Holon[]` contract on holons that
       consume other holons (the four above), which any view then reads.
+
+## Build wave 2026-10-13 → 14
+
+Many agents worked in parallel; each line names where the work lives.
+OPEN-THREADS holds what is still open.
+
+- [x] **The Earth and its data layers.** `vocabulary/Earth`: a true sphere
+      from Natural Earth (1:50m plus 1:10m regional packs), with graticule,
+      lakes, rivers, highlighted countries, decluttered labels, night side,
+      atmosphere and land light. It has automaton axes and a keep-out.
+      Choropleth, PointData and Connection flows carry data
+      (`?scene=earth-data`). `vocabulary/GeoFlow` blends any FlowMap with
+      lat/lon between the planet and the abstract map along one axis.
+- [x] **One Earth.** The flat Web3 `Globe` is retired. Every Web3 shot,
+      Regenaissance and the whiteboard use the Earth, set on the page by
+      `src/parts/recede.ts`. Old boards' `globe` opens as `earth`.
+- [x] **The universal morph.** `Morph(a, b)` routes by what a and b are
+      (word / point / gather / travel). Pieces travel rigid-then-deform on
+      arcs and chain. Unlike shapes take a neutral route through a circle.
+      `MorphToWord` + `Word` turn a symbol into its word. General mesh
+      silhouettes come from `src/geometry/meshlines.ts`. Forms: one thing in
+      three forms as a state axis (`?scene=forms`).
+- [x] **FlowMap, grown.** Certainty is drawn as superposition. Presence
+      is one param for the whole map. It runs over time (a flow table, a
+      scrubbable period, gaps as conjecture). Value ↔ money uses coins in
+      paired lanes. Grains ride its stages, with per-stage material-type
+      certainty. FlowMap is realtime (one carrier per particle). The
+      lens rides a live flow (`?scene=lens-flowmap`).
+- [x] **Material and packaging symbols.** Pallet, FilmReel, Pouch,
+      SheetStack, Coin, Carton, Sack, LabelRoll and Drum are
+      SolidDrawings on the shelf. `Grain` is the grain of knowledge
+      (mass → category → type → item, each rung with its own certainty).
+- [x] **Certainty, superposition, presence.** `src/certainty.ts`,
+      `src/render/superposition.ts`, and presence as an inherited
+      "there or gone" for a whole picture.
+- [x] **The visual automaton.** `src/automaton.ts` defines
+      `stateSpace()` on every symbol whose params express states. The
+      game loop (`demo/game.ts`) gives free play, the HUD and the
+      gallery. The view layer (`src/view.ts`) adds orbit/pan/dolly over
+      any camera, keep-outs and surface orbit. Touch is in
+      `editor/touchcamera.ts`. The overview is
+      docs/reports/automaton.md.
+- [x] **The editor as the state machine.** The paused editor is the game
+      loop. Timeline state lanes show the song as a path. ⌘K writes the
+      song's idiom (`holon.stateAxis(id).to(pos)`). The editor declares its
+      own axes. See docs/reports/editor-automaton.md. "Save as state" is
+      in progress (`editor/savestate.ts`).
+- [x] **Consolidation.** One symbol, one implementation (TASTE.md),
+      guarded by `test/one-implementation.test.ts`. One-implementation
+      holons and helpers: `LightNode`, `Vitruvian`, `derivePoints`,
+      `Shape`, `Holon.attach`, `src/math.ts`, `seen()`, and
+      `src/geometry/frames.ts` (eye and frame maths). The inventory is
+      docs/reports/consolidation.md.
+
+## Scene index (`/demo/?scene=<key>`; add `&play=free` to walk a symbol)
+
+| Key | What you see |
+|---|---|
+| `earth` | The black Earth turns to Europe, the eye descends, sites rise and report home |
+| `earth-features` | Graticule, lakes, rivers, labels, a country lighting up, FlyTo |
+| `earth-data` | The Earth as a knowledge surface: a choropleth through a year, columns, flows into a hub |
+| `geoflow` | An organisation on the planet ↔ the same organisation as its flow map (key `v`) |
+| `flowmap` | Value flows as a visual automaton: grain, flow layers, the stage stack |
+| `flowmap-time` | The flow map driven by a monthly table: volume, appearance, gaps as conjecture |
+| `flowmap-money` | Value ↔ money: coins counter-flowing in paired lanes |
+| `flowmap-grain`, `flowmap-grain-persp` | Grains riding the stages; dots become their material |
+| `lens`, `lens-flowmap` | A lens on a flow: line → road, dots → trucks, on its own or on a live FlowMap |
+| `grain`, `materials`, `materials-faces` | The grain of knowledge; the material and packaging symbols |
+| `forms`, `morph-solids` | How to morph anything: one thing in three forms; 3D into 3D |
+| `morph-lines-circle`, `morph-dot-truck`, `morph-mesh` | The universal morph: N curves → M curves, in 3D |
+| `morph-word`, `morph-word-virus` | A symbol becoming its written word and back |
+| `meshes` | General mesh silhouettes: creases and smooth contours, hidden lines removed |
+| `sop`, `horizons` | S&OP as a figure-eight that untwists into one loop; planning horizons with their people |
+| `gallery` | The walkable symbols side by side: ← → visit each, its axes live (`&play=free`) |
+| `vitruvian`, `regenaissance`, `globe` | Da Vinci's man by epicycles; the noosphere over the Earth; the Earth in Web3's three looks |
+| `web3` | The whole Web3 video, now on the 3D Earth (`web3s01`…`web3s15` for single shots) |

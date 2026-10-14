@@ -40,8 +40,14 @@ when done.
 - Built 2026-10-13 (round 4): label declutter (fixed priority, continuous
   yield, stateless), 1:10m regional packs (`packs/alps10m.ts`, 80 KB; grid
   cells as the seam), night side + terminator, atmosphere halo, land light.
-- Open: more detail packs (Europe-wide is large); measured glyph boxes for
-  the declutter; morphing
+- Built 2026-10-13/14: data layers (`Choropleth`, `PointData`, Connection
+  flows; `?scene=earth-data`), `vocabulary/GeoFlow` (a FlowMap with lat/lon
+  on the planet ↔ its abstract map along one axis `v`; `?scene=geoflow`),
+  free-play axes + keep-out, and **One Earth**: the flat Web3 Globe is
+  retired, every former globe is an Earth set on the page by
+  `src/parts/recede.ts` (docs/reports/consolidation.md).
+- Open: more detail packs (Europe-wide is large); ~~measured glyph boxes for
+  the declutter~~ (measured Arimo advances, 2026-10-13); morphing
   the site→HQ `Connection` arcs into one circle (they expose
   `worldCurves()`); and the colour-space question below. (Draw-on cost
   fixed 2026-10-13: 80 → 20 ms, byte-identical.)
@@ -55,9 +61,15 @@ when done.
   curves by arc length, 3D, fill as its own channel; `SolidDrawing` +
   `Truck` give view-dependent 3D outlines to land on. `?scene=morph-lines-
   circle`, `?scene=morph-dot-truck`.
-- Open: arcing / staggered travel paths; a "nearest-target" strategy for
-  clustered many→many (letters, map regions); hidden-line for general
-  meshes (crease + silhouette edges from triangles) and rotated /
+- Built 2026-10-13/14: `Morph(a, b)` — one verb routed by what a and b are
+  (word / point / gather / travel), returns an Anim with `back()`; rigid-
+  then-deform travel on arcs, chaining, stagger; the neutral route (unlike
+  shapes pass through a camera-facing circle); Forms (`?scene=forms`,
+  `morph-solids`).
+- Open: ~~arcing / staggered travel paths~~ (built); a "nearest-target"
+  strategy for clustered many→many (letters, map regions — how: assign by
+  minimum total travel over piece centroids before the tape match);
+  ~~hidden-line for general meshes~~ (meshlines.ts) and rotated /
   interpenetrating solids; re-planning stability when the camera moves
   DURING a morph onto a view-dependent target; fill morphing (not only
   fading); the graft (`.morphInto([...])`) once a scene wants the method
@@ -72,9 +84,10 @@ when done.
   (depth-writing Surfaces) in one drawing; view-bucket caching under
   orthographic cameras; GPU path for very large meshes.
 - **Lens (built 2026-10-13):** `vocabulary/Lens` (Lens + FlowLens), `Road`,
-  `Stream` — `?scene=lens`. Open: a curved/two-way road and landscape in
-  the window; aligning the window's ground to a tilted FlowMap stack;
-  per-frame re-planning cost of mid-morph particles for realtime.
+  `Stream` — `?scene=lens`. Open: a two-way road (trucks both ways — a
+  second lane on Road, a reversed Stream); ~~curved road + landscape~~,
+  ~~ground aligned to a tilted stack~~ (`?scene=lens-flowmap`), ~~mid-morph
+  re-planning cost~~ (param-epoch memos, 314 → 4 ms) — all built.
 
 ## Value flow map (2026-10-13, whiteboard transmission)
 - **Built:** `core/vocabulary/FlowMap` (`?scene=flowmap`) — group/members/
@@ -88,9 +101,15 @@ when done.
   ribbon twin, crystallising as c → 1) and
   a Morph opening (relations → the group circle).
 - Open: David's eye on the superposition (echo count, spread, breath);
-  entity labels (stage + category labels exist); ~~particle symbols beyond the dot (pallets, reels)~~ (Grain + Pallet/FilmReel/Pouch/SheetStack built 2026-10-13, `?scene=grain` — open: Grain riding FlowMap's channels; an item rung that also adjusts its symbol; the superposition cloud on ghosted symbol FILLS is heavy at symbol size);
+  entity labels (stage + category labels exist); ~~particle symbols beyond the dot (pallets, reels)~~ (Grain + Pallet/FilmReel/Pouch/SheetStack built 2026-10-13, `?scene=grain`; ~~Grain riding FlowMap's channels~~ and ~~a data-driven item rung~~ built (`?scene=flowmap-grain`) — open: the superposition cloud on ghosted symbol FILLS is heavy at symbol size);
   splitting a stage in two (production step); wiring Morph (connection lines
   → the group circle, dot → truck); a clickable creator-mode toggle per param.
+
+- Built 2026-10-13/14: FlowMap over time (`?scene=flowmap-time`: a flow
+  table importer, a scrubbable period, gaps as conjecture), value ↔ money
+  (`?scene=flowmap-money`), presence, per-stage material-type certainty,
+  realtime particles (one carrier each). Packaging symbols (Coin, Carton,
+  Sack, LabelRoll, Drum) on the shelf.
 
 ## The whiteboard loop (2026-10-03, active)
 - **Tablet screen driven by DreamTalk** — the e-ink mirror of the whiteboard
@@ -134,13 +153,6 @@ when done.
   async text re-layout lands~~ — done 2026-10-04: `onTextLayout` in
   render/text.ts fires when glyphs land; the demo player redraws its held
   frame and the paused editor repaints (one per animation frame).
-- **The golden glow is built (2026-10-13, `src/glow.ts`):** hovered = a faint
-  glow, selected = full, around the holon's actual ink (strokes, fill edges,
-  letters, 3D solids' silhouettes) — the editor's selection and hover, the
-  player's creator mode. Open: David's eye on rim/aura widths and the hover
-  intensity (`render/glow.ts` RIM_PX/AURA_PX, glow.ts HOVER); a "fire"
-  breath for the game loop's handles; the whiteboard keeps its own
-  black/white selection frame (the tablet mirror is monochrome).
 - **Changes are git-tracked**; Claude-artifact-style comment mode generalised to
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its
@@ -168,6 +180,10 @@ when done.
   (the final mix has VitalikQuote.mp3, not David's 07 take); whether the
   3Blue1Brown soundtrack comes across.
 - Open: slide-wipe transitions; heavier-than-Manim text weight.
+- **On the 3D Earth since 2026-10-13** (bf55244): shots 1, 2–3, 13, 15 use
+  `vocabulary/Earth` via Recede; the hero/red-lobe node is `LightNode`, shot
+  12's figure is `Vitruvian`. Waiting on David: his eye on the new globe
+  look (before/after in the consolidation commit messages).
 
 ## Engine
 
@@ -180,5 +196,14 @@ when done.
   (test/oneparent.test.ts). Re-measure perf item I's GPU cost on this base.
 - Performance roadmap E/F; ontology builds (SDF square∩circle cylinder,
   GeometrySketch, RayCaster, node-graph visualisation).
+- **One symbol, one implementation (2026-10-13/14):** TASTE.md rule,
+  guarded by `test/one-implementation.test.ts` (no shelf class redeclared;
+  no private derived-points copy; no cast past `add()` — `Holon.attach`;
+  the eye-distance formula only in `src/geometry/frames.ts`). Open (how:
+  docs/reports/consolidation.md): Earth/Labels/PointData/GeoFlow still
+  cast past `add()` (switch to `attach`, then shrink the guard's list);
+  FlowMap/SOPLoop could compose `Stream` instead of their own particle
+  wiring; promote the Regenaissance lattice to a 3D `Noosphere` holon only
+  when a second song needs it.
 - DreamOS as one "dream graph" (Plan 9 / Houdini: a uniform data model through
   a procedural graph, nodes as code) — the tablet as one more client of it.
