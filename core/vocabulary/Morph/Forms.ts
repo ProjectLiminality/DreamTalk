@@ -21,10 +21,10 @@
  * parts, so they exist when the scene mounts.
  */
 
-import { together, type Anim } from "../../src/anim"
+import type { Anim } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import type { Holon, Overrides } from "../../src/holon"
-import type { Axis, Position, StateSpace } from "../../src/automaton"
+import { poses, type Axis, type StateSpace } from "../../src/automaton"
 import type { Param, ParamValue } from "../../src/params"
 import { Null } from "../../src/parts/primitives"
 import { Word } from "../Word/Word"
@@ -91,32 +91,27 @@ export class Forms extends Null {
     const morphers = [...new Set([...morphs.values()].flatMap((m) => m.holons))].filter(
       (h) => !Object.values(forms).includes(h),
     )
-    const positions: Position[] = names.map((name) => {
-      const values = new Map<Param<ParamValue>, ParamValue>()
+    // One pose per form: [param, value] pairs over every form and morpher.
+    const pose = (name: string): [Param<ParamValue>, ParamValue][] => {
+      const pairs: [Param<ParamValue>, ParamValue][] = []
       for (const other of names) {
         const h = forms[other]!
         for (const p of ownParams(h, "opacity"))
-          values.set(p as Param<ParamValue>, other === name ? (p === h.opacity ? 1 : p.defaultValue) : 0)
-        for (const p of ownParams(h, "fillOpacity")) values.set(p as Param<ParamValue>, other === name ? p.defaultValue : 0)
+          pairs.push([p as Param<ParamValue>, other === name ? (p === h.opacity ? 1 : p.defaultValue) : 0])
+        for (const p of ownParams(h, "fillOpacity")) pairs.push([p as Param<ParamValue>, other === name ? p.defaultValue : 0])
       }
-      for (const m of morphers) for (const p of ownParams(m, "opacity")) values.set(p as Param<ParamValue>, 0)
-      return { name, values }
-    })
+      for (const m of morphers) for (const p of ownParams(m, "opacity")) pairs.push([p as Param<ParamValue>, 0])
+      return pairs
+    }
     const axis: Axis = {
-      id: "form",
+      ...poses("form", Object.fromEntries(names.map((name) => [name, pose(name)])), {
+        label: "form",
+        duration: opts.duration ?? 4,
+        key: opts.key ?? "n",
+        via: (from, to) => this.morph(from, to),
+        handles: () => Object.values(forms),
+      }),
       owner: this,
-      label: "form",
-      duration: opts.duration ?? 4,
-      positions,
-      key: opts.key ?? "n",
-      via: (from, to) => this.morph(from, to),
-      handles: () => Object.values(forms),
-      to: (name) => {
-        const pos = positions.find((p) => p.name === name)
-        if (!pos) throw new Error(`Forms: no form '${name}' (${names.join(", ")})`)
-        return together(...[...pos.values].map(([p, v]) => p.to(v)))
-      },
-      params: () => [...new Set(positions.flatMap((p) => [...p.values.keys()]))],
     }
     return { axes: [axis] }
   }
