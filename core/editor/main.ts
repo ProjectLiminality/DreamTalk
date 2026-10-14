@@ -983,6 +983,10 @@ const boot = async (resume?: Transport) => {
         canvas,
         pick: pickAt,
         boundsOf: (h) => host.boundsOf(h),
+        // The paused editor draws only on demand: repaint when the glow changes.
+        attend: (c, h, a) => {
+          if (host.attend(c, h, a)) void host.renderFrame(current)
+        },
         roots: dream.roots,
         overrides,
         isPlaying: () => playing,

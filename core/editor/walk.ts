@@ -41,6 +41,8 @@ export interface WalkOpts {
   canvas: HTMLCanvasElement
   pick(clientX: number, clientY: number): Holon | undefined
   boundsOf(holon: Holon): PixelBox | undefined
+  /** The golden glow (src/glow.ts) on the hovered handle, instead of the corner ticks. */
+  attend?(channel: "game", holon: Holon | null, amount: number): void
   roots: readonly Holon[]
   overrides: Overrides
   /** Is the transport playing? (The walk lives only in a held frame.) */
@@ -135,7 +137,13 @@ export class EditorWalk {
   constructor(opts: WalkOpts) {
     this.#opts = opts
     this.game = new GameLoop(
-      { canvas: opts.canvas, pick: opts.pick, boundsOf: opts.boundsOf, setBeforeSync: () => {} },
+      {
+        canvas: opts.canvas,
+        pick: opts.pick,
+        boundsOf: opts.boundsOf,
+        attend: opts.attend ? (c, h, a) => opts.attend!(c, h, a) : undefined,
+        setBeforeSync: () => {},
+      },
       {
         roots: opts.roots,
         // The scene's own axes (owner-less) walk first, beside the holons'.
