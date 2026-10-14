@@ -218,15 +218,19 @@ export class Grain extends Stroke {
     const { observer, category, symbol, label, item, neutral, stand, ...rest } = overrides
     super({ stroke: 2.5, ...rest })
     this.opts = { observer, category, symbol, label, item, neutral, stand }
+    // Read by every leaf under the grain every frame (the renderer's
+    // ghost and superposition): once per param epoch.
+    let epoch = -1
+    let c = 1
     this.certainty.follow(
-      derive(() =>
-        rungCertainty(this.rung(), [
-          this.massKnown.value,
-          this.categoryKnown.value,
-          this.typeKnown.value,
-          this.itemKnown.value,
-        ]),
-      ),
+      derive(() => {
+        const e = paramEpoch()
+        if (e !== epoch) {
+          epoch = e
+          c = rungCertainty(this.rung(), [this.massKnown.value, this.categoryKnown.value, this.typeKnown.value, this.itemKnown.value])
+        }
+        return c
+      }),
     )
   }
 
