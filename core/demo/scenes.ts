@@ -106,7 +106,7 @@ import { MorphDotTruckDream, MorphLinesCircleDream } from "./MorphDemos"
 import { LensDream } from "./LensDemo"
 import { LensFlowMapDream } from "./LensFlowMapDemo"
 import { GalleryDream } from "./GalleryDemo"
-import { FlowMapGrainDream, FlowMapGrainPerspDream, GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
+import { FlowMapGrainDream, FlowMapGrainPerspDream, GeoFlowGrainDream, GrainDream, MaterialsDream, MaterialsFacesDream } from "./GrainDemo"
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
 import { FormsDream, MorphSolidsDream } from "./MorphAnyDemo"
@@ -132,6 +132,7 @@ export const scenes: Record<string, DreamClass> = {
   "materials-faces": MaterialsFacesDream,
   "flowmap-grain": FlowMapGrainDream,
   "flowmap-grain-persp": FlowMapGrainPerspDream,
+  "geoflow-grain": GeoFlowGrainDream,
   // A symbol becoming its written word and back (MorphToWord).
   "morph-word": MorphWordDream,
   "morph-word-virus": MorphWordVirusDream,

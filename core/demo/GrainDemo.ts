@@ -17,6 +17,7 @@ import { Group, Line } from "../src/parts/index"
 import type { SolidDrawing } from "../src/parts/soliddrawing"
 import { Factory } from "../vocabulary/Earth/Factory"
 import { FlowMap, MOCK_FLOWMAP } from "../vocabulary/FlowMap/FlowMap"
+import { GeoFlow } from "../vocabulary/GeoFlow/GeoFlow"
 import { Grain, RUNG } from "../vocabulary/Grain/Grain"
 import { Stream } from "../vocabulary/Stream/Stream"
 import { Pallet } from "../vocabulary/Pallet/Pallet"
@@ -321,5 +322,37 @@ export class FlowMapGrainPerspDream extends FlowMapGrainDream {
   protected override perspective = true
   protected override spacing(): number {
     return 75
+  }
+}
+
+/**
+ * `?scene=geoflow-grain` — the grain ladder inside GeoFlow's scaled,
+ * orthographic abstract plane (the setting of the private song): pallets
+ * in, reels mid, pouches out, the raw inflow conjecture (ghosted).
+ */
+export class GeoFlowGrainDream extends Dream {
+  geo = new GeoFlow({
+    seenBy: () => this.observer,
+    ortho: true,
+    data: {
+      ...MOCK_FLOWMAP,
+      stages: MOCK_FLOWMAP.stages.map((s, i) => ({ ...s, symbol: (["pallet", "reel", "pouch"] as const)[i], ...(i === 1 ? { tint: GREEN } : {}) })),
+    },
+  })
+
+  private flowing(dt: number, ...anims: Anim[]): void {
+    this.play(together(this.geo.time.by(dt, { easing: "linear" }), ...anims), dt)
+  }
+
+  unfold() {
+    const g = this.geo
+    void g.parts
+    this.stage(g)
+    this.set(g.view.to(1), g.map.grain.to(1), ...["raw", "semi", "finished"].map((id) => g.map.stage(id).shown.to(1)))
+    this.flowing(2)
+    this.flowing(2.5, ...["raw", "semi", "finished"].map((id) => g.map.stage(id).rung.to(2)))
+    this.flowing(3)
+    this.flowing(2.5, g.map.stage("raw").certainty.to(1))
+    this.flowing(2)
   }
 }
