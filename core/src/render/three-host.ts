@@ -1086,8 +1086,42 @@ export class ThreeHost {
     // screenshot at an arbitrary t deterministic — without it the first
     // frames a harness captures are silently textless.
     await Promise.all(host.texts.map((t) => t.binding.ready))
+    host.warmed = host.prewarm()
     return host
   }
+
+  /**
+   * Build every hidden mesh's render object, bindings and GPU buffers in
+   * the background after mount — not in the frame a hidden line first
+   * becomes visible (a morph's slot lines, a reveal), where three would
+   * otherwise create a hundred of them at once (10–21 ms of render spikes).
+   *
+   * renderer.compileAsync gathers its objects SYNCHRONOUSLY (projection
+   * honours `visible`) and only then builds them one at a time, yielding to
+   * the main thread between objects. So every mesh is shown for exactly the
+   * synchronous gather and given back its visibility before control
+   * returns: no frame ever sees it, nothing is drawn, the frames are the
+   * bytes they were — and mount does not wait for it (a song's thousands of
+   * sleeping chapters warm up while it plays).
+   */
+  private prewarm(): Promise<void> {
+    const shown: THREE.Object3D[] = []
+    this.scene.traverse((object) => {
+      if ((object as THREE.Mesh).isMesh && !object.visible) {
+        object.visible = true
+        shown.push(object)
+      }
+    })
+    let compiling: Promise<void>
+    try {
+      compiling = this.renderer.compileAsync(this.scene, this.camera)
+    } finally {
+      for (const object of shown) object.visible = false
+    }
+    return compiling.catch(() => {})
+  }
+  /** Resolves once the background prewarm has built every render object. */
+  warmed: Promise<void> = Promise.resolve()
 
   /**
    * Does this stroke's interior ever show? True if `fillOpacity` starts
