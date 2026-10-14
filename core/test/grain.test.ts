@@ -326,3 +326,20 @@ describe("Grain — level of detail", () => {
     expect(g.rung()).toBe(2)
   })
 })
+
+describe("Grain — solid faces honour the ghost and the fade", () => {
+  test("a mocked type dims its solid faces by ghost(certainty); a fading particle dims them by its opacity", async () => {
+    const { Surface } = await import("../src/parts/surface")
+    const { ghost } = await import("../src/certainty")
+    const g = new Grain({ observer: observer(), category: BLUE, symbol: (o) => new Pallet(o), grain: 2, typeKnown: 0.25 })
+    void g.parts
+    const faces = g.symbol!.parts.filter((p) => p instanceof Surface) as InstanceType<typeof Surface>[]
+    expect(faces.length).toBeGreaterThan(0)
+    const tint = () => faces[0]!.tint.value
+    expect(tint().b).toBeCloseTo(BLUE.b * ghost(0.25), 6)
+    g.typeKnown.value = 1
+    expect(tint().b).toBeCloseTo(BLUE.b, 6)
+    g.opacity.value = 0.5
+    expect(tint().b).toBeCloseTo(BLUE.b * 0.5, 6)
+  })
+})

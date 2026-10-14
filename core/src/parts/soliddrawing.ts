@@ -27,7 +27,8 @@ import type { Observer } from "../dream"
 import type { Overrides } from "../holon"
 import type { Color } from "../constants"
 import { BLACK } from "../constants"
-import { derive, paramEpoch } from "../params"
+import { derive, paramEpoch, type Readable } from "../params"
+import { ghost, seenCertainty } from "../certainty"
 import { Line, Stroke, derivePoints, type Vec3Like } from "./primitives"
 import { Surface } from "./surface"
 import { hiddenLineDrawing, type Drawing, type Solid, type View } from "../geometry/hiddenline"
@@ -256,7 +257,7 @@ export abstract class SolidDrawing extends Stroke {
         solid: true,
         tint: derive((): Color => {
           const c = this.drawing().surfaces?.[i]?.fill ?? BLACK
-          const k = this.fillOpacity.value
+          const k = this.solidDim()
           return { r: c.r * k, g: c.g * k, b: c.b * k }
         }),
         fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
@@ -274,6 +275,21 @@ export abstract class SolidDrawing extends Stroke {
       this.add(slot)
     }
   }
+
+  /**
+   * How much of a SOLID surface's colour shows. A depth-writing solid is
+   * opaque — the host ignores its opacity — so everything that would fade
+   * it dims it toward the black ground instead: the fill (`fillOpacity`),
+   * the holon's own fade (`opacity`, a particle at the end of its run),
+   * and its inherited certainty (the ghost, src/certainty.ts). Painter
+   * faces get the last two from the host; solids must say them here.
+   */
+  private solidDim(): number {
+    if (this.sure === null) this.sure = seenCertainty(this)
+    return this.fillOpacity.value * this.opacity.value * (this.sure ? ghost(this.sure.value) : 1)
+  }
+  // The inherited certainty, captured at the first frame (the chain is final by then).
+  private sure: Readable<number> | undefined | null = null
 
   /**
    * `solidFaces`: the faces grouped by their solids' fill colour at
@@ -300,7 +316,7 @@ export abstract class SolidDrawing extends Stroke {
         solid: true,
         tint: derive((): Color => {
           const c = this.solids()[first]?.fill ?? BLACK
-          const k = this.fillOpacity.value
+          const k = this.solidDim()
           return { r: c.r * k, g: c.g * k, b: c.b * k }
         }),
         fillOpacity: derive(() => (this.fillOpacity.value > 0 ? 1 : 0)),
