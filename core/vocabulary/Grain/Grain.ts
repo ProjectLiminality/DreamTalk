@@ -47,7 +47,9 @@ import { Param, completion, derive, length, paramEpoch, scalar } from "../../src
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { rotHPB } from "../../src/parts/curves"
 import { Text } from "../../src/parts/text"
-import { derivePoints, localView, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
+import { derivePoints, localView, toWorld, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
+import { orthoHalfHeight } from "../../src/dream"
+import type { Holon } from "../../src/holon"
 import { solidBounds, type View } from "../../src/geometry/hiddenline"
 import { blendPlan, planMorph, type MorphPlan } from "../../src/geometry/correspond"
 import { morphPhases } from "../Morph/MorphCurves"
@@ -133,6 +135,10 @@ const mixColor = (a: Color, b: Color, u: number): Color => ({
   b: a.b + (b.b - a.b) * u,
 })
 const clamp01 = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x)
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = clamp01((x - a) / (b - a))
+  return t * t * (3 - 2 * t)
+}
 
 /** A drawing's solids' bounds: the largest extent (what `size` measures) and the lowest y. */
 const boundsOf = (sym: SolidDrawing): { extent: number; bottom: number } => {
@@ -183,6 +189,14 @@ export class Grain extends Stroke {
   radius = length(9)
   /** The symbol's largest extent, scene units. */
   size = length(70)
+  /**
+   * Level of detail: below this on-screen size (pixels at a 720-high
+   * frame) the grain shows only its dot, whatever its rung — a far or tiny
+   * particle stays the essence. Between 1× and 1.5× it morphs dot → symbol
+   * as it grows on screen (magnification is the morph). Default 14 — a
+   * symbol smaller than that is illegible anyway; 0 = always detailed.
+   */
+  detailPx = length(14)
   /** How real each rung is: 1 = the data says so, 0 = a picture we are painting. */
   massKnown = completion(1)
   categoryKnown = completion(1)
@@ -206,7 +220,7 @@ export class Grain extends Stroke {
     this.opts = { observer, category, symbol, label, item, neutral, stand }
     this.certainty.follow(
       derive(() =>
-        rungCertainty(this.grain.value, [
+        rungCertainty(this.rung(), [
           this.massKnown.value,
           this.categoryKnown.value,
           this.typeKnown.value,
@@ -219,7 +233,39 @@ export class Grain extends Stroke {
   /** The colour now: neutral → the category's as rung 0 → 1. */
   dotTint(): Color {
     const { category, neutral } = this.opts
-    return mixColor(neutral ?? NEUTRAL, category ?? neutral ?? NEUTRAL, grainPhases(this.grain.value).color)
+    return mixColor(neutral ?? NEUTRAL, category ?? neutral ?? NEUTRAL, grainPhases(this.rung()).color)
+  }
+
+  /**
+   * The rung actually drawn: `grain`, held at the dot (1) while the symbol
+   * would be smaller on screen than `detailPx` (see there). Pure in the
+   * params and the camera; once per param epoch.
+   */
+  rung(): number {
+    const e = paramEpoch()
+    if (this.rungMemo?.epoch === e) return this.rungMemo.g
+    const g = this.grain.value
+    const px = this.detailPx.value
+    let shown = g
+    if (px > 0 && g > 1 && this.opts.observer) {
+      const t = smoothstep(px, 1.5 * px, this.screenSize(this.opts.observer))
+      shown = Math.min(g, 1 + t * (g - 1))
+    }
+    this.rungMemo = { epoch: e, g: shown }
+    return shown
+  }
+  private rungMemo?: { epoch: number; g: number }
+
+  /** The symbol's size on screen, pixels of a 720-high frame. */
+  screenSize(o: Observer): number {
+    let s = this.size.value
+    for (let n: Holon | undefined = this; n; n = n.parent) s *= Math.abs(n.scale.value)
+    if (o.orthographic.value) return (s / (2 * orthoHalfHeight(o.zoom.value || 1, 16 / 9))) * 720
+    const v = viewOf(o)
+    if (!("eye" in v)) return Infinity
+    const p = toWorld(this, { x: 0, y: 0, z: 0 })
+    const d = Math.hypot(v.eye.x - p.x, v.eye.y - p.y, v.eye.z - p.z) || 1e-6
+    return (s / (2 * d * Math.tan(o.fov.value / 2))) * 720
   }
 
   /** The view, in this grain's frame. */
@@ -318,7 +364,7 @@ export class Grain extends Stroke {
 
   /** The morph's curves at the current rung — empty unless mid-morph. */
   pieces(): Vec3Like[][] {
-    const g = this.grain.value
+    const g = this.rung()
     const ph = grainPhases(g)
     if (g > 1 && g < 2) {
       if (ph.fillIn > 0 || !this.symbol) return []
@@ -341,7 +387,7 @@ export class Grain extends Stroke {
    * not two.
    */
   ink(): Vec3Like[][] {
-    const g = this.grain.value
+    const g = this.rung()
     if (g <= 1 || !this.symbol) return []
     const ph = grainPhases(g)
     const moving = this.pieces()
@@ -360,18 +406,18 @@ export class Grain extends Stroke {
       const e = paramEpoch()
       if (e !== phEpoch) {
         phEpoch = e
-        ph = grainPhases(this.grain.value)
+        ph = grainPhases(this.rung())
       }
       return ph
     }
     // With an item symbol the type's symbol hands over to it on 2 → 3.
     const typeFill = () => {
       const ph = phases()
-      return item && this.grain.value > 2 ? 1 - ph.item.fillOut : ph.fillIn
+      return item && this.rung() > 2 ? 1 - ph.item.fillOut : ph.fillIn
     }
     const typeShown = () => {
       const ph = phases()
-      if (item && this.grain.value > 2) return ph.item.fillOut < 1
+      if (item && this.rung() > 2) return ph.item.fillOut < 1
       return ph.fillIn > 0
     }
 
@@ -412,7 +458,7 @@ export class Grain extends Stroke {
           stroke: this.stroke,
           tint: this.tint,
           fillOpacity: derive(() => phases().item.fillIn),
-          opacity: derive(() => (this.grain.value > 2 && phases().item.fillIn > 0 ? this.opacity.value : 0)),
+          opacity: derive(() => (this.rung() > 2 && phases().item.fillIn > 0 ? this.opacity.value : 0)),
         })
         place(exact, boundsOf(exact).bottom)
         this.item = exact
@@ -425,7 +471,7 @@ export class Grain extends Stroke {
       stroke: 0,
       tint: derive(() => this.dotTint()),
       fillOpacity: derive(() => 1 - phases().fillOut),
-      opacity: derive(() => (this.grain.value < 2 ? this.opacity.value : 0)),
+      opacity: derive(() => (this.rung() < 2 ? this.opacity.value : 0)),
     })
     derivePoints(dot, () => [...Object.values(this.toward()), this.radius.value], () => this.dotOutline())
     this.add(dot)
@@ -448,7 +494,7 @@ export class Grain extends Stroke {
       if (e === lastEpoch) return memo
       lastEpoch = e
       const ids = [this.symbol, this.item].map((s) => (s && s.opacity.value > 0 ? drawingId(s.drawing()) : 0))
-      const key = `${this.grain.value}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}|${ids.join(",")}`
+      const key = `${this.rung()}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}|${ids.join(",")}`
       if (key !== lastKey) {
         lastKey = key
         memo = piecesNow()
@@ -462,7 +508,7 @@ export class Grain extends Stroke {
       const e = paramEpoch()
       if (e !== tintEpoch) {
         tintEpoch = e
-        poolTint = this.grain.value > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph)
+        poolTint = this.rung() > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph)
       }
       return poolTint
     }

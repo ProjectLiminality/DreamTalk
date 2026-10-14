@@ -290,3 +290,39 @@ describe("Grain — under a turned parent", () => {
     for (const q of [dot[0]!, dot[12]!]) expect(Math.abs((q.x - m.x) * n.x + (q.y - m.y) * n.y + (q.z - m.z) * n.z)).toBeLessThan(1e-6 * 9)
   })
 })
+
+describe("Grain — level of detail", () => {
+  test("a symbol smaller on screen than detailPx stays its dot; it morphs in as it grows", () => {
+    const o = new Observer()
+    o.orthographic.value = true
+    const g = new Grain({ observer: o, symbol: (x) => new Pallet(x), grain: 2, size: 80, detailPx: 30 })
+    void g.parts
+    const at = (zoom: number) => {
+      o.zoom.value = zoom
+      return { px: g.screenSize(o), rung: g.rung() }
+    }
+    const big = at(1)
+    expect(big.px).toBeGreaterThan(45)
+    expect(big.rung).toBe(2)
+    const tiny = at(0.1)
+    expect(tiny.px).toBeLessThan(30)
+    expect(tiny.rung).toBe(1)
+    // In between: partway, and monotone in size.
+    let prev = 1
+    for (let z = 0.3; z <= 0.8; z += 0.05) {
+      const r = at(z).rung
+      expect(r).toBeGreaterThanOrEqual(prev - 1e-12)
+      prev = r
+    }
+    // The grain param itself is untouched — LOD is how it is drawn.
+    expect(g.grain.value).toBe(2)
+  })
+
+  test("detailPx 0 is always detailed", () => {
+    const o = new Observer()
+    o.orthographic.value = true
+    o.zoom.value = 0.01
+    const g = new Grain({ observer: o, symbol: (x) => new Pallet(x), grain: 2, detailPx: 0 })
+    expect(g.rung()).toBe(2)
+  })
+})
