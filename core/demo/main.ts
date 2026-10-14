@@ -146,9 +146,12 @@ const main = async () => {
       boundsOf: (h) => host.boundsOf(h),
       worldBoundsOf: (h) => host.worldBoundsOf(h),
       setBeforeSync: (fn) => (host.beforeSync = fn),
+      // A handle's glow (src/glow.ts); the game loop renders every frame.
+      attend: (channel, holon, amount) => host.attend(channel, holon, amount),
     },
     {
       roots: dream.roots,
+      space: dream.stateSpace(),
       observer: dream.observer,
       animated: new Set(dream.build().params),
       suspended: () => creator.on || explorer.on,

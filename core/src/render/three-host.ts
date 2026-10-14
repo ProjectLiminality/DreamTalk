@@ -2552,9 +2552,15 @@ export class ThreeHost {
    */
   attend(channel: string, target: Holon | readonly Holon[] | null, amount = 1): void {
     const targets: readonly Holon[] = !target ? [] : Array.isArray(target) ? target : [target as Holon]
+    const prior = this.attention.get(channel)
+    // Unchanged: nothing to do (a caller may re-state its attention every frame).
+    if (targets.length === 0 || amount <= 0) {
+      if (!prior) return
+    } else if (prior && prior.amount === amount && targets.length === prior.roots.length && targets.every((h, i) => h === prior.roots[i])) {
+      return
+    }
     if (targets.length === 0 || amount <= 0) this.attention.delete(channel)
     else {
-      const prior = this.attention.get(channel)
       const same = prior && targets.length === prior.roots.length && targets.every((h, i) => h === prior.roots[i])
       if (same) prior.amount = amount
       else {

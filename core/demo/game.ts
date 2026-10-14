@@ -45,6 +45,7 @@ import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
 import { Automaton, gatherStateSpace, type Axis } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
+import { HOVER, SELECTED } from "../src/glow"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "../editor/touchcamera"
@@ -58,6 +59,12 @@ export interface GameHost {
   worldBoundsOf?(holon: Holon): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | undefined
   /** Install (or clear) the per-frame write after the timeline's apply. */
   setBeforeSync(fn: (() => void) | undefined): void
+  /**
+   * Lay attention's golden glow (src/glow.ts) on a handle — the host's
+   * `attend`. With it, the handle glows (faint on hover, a breath to full
+   * on a fire) and the corner ticks are not drawn; the caption stays.
+   */
+  attend?(channel: "game", holon: Holon | null, amount: number): void
 }
 
 export interface GameOpts {
@@ -626,31 +633,36 @@ export class GameLoop {
       }
     }
     const ctx = beginOverlay(this.#overlay)
-    if (!ctx) return
     const hov = this.#hovered
-    if (!hov || !this.#live()) return
+    const shown = !!ctx && !!hov && this.#live()
+    const f = Math.max(0, 1 - (now - this.#flash) / FLASH_MS)
+    // The handle's glow: HOVER at rest, swelling to full on a fire and back.
+    this.#host.attend?.("game", shown ? hov!.handle : null, HOVER + (SELECTED - HOVER) * f)
+    if (!ctx || !hov || !shown) return
     const r = clientBox(this.#host.canvas, this.#host.boundsOf(hov.handle))
     if (!r) return
     const x0 = r.x - PAD
     const y0 = r.y - PAD
     const x1 = r.x + r.w + PAD
     const y1 = r.y + r.h + PAD
-    const f = Math.max(0, 1 - (now - this.#flash) / FLASH_MS)
     const t = Math.min(TICK, (x1 - x0) / 3, (y1 - y0) / 3)
-    ctx.strokeStyle = `rgba(255, 255, 255, ${0.42 + 0.5 * f})`
-    ctx.lineWidth = 1.25 + f
-    ctx.beginPath()
-    for (const [cx, cy, sx, sy] of [
-      [x0, y0, 1, 1],
-      [x1, y0, -1, 1],
-      [x0, y1, 1, -1],
-      [x1, y1, -1, -1],
-    ] as const) {
-      ctx.moveTo(cx + sx * t, cy)
-      ctx.lineTo(cx, cy)
-      ctx.lineTo(cx, cy + sy * t)
+    // Ticks only where the host cannot glow — the glow is the one look of attention.
+    if (!this.#host.attend) {
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.42 + 0.5 * f})`
+      ctx.lineWidth = 1.25 + f
+      ctx.beginPath()
+      for (const [cx, cy, sx, sy] of [
+        [x0, y0, 1, 1],
+        [x1, y0, -1, 1],
+        [x0, y1, 1, -1],
+        [x1, y1, -1, -1],
+      ] as const) {
+        ctx.moveTo(cx + sx * t, cy)
+        ctx.lineTo(cx, cy)
+        ctx.lineTo(cx, cy + sy * t)
+      }
+      ctx.stroke()
     }
-    ctx.stroke()
     ctx.fillStyle = "rgba(136, 136, 136, 0.9)"
     ctx.font = "11px monospace"
     const a = this.automaton
