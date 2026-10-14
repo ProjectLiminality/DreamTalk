@@ -1678,7 +1678,7 @@ export class ThreeHost {
       }
       // Uncertainty's echoes: offsets in pixels, so after the settle.
       for (const { blur, group } of this.superpositions) {
-        blur.sync(this.frameT, this.unitsPerPixelAt(group, new THREE.Vector3()))
+        blur.sync(this.frameT, () => this.unitsPerPixelAt(group, new THREE.Vector3()))
       }
       // Attention's halos: after every stroke and fill is styled and settled.
       this.syncGlow()
@@ -2752,7 +2752,10 @@ export class ThreeHost {
     }
     for (const { blur } of this.superpositions) {
       const region = this.clipOfMesh.get(blur.source)
-      if (region) for (const mesh of blur.meshes()) this.clipMesh(mesh, region)
+      if (!region) continue
+      // Echoes are made lazily, the first frame their line is uncertain.
+      for (const mesh of blur.meshes()) this.clipMesh(mesh, region)
+      blur.onEcho = (mesh) => this.clipMesh(mesh, region)
     }
     // A Text's glyphs land asynchronously: its group is watched, and what
     // arrives in it adopts the clip on the next frame (adoptClippedText).

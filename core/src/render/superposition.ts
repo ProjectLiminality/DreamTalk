@@ -74,20 +74,37 @@ const shift = new THREE.Matrix4()
 
 /** The echoes of one uncertain STROKE. */
 export class RibbonSuperposition {
+  /**
+   * Made the first frame the line is actually uncertain (c < 1), not at
+   * mount: a scene full of certain things that merely COULD be doubted
+   * (every Grain of a FlowMap) costs no meshes at all.
+   */
   private readonly echoes: RibbonStroke[] = []
+  private points: readonly THREE.Vector3[] = []
+  /** Called with each echo mesh as it is made (a clip adopting it). */
+  onEcho?: (mesh: THREE.Mesh) => void
+  private shown = false
 
   constructor(
     private readonly main: RibbonStroke,
     private readonly certainty: Readable<number>,
     private readonly seed: number,
-    group: THREE.Object3D,
-  ) {
-    // A gaussian cross-section: the echoes overlap into one soft band.
-    for (let k = 0; k < ECHOES; k++) this.echoes.push(softEcho(inkOf(main).widthPx, main.mesh.renderOrder, group))
-  }
+    private readonly group: THREE.Object3D,
+  ) {}
 
   setPoints(pts: readonly THREE.Vector3[]): void {
+    this.points = pts
     for (const e of this.echoes) e.setPoints(pts)
+  }
+
+  private make(): void {
+    // A gaussian cross-section: the echoes overlap into one soft band.
+    for (let k = 0; k < ECHOES; k++) {
+      const echo = softEcho(inkOf(this.main).widthPx, this.main.mesh.renderOrder, this.group)
+      echo.setPoints(this.points)
+      this.echoes.push(echo)
+      this.onEcho?.(echo.mesh)
+    }
   }
 
   /** The ink this cloud echoes, and its own meshes (a clip applies to both). */
@@ -100,21 +117,26 @@ export class RibbonSuperposition {
 
   /**
    * Restyle the echoes from the main stroke as this frame left it; `upp` is
-   * scene units per pixel at the stroke.
+   * scene units per pixel at the stroke, asked for only when there is a
+   * cloud to place.
    */
-  sync(t: number, upp: number): void {
+  sync(t: number, upp: () => number): void {
     const c = this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
     const shown = shownOf(this.main)
+    if (u <= 0 || shown.opacity <= 0) {
+      if (this.shown) for (const echo of this.echoes) echo.mesh.visible = false
+      this.shown = false
+      return
+    }
+    if (this.echoes.length === 0) this.make()
+    this.shown = true
     const { tint, widthPx } = inkOf(this.main)
+    const unit = upp()
     for (let k = 0; k < this.echoes.length; k++) {
       const echo = this.echoes[k]!
-      if (u <= 0 || shown.opacity <= 0) {
-        echo.mesh.visible = false
-        continue
-      }
       const o = echoOffset(k, this.seed, t, BLUR_PX * u)
-      placeEcho(echo.mesh, o.x * upp, o.y * upp)
+      placeEcho(echo.mesh, o.x * unit, o.y * unit)
       styleEcho(echo, shown, { alpha: u * 0.5 * echoBreath(k, this.seed, t), tint, widthPx: widthPx * (1.5 + 3.5 * u) })
     }
   }
@@ -122,21 +144,28 @@ export class RibbonSuperposition {
 
 /** The echoes of one uncertain FILL — a particle's probability cloud. */
 export class FillSuperposition {
+  /** Made the first frame the fill is uncertain — as for strokes. */
   private readonly echoes: FillShape[] = []
+  /** Called with each echo mesh as it is made (a clip adopting it). */
+  onEcho?: (mesh: THREE.Mesh) => void
+  private shown = false
 
   constructor(
     private readonly certainty: Readable<number>,
     private readonly seed: number,
     private readonly main: FillShape,
-    group: THREE.Object3D,
+    private readonly group: THREE.Object3D,
     /** The main fill's opacity and tint this frame (the host's own reading). */
     private readonly look: () => { opacity: number; tint: Color },
-  ) {
+  ) {}
+
+  private make(): void {
     for (let k = 0; k < ECHOES; k++) {
-      const echo = new FillShape(main.mesh.renderOrder)
+      const echo = new FillShape(this.main.mesh.renderOrder)
       echo.mesh.matrixAutoUpdate = false
-      group.add(echo.mesh)
+      this.group.add(echo.mesh)
       this.echoes.push(echo)
+      this.onEcho?.(echo.mesh)
     }
   }
 
@@ -148,16 +177,20 @@ export class FillSuperposition {
     return this.echoes.map((e) => e.mesh)
   }
 
-  sync(t: number, upp: number): void {
-    const { opacity, tint } = this.look()
+  sync(t: number, upp: () => number): void {
     const c = this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
+    const { opacity, tint } = this.look()
+    if (u <= 0 || opacity <= 0) {
+      if (this.shown) for (const echo of this.echoes) echo.mesh.visible = false
+      this.shown = false
+      return
+    }
+    if (this.echoes.length === 0) this.make()
+    this.shown = true
+    const unit = upp()
     for (let k = 0; k < this.echoes.length; k++) {
       const echo = this.echoes[k]!
-      if (u <= 0 || opacity <= 0) {
-        echo.mesh.visible = false
-        continue
-      }
       // Share the main fill's geometry — whatever it last became.
       echo.mesh.geometry = this.main.mesh.geometry
       const o = echoOffset(k, this.seed, t, CLOUD_PX * u)
@@ -171,7 +204,7 @@ export class FillSuperposition {
         .multiply(shift.makeScale(swell, swell, swell))
         .multiply(shift.makeTranslation(-centre.x, -centre.y, -centre.z))
       echo.mesh.matrix.multiplyMatrices(this.main.mesh.matrix, grow)
-      placeEcho(echo.mesh, o.x * upp, o.y * upp, echo.mesh.matrix)
+      placeEcho(echo.mesh, o.x * unit, o.y * unit, echo.mesh.matrix)
       echo.style(opacity * u * 0.24 * echoBreath(k, this.seed, t), tint)
     }
   }
