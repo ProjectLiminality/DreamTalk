@@ -272,7 +272,7 @@ describe("FlowMap", () => {
     const m = new FlowMap({ radius: R, data })
     void m.parts
     const size = (m.stage("semi").flows[0]!.dots[0] as unknown as { size: { value: number } }).size.value
-    expect(size).toBeCloseTo(m.particleSize.value * m.particleMax.value * R, 9)
+    expect(size).toBeCloseTo(m.particleMax.value * R, 9)
   })
 
   test("clearYaw keeps a spindle at least 35° off the view, as near the base yaw as it can", () => {

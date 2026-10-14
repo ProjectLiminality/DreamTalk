@@ -342,7 +342,7 @@ export class FlowMap extends Null {
   symbolYaw = angle(0.5)
   /** A material symbol's extent as a share of the arc between particles. */
   particleSize = scalar(0.75)
-  /** The most a symbol's gap may count for, as a share of the map's radius (the cap on sparse flows). */
+  /** The largest a material symbol may be, as a share of the map's radius (the cap on sparse flows). */
   particleMax = scalar(0.14)
   /**
    * Where along the data's periods the map stands — continuous (0 … P−1):
@@ -950,7 +950,7 @@ export class FlowMap extends Null {
               // …and never larger than `particleMax` of the map's radius:
               // sparse (low-rate) flows would otherwise grow symbols that
               // bury the map.
-              size: derive(() => this.particleSize.value * Math.min(this.spacing.value / stageRate, this.particleMax.value * R())),
+              size: derive(() => Math.min((this.particleSize.value * this.spacing.value) / stageRate, this.particleMax.value * R())),
               category: tint,
               // Rung 0 is a neutral grey dot — mass only, kind unknown — so a
               // material stage can climb the whole ladder (stage(id).rung 0 → 2).
