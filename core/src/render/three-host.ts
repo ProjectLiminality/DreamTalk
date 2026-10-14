@@ -31,7 +31,7 @@ import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
 import { FillHalo, StrokeHalo } from "./glow"
 import { clipOf, type ClipRegion } from "../clip"
-import { CLIP_KEYS, clippedMaterial, initClipSlots } from "./clip"
+import { CLIP_KEYS, clippedMaterial, initClipSlots, unclippedMeshes } from "./clip"
 import {
   AnnularSector,
   Arc,
@@ -1541,6 +1541,7 @@ export class ThreeHost {
       this.ribbonBatches.length > 0 ||
       this.superpositions.length > 0 ||
       this.clips.size > 0 ||
+      this.clipTexts.length > 0 ||
       this.glowing()
     ) {
       this.settleScene()
@@ -1560,6 +1561,7 @@ export class ThreeHost {
       // Attention's halos: after every stroke and fill is styled and settled.
       this.syncGlow()
       // Clips: their discs as this frame's camera sees them.
+      if (this.clipTexts.length > 0) this.adoptClippedText()
       if (this.clips.size > 0) this.syncClips()
       // A contour rebuild parents fresh ribbon meshes whose world
       // matrices are not yet settled.
@@ -2630,7 +2632,24 @@ export class ThreeHost {
       const region = this.clipOfMesh.get(blur.source)
       if (region) for (const mesh of blur.meshes()) this.clipMesh(mesh, region)
     }
-    return this.clips.size > 0
+    // A Text's glyphs land asynchronously: its group is watched, and what
+    // arrives in it adopts the clip on the next frame (adoptClippedText).
+    for (const t of this.texts) {
+      const region = clipOf(t.holon)
+      if (region) this.clipTexts.push({ group: t.group, region })
+    }
+    this.adoptClippedText()
+    return this.clips.size > 0 || this.clipTexts.length > 0
+  }
+
+  /** Clipped Texts' groups — their glyph meshes and contours come and go with layout. */
+  private readonly clipTexts: { group: THREE.Object3D; region: ClipRegion }[] = []
+
+  /** Put whatever a clipped Text has laid out since under its clip. */
+  private adoptClippedText(): void {
+    for (const { group, region } of this.clipTexts) {
+      for (const mesh of unclippedMeshes(group, this.clipOfMesh)) this.clipMesh(mesh, region)
+    }
   }
 
   private readonly clipPoint = new THREE.Vector3()

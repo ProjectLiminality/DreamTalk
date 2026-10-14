@@ -55,7 +55,14 @@ export const clippedMaterial = (base: THREE.Material): THREE.Material => {
   if (!twin) {
     const m = (base as THREE.NodeMaterial).clone() as THREE.NodeMaterial
     const cover = clipCoverageNode()
-    if (m.transparent && m.colorWrite !== false) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fragment = (base as THREE.NodeMaterial).fragmentNode as any
+    if (fragment) {
+      // A material that writes its own (premultiplied) output — a Text's
+      // glyphs: scale the whole output. Its uniforms are node objects the
+      // twin shares, so its owner's per-frame writes still reach it.
+      m.fragmentNode = fragment.mul(cover)
+    } else if (m.transparent && m.colorWrite !== false) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const own = (base as THREE.NodeMaterial).opacityNode as any
       m.opacityNode = own ? own.mul(cover) : cover
@@ -66,4 +73,17 @@ export const clippedMaterial = (base: THREE.Material): THREE.Material => {
     CLIPPED.set(base, twin)
   }
   return twin
+}
+
+/**
+ * The meshes under `root` not yet adopted by a clip — what a late arrival
+ * (a Text's glyph mesh, laid out asynchronously, or its rebuilt contours)
+ * looks like to the host, which adopts them on the next frame.
+ */
+export const unclippedMeshes = (root: THREE.Object3D, adopted: ReadonlyMap<THREE.Object3D, unknown>): THREE.Mesh[] => {
+  const out: THREE.Mesh[] = []
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh && !adopted.has(child)) out.push(child)
+  })
+  return out
 }
