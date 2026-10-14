@@ -292,11 +292,11 @@ export class SOPLoop extends Null {
   override stateSpace(): StateSpace {
     const axes = [
       axis("focus", this, { both: { focus: 0 }, demand: { focus: -1 }, supply: { focus: 1 } }, {
-        key: "f",
+        key: "d", // demand/supply ("f" is the player's frame key)
         duration: 1.2,
         handles: () => [this.left.lobe, this.right.lobe],
       }),
-      toggle("round", this.round, { key: "r", off: ["two loops", 0], on: ["one loop", 1], duration: 2.6, handles: () => (this.centre ? [this.centre] : []) }),
+      toggle("round", this.round, { key: "o", off: ["two loops", 0], on: ["one loop", 1], duration: 2.6, handles: () => (this.centre ? [this.centre] : []) }),
       toggle("labels", this.labels, { key: "l", off: ["hidden", 0], on: ["shown", 1] }),
     ]
     for (const [id, s, sd] of [["left", this.left, this.data.left], ["right", this.right, this.data.right]] as const) {

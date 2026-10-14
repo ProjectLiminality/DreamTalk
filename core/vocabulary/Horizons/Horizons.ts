@@ -335,7 +335,7 @@ export class Horizons extends Null {
     const positions: Record<string, { reveal: number }> = { none: { reveal: 0 } }
     this.data.horizons.forEach((h, k) => (positions[h.id] = { reveal: k + 1 }))
     const axes: Axis[] = [
-      axis("reveal", this, positions, { key: "h", duration: 1.4, handles: () => this.regions }),
+      axis("reveal", this, positions, { key: "v", duration: 1.4, handles: () => this.regions }),
       toggle("labels", this.labels, { key: "l", off: ["hidden", 0], on: ["shown", 1] }),
     ]
     this.roles.forEach((r, i) => {

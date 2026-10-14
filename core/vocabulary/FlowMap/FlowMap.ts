@@ -461,7 +461,7 @@ export class FlowMap extends Null {
     if (this.lanesWanted())
       axes.push(
         axis("money", this, { value: { money: 0 }, both: { money: 0.5 }, money: { money: 1 } }, {
-          key: "m",
+          key: "$",
           duration: 1.6,
           handles: () => this.flows.map((f) => f.line),
         }),
