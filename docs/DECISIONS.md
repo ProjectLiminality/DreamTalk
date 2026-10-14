@@ -452,3 +452,11 @@ operational decisions are entered by the working agent. Format:
   against a build without the glow code, and after a glow is put out).
   `GOLD` lives in constants; the CSS dot and panel speak it via `cssOf`.
   The old hover tint-lift (`highlight()`) is now `attend("hover")`.
+- 2026-10-14 · **A clip is the renderer's half of a geometric trim**
+  (`src/clip.ts`): `clip(holon, () => disc)` — the subtree is seen only
+  through a Circle-like holon's disc as projected this frame; inherited,
+  nearest wins. Ink is wider than its points (stroke width, an echo's
+  spread, a glow's aura), so geometry trims (Road's `bound`) alone overhang
+  a window's rim. Clipped meshes draw with a clipped TWIN of their material
+  (screen-ellipse coverage); undeclared, nothing changes. The FlowLens clips
+  its content to its near face.
