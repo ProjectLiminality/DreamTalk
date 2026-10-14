@@ -60,7 +60,11 @@ export interface AxisOpts {
    * thunk for parts that exist only after compose().
    */
   handles?: Holon[] | (() => Holon[])
-  /** A single-character key that fires it. Unset: the player assigns a digit. */
+  /**
+   * A single-character key that fires it. Unset: the player assigns a
+   * digit. Never one of RESERVED_KEYS — the player's own (a declared one
+   * is refused, loudly, and replaced by a digit).
+   */
   key?: string
   /**
    * The adjacent possible: is this axis walkable from the CURRENT display
@@ -70,6 +74,15 @@ export interface AxisOpts {
   /** A verb that plays the transition `from → to` instead of the plain ease. */
   via?: (from: string, to: string) => Anim
 }
+
+/**
+ * The keys the player and the editor keep for themselves in free play:
+ * Space (song ↔ free), ` (creator mode), ~ (explorer), m (sound), h (HUD),
+ * r (view home), f (frame). An axis may not declare one
+ * (test/reservedkeys.test.ts scans every shipped holon). Esc and the
+ * arrows are named keys, not characters, so no axis can collide with them.
+ */
+export const RESERVED_KEYS: readonly string[] = [" ", "`", "~", "m", "h", "r", "f"]
 
 export interface Position {
   name: string

@@ -43,7 +43,7 @@
 
 import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
-import { Automaton, gatherStateSpace, type Axis, type StateSpace } from "../src/automaton"
+import { Automaton, RESERVED_KEYS, gatherStateSpace, type Axis, type StateSpace } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { HOVER, SELECTED } from "../src/glow"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
@@ -104,8 +104,6 @@ const DOUBLE_MS = 300
 const DOUBLE_PX = 6
 const DOUBLE_TAP_PX = 16
 const AUTO_KEYS = "1234567890"
-/** The player's own keys in game mode — no axis may claim them (m: sound, h: HUD, r/f: view). */
-const RESERVED = ["m", "h", "r", "f", " ", "`", "~"]
 
 const STYLE = `
 .dt-game-hud { position: fixed; left: 12px; bottom: 30px; color: #555; font: 12px monospace; line-height: 18px; user-select: none; z-index: 40; }
@@ -162,7 +160,18 @@ export class GameLoop {
     for (const a of this.automaton.axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
     for (const axes of groups.values()) {
       const taken = new Set<string>()
-      for (const a of axes) if (a.key && !RESERVED.includes(a.key) && !taken.has(a.key)) this.#bind(a.key, a, taken)
+      for (const a of axes) {
+        if (!a.key) continue
+        if (RESERVED_KEYS.includes(a.key)) {
+          // Never silently: the author asked for a key the player keeps.
+          console.warn(
+            `[dreamtalk] axis '${a.id}' (${a.owner?.constructor.name ?? "scene"}) declares the reserved key '${a.key}' ` +
+              `— it gets a digit instead. Reserved: ${RESERVED_KEYS.map((k) => JSON.stringify(k)).join(" ")} (src/automaton.ts).`,
+          )
+          continue
+        }
+        if (!taken.has(a.key)) this.#bind(a.key, a, taken)
+      }
       const free = [...AUTO_KEYS].filter((k) => !taken.has(k))
       for (const a of axes) {
         const key = this.#keyOf.has(a) ? undefined : free.shift()
