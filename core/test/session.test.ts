@@ -189,3 +189,21 @@ describe("passage polish — retargets, summons, the view coming home", () => {
     expect(stay).not.toContain("this.observer.phi.to(0.5), 1)")
   })
 })
+
+test("an event whose time rounds onto its beat still lands in it (a dismiss at 6.9765 s once vanished)", () => {
+  const code = passageOf(
+    session({
+      clocks: [],
+      tracks: {
+        fires: [{ t: 2.0005, axis: "grain", from: "a", to: "b", duration: 1, holon: "this.map" }],
+        summons: [
+          { t: 1.0005, className: "Eye", at: { x: 0, y: 0, z: 0 }, scale: 1 },
+          { t: 3.0005, className: "Eye", dismiss: true },
+        ],
+      },
+    }),
+  )
+  expect(code).toContain("Create(summonedEye1)")
+  expect(code).toContain("UnCreate(summonedEye1)")
+  expect(code).toContain('stateAxis("grain").to("b")')
+})

@@ -269,7 +269,7 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
     // song's next segment would otherwise begin.
     const restart: string[] = []
     for (const f of fires) {
-      if (Math.abs(f.t - a) >= 5e-4 || !f.pose) continue
+      if (r3(f.t) !== a || !f.pose) continue
       const interrupted = fires.some(
         (g) => g !== f && g.t < f.t && f.t < g.t + g.duration && Object.keys(g.pose ?? {}).some((k) => k in f.pose!),
       )
@@ -281,7 +281,7 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
     }
     if (restart.length) out.push(`this.set(${restart.join(", ")})`)
     for (const f of fires) {
-      if (Math.abs(f.t - a) >= 5e-4) continue
+      if (r3(f.t) !== a) continue
       const axis = `${f.holon ?? "this"}.stateAxis(${JSON.stringify(f.axis.replace(/#\d+$/, ""))}).to(${JSON.stringify(f.to)})`
       // Its own duration, even past this beat: a transition runs its course
       // across later beats unless a later fire takes its params over.
@@ -291,7 +291,7 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
     // Symbols summoned (a mudra's invocation) and dismissed: a real holon,
     // staged where it appeared, drawn on (and off) by its own choreography.
     for (const m of summons) {
-      if (Math.abs(m.t - a) >= 5e-4) continue
+      if (r3(m.t) !== a) continue
       const list = standing.get(m.className) ?? []
       const w = num(SUMMON_SECONDS / dt)
       if (m.dismiss) {
