@@ -7,6 +7,10 @@
  * with clang's offsetof (the header packs its structs — sizes below are
  * not multiples of 8):
  *
+ * Checked live against a controller (2026-10-15): confidence ~0.85,
+ * visible_time rising in µs, palm width ~87 mm, pinch_distance ~55 mm with an
+ * open hand (pinch_strength then reads 0 — it only rises as the tips close).
+ *
  *   LEAP_HAND 1084 B: id 0 · type 8 (0 left, 1 right) · confidence 12 ·
  *     pinch_distance 24 · grab_angle 28 · pinch_strength 32 ·
  *     grab_strength 36 · palm 40 · digits 120 (5 × 184) · arm 1040
@@ -71,6 +75,7 @@ export const leapHand = (v: DataView, i: number): Hand => {
     },
     pinch: v.getFloat32(base + LEAP_OFF.pinchStrength, true),
     grab: v.getFloat32(base + LEAP_OFF.grabStrength, true),
+    pinchDistance: v.getFloat32(base + LEAP_OFF.pinchDistance, true),
     confidence: v.getFloat32(base + LEAP_OFF.confidence, true),
   }
 }

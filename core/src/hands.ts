@@ -92,6 +92,8 @@ export interface Hand {
   pinch?: number
   /** The device's own grab strength, 0..1 (the Leap gives one). */
   grab?: number
+  /** The device's own thumb–index distance, mm (the Leap gives one). */
+  pinchDistance?: number
   /** 0..1 */
   confidence: number
 }
@@ -195,6 +197,7 @@ export const encodeFrame = (f: HandFrame): string =>
       confidence: round(h.confidence, 1000),
       ...(h.pinch === undefined ? {} : { pinch: round(h.pinch, 1000) }),
       ...(h.grab === undefined ? {} : { grab: round(h.grab, 1000) }),
+      ...(h.pinchDistance === undefined ? {} : { pinchDistance: round(h.pinchDistance, 10) }),
       palm: {
         position: roundVec(h.palm.position),
         normal: h.palm.normal.map((v) => round(v, 1000)) as Vec3,

@@ -25,7 +25,7 @@
 
 import { existsSync } from "node:fs"
 import { dlopen, FFIType, ptr, read, toArrayBuffer, type Pointer } from "bun:ffi"
-import { LEAP_BOX, type HandFrame, type HandMessage, type LeapState } from "../src/hands"
+import { dist, J, LEAP_BOX, type HandFrame, type HandMessage, type LeapState } from "../src/hands"
 import { LEAP_HAND_SIZE, leapHands } from "../hands/leap"
 
 const APP = "/Applications/Ultraleap Hand Tracking.app"
@@ -204,13 +204,20 @@ const runDoctor = async () => {
   let last: LeapState | undefined
   let policy: { requested: boolean; confirmed?: boolean } | undefined
   let latest: HandFrame | undefined
+  let maxPinch = 0
+  let maxGrab = 0
   const stop = runLeap(
     (s) => {
       last = s
       console.log(`${s === "ready" ? "✓" : "…"} ${STATUS_TEXT[s]}`)
     },
     (f) => {
-      if (f.hands.length) latest = f
+      if (!f.hands.length) return
+      latest = f
+      for (const h of f.hands) {
+        maxPinch = Math.max(maxPinch, h.pinch ?? 0)
+        maxGrab = Math.max(maxGrab, h.grab ?? 0)
+      }
     },
     (n) => {
       events++
@@ -221,12 +228,15 @@ const runDoctor = async () => {
     },
   )
   await Bun.sleep(1500)
-  console.log("\n  ✋ hold a hand ~20 cm above the Leap now, fingers spread — then pinch a few times\n")
+  console.log("\n  ✋ hold a hand ~20 cm above the Leap now, pinch thumb and index firmly together a few times, then make a fist\n")
   for (let s = 8; s > 0; s--) {
     const h = latest?.hands[0]
     console.log(
       `  ${s}…  ${events} tracking events, ${withHands} with hands` +
-        (h ? ` · ${h.side} palm (${h.palm.position.map((v) => v.toFixed(0)).join(", ")}) mm · pinch ${h.pinch?.toFixed(2)} · grab ${h.grab?.toFixed(2)}` : ""),
+        (h
+          ? ` · ${h.side} palm (${h.palm.position.map((v) => v.toFixed(0)).join(", ")}) mm · tips ${dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!).toFixed(0)} mm` +
+            ` (device ${h.pinchDistance?.toFixed(0)} mm) · pinch ${h.pinch?.toFixed(2)} (peak ${maxPinch.toFixed(2)}) · grab ${h.grab?.toFixed(2)} (peak ${maxGrab.toFixed(2)})`
+          : ""),
     )
     latest = undefined
     await Bun.sleep(1000)
@@ -240,7 +250,7 @@ const runDoctor = async () => {
   if (last !== "ready") console.log(`✗ ${STATUS_TEXT[last ?? "noservice"]}`)
   else if (events === 0) console.log("✗ the controller is ready but sent no tracking events — check the Ultraleap Control Panel (tracking paused? background frames off?)")
   else if (withHands === 0) console.log(`~ the device streams (${events} events in ~9.5 s) but saw no hand — closer / higher (10–40 cm), and away from bright light`)
-  else console.log(`✓ ${events} tracking events, ${withHands} with hands — the Leap works`)
+  else console.log(`✓ ${events} tracking events, ${withHands} with hands — the Leap works · peak pinch ${maxPinch.toFixed(2)} · peak grab ${maxGrab.toFixed(2)}`)
   process.exit(last === "ready" && withHands > 0 ? 0 : 1)
 }
 
