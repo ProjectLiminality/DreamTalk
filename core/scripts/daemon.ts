@@ -61,7 +61,7 @@ import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
 import { becomingResponse, history as becomingHistory } from "./becoming"
-import { keepSessionInputs, passageOf, prepareVoice, readSession, sessionFileResponse } from "./session"
+import { keepSessionInputs, passageClasses, passageOf, prepareVoice, readSession, sessionFileResponse } from "./session"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import { changedRange, type ChangedRange } from "../editor/undo"
@@ -642,9 +642,17 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
   // the client sent (scripts/session.ts): its voice transcribed if need be
   // and cut into the narration cache, then the passage written like any op.
   let passage = ""
+  const classes: { name: string; file: string }[] = []
   if (msg.op === "appendSession") {
     try {
-      passage = passageOf(await prepareVoice(repoRoot, await readSession(repoRoot, msg.id)))
+      const session = await prepareVoice(repoRoot, await readSession(repoRoot, msg.id))
+      passage = passageOf(session)
+      // Summoned symbols become real holons: each class imported from the file that declares it.
+      for (const name of passageClasses(session)) {
+        const declared = await whereIs(repoRoot, name)
+        if (!declared) return reject(`session: no file declares ${name}`)
+        classes.push({ name, file: declared })
+      }
     } catch (err) {
       return reject(`session: ${String((err as Error).message ?? err)}`)
     }
@@ -656,6 +664,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
           current,
           { placement: msg.placement, anchor: msg.anchor, ordinal: msg.ordinal, file },
           passage,
+          classes,
         )
       case "setBackdrop":
         return applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })

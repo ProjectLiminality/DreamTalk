@@ -47,6 +47,21 @@ export interface SessionTrackFire {
   to: string
   duration: number
   holon: string | null
+  /**
+   * Where the axis's params stood the instant it fired (`this.map.grain` → 0.42):
+   * a fire that interrupted another in flight starts from HERE, not from the
+   * interrupted one's goal — the passage writes it so.
+   */
+  pose?: Record<string, number>
+}
+
+/** A symbol summoned into (or dismissed from) the scene by a mudra (demo/summon.ts). */
+export interface SessionTrackSummon {
+  t: number
+  className: string
+  dismiss?: boolean
+  at?: { x: number; y: number; z: number }
+  scale?: number
 }
 
 const CAMERA_PARAMS = ["phi", "theta", "radius", "zoom", "x", "y", "z"] as const
@@ -77,6 +92,10 @@ export class SessionRecorder {
   #seen = 0
   #lastCamera = -Infinity
   #fires: SessionTrackFire[] = []
+  #summons: SessionTrackSummon[] = []
+  /** The AUTHORED camera when the session began (readings without the viewer's delta). */
+  #cameraBase: Record<string, number> = {}
+  #offSummons: (() => void) | undefined
   #entry = new Map<string, string>()
   #camera: Record<string, number>[] = []
   #focus: { t: number; holon: string | null }[] = []
@@ -140,6 +159,27 @@ export class SessionRecorder {
     this.#seen = a?.journal.length ?? 0
     this.#entry = new Map(a?.axes.map((x) => [x.id, a.position(x.id)]) ?? [])
     this.#fires = []
+    this.#summons = []
+    this.#cameraBase = {}
+    const o = this.#opts.observer as unknown as Record<string, Param<ParamValue>>
+    for (const p of CAMERA_PARAMS) {
+      const param = o[p]
+      if (!param || param.isBound || typeof param.value !== "number") continue
+      // The reading is gate·v + bias (src/view.ts); the song's own value is under it.
+      this.#cameraBase[p] = (param.value - param.bias) / (param.gate || 1)
+    }
+    const listen = (dismiss: boolean) => (e: Event) => {
+      const d = (e as CustomEvent<{ className: string; at?: { x: number; y: number; z: number }; scale?: number }>).detail
+      if (d?.className) this.#summons.push({ t: this.clock(), className: d.className, ...(dismiss ? { dismiss: true } : { at: d.at, scale: d.scale }) })
+    }
+    const onSummon = listen(false)
+    const onDismiss = listen(true)
+    window.addEventListener("dreamtalk:summoned", onSummon)
+    window.addEventListener("dreamtalk:dismissed", onDismiss)
+    this.#offSummons = () => {
+      window.removeEventListener("dreamtalk:summoned", onSummon)
+      window.removeEventListener("dreamtalk:dismissed", onDismiss)
+    }
     this.#camera = []
     this.#focus = []
     this.#transcript = []
@@ -162,6 +202,14 @@ export class SessionRecorder {
       for (const f of a.journal.slice(this.#seen)) {
         const axis = a.axis(f.axis)
         const from = [...this.#fires].reverse().find((x) => x.axis === f.axis)?.to
+        // The motion is C¹ through a fire, so its value at the fire's clock is where it stood.
+        const pose: Record<string, number> = {}
+        for (const p of axis.params()) {
+          const owner = p.owner as Holon | undefined
+          const at = owner && p.name ? this.#opts.pathOf(owner) : undefined
+          const v = a.valueAt(p, f.clock)
+          if (at && typeof v === "number") pose[`${at}.${p.name}`] = v
+        }
         this.#fires.push({
           t,
           axis: f.axis,
@@ -170,6 +218,7 @@ export class SessionRecorder {
           to: f.position,
           duration: axis.duration,
           holon: axis.owner ? (this.#opts.pathOf(axis.owner) ?? null) : null,
+          pose,
         })
       }
       this.#seen = a.journal.length
@@ -199,6 +248,8 @@ export class SessionRecorder {
     this.tick()
     const duration = this.clock()
     const audio = await this.#stopMic()
+    this.#offSummons?.()
+    this.#offSummons = undefined
     this.#id = undefined
     const put = (file: string, body: BodyInit) => fetch(`/api/session/${id}/${file}`, { method: "PUT", body })
     if (audio) await put("voice.webm", audio)
@@ -211,7 +262,14 @@ export class SessionRecorder {
       heldAt: this.#heldAt,
       duration,
       clocks: this.#opts.clocks(),
-      tracks: { fires: this.#fires, camera: this.#camera, focus: this.#focus, transcript: this.#transcript },
+      cameraBase: this.#cameraBase,
+      tracks: {
+        fires: this.#fires,
+        camera: this.#camera,
+        focus: this.#focus,
+        transcript: this.#transcript,
+        summons: this.#summons,
+      },
       // Other recorders' tracks in this folder (hands.jsonl) are listed by
       // the daemon when it reads the session — their last chunk may land later.
       files: audio ? { audio: "voice.webm" } : {},

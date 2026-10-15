@@ -548,17 +548,34 @@ export const applyAppendPassage = (
   source: string,
   op: Omit<AppendSessionOp, "op" | "id">,
   passage: string,
+  /** Classes the passage constructs (summoned symbols), with the repo-relative files that declare them. */
+  classes: readonly { name: string; file: string }[] = [],
 ): OpResult => {
   if (!passage.trim()) return { ok: false, reason: "an empty session — nothing to write" }
   const placed = placeInUnfold(source, op)
   if (typeof placed === "string") return { ok: false, reason: placed }
   const { unfold, index } = placed
   unfold.insertStatements(index, passage)
+  const file = unfold.getSourceFile()
   if (passage.includes("together(")) {
-    const failure = ensureTogetherImport(unfold.getSourceFile(), op.file)
+    const failure = ensureTogetherImport(file, op.file)
     if (failure) return { ok: false, reason: failure }
   }
-  return { ok: true, text: unfold.getSourceFile().getFullText() }
+  for (const verb of ["Create", "UnCreate"])
+    if (passage.includes(`${verb}(`)) {
+      const failure = ensureImport(file, verb, "verbs", op.file)
+      if (failure) return { ok: false, reason: failure }
+    }
+  for (const c of classes) {
+    if (!passage.includes(`new ${c.name}(`)) continue
+    if (file.getImportDeclarations().some((d) => d.getNamedImports().some((n) => n.getName() === c.name))) continue
+    if (!op.file) return { ok: false, reason: `no file path to import ${c.name} from` }
+    const last = file.getImportDeclarations().at(-1)
+    const decl = { moduleSpecifier: relativeSpecifier(op.file, c.file.replace(/\.ts$/, "")), namedImports: [c.name] }
+    const added = last ? file.insertImportDeclaration(last.getChildIndex() + 1, decl) : file.insertImportDeclaration(0, decl)
+    added.replaceWithText(added.getText().replace(/;$/, ""))
+  }
+  return { ok: true, text: file.getFullText() }
 }
 
 export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): OpResult => {

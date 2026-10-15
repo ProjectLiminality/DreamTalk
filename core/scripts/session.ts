@@ -49,6 +49,16 @@ export interface SessionFire {
   duration: number
   /** The axis owner as the scene's code names it (`this.map`), or null for a scene axis. */
   holon: string | null
+  /** Where the axis's params stood as it fired (`this.map.grain` → 0.42). */
+  pose?: Record<string, number>
+}
+
+export interface SessionSummon {
+  t: number
+  className: string
+  dismiss?: boolean
+  at?: { x: number; y: number; z: number }
+  scale?: number
 }
 
 export interface CameraKey {
@@ -74,11 +84,14 @@ export interface Session {
   duration: number
   /** Clock params the song runs (`this.map.time`) — they keep running through the passage. */
   clocks?: string[]
+  /** The AUTHORED camera when the session began — where the passage hands the view back. */
+  cameraBase?: Record<string, number>
   tracks: {
     fires: SessionFire[]
     camera?: CameraKey[]
     focus?: { t: number; holon: string | null }[]
     transcript?: TranscriptLine[]
+    summons?: SessionSummon[]
   }
   files?: { audio?: string; hands?: string }
 }
@@ -136,6 +149,24 @@ export const readSession = async (repoRoot: string, id: string): Promise<Session
 // --- The passage --------------------------------------------------------------------
 
 const num = (n: number): string => String(Math.round(n * 1000) / 1000)
+const CLASS = /^[A-Z][A-Za-z0-9]*$/
+/** The draw-on (and draw-off) a summoned symbol is given in the song, seconds. */
+const SUMMON_SECONDS = 1.2
+/** How long the view takes to come home after a walk, seconds. */
+const CAMERA_HOME = 1
+
+/** One beat: a wait, one anim, or several together. */
+const beat = (items: string[], dt: number): string =>
+  items.length === 0
+    ? `this.wait(${num(dt)})`
+    : items.length === 1
+      ? `this.play(${items[0]}, ${num(dt)})`
+      : ["this.play(", "  together(", ...items.map((it) => `    ${it},`), "  ),", `  ${num(dt)},`, ")"].join("\n")
+
+/** The classes a passage constructs (summoned symbols) — the imports it needs. */
+export const passageClasses = (s: Session): string[] => [
+  ...new Set((s.tracks.summons ?? []).filter((m) => !m.dismiss && CLASS.test(m.className)).map((m) => m.className)),
+]
 const PATH = /^this(\.[A-Za-z_$][A-Za-z0-9_$]*(\[\d+\])?)*$/
 /** The camera readings a passage may author, and how close counts as "the same". */
 const CAMERA: Record<string, number> = { phi: 0.01, theta: 0.01, radius: 1, zoom: 0.003, x: 1, y: 1, z: 1 }
@@ -205,8 +236,11 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
   // then said at the start of the beat it falls in. The camera never cuts —
   // its keyframes ride inside the beats as windowed linear moves.
   const inFlight = (t: number) => fires.some((f) => f.t < t && t < f.t + f.duration)
+  const summons = [...(s.tracks.summons ?? [])].filter((m) => m.t >= 0 && m.t < T).sort((a, b) => a.t - b.t)
+  for (const m of summons) if (!CLASS.test(m.className)) throw new Error(`summoned '${m.className}' is not a class name`)
   const cuts = new Set<number>([0, T])
   for (const f of fires) cuts.add(f.t)
+  for (const m of summons) cuts.add(m.t)
   for (const l of lines) if (!inFlight(Math.max(0, l.t0))) cuts.add(Math.max(0, l.t0))
   const r3 = (t: number) => Math.round(t * 1000) / 1000
   const times = [...cuts].map(r3).filter((t, i, a) => a.indexOf(t) === i).sort((a, b) => a - b)
@@ -215,6 +249,9 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
   const out: string[] = [
     `// Recorded live — refs/sessions/${s.id} (${num(T)} s from t = ${num(s.heldAt)}): a walk through the state space.`,
   ]
+  /** Each summoned symbol's local name, per class, in order — a dismiss takes the last one standing. */
+  const standing = new Map<string, string[]>()
+  let summonCount = 0
   for (let i = 0; i + 1 < times.length; i++) {
     const a = times[i]!
     const b = times[i + 1]!
@@ -227,11 +264,48 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
     }
     const items: string[] = []
     for (const c of s.clocks ?? []) items.push(`${c}.by(${num(dt)}, { easing: "linear" })`)
+    // A fire that interrupts one still in flight starts from where the walk
+    // actually was — not from the interrupted one's goal, which is where a
+    // song's next segment would otherwise begin.
+    const restart: string[] = []
+    for (const f of fires) {
+      if (Math.abs(f.t - a) >= 5e-4 || !f.pose) continue
+      const interrupted = fires.some(
+        (g) => g !== f && g.t < f.t && f.t < g.t + g.duration && Object.keys(g.pose ?? {}).some((k) => k in f.pose!),
+      )
+      if (!interrupted) continue
+      for (const [path, v] of Object.entries(f.pose)) {
+        if (!PATH.test(path)) throw new Error(`pose path '${path}' is not a this.* param path`)
+        restart.push(`${path}.to(${num(v)})`)
+      }
+    }
+    if (restart.length) out.push(`this.set(${restart.join(", ")})`)
     for (const f of fires) {
       if (Math.abs(f.t - a) >= 5e-4) continue
       const axis = `${f.holon ?? "this"}.stateAxis(${JSON.stringify(f.axis.replace(/#\d+$/, ""))}).to(${JSON.stringify(f.to)})`
-      const w = Math.min(1, f.duration / dt)
-      items.push(w < 1 ? `[${axis}, 0, ${num(w)}]` : axis)
+      // Its own duration, even past this beat: a transition runs its course
+      // across later beats unless a later fire takes its params over.
+      const w = f.duration / dt
+      items.push(Math.abs(w - 1) < 1e-6 ? axis : `[${axis}, 0, ${num(w)}]`)
+    }
+    // Symbols summoned (a mudra's invocation) and dismissed: a real holon,
+    // staged where it appeared, drawn on (and off) by its own choreography.
+    for (const m of summons) {
+      if (Math.abs(m.t - a) >= 5e-4) continue
+      const list = standing.get(m.className) ?? []
+      const w = num(SUMMON_SECONDS / dt)
+      if (m.dismiss) {
+        const name = list.pop()
+        if (name) items.push(`[UnCreate(${name}), 0, ${w}]`)
+        continue
+      }
+      const name = `summoned${m.className}${++summonCount}`
+      list.push(name)
+      standing.set(m.className, list)
+      const at = m.at ?? { x: 0, y: 0, z: 0 }
+      out.push(`const ${name} = new ${m.className}({ x: ${num(at.x)}, y: ${num(at.y)}, z: ${num(at.z)}, scale: ${num(m.scale ?? 1)} })`)
+      out.push(`this.stage(${name})`)
+      items.push(`[Create(${name}), 0, ${w}]`)
     }
     if (keys.length) {
       const stops = [a, ...beats.filter((t) => t > a && t < b), b]
@@ -249,9 +323,17 @@ export const passageOf = (s: Session, opts: PassageOpts = {}): string => {
         }
       }
     }
-    if (items.length === 0) out.push(`this.wait(${num(dt)})`)
-    else if (items.length === 1) out.push(`this.play(${items[0]}, ${num(dt)})`)
-    else out.push(["this.play(", "  together(", ...items.map((it) => `    ${it},`), "  ),", `  ${num(dt)},`, ")"].join("\n"))
+    out.push(beat(items, dt))
+  }
+  // The view comes home: the walk's camera was a detour, and the song goes on
+  // from the camera it had authored (TASTE: the timeline owns the camera).
+  const base = s.cameraBase ?? {}
+  if (keys.length) {
+    const end = cameraAt(keys, T)
+    const home = camParams
+      .filter((p) => p in base && p in end && Math.abs(end[p]! - base[p]!) > CAMERA[p]!)
+      .map((p) => `this.observer.${p}.to(${num(base[p]!)})`)
+    if (home.length) out.push(beat(home, CAMERA_HOME))
   }
   return out.join("\n")
 }

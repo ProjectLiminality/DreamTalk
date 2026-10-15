@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { cameraBeats, isSessionId, passageOf, type Session } from "../scripts/session"
+import { cameraBeats, isSessionId, passageClasses, passageOf, type Session } from "../scripts/session"
 import { applyAppendPassage } from "../scripts/ops"
 import { together } from "../src/anim"
 import { scalar } from "../src/params"
@@ -124,5 +124,68 @@ describe("a private holon song keeps its raw session beside it", () => {
     expect(await keepSessionInputs(root, "holons/Song/Song.ts", id)).toBe(`holons/Song/inputs/${id}`)
     expect(await Bun.file(`${root}holons/Song/inputs/${id}/session.json`).exists()).toBe(true)
     expect(await keepSessionInputs(root, "core/demo/vocabulary/FlowMap.ts", id)).toBeUndefined()
+  })
+})
+
+describe("passage polish — retargets, summons, the view coming home", () => {
+  test("a fire that interrupts one in flight restarts from where the walk was; transitions keep their own length across beats", () => {
+    const code = passageOf(
+      session({
+        clocks: [],
+        tracks: {
+          fires: [
+            { t: 0.5, axis: "grain", from: "uncategorised", to: "categorised", duration: 1.8, holon: "this.map", pose: { "this.map.grain": 0 } },
+            { t: 1, axis: "grain", from: "categorised", to: "uncategorised", duration: 1.8, holon: "this.map", pose: { "this.map.grain": 0.21 } },
+          ],
+        },
+      }),
+    )
+    expect(code).toContain('[this.map.stateAxis("grain").to("categorised"), 0, 3.6]')
+    expect(code).toContain('this.set(this.map.grain.to(0.21))\nthis.play([this.map.stateAxis("grain").to("uncategorised"), 0, 0.45], 4)')
+  })
+
+  test("the written restart is what the timeline plays: the overhanging ease up to the cut, then on from the walked value", () => {
+    const g = scalar(0)
+    const first = together([g.to(1), 0, 3.6])
+    const tl = new Timeline([
+      { anim: first, start: 0, duration: 0.5 },
+      { anim: g.to(0.21), start: 0.5, duration: 0 },
+      { anim: together([g.to(0), 0, 0.45]), start: 0.5, duration: 4 },
+    ])
+    const alone = new Timeline([{ anim: g.to(1), start: 0, duration: 1.8 }])
+    expect(tl.valueAt(g, 0.4)).toBeCloseTo(alone.valueAt(g, 0.4), 6)
+    expect(tl.valueAt(g, 0.5001)).toBeCloseTo(0.21, 2)
+    expect(tl.valueAt(g, 2.4)).toBeCloseTo(0, 6)
+  })
+
+  test("a summoned symbol is a real holon: constructed where it appeared, staged, drawn on — and off when dismissed", () => {
+    const s = session({
+      clocks: [],
+      tracks: {
+        fires: [],
+        summons: [
+          { t: 1, className: "Eye", at: { x: 10, y: 20, z: 0 }, scale: 0.5 },
+          { t: 3, className: "Eye", dismiss: true },
+        ],
+      },
+    })
+    const code = passageOf(s)
+    expect(code).toContain("const summonedEye1 = new Eye({ x: 10, y: 20, z: 0, scale: 0.5 })\nthis.stage(summonedEye1)\nthis.play([Create(summonedEye1), 0, 0.6], 2)")
+    expect(code).toContain("this.play([UnCreate(summonedEye1), 0, 0.6], 2)")
+    expect(passageClasses(s)).toEqual(["Eye"])
+    const song = `import { Dream } from "../../src/index"\n\nexport class S extends Dream {\n  unfold() {\n    this.wait(1)\n  }\n}\n`
+    const res = applyAppendPassage(song, { placement: "end", file: "core/demo/vocabulary/S.ts" }, code, [{ name: "Eye", file: "core/vocabulary/Eye/Eye.ts" }])
+    if (!res.ok) throw new Error(res.reason)
+    expect(res.text).toContain('import { Eye } from "../../vocabulary/Eye/Eye"')
+    expect(res.text).toMatch(/import \{ Create, UnCreate \} from "..\/..\/src\/verbs"|Create, UnCreate/)
+    expect(() => passageOf(session({ tracks: { fires: [], summons: [{ t: 1, className: "evil()" }] } }))).toThrow()
+  })
+
+  test("after the walk the view comes home to the camera the song had authored", () => {
+    const camera = [0, 1, 2, 3, 4, 5].map((t) => ({ t, phi: t * 0.1 }))
+    const code = passageOf(session({ clocks: [], cameraBase: { phi: 0 }, tracks: { fires: [], camera } }))
+    expect(code.split("\n").at(-1)).toBe("this.play(this.observer.phi.to(0), 1)")
+    const stay = passageOf(session({ clocks: [], cameraBase: { phi: 0.5 }, tracks: { fires: [], camera } }))
+    expect(stay).not.toContain("this.observer.phi.to(0.5), 1)")
   })
 })
