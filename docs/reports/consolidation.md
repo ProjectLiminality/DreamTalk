@@ -57,6 +57,28 @@ shared piece is.
 5. **Small helpers left:** `clamp01` in Grain, three-host and MorphCurves
    (owners' files). The vector `lerp`s differ by type and are not duplicates.
 
+6. **Hand geometry, said twice (audit 2026-10-15).** `J` (joint
+   indices), `dist`, the palm centre and the fingertips' `reach` are in
+   both `src/hands.ts` / `hands/screen.ts` (the input layer) and
+   `src/gesture/hand.ts` (the gesture layer). The grab thresholds
+   (0.9 open → 0.45 fist) are tuned on one `reach`, so a change to either
+   formula silently de-tunes the other. Target: once, in `src/hands.ts`,
+   with the gesture layer importing the data module (it already consumes
+   its frames).
+7. **The keyed memo, three ways.** `derivePoints` (primitives.ts),
+   `deriveLoops` (parts/polylines.ts) and Earth's `deriveSurface` each
+   restate "recompute when the key changes, bump the version". The
+   difference is which property carries the version. Target, if a fourth
+   appears: one `keyedMemo(key, compute)` that all three wrap. Today the
+   three are short and tested, so this is low priority.
+
+Audited 2026-10-15 and found clean: the soft echo is ONE primitive
+(`render/echo.ts`) under both superposition and glow; the session
+recorders are complementary (`editor/recorder.ts` keeps the walk, view and
+voice, and `hands/recorder.ts` appends hand frames to the same session);
+One-Euro, DTW and the action / clip modules each exist once. Small: one
+`lerp` and an inline clamp in `hands/sim.ts` (use `src/math.ts`).
+
 Checked, not duplicates: the YinYang "Web2 node" (ring, triangular grid,
 bolts, field spirals) appears once. `Web2Disintegrating` is a different
 symbol (a triangle lattice that falls apart). `holons/Cylinder` extends the
