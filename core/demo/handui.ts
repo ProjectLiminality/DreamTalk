@@ -50,7 +50,12 @@ const LEGEND: readonly [Gesture, "point" | "grab" | "both", string, string][] = 
 ]
 const other = (side: "left" | "right") => (side === "left" ? "right" : "left")
 
-export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
+/**
+ * `within`: the element the scene is drawn in (the editor's viewport) — the
+ * legend sits at its top left and the buttons and panels at its bottom
+ * right, clear of the editor's own panels. Without it, the window's corners.
+ */
+export const mountHandUI = (hands: HandPlay, signal: AbortSignal, within?: HTMLElement): void => {
   if (!document.getElementById("dt-hui-style")) {
     const style = document.createElement("style")
     style.id = "dt-hui-style"
@@ -254,7 +259,25 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   // --- quiet presence ------------------------------------------------------------
   // Polled, and only what changed is touched: no work on the hand frames' path.
   let shown: string | undefined
+  let placed = ""
+  const place = () => {
+    if (!within) return
+    const r = within.getBoundingClientRect()
+    const key = `${r.left} ${r.top} ${r.right} ${r.bottom} ${window.innerWidth} ${window.innerHeight}`
+    if (key === placed) return
+    placed = key
+    legend.style.left = `${r.left + 12}px`
+    legend.style.top = `${r.top + 12}px`
+    const right = `${window.innerWidth - r.right + 12}px`
+    const bottom = window.innerHeight - r.bottom
+    buttons.style.right = panel.style.right = tune.style.right = right
+    buttons.style.bottom = `${bottom + 34}px`
+    panel.style.bottom = tune.style.bottom = `${bottom + 64}px`
+    prompt.style.left = `${(r.left + r.right) / 2}px`
+    prompt.style.bottom = `${bottom + 14}px`
+  }
   const tick = setInterval(() => {
+    place()
     const active = hands.handsActive || hands.calibrating
     const now = `${active} ${hands.calibrating}`
     if (now !== shown) {

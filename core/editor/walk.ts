@@ -32,7 +32,7 @@ import type { Holon } from "../src/holon"
 import type { StateSpace } from "../src/automaton"
 import type { Param, ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
-import { GameLoop } from "../demo/game"
+import { GameLoop, type GameHost } from "../demo/game"
 import type { Overrides } from "./overrides"
 import { bufferToClient, type PixelBox } from "./creator"
 import type { WalkCapture } from "./checkpoint"
@@ -43,6 +43,8 @@ export interface WalkOpts {
   boundsOf(holon: Holon): PixelBox | undefined
   /** The golden glow (src/glow.ts) on the hovered handle, instead of the corner ticks. */
   attend?(channel: "game", holon: Holon | null, amount: number): void
+  /** Many holons' world ink boxes in one sweep — what a hand's spark points among (GameLoop.spark). */
+  worldBoundsOfEach?: GameHost["worldBoundsOfEach"]
   roots: readonly Holon[]
   overrides: Overrides
   /** Is the transport playing? (The walk lives only in a held frame.) */
@@ -142,6 +144,7 @@ export class EditorWalk {
         pick: opts.pick,
         boundsOf: opts.boundsOf,
         attend: opts.attend ? (c, h, a) => opts.attend!(c, h, a) : undefined,
+        worldBoundsOfEach: opts.worldBoundsOfEach,
         setBeforeSync: () => {},
       },
       {

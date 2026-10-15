@@ -212,6 +212,8 @@ export const mountHands = (opts: {
    * replay's frame clock) is heard as playback passes each line.
    */
   session?: string
+  /** The element the scene is drawn in: the hands span it (the editor's viewport); default the window. */
+  within?: HTMLElement
 }): HandPlay => {
   const { target } = opts
   const controller = new GestureController({ pinch: { calibration: loadCalibration() }, grabHand: loadGrabHand() })
@@ -337,7 +339,25 @@ export const mountHands = (opts: {
   /** When a hand was last tracked (ms) — the UI shows only while hands are in play. */
   let lastSeen = -Infinity
   let gesture: Gesture | undefined
-  const client = (p: { x: number; y: number }) => ({ x: p.x * window.innerWidth, y: p.y * window.innerHeight })
+  // The hands' screen is the scene's own element (the editor's viewport),
+  // else the window; its box is re-read twice a second, not every frame.
+  const area = { left: 0, top: 0, width: 1, height: 1, at: Number.NEGATIVE_INFINITY }
+  const span = () => {
+    const now = performance.now()
+    if (now - area.at > 500) {
+      const r = opts.within?.getBoundingClientRect()
+      area.left = r?.left ?? 0
+      area.top = r?.top ?? 0
+      area.width = r?.width || window.innerWidth
+      area.height = r?.height || window.innerHeight
+      area.at = now
+    }
+    return area
+  }
+  const client = (p: { x: number; y: number }) => {
+    const a = span()
+    return { x: a.left + p.x * a.width, y: a.top + p.y * a.height }
+  }
 
   /**
    * The spark: a small golden star in the scene, larger nearer the eye.
@@ -523,8 +543,9 @@ export const mountHands = (opts: {
       }
     }
     if (it.cursor.tracked) {
-      pointAt.x = it.cursor.x * window.innerWidth
-      pointAt.y = it.cursor.y * window.innerHeight
+      const a = span()
+      pointAt.x = a.left + it.cursor.x * a.width
+      pointAt.y = a.top + it.cursor.y * a.height
       pointSeen = true
     }
     // Hand talk runs whether or not the scene is walkable: recording and
@@ -585,8 +606,9 @@ export const mountHands = (opts: {
     // With one job per hand, the pointing hand points on while the other holds.
     hoverWanted = c.tracked && (controller.grabHand !== "either" || !it.grab.holding)
     if (hoverWanted) {
-      hoverAt.x = c.x * window.innerWidth
-      hoverAt.y = c.y * window.innerHeight
+      const a = span()
+      hoverAt.x = a.left + c.x * a.width
+      hoverAt.y = a.top + c.y * a.height
     }
     {
       if (it.press) {
@@ -622,8 +644,8 @@ export const mountHands = (opts: {
     const view = target.view()
     const g = it.grab
     if (view && (g.orbit.x || g.orbit.y || g.pan.x || g.pan.y || g.dolly)) {
-      const W = window.innerWidth
-      const H = window.innerHeight
+      const W = span().width
+      const H = span().height
       if (g.orbit.x || g.orbit.y) view.orbit(g.orbit.x * W, g.orbit.y * W, W)
       if (g.pan.x || g.pan.y) view.pan(g.pan.x * W, g.pan.y * H, H)
       if (g.dolly) view.dolly(g.dolly / DOLLY_PER_NOTCH)

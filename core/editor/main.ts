@@ -42,6 +42,8 @@ import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
+import { sparkSpace } from "../demo/spark"
+import type { Spark } from "../demo/game"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "../demo/summon"
 import { mountHandUI } from "../demo/handui"
@@ -1037,6 +1039,7 @@ const boot = async (resume?: Transport) => {
         attend: (c, h, a) => {
           if (host.attend(c, h, a)) void host.renderFrame(current)
         },
+        worldBoundsOfEach: (hs) => host.worldBoundsOfEach(hs),
         roots: dream.roots,
         overrides,
         isPlaying: () => playing,
@@ -1758,13 +1761,25 @@ const boot = async (resume?: Transport) => {
         changed: () => void host.renderFrame(current).then(() => syncPanel()),
         // Pinch-and-hold: the holon-action menu (editor/actions.ts), like a pointer long press.
         menuAt: (x, y) => (window as unknown as { __dt?: { actions?: { menuAt(x: number, y: number): void } } }).__dt?.actions?.menuAt(x, y),
+        // The pinch point is a spark in the scene (demo/spark.ts), as in the player; `?spark=0` keeps the flat dot.
+        ...(new URLSearchParams(location.search).get("spark") === "0"
+          ? {}
+          : {
+              sparkAt: sparkSpace(host),
+              pointWith: (s: Spark | null) => {
+                game.spark = s
+                return game.sparkHidden()
+              },
+            }),
       },
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
       session: new URLSearchParams(location.search).get("hands") === "replay" ? (new URLSearchParams(location.search).get("session") ?? undefined) : undefined,
+      // The hands span the viewport, not the whole window with its panels.
+      within: canvas,
     })
     ;(window as unknown as Record<string, unknown>).__dtHands = hands
-    mountHandUI(hands, ac.signal)
+    mountHandUI(hands, ac.signal, canvas)
     ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({
       host,
       canvas,
