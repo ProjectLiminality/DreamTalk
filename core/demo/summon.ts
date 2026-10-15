@@ -30,6 +30,8 @@ import { Timeline } from "../src/timeline"
 import { Create, UnCreate } from "../src/verbs"
 import { SHELF, extentOf } from "../sketch/catalogue"
 
+type Vec = { x: number; y: number; z: number }
+
 export interface SummonOpts {
   host: ThreeHost
   canvas: HTMLCanvasElement
@@ -50,7 +52,7 @@ export interface Summoned {
 
 export interface Summoning {
   /** Summon a shelf symbol at a client point (centre of the stage if omitted). */
-  summon(className: string, at?: { x: number; y: number }): Summoned | undefined
+  summon(className: string, at?: { x: number; y: number }, world?: Vec): Summoned | undefined
   /** Draw off and remove the last summoned symbol (or this one). */
   dismiss(which?: Summoned): Promise<void>
   readonly summoned: readonly Summoned[]
@@ -107,13 +109,16 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
     return 2 * distance * Math.tan(THREE.MathUtils.degToRad((cam as THREE.PerspectiveCamera).fov) / 2)
   }
 
-  const summon = (className: string, at?: { x: number; y: number }): Summoned | undefined => {
+  const summon = (className: string, at?: { x: number; y: number }, world?: Vec): Summoned | undefined => {
     const entry = shelfClass(className)
     if (!entry) return undefined
     const holon = new (entry.cls as unknown as new () => Holon)()
     void holon.parts
     const r = canvas.getBoundingClientRect()
-    const { point, distance } = worldAt(at ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 })
+    // Where the hand's spark stands (depth and all), else on the focus plane under the point.
+    const { point, distance } = world
+      ? { point: new THREE.Vector3(world.x, world.y, world.z), distance: host.camera.position.distanceTo(new THREE.Vector3(world.x, world.y, world.z)) }
+      : worldAt(at ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 })
     // Sized to the view: its own drawn extent scaled to `fill` of the view's height.
     const ext = extentOf(holon)
     const size = Math.max(ext?.w ?? 0, ext?.h ?? 0) || 200
@@ -137,6 +142,23 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
     return s
   }
 
+  /** The summoned symbol the spark is in or nearest to (within a view's tenth), else none. */
+  const summonedNear = (p: Vec): Summoned | undefined => {
+    let best: { s: Summoned; d: number } | undefined
+    for (const s of summoned) {
+      const b = host.worldBoundsOf(s.holon)
+      if (!b) continue
+      const d = Math.hypot(
+        Math.max(b.min.x - p.x, 0, p.x - b.max.x),
+        Math.max(b.min.y - p.y, 0, p.y - b.max.y),
+        Math.max(b.min.z - p.z, 0, p.z - b.max.z),
+      )
+      if (!best || d < best.d) best = { s, d }
+    }
+    const reach = 0.1 * viewHeightAt(host.camera.position.distanceTo(new THREE.Vector3(p.x, p.y, p.z)))
+    return best && best.d <= reach ? best.s : undefined
+  }
+
   const dismiss = async (which?: Summoned) => {
     const s = which ?? summoned[summoned.length - 1]
     if (!s) return
@@ -150,9 +172,10 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
   window.addEventListener(
     "dreamtalk:invoke",
     (e) => {
-      const { name, at } = (e as CustomEvent<{ name: string; at?: { x: number; y: number } }>).detail
-      if (name === "dismiss") void dismiss()
-      else summon(name, at)
+      const { name, at, world } = (e as CustomEvent<{ name: string; at?: { x: number; y: number }; world?: Vec }>).detail
+      // Dismiss what the spark is at — else the latest summoned.
+      if (name === "dismiss") void dismiss(world ? summonedNear(world) : undefined)
+      else summon(name, at, world)
     },
     { signal: opts.signal },
   )

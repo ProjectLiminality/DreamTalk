@@ -342,7 +342,7 @@ export const mountHands = (opts: {
       }
     } else if (verb === "home") target.view()?.reset(performance.now())
     // `at`: where the hand was (client px) — a summoned symbol appears there.
-    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined } }))
+    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined, world: place ? { ...place.spark.p } : undefined } }))
     else return false
     last = { action, by, t: performance.now() / 1000 }
     target.changed?.()
