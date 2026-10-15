@@ -373,6 +373,8 @@ const main = async () => {
       await host.renderFrame(game.heldAt)
     },
     state: () => game.state(),
+    /** The viewer's camera: `.orbit(dx, dy, width)`, `.pan(dx, dy, height)`, `.dolly(dy)`, `.reset(now)`. */
+    view: game.view,
     hoverAt: (x: number, y: number) => game.hoverAt(x, y),
     clickAt: (x: number, y: number) => game.clickAt(x, y),
     // The live session (⇧R), for hands and the harness — the editor's spelling.
@@ -459,8 +461,6 @@ const main = async () => {
     await host.renderFrame(current)
     game.enter(current)
   }
-    /** The viewer's camera: `.orbit(dx, dy, width)`, `.pan(dx, dy, height)`, `.dolly(dy)`, `.reset(now)`. */
-    view: game.view,
   window.__dt = {
     ready: true,
     duration,

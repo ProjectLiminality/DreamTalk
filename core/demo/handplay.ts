@@ -57,6 +57,12 @@ export interface HandSource {
 
 /** How far the hand travels (screen widths) to scrub one position along an axis. */
 const SCRUB_STEP = 0.25
+/**
+ * The cursor re-picks only after moving this far (client px), as the mouse
+ * does (demo/game.ts HOVER_STEP): a tracked hand always jitters, and a pick
+ * is the page's dearest call.
+ */
+const HOVER_STEP = 4
 const CALIBRATION_KEY = "dreamtalk.pinch-calibration"
 const MUDRA_KEY = "dreamtalk.mudras"
 
@@ -174,7 +180,8 @@ export const mountHands = (opts: {
   /** The latest frame's time — what a heard line is stamped with. */
   let handClock = 0
   /** Where the cursor last was (client px), while a hand is tracked. */
-  let pointAt: { x: number; y: number } | undefined
+  const pointAt = { x: 0, y: 0 }
+  let pointSeen = false
   const hear = (line: { text: string; final: boolean }) => jev.hear({ t: handClock, text: line.text, final: line.final })
   let listening = false
   let recorderLinked = false
@@ -251,7 +258,7 @@ export const mountHands = (opts: {
       }
     } else if (verb === "home") target.view()?.reset(performance.now())
     // `at`: where the hand was (client px) — a summoned symbol appears there.
-    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointAt } }))
+    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined } }))
     else return false
     last = { action, by, t: performance.now() / 1000 }
     target.changed?.()
@@ -332,6 +339,36 @@ export const mountHands = (opts: {
     }
   }
 
+  // --- one display frame's worth of screen work -------------------------------
+  // A hand source may deliver several frames per display frame (a replay
+  // catching up, a fast device): the gesture state follows every one, but the
+  // paint, the pick under the cursor and the re-render happen once per
+  // animation frame, for the latest — and the pick only when the cursor moved.
+  let latest: Intent | undefined
+  let raf = 0
+  let hoverWanted = false
+  const hoverAt = { x: 0, y: 0 }
+  const picked = { x: Number.NaN, y: Number.NaN }
+  /** The view turned since the last pick: what is under a still cursor may have changed. */
+  let viewMoved = false
+  const onFrame = () => {
+    raf = 0
+    if (latest) paint(latest)
+    if (viewMoved) target.changed?.()
+    if (hoverWanted && target.live() && (viewMoved || Math.hypot(hoverAt.x - picked.x, hoverAt.y - picked.y) >= HOVER_STEP)) {
+      target.hoverAt(hoverAt.x, hoverAt.y)
+      picked.x = hoverAt.x
+      picked.y = hoverAt.y
+    }
+    viewMoved = false
+  }
+  opts.signal.addEventListener("abort", () => cancelAnimationFrame(raf))
+  const later = (it: Intent): Intent => {
+    latest = it
+    if (!raf) raf = requestAnimationFrame(onFrame)
+    return it
+  }
+
   const push = (frame: HandFrame): Intent => {
     const it = controller.update(frame)
     handClock = frame.t
@@ -354,7 +391,11 @@ export const mountHands = (opts: {
         opts.signal.addEventListener("abort", off)
       }
     }
-    if (it.cursor.tracked) pointAt = client(it.cursor)
+    if (it.cursor.tracked) {
+      pointAt.x = it.cursor.x * window.innerWidth
+      pointAt.y = it.cursor.y * window.innerHeight
+      pointSeen = true
+    }
     // Hand talk runs whether or not the scene is walkable: recording and
     // recognising do not need free play.
     if (recording) {
@@ -405,17 +446,14 @@ export const mountHands = (opts: {
           done(fit)
         }
       }
-      paint(it)
-      return it
+      return later(it)
     }
-    if (!target.live()) {
-      paint(it)
-      return it
-    }
+    if (!target.live()) return later(it)
     const c = it.cursor
-    if (c.tracked && !it.grab.holding) {
-      const p = client(c)
-      target.hoverAt(p.x, p.y)
+    hoverWanted = c.tracked && !it.grab.holding
+    if (hoverWanted) {
+      hoverAt.x = c.x * window.innerWidth
+      hoverAt.y = c.y * window.innerHeight
     }
     {
       if (it.press) {
@@ -454,10 +492,9 @@ export const mountHands = (opts: {
       if (g.orbit.x || g.orbit.y) view.orbit(g.orbit.x * W, g.orbit.y * W, W)
       if (g.pan.x || g.pan.y) view.pan(g.pan.x * W, g.pan.y * H, H)
       if (g.dolly) view.dolly(g.dolly / DOLLY_PER_NOTCH)
-      target.changed?.()
+      viewMoved = true
     }
-    paint(it)
-    return it
+    return later(it)
   }
 
   const unsubscribe = opts.source?.subscribe(push)
