@@ -43,6 +43,8 @@ export interface HandTarget {
   view(): ViewLayer | undefined
   /** Fire an axis (a mudra's or Jev's action), to a position or the next. */
   fire?(id: string, position?: string): void
+  /** A pinch held still opens the holon-action menu here (the editor's __dt.actions.menuAt). */
+  menuAt?(clientX: number, clientY: number): void
   /** The walkable axes, for Jev's action list. */
   axes?(): { id: string; label: string }[]
   /** The view or a pose changed: a host that only paints on demand repaints. */
@@ -244,6 +246,9 @@ export const mountHands = (opts: {
    * pinch was hand talk, not a click — its release does not click.
    */
   let pinchSpoke = false
+  /** A pinch held still this long (s, frame clock) is a long press: the actions menu. */
+  const HOLD = 0.55
+  let held: { t: number; at: { x: number; y: number }; opened: boolean } | undefined
   let calibration: { k: number; samples: PinchSample[]; done: (c: PinchCalibration | undefined) => void } | undefined
   /** The last fit, for the on-screen "calibrated ✓". */
   let calibrated: { fit: PinchCalibration; at: number } | undefined
@@ -399,12 +404,19 @@ export const mountHands = (opts: {
         if (scrub?.moved) target.settleAxis(scrub.id)
         scrub = undefined
       }
+      if (it.press) held = { t: frame.t, at: client(it.press), opened: false }
+      if (it.drag) held = undefined // it travelled: a drag, not a long press
+      if (held && !held.opened && c.pinched && target.menuAt && frame.t - held.t >= HOLD) {
+        held.opened = true
+        target.menuAt(held.at.x, held.at.y)
+      }
       if (it.click) {
         const p = client(it.click)
-        if (!pinchSpoke) target.click(p.x, p.y)
+        if (!pinchSpoke && !held?.opened) target.click(p.x, p.y)
         scrub = undefined
       }
       if (it.press || c.released) pinchSpoke = false
+      if (c.released) held = undefined
     }
     // Grab: the scene in the hands, through the view layer like any gesture.
     const view = target.view()

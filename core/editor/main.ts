@@ -1753,6 +1753,8 @@ const boot = async (resume?: Transport) => {
         fire: (id, position) => game.fire(id, position),
         axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
         changed: () => void host.renderFrame(current).then(() => syncPanel()),
+        // Pinch-and-hold: the holon-action menu (editor/actions.ts), like a pointer long press.
+        menuAt: (x, y) => (window as unknown as { __dt?: { actions?: { menuAt(x: number, y: number): void } } }).__dt?.actions?.menuAt(x, y),
       },
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
