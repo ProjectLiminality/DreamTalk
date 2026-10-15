@@ -186,6 +186,9 @@ export interface MudraLibrary {
  * (for the intent layer), and an INVOCATION when a mudra is confident and
  * held (a pose) or completed (a motion).
  */
+/** Frame-time seconds between two matches of a motion. */
+const MOTION_STEP = 1 / 30
+
 export class MudraRecogniser {
   readonly hold: number
   readonly invokeAt: number
@@ -197,6 +200,12 @@ export class MudraRecogniser {
   #frames: HandFrame[] = []
   #held?: { name: string; since: number }
   #lastInvoked = new Map<string, number>()
+  /**
+   * A motion is matched (dynamic time warping, the dear part) at most every
+   * MOTION_STEP s of frame time, its distance reused between — a fast source
+   * (the Leap at ~75 Hz) pays for 30 matches a second, not one per frame.
+   */
+  #motion = new Map<string, { t: number; d: number }>()
 
   constructor(library: MudraLibrary, opts: RecogniserOpts = {}) {
     this.library = library
@@ -223,10 +232,16 @@ export class MudraRecogniser {
           for (let i = 0; i < m.hands; i++) d += poseDistance(poses[i]!, ex.poses[i]!)
           best = Math.min(best, d / m.hands)
         } else if (ex.path) {
+          const was = this.#motion.get(m.name)
+          if (was && frame.t >= was.t && frame.t - was.t < MOTION_STEP) {
+            best = was.d
+            break
+          }
           traj ??= trajectory(this.#frames, this.samples)
           best = Math.min(best, dtw(traj, ex.path, stepDistance))
         }
       }
+      if (m.kind === "motion" && traj) this.#motion.set(m.name, { t: frame.t, d: best })
       if (best < Infinity) scored.push({ name: m.name, d: best })
     }
     scored.sort((a, b) => a.d - b.d)
@@ -251,7 +266,10 @@ export class MudraRecogniser {
       if (due && (last === undefined || frame.t - last >= this.refractory)) {
         invoked = top
         this.#lastInvoked.set(top.name, frame.t)
-        if (kind === "motion") this.#frames = [] // a completed gesture starts the window afresh
+        if (kind === "motion") {
+          this.#frames = [] // a completed gesture starts the window afresh
+          this.#motion.clear()
+        }
       }
     } else {
       this.#held = undefined
