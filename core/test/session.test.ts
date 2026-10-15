@@ -111,3 +111,18 @@ export class S extends Dream {
     expect(j).toBeLessThan(k)
   })
 })
+
+describe("a private holon song keeps its raw session beside it", () => {
+  test("holons/<Name>/… → inputs/<id>/; a public song's stays in refs/sessions", async () => {
+    const { keepSessionInputs } = await import("../scripts/session")
+    const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const root = (await mkdtemp(`${tmpdir()}/dt-session-`)) + "/"
+    const id = "2026-10-15T14-03-22"
+    await mkdir(`${root}refs/sessions/${id}`, { recursive: true })
+    await writeFile(`${root}refs/sessions/${id}/session.json`, "{}")
+    expect(await keepSessionInputs(root, "holons/Song/Song.ts", id)).toBe(`holons/Song/inputs/${id}`)
+    expect(await Bun.file(`${root}holons/Song/inputs/${id}/session.json`).exists()).toBe(true)
+    expect(await keepSessionInputs(root, "core/demo/vocabulary/FlowMap.ts", id)).toBeUndefined()
+  })
+})

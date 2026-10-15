@@ -29,18 +29,8 @@ import { holonPathOf } from "../editor/checkpoint"
 // the oracle's modelView·local the way the shader does). Harness-only.
 ;(window as unknown as Record<string, unknown>).__THREE__ = THREE
 
-declare global {
-  interface Window {
-    __dt?: {
-      ready: boolean
-      duration: number
-      setT: (t: number) => Promise<void>
-      play: () => void
-      pause: () => void
-      error?: string
-    }
-  }
-}
+// window.__dt is declared once, in editor/dt.ts.
+import type {} from "../editor/dt"
 
 /** The public registry plus whatever local holon scenes this build found (demo/localHolons.ts). */
 const scenes = { ...publicScenes, ...localScenes }

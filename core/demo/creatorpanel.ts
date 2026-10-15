@@ -86,7 +86,7 @@ const css = (c: Color) => `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)
  * of its `all` Group, so the nearest whole that NAMES it is what counts.
  */
 const nameOf = (dream: object, holon: Holon): string => {
-  for (let n: Holon | null = holon.parent; n; n = n.parent) {
+  for (let n: Holon | null | undefined = holon.parent; n; n = n.parent) {
     for (const [key, value] of Object.entries(n)) if (value === holon) return key
   }
   return rootIdentityOf(dream, holon) ?? classNameOf(holon)
@@ -172,7 +172,7 @@ export const mountCreatorPanel = (
     // Where it lives: the chain of wholes, each one selectable — the dot
     // picks the deepest ink, and this is the way up.
     const chain: Holon[] = []
-    for (let n: Holon | null = holon.parent; n; n = n.parent) chain.unshift(n)
+    for (let n: Holon | null | undefined = holon.parent; n; n = n.parent) chain.unshift(n)
     const crumbs = document.createElement("div")
     crumbs.className = "crumbs"
     chain.forEach((h, i) => {

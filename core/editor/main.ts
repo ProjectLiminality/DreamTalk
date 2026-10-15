@@ -81,6 +81,7 @@ import { exitUrl, isPlayerMode, mountPlayerTransport, type PlayerTransport } fro
 import { thumbnailEl } from "./thumbnails"
 import { CreatorMode, decodePath, isCreatorToggle } from "./creator"
 import { EditorWalk } from "./walk"
+import type { DtHandle } from "./dt"
 import { mountSaveState, poseParams } from "./savestate"
 import { mountMorphTo } from "./morphto"
 import { mountBecoming } from "./becoming"
@@ -107,73 +108,75 @@ interface Transport {
   creator?: boolean
 }
 
+/** What the editor puts on `window.__dt` (editor/dt.ts) — headless drivers read it. */
+export interface EditorHarness extends DtHandle {
+  ready: boolean
+  duration: number
+  error?: string
+  setT: (t: number) => Promise<void>
+  play: () => void
+  pause: () => void
+  setBackdrop: (url: string, mode?: string, offset?: number) => void
+  /** Selection, for headless verification and for agent-driven editing. */
+  pick?: (ndcX: number, ndcY: number) => string | undefined
+  selectAt?: (ndcX: number, ndcY: number) => string | undefined
+  selected?: () => { className: string; identity?: string; anchor?: SourceAnchor } | undefined
+  clearSelection?: () => void
+  /** The selection's screen bounds in render pixels — headless checks. */
+  bounds?: () => { minX: number; minY: number; maxX: number; maxY: number } | undefined
+  /** Suppress the selection affordance entirely (never in a render). */
+  setAffordance?: (on: boolean) => void
+  toggleOutline?: () => boolean
+  /** The open scene's registry key, and the rail's switch — headless. */
+  sceneKey?: string
+  openScene?: (key: string) => void
+  /** The cast bar's members (sovereign classes), for verification. */
+  cast?: () => string[]
+  /** Hover glow (LOOPS.md game-loop seed): glow the sovereign under a
+   *  point / read what glows — headless driving and verification. */
+  hoverAt?: (ndcX: number, ndcY: number) => string | undefined
+  hovered?: () => string | undefined
+  // --- The live layer (EDITOR-V4), exposed for headless verification ---
+  /** Overlay a value on a named param of the selected holon. */
+  setOverride?: (name: string, value: number) => boolean
+  /** How many live overrides stand right now, and on what. */
+  overrides?: () => { name: string; value: number; animated: boolean }[]
+  /** Fly the observer as a drag/scroll would, in viewport pixels. */
+  fly?: (dx: number, dy: number, mode?: "orbit" | "pan") => void
+  dolly?: (deltaY: number) => void
+  /** The observer's live pose — flown or from the timeline. */
+  pose?: () => Pose
+  /** The code view (ctrl+/), for headless verification. */
+  toggleCode?: () => boolean
+  /** Select the nth play() clip — the timeline's rows, headlessly. */
+  selectClip?: (index: number) => string | undefined
+  // --- Checkpoint capture (EDITOR-V5), exposed for headless driving ---
+  /** The current pose as the op would spell it. */
+  captureTargets?: () => CaptureTarget[]
+  /** Where a capture would land right now — headless diagnostics. */
+  capturePlacement?: () => Record<string, unknown>
+  /** Capture the pose into the scene file; resolves to the op sent. */
+  capture?: (duration?: number) => Promise<Record<string, unknown> | undefined>
+  /** Release every live override without writing — the pose evaporates. */
+  discardPose?: () => void
+  /** The playhead's current t — headless verification (frame stepping). */
+  currentT?: () => number
+  // --- The undo stack (cmd+Z / shift+cmd+Z), exposed for headless driving ---
+  /** Release the live layer, or send the newest inverse op. */
+  undo?: () => void
+  redo?: () => void
+  /** How deep each stack is right now. */
+  history?: () => { undo: number; redo: number }
+  // --- The transform gizmo (EDITOR-VOICE-COMMENTS step 2), headless -----
+  /** The current gizmo mode, and the switch, for headless driving. */
+  gizmoMode?: () => GizmoMode
+  setGizmoMode?: (mode: GizmoMode) => void
+  /** The handles' screen geometry in canvas pixels, or undefined if none. */
+  gizmoHandles?: () => HandleGeometry | undefined
+}
+
 declare global {
   interface Window {
-    __dt?: {
-      ready: boolean
-      duration: number
-      error?: string
-      setT: (t: number) => Promise<void>
-      play: () => void
-      pause: () => void
-      setBackdrop: (url: string, mode?: string, offset?: number) => void
-      /** Selection, for headless verification and for agent-driven editing. */
-      pick?: (ndcX: number, ndcY: number) => string | undefined
-      selectAt?: (ndcX: number, ndcY: number) => string | undefined
-      selected?: () => { className: string; identity?: string; anchor?: SourceAnchor } | undefined
-      clearSelection?: () => void
-      /** The selection's screen bounds in render pixels — headless checks. */
-      bounds?: () => { minX: number; minY: number; maxX: number; maxY: number } | undefined
-      /** Suppress the selection affordance entirely (never in a render). */
-      setAffordance?: (on: boolean) => void
-      toggleOutline?: () => boolean
-      /** The open scene's registry key, and the rail's switch — headless. */
-      sceneKey?: string
-      openScene?: (key: string) => void
-      /** The cast bar's members (sovereign classes), for verification. */
-      cast?: () => string[]
-      /** Hover glow (LOOPS.md game-loop seed): glow the sovereign under a
-       *  point / read what glows — headless driving and verification. */
-      hoverAt?: (ndcX: number, ndcY: number) => string | undefined
-      hovered?: () => string | undefined
-      // --- The live layer (EDITOR-V4), exposed for headless verification ---
-      /** Overlay a value on a named param of the selected holon. */
-      setOverride?: (name: string, value: number) => boolean
-      /** How many live overrides stand right now, and on what. */
-      overrides?: () => { name: string; value: number; animated: boolean }[]
-      /** Fly the observer as a drag/scroll would, in viewport pixels. */
-      fly?: (dx: number, dy: number, mode?: "orbit" | "pan") => void
-      dolly?: (deltaY: number) => void
-      /** The observer's live pose — flown or from the timeline. */
-      pose?: () => Pose
-      /** The code view (ctrl+/), for headless verification. */
-      toggleCode?: () => boolean
-      /** Select the nth play() clip — the timeline's rows, headlessly. */
-      selectClip?: (index: number) => string | undefined
-      // --- Checkpoint capture (EDITOR-V5), exposed for headless driving ---
-      /** The current pose as the op would spell it. */
-      captureTargets?: () => CaptureTarget[]
-      /** Where a capture would land right now — headless diagnostics. */
-      capturePlacement?: () => Record<string, unknown>
-      /** Capture the pose into the scene file; resolves to the op sent. */
-      capture?: (duration?: number) => Promise<Record<string, unknown> | undefined>
-      /** Release every live override without writing — the pose evaporates. */
-      discardPose?: () => void
-      /** The playhead's current t — headless verification (frame stepping). */
-      currentT?: () => number
-      // --- The undo stack (cmd+Z / shift+cmd+Z), exposed for headless driving ---
-      /** Release the live layer, or send the newest inverse op. */
-      undo?: () => void
-      redo?: () => void
-      /** How deep each stack is right now. */
-      history?: () => { undo: number; redo: number }
-      // --- The transform gizmo (EDITOR-VOICE-COMMENTS step 2), headless -----
-      /** The current gizmo mode, and the switch, for headless driving. */
-      gizmoMode?: () => GizmoMode
-      setGizmoMode?: (mode: GizmoMode) => void
-      /** The handles' screen geometry in canvas pixels, or undefined if none. */
-      gizmoHandles?: () => HandleGeometry | undefined
-    }
     /** Transport state handed from the outgoing module to the incoming one. */
     __dtTransport?: Transport
     /** The current mount's teardown-and-reimport, called on daemon reloads. */
@@ -1223,7 +1226,7 @@ const boot = async (resume?: Transport) => {
     e.preventDefault()
     const ndc = ndcAt(e.clientX, e.clientY)
     const value = ndc && axis.gesture.value(cameraFrameOf(host.camera), ndc)
-    if (value === undefined || value === false) return true
+    if (value === undefined) return true
     overrides.set(axis.param, value)
     for (const row of rows) {
       if (row.param === axis.param)
@@ -1758,6 +1761,7 @@ const boot = async (resume?: Transport) => {
       },
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
+      session: new URLSearchParams(location.search).get("hands") === "replay" ? (new URLSearchParams(location.search).get("session") ?? undefined) : undefined,
     })
     ;(window as unknown as Record<string, unknown>).__dtHands = hands
     mountHandUI(hands, ac.signal)
@@ -2402,7 +2406,7 @@ const boot = async (resume?: Transport) => {
       return first ? classNameOf(first) : undefined
     },
     sceneKey,
-  }
+  } satisfies EditorHarness
   if (playerMode) return
 
   Object.assign(window.__dt, {

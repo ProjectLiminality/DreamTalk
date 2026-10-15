@@ -17,6 +17,10 @@
   "include": [
     "src",
     "test",
+    "editor",
+    "demo",
+    "hands",
+    "sketch",
     "hands",
     "scripts/daemon.ts",
     "scripts/remarkable-bridge.ts",

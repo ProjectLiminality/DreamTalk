@@ -35,8 +35,8 @@
  */
 
 import { existsSync } from "node:fs"
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { appendFile, cp, mkdir, readFile, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { utteranceKey } from "../src/narration"
 import { VOICE_EXT, voiceCacheDir } from "../src/voice"
@@ -284,7 +284,12 @@ export const prepareVoice = async (repoRoot: string, s: Session, voice = "live")
     // on a real speaker's voice, and fast on Apple silicon; else openai-whisper.
     const mlx = join(homedir(), ".local/bin/mlx_whisper")
     const cmd = existsSync(mlx)
-      ? [mlx, wav, "--model", "mlx-community/whisper-large-v3-turbo", "--word-timestamps", "True", "-f", "json", "-o", out]
+      ? [
+          mlx, wav, "--model", "mlx-community/whisper-large-v3-turbo", "--word-timestamps", "True",
+          // These two stop the "Yeah. Yeah." it otherwise hears in a speaker's silences.
+          "--condition-on-previous-text", "False", "--hallucination-silence-threshold", "2",
+          "-f", "json", "-o", out,
+        ]
       : ["whisper", wav, "--model", "base", "--output_format", "json", "--output_dir", out, "--fp16", "False"]
     const p = Bun.spawn(cmd, { stdout: "ignore", stderr: "pipe" })
     await p.exited
@@ -317,4 +322,21 @@ export const prepareVoice = async (repoRoot: string, s: Session, voice = "live")
   const next: Session = { ...s, tracks: { ...s.tracks, transcript: lines } }
   await writeFile(join(dir, "session.json"), JSON.stringify(next, null, 2))
   return next
+}
+
+/**
+ * A song in a private local holon (holons/<Name>, its own repo) keeps the
+ * raw session beside it — `inputs/<session id>/` — raw human input next to
+ * the perfected output. A public song's session stays in refs/sessions
+ * (gitignored): a person's raw voice never lands in a public repo's tree.
+ * Returns where it was copied, if it was.
+ */
+export const keepSessionInputs = async (repoRoot: string, songFile: string, id: string): Promise<string | undefined> => {
+  if (!songFile.startsWith("holons/") || songFile.includes("..")) return undefined
+  const from = sessionDir(repoRoot, id)
+  if (!from || !existsSync(from)) return undefined
+  const to = join(repoRoot, dirname(songFile), "inputs", id)
+  await mkdir(dirname(to), { recursive: true })
+  await cp(from, to, { recursive: true })
+  return to.slice(repoRoot.length)
 }

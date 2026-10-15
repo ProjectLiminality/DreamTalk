@@ -61,7 +61,7 @@ import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
 import { becomingResponse, history as becomingHistory } from "./becoming"
-import { passageOf, prepareVoice, readSession, sessionFileResponse } from "./session"
+import { keepSessionInputs, passageOf, prepareVoice, readSession, sessionFileResponse } from "./session"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import { changedRange, type ChangedRange } from "../editor/undo"
@@ -723,6 +723,11 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     pendingEchoes.set(abs, sha256(result.text))
     lastText.set(abs, result.text)
     log(`op ${msg.op} → ${file}`)
+    // A private holon song keeps its raw session beside it (scripts/session.ts).
+    if (msg.op === "appendSession") {
+      const kept = await keepSessionInputs(repoRoot, file, msg.id).catch(() => undefined)
+      if (kept) log(`session ${msg.id} kept as ${kept}`)
+    }
   }
   ws.send(
     JSON.stringify({

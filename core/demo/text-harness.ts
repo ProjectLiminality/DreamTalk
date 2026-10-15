@@ -28,20 +28,8 @@ import { RibbonStroke } from "../src/render/ribbon"
 import { Text, writeWindows } from "../src/parts/text"
 import { WHITE, BLUE } from "../src/constants"
 
-declare global {
-  interface Window {
-    __dt?: {
-      ready: boolean
-      duration: number
-      setT: (t: number) => Promise<void>
-      play: () => void
-      pause: () => void
-      error?: string
-      /** Harness-only: the per-letter windows, for cascade checks. */
-      windows?: () => [number, number][]
-    }
-  }
-}
+// window.__dt is declared once, in editor/dt.ts.
+import type {} from "../editor/dt"
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement
 const readout = document.getElementById("readout") as HTMLDivElement

@@ -41,7 +41,7 @@ import { classNameOf } from "./classname"
 export const holonAnchor = (dream: object, holon: Holon): { name?: string; owners: string[] } => {
   const owners: string[] = []
   let name: string | undefined
-  for (let n: Holon | null = holon.parent; n; n = n.parent) {
+  for (let n: Holon | null | undefined = holon.parent; n; n = n.parent) {
     owners.push(classNameOf(n))
     if (name === undefined)
       for (const [key, value] of Object.entries(n)) if (value === holon) name = key
