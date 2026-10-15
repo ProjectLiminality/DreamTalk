@@ -37,6 +37,7 @@
 import { existsSync } from "node:fs"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { homedir } from "node:os"
 import { utteranceKey } from "../src/narration"
 import { VOICE_EXT, voiceCacheDir } from "../src/voice"
 
@@ -279,20 +280,30 @@ export const prepareVoice = async (repoRoot: string, s: Session, voice = "live")
   if (lines.length === 0) {
     const out = join(dir, "whisper")
     await mkdir(out, { recursive: true })
-    const p = Bun.spawn(["whisper", wav, "--model", "base", "--output_format", "json", "--output_dir", out, "--fp16", "False"], {
-      stdout: "ignore",
-      stderr: "pipe",
-    })
+    // mlx_whisper (large-v3-turbo, word timestamps) where installed — far better
+    // on a real speaker's voice, and fast on Apple silicon; else openai-whisper.
+    const mlx = join(homedir(), ".local/bin/mlx_whisper")
+    const cmd = existsSync(mlx)
+      ? [mlx, wav, "--model", "mlx-community/whisper-large-v3-turbo", "--word-timestamps", "True", "-f", "json", "-o", out]
+      : ["whisper", wav, "--model", "base", "--output_format", "json", "--output_dir", out, "--fp16", "False"]
+    const p = Bun.spawn(cmd, { stdout: "ignore", stderr: "pipe" })
     await p.exited
     const json = join(out, "voice.json")
     if (existsSync(json)) {
       const w = JSON.parse(await readFile(json, "utf8")) as {
-        segments?: { start: number; end: number; text: string; no_speech_prob?: number }[]
+        segments?: {
+          start: number
+          end: number
+          text: string
+          no_speech_prob?: number
+          words?: { start: number; end: number }[]
+        }[]
       }
       // Whisper hears words in silence ("You"): a segment it doubts was speech is not a line.
       lines = (w.segments ?? [])
         .filter((g) => (g.no_speech_prob ?? 0) < 0.5)
-        .map((g) => ({ t0: g.start, t1: g.end, text: g.text.trim() }))
+        // Word timestamps, where given, say exactly when the line was spoken.
+        .map((g) => ({ t0: g.words?.[0]?.start ?? g.start, t1: g.words?.at(-1)?.end ?? g.end, text: g.text.trim() }))
         .filter((l) => l.text)
     }
   }
