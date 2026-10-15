@@ -21,6 +21,8 @@ import { GameLoop } from "./game"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
+import { SessionRecorder } from "../editor/recorder"
+import { holonPathOf } from "../editor/checkpoint"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -179,6 +181,7 @@ const main = async () => {
   const frame = async (now: number) => {
     game.hold(creator.on || explorer.on, now)
     game.tick(now)
+    ;(window as unknown as { __dtRecorder?: SessionRecorder }).__dtRecorder?.tick(now)
     if (game.on && !creator.on && !explorer.on) {
       await host.renderFrame(game.heldAt)
       readout.textContent = `t = ${game.heldAt.toFixed(2)}s · free ${game.automaton.clock.toFixed(1)}s (space: song)`
@@ -348,6 +351,11 @@ const main = async () => {
       void toggleGame()
       return
     }
+    if (e.code === "KeyR" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      void toggleRecord()
+      return
+    }
     if (!creator.on && !explorer.on && game.key(e)) return
     if (isCreatorToggle(e) || (e.code === "Escape" && creator.on)) {
       e.preventDefault()
@@ -376,6 +384,13 @@ const main = async () => {
     state: () => game.state(),
     hoverAt: (x: number, y: number) => game.hoverAt(x, y),
     clickAt: (x: number, y: number) => game.clickAt(x, y),
+    // The live session (⇧R), for hands and the harness — the editor's spelling.
+    session: {
+      toggle: () => toggleRecord(),
+      recording: () => recorder.recording,
+      id: () => recorder.id,
+      clock: () => recorder.clock(),
+    },
   }
   // Hands (demo/handplay.ts): any HandFrame source pushes here — the
   // webcam / Leap / replay / simulator (src/hands), or a harness. In free
@@ -404,6 +419,42 @@ const main = async () => {
     listen: true,
   })
   ;(window as unknown as Record<string, unknown>).__dtHands = hands
+  // ⇧R: a live session in free play (editor/recorder.ts) — the walk, the
+  // view, the voice, and the hands (they stamp on its clock) — kept in
+  // refs/sessions/<id>/. The player never writes the song: stopping links to
+  // the editor, which offers to (`/?scene=…&session=<id>`).
+  const recorder = new SessionRecorder({
+    scene: sceneName,
+    sceneFile: () => undefined,
+    automaton: () => game.automaton,
+    observer: dream.observer,
+    heldAt: () => game.heldAt,
+    pathOf: (h) => {
+      const path = holonPathOf(dream, h)
+      return path ? `this.${path}` : undefined
+    },
+    focus: () => game.focus,
+    clocks: () => [],
+    note: (text) => (recNote.textContent = text),
+  })
+  // The recorder's own line (the readout is rewritten every frame in free play).
+  const recNote = document.createElement("div")
+  recNote.style.cssText = "position:fixed;top:10px;right:12px;color:#ff644e;font:12px monospace;z-index:50"
+  document.body.appendChild(recNote)
+  ac.signal.addEventListener("abort", () => recNote.remove())
+  ;(window as unknown as { __dtRecorder?: SessionRecorder }).__dtRecorder = recorder
+  const toggleRecord = async () => {
+    if (!recorder.recording) {
+      if (!game.on) await toggleGame()
+      await recorder.start()
+      recNote.textContent = "● recording · ⇧R stops"
+      return
+    }
+    const id = await recorder.stop()
+    if (!id) return
+    const q = new URLSearchParams({ scene: sceneName, t: game.heldAt.toFixed(2), session: id })
+    recNote.innerHTML = `session ${id} kept · <a href="/?${q}" style="color:#00a2ff">write it into the song ↗</a>`
+  }
   // Summoning (demo/summon.ts): `invoke:<Symbol>` brings a shelf symbol in at the hand, `invoke:dismiss` sends it off.
   ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({ host, canvas, signal: ac.signal })
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
