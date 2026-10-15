@@ -33,19 +33,22 @@ const STYLE = `
 .dt-hui-status { color: rgb(255,199,84); min-height: 16px; margin: 6px 0; }
 .dt-hui-list div { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 .dt-hui-list b { font-weight: 500; color: #ddd; min-width: 64px; }
-.dt-hui-legend { left: 12px; bottom: 34px; line-height: 18px; color: #777; }
+.dt-hui-legend { left: 12px; top: 12px; line-height: 18px; color: #777; }
 .dt-hui-legend div { transition: color 0.12s; }
-.dt-hui-legend b { display: inline-block; min-width: 70px; font-weight: 500; color: #999; }
+.dt-hui-legend b { display: inline-block; min-width: 96px; font-weight: 500; color: #999; }
 .dt-hui-legend .on, .dt-hui-legend .on b { color: rgb(255,199,84); }
+.dt-hui-legend .dt-hui-swap { margin-top: 4px; color: #555; cursor: pointer; pointer-events: auto; }
+.dt-hui-legend .dt-hui-swap:hover { color: rgb(255,199,84); }
 `
 
-/** What each gesture does — the legend's rows, by the gesture that lights them. */
-const LEGEND: readonly [Gesture, string, string][] = [
-  ["point", "point", "the gold dot follows; it brightens as you close"],
-  ["pinch", "pinch", "click · drag to slide a state · hold for actions"],
-  ["fist", "fist", "turn the scene · push / pull to come near / go far"],
-  ["fists", "two fists", "move · spread / close to zoom · twist to turn"],
+/** What each gesture does — the legend's rows, by the gesture that lights them; `who` names the hand. */
+const LEGEND: readonly [Gesture, "point" | "grab" | "both", string, string][] = [
+  ["point", "point", "point", "the spark follows, near and far; brighter as you close"],
+  ["pinch", "point", "pinch", "click · drag to slide a state · hold for actions"],
+  ["fist", "grab", "fist", "turn the scene · push / pull to come near / go far"],
+  ["fists", "both", "two fists", "move · spread / close to zoom · twist to turn"],
 ]
+const other = (side: "left" | "right") => (side === "left" ? "right" : "left")
 
 export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   if (!document.getElementById("dt-hui-style")) {
@@ -64,8 +67,25 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   panel.style.display = "none"
   const legend = document.createElement("div")
   legend.className = "dt-hui dt-hui-legend"
-  legend.innerHTML = LEGEND.map(([g, name, what]) => `<div data-g="${g}"><b>${name}</b>${what}</div>`).join("")
-  const rows = new Map(Array.from(legend.querySelectorAll<HTMLElement>("[data-g]"), (el) => [el.dataset.g as Gesture, el]))
+  let rows = new Map<Gesture, HTMLElement>()
+  let lit: Gesture | undefined
+  // One job per hand, named in the legend — "swap hands" for the left-handed.
+  const renderLegend = () => {
+    const g = hands.grabHand
+    const hand = (who: "point" | "grab" | "both") =>
+      g === "either" || who === "both" ? "" : `${who === "grab" ? g : other(g)} `
+    legend.innerHTML =
+      LEGEND.map(([id, who, name, what]) => `<div data-g="${id}"><b>${hand(who)}${name}</b>${what}</div>`).join("") +
+      (g === "either" ? "" : `<div class="dt-hui-swap">swap hands (${other(g)} grabs)</div>`)
+    rows = new Map(Array.from(legend.querySelectorAll<HTMLElement>("[data-g]"), (el) => [el.dataset.g as Gesture, el]))
+    lit = undefined
+  }
+  legend.addEventListener("click", (e) => {
+    if (!(e.target as HTMLElement).classList.contains("dt-hui-swap") || hands.grabHand === "either") return
+    hands.grabHand = other(hands.grabHand)
+    renderLegend()
+  })
+  renderLegend()
   document.body.append(prompt, buttons, panel, legend)
   signal.addEventListener("abort", () => {
     legend.remove()
@@ -173,7 +193,6 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   // --- quiet presence ------------------------------------------------------------
   // Polled, and only what changed is touched: no work on the hand frames' path.
   let shown: string | undefined
-  let lit: Gesture | undefined
   const tick = setInterval(() => {
     const active = hands.handsActive || hands.calibrating
     const now = `${active} ${hands.calibrating}`

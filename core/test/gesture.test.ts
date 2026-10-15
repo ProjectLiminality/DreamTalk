@@ -141,3 +141,57 @@ describe("grab", () => {
     expect(turn).toBeCloseTo(1 / 8, 6) // 45° = an eighth of a full turn
   })
 })
+
+describe("hand roles: one job per hand", () => {
+  const roles = (grabHand: "left" | "right") => new GestureController({ grabHand })
+  test("left grabs, right points: a left fist turns the scene while the right hand keeps its cursor", () => {
+    const c = roles("left")
+    let turned = 0
+    let tracked = 0
+    for (let k = 0; k < 40; k++) {
+      const t = k / 60
+      const it = c.update(frame(t, hand(1, "left", 0.3 + k * 0.005, 0.5, { open: 0 }), hand(2, "right", 0.7, 0.5)))
+      turned += Math.abs(it.grab.orbit.x)
+      if (it.cursor.tracked) tracked++
+    }
+    expect(turned).toBeGreaterThan(0.01)
+    expect(tracked).toBe(40)
+  })
+  test("a right fist never grabs alone, and a left pinch never clicks", () => {
+    const c = roles("left")
+    let grabbed = false
+    for (let k = 0; k < 40; k++) grabbed ||= c.update(frame(k / 60, hand(2, "right", 0.4 + k * 0.005, 0.5, { open: 0 }))).grab.holding
+    expect(grabbed).toBe(false)
+    const d = roles("left")
+    let clicks = 0
+    let t = 0
+    for (let k = 0; k <= 30; k++, t += 1 / 60) clicks += d.update(frame(t, hand(1, "left", 0.5, 0.5, { pinch: k < 15 ? k / 15 : (30 - k) / 15 }))).click ? 1 : 0
+    expect(clicks).toBe(0)
+  })
+  test("swapped for the left-handed", () => {
+    const c = roles("right")
+    let grabbed = false
+    for (let k = 0; k < 40; k++) grabbed ||= c.update(frame(k / 60, hand(2, "right", 0.4 + k * 0.005, 0.5, { open: 0 }))).grab.holding
+    expect(grabbed).toBe(true)
+  })
+  test("two fists: the pointing hand joins only while the grabbing hand holds", () => {
+    const c = roles("left")
+    let both = false
+    for (let k = 0; k < 40; k++) {
+      const it = c.update(frame(k / 60, hand(1, "left", 0.3, 0.5, { open: 0 }), hand(2, "right", 0.7 + k * 0.004, 0.5, { open: 0 })))
+      both ||= it.grab.dolly !== 0
+    }
+    expect(both).toBe(true)
+  })
+})
+
+describe("the cursor's depth", () => {
+  test("follows the hand toward and away from the screen", () => {
+    const c = new GestureController()
+    const near = c.update(frame(0, hand(1, "right", 0.5, 0.5, { z: -0.2 }))).cursor.z
+    let far = 0
+    for (let k = 1; k < 60; k++) far = c.update(frame(k / 60, hand(1, "right", 0.5, 0.5, { z: 0.2 }))).cursor.z
+    expect(near).toBeLessThan(-0.15)
+    expect(far).toBeGreaterThan(0.15)
+  })
+})

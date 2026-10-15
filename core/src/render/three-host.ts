@@ -2722,6 +2722,49 @@ export class ThreeHost {
   }
 
   /**
+   * World ink boxes for several holons in ONE sweep of the ink — what a
+   * spatial pointer (a hand's spark, demo/handplay.ts) tests itself against:
+   * each holon's box covers its whole subtree. Holons with no ink on stage
+   * are absent.
+   */
+  worldBoundsOfEach(holons: Iterable<Holon>): Map<Holon, THREE.Box3> {
+    this.scene.updateMatrixWorld(true)
+    const wanted = new Set(holons)
+    const out = new Map<Holon, THREE.Box3>()
+    const owners: Holon[] = []
+    const ownersOf = (holon: Holon): Holon[] => {
+      owners.length = 0
+      for (let h: Holon | undefined = holon; h; h = h.parent) if (wanted.has(h)) owners.push(h)
+      return owners
+    }
+    const add = (who: Holon[], points: THREE.Vector3[]) => {
+      for (const h of who) {
+        let box = out.get(h)
+        if (!box) out.set(h, (box = new THREE.Box3().makeEmpty()))
+        for (const p of points) box.expandByPoint(p)
+      }
+    }
+    for (const b of this.strokes) {
+      const who = ownersOf(b.holon)
+      if (who.length) add(who, this.ribbonWorldPoints(b.ribbon, b.ribbon.mesh))
+    }
+    for (const b of this.cylinders) {
+      const who = ownersOf(b.holon)
+      if (!who.length) continue
+      for (const r of [b.farCap, b.nearBack, b.nearFront, b.lineA, b.lineB]) add(who, this.ribbonWorldPoints(r, r.mesh))
+    }
+    for (const b of [...this.fills, ...this.arrows]) {
+      const who = ownersOf(b.holon)
+      if (who.length) add(who, this.meshWorldPoints(b.fill.mesh))
+    }
+    for (const { binding, group } of this.texts) {
+      const who = ownersOf(binding.holon)
+      if (who.length) add(who, this.meshWorldPoints(group))
+    }
+    return out
+  }
+
+  /**
    * Visit every world point of a holon's ink (its whole subtree): ribbons,
    * cylinder contours, fills and arrowheads, text. A holon with no ink of
    * its own (a Null, a Group, an empty whole) is still framable and

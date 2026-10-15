@@ -14,6 +14,13 @@
  * A fist also closes the thumb–index gap, so a hand counts as pinching only
  * while it is not grabbing (grab strength under `pinchGrabLimit`): a fist
  * never clicks.
+ *
+ * HAND ROLES (`grabHand`). Either hand may do either ("either", the curl
+ * decides) — or each hand has ONE job, a simpler language with nothing to
+ * mistake: `grabHand: "left"` (David's default in the player) lets only the
+ * left hand grab and only the right point and pinch; "right" swaps them for
+ * the left-handed. Both at once work. Two fists stay a gesture: the
+ * pointing hand closing joins the grab only while the grabbing hand holds.
  */
 
 import { GrabController, type GrabDelta, type GrabOpts } from "./grab"
@@ -41,13 +48,18 @@ export interface ControllerOpts {
   slop?: number
   /** A hand closed beyond this is grabbing, never pinching. */
   pinchGrabLimit?: number
+  /** Which hand grabs (the other points): "either" (default) lets the curl decide. */
+  grabHand?: GrabHand
 }
+
+export type GrabHand = "left" | "right" | "either"
 
 export class GestureController {
   readonly cursor: PinchCursor
   readonly grab: GrabController
   readonly slop: number
   readonly pinchGrabLimit: number
+  grabHand: GrabHand
   #press?: { x: number; y: number; dragging: boolean }
   #pointer?: number
 
@@ -56,9 +68,11 @@ export class GestureController {
     this.grab = new GrabController(opts.grab)
     this.slop = opts.slop ?? 0.015
     this.pinchGrabLimit = opts.pinchGrabLimit ?? 0.7
+    this.grabHand = opts.grabHand ?? "either"
   }
 
   update(frame: HandFrame): Intent {
+    if (this.grabHand !== "either") return this.#roles(frame, this.grabHand)
     const grab = this.grab.update(frame.hands, frame.t)
     // A hand points unless it holds the scene or is closing into a fist
     // (a natural pinch, the other fingers curled, reads ~0.4 — it points;
@@ -69,8 +83,24 @@ export class GestureController {
       free.find((h) => h.id === this.#pointer) ?? free.find((h) => h.side === "right") ?? free[0]
     if (pointer?.id !== this.#pointer) this.cursor.update(undefined, frame.t) // a new hand starts fresh
     this.#pointer = pointer?.id
-    const cursor = this.cursor.update(pointer, frame.t)
-    const out: Intent = { t: frame.t, cursor, grab }
+    return this.#intent(frame.t, this.cursor.update(pointer, frame.t), grab)
+  }
+
+  /** One job per hand: `side` grabs, the other points. */
+  #roles(frame: HandFrame, side: "left" | "right"): Intent {
+    let holding = false
+    for (const h of frame.hands) if (h.side === side && this.grab.isHolding(h.id)) holding = true
+    // The pointing hand reaches the grab only as the second of two fists.
+    const grab = this.grab.update(holding ? frame.hands : frame.hands.filter((h) => h.side === side), frame.t)
+    let pointer: HandFrame["hands"][number] | undefined
+    for (const h of frame.hands) if (h.side !== side && !this.grab.isHolding(h.id)) pointer = h
+    if (pointer?.id !== this.#pointer) this.cursor.update(undefined, frame.t)
+    this.#pointer = pointer?.id
+    return this.#intent(frame.t, this.cursor.update(pointer, frame.t), grab)
+  }
+
+  #intent(t: number, cursor: CursorState, grab: GrabDelta): Intent {
+    const out: Intent = { t, cursor, grab }
     if (cursor.pressed) {
       this.#press = { x: cursor.x, y: cursor.y, dragging: false }
       out.press = { x: cursor.x, y: cursor.y }

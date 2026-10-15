@@ -57,6 +57,8 @@ export interface GameHost {
   boundsOf(holon: Holon): PixelBox | undefined
   /** World-space ink bounds — when given, framing is exact from any view (ThreeHost.worldBoundsOf). */
   worldBoundsOf?(holon: Holon): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | undefined
+  /** Many holons' world ink boxes in one sweep (ThreeHost.worldBoundsOfEach) — what a spark points among. */
+  worldBoundsOfEach?(holons: Iterable<Holon>): Map<Holon, Box>
   /** Install (or clear) the per-frame write after the timeline's apply. */
   setBeforeSync(fn: (() => void) | undefined): void
   /**
@@ -65,6 +67,51 @@ export interface GameHost {
    * on a fire) and the corner ticks are not drawn; the caption stays.
    */
   attend?(channel: "game", holon: Holon | null, amount: number): void
+}
+
+type Vec = { x: number; y: number; z: number }
+type Box = { min: Vec; max: Vec }
+
+/** A spatial pointer — a hand's spark standing in the scene (demo/handplay.ts). */
+export interface Spark {
+  /** Where it stands, world units. */
+  p: Vec
+  /** The eye it is seen from. */
+  eye: Vec
+  /** How near (world units) counts as at it. */
+  radius: number
+}
+
+/** How long a handle's ink box is trusted (ms) — the ink moves as states ease. */
+const BOX_MS = 150
+
+/** Distance from a point to a box (0 inside). */
+const boxDistance = (p: Vec, b: Box): number =>
+  Math.hypot(
+    Math.max(b.min.x - p.x, 0, p.x - b.max.x),
+    Math.max(b.min.y - p.y, 0, p.y - b.max.y),
+    Math.max(b.min.z - p.z, 0, p.z - b.max.z),
+  )
+
+const volume = (b: Box): number => (b.max.x - b.min.x) * (b.max.y - b.min.y) * (b.max.z - b.min.z)
+
+/** Where the ray o + t·d (t ≥ 0) is inside a box, or undefined if it misses. */
+const rayBox = (o: Vec, d: Vec, b: Box): [number, number] | undefined => {
+  let near = 0
+  let far = Infinity
+  for (const k of ["x", "y", "z"] as const) {
+    if (Math.abs(d[k]) < 1e-12) {
+      if (o[k] < b.min[k] || o[k] > b.max[k]) return undefined
+      continue
+    }
+    let t0 = (b.min[k] - o[k]) / d[k]
+    let t1 = (b.max[k] - o[k]) / d[k]
+    if (t0 > t1) [t0, t1] = [t1, t0]
+    near = Math.max(near, t0)
+    far = Math.min(far, t1)
+    if (near > far) return undefined
+  }
+  return [near, far]
 }
 
 export interface GameOpts {
@@ -141,6 +188,8 @@ export class GameLoop {
   /** The holon in focus (its axes alone are live on keys and the HUD), or null: all. */
   #focus: Holon | null = null
   readonly #handleOf = new Map<Holon, Axis[]>()
+  #spark: Spark | null = null
+  #boxes: { at: number; list: { handle: Holon; box: Box }[] } | undefined
   readonly #host: GameHost
   readonly #opts: GameOpts
   readonly #hud: HTMLDivElement
@@ -578,8 +627,84 @@ export class GameLoop {
     }
   }
 
+  /**
+   * Point in SPACE instead of on the screen: while a spark is set, all that
+   * asks "what is here" — hover, click, a press's axis, framing — asks the
+   * spark: the handle whose ink it is in, or nearest within its radius;
+   * else the first the eye's ray through it meets. null: the screen again.
+   */
+  get spark(): Spark | null {
+    return this.#spark
+  }
+  set spark(s: Spark | null) {
+    this.#spark = s
+  }
+
+  /** How hidden the spark is behind ink: 0 in front of every handle … 1 behind one. */
+  sparkHidden(): number {
+    const s = this.#spark
+    if (!s) return 0
+    const d = { x: s.p.x - s.eye.x, y: s.p.y - s.eye.y, z: s.p.z - s.eye.z }
+    let hidden = 0
+    for (const { box } of this.#handleBoxes()) {
+      const hit = rayBox(s.eye, d, box)
+      // The ray reaches the spark at t = 1: how far through the box it has gone by then.
+      if (hit && hit[0] < 1) hidden = Math.max(hidden, Math.min(1, (1 - hit[0]) / Math.max(hit[1] - hit[0], 1e-9)))
+    }
+    return hidden
+  }
+
+  /** Every handle's world ink box, refreshed every BOX_MS. */
+  #handleBoxes(): { handle: Holon; box: Box }[] {
+    const now = performance.now()
+    if (this.#boxes && now - this.#boxes.at < BOX_MS) return this.#boxes.list
+    const list: { handle: Holon; box: Box }[] = []
+    const handles = this.#handleOf.keys()
+    if (this.#host.worldBoundsOfEach) {
+      for (const [handle, box] of this.#host.worldBoundsOfEach(handles)) list.push({ handle, box })
+    } else {
+      for (const handle of handles) {
+        const box = this.#host.worldBoundsOf?.(handle)
+        if (box) list.push({ handle, box })
+      }
+    }
+    this.#boxes = { at: now, list }
+    return list
+  }
+
+  /** The walkable handle the spark is at: inside (the smallest), else nearest within reach, else first on the eye's ray. */
+  #ownerNear(s: Spark): { handle: Holon; axis: Axis } | null {
+    const walkable = (h: Holon) => this.#handleOf.get(h)?.find((x) => this.automaton.enabled(x.id))
+    let best: { handle: Holon; axis: Axis; d: number; v: number } | undefined
+    for (const { handle, box } of this.#handleBoxes()) {
+      const axis = walkable(handle)
+      if (!axis) continue
+      const d = boxDistance(s.p, box)
+      if (d > s.radius) continue
+      const v = volume(box)
+      if (!best || d < best.d || (d === best.d && v < best.v)) best = { handle, axis, d, v }
+    }
+    if (best) return best
+    const dir = { x: s.p.x - s.eye.x, y: s.p.y - s.eye.y, z: s.p.z - s.eye.z }
+    // On the ray: the first box it enters — and of the boxes it is in by
+    // then's end, the smallest (a part over its whole, as the mouse picks).
+    const hits: { handle: Holon; axis: Axis; t0: number; t1: number; v: number }[] = []
+    for (const { handle, box } of this.#handleBoxes()) {
+      const axis = walkable(handle)
+      const hit = axis && rayBox(s.eye, dir, box)
+      if (axis && hit) hits.push({ handle, axis, t0: hit[0], t1: hit[1], v: volume(box) })
+    }
+    if (!hits.length) return null
+    let first = hits[0]!
+    for (const h of hits) if (h.t0 < first.t0) first = h
+    let pick = first
+    for (const h of hits) if (h.t0 <= first.t1 && h.v < pick.v) pick = h
+    return pick
+  }
+
   /** Walk up from the picked holon to the nearest handle with a walkable axis. */
   #ownerAt(clientX: number, clientY: number): { handle: Holon; axis: Axis } | null {
+    if (this.#spark) return this.#ownerNear(this.#spark)
     let node = this.#host.pick(clientX, clientY)
     while (node) {
       const axes = this.#handleOf.get(node)

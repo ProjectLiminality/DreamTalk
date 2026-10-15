@@ -33,7 +33,7 @@
  * timed on the frame clock: a replay gives the same clicks.
  */
 
-import { OneEuro2, type OneEuroOpts } from "./oneeuro"
+import { OneEuro, OneEuro2, type OneEuroOpts } from "./oneeuro"
 import { J, pinchGap, type Hand } from "./hand"
 
 export interface PinchCalibration {
@@ -77,6 +77,12 @@ export interface CursorState {
   /** The cursor, screen units [0,1]². */
   x: number
   y: number
+  /**
+   * Its depth: the hover point's z in the box's width units, + toward the
+   * screen, 0 at the box's centre — where a spatial cursor stands in front
+   * of or behind the focus. Smoothed and locked through a pinch like x, y.
+   */
+  z: number
   /** 0 fingers apart … 1 touching — the hover glyph grows with it. */
   approach: number
   pinched: boolean
@@ -101,14 +107,15 @@ export class PinchCursor {
   readonly lookback: number
   readonly handback: number
   readonly #filter: OneEuro2
+  readonly #depth: OneEuro
   /** Recent (t, hover, thumb, index, scale) — enough for the lookback. */
-  #history: { t: number; hover: { x: number; y: number }; thumb: { x: number; y: number }; index: { x: number; y: number }; scale: number }[] = []
+  #history: { t: number; hover: { x: number; y: number; z: number }; thumb: { x: number; y: number }; index: { x: number; y: number }; scale: number }[] = []
   #pinched = false
-  #lock?: { at: { x: number; y: number }; from: { x: number; y: number } }
+  #lock?: { at: { x: number; y: number; z: number }; from: { x: number; y: number; z: number } }
   /** The pinch in progress, for its calibration sample. */
   #pending?: { sample: PinchSample; gap: number }
-  #handback?: { from: { x: number; y: number }; t: number }
-  #last: CursorState = { tracked: false, x: 0.5, y: 0.5, approach: 0, pinched: false, pressed: false, released: false }
+  #handback?: { from: { x: number; y: number; z: number }; t: number }
+  #last: CursorState = { tracked: false, x: 0.5, y: 0.5, z: 0, approach: 0, pinched: false, pressed: false, released: false }
 
   constructor(opts: PinchOpts = {}) {
     this.calibration = opts.calibration ?? { ...DEFAULT_CALIBRATION }
@@ -121,6 +128,7 @@ export class PinchCursor {
     this.lookback = opts.lookback ?? 0.1
     this.handback = opts.handback ?? 0.15
     this.#filter = new OneEuro2(opts.filter ?? { minCutoff: 1.5, beta: 8 })
+    this.#depth = new OneEuro(opts.filter ?? { minCutoff: 1.5, beta: 8 })
   }
 
   /** The raw (unfiltered) hover point of a hand under the current calibration. */
@@ -140,13 +148,15 @@ export class PinchCursor {
       this.#lock = undefined
       this.#history = []
       this.#filter.reset()
+      this.#depth.reset()
       this.#last = { ...this.#last, tracked: false, approach: 0, pinched: false, pressed: false, released }
       return this.#last
     }
     const T = hand.joints[J.thumbTip]!
     const I = hand.joints[J.indexTip]!
     const gap = pinchGap(hand)
-    const hover = this.#filter.filter(this.hoverOf(hand), t)
+    const { w } = this.calibration
+    const hover = { ...this.#filter.filter(this.hoverOf(hand), t), z: this.#depth.filter(w * T[2] + (1 - w) * I[2], t) }
     this.#history.push({ t, hover, thumb: xy(T), index: xy(I), scale: hand.scale })
     while (this.#history.length > 2 && this.#history[0]!.t < t - Math.max(0.5, 3 * this.lookback)) this.#history.shift()
 
@@ -176,24 +186,28 @@ export class PinchCursor {
 
     let x = hover.x
     let y = hover.y
+    let z = hover.z
     if (this.#pinched && this.#lock) {
       // Locked at the pre-press hover point; a drag moves it by the hand's travel since.
       x = this.#lock.at.x + (hover.x - this.#lock.from.x)
       y = this.#lock.at.y + (hover.y - this.#lock.from.y)
+      z = this.#lock.at.z + (hover.z - this.#lock.from.z)
     } else if (released) {
-      this.#handback = { from: { x: this.#last.x, y: this.#last.y }, t }
+      this.#handback = { from: { x: this.#last.x, y: this.#last.y, z: this.#last.z }, t }
       x = this.#last.x
       y = this.#last.y
+      z = this.#last.z
       this.#lock = undefined
     } else if (this.#handback) {
       const u = Math.min(1, (t - this.#handback.t) / this.handback)
       const e = u * u * (3 - 2 * u)
       x = this.#handback.from.x + (hover.x - this.#handback.from.x) * e
       y = this.#handback.from.y + (hover.y - this.#handback.from.y) * e
+      z = this.#handback.from.z + (hover.z - this.#handback.from.z) * e
       if (u >= 1) this.#handback = undefined
     }
     const approach = Math.min(1, Math.max(0, (this.approachAt - gap) / (this.approachAt - this.on)))
-    this.#last = { tracked: true, x, y, approach, pinched: this.#pinched, pressed, released, sample }
+    this.#last = { tracked: true, x, y, z, approach, pinched: this.#pinched, pressed, released, sample }
     return this.#last
   }
 

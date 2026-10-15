@@ -17,7 +17,8 @@ import { mountCreatorPanel } from "./creatorpanel"
 import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
-import { GameLoop } from "./game"
+import { GameLoop, type Spark } from "./game"
+import { sparkSpace } from "./spark"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
@@ -141,6 +142,7 @@ const main = async () => {
       pick: (x, y) => pickAt(x, y),
       boundsOf: (h) => host.boundsOf(h),
       worldBoundsOf: (h) => host.worldBoundsOf(h),
+      worldBoundsOfEach: (hs) => host.worldBoundsOfEach(hs),
       setBeforeSync: (fn) => (host.beforeSync = fn),
       // A handle's glow (src/glow.ts); the game loop renders every frame.
       attend: (channel, holon, amount) => host.attend(channel, holon, amount),
@@ -404,6 +406,16 @@ const main = async () => {
       view: () => game.view,
       fire: (id, position) => game.fire(id, position),
       axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
+      // The pinch point is a spark in the scene (demo/spark.ts); `?spark=0` keeps it a dot on the screen.
+      ...(query.get("spark") === "0"
+        ? {}
+        : {
+            sparkAt: sparkSpace(host),
+            pointWith: (s: Spark | null) => {
+              game.spark = s
+              return game.sparkHidden()
+            },
+          }),
     },
     signal: ac.signal,
     // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).

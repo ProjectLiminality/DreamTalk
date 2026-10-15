@@ -28,6 +28,9 @@ import { GOLD, cssOf } from "../src/constants"
 import { beginOverlay, makeOverlay } from "../editor/overlay"
 import { MudraRecogniser, learn, type Candidate, type MudraLibrary } from "../src/gesture/mudra"
 import { Jev, httpJev, type JevDecision } from "../src/gesture/jev"
+import type { GrabHand } from "../src/gesture/controller"
+import type { Spark } from "./game"
+import type { SparkPlace } from "./spark"
 
 /** What a host offers the hands — the GameLoop in the player, the walk + view in the editor. */
 export interface HandTarget {
@@ -49,6 +52,14 @@ export interface HandTarget {
   axes?(): { id: string; label: string }[]
   /** The view or a pose changed: a host that only paints on demand repaints. */
   changed?(): void
+  /**
+   * Spatial pointing (demo/spark.ts): where the spark stands for a cursor at
+   * this client point and depth (−1 near … 0 the focus … +1 far). Without
+   * it the hands point on the screen, with a flat gold dot.
+   */
+  sparkAt?(clientX: number, clientY: number, depth: number): SparkPlace | undefined
+  /** Point with this spark (null: the screen point again); returns how hidden it is behind ink, 0 … 1 (GameLoop.spark). */
+  pointWith?(spark: Spark | null): number
 }
 
 export interface HandSource {
@@ -57,6 +68,20 @@ export interface HandSource {
 
 /** How far the hand travels (screen widths) to scrub one position along an axis. */
 const SCRUB_STEP = 0.25
+/** The hand's depth (box widths either side of its centre) that spans the spark's −1 … +1. */
+const DEPTH_RANGE = 0.3
+const GRAB_HAND_KEY = "dreamtalk.hands.grab"
+/** Which hand grabs: `?grab=left|right|either`, else this browser's choice, else the left. */
+const loadGrabHand = (): GrabHand => {
+  const ok = (v: string | null | undefined): v is GrabHand => v === "left" || v === "right" || v === "either"
+  const q = new URLSearchParams(location.search).get("grab")
+  if (ok(q)) return q
+  try {
+    const v = localStorage.getItem(GRAB_HAND_KEY)
+    if (ok(v)) return v
+  } catch {}
+  return "left"
+}
 /**
  * The cursor re-picks only after moving this far (client px), as the mouse
  * does (demo/game.ts HOVER_STEP): a tracked hand always jitters, and a pick
@@ -133,6 +158,8 @@ export interface HandPlay {
   readonly handsActive: boolean
   /** What the hands are doing now, for the legend: pointing, pinching, one fist, two fists. */
   readonly gesture: Gesture | undefined
+  /** Which hand grabs (the other points and pinches) — remembered in this browser. */
+  grabHand: GrabHand
   readonly controller: GestureController
   readonly mudras: Mudras
   /**
@@ -169,7 +196,7 @@ export const mountHands = (opts: {
   session?: string
 }): HandPlay => {
   const { target } = opts
-  const controller = new GestureController({ pinch: { calibration: loadCalibration() } })
+  const controller = new GestureController({ pinch: { calibration: loadCalibration() }, grabHand: loadGrabHand() })
   const overlay = makeOverlay("dt-hand-cursor", 70)
   document.body.append(overlay)
   opts.signal.addEventListener("abort", () => overlay.remove())
@@ -294,6 +321,52 @@ export const mountHands = (opts: {
   let gesture: Gesture | undefined
   const client = (p: { x: number; y: number }) => ({ x: p.x * window.innerWidth, y: p.y * window.innerHeight })
 
+  /**
+   * The spark: a small golden star in the scene, larger nearer the eye.
+   * Behind ink it stays but dims and shimmers through; a faint ring around
+   * it widens with its distance from the focus plane (a lens's defocus),
+   * closing to nothing where things are in focus. Brighter as the fingers
+   * close, a flash of white at the touch.
+   */
+  const drawSpark = (ctx: CanvasRenderingContext2D, x: number, y: number, approach: number, pinched: boolean) => {
+    const gold = (a: number) => cssOf(GOLD, a)
+    const k = Math.max(0.5, Math.min(2.2, place!.scale))
+    const shimmer = hidden > 0 ? 0.8 + 0.2 * Math.sin(performance.now() / 70) : 1
+    const a = (1 - 0.65 * hidden) * shimmer
+    const R = (11 + 9 * approach) * k
+    const halo = ctx.createRadialGradient(x, y, 0, x, y, R)
+    halo.addColorStop(0, gold(0.55 * a))
+    halo.addColorStop(1, gold(0))
+    ctx.fillStyle = halo
+    ctx.beginPath()
+    ctx.arc(x, y, R, 0, 2 * Math.PI)
+    ctx.fill()
+    // Four long rays and four short: a star, not a dot.
+    const L = (6 + 6 * approach) * k * (pinched ? 1.3 : 1)
+    ctx.strokeStyle = gold(0.9 * a)
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    for (let i = 0; i < 8; i++) {
+      const ang = (i * Math.PI) / 4
+      const l = i % 2 ? L * 0.45 : L
+      ctx.moveTo(x, y)
+      ctx.lineTo(x + Math.cos(ang) * l, y + Math.sin(ang) * l)
+    }
+    ctx.stroke()
+    ctx.fillStyle = pinched ? `rgba(255,255,255,${a})` : gold(Math.min(1, (0.7 + 0.3 * approach) * a))
+    ctx.beginPath()
+    ctx.arc(x, y, (1.6 + 1.2 * approach) * k, 0, 2 * Math.PI)
+    ctx.fill()
+    const ring = Math.abs(depth) * 26 * k
+    if (ring > 2) {
+      ctx.strokeStyle = gold(0.22 * a)
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.arc(x, y, ring, 0, 2 * Math.PI)
+      ctx.stroke()
+    }
+  }
+
   const paint = (it: Intent) => {
     const ctx = beginOverlay(overlay)
     if (!ctx) return
@@ -325,8 +398,9 @@ export const mountHands = (opts: {
     }
     ctx.textAlign = "left"
     const c = it.cursor
-    if (!c.tracked || it.grab.holding) return
+    if (!c.tracked || (it.grab.holding && controller.grabHand === "either")) return
     const p = client(c)
+    if (place) return drawSpark(ctx, p.x, p.y, c.approach, c.pinched)
     // The pen above the glass: small and faint far off, larger and brighter
     // as the fingers close, solid when they touch.
     const r = 3 + 7 * c.approach
@@ -344,6 +418,18 @@ export const mountHands = (opts: {
     }
   }
 
+  // --- the spark --------------------------------------------------------------
+  let place: SparkPlace | undefined
+  let hidden = 0
+  let depth = 0
+  /** Stand the spark at this client point and hand depth; what asks "what is here" then asks it. */
+  const aim = (x: number, y: number, z: number) => {
+    if (!target.sparkAt || !target.pointWith) return
+    depth = Math.max(-1.3, Math.min(1.3, z / DEPTH_RANGE))
+    place = target.sparkAt(x, y, depth)
+    hidden = place ? target.pointWith(place.spark) : 0
+  }
+
   // --- one display frame's worth of screen work -------------------------------
   // A hand source may deliver several frames per display frame (a replay
   // catching up, a fast device): the gesture state follows every one, but the
@@ -358,9 +444,18 @@ export const mountHands = (opts: {
   let viewMoved = false
   const onFrame = () => {
     raf = 0
-    if (latest) paint(latest)
     if (viewMoved) target.changed?.()
-    if (hoverWanted && target.live() && (viewMoved || Math.hypot(hoverAt.x - picked.x, hoverAt.y - picked.y) >= HOVER_STEP)) {
+    // The spark: placed, tested for what hides it and hovered every display
+    // frame — all against a handful of ink boxes, so cheap (no screen pick).
+    if (hoverWanted && target.live() && target.sparkAt && target.pointWith && latest) {
+      aim(hoverAt.x, hoverAt.y, latest.cursor.z)
+      if (place) target.hoverAt(hoverAt.x, hoverAt.y)
+    } else if (place) {
+      place = undefined
+      target.pointWith?.(null)
+    }
+    if (latest) paint(latest)
+    if (!place && hoverWanted && target.live() && (viewMoved || Math.hypot(hoverAt.x - picked.x, hoverAt.y - picked.y) >= HOVER_STEP)) {
       target.hoverAt(hoverAt.x, hoverAt.y)
       picked.x = hoverAt.x
       picked.y = hoverAt.y
@@ -458,7 +553,8 @@ export const mountHands = (opts: {
     }
     if (!target.live()) return later(it)
     const c = it.cursor
-    hoverWanted = c.tracked && !it.grab.holding
+    // With one job per hand, the pointing hand points on while the other holds.
+    hoverWanted = c.tracked && (controller.grabHand !== "either" || !it.grab.holding)
     if (hoverWanted) {
       hoverAt.x = c.x * window.innerWidth
       hoverAt.y = c.y * window.innerHeight
@@ -466,6 +562,7 @@ export const mountHands = (opts: {
     {
       if (it.press) {
         const p = client(it.press)
+        if (place) aim(p.x, p.y, c.z)
         const id = target.axisAt(p.x, p.y)
         scrub = id ? { id, ...target.axisIndex(id), moved: false } : undefined
       }
@@ -485,6 +582,7 @@ export const mountHands = (opts: {
       }
       if (it.click) {
         const p = client(it.click)
+        if (place) aim(p.x, p.y, c.z)
         if (!pinchSpoke && !held?.opened) target.click(p.x, p.y)
         scrub = undefined
       }
@@ -565,6 +663,15 @@ export const mountHands = (opts: {
     },
     get gesture() {
       return gesture
+    },
+    get grabHand() {
+      return controller.grabHand
+    },
+    set grabHand(v: GrabHand) {
+      controller.grabHand = v
+      try {
+        localStorage.setItem(GRAB_HAND_KEY, v)
+      } catch {}
     },
   }
 }
