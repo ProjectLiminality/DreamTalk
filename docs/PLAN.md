@@ -735,7 +735,55 @@ OPEN-THREADS holds what is still open.
       `src/geometry/frames.ts` (eye and frame maths). The inventory is
       docs/reports/consolidation.md.
 
-## Scene index (`/demo/?scene=<key>`; add `&play=free` to walk a symbol)
+## Build wave 2026-10-14 → 15: hands and live sessions
+
+- [x] **Hands, the input layer.** `src/hands.ts` defines one `HandFrame`
+      for every source: webcam (MediaPipe on a worker, placed in mm by a
+      pinhole fit), the Leap (LeapC over bun:ffi, relayed on the daemon's
+      `/ws/hands`), replay of a recorded session, and a sim shaped like
+      David's measured hand. Sources live in `core/hands/` and are chosen
+      with `?hands=webcam|leap|replay|sim` (`hands/mount.ts`). The overlay
+      shows a legend, the hands' pulse (events/s, frame age, fps), C to
+      calibrate the pinch, and a "pinch point" panel.
+- [x] **Gesture.** `src/gesture/`:
+      - the pinch cursor (bias-corrected, One-Euro smoothing, hysteresis;
+        a pinch clicks, a pinch-drag scrubs an axis, a held pinch opens the
+        action menu);
+      - grabbing the scene (one fist turns and dollies, two fists
+        scale/turn/pan, release coasts);
+      - hand talk (`mudra.ts`: poses by nearest neighbour, motions by DTW,
+        bound to actions such as `fire:`, `home` and `invoke:<Symbol>`;
+        `jev.ts` handles the uncertain ones);
+      - the spark (with the Leap the pinch point stands in space, its depth
+        zero where the pointing hand rests).
+- [x] **Live sessions → DreamSong.** ⇧R records a walk in the editor or
+      the player: the automaton's journal, the camera, the mic with a
+      live transcript, and hand frames, on one clock in
+      `refs/sessions/<id>/`. `appendSession` writes it into the song as a
+      passage. Each spoken line is `say()`d with its own audio (whisper when
+      there's no live transcript), and the op is undoable. The code is
+      `editor/recorder.ts`, `editor/sessions.ts`, `hands/recorder.ts` and
+      `scripts/session.ts`.
+- [x] **Holon actions.** `src/actions.ts`: `actions()` is the sibling of
+      `stateSpace()`, covering what a symbol can DO. Built-ins: open its
+      source, dive in or up the holarchy (`?path=`). They appear in the
+      inspector and on a long press or a held pinch. Summoning:
+      `invoke:<Symbol>` brings a shelf symbol in at the hand.
+- [x] **The becoming view** (⇧B, `editor/becoming.ts`): the song's git
+      history scrubbed in the editor. Each commit is built from a
+      `git archive` and laid over the viewport at the editor's t.
+- [x] **Glow and clip.** `src/render/echo.ts` is the one soft-echo
+      primitive under both superposition and the golden glow
+      (`render/glow.ts`). `src/clip.ts`: a subtree is seen only through a
+      disc (the Lens's content).
+- [x] **Polylines** (`src/parts/polylines.ts`): many lines as ONE stroke,
+      with one ribbon, echo cloud, halo and clip.
+- [x] **Perf J and Grain perf.** Perf J is per-holon dirty tracking, awake
+      lists and reads past the proxy, all byte-identical: Web3 52.6 →
+      28.6 ms. Grain: 286 perspective grains went from 740 to 54 ms a
+      frame (JS 3.6 ms). See docs/reports/perf/ROADMAP.md.
+
+## Scene index (`/demo/?scene=<key>`; add `&play=free` to walk a symbol, `&hands=…` to use your hands)
 
 | Key | What you see |
 |---|---|
@@ -756,4 +804,5 @@ OPEN-THREADS holds what is still open.
 | `sop`, `horizons` | S&OP as a figure-eight that untwists into one loop; planning horizons with their people |
 | `gallery` | The walkable symbols side by side: ← → visit each, its axes live (`&play=free`) |
 | `vitruvian`, `regenaissance`, `globe` | Da Vinci's man by epicycles; the noosphere over the Earth; the Earth in Web3's three looks |
+| `hands-test` | A light room for tuning hands: three walkable symbols big in view — add `&play=free&hands=webcam` (or `leap`, `replay`, `sim`); C calibrates the pinch, ⇧R records a session |
 | `web3` | The whole Web3 video, now on the 3D Earth (`web3s01`…`web3s15` for single shots) |

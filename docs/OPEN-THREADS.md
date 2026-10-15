@@ -5,6 +5,25 @@ to act on, but were left unfinished as attention moved on. Kept here so they
 never have to be explained from scratch again. Newest first; strike through
 when done.
 
+## Hands and live sessions (2026-10-14/15)
+- **Built:** hands as an input layer for every source (`?hands=webcam|leap|
+  replay|sim`, `core/hands/`, `src/hands.ts`); gesture (`src/gesture/`:
+  pinch cursor, grab the scene, hand talk / mudras with Jev for the unsure,
+  the spark in space); ⇧R live sessions → `appendSession` writes a walk,
+  its camera and its spoken lines into the song; holon actions
+  (`src/actions.ts`, summoning `invoke:<Symbol>`); the becoming view (⇧B).
+  Tour: `?scene=hands-test&play=free&hands=leap` (PLAN.md scene index).
+- Open: David's first real use of hand talk and of a session written into a
+  song (the tuning so far is on his measured hand over the Leap). Grain's remaining ~54 ms is per-object
+  submission — how: Polylines ribbons joining the instanced RibbonBatch,
+  and batching same-material solid Surfaces (docs/reports/perf/ROADMAP.md,
+  "Grain perf"). Hand geometry is said twice — `J`, `dist`, the palm centre
+  and `reach` live in both `src/hands.ts` (+ `hands/screen.ts`) and
+  `src/gesture/hand.ts`, the grab thresholds tuned on one of them — how:
+  keep them once in `src/hands.ts` and let the gesture layer import the
+  data module (it already consumes its frames). "Save as state" from the
+  editor (`editor/savestate.ts`) is in progress.
+
 ## The visual automaton (2026-10-13)
 - **Overview for David: `docs/reports/automaton.md`** (the editor half:
   `docs/reports/editor-automaton.md`). Every symbol whose params express
@@ -21,8 +40,9 @@ when done.
 - Open: four declared keys collide with the player's reserved ones
   (Horizons `h`, SOPLoop `f`/`r`, FlowMap `m`) and are silently replaced —
   new keys or a warning, and the reserved list belongs in automaton.ts;
-  record a walk as a song (the journal exists; ⌘K captures one move);
-  camera flight as part of a path; David's eye on the hover ticks/caption
+  ~~record a walk as a song~~ and ~~camera flight as part of a path~~
+  (built 2026-10-15: ⇧R sessions carry the walk and the camera into the
+  song — see "Hands and live sessions"); David's eye on the hover ticks/caption
   (glow now owns the look).
 
 ## The Earth (2026-10-13)
@@ -164,7 +184,8 @@ when done.
   any element.
 - **Dream Explorer** — a third mode that disassembles a scene into its
   DreamNodes; window ≡ folder ≡ DreamNode (epistemology = ontology). Reference:
-  HyperTalk.
+  HyperTalk. First step built 2026-10-15: holon actions dive in / up the
+  holarchy (`?path=`) and open a symbol's source (src/actions.ts).
 - **DreamSong as cut scene** — the real UI driven by a scripted timeline.
 
 ## Audio
