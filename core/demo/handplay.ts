@@ -26,6 +26,8 @@ import type { HandFrame } from "../src/gesture/hand"
 import { DOLLY_PER_NOTCH, type ViewLayer } from "../src/view"
 import { GOLD, cssOf } from "../src/constants"
 import { beginOverlay, makeOverlay } from "../editor/overlay"
+import { MudraRecogniser, learn, type Candidate, type MudraLibrary } from "../src/gesture/mudra"
+import { Jev, httpJev, type JevDecision, type TranscriptEvent } from "../src/gesture/jev"
 
 /** What a host offers the hands — the GameLoop in the player, the walk + view in the editor. */
 export interface HandTarget {
@@ -39,6 +41,10 @@ export interface HandTarget {
   scrubAxis(id: string, u: number): void
   settleAxis(id: string): void
   view(): ViewLayer | undefined
+  /** Fire an axis (a mudra's or Jev's action), to a position or the next. */
+  fire?(id: string, position?: string): void
+  /** The walkable axes, for Jev's action list. */
+  axes?(): { id: string; label: string }[]
   /** The view or a pose changed: a host that only paints on demand repaints. */
   changed?(): void
 }
@@ -50,6 +56,25 @@ export interface HandSource {
 /** How far the hand travels (screen widths) to scrub one position along an axis. */
 const SCRUB_STEP = 0.25
 const CALIBRATION_KEY = "dreamtalk.pinch-calibration"
+const MUDRA_KEY = "dreamtalk.mudras"
+
+/** The stored hand-talk: learned mudras and the action each invokes. */
+interface MudraStore {
+  library: MudraLibrary
+  /** mudra name → action: `fire:<axis>[=<position>]`, `home`, or `invoke:<name>` (a `dreamtalk:invoke` event). */
+  bindings: Record<string, string>
+}
+
+const loadMudras = (): MudraStore => {
+  try {
+    const raw = localStorage.getItem(MUDRA_KEY)
+    if (raw) {
+      const m = JSON.parse(raw) as MudraStore
+      if (Array.isArray(m.library?.mudras)) return { library: m.library, bindings: m.bindings ?? {} }
+    }
+  } catch {}
+  return { library: { mudras: [] }, bindings: {} }
+}
 /** Where calibration asks for pinches: spread over the screen. */
 const CALIBRATION_TARGETS = [
   { x: 0.5, y: 0.5 },
@@ -71,24 +96,79 @@ const loadCalibration = (): PinchCalibration => {
   return { ...DEFAULT_CALIBRATION }
 }
 
+/** Hand talk in the browser (recording, binding, the stream's last candidates). */
+export interface Mudras {
+  /** Record one take of a mudra from the live stream for `seconds`, then learn from every take so far. */
+  record(name: string, kind: "pose" | "motion", seconds?: number): Promise<number>
+  /** Bind a mudra to an action (see MudraStore.bindings). */
+  bind(name: string, action: string): void
+  forget(name: string): void
+  readonly store: MudraStore
+  /** This frame's candidates. */
+  readonly candidates: readonly Candidate[]
+  /** The last action invoked (by a sure mudra, or by Jev), for a HUD or a test. */
+  readonly last?: { action: string; by: string; t: number; decision?: JevDecision }
+}
+
 export interface HandPlay {
   /** Feed one frame (any source). Returns the intents it produced. */
   push(frame: HandFrame): Intent
   /** Ask for pinches at gold rings and fit this user's thumb bias. */
   calibrate(): Promise<PinchCalibration>
   readonly controller: GestureController
+  readonly mudras: Mudras
+  /** What is being said (the recorder's transcript) — heard by Jev. */
+  hear(e: TranscriptEvent): void
+  /** Run an action by name. */
+  act(action: string, by?: string): boolean
 }
 
 export const mountHands = (opts: {
   target: HandTarget
   signal: AbortSignal
   source?: HandSource
+  /** Ask the intent layer (POST /api/jev) about uncertain mudras. Off by default. */
+  jev?: boolean
 }): HandPlay => {
   const { target } = opts
   const controller = new GestureController({ pinch: { calibration: loadCalibration() } })
   const overlay = makeOverlay("dt-hand-cursor", 70)
   document.body.append(overlay)
   opts.signal.addEventListener("abort", () => overlay.remove())
+
+  // --- hand talk -------------------------------------------------------------
+  const store = loadMudras()
+  const takes = new Map<string, HandFrame[][]>()
+  let recording: { name: string; kind: "pose" | "motion"; seconds: number; until: number; frames: HandFrame[]; done: (n: number) => void } | undefined
+  let recogniser = new MudraRecogniser(store.library)
+  const jev = new Jev({ backend: opts.jev ? httpJev() : undefined })
+  let candidates: readonly Candidate[] = []
+  let last: Mudras["last"]
+  const save = () => {
+    try {
+      localStorage.setItem(MUDRA_KEY, JSON.stringify(store))
+    } catch {}
+  }
+  const actionsFor = (): { name: string; description: string }[] => [
+    ...Object.entries(store.bindings).map(([m, a]) => ({ name: a, description: `what the mudra "${m}" invokes` })),
+    ...(target.axes?.() ?? []).map((a) => ({ name: `fire:${a.id}`, description: `change "${a.label}" to its next state` })),
+  ]
+  const act = (action: string, by = "hand"): boolean => {
+    const [verb, rest = ""] = action.split(/:(.*)/s)
+    if (verb === "fire" && target.fire) {
+      const [id, position] = rest.split("=")
+      try {
+        target.fire(id!, position || undefined)
+      } catch {
+        return false
+      }
+    } else if (verb === "home") target.view()?.reset(performance.now())
+    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by } }))
+    else return false
+    last = { action, by, t: performance.now() / 1000 }
+    target.changed?.()
+    return true
+  }
 
   let scrub: { id: string; i: number; n: number; moved: boolean } | undefined
   let calibration: { k: number; samples: PinchSample[]; done: (c: PinchCalibration) => void } | undefined
@@ -132,6 +212,36 @@ export const mountHands = (opts: {
 
   const push = (frame: HandFrame): Intent => {
     const it = controller.update(frame)
+    // Hand talk runs whether or not the scene is walkable: recording and
+    // recognising do not need free play.
+    if (recording) {
+      // A take is timed on the frames' own clock, from the first it sees.
+      if (recording.frames.length === 0) recording.until = frame.t + recording.seconds
+      recording.frames.push(frame)
+      if (frame.t >= recording.until) {
+        const r = recording
+        recording = undefined
+        const list = [...(takes.get(r.name) ?? []), r.frames]
+        takes.set(r.name, list)
+        const others = store.library.mudras.filter((m) => m.name !== r.name)
+        store.library = { mudras: [...others, learn(r.name, r.kind, list)] }
+        recogniser = new MudraRecogniser(store.library)
+        save()
+        r.done(list.length)
+      }
+    } else if (store.library.mudras.length > 0) {
+      const rec = recogniser.update(frame)
+      candidates = rec.candidates
+      if (rec.invoked && store.bindings[rec.invoked.name]) act(store.bindings[rec.invoked.name]!, `mudra:${rec.invoked.name}`)
+      jev.see(rec.candidates)
+      jev.actions = actionsFor()
+      void jev.maybeAsk(frame.t).then((d) => {
+        if (d?.action) {
+          act(d.action, "jev")
+          if (last) last = { ...last, decision: d }
+        }
+      })
+    }
     if (!target.live()) {
       paint(it)
       return it
@@ -194,9 +304,37 @@ export const mountHands = (opts: {
   const unsubscribe = opts.source?.subscribe(push)
   if (unsubscribe) opts.signal.addEventListener("abort", unsubscribe)
 
+  const mudras: Mudras = {
+    record: (name, kind, seconds = kind === "pose" ? 1 : 1.5) =>
+      new Promise((resolve) => {
+        recording = { name, kind, seconds, until: Number.POSITIVE_INFINITY, frames: [], done: resolve }
+      }),
+    bind: (name, action) => {
+      store.bindings[name] = action
+      save()
+    },
+    forget: (name) => {
+      store.library = { mudras: store.library.mudras.filter((m) => m.name !== name) }
+      delete store.bindings[name]
+      takes.delete(name)
+      recogniser = new MudraRecogniser(store.library)
+      save()
+    },
+    store,
+    get candidates() {
+      return candidates
+    },
+    get last() {
+      return last
+    },
+  }
+
   return {
     push,
     controller,
+    mudras,
+    hear: (e) => jev.hear(e),
+    act,
     calibrate: () =>
       new Promise<PinchCalibration>((resolve) => {
         calibration = { k: 0, samples: [], done: resolve }

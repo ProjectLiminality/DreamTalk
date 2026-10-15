@@ -41,6 +41,7 @@ import { ThreeHost } from "../src/render/three-host"
 import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
+import { mountHands } from "../demo/handplay"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, sceneFileOf, type SourceAnchor } from "./anchors"
@@ -1698,6 +1699,31 @@ const boot = async (resume?: Transport) => {
     onDoubleTap: (x, y) => frameHolon(pickAt(x, y) ?? null),
     signal: ac.signal,
   })
+
+  // Hands (demo/handplay.ts) in the paused editor — the same pinch cursor,
+  // clicks and scrubs through the walk's game loop (so a hand-fired pose is
+  // a pose: inspectable, Esc-discardable, ⌘K-capturable), and the grab
+  // through this editor's own view layer. Frames: window.__dtHands.push.
+  if (walk) {
+    const game = walk.game
+    ;(window as unknown as Record<string, unknown>).__dtHands = mountHands({
+      target: {
+        live: () => !playing && !creator?.on && game.on,
+        hoverAt: (x, y) => game.hoverAt(x, y),
+        click: (x, y) => game.click(x, y),
+        axisAt: (x, y) => game.axisAt(x, y),
+        axisIndex: (id) => game.axisIndex(id),
+        scrubAxis: (id, u) => game.scrubAxis(id, u),
+        settleAxis: (id) => game.settleAxis(id),
+        view: () => view,
+        fire: (id, position) => game.fire(id, position),
+        axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
+        changed: () => void host.renderFrame(current).then(() => syncPanel()),
+      },
+      signal: ac.signal,
+      jev: new URLSearchParams(location.search).get("jev") === "1",
+    })
+  }
 
   // --- Transport -----------------------------------------------------------
   let playing = false

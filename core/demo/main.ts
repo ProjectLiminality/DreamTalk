@@ -389,8 +389,12 @@ const main = async () => {
       scrubAxis: (id, u) => game.scrubAxis(id, u),
       settleAxis: (id) => game.settleAxis(id),
       view: () => game.view,
+      fire: (id, position) => game.fire(id, position),
+      axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
     },
     signal: ac.signal,
+    // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).
+    jev: query.get("jev") === "1",
   })
   ;(window as unknown as Record<string, unknown>).__dtHands = hands
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
