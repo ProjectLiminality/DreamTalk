@@ -26,6 +26,15 @@ export interface Hand {
   scale: number
   pinch?: number
   grab?: number
+  /**
+   * The hand's shape measured where it is metric — in the source's own
+   * millimetres (hands/screen.ts) — since the screen projection stretches x
+   * and y differently (the box's aspect): the thumb–index gap and the
+   * least-curled fingertip's reach from the palm, in hand sizes. Absent (a
+   * synthetic hand), both are read off the joints here.
+   */
+  gap?: number
+  reach?: number
 }
 
 export interface HandFrame {
@@ -79,12 +88,15 @@ export const palm = (h: Hand): Joint => {
  * the thumb) ~0.72 → 0.4 here, an open hand ~0.9. Scale-free.
  */
 /** Thumb tip to index tip, in hand sizes — ~0.17 pinched, ~0.45 in a fist, ~0.6+ open (David's hand, the Leap). */
-export const pinchGap = (h: Hand): number => dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / (h.scale || 1)
+export const pinchGap = (h: Hand): number => h.gap ?? dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / (h.scale || 1)
 
-export const grabStrength = (h: Hand): number => {
+/** The least-curled fingertip's distance from the palm centre, in hand sizes. */
+export const reach = (h: Hand): number => {
+  if (h.reach !== undefined) return h.reach
   const c = palm(h)
   let r = 0
   for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(h.joints[i]!, c))
-  r /= h.scale || 1
-  return Math.min(1, Math.max(0, (0.9 - r) / (0.9 - 0.45)))
+  return r / (h.scale || 1)
 }
+
+export const grabStrength = (h: Hand): number => Math.min(1, Math.max(0, (0.9 - reach(h)) / (0.9 - 0.45)))

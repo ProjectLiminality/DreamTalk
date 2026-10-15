@@ -9,7 +9,7 @@
  * nothing from the gesture layer, and the gesture layer nothing from here.
  */
 
-import { dist, J, toNdc, type HandFrame } from "../src/hands"
+import { dist, J, toNdc, type HandFrame, type Vec3 } from "../src/hands"
 
 export interface ScreenHand {
   id: number
@@ -19,6 +19,19 @@ export interface ScreenHand {
   scale: number
   pinch?: number
   grab?: number
+  /** Thumb–index gap and the least-curled fingertip's reach from the palm, in hand sizes, measured in millimetres (x and y stretch differently on screen). */
+  gap: number
+  reach: number
+}
+
+/** The palm centre (wrist and the four finger roots) and the farthest of the four fingertips from it, in hand sizes. */
+const reachOf = (j: readonly Vec3[], size: number): number => {
+  const roots = [J.wrist, J.indexMcp, J.middleMcp, J.ringMcp, J.pinkyMcp]
+  const c: Vec3 = [0, 0, 0]
+  for (const i of roots) for (let k = 0; k < 3; k++) c[k]! += j[i]![k]! / roots.length
+  let r = 0
+  for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(j[i]!, c))
+  return r / size
 }
 
 export interface ScreenFrame {
@@ -36,6 +49,7 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
     source: f.source,
     aspect: f.box.size[0] / f.box.size[1],
     hands: f.hands.map((h) => {
+      const size = dist(h.joints[J.wrist]!, h.joints[J.middleMcp]!) || 1
       const joints = h.joints.map((p): [number, number, number] => {
         const n = toNdc(p, f.box)
         return [(n[0] + 1) / 2, (1 - n[1]) / 2, -n[2] / 2 / zUnit]
@@ -48,6 +62,8 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
         scale: dist(joints[J.wrist]!, joints[J.middleMcp]!),
         ...(h.pinch === undefined ? {} : { pinch: h.pinch }),
         ...(h.grab === undefined ? {} : { grab: h.grab }),
+        gap: dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / size,
+        reach: reachOf(h.joints, size),
       }
     }),
   }

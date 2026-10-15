@@ -34,7 +34,7 @@
  */
 
 import { OneEuro2, type OneEuroOpts } from "./oneeuro"
-import { J, dist, type Hand } from "./hand"
+import { J, pinchGap, type Hand } from "./hand"
 
 export interface PinchCalibration {
   /** Thumb weight in the hover point (1 − w on the index tip). */
@@ -112,9 +112,12 @@ export class PinchCursor {
 
   constructor(opts: PinchOpts = {}) {
     this.calibration = opts.calibration ?? { ...DEFAULT_CALIBRATION }
+    // David's hand over the Leap (2026-10-15, ~6k frames): pinched 0.15–0.22,
+    // his relaxed hand 0.32–0.45, open 0.6–0.8; the gap jitters < 0.006 a
+    // frame. A release must come before the relaxed hand: off 0.30.
     this.on = opts.on ?? 0.25
-    this.off = opts.off ?? 0.4
-    this.approachAt = opts.approach ?? 1.1
+    this.off = opts.off ?? 0.3
+    this.approachAt = opts.approach ?? 0.65
     this.lookback = opts.lookback ?? 0.1
     this.handback = opts.handback ?? 0.15
     this.#filter = new OneEuro2(opts.filter ?? { minCutoff: 1.5, beta: 8 })
@@ -142,7 +145,7 @@ export class PinchCursor {
     }
     const T = hand.joints[J.thumbTip]!
     const I = hand.joints[J.indexTip]!
-    const gap = dist(T, I) / (hand.scale || 1)
+    const gap = pinchGap(hand)
     const hover = this.#filter.filter(this.hoverOf(hand), t)
     this.#history.push({ t, hover, thumb: xy(T), index: xy(I), scale: hand.scale })
     while (this.#history.length > 2 && this.#history[0]!.t < t - Math.max(0.5, 3 * this.lookback)) this.#history.shift()

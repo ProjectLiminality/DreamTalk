@@ -118,6 +118,8 @@ export interface Mudras {
   readonly last?: { action: string; by: string; t: number; decision?: JevDecision }
 }
 
+export type Gesture = "point" | "pinch" | "fist" | "fists"
+
 export interface HandPlay {
   /** Feed one frame (any source). Returns the intents it produced. */
   push(frame: HandFrame): Intent
@@ -129,6 +131,8 @@ export interface HandPlay {
   readonly calibrationStored: boolean
   /** Has a hand been seen in the last few seconds? */
   readonly handsActive: boolean
+  /** What the hands are doing now, for the legend: pointing, pinching, one fist, two fists. */
+  readonly gesture: Gesture | undefined
   readonly controller: GestureController
   readonly mudras: Mudras
   /**
@@ -287,6 +291,7 @@ export const mountHands = (opts: {
   })()
   /** When a hand was last tracked (ms) — the UI shows only while hands are in play. */
   let lastSeen = -Infinity
+  let gesture: Gesture | undefined
   const client = (p: { x: number; y: number }) => ({ x: p.x * window.innerWidth, y: p.y * window.innerHeight })
 
   const paint = (it: Intent) => {
@@ -382,6 +387,9 @@ export const mountHands = (opts: {
       lastFrameT = frame.t
     }
     if (it.cursor.tracked || frame.hands.length > 0) lastSeen = performance.now()
+    let fists = 0
+    for (const h of frame.hands) if (controller.grab.isHolding(h.id)) fists++
+    gesture = fists > 1 ? "fists" : fists ? "fist" : it.cursor.pinched ? "pinch" : it.cursor.tracked ? "point" : undefined
     // The session recorder's voice, when one records (editor/recorder.ts onTranscript).
     if (!recorderLinked) {
       const rec = (window as unknown as { __dtRecorder?: { onTranscript?(fn: (l: { text: string; final: boolean }) => void): () => void } }).__dtRecorder
@@ -554,6 +562,9 @@ export const mountHands = (opts: {
     },
     get handsActive() {
       return performance.now() - lastSeen < 3000
+    },
+    get gesture() {
+      return gesture
     },
   }
 }

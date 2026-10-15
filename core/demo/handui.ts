@@ -6,6 +6,8 @@
  *       the ring fills as the fingers close, "calibrated ✓" at the end;
  *       Esc cancels, C again redoes. Until a calibration is stored, a quiet
  *       line says so.
+ *   A legend, bottom left: what each gesture does, the one in use lit gold.
+ *
  *   I   hand talk ("invoke"): name a mudra, record three takes (a countdown,
  *       then hold it still), record the hand at rest once (`_rest`), and bind
  *       each mudra to an action — a state of the scene, home, a symbol to
@@ -16,7 +18,7 @@
  */
 
 import { SHELF } from "../sketch/catalogue"
-import type { HandPlay } from "./handplay"
+import type { Gesture, HandPlay } from "./handplay"
 
 const STYLE = `
 .dt-hui { position: fixed; z-index: 75; font: 12px -apple-system, system-ui, sans-serif; color: #888; user-select: none; }
@@ -31,7 +33,19 @@ const STYLE = `
 .dt-hui-status { color: rgb(255,199,84); min-height: 16px; margin: 6px 0; }
 .dt-hui-list div { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 .dt-hui-list b { font-weight: 500; color: #ddd; min-width: 64px; }
+.dt-hui-legend { left: 12px; bottom: 34px; line-height: 18px; color: #777; }
+.dt-hui-legend div { transition: color 0.12s; }
+.dt-hui-legend b { display: inline-block; min-width: 70px; font-weight: 500; color: #999; }
+.dt-hui-legend .on, .dt-hui-legend .on b { color: rgb(255,199,84); }
 `
+
+/** What each gesture does — the legend's rows, by the gesture that lights them. */
+const LEGEND: readonly [Gesture, string, string][] = [
+  ["point", "point", "the gold dot follows; it brightens as you close"],
+  ["pinch", "pinch", "click · drag to slide a state · hold for actions"],
+  ["fist", "fist", "turn the scene · push / pull to come near / go far"],
+  ["fists", "two fists", "move · spread / close to zoom · twist to turn"],
+]
 
 export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   if (!document.getElementById("dt-hui-style")) {
@@ -48,8 +62,13 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   const panel = document.createElement("div")
   panel.className = "dt-hui dt-hui-panel"
   panel.style.display = "none"
-  document.body.append(prompt, buttons, panel)
+  const legend = document.createElement("div")
+  legend.className = "dt-hui dt-hui-legend"
+  legend.innerHTML = LEGEND.map(([g, name, what]) => `<div data-g="${g}"><b>${name}</b>${what}</div>`).join("")
+  const rows = new Map(Array.from(legend.querySelectorAll<HTMLElement>("[data-g]"), (el) => [el.dataset.g as Gesture, el]))
+  document.body.append(prompt, buttons, panel, legend)
   signal.addEventListener("abort", () => {
+    legend.remove()
     prompt.remove()
     buttons.remove()
     panel.remove()
@@ -152,11 +171,25 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   )
 
   // --- quiet presence ------------------------------------------------------------
+  // Polled, and only what changed is touched: no work on the hand frames' path.
+  let shown: string | undefined
+  let lit: Gesture | undefined
   const tick = setInterval(() => {
     const active = hands.handsActive || hands.calibrating
-    buttons.style.display = active ? "" : "none"
-    prompt.textContent =
-      active && !hands.calibrating && !hands.calibrationStored ? "press C to calibrate your pinch" : ""
-  }, 300)
+    const now = `${active} ${hands.calibrating}`
+    if (now !== shown) {
+      shown = now
+      buttons.style.display = active ? "" : "none"
+      legend.style.display = active && !hands.calibrating ? "" : "none"
+    }
+    const g = active ? hands.gesture : undefined
+    if (g !== lit) {
+      rows.get(lit!)?.classList.remove("on")
+      rows.get(g!)?.classList.add("on")
+      lit = g
+    }
+    const text = active && !hands.calibrating && !hands.calibrationStored ? "press C to calibrate your pinch" : ""
+    if (prompt.textContent !== text) prompt.textContent = text
+  }, 100)
   signal.addEventListener("abort", () => clearInterval(tick))
 }
