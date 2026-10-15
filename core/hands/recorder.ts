@@ -30,6 +30,8 @@ export class HandsRecorder {
   #timer: ReturnType<typeof setInterval>
   #off: () => void
   #put: (url: string, body: string) => Promise<unknown>
+  /** Appends go one at a time: two in flight could land out of order. */
+  #sending: Promise<unknown> = Promise.resolve()
   /** Frames written into the current (or last) session. */
   count = 0
 
@@ -71,7 +73,9 @@ export class HandsRecorder {
     if (!id || this.#lines.length === 0) return
     const body = this.#lines.join("\n") + "\n"
     this.#lines = []
-    await this.#put(`/api/session/${encodeURIComponent(id)}/hands.jsonl?append=1`, body)
+    const url = `/api/session/${encodeURIComponent(id)}/hands.jsonl?append=1`
+    this.#sending = this.#sending.then(() => this.#put(url, body)).catch(() => {})
+    await this.#sending
   }
 
   dispose() {

@@ -39,12 +39,13 @@ declare global {
   }
 }
 
-/** The live session, as the page exposes it (`window.__dt.session`), when it has id and clock. */
-const pageSession = (): SessionLink | undefined => {
-  const s = (window as unknown as { __dt?: { session?: { recording?: () => boolean; id?: () => string | undefined; clock?: () => number } } }).__dt?.session
-  if (!s?.recording || !s.id || !s.clock) return undefined
-  return { recording: s.recording(), id: s.id(), clock: () => s.clock!() }
-}
+/**
+ * The live session: the editor's recorder singleton (`window.__dtRecorder`,
+ * editor/recorder.ts — `recording`, `id`, `clock()` on the one session clock),
+ * read fresh on every frame so a recorder made after the hands still counts.
+ */
+const pageSession = (): SessionLink | undefined =>
+  (window as unknown as { __dtRecorder?: SessionLink }).__dtRecorder
 
 export const mountHandSource = (
   opts: { parent?: HTMLElement; query?: URLSearchParams; session?: () => SessionLink | undefined } = {},

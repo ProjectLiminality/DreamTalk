@@ -182,6 +182,27 @@ describe("recording and replay", () => {
     expect(rec.recording).toBe(false)
   })
 
+  test("appends land in the order they were taken, however slow the network", async () => {
+    const source = new HandEmitter()
+    const session: SessionLink = { recording: true, id: "2026-10-15T12-00-00", clock: () => clock }
+    let clock = 0
+    const landed: string[] = []
+    let slow = true
+    const rec = new HandsRecorder(source, () => session, async (_url, body) => {
+      const first = slow
+      slow = false
+      await Bun.sleep(first ? 30 : 0) // the first append is slow; a naive second would overtake it
+      landed.push(body)
+    })
+    source.emit(simFrameAt(SIM_SCRIPTS.pinch!, 0))
+    const a = rec.flush()
+    clock = 1
+    source.emit(simFrameAt(SIM_SCRIPTS.pinch!, 0.1))
+    await Promise.all([a, rec.flush()])
+    rec.dispose()
+    expect(landed.flatMap((b) => decodeFrames(b).map((f) => f.t))).toEqual([0, 1])
+  })
+
   test("a replay shows exactly the recorded frame at any t", () => {
     const frames = decodeFrames(readFileSync(new URL("./fixtures/hands/drag.jsonl", import.meta.url), "utf8"))
     expect(frames.length).toBeGreaterThan(100)
