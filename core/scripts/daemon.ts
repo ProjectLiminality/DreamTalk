@@ -41,6 +41,11 @@
  *     a board file changing tells editors showing it to remount
  *   - the reMarkable bridge itself, spawned as a child (DT_REMARKABLE=off
  *     to skip), its log lines prefixed [tablet]
+ *   - WS  /ws/hands → hand-frame relay (src/hands.ts HandMessage): the Leap
+ *     bridge → pages with ?hands=leap; the bridge's last `status` is replayed
+ *     to each new client
+ *   - the Leap bridge (scripts/leap-bridge.ts), spawned as a child
+ *     (DT_LEAP=off to skip), its log lines prefixed [leap]
  */
 
 import { existsSync, watch } from "node:fs"
@@ -769,6 +774,7 @@ const instructResponse = async (req: Request): Promise<Response> => {
 interface SocketData {
   pen?: boolean
   display?: boolean
+  hands?: boolean
 }
 
 /**
@@ -777,6 +783,8 @@ interface SocketData {
  * once whether the tablet is connected, asleep, or waiting on its key.
  */
 let tabletStatus: { from: ServerWebSocket<SocketData>; raw: string } | undefined
+/** The Leap bridge's latest `status`, replayed the same way on /ws/hands. */
+let leapStatus: { from: ServerWebSocket<SocketData>; raw: string } | undefined
 
 /** The tablet screen's display list: relayed, and kept for late joiners. */
 const display = displayHub()
@@ -797,6 +805,11 @@ const server = Bun.serve<SocketData>({
     }
     if (url.pathname === "/ws/pen") {
       return srv.upgrade(req, { data: { pen: true } })
+        ? undefined
+        : new Response("upgrade failed", { status: 400 })
+    }
+    if (url.pathname === "/ws/hands") {
+      return srv.upgrade(req, { data: { hands: true } })
         ? undefined
         : new Response("upgrade failed", { status: 400 })
     }
@@ -837,11 +850,22 @@ const server = Bun.serve<SocketData>({
   websocket: {
     open(ws) {
       if (ws.data.display) return display.open(ws)
+      if (ws.data.hands) {
+        ws.subscribe("hands")
+        if (leapStatus) ws.send(leapStatus.raw)
+        return
+      }
       ws.subscribe(ws.data.pen ? "pen" : "editor")
       if (ws.data.pen && tabletStatus) ws.send(tabletStatus.raw)
     },
     message(ws, raw) {
       if (ws.data.display) return display.message(ws, raw)
+      // The hands relay, like the pen's: every other client hears it.
+      if (ws.data.hands) {
+        ws.publish("hands", raw)
+        if (typeof raw === "string" && raw.startsWith('{"kind":"status"')) leapStatus = { from: ws, raw }
+        return
+      }
       // The pen relay: publish() reaches every subscriber but the sender.
       if (ws.data.pen) {
         ws.publish("pen", raw)
@@ -860,6 +884,11 @@ const server = Bun.serve<SocketData>({
     },
     close(ws) {
       if (ws.data.display) return display.close(ws)
+      if (ws.data.hands) {
+        ws.unsubscribe("hands")
+        if (leapStatus?.from === ws) leapStatus = undefined
+        return
+      }
       ws.unsubscribe(ws.data.pen ? "pen" : "editor")
       if (tabletStatus?.from === ws) tabletStatus = undefined
     },
@@ -880,14 +909,15 @@ const rebuildPlayer = async () => {
   if (ok) log(`player rebuilt in ${(performance.now() - started).toFixed(0)}ms${scenes.length ? ` · local scenes: ${scenes.join(", ")}` : ""}`)
 }
 
-// --- The reMarkable bridge, as a child (DT_REMARKABLE=off to skip) ----------
+// --- The bridges, as children (DT_REMARKABLE=off / DT_LEAP=off to skip) -------
 //
-// One command for the whole studio: the bridge finds the tablet, survives its
-// sleep, and reports over /ws/pen; this only keeps it running and prefixes its
-// lines. A bridge that dies young is restarted on a growing delay, so a
-// broken script can't spin.
+// One command for the whole studio: the reMarkable bridge finds the tablet,
+// survives its sleep, and reports over /ws/pen; the Leap bridge waits for the
+// controller and streams over /ws/hands. This only keeps each running and
+// prefixes its lines. A bridge that dies young is restarted on a growing
+// delay, so a broken script can't spin.
 
-const startTabletBridge = () => {
+const startBridge = (tag: string, script: string, wsPath: string) => {
   let child: ReturnType<typeof Bun.spawn> | undefined
   let stopping = false
   let delay = 2000
@@ -900,15 +930,15 @@ const startTabletBridge = () => {
       if (done) break
       const lines = (tail + decoder.decode(value, { stream: true })).split("\n")
       tail = lines.pop() ?? ""
-      for (const line of lines) if (line.trim()) console.log("[tablet]", line)
+      for (const line of lines) if (line.trim()) console.log(`[${tag}]`, line)
     }
-    if (tail.trim()) console.log("[tablet]", tail)
+    if (tail.trim()) console.log(`[${tag}]`, tail)
   }
   const spawnBridge = () => {
     const started = Date.now()
-    child = Bun.spawn([process.execPath, `${repoRoot}core/scripts/remarkable-bridge.ts`], {
+    child = Bun.spawn([process.execPath, `${repoRoot}core/scripts/${script}`], {
       cwd: `${repoRoot}core`,
-      env: { ...process.env, DT_WS: `ws://localhost:${port}/ws/pen`, DT_BRIDGE_CHILD: "1" },
+      env: { ...process.env, DT_WS: `ws://localhost:${port}${wsPath}`, DT_BRIDGE_CHILD: "1" },
       // stdin is our pipe: when this daemon dies, the bridge sees EOF and exits.
       stdin: "pipe",
       stdout: "pipe",
@@ -919,7 +949,7 @@ const startTabletBridge = () => {
     void child.exited.then((code) => {
       if (stopping) return
       delay = Date.now() - started > 60_000 ? 2000 : Math.min(60_000, delay * 2)
-      log(`tablet bridge exited (${code}); restarting in ${delay / 1000}s`)
+      log(`${tag} bridge exited (${code}); restarting in ${delay / 1000}s`)
       setTimeout(spawnBridge, delay)
     })
   }
@@ -939,5 +969,6 @@ const startTabletBridge = () => {
 
 await buildEditor()
 await rebuildPlayer()
-if (process.env.DT_REMARKABLE !== "off") startTabletBridge()
+if (process.env.DT_REMARKABLE !== "off") startBridge("tablet", "remarkable-bridge.ts", "/ws/pen")
+if (process.env.DT_LEAP !== "off") startBridge("leap", "leap-bridge.ts", "/ws/hands")
 log(`daemon at http://localhost:${port} · demo at /demo · ws at /ws`)

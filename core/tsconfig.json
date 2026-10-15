@@ -17,8 +17,10 @@
   "include": [
     "src",
     "test",
+    "hands",
     "scripts/daemon.ts",
     "scripts/remarkable-bridge.ts",
+    "scripts/leap-bridge.ts",
     "scripts/instruct.ts",
     "scripts/look.ts",
     "scripts/serve.ts"
