@@ -12,9 +12,12 @@
  *
  * Then into the hand frame (src/hands.ts): the user faces the camera, so the
  * user's right is the image's left (x = −x_cam), up is −y_cam, and toward the
- * user is away from the lens (z = z_cam − WEBCAM_DEPTH). MediaPipe labels
- * handedness as if the image were a mirror; ours is not, so its "Left" is
- * the user's right hand.
+ * user is away from the lens (z = z_cam − WEBCAM_DEPTH). MediaPipe's
+ * handedness label is taken as is: on unmirrored camera frames it names the
+ * true hand (checked 2026-10-15 on MediaPipe's own pointing_up / thumb_up /
+ * victory photos against the hand's geometric chirality — curled fingertips
+ * vs. the knuckle cross product — despite the docs' "assumes a mirrored
+ * image").
  */
 
 import {
@@ -82,7 +85,7 @@ export const webcamHand = (
 ): Hand => {
   const T = placeHand(image, world, width, height, hfovDeg)
   const joints: Vec3[] = world.map((w) => [-(w.x * 1000 + T[0]), -(w.y * 1000 + T[1]), w.z * 1000 + T[2] - WEBCAM_DEPTH])
-  const side: Side = label.toLowerCase() === "left" ? "right" : "left"
+  const side: Side = label.toLowerCase() === "left" ? "left" : "right"
   return { id, side, joints, palm: palmOf(joints, side), confidence: score }
 }
 
@@ -194,7 +197,7 @@ export class WebcamSource extends HandEmitter implements HandSource {
       for (let i = 0; i < res.landmarks.length; i++) {
         const cat = res.handedness[i]?.[0]
         const label = cat?.categoryName ?? "Right"
-        const side: Side = label.toLowerCase() === "left" ? "right" : "left"
+        const side: Side = label.toLowerCase() === "left" ? "left" : "right"
         if (seen[side]) continue // two hands claimed the same side: keep the surer (first)
         seen[side] = true
         if (!this.#seen[side]) this.#ids[side] = this.#next++

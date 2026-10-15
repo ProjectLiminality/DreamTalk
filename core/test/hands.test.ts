@@ -110,8 +110,8 @@ describe("the webcam's placement", () => {
   })
 
   test("lands in the hand frame: user's right is +x, up is +y, toward the user is +z", () => {
-    const h = webcamHand(image, world, "Left", 0.95, W, H, FOV, 3)
-    expect(h.side).toBe("right") // MediaPipe's labels assume a mirror
+    const h = webcamHand(image, world, "Right", 0.95, W, H, FOV, 3)
+    expect(h.side).toBe("right") // the label names the true hand on an unmirrored frame
     const wrist = h.joints[J.wrist]!
     const w0 = world[J.wrist]!
     close(wrist, [-(w0.x * 1000 + T[0]), -(w0.y * 1000 + T[1]), w0.z * 1000 + T[2] - WEBCAM_DEPTH], 0.5)
