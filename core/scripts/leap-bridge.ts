@@ -191,7 +191,7 @@ const runBridge = () => {
       console.log(STATUS_TEXT[s])
       send(statusMsg())
     },
-    (frame) => send({ kind: "frame", frame }),
+    (frame) => send({ kind: "frame", frame, sent: Date.now() }),
   )
 }
 

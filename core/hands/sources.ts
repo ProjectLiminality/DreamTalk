@@ -33,6 +33,7 @@ export class LeapSource extends HandEmitter implements HandSource {
   #ws?: WebSocket
   #running = false
   #pending?: HandFrame
+  #sent?: number
   #flush?: number
   #url: string
   constructor(url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/hands`) {
@@ -61,14 +62,17 @@ export class LeapSource extends HandEmitter implements HandSource {
           // once per display frame: a consumer slower than the device then
           // sees the present, never a growing queue of the past (the
           // "slow-motion hand").
+          // Every frame reaches the raw path (the recorder keeps them all).
+          this.raw(m.frame)
           this.#pending = m.frame
+          this.#sent = m.sent
           this.#flush ??= requestAnimationFrame(() => {
             this.#flush = undefined
             const f = this.#pending
             this.#pending = undefined
             if (!f || !this.#running) return
             this.say(`leap: ${f.hands.length ? `${f.hands.length} hand${f.hands.length > 1 ? "s" : ""}` : "no hands"}`)
-            this.emit(f)
+            this.emit(f, { raw: false, ...(this.#sent ? { ageMs: Date.now() - this.#sent } : {}) })
           })
         }
       }

@@ -247,7 +247,8 @@ export const frameAt = (frames: readonly HandFrame[], t: number): HandFrame | un
  */
 export type LeapState = "nolib" | "noservice" | "nodevice" | "ready"
 
-export type HandMessage = { kind: "frame"; frame: HandFrame } | { kind: "status"; state: LeapState; text: string }
+/** `sent`: the bridge's wall clock (ms, epoch) when it read the frame — the page measures a frame's age by it (same machine, same clock). */
+export type HandMessage = { kind: "frame"; frame: HandFrame; sent?: number } | { kind: "status"; state: LeapState; text: string }
 
 // --- a hand source ---------------------------------------------------------
 
@@ -262,22 +263,69 @@ export interface HandSource {
   onStatus(fn: (s: string) => void): () => void
 }
 
-/** The listener plumbing every source shares. */
+/** How live a source is: what the page sees, measured where it is used. */
+export interface HandPulse {
+  /** Device frames arriving per second (before any coalescing). */
+  eventsHz: number
+  /** Frames handed on per second. */
+  emitHz: number
+  /** Capture → hand-on, ms (moving average); NaN where unknown (sim, replay). */
+  ageMs: number
+}
+
+/**
+ * The listener plumbing every source shares. Two paths: `onFrame` — what the
+ * interaction layer reads, which a live source may coalesce to one frame per
+ * display frame — and `onRaw`, every device frame as it arrives, for the
+ * recorder (cheap listeners only: it runs ~100×/s for a Leap).
+ */
 export class HandEmitter {
   #frames = new Set<(f: HandFrame) => void>()
+  #raws = new Set<(f: HandFrame) => void>()
   #status = new Set<(s: string) => void>()
   status = ""
   last: HandFrame | undefined
+  readonly pulse: HandPulse = { eventsHz: 0, emitHz: 0, ageMs: NaN }
+  #events = 0
+  #emits = 0
+  #since = 0
   onFrame(fn: (f: HandFrame) => void): () => void {
     this.#frames.add(fn)
     return () => this.#frames.delete(fn)
+  }
+  onRaw(fn: (f: HandFrame) => void): () => void {
+    this.#raws.add(fn)
+    return () => this.#raws.delete(fn)
+  }
+  /** A device frame arrived (every one, coalesced or not). */
+  raw(f: HandFrame) {
+    this.#events++
+    for (const fn of this.#raws) fn(f)
   }
   onStatus(fn: (s: string) => void): () => void {
     this.#status.add(fn)
     fn(this.status)
     return () => this.#status.delete(fn)
   }
-  emit(f: HandFrame) {
+  /**
+   * Hand a frame on. `raw: false` when the source already reported it with
+   * raw() (a coalescing source); `ageMs` how old it is now, when known.
+   */
+  emit(f: HandFrame, opts: { raw?: boolean; ageMs?: number } = {}) {
+    if (opts.raw !== false) this.raw(f)
+    this.#emits++
+    if (opts.ageMs !== undefined) this.pulse.ageMs = Number.isNaN(this.pulse.ageMs) ? opts.ageMs : this.pulse.ageMs * 0.8 + opts.ageMs * 0.2
+    const now = typeof performance === "undefined" ? 0 : performance.now()
+    if (now - this.#since >= 1000) {
+      const dt = (now - this.#since) / 1000
+      if (this.#since > 0) {
+        this.pulse.eventsHz = this.#events / dt
+        this.pulse.emitHz = this.#emits / dt
+      }
+      this.#events = 0
+      this.#emits = 0
+      this.#since = now
+    }
     this.last = f
     for (const fn of this.#frames) fn(f)
   }

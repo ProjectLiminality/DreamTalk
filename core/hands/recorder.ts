@@ -36,13 +36,14 @@ export class HandsRecorder {
   count = 0
 
   constructor(
-    source: Pick<HandSource, "onFrame">,
+    source: Pick<HandSource, "onFrame"> & { onRaw?: (fn: (f: HandFrame) => void) => () => void },
     link: () => SessionLink | undefined,
     put: (url: string, body: string) => Promise<unknown> = (url, body) => fetch(url, { method: "PUT", body }),
   ) {
     this.#link = link
     this.#put = put
-    this.#off = source.onFrame((f) => this.frame(f))
+    // Every device frame, not the coalesced display stream.
+    this.#off = source.onRaw ? source.onRaw((f) => this.frame(f)) : source.onFrame((f) => this.frame(f))
     this.#timer = setInterval(() => void this.flush(), 500)
   }
 

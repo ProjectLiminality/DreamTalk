@@ -54,7 +54,7 @@ export const mountHandSource = (
   const source = handSourceFromQuery(q)
   if (!source) return undefined
   const skeleton = q.get("skeleton")
-  const overlay = skeleton === "0" ? undefined : mountOverlay(opts.parent ?? document.body, { full: skeleton === "full" })
+  const overlay = skeleton === "0" ? undefined : mountOverlay(opts.parent ?? document.body, { full: skeleton === "full", pulse: () => source.pulse })
   const recorder = new HandsRecorder(source, opts.session ?? pageSession)
   const offStatus = source.onStatus((s) => overlay?.status(s))
   const offFrame = source.onFrame((f) => {

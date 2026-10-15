@@ -439,6 +439,6 @@ export class WebcamSource extends HandEmitter implements HandSource {
           `${this.stats.latencyMs.toFixed(0)} ms (model ${this.stats.detectMs.toFixed(0)}) · ${this.stats.mode}`,
       )
     }
-    this.emit({ t: d.arrived / 1000, source: "webcam", hands, box: WEBCAM_BOX })
+    this.emit({ t: d.arrived / 1000, source: "webcam", hands, box: WEBCAM_BOX }, { ageMs: now - d.arrived })
   }
 }

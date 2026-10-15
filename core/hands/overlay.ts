@@ -7,9 +7,13 @@
  * marks a session recording hand frames. `?skeleton=full` also lays the
  * skeletons over the whole viewport, mapped by toNdc — what the interaction
  * layer sees.
+ *
+ * THE PULSE (second line): device events/s → frames handed on/s · frame age
+ * (capture → hand-on, ms) · the page's render fps — so "is it real time?" is
+ * read, not guessed. Written four times a second, and only when it changed.
  */
 
-import { BONES, J, toNdc, type HandFrame } from "../src/hands"
+import { BONES, J, toNdc, type HandFrame, type HandPulse } from "../src/hands"
 
 const BLUE = "#00A2FF"
 const RED = "#FF644E"
@@ -21,7 +25,7 @@ export interface HandsOverlay {
   dispose(): void
 }
 
-export const mountOverlay = (parent: HTMLElement, opts: { full?: boolean } = {}): HandsOverlay => {
+export const mountOverlay = (parent: HTMLElement, opts: { full?: boolean; pulse?: () => HandPulse } = {}): HandsOverlay => {
   const box = document.createElement("div")
   box.className = "dt-hands"
   box.style.cssText =
@@ -38,8 +42,29 @@ export const mountOverlay = (parent: HTMLElement, opts: { full?: boolean } = {})
   dot.style.cssText = `color:${RED};display:none`
   const text = document.createElement("span")
   line.append(dot, text)
-  box.append(mini, line)
+  const pulseLine = document.createElement("div")
+  pulseLine.style.cssText = "white-space:nowrap;color:#777;font-variant-numeric:tabular-nums"
+  box.append(mini, line, pulseLine)
   parent.append(box)
+
+  // Render fps from the page's own frames; the pulse text at 4 Hz, on change only.
+  let frames = 0
+  let since = performance.now()
+  let raf = 0
+  const tick = (now: number) => {
+    frames++
+    if (now - since >= 250) {
+      const fps = (frames * 1000) / (now - since)
+      frames = 0
+      since = now
+      const p = opts.pulse?.()
+      const age = p && !Number.isNaN(p.ageMs) ? ` · ${p.ageMs.toFixed(0)} ms old` : ""
+      const s = p ? `${p.eventsHz.toFixed(0)} ev/s → ${p.emitHz.toFixed(0)}/s${age} · ${fps.toFixed(0)} fps` : `${fps.toFixed(0)} fps`
+      if (pulseLine.textContent !== s) pulseLine.textContent = s
+    }
+    raf = requestAnimationFrame(tick)
+  }
+  raf = requestAnimationFrame(tick)
 
   let full: HTMLCanvasElement | undefined
   if (opts.full) {
@@ -94,12 +119,13 @@ export const mountOverlay = (parent: HTMLElement, opts: { full?: boolean } = {})
       }
     },
     status(s) {
-      text.textContent = s
+      if (text.textContent !== s) text.textContent = s
     },
     recording(on) {
       dot.style.display = on ? "inline" : "none"
     },
     dispose() {
+      cancelAnimationFrame(raf)
       box.remove()
       full?.remove()
     },
