@@ -65,11 +65,28 @@ const THUMB_OPEN: Vec3[] = [
   [-55, -12, -75],
   [-62, -14, -95],
 ]
+// A fist as David makes one (measured on his Leap, 2026-10-15): the thumb lies
+// ACROSS the curled index and middle, its tip ~0.41–0.45 hand sizes from the
+// index tip — not on it (that is a pinch).
+/** How far the fingers close before the thumb starts to wrap. */
+const THUMB_LAG = 0.5
+/**
+ * The control points of the thumb's wrap (a quadratic Bézier from open to
+ * fist): only the tip bends — it swings out over the closing fingers, which
+ * keeps it ≥ 0.40 hand sizes from the index tip all the way (searched, so a
+ * closing fist never reads as a pinch); the other joints go straight.
+ */
+const THUMB_WRAP: Vec3[] = [
+  [-20, -8, -25],
+  [-39, -16, -47.5],
+  [-36.5, -27, -68.5],
+  [20, -30, -115],
+]
 const THUMB_FIST: Vec3[] = [
   [-20, -8, -25],
-  [-38, -16, -48],
-  [-28, -28, -66],
-  [-10, -32, -72],
+  [-36, -22, -45],
+  [-18, -42, -62],
+  [5, -48, -70],
 ]
 
 const mix = (a: Vec3, b: Vec3, u: number): Vec3 => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]
@@ -92,7 +109,14 @@ export const poseJoints = (pose: HandPose): Vec3[] => {
   const g = Math.min(1, Math.max(0, pose.grab))
   const pinch = Math.min(1, Math.max(0, pose.pinch)) * (1 - g)
   const curl = (d: number) => Math.min(1, Math.max(0, pose.curls?.[d] ?? g))
-  const thumb = THUMB_OPEN.map((p, i) => mix(p, THUMB_FIST[i]!, curl(0)))
+  // The thumb closes after the fingers and wraps AROUND the curled index (a
+  // curved path through THUMB_WRAP), so a fist never passes through a pinch.
+  const tc = pose.curls ? curl(0) : Math.max(0, (g - THUMB_LAG) / (1 - THUMB_LAG))
+  const thumb = THUMB_OPEN.map((p, i) => {
+    const a = mix(p, THUMB_WRAP[i]!, tc)
+    const b = mix(THUMB_WRAP[i]!, THUMB_FIST[i]!, tc)
+    return mix(a, b, tc)
+  })
   const fingers = MCP.map((m, i) => finger(m, SEG[i]!, curl(i + 1)))
   if (pinch > 0) {
     // The index curls a little toward the thumb; both tips travel to the meeting point.
@@ -165,6 +189,23 @@ export const SIM_SCRIPTS: Record<string, SimKey[]> = {
     { t: 2.5, right: { ...open(0), pinch: 1 } },
     { t: 2.7, right: open(0) },
     { t: 3.2, right: open(0) },
+  ],
+  /**
+   * David's natural pinch: the other three fingers curled, the index bent
+   * down to the thumb — closed twice. Its least-curled tip stays far from the
+   * palm (a pinch, not a fist).
+   */
+  "pinch-curled": [
+    { t: 0, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
+    { t: 0.6, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
+    { t: 0.8, right: { ...open(0), pinch: 1, curls: [0, 0, 1, 1, 1] } },
+    { t: 1.1, right: { ...open(0), pinch: 1, curls: [0, 0, 1, 1, 1] } },
+    { t: 1.3, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
+    { t: 1.8, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
+    { t: 2.0, right: { ...open(0), pinch: 1, curls: [0, 0, 1, 1, 1] } },
+    { t: 2.3, right: { ...open(0), pinch: 1, curls: [0, 0, 1, 1, 1] } },
+    { t: 2.5, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
+    { t: 3.0, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
   ],
   /** Pinch, carry 120 mm to the right, release. */
   drag: [

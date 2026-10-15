@@ -266,3 +266,27 @@ describe("played sources never skip", () => {
     expect(between[0]!.t).toBeGreaterThan(0.5)
   })
 })
+
+describe("the sim matches David's hand", () => {
+  const size = (h: { joints: Vec3[] }) => dist(h.joints[J.wrist]!, h.joints[J.middleMcp]!)
+  const gap = (h: { joints: Vec3[] }) => dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / size(h)
+  const leastCurled = (h: { joints: Vec3[]; palm: { position: Vec3 } }) =>
+    Math.max(...[J.indexTip, J.middleTip, J.ringTip, J.pinkyTip].map((j) => dist(h.joints[j]!, h.palm.position))) / size(h)
+
+  test("a fist: thumb across the fingers, ~0.41–0.45 hand sizes from the index tip", () => {
+    const fist = poseHand({ side: "right", at: [0, 200, 0], pinch: 0, grab: 1 })
+    expect(gap(fist)).toBeGreaterThan(0.38)
+    expect(gap(fist)).toBeLessThan(0.5)
+    expect(leastCurled(fist)).toBeLessThan(0.5)
+  })
+
+  test("closing a fist never passes through a pinch", () => {
+    for (let g = 0; g <= 1.0001; g += 0.02) expect(gap(poseHand({ side: "right", at: [0, 200, 0], pinch: 0, grab: g }))).toBeGreaterThan(0.35)
+  })
+
+  test("a curled pinch: tips together, the index still out front", () => {
+    const h = simFrameAt(SIM_SCRIPTS["pinch-curled"]!, 1).hands[0]!
+    expect(gap(h)).toBeLessThan(0.2)
+    expect(leastCurled(h)).toBeGreaterThan(0.6)
+  })
+})
