@@ -35,6 +35,8 @@ export interface Hand {
    */
   gap?: number
   reach?: number
+  /** The palm as a pose (hands/screen.ts): centre on screen; normal and direction in camera axes (+z toward the user). */
+  palm?: { at: Joint; normal: Joint; direction: Joint }
 }
 
 export interface HandFrame {

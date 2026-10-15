@@ -18,8 +18,10 @@
  * every view-dependent holon, and the authored camera keeps moving
  * underneath it.
  *
- * WHAT IT IS. A delta: Δphi, Δtheta (the orbit), a dolly factor (radius in
- * perspective, zoom in orthographic), and a world-space pan of the focus. A
+ * WHAT IT IS. A delta: Δphi, Δtheta (the orbit), Δtilt (the roll about the
+ * view axis — a hand holding the scene turns it on every axis), a dolly
+ * factor (radius in perspective, zoom in orthographic), and a world-space
+ * pan of the focus. `place` sets the delta that puts the eye at any pose. A
  * `glide` eases the delta to a target (C4D ease, `RETURN_SECONDS`) — reset is
  * a glide to zero, framing a holon a glide to the delta that centres it.
  * Release = delta zero = every bias 0 and gate 1: the pure timeline, exactly.
@@ -47,6 +49,8 @@ export interface ViewDelta {
   /** Orbit: added to the observer's azimuth / elevation (radians). */
   phi: number
   theta: number
+  /** Roll about the view axis, added to the observer's tilt (radians). */
+  tilt: number
   /** ln of the dolly factor: > 0 further away (radius × e^d; ortho zoom ÷ e^d). */
   dolly: number
   /** Pan: added to the focus point, world units. */
@@ -84,7 +88,24 @@ const rotate = (v: { x: number; y: number; z: number }, k: { x: number; y: numbe
   }
 }
 
-export const ZERO_VIEW: ViewDelta = { phi: 0, theta: 0, dolly: 0, x: 0, y: 0, z: 0 }
+export const ZERO_VIEW: ViewDelta = { phi: 0, theta: 0, tilt: 0, dolly: 0, x: 0, y: 0, z: 0 }
+
+type V = { x: number; y: number; z: number }
+const dot = (a: V, b: V) => a.x * b.x + a.y * b.y + a.z * b.z
+/** The short way round from a to b. */
+const turn = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a))
+
+/**
+ * A camera pose: the eye, and its right / up / back unit vectors (world) —
+ * the host's camera exactly (render/three-host.ts syncCamera: spherical
+ * about the focus, looking at it with +y up, then rolled by tilt).
+ */
+export interface Pose {
+  eye: V
+  right: V
+  up: V
+  back: V
+}
 
 /** A full drag across the viewport turns the view once around (C4D's feel). */
 export const ORBIT_PER_WIDTH = 2 * Math.PI
@@ -98,10 +119,11 @@ export const THETA_LIMIT = Math.PI / 2 - (5 * Math.PI) / 180
 const FRAME_FILL = 0.6
 
 const ease = (u: number): number => c4dEaseWith(u, C4D_SMOOTHING, C4D_SMOOTHING)
-const isZero = (d: ViewDelta) => d.phi === 0 && d.theta === 0 && d.dolly === 0 && d.x === 0 && d.y === 0 && d.z === 0
+const isZero = (d: ViewDelta) => d.phi === 0 && d.theta === 0 && d.tilt === 0 && d.dolly === 0 && d.x === 0 && d.y === 0 && d.z === 0
 const lerp = (a: ViewDelta, b: ViewDelta, k: number): ViewDelta => ({
   phi: a.phi + (b.phi - a.phi) * k,
   theta: a.theta + (b.theta - a.theta) * k,
+  tilt: a.tilt + (b.tilt - a.tilt) * k,
   dolly: a.dolly + (b.dolly - a.dolly) * k,
   x: a.x + (b.x - a.x) * k,
   y: a.y + (b.y - a.y) * k,
@@ -109,7 +131,7 @@ const lerp = (a: ViewDelta, b: ViewDelta, k: number): ViewDelta => ({
 })
 
 /** The observer's params a view layer biases. */
-const biased = (o: Observer) => [o.phi, o.theta, o.x, o.y, o.z]
+const biased = (o: Observer) => [o.phi, o.theta, o.tilt, o.x, o.y, o.z]
 
 export class ViewLayer {
   readonly observer: Observer
@@ -305,6 +327,7 @@ export class ViewLayer {
     const d = this.delta
     o.phi.bias = d.phi
     o.theta.bias = clamp(a.theta + d.theta, -THETA_LIMIT, THETA_LIMIT) - a.theta
+    o.tilt.bias = d.tilt
     o.x.bias = d.x
     o.y.bias = d.y
     o.z.bias = d.z
@@ -370,6 +393,53 @@ export class ViewLayer {
     for (const p of biased(o)) p.bias = 0
     o.radius.gate = 1
     o.zoom.gate = 1
+  }
+
+  /** The effective camera's pose, from the observer's readings (what the host draws). */
+  pose(): Pose {
+    const o = this.observer
+    const phi = o.phi.value
+    const theta = o.theta.value
+    const t = o.tilt.value
+    const r = o.orthographic.value ? o.radius.value : o.radius.value / (o.zoom.value || 1)
+    const back = { x: Math.sin(phi) * Math.cos(theta), y: Math.sin(theta), z: Math.cos(phi) * Math.cos(theta) }
+    const { right: r0, up: u0 } = this.#basis()
+    const c = Math.cos(t)
+    const s = Math.sin(t)
+    return {
+      eye: { x: o.x.value + back.x * r, y: o.y.value + back.y * r, z: o.z.value + back.z * r },
+      right: { x: r0.x * c + u0.x * s, y: r0.y * c + u0.y * s, z: r0.z * c + u0.z * s },
+      up: { x: -r0.x * s + u0.x * c, y: -r0.y * s + u0.y * c, z: -r0.z * s + u0.z * c },
+      back,
+    }
+  }
+
+  /**
+   * Put the effective camera at a pose — the inverse of `pose()`: the
+   * orbit and roll that face it that way, the focus at the same distance
+   * ahead of the eye it is now (the dolly is kept). What a hand holding the
+   * scene writes every frame (demo/handplay.ts). Takes effect at `apply`.
+   */
+  place(p: Pose): void {
+    this.#glide = undefined
+    const o = this.observer
+    const r = o.orthographic.value ? o.radius.value : o.radius.value / (o.zoom.value || 1)
+    const phi = Math.atan2(p.back.x, p.back.z)
+    const theta = Math.asin(clamp(p.back.y, -1, 1))
+    const r0 = { x: Math.cos(phi), y: 0, z: -Math.sin(phi) }
+    const u0 = { x: -Math.sin(theta) * Math.sin(phi), y: Math.cos(theta), z: -Math.sin(theta) * Math.cos(phi) }
+    const tilt = Math.atan2(dot(p.right, u0), dot(p.right, r0))
+    // Against the AUTHORED readings (value − bias), so placing twice before an
+    // apply is placing once; angles the short way from the delta's own, so
+    // the orbit stays continuous through ±π.
+    const d = this.delta
+    const raw = (q: { value: number; bias: number }) => q.value - q.bias
+    d.phi += turn(raw(o.phi) + d.phi, phi)
+    d.theta = theta - raw(o.theta)
+    d.tilt += turn(raw(o.tilt) + d.tilt, tilt)
+    d.x = p.eye.x - p.back.x * r - raw(o.x)
+    d.y = p.eye.y - p.back.y * r - raw(o.y)
+    d.z = p.eye.z - p.back.z * r - raw(o.z)
   }
 
   /** World units per CSS pixel at the focus, for a viewport `height` px tall. */

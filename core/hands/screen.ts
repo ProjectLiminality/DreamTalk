@@ -22,6 +22,13 @@ export interface ScreenHand {
   /** Thumb–index gap and the least-curled fingertip's reach from the palm, in hand sizes, measured in millimetres (x and y stretch differently on screen). */
   gap: number
   reach: number
+  /**
+   * The palm as a pose: `at` its centre on screen (like a joint), `normal`
+   * and `direction` unit vectors in the source's OWN axes (+x right, +y up,
+   * +z toward the user — a camera's axes, so a rotation of the hand is the
+   * same rotation of the view). What a grab holds the scene by.
+   */
+  palm: { at: [number, number, number]; normal: Vec3; direction: Vec3 }
 }
 
 /** The palm centre (wrist and the four finger roots) and the farthest of the four fingertips from it, in hand sizes. */
@@ -50,10 +57,11 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
     aspect: f.box.size[0] / f.box.size[1],
     hands: f.hands.map((h) => {
       const size = dist(h.joints[J.wrist]!, h.joints[J.middleMcp]!) || 1
-      const joints = h.joints.map((p): [number, number, number] => {
+      const toScreen = (p: Vec3): [number, number, number] => {
         const n = toNdc(p, f.box)
         return [(n[0] + 1) / 2, (1 - n[1]) / 2, -n[2] / 2 / zUnit]
-      })
+      }
+      const joints = h.joints.map(toScreen)
       return {
         id: h.id,
         side: h.side,
@@ -64,6 +72,7 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
         ...(h.grab === undefined ? {} : { grab: h.grab }),
         gap: dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / size,
         reach: reachOf(h.joints, size),
+        palm: { at: toScreen(h.palm.position), normal: h.palm.normal, direction: h.palm.direction },
       }
     }),
   }

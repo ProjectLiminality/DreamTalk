@@ -64,6 +64,11 @@ export class GrabController {
     this.depthGain = opts.depthGain ?? 4
   }
 
+  /** No momentum after this release (a direct hold lets go where it is). */
+  stop(): void {
+    this.#vel = ZERO()
+  }
+
   /** Which of these hands are holding (after this frame's hysteresis)? */
   holders(hands: readonly Hand[]): Hand[] {
     return hands.filter((h) => this.#holding.has(h.id))

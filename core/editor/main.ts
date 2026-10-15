@@ -42,7 +42,7 @@ import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
-import { sparkSpace } from "../demo/spark"
+import { frozenSpace, sparkSpace } from "../demo/spark"
 import type { Spark } from "../demo/game"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "../demo/summon"
@@ -1771,6 +1771,8 @@ const boot = async (resume?: Transport) => {
                 return game.sparkHidden()
               },
             }),
+        // One hand holding the scene: 1:1, about where it closed (src/gesture/hold.ts).
+        holdSpace: () => ({ pose: view.pose(), at: frozenSpace(host) }),
       },
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",

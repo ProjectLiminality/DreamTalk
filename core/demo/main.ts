@@ -18,7 +18,7 @@ import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop, type Spark } from "./game"
-import { sparkSpace } from "./spark"
+import { frozenSpace, sparkSpace } from "./spark"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
@@ -416,6 +416,8 @@ const main = async () => {
               return game.sparkHidden()
             },
           }),
+      // One hand holding the scene: 1:1, about where it closed (src/gesture/hold.ts); `?hold=0` the older orbit.
+      holdSpace: () => ({ pose: game.view!.pose(), at: frozenSpace(host) }),
     },
     signal: ac.signal,
     // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).

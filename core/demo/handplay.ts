@@ -31,6 +31,8 @@ import { Jev, httpJev, type JevDecision } from "../src/gesture/jev"
 import type { GrabHand } from "../src/gesture/controller"
 import type { Spark } from "./game"
 import type { SparkPlace } from "./spark"
+import { handBasis, holdPose, PoseFilter, type Basis } from "../src/gesture/hold"
+import type { Pose } from "../src/view"
 
 /** What a host offers the hands — the GameLoop in the player, the walk + view in the editor. */
 export interface HandTarget {
@@ -60,7 +62,19 @@ export interface HandTarget {
   sparkAt?(clientX: number, clientY: number, depth: number): SparkPlace | undefined
   /** Point with this spark (null: the screen point again); returns how hidden it is behind ink, 0 … 1 (GameLoop.spark). */
   pointWith?(spark: Spark | null): number
+  /**
+   * For a hand holding the scene (src/gesture/hold.ts): the view's pose now,
+   * and the spark's space frozen as it is now (client point + depth → world).
+   * Without it a fist turns the view the older way (orbit / pan / dolly).
+   */
+  holdSpace?(): HoldSpace
 }
+
+export interface HoldSpace {
+  pose: Pose
+  at(clientX: number, clientY: number, depth: number): Vec | undefined
+}
+type Vec = { x: number; y: number; z: number }
 
 export interface HandSource {
   subscribe(fn: (frame: HandFrame) => void): () => void
@@ -460,12 +474,18 @@ export const mountHands = (opts: {
   let place: SparkPlace | undefined
   let hidden = 0
   let depth = 0
+  /** The spark's (and a held point's) depth, −1 near … +1 far, from a hand's screen z. */
+  const depthOf = (z: number) => Math.max(-1.3, Math.min(1.3, (z - (rest?.z ?? 0)) / DEPTH_RANGE))
+  // A held scene: the hand, the frozen space it is measured in, where it closed.
+  const holdOn = new URLSearchParams(location.search).get("hold") !== "0"
+  const poseFilter = new PoseFilter()
+  let hold: { id: number; space: HoldSpace; pivot: Vec; grab: Basis } | undefined
   /** The pointing hand's resting depth (cursor z) — the spark's zero. */
   let rest: { z: number; t: number } | undefined
   /** Stand the spark at this client point and hand depth; what asks "what is here" then asks it. */
   const aim = (x: number, y: number, z: number) => {
     if (!target.sparkAt || !target.pointWith) return
-    depth = Math.max(-1.3, Math.min(1.3, (z - (rest?.z ?? 0)) / DEPTH_RANGE))
+    depth = depthOf(z)
     place = target.sparkAt(x, y, depth)
     hidden = place ? target.pointWith(place.spark) : 0
   }
@@ -643,6 +663,42 @@ export const mountHands = (opts: {
     // Grab: the scene in the hands, through the view layer like any gesture.
     const view = target.view()
     const g = it.grab
+    // ONE hand holding: the scene rides it, 1:1 and rigid (src/gesture/hold.ts).
+    let holder: (typeof frame.hands)[number] | undefined
+    if (holdOn && view && target.holdSpace) {
+      let n = 0
+      for (const h of frame.hands) if (controller.grab.isHolding(h.id)) (holder = h), n++
+      if (n !== 1 || !holder?.palm) holder = undefined
+    }
+    if (holder && view) {
+      const p = holder.palm!
+      const a = span()
+      const x = a.left + p.at[0] * a.width
+      const y = a.top + p.at[1] * a.height
+      const z = depthOf(p.at[2])
+      const B = handBasis(p.normal, p.direction)
+      if (!hold || hold.id !== holder.id) {
+        poseFilter.reset()
+        const f = poseFilter.update(frame.t, { x, y, z }, B)
+        const space = target.holdSpace!()
+        const pivot = space.at(f.at.x, f.at.y, f.at.z)
+        hold = pivot ? { id: holder.id, space, pivot, grab: f.basis } : undefined
+      } else {
+        const f = poseFilter.update(frame.t, { x, y, z }, B)
+        const now = hold.space.at(f.at.x, f.at.y, f.at.z)
+        if (now) {
+          view.place(holdPose(hold.space.pose, hold.pivot, now, hold.grab, f.basis))
+          viewMoved = true
+        }
+      }
+      // A held scene is let go where it is: no momentum after.
+      controller.grab.stop()
+      return later(it)
+    }
+    if (hold) {
+      hold = undefined
+      controller.grab.stop()
+    }
     if (view && (g.orbit.x || g.orbit.y || g.pan.x || g.pan.y || g.dolly)) {
       const W = span().width
       const H = span().height

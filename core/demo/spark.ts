@@ -21,21 +21,52 @@ export interface SparkPlace {
 }
 
 export const sparkSpace = (host: ThreeHost) => {
+  const at = placer()
+  return (clientX: number, clientY: number, depth: number): SparkPlace | undefined => {
+    const obs = host.dream.observer
+    return at(host.camera, host.renderer.domElement.getBoundingClientRect(), { x: obs.x.value, y: obs.y.value, z: obs.z.value }, clientX, clientY, depth)
+  }
+}
+
+/**
+ * The same space FROZEN at this moment — the camera as it is now, whatever
+ * the view does next: what a hand holding the scene measures its travel in
+ * (src/gesture/hold.ts), since the view it moves must not move the ruler.
+ */
+export const frozenSpace = (host: ThreeHost) => {
+  const cam = host.camera.clone()
+  cam.matrixWorld.copy(host.camera.matrixWorld)
+  cam.matrixWorldInverse.copy(host.camera.matrixWorldInverse)
+  cam.projectionMatrix.copy(host.camera.projectionMatrix)
+  cam.projectionMatrixInverse.copy(host.camera.projectionMatrixInverse)
+  cam.matrixAutoUpdate = false
+  const rect = host.renderer.domElement.getBoundingClientRect()
+  const obs = host.dream.observer
+  const focus = { x: obs.x.value, y: obs.y.value, z: obs.z.value }
+  const at = placer()
+  return (clientX: number, clientY: number, depth: number) => at(cam, rect, focus, clientX, clientY, depth)?.spark.p
+}
+
+const placer = () => {
   const ray = new THREE.Raycaster()
   const ndc = new THREE.Vector2()
   const forward = new THREE.Vector3()
   const focus = new THREE.Vector3()
-  return (clientX: number, clientY: number, depth: number): SparkPlace | undefined => {
-    const cam = host.camera
-    const rect = host.renderer.domElement.getBoundingClientRect()
+  return (
+    cam: THREE.PerspectiveCamera | THREE.OrthographicCamera,
+    rect: DOMRect,
+    f: { x: number; y: number; z: number },
+    clientX: number,
+    clientY: number,
+    depth: number,
+  ): SparkPlace | undefined => {
     if (!rect.width || !rect.height) return undefined
     ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, 1 - ((clientY - rect.top) / rect.height) * 2)
     ray.setFromCamera(ndc, cam)
     const o = ray.ray.origin
     const d = ray.ray.direction
     cam.getWorldDirection(forward)
-    const obs = host.dream.observer
-    focus.set(obs.x.value, obs.y.value, obs.z.value)
+    focus.set(f.x, f.y, f.z)
     // How far ahead the focus plane is, and the view's half-height there.
     const ahead = focus.sub(o).dot(forward)
     const persp = cam instanceof THREE.PerspectiveCamera
