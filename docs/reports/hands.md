@@ -93,6 +93,20 @@ curl decides.
   with `?jev=1` the page listens for itself, and steps aside while ⇧R
   records.
 
+## Live sessions — a walk becomes song
+
+- **Record:** ⇧R in the paused editor or the player's free play. The walk records every fired transition (its pose at that instant), the effective camera, the focus and summons, the microphone with a live transcript, and the hand frames (hands.jsonl, on the same clock). A red ● clock shows while it runs; ⇧R stops.
+- **Where it lives:** `refs/sessions/<YYYY-MM-DDTHH-MM-SS>/` holds session.json, voice.webm and hands.jsonl. refs/ is gitignored, so raw voice and hands stay on this machine. A song in a private `holons/<Name>` repo also keeps a copy as `inputs/<id>/` beside it.
+- **Write the walk:** the editor's "write walk into the song" chip; the player links to it. One `appendSession` op inserts a passage after the clip the walk was held in. The daemon transcribes the voice (mlx_whisper large-v3-turbo, word timestamps, no silence hallucinations) and cuts each line into the narration cache. It then writes, beat by beat:
+  - `this.say("…", { voice: "live", duration })`
+  - `this.map.stateAxis(id).to(pos)` at its own length
+  - a mid-flight reversal restarted from where the walk was (`this.set(…)`)
+  - summoned symbols as real holons (`new Eye(…)`, `Create` / `UnCreate`)
+  - the camera as linear keyframes, then home to the authored camera
+  - clocks running throughout
+- **Undo:** ⌘Z takes the passage out (the op's span inverse). The session folder stays.
+- **Code:** editor/recorder.ts and editor/sessions.ts (UI), scripts/session.ts (format, passage, voice), plus `appendSession` in scripts/ops.ts.
+
 ## Settings at a glance
 
 | Query | Effect |
