@@ -1,7 +1,8 @@
 /**
  * sources.ts — every hand source a page can open, chosen by the query:
  *
- *   ?hands=webcam[&fov=65][&camera=FaceTime]   MediaPipe on the camera (webcam.ts)
+ *   ?hands=webcam[&fov=65][&camera=FaceTime][&camres=640x480][&handsworker=0]
+ *                                              MediaPipe on the camera (webcam.ts), on a worker
  *   ?hands=leap                                the Leap, via the daemon's /ws/hands (scripts/leap-bridge.ts)
  *   ?hands=replay&session=<id>[&loop=1]        a recorded session: refs/sessions/<id>/hands.jsonl,
  *                                              its voice.webm alongside (&voice=0 silences it)
@@ -11,8 +12,8 @@
  * Replay and sim are deterministic: `at(t)` shows the frame at t and stops
  * their own clock (a host that requests time, as TASTE.md asks); `play()`
  * gives the clock back. Playing, they never skip: when the page stalls (a
- * shader prewarm, a long frame) every frame the stall swallowed is emitted on
- * the next tick, in order — the take reaches the gesture layer whole.
+ * shader prewarm, a long frame) every frame the stall swallowed — up to a
+ * second of them — is emitted on the next tick, in order.
  */
 
 import {
@@ -90,6 +91,9 @@ export class LeapSource extends HandEmitter implements HandSource {
   }
 }
 
+/** The longest stretch a played source catches up on after a stall, s. */
+const CATCH_UP = 1
+
 /** Frames on a clock: the shared body of replay and sim. */
 abstract class ClockedSource extends HandEmitter implements HandSource {
   abstract readonly kind: "replay" | "sim"
@@ -148,7 +152,9 @@ abstract class ClockedSource extends HandEmitter implements HandSource {
         this.play(0)
         return
       }
-      for (const f of this.framesIn(lastT, t)) this.emit(f)
+      // Catch up on what a stall swallowed — at most CATCH_UP s of it, so a
+      // consumer slower than real time falls behind gracefully, never spirals.
+      for (const f of this.framesIn(Math.max(lastT, t - CATCH_UP), t)) this.emit(f)
       lastT = t
       this.#raf = requestAnimationFrame(step)
     }
@@ -224,13 +230,24 @@ export class SimSource extends ClockedSource {
   }
 }
 
+/** `?camres=1280x720` → the camera size to ask for. */
+const camres = (v: string | null): { width?: number; height?: number } => {
+  const m = /^(\d+)x(\d+)$/.exec(v ?? "")
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : {}
+}
+
 /** The source the query asks for, or undefined when `?hands` is absent or off. */
 export const handSourceFromQuery = (q: URLSearchParams): (HandSource & HandEmitter) | undefined => {
   const kind = q.get("hands")
   const loop = q.get("loop") === "1"
   switch (kind) {
     case "webcam":
-      return new WebcamSource({ fov: Number(q.get("fov")) || undefined, camera: q.get("camera") ?? undefined })
+      return new WebcamSource({
+        fov: Number(q.get("fov")) || undefined,
+        camera: q.get("camera") ?? undefined,
+        worker: q.get("handsworker") !== "0",
+        ...camres(q.get("camres")),
+      })
     case "leap":
       return new LeapSource()
     case "replay":

@@ -452,7 +452,7 @@ const noteChange = (dir: string, filename: string | null) => {
   scheduleFlush()
 }
 
-for (const dir of ["core/demo", "core/src", "core/editor", "holons"]) {
+for (const dir of ["core/demo", "core/src", "core/editor", "core/hands", "holons"]) {
   if (!existsSync(`${repoRoot}${dir}`)) continue
   watch(`${repoRoot}${dir}`, { recursive: true }, (_event, filename) =>
     noteChange(dir, filename),

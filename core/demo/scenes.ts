@@ -10,6 +10,7 @@ import type { DreamClass } from "../src/dream"
 import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
 import { VocabShowcaseDream } from "./VocabShowcase"
+import { HandsTestDream } from "./HandsTestDemo"
 import { CameraCalDream, CameraCalCylinderDream, CameraCalGridDream } from "./video01/CameraCal"
 import { S01Dream } from "./video01/S01"
 import { S02Dream } from "./video01/S02"
@@ -256,6 +257,8 @@ export const scenes: Record<string, DreamClass> = {
   flowmap: FlowMapDream,
   // The walkable symbols side by side: ← → visit each, its axes live (play=free).
   gallery: GalleryDream,
+  // A light room for tuning hands: three walkable symbols big in view (play=free&hands=webcam|leap).
+  "hands-test": HandsTestDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
   "flowmap-time": FlowMapTimeDream,
   // Value ↔ money: the same channels, coins counter-flowing in paired lanes.
