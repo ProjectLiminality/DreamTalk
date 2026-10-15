@@ -12,6 +12,11 @@
  * (core/hands/sources.ts). Both the original Leap Motion Controller and the
  * Controller 2 work with the Gemini (v5) service on Apple Silicon macOS.
  *
+ * The bridge runs in a terminal or the daemon, never the focused app, and the
+ * service withholds frames from unfocused clients — so on connecting it asks
+ * for background frames (LeapSetPolicyFlags BackgroundFrames) and logs the
+ * policy the service confirms.
+ *
  * Absence is a state, never a crash: no library → `nolib` (and the install
  * line), no service → `noservice`, no controller → `nodevice`. The bridge
  * keeps waiting and picks the controller up the moment it is plugged in.
@@ -47,11 +52,15 @@ const EV_CONNECTION = 1
 const EV_CONNECTION_LOST = 2
 const EV_DEVICE = 3
 const EV_DEVICE_FAILURE = 4
+const EV_POLICY = 5
 const EV_TRACKING = 0x100
 const EV_DEVICE_LOST = 0x104
 // LEAP_TRACKING_EVENT: nHands @32, pHands @36.
 const TRACK_NHANDS = 32
 const TRACK_PHANDS = 36
+// eLeapPolicyFlag_BackgroundFrames; LEAP_POLICY_EVENT.current_policy @4.
+const POLICY_BACKGROUND_FRAMES = 0x1
+const POLICY_CURRENT = 4
 
 const openLib = () => {
   const path = LIB_CANDIDATES.find((p) => existsSync(p))
@@ -60,6 +69,7 @@ const openLib = () => {
     LeapCreateConnection: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
     LeapOpenConnection: { args: [FFIType.ptr], returns: FFIType.i32 },
     LeapPollConnection: { args: [FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+    LeapSetPolicyFlags: { args: [FFIType.ptr, FFIType.u64, FFIType.u64], returns: FFIType.i32 },
     LeapCloseConnection: { args: [FFIType.ptr], returns: FFIType.void },
     LeapDestroyConnection: { args: [FFIType.ptr], returns: FFIType.void },
   })
@@ -68,9 +78,18 @@ const openLib = () => {
 /**
  * The tracking loop: connect, then drain the service's events every few ms
  * (a zero-timeout poll — a blocking one would stall the socket). Calls
- * `onState` on every change and `onFrame` with each tracking frame.
+ * `onState` on every change, `onFrame` with each tracking frame worth
+ * sending (one empty frame when the hands leave, then silence), and
+ * `onTracking` with the hand count of EVERY tracking event — a working
+ * device with no hand over it is not silence.
  */
-export const runLeap = (onState: (s: LeapState) => void, onFrame: (f: HandFrame) => void): (() => void) => {
+export const runLeap = (
+  onState: (s: LeapState) => void,
+  onFrame: (f: HandFrame) => void,
+  onTracking?: (nHands: number) => void,
+  /** The background-frames request: `requested` when LeapSetPolicyFlags succeeded; `confirmed` by a later policy event. */
+  onPolicy?: (p: { requested: boolean; confirmed?: boolean }) => void,
+): (() => void) => {
   const lib = openLib()
   if (!lib) {
     onState("nolib")
@@ -91,6 +110,7 @@ export const runLeap = (onState: (s: LeapState) => void, onFrame: (f: HandFrame)
     if (s !== state) onState((state = s))
   }
   let devices = 0
+  let requested = false
   let lastHands = -1
   let stopped = false
   const t0 = performance.now()
@@ -100,7 +120,16 @@ export const runLeap = (onState: (s: LeapState) => void, onFrame: (f: HandFrame)
         if (L.LeapPollConnection(conn, 0, msgPtr) !== RS_SUCCESS) break
         const type = msgView.getUint32(4, true)
         const at = Number(msgView.getBigUint64(8, true))
-        if (type === EV_CONNECTION) set(devices > 0 ? "ready" : "nodevice")
+        if (type === EV_CONNECTION) {
+          // The service may confirm with a policy event or not at all (Gemini 5.17 on macOS: the
+          // only policy event precedes our request, and frames reach unfocused clients regardless).
+          requested = L.LeapSetPolicyFlags(conn, BigInt(POLICY_BACKGROUND_FRAMES), 0n) === RS_SUCCESS
+          onPolicy?.({ requested })
+          set(devices > 0 ? "ready" : "nodevice")
+        } else if (type === EV_POLICY && at && requested && (read.u32(at, POLICY_CURRENT) & POLICY_BACKGROUND_FRAMES) !== 0) {
+          // Only a policy carrying the flag confirms: one without it may have been queued before our request.
+          onPolicy?.({ requested, confirmed: true })
+        }
         else if (type === EV_CONNECTION_LOST) set("noservice")
         else if (type === EV_DEVICE) {
           devices++
@@ -114,6 +143,7 @@ export const runLeap = (onState: (s: LeapState) => void, onFrame: (f: HandFrame)
             set("ready")
           }
           const nHands = read.u32(at, TRACK_NHANDS)
+          onTracking?.(nHands)
           // An empty frame once when the hands leave, then silence until they return.
           if (nHands === 0 && lastHands === 0) continue
           lastHands = nHands
@@ -169,31 +199,49 @@ const runDoctor = async () => {
   const lib = LIB_CANDIDATES.find((p) => existsSync(p))
   console.log(lib ? `✓ LeapC library: ${lib}` : `✗ LeapC library not found — ${INSTALL_HINT}`)
   if (!lib) process.exit(1)
-  let frames = 0
-  let hands = 0
+  let events = 0
+  let withHands = 0
   let last: LeapState | undefined
+  let policy: { requested: boolean; confirmed?: boolean } | undefined
+  let latest: HandFrame | undefined
   const stop = runLeap(
     (s) => {
       last = s
       console.log(`${s === "ready" ? "✓" : "…"} ${STATUS_TEXT[s]}`)
     },
     (f) => {
-      frames++
-      hands = f.hands.length
-      if (frames % 30 === 0) {
-        const h = f.hands[0]
-        console.log(
-          `  ${f.hands.length} hand(s)` +
-            (h ? ` · ${h.side} palm (${h.palm.position.map((v) => v.toFixed(0)).join(", ")}) mm · pinch ${h.pinch?.toFixed(2)} · grab ${h.grab?.toFixed(2)}` : ""),
-        )
-      }
+      if (f.hands.length) latest = f
+    },
+    (n) => {
+      events++
+      if (n) withHands++
+    },
+    (p) => {
+      policy = p
     },
   )
-  await Bun.sleep(6000)
+  await Bun.sleep(1500)
+  console.log("\n  ✋ hold a hand ~20 cm above the Leap now, fingers spread — then pinch a few times\n")
+  for (let s = 8; s > 0; s--) {
+    const h = latest?.hands[0]
+    console.log(
+      `  ${s}…  ${events} tracking events, ${withHands} with hands` +
+        (h ? ` · ${h.side} palm (${h.palm.position.map((v) => v.toFixed(0)).join(", ")}) mm · pinch ${h.pinch?.toFixed(2)} · grab ${h.grab?.toFixed(2)}` : ""),
+    )
+    latest = undefined
+    await Bun.sleep(1000)
+  }
   stop()
+  console.log(
+    !policy?.requested
+      ? "✗ background frames could not be requested (LeapSetPolicyFlags failed)"
+      : `✓ background frames requested${policy.confirmed ? " and confirmed" : " (the service sent no confirmation; frames reaching us unfocused are the proof)"}`,
+  )
   if (last !== "ready") console.log(`✗ ${STATUS_TEXT[last ?? "noservice"]}`)
-  else console.log(frames ? `✓ ${frames} frames in 6 s (last: ${hands} hand(s))` : "✓ controller ready — hold a hand ~20 cm above it to see frames")
-  process.exit(last === "ready" ? 0 : 1)
+  else if (events === 0) console.log("✗ the controller is ready but sent no tracking events — check the Ultraleap Control Panel (tracking paused? background frames off?)")
+  else if (withHands === 0) console.log(`~ the device streams (${events} events in ~9.5 s) but saw no hand — closer / higher (10–40 cm), and away from bright light`)
+  else console.log(`✓ ${events} tracking events, ${withHands} with hands — the Leap works`)
+  process.exit(last === "ready" && withHands > 0 ? 0 : 1)
 }
 
 if (import.meta.main) {
