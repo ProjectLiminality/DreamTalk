@@ -31,7 +31,7 @@ import { Jev, httpJev, type JevDecision } from "../src/gesture/jev"
 import type { GrabHand } from "../src/gesture/controller"
 import type { Spark } from "./game"
 import type { SparkPlace } from "./spark"
-import { handBasis, holdPose, PoseFilter, type Basis } from "../src/gesture/hold"
+import { handBasis, heldPose, holdPose, PoseFilter, toWorld, twoHandMotion, type Basis } from "../src/gesture/hold"
 import type { Pose } from "../src/view"
 
 /** What a host offers the hands — the GameLoop in the player, the walk + view in the editor. */
@@ -75,6 +75,9 @@ export interface HoldSpace {
   at(clientX: number, clientY: number, depth: number): Vec | undefined
 }
 type Vec = { x: number; y: number; z: number }
+/** A holding hand at the grab: where (world), how turned (camera axes), its palm's normal (world). */
+type HeldHand = { at: Vec; basis: Basis; normal: Vec }
+type HeldNow = { at: Vec | undefined; basis: Basis; normal: Vec }
 
 export interface HandSource {
   subscribe(fn: (frame: HandFrame) => void): () => void
@@ -478,8 +481,9 @@ export const mountHands = (opts: {
   const depthOf = (z: number) => Math.max(-1.3, Math.min(1.3, (z - (rest?.z ?? 0)) / DEPTH_RANGE))
   // A held scene: the hand, the frozen space it is measured in, where it closed.
   const holdOn = new URLSearchParams(location.search).get("hold") !== "0"
-  const poseFilter = new PoseFilter()
-  let hold: { id: number; space: HoldSpace; pivot: Vec; grab: Basis } | undefined
+  const poseFilters = new Map<number, PoseFilter>()
+  const holders: HandFrame["hands"][number][] = []
+  let hold: { key: string; space: HoldSpace; dolly: number; grab: HeldHand[] } | undefined
   /** The pointing hand's resting depth (cursor z) — the spark's zero. */
   let rest: { z: number; t: number } | undefined
   /** Stand the spark at this client point and hand depth; what asks "what is here" then asks it. */
@@ -663,31 +667,39 @@ export const mountHands = (opts: {
     // Grab: the scene in the hands, through the view layer like any gesture.
     const view = target.view()
     const g = it.grab
-    // ONE hand holding: the scene rides it, 1:1 and rigid (src/gesture/hold.ts).
-    let holder: (typeof frame.hands)[number] | undefined
-    if (holdOn && view && target.holdSpace) {
-      let n = 0
-      for (const h of frame.hands) if (controller.grab.isHolding(h.id)) (holder = h), n++
-      if (n !== 1 || !holder?.palm) holder = undefined
-    }
-    if (holder && view) {
-      const p = holder.palm!
+    // Hands holding: the scene rides them, 1:1 (src/gesture/hold.ts) — one
+    // hand rigidly about where it closed; two as a thing between them that
+    // turns with them and grows as they part.
+    holders.length = 0
+    if (holdOn && view && target.holdSpace) for (const h of frame.hands) if (controller.grab.isHolding(h.id) && h.palm) holders.push(h)
+    if (view && (holders.length === 1 || holders.length === 2)) {
+      const key = holders.map((h) => h.id).join(" ")
       const a = span()
-      const x = a.left + p.at[0] * a.width
-      const y = a.top + p.at[1] * a.height
-      const z = depthOf(p.at[2])
-      const B = handBasis(p.normal, p.direction)
-      if (!hold || hold.id !== holder.id) {
-        poseFilter.reset()
-        const f = poseFilter.update(frame.t, { x, y, z }, B)
-        const space = target.holdSpace!()
-        const pivot = space.at(f.at.x, f.at.y, f.at.z)
-        hold = pivot ? { id: holder.id, space, pivot, grab: f.basis } : undefined
-      } else {
-        const f = poseFilter.update(frame.t, { x, y, z }, B)
-        const now = hold.space.at(f.at.x, f.at.y, f.at.z)
-        if (now) {
-          view.place(holdPose(hold.space.pose, hold.pivot, now, hold.grab, f.basis))
+      // Each palm, smoothed, on the frozen space: where it is (world) and how it is turned.
+      const read = (h: (typeof holders)[number]) => {
+        const p = h.palm!
+        let f = poseFilters.get(h.id)
+        if (!f || !hold || hold.key !== key) poseFilters.set(h.id, (f = new PoseFilter()))
+        return f.update(frame.t, { x: a.left + p.at[0] * a.width, y: a.top + p.at[1] * a.height, z: depthOf(p.at[2]) }, handBasis(p.normal, p.direction))
+      }
+      const fresh = !hold || hold.key !== key
+      const space = fresh ? target.holdSpace!() : hold!.space
+      const now = holders.map((h) => {
+        const f = read(h)
+        // The palm's normal is the frame's −y (handBasis), in camera axes → world.
+        return { at: space.at(f.at.x, f.at.y, f.at.z), basis: f.basis, normal: toWorld(space.pose, [-f.basis[1].x, -f.basis[1].y, -f.basis[1].z]) }
+      })
+      if (now.every((n) => n.at)) {
+        if (fresh) hold = { key, space, dolly: view.delta.dolly, grab: now.map((n) => ({ at: n.at!, basis: n.basis, normal: n.normal })) }
+        else if (now.length === 1) {
+          const g0 = hold!.grab[0]!
+          view.place(holdPose(space.pose, g0.at, now[0]!.at!, g0.basis, now[0]!.basis))
+          viewMoved = true
+        } else {
+          const [a0, b0] = hold!.grab as [HeldHand, HeldHand]
+          const [a1, b1] = now as [HeldNow, HeldNow]
+          const m = twoHandMotion(a0.at, b0.at, a1.at!, b1.at!, a0.normal, b0.normal, a1.normal, b1.normal)
+          view.place(heldPose(space.pose, m.m0, m.m, m.s, m.W), hold!.dolly - Math.log(m.s))
           viewMoved = true
         }
       }

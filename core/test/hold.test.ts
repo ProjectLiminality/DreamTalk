@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Observer } from "../src/dream"
 import { ViewLayer, type Pose } from "../src/view"
-import { applyT, handBasis, holdPose, PoseFilter, type Basis, type V } from "../src/gesture/hold"
+import { applyT, handBasis, heldPose, holdPose, PoseFilter, twoHandMotion, type Basis, type V } from "../src/gesture/hold"
 
 const v = (x: number, y: number, z: number): V => ({ x, y, z })
 const sub = (a: V, b: V) => v(a.x - b.x, a.y - b.y, a.z - b.z)
@@ -112,5 +112,43 @@ describe("a held view has no pole", () => {
     }
     layer.release()
     expect([o.phi.value, o.theta.value, o.tilt.value]).toEqual([0, 0, 0])
+  })
+})
+
+describe("both hands holding", () => {
+  const a0 = v(-100, 0, 0)
+  const b0 = v(100, 0, 0)
+  const up = v(0, 1, 0)
+  const rotP = (R: Basis, p: V) => applyR(R, p)
+
+  test("hands apart: the scene grows about their midpoint, 1:1", () => {
+    const m = twoHandMotion(a0, b0, v(-200, 0, 0), v(200, 0, 0), up, up, up, up)
+    expect(m.s).toBeCloseTo(2, 9)
+    close(m.W[0], v(1, 0, 0), 9)
+    close(m.W[2], v(0, 0, 1), 9)
+  })
+  test("hands turning around their midpoint (palms with them): the scene turns by the same", () => {
+    const R = rot(v(0, 1, 0), 0.7)
+    const m = twoHandMotion(a0, b0, rotP(R, a0), rotP(R, b0), up, up, rotP(R, up), rotP(R, up))
+    expect(m.s).toBeCloseTo(1, 9)
+    for (const e of [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)]) close(applyR(m.W, e), applyR(R, e), 9)
+  })
+  test("both wrists turning about the line between the hands: the scene turns about that line", () => {
+    const R = rot(v(1, 0, 0), 0.5)
+    const m = twoHandMotion(a0, b0, a0, b0, up, up, rotP(R, up), rotP(R, up))
+    for (const e of [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)]) close(applyR(m.W, e), applyR(R, e), 9)
+  })
+  test("the eye sees the moved, scaled scene (camera coordinates scale by 1/s: the same picture)", () => {
+    const cam = camera()
+    const R = rot(v(0.6, 0, 0.8), 0.4)
+    const s = 1.7
+    const m0 = v(10, 20, 30)
+    const m1 = v(60, -10, 0)
+    const held = heldPose(cam, m0, m1, s, R)
+    for (const x of [v(0, 0, 0), v(200, 50, -40), v(-30, 300, 90)]) {
+      const moved = (() => { const d = applyR(R, v(x.x - m0.x, x.y - m0.y, x.z - m0.z)); return v(m1.x + s * d.x, m1.y + s * d.y, m1.z + s * d.z) })()
+      const want = seen(cam, moved)
+      close(seen(held, x), v(want.x / s, want.y / s, want.z / s))
+    }
   })
 })

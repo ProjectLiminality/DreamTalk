@@ -66,14 +66,87 @@ export const handBasis = (normal: readonly number[], direction: readonly number[
 export const holdPose = (cam: Pose, pivot: V, pivotNow: V, handAtGrab: Basis, handNow: Basis): Pose => {
   const C: Basis = [cam.right, cam.up, cam.back]
   const dCam = compose(handNow, transpose(handAtGrab))
-  const W = compose(compose(C, dCam), transpose(C)) // ΔR_w
-  return {
-    eye: add(pivot, applyT(W, sub(cam.eye, pivotNow))),
-    right: applyT(W, cam.right),
-    up: applyT(W, cam.up),
-    back: applyT(W, cam.back),
-  }
+  return heldPose(cam, pivot, pivotNow, 1, compose(compose(C, dCam), transpose(C)))
 }
+
+/**
+ * The camera pose under a scene motion M(x) = m + s·W(x − m₀) (a rotation W
+ * and a uniform scale s about m₀, carried to m): the eye moves by M⁻¹. A
+ * scaled world seen from here is the same picture as the world seen from
+ * 1/s as far — so the eye comes nearer, and the caller dollies by the same
+ * 1/s (an orthographic view has only the zoom).
+ */
+export const heldPose = (cam: Pose, m0: V, m: V, s: number, W: Basis): Pose => ({
+  eye: add(m0, scale(applyT(W, sub(cam.eye, m)), 1 / s)),
+  right: applyT(W, cam.right),
+  up: applyT(W, cam.up),
+  back: applyT(W, cam.back),
+})
+
+/** Rotation by angle a about the unit axis k. */
+export const axisAngle = (k: V, a: number): Basis => {
+  const c = Math.cos(a)
+  const s = Math.sin(a)
+  const r = (e: V) => {
+    const d = dot(k, e)
+    return add(add(scale(e, c), scale(cross(k, e), s)), scale(k, d * (1 - c)))
+  }
+  return [r(v(1, 0, 0)), r(v(0, 1, 0)), r(v(0, 0, 1))]
+}
+
+/** The shortest rotation taking unit a to unit b. */
+const swing = (a: V, b: V): Basis => {
+  const axis = cross(a, b)
+  const sin = Math.hypot(axis.x, axis.y, axis.z)
+  const cos = dot(a, b)
+  if (sin < 1e-9) {
+    if (cos > 0) return [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)]
+    // Opposite: half a turn about any axis across a.
+    const any = Math.abs(a.x) < 0.9 ? v(1, 0, 0) : v(0, 1, 0)
+    return axisAngle(unit(cross(a, any)), Math.PI)
+  }
+  return axisAngle(scale(axis, 1 / sin), Math.atan2(sin, cos))
+}
+
+/**
+ * Both hands holding: the scene as a rigid thing between them that may also
+ * grow. The midpoint carries it, the span scales it (hands apart = larger,
+ * 1:1), the line between the hands turns it (swing), and the wrists turning
+ * together about that line turn it about the line (twist: the palms' mean
+ * turn about it, after the swing). All in world space: a, b the palms
+ * (grab and now), n the palms' normals (world).
+ */
+export const twoHandMotion = (
+  a0: V, b0: V, a: V, b: V,
+  na0: V, nb0: V, na: V, nb: V,
+): { m0: V; m: V; s: number; W: Basis } => {
+  const m0 = scale(add(a0, b0), 0.5)
+  const m = scale(add(a, b), 0.5)
+  const u0 = sub(b0, a0)
+  const u = sub(b, a)
+  const l0 = Math.hypot(u0.x, u0.y, u0.z)
+  const l = Math.hypot(u.x, u.y, u.z)
+  const s = l0 > 1e-9 && l > 1e-9 ? l / l0 : 1
+  const k0 = unit(u0)
+  const S = swing(k0, unit(u))
+  // Twist about the original line: each palm's turn, its swing taken out.
+  let sx = 0
+  let sy = 0
+  for (const [n0, n] of [[na0, na], [nb0, nb]] as const) {
+    const back = applyT(S, n)
+    const p0 = sub(n0, scale(k0, dot(n0, k0)))
+    const p1 = sub(back, scale(k0, dot(back, k0)))
+    if (Math.hypot(p0.x, p0.y, p0.z) < 1e-6 || Math.hypot(p1.x, p1.y, p1.z) < 1e-6) continue
+    const ang = Math.atan2(dot(k0, cross(p0, p1)), dot(p0, p1))
+    sx += Math.cos(ang)
+    sy += Math.sin(ang)
+  }
+  const twist = sx || sy ? Math.atan2(sy, sx) : 0
+  return { m0, m, s, W: compose(S, axisAngle(k0, twist)) }
+}
+
+/** A camera-axes vector (a palm's normal) in world space, for a camera with these axes. */
+export const toWorld = (cam: Pose, n: readonly number[]): V => apply([cam.right, cam.up, cam.back], of(n))
 
 // --- smoothing: light, on the frame clock -------------------------------------
 

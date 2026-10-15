@@ -435,14 +435,21 @@ export class ViewLayer {
   /**
    * Put the effective camera at a pose — the inverse of `pose()`: the
    * orbit and roll that face it that way, the focus at the same distance
-   * ahead of the eye it is now (the dolly is kept). What a hand holding the
-   * scene writes every frame (demo/handplay.ts). Takes effect at `apply`.
+   * ahead of the eye it is now — or, given `dolly` (the delta's ln factor),
+   * at that dolly's distance (two hands scaling the scene). What a hand
+   * holding the scene writes every frame (demo/handplay.ts). Takes effect
+   * at `apply`.
    */
-  place(p: Pose): void {
+  place(p: Pose, dolly?: number): void {
     this.#glide = undefined
     this.#held = true
     const o = this.observer
-    const r = o.orthographic.value ? o.radius.value : o.radius.value / (o.zoom.value || 1)
+    if (dolly !== undefined) this.delta.dolly = clamp(dolly, -8, 8)
+    // The distance the dolly will give (readings without this layer's gate, times its own).
+    const k = Math.exp(this.delta.dolly)
+    const rawR = o.radius.value / (o.radius.gate || 1)
+    const rawZoom = o.zoom.value * (o.zoom.gate ? 1 / o.zoom.gate : 1)
+    const r = o.orthographic.value ? rawR : (rawR * k) / (rawZoom || 1)
     const phi = Math.atan2(p.back.x, p.back.z)
     const theta = Math.asin(clamp(p.back.y, -1, 1))
     const r0 = { x: Math.cos(phi), y: 0, z: -Math.sin(phi) }
