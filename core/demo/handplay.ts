@@ -113,8 +113,14 @@ export interface Mudras {
 export interface HandPlay {
   /** Feed one frame (any source). Returns the intents it produced. */
   push(frame: HandFrame): Intent
-  /** Ask for pinches at gold rings and fit this user's thumb bias. */
-  calibrate(): Promise<PinchCalibration>
+  /** Ask for pinches at gold rings and fit this user's thumb bias (undefined if cancelled). */
+  calibrate(): Promise<PinchCalibration | undefined>
+  cancelCalibration(): void
+  readonly calibrating: boolean
+  /** Has this browser a fitted calibration? */
+  readonly calibrationStored: boolean
+  /** Has a hand been seen in the last few seconds? */
+  readonly handsActive: boolean
   readonly controller: GestureController
   readonly mudras: Mudras
   /**
@@ -127,6 +133,8 @@ export interface HandPlay {
   readonly listening: boolean
   /** Run an action by name. */
   act(action: string, by?: string): boolean
+  /** Every action a mudra can be bound to here: the scene's axes, home, dismiss. */
+  actionNames(): string[]
 }
 
 export const mountHands = (opts: {
@@ -161,6 +169,7 @@ export const mountHands = (opts: {
   let pointAt: { x: number; y: number } | undefined
   const hear = (line: { text: string; final: boolean }) => jev.hear({ t: handClock, text: line.text, final: line.final })
   let listening = false
+  let recorderLinked = false
   if (opts.jev && opts.listen) {
     type Rec = {
       continuous: boolean
@@ -235,25 +244,51 @@ export const mountHands = (opts: {
    * pinch was hand talk, not a click — its release does not click.
    */
   let pinchSpoke = false
-  let calibration: { k: number; samples: PinchSample[]; done: (c: PinchCalibration) => void } | undefined
+  let calibration: { k: number; samples: PinchSample[]; done: (c: PinchCalibration | undefined) => void } | undefined
+  /** The last fit, for the on-screen "calibrated ✓". */
+  let calibrated: { fit: PinchCalibration; at: number } | undefined
+  /** Is a calibration stored in this browser? */
+  let stored = (() => {
+    try {
+      return localStorage.getItem(CALIBRATION_KEY) !== null
+    } catch {
+      return false
+    }
+  })()
+  /** When a hand was last tracked (ms) — the UI shows only while hands are in play. */
+  let lastSeen = -Infinity
   const client = (p: { x: number; y: number }) => ({ x: p.x * window.innerWidth, y: p.y * window.innerHeight })
 
   const paint = (it: Intent) => {
     const ctx = beginOverlay(overlay)
     if (!ctx) return
     const gold = (a: number) => cssOf(GOLD, a)
+    ctx.textAlign = "center"
+    ctx.font = "13px -apple-system, system-ui, sans-serif"
     if (calibration) {
       const tg = CALIBRATION_TARGETS[calibration.k]!
       const p = client(tg)
+      // The ring fills as the fingers close over it — the pinch is felt before it lands.
+      const a = it.cursor.tracked ? it.cursor.approach : 0
+      ctx.fillStyle = gold(0.08 + 0.35 * a)
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, 20, 0, 2 * Math.PI)
+      ctx.fill()
       ctx.strokeStyle = gold(0.9)
       ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 18, 0, 2 * Math.PI)
       ctx.stroke()
-      ctx.fillStyle = gold(0.8)
-      ctx.font = "13px monospace"
-      ctx.fillText(`pinch on the ring  ${calibration.k + 1} / ${CALIBRATION_TARGETS.length}`, p.x - 90, p.y + 40)
+      // A dark plate under the words: legible over any scene.
+      ctx.fillStyle = "rgba(0,0,0,0.75)"
+      ctx.fillRect(p.x - 110, p.y + 28, 220, 42)
+      ctx.fillStyle = gold(0.95)
+      ctx.fillText(`pinch on the ring  ${calibration.k + 1} / ${CALIBRATION_TARGETS.length}`, p.x, p.y + 44)
+      ctx.fillStyle = "rgba(170,170,170,0.9)"
+      ctx.fillText(it.cursor.tracked ? "Esc to cancel" : "show your hand", p.x, p.y + 62)
+    } else if (calibrated && performance.now() - calibrated.at < 2500) {
+      ctx.fillStyle = gold(0.9)
+      ctx.fillText(`calibrated ✓   thumb weight ${calibrated.fit.w.toFixed(2)}   (C to redo)`, window.innerWidth / 2, window.innerHeight - 48)
     }
+    ctx.textAlign = "left"
     const c = it.cursor
     if (!c.tracked || it.grab.holding) return
     const p = client(c)
@@ -277,6 +312,16 @@ export const mountHands = (opts: {
   const push = (frame: HandFrame): Intent => {
     const it = controller.update(frame)
     handClock = frame.t
+    if (it.cursor.tracked || frame.hands.length > 0) lastSeen = performance.now()
+    // The session recorder's voice, when one records (editor/recorder.ts onTranscript).
+    if (!recorderLinked) {
+      const rec = (window as unknown as { __dtRecorder?: { onTranscript?(fn: (l: { text: string; final: boolean }) => void): () => void } }).__dtRecorder
+      if (rec?.onTranscript) {
+        recorderLinked = true
+        const off = rec.onTranscript((l) => hear(l))
+        opts.signal.addEventListener("abort", off)
+      }
+    }
     if (it.cursor.tracked) pointAt = client(it.cursor)
     // Hand talk runs whether or not the scene is walkable: recording and
     // recognising do not need free play.
@@ -309,18 +354,12 @@ export const mountHands = (opts: {
         }
       })
     }
-    if (!target.live()) {
-      paint(it)
-      return it
-    }
-    const c = it.cursor
-    if (c.tracked && !it.grab.holding) {
-      const p = client(c)
-      target.hoverAt(p.x, p.y)
-    }
+    // Calibration runs on its own, whatever the scene is doing: the pinches
+    // are calibration, not clicks.
     if (calibration) {
-      if (c.released && c.sample) {
-        calibration.samples.push(c.sample)
+      const cur = it.cursor
+      if (cur.released && cur.sample) {
+        calibration.samples.push(cur.sample)
         calibration.k++
         if (calibration.k >= CALIBRATION_TARGETS.length) {
           const fit = fitCalibration(calibration.samples)
@@ -330,10 +369,23 @@ export const mountHands = (opts: {
           } catch {}
           const done = calibration.done
           calibration = undefined
+          calibrated = { fit, at: performance.now() }
           done(fit)
         }
       }
-    } else {
+      paint(it)
+      return it
+    }
+    if (!target.live()) {
+      paint(it)
+      return it
+    }
+    const c = it.cursor
+    if (c.tracked && !it.grab.holding) {
+      const p = client(c)
+      target.hoverAt(p.x, p.y)
+    }
+    {
       if (it.press) {
         const p = client(it.press)
         const id = target.axisAt(p.x, p.y)
@@ -407,8 +459,25 @@ export const mountHands = (opts: {
     },
     act,
     calibrate: () =>
-      new Promise<PinchCalibration>((resolve) => {
+      new Promise<PinchCalibration | undefined>((resolve) => {
+        calibration?.done(undefined)
         calibration = { k: 0, samples: [], done: resolve }
       }),
+    actionNames: () => ["home", "invoke:dismiss", ...(target.axes?.() ?? []).map((a) => `fire:${a.id}`)],
+    cancelCalibration: () => {
+      const c = calibration
+      calibration = undefined
+      beginOverlay(overlay) // the ring goes at once, not at the next hand frame
+      c?.done(undefined)
+    },
+    get calibrating() {
+      return calibration !== undefined
+    },
+    get calibrationStored() {
+      return stored || calibrated !== undefined
+    },
+    get handsActive() {
+      return performance.now() - lastSeen < 3000
+    },
   }
 }

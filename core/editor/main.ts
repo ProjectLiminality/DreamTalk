@@ -44,6 +44,7 @@ import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "../demo/summon"
+import { mountHandUI } from "../demo/handui"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, sceneFileOf, type SourceAnchor } from "./anchors"
@@ -1738,7 +1739,7 @@ const boot = async (resume?: Transport) => {
   // through this editor's own view layer. Frames: window.__dtHands.push.
   if (walk) {
     const game = walk.game
-    ;(window as unknown as Record<string, unknown>).__dtHands = mountHands({
+    const hands = mountHands({
       source: mountHandSource()?.screen,
       target: {
         live: () => !playing && !creator?.on && game.on,
@@ -1756,6 +1757,8 @@ const boot = async (resume?: Transport) => {
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
     })
+    ;(window as unknown as Record<string, unknown>).__dtHands = hands
+    mountHandUI(hands, ac.signal)
     ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({
       host,
       canvas,

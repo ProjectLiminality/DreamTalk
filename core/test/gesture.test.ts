@@ -22,10 +22,11 @@ const hand = (id: number, side: "left" | "right", x: number, y: number, o: { ope
   // ~0.45 s in a fist; the palm centre sits 0.3 s above the given point
   const reach = (0.45 + 0.75 * open) * s
   for (const [i, dx] of roots) j[i + 3] = [x + dx * s, y - 0.3 * s - Math.sqrt(Math.max(0, reach * reach - (dx * s) ** 2)), z]
-  // pinch: the index tip and thumb tip close on a contact point
+  // pinch: the index tip and thumb tip close on a contact point (out front);
+  // without a pinch the index curls with the other fingers (a fist curls all four)
   const contact = { x: x - 0.4 * s, y: y - 0.9 * s }
   const gap = 1.0 * s * (1 - (o.pinch ?? 0))
-  j[8] = [contact.x + 0.75 * gap * 0.7, contact.y - 0.75 * gap * 0.7, z]
+  if ((o.pinch ?? 0) > 0 || open >= 1) j[8] = [contact.x + 0.75 * gap * 0.7, contact.y - 0.75 * gap * 0.7, z]
   j[4] = [contact.x - 0.25 * gap * 0.7, contact.y + 0.25 * gap * 0.7, z]
   return { id, side, confidence: 1, joints: j, scale: s }
 }

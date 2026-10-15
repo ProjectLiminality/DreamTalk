@@ -67,18 +67,19 @@ export const palm = (h: Hand): Joint => {
 }
 
 /**
- * How closed the hand is, 0 open … 1 fist. The device's own reading when it
- * has one (the Leap and the simulator do); otherwise the four fingertips'
- * mean distance to the palm centre, in hand sizes, mapped from open (~1.15:
- * the palm centre sits ~0.8 up the palm, the tips ~1.9) to a fist (~0.55).
- * Scale-free, so near and far hands read alike.
+ * How closed the hand is, 0 open … 1 fist — from the joints, for every
+ * source alike, read off the LEAST curled fingertip: a fist curls all four
+ * into the palm, while a natural pinch may curl the others but keeps the
+ * index tip out front, meeting the thumb — so a pinch never reads as a grab.
+ * (The Leap's own grab number reads a curled-finger pinch as a fist, and has
+ * read a real fist as low as 0.37, so it is not used.) The farthest tip's
+ * distance to the palm centre, in hand sizes, maps from open (~1.1) to a
+ * fist (~0.6). Scale-free, so near and far hands read alike.
  */
 export const grabStrength = (h: Hand): number => {
-  if (h.grab !== undefined) return h.grab
   const c = palm(h)
-  const tips = [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]
-  let d = 0
-  for (const i of tips) d += dist(h.joints[i]!, c)
-  const r = d / tips.length / (h.scale || 1)
-  return Math.min(1, Math.max(0, (1.15 - r) / (1.15 - 0.55)))
+  let r = 0
+  for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(h.joints[i]!, c))
+  r /= h.scale || 1
+  return Math.min(1, Math.max(0, (1.1 - r) / (1.1 - 0.6)))
 }

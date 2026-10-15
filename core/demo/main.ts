@@ -21,6 +21,7 @@ import { GameLoop } from "./game"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
+import { mountHandUI } from "./handui"
 import { SessionRecorder } from "../editor/recorder"
 import { holonPathOf } from "../editor/checkpoint"
 
@@ -419,6 +420,8 @@ const main = async () => {
     listen: true,
   })
   ;(window as unknown as Record<string, unknown>).__dtHands = hands
+  // Calibration and hand talk, on screen while a hand is in play (C, I).
+  mountHandUI(hands, ac.signal)
   // ⇧R: a live session in free play (editor/recorder.ts) — the walk, the
   // view, the voice, and the hands (they stamp on its clock) — kept in
   // refs/sessions/<id>/. The player never writes the song: stopping links to
