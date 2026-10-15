@@ -20,6 +20,7 @@ import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop } from "./game"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
+import { mountSummoning } from "./summon"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -399,8 +400,12 @@ const main = async () => {
     signal: ac.signal,
     // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).
     jev: query.get("jev") === "1",
+    // No recorder in the player: with Jev on, it listens for itself.
+    listen: true,
   })
   ;(window as unknown as Record<string, unknown>).__dtHands = hands
+  // Summoning (demo/summon.ts): `invoke:<Symbol>` brings a shelf symbol in at the hand, `invoke:dismiss` sends it off.
+  ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({ host, canvas, signal: ac.signal })
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
   if (query.get("play") === "free") {
     playing = false

@@ -27,7 +27,7 @@ import { DOLLY_PER_NOTCH, type ViewLayer } from "../src/view"
 import { GOLD, cssOf } from "../src/constants"
 import { beginOverlay, makeOverlay } from "../editor/overlay"
 import { MudraRecogniser, learn, type Candidate, type MudraLibrary } from "../src/gesture/mudra"
-import { Jev, httpJev, type JevDecision, type TranscriptEvent } from "../src/gesture/jev"
+import { Jev, httpJev, type JevDecision } from "../src/gesture/jev"
 
 /** What a host offers the hands — the GameLoop in the player, the walk + view in the editor. */
 export interface HandTarget {
@@ -117,8 +117,14 @@ export interface HandPlay {
   calibrate(): Promise<PinchCalibration>
   readonly controller: GestureController
   readonly mudras: Mudras
-  /** What is being said (the recorder's transcript) — heard by Jev. */
-  hear(e: TranscriptEvent): void
+  /**
+   * What is being said — heard by Jev. Any source (the session recorder, a
+   * replay's transcript, the page's own listener): the line is stamped onto
+   * the HAND clock (the latest frame's t), so words and gestures share one.
+   */
+  hear(line: { text: string; final: boolean }): void
+  /** Is the page's own speech listener running (`listen`)? */
+  readonly listening: boolean
   /** Run an action by name. */
   act(action: string, by?: string): boolean
 }
@@ -129,6 +135,12 @@ export const mountHands = (opts: {
   source?: HandSource
   /** Ask the intent layer (POST /api/jev) about uncertain mudras. Off by default. */
   jev?: boolean
+  /**
+   * Listen with the browser's own speech recognition and feed Jev — for a
+   * page with no other voice (the player). Off when a recorder supplies the
+   * transcript: a browser runs one recognition at a time.
+   */
+  listen?: boolean
 }): HandPlay => {
   const { target } = opts
   const controller = new GestureController({ pinch: { calibration: loadCalibration() } })
@@ -143,6 +155,52 @@ export const mountHands = (opts: {
   let recogniser = new MudraRecogniser(store.library)
   const jev = new Jev({ backend: opts.jev ? httpJev() : undefined })
   let candidates: readonly Candidate[] = []
+  /** The latest frame's time — what a heard line is stamped with. */
+  let handClock = 0
+  /** Where the cursor last was (client px), while a hand is tracked. */
+  let pointAt: { x: number; y: number } | undefined
+  const hear = (line: { text: string; final: boolean }) => jev.hear({ t: handClock, text: line.text, final: line.final })
+  let listening = false
+  if (opts.jev && opts.listen) {
+    type Rec = {
+      continuous: boolean
+      interimResults: boolean
+      onresult: (e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void
+      onend: () => void
+      start(): void
+      stop(): void
+    }
+    const W = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec }
+    const R = W.SpeechRecognition ?? W.webkitSpeechRecognition
+    if (R) {
+      try {
+        const r = new R()
+        r.continuous = true
+        r.interimResults = true
+        r.onresult = (e) => {
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const res = e.results[i]!
+            const text = res[0]?.transcript.trim()
+            if (text) hear({ text, final: res.isFinal })
+          }
+        }
+        // Recognition stops on its own after a silence; keep listening while mounted.
+        r.onend = () => {
+          if (listening && !opts.signal.aborted) {
+            try {
+              r.start()
+            } catch {}
+          }
+        }
+        r.start()
+        listening = true
+        opts.signal.addEventListener("abort", () => {
+          listening = false
+          r.stop()
+        })
+      } catch {}
+    }
+  }
   let last: Mudras["last"]
   const save = () => {
     try {
@@ -163,7 +221,8 @@ export const mountHands = (opts: {
         return false
       }
     } else if (verb === "home") target.view()?.reset(performance.now())
-    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by } }))
+    // `at`: where the hand was (client px) — a summoned symbol appears there.
+    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointAt } }))
     else return false
     last = { action, by, t: performance.now() / 1000 }
     target.changed?.()
@@ -217,6 +276,8 @@ export const mountHands = (opts: {
 
   const push = (frame: HandFrame): Intent => {
     const it = controller.update(frame)
+    handClock = frame.t
+    if (it.cursor.tracked) pointAt = client(it.cursor)
     // Hand talk runs whether or not the scene is walkable: recording and
     // recognising do not need free play.
     if (recording) {
@@ -340,7 +401,10 @@ export const mountHands = (opts: {
     push,
     controller,
     mudras,
-    hear: (e) => jev.hear(e),
+    hear,
+    get listening() {
+      return listening
+    },
     act,
     calibrate: () =>
       new Promise<PinchCalibration>((resolve) => {

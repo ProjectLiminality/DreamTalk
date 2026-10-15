@@ -2766,6 +2766,64 @@ export class ThreeHost {
   }
 
   /**
+   * Attach a holon WHILE the scene runs — a symbol summoned by a hand
+   * (demo/summon.ts) — as a new root beside the dream's own. It draws as
+   * itself (never into an instanced batch: the batches' runs are laid out
+   * at mount), is pickable and glowable like any part, and is not in the
+   * Dream: no timeline touches it, so whoever summoned it animates it.
+   * Returns its release, which takes every trace of it out of the host.
+   */
+  adopt(holon: Holon): () => void {
+    void holon.parts // compose before attaching
+    const instanced = this.instanced
+    this.instanced = false
+    try {
+      this.attach(holon, this.scene)
+    } finally {
+      this.instanced = instanced
+    }
+    this.rootGroups = undefined
+    this.inks = undefined
+    this.freezeStaticMatrices()
+    return () => this.release(holon)
+  }
+
+  /** Take an adopted holon (and its subtree) out of the scene and every binding list. */
+  private release(holon: Holon): void {
+    const gone = new Set<Holon>(holon.walk())
+    const prune = <B extends { holon: Holon }>(list: readonly B[]): void => {
+      const l = list as B[]
+      for (let i = l.length - 1; i >= 0; i--) if (gone.has(l[i]!.holon)) l.splice(i, 1)
+    }
+    const root = this.groups.find((g) => g.holon === holon)?.group
+    prune(this.groups)
+    prune(this.strokes)
+    prune(this.cylinders)
+    prune(this.fills)
+    prune(this.washes)
+    prune(this.surfaces)
+    prune(this.polylines)
+    prune(this.drawingWashes)
+    prune(this.arrows)
+    prune(this.texts)
+    if (root) {
+      const sp = this.superpositions as { group: THREE.Group }[]
+      for (let i = sp.length - 1; i >= 0; i--) {
+        let o: THREE.Object3D | null = sp[i]!.group
+        while (o && o !== root) o = o.parent
+        if (o === root) sp.splice(i, 1)
+      }
+      root.removeFromParent()
+    }
+    for (const h of gone) {
+      this.rootOf.delete(h)
+      this.washedByAncestor.delete(h)
+    }
+    this.rootGroups = undefined
+    this.inks = undefined
+  }
+
+  /**
    * Glow a holon's ink (its whole subtree), several holons', or none
    * (null) — the editor's hover affordance over sovereign symbols. The
    * lift rides the tint and width values sync() already writes into the

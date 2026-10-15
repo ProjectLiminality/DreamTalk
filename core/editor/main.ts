@@ -43,6 +43,7 @@ import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
 import { mountHandSource } from "../hands/mount"
+import { mountSummoning } from "../demo/summon"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, sceneFileOf, type SourceAnchor } from "./anchors"
@@ -1754,6 +1755,12 @@ const boot = async (resume?: Transport) => {
       },
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
+    })
+    ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({
+      host,
+      canvas,
+      signal: ac.signal,
+      changed: () => void host.renderFrame(current),
     })
   }
 
