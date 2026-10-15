@@ -91,3 +91,26 @@ describe("holding the scene in one hand", () => {
 function applyR(R: Basis, a: V): V {
   return v(R[0].x * a.x + R[1].x * a.y + R[2].x * a.z, R[0].y * a.x + R[1].y * a.y + R[2].y * a.z, R[0].z * a.x + R[1].z * a.y + R[2].z * a.z)
 }
+
+describe("a held view has no pole", () => {
+  test("turned over the top — the eye past vertical, the picture upside down — it is placed exactly", () => {
+    const o = new Observer()
+    const layer = new ViewLayer(o)
+    const grab = handBasis([0, -1, 0], [0, 0, -1])
+    const start = layer.pose()
+    for (const a of [1.2, 1.5, 1.565, 1.6, 2.4, Math.PI - 0.05]) {
+      // The hand tips about the camera's x axis: the scene turns over.
+      const R = rot(v(1, 0, 0), a)
+      const now: Basis = [applyR(R, grab[0]), applyR(R, grab[1]), applyR(R, grab[2])]
+      const want = holdPose(start, v(0, 0, 0), v(0, 0, 0), grab, now)
+      layer.place(want)
+      layer.apply()
+      const got = layer.pose()
+      close(got.back, want.back, 6)
+      close(got.up, want.up, 6)
+      close(got.right, want.right, 6)
+    }
+    layer.release()
+    expect([o.phi.value, o.theta.value, o.tilt.value]).toEqual([0, 0, 0])
+  })
+})

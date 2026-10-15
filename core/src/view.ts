@@ -115,6 +115,15 @@ export const DOLLY_PER_NOTCH = 0.0015
 export const RETURN_SECONDS = 0.4
 /** Just shy of the poles, where lookAt's up flips and the picture spins. */
 export const THETA_LIMIT = Math.PI / 2 - (5 * Math.PI) / 180
+/**
+ * A HELD view (place) has no pole: the eye may pass over the top like an
+ * object turned in the hand. Its orientation is still the observer's own
+ * phi / theta / tilt — every eye direction is one (theta in [−90°, 90°]),
+ * and tilt carries the rest of the turn: over the pole phi and tilt each
+ * jump by π and the picture does not move. Only the pole itself, where
+ * lookAt's up is undefined, is kept a hair away.
+ */
+const HELD_THETA_LIMIT = Math.PI / 2 - 1e-4
 /** How much of the frame's height a framed holon fills. */
 const FRAME_FILL = 0.6
 
@@ -139,6 +148,8 @@ export class ViewLayer {
   /** The solids the eye stays out of — read on every apply. */
   keepOuts: () => readonly KeepOut[] = () => []
   #glide: { from: ViewDelta; to: ViewDelta; start: number; seconds: number } | undefined
+  /** Placed by a hand (no pole) — until a gesture with a pole (orbit), a reset or release. */
+  #held = false
 
   constructor(observer: Observer) {
     this.observer = observer
@@ -162,8 +173,12 @@ export class ViewLayer {
     const d = this.delta
     d.phi -= (dx / (width || 1)) * ORBIT_PER_WIDTH
     // Elevation is clamped on the EFFECTIVE pose, not the delta alone.
+    // A view a hand left past the limit is not snapped back: it may only come in.
     const authored = this.#authored().theta
-    d.theta = clamp(authored + d.theta + (dy / (width || 1)) * ORBIT_PER_WIDTH, -THETA_LIMIT, THETA_LIMIT) - authored
+    const now = authored + d.theta
+    const limit = Math.max(THETA_LIMIT, Math.abs(now))
+    d.theta = clamp(now + (dy / (width || 1)) * ORBIT_PER_WIDTH, -limit, limit) - authored
+    if (Math.abs(authored + d.theta) <= THETA_LIMIT) this.#held = false
   }
 
   /**
@@ -293,6 +308,7 @@ export class ViewLayer {
   /** Back to the authored camera — eased, never a cut. */
   reset(now: number, seconds = RETURN_SECONDS): void {
     if (!this.active) return
+    this.#held = false
     this.glideTo({ ...ZERO_VIEW }, now, seconds)
   }
 
@@ -326,7 +342,8 @@ export class ViewLayer {
     const a = this.#authored()
     const d = this.delta
     o.phi.bias = d.phi
-    o.theta.bias = clamp(a.theta + d.theta, -THETA_LIMIT, THETA_LIMIT) - a.theta
+    const limit = this.#held ? HELD_THETA_LIMIT : THETA_LIMIT
+    o.theta.bias = clamp(a.theta + d.theta, -limit, limit) - a.theta
     o.tilt.bias = d.tilt
     o.x.bias = d.x
     o.y.bias = d.y
@@ -388,6 +405,7 @@ export class ViewLayer {
   /** Every bias 0, every gate 1 — the authored camera, exactly. */
   release(): void {
     this.#glide = undefined
+    this.#held = false
     this.delta = { ...ZERO_VIEW }
     const o = this.observer
     for (const p of biased(o)) p.bias = 0
@@ -422,6 +440,7 @@ export class ViewLayer {
    */
   place(p: Pose): void {
     this.#glide = undefined
+    this.#held = true
     const o = this.observer
     const r = o.orthographic.value ? o.radius.value : o.radius.value / (o.zoom.value || 1)
     const phi = Math.atan2(p.back.x, p.back.z)
