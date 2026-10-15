@@ -70,6 +70,12 @@ export interface HandSource {
 const SCRUB_STEP = 0.25
 /** The hand's depth (box widths either side of its centre) that spans the spark's −1 … +1. */
 const DEPTH_RANGE = 0.3
+/**
+ * The spark's depth zero is where the pointing hand RESTS, not the device's
+ * centre (David's right hand rests ~4 cm toward him): a slow running mean of
+ * its depth over this many seconds while it points (never while pinched).
+ */
+const DEPTH_SETTLE = 30
 const GRAB_HAND_KEY = "dreamtalk.hands.grab"
 /** Which hand grabs: `?grab=left|right|either`, else this browser's choice, else the left. */
 const loadGrabHand = (): GrabHand => {
@@ -170,6 +176,8 @@ export interface HandPlay {
   calibration: PinchCalibration
   /** Back to the last fitted calibration (C), or the default if none was fitted. */
   resetCalibration(): PinchCalibration
+  /** Make where the pointing hand is now the spark's depth zero (it then keeps following the rest, slowly). */
+  centreDepth(): void
   readonly controller: GestureController
   readonly mudras: Mudras
   /**
@@ -432,10 +440,12 @@ export const mountHands = (opts: {
   let place: SparkPlace | undefined
   let hidden = 0
   let depth = 0
+  /** The pointing hand's resting depth (cursor z) — the spark's zero. */
+  let rest: { z: number; t: number } | undefined
   /** Stand the spark at this client point and hand depth; what asks "what is here" then asks it. */
   const aim = (x: number, y: number, z: number) => {
     if (!target.sparkAt || !target.pointWith) return
-    depth = Math.max(-1.3, Math.min(1.3, z / DEPTH_RANGE))
+    depth = Math.max(-1.3, Math.min(1.3, (z - (rest?.z ?? 0)) / DEPTH_RANGE))
     place = target.sparkAt(x, y, depth)
     hidden = place ? target.pointWith(place.spark) : 0
   }
@@ -502,6 +512,14 @@ export const mountHands = (opts: {
         recorderLinked = true
         const off = rec.onTranscript((l) => hear(l))
         opts.signal.addEventListener("abort", off)
+      }
+    }
+    if (it.cursor.tracked && !it.cursor.pinched) {
+      const z = it.cursor.z
+      if (!rest) rest = { z, t: frame.t }
+      else {
+        const dt = Math.min(1, Math.max(0, frame.t - rest.t))
+        rest = { z: rest.z + (z - rest.z) * Math.min(1, dt / DEPTH_SETTLE), t: frame.t }
       }
     }
     if (it.cursor.tracked) {
@@ -683,6 +701,9 @@ export const mountHands = (opts: {
       try {
         localStorage.setItem(CALIBRATION_KEY, JSON.stringify(c))
       } catch {}
+    },
+    centreDepth() {
+      if (latest?.cursor.tracked) rest = { z: latest.cursor.z, t: latest.t }
     },
     resetCalibration() {
       let fit = loadCalibration(FITTED_KEY)

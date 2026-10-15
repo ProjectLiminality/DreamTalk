@@ -82,7 +82,8 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
         `<input type="range" data-k="${k}" min="${lo}" max="${hi}" step="0.01" style="flex:1;accent-color:rgb(255,199,84)">` +
         `<span data-v="${k}" style="min-width:36px;text-align:right;color:#ddd"></span></div>`,
     ).join("") +
-    `<div class="dt-hui-row"><a href="#" data-do="reset" style="color:#888">reset to calibrated</a></div>`
+    `<div class="dt-hui-row"><a href="#" data-do="reset" style="color:#888">reset to calibrated</a>` +
+    `<span style="flex:1"></span><a href="#" data-do="centre" style="color:#888" title="the spark's depth zero follows your resting hand by itself; this sets it now">centre depth here</a></div>`
   const showTune = () => {
     const c = hands.calibration
     for (const [k] of SLIDERS) {
@@ -98,7 +99,13 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
     tune.querySelector(`[data-v="${k}"]`)!.textContent = Number(el.value).toFixed(2)
   })
   tune.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).dataset.do !== "reset") return
+    const what = (e.target as HTMLElement).dataset.do
+    if (what === "centre") {
+      e.preventDefault()
+      hands.centreDepth()
+      return
+    }
+    if (what !== "reset") return
     e.preventDefault()
     hands.resetCalibration()
     showTune()
