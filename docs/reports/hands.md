@@ -83,11 +83,15 @@ curl decides.
 - **Bind it.** Bind each gesture to an action:
   - a scene state (`fire:<axis>`);
   - `home`;
-  - `invoke:<Symbol>`, which summons any shelf symbol at your hand's point;
-  - `invoke:dismiss`.
+  - `invoke:<Symbol>`, which summons any shelf symbol where your spark
+    stands, depth and all;
+  - `invoke:dismiss`, which takes away the summoned symbol the spark is at
+    (else the latest).
 - **Jev.** With `?jev=1`, uncertain gestures and what is being said go to
   the fast intent model, Jev. The session recorder's transcript feeds it,
-  and a replay's transcript is heard as its frames pass.
+  and a replay's transcript is heard as its frames pass. In the player
+  with `?jev=1` the page listens for itself, and steps aside while ⇧R
+  records.
 
 ## Settings at a glance
 
