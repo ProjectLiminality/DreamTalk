@@ -31,6 +31,8 @@ export class LeapSource extends HandEmitter implements HandSource {
   readonly kind = "leap" as const
   #ws?: WebSocket
   #running = false
+  #pending?: HandFrame
+  #flush?: number
   #url: string
   constructor(url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/hands`) {
     super()
@@ -54,8 +56,19 @@ export class LeapSource extends HandEmitter implements HandSource {
         }
         if (m.kind === "status") this.say(`leap: ${m.text}`)
         else if (m.kind === "frame") {
-          this.say(`leap: ${m.frame.hands.length ? `${m.frame.hands.length} hand${m.frame.hands.length > 1 ? "s" : ""}` : "no hands"}`)
-          this.emit(m.frame)
+          // The Leap sends ~100 frames/s. Keep only the newest and hand it on
+          // once per display frame: a consumer slower than the device then
+          // sees the present, never a growing queue of the past (the
+          // "slow-motion hand").
+          this.#pending = m.frame
+          this.#flush ??= requestAnimationFrame(() => {
+            this.#flush = undefined
+            const f = this.#pending
+            this.#pending = undefined
+            if (!f || !this.#running) return
+            this.say(`leap: ${f.hands.length ? `${f.hands.length} hand${f.hands.length > 1 ? "s" : ""}` : "no hands"}`)
+            this.emit(f)
+          })
         }
       }
       ws.onopen = () => this.say("leap: waiting for the bridge… (is `bun run studio` running?)")
@@ -69,6 +82,9 @@ export class LeapSource extends HandEmitter implements HandSource {
   }
   stop(): void {
     this.#running = false
+    if (this.#flush !== undefined) cancelAnimationFrame(this.#flush)
+    this.#flush = undefined
+    this.#pending = undefined
     this.#ws?.close()
     this.say("leap: off")
   }
