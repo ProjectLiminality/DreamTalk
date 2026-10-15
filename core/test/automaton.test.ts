@@ -232,3 +232,23 @@ describe("the vocabulary's own state spaces", () => {
     }
   })
 })
+
+describe("scrub — a hand dragging an axis", () => {
+  test("holds the axis at a continuous blend, then settles to the nearest position without a jump", () => {
+    const lamp = new Lamp()
+    const a = new Automaton(gatherStateSpace([lamp]))
+    a.enter()
+    a.clock = 1
+    a.scrub("grain", 0.3)
+    a.apply()
+    expect(lamp.grain.value).toBeCloseTo(0.3, 12)
+    expect(a.position("grain")).toBe("plain")
+    a.scrub("grain", 0.8)
+    a.apply()
+    expect(lamp.grain.value).toBeCloseTo(0.8, 12)
+    expect(a.position("grain")).toBe("sorted")
+    a.settle("grain")
+    expect(a.valueAt(lamp.grain, 1) as number).toBeCloseTo(0.8, 12) // no jump at release
+    expect(a.valueAt(lamp.grain, 3)).toBe(1) // eased on to the nearest position
+  })
+})

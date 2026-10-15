@@ -484,6 +484,41 @@ export class Automaton {
     for (const [p, goal] of goals) this.#retarget(p, goal, a, t)
   }
 
+  /**
+   * Hold an axis at a CONTINUOUS point of its positions — `u` ∈ [0, n − 1]
+   * in cycle order (u = 1.5: halfway from the second position to the
+   * third) — the hand's pinch-and-drag on a handle. Every param of the axis
+   * stands still at the blend (numbers and colours interpolate; a flag or a
+   * word steps at the halfway); the axis reads as its nearest position.
+   * Let go with `settle`, which eases on from where it stands.
+   */
+  scrub(id: string, u: number): void {
+    const a = this.axis(id)
+    const n = a.positions.length
+    const k = Math.min(Math.max(u, 0), n - 1)
+    const i = Math.min(Math.floor(k), n - 2)
+    const f = k - i
+    const A = a.positions[i]!
+    const B = a.positions[i + 1]!
+    const t = this.clock
+    for (const p of a.params()) {
+      const va = A.values.get(p) ?? this.#goal(p)
+      const vb = B.values.get(p) ?? this.#goal(p)
+      const x = vec(va)
+      const y = vec(vb)
+      const v = x && y ? unvec(va, x.map((xi, j) => xi + (y[j]! - xi) * f)) : f < 0.5 ? va : vb
+      if (!this.#base.has(p)) this.#base.set(p, p.value)
+      this.#motion.set(p, { kind: "ease", from: v, v0: x ? x.map(() => 0) : [], to: v, t0: t, d: 0 })
+      this.#motionAxis.set(p, a.id)
+    }
+    this.#position.set(id, a.positions[Math.round(k)]!.name)
+  }
+
+  /** End a scrub: ease on to the nearest position (or `position`), from where it stands. */
+  settle(id: string, position?: string): void {
+    this.fire(id, position ?? this.position(id))
+  }
+
   /** Where a param is heading: its motion's end, else where it stands. */
   #goal(p: Param<ParamValue>): ParamValue {
     return this.#motion.get(p)?.to ?? this.#base.get(p) ?? p.value
