@@ -24,6 +24,7 @@
 
 import { together, type Anim } from "./anim"
 import type { Axis, StateSpace } from "./automaton"
+import type { HolonAction } from "./actions"
 import type { KeepOut } from "./view"
 import {
   angle,
@@ -276,6 +277,15 @@ export class Holon {
    * holon is not walkable on its own.
    */
   stateSpace(): StateSpace | undefined {
+    return undefined
+  }
+
+  /**
+   * Optional: what this holon can DO when a viewer touches it
+   * (src/actions.ts) — the sibling of stateSpace(). The host adds the ones
+   * every sovereign symbol has (open its DreamNode, dive in).
+   */
+  actions(): HolonAction[] | undefined {
     return undefined
   }
 

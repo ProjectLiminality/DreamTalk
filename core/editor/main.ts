@@ -82,6 +82,10 @@ import { EditorWalk } from "./walk"
 import { mountSaveState, poseParams } from "./savestate"
 import { mountMorphTo } from "./morphto"
 import { mountBecoming } from "./becoming"
+import { mountActions, type Actions } from "./actions"
+import { resolvePlace } from "./dreamnodes"
+import { SessionRecorder, type RecorderOpts } from "./recorder"
+import { mountSessions } from "./sessions"
 import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } from "./statelanes"
 import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type ChangedRange, type OpDescriptor } from "./undo"
@@ -178,6 +182,8 @@ declare global {
     __dtUndo?: UndoStack
     /** A note parked for the mount the current reload is about to build. */
     __dtNote?: string
+    /** The live-session recorder — kept across remounts (editor/recorder.ts). */
+    __dtRecorder?: SessionRecorder
   }
 }
 
@@ -272,6 +278,13 @@ const sendOp = (op: Record<string, unknown>) => {
   ws.send(JSON.stringify({ opId: undoStack.nextOpId(), ...op }))
 }
 
+// --- The session recorder (a singleton too: a recording outlives remounts) --
+const keepRecorder = (opts: RecorderOpts): SessionRecorder => {
+  const recorder = (window.__dtRecorder ??= new SessionRecorder(opts))
+  recorder.rebind(opts)
+  return recorder
+}
+
 // --- The (re)mountable editor ----------------------------------------------
 
 const boot = async (resume?: Transport) => {
@@ -329,7 +342,13 @@ const boot = async (resume?: Transport) => {
   for (const key of Object.keys(scenes)) if (key.startsWith("board:")) delete scenes[key]
   Object.assign(scenes, await loadBoards())
   const sceneKey = new URLSearchParams(location.search).get("scene") ?? defaultScene
-  const DreamCtor = scenes[sceneKey] ?? scenes[defaultScene]!
+  // `?path=` — a DreamNode one or more layers down the holarchy ("dive in",
+  // editor/actions.ts): the Dream Explorer's own addressing (dreamnodes.ts).
+  const placePath = (new URLSearchParams(location.search).get("path") ?? "").split("/").filter(Boolean)
+  const DreamCtor =
+    placePath.length && scenes[sceneKey]
+      ? resolvePlace(scenes, sceneKey, placePath).Dream
+      : (scenes[sceneKey] ?? scenes[defaultScene]!)
   const dream = new DreamCtor()
   const host = await ThreeHost.mount(dream, canvas)
   const duration = dream.duration
@@ -535,6 +554,8 @@ const boot = async (resume?: Transport) => {
   let ptransport: PlayerTransport | undefined
   // The walk's lanes under the clip rows (editor/statelanes.ts), beside the timeline.
   let lanes: StateLanesHandle | undefined
+  // Holon actions (editor/actions.ts) — mounted with the viewport, read by the inspector before.
+  let actions: Actions | undefined
 
   // --- Inspector: the SELECTED holon's properties, and nothing else --------
   //
@@ -797,6 +818,14 @@ const boot = async (resume?: Transport) => {
       // The scene's state space: where each axis stands, every position a button.
       walk?.inspect(paramsRoot, null)
       mountPoseSaver()
+      // Below another scene (dived in): the way back up.
+      if (actions && placePath.length) {
+        const up = document.createElement("div")
+        up.className = "actionrow"
+        up.textContent = `↑ up to ${placePath.length > 1 ? placePath[placePath.length - 2] : sceneKey}`
+        up.addEventListener("click", () => actions?.up())
+        paramsRoot.appendChild(up)
+      }
       const hint = document.createElement("div")
       hint.className = "empty"
       hint.textContent = "Nothing selected — click an object in the viewport."
@@ -826,6 +855,7 @@ const boot = async (resume?: Transport) => {
     const groups = inspectorGroups(holon, animated)
     walk?.inspect(paramsRoot, holon)
     mountPoseSaver()
+    actions?.inspect(paramsRoot, holon)
     if (morphTo) {
       const into = document.createElement("div")
       into.className = "morphto"
@@ -1815,6 +1845,12 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
+      // ⇧R: record a live session (editor/recorder.ts) — the walk, the view, the voice.
+      if (!typing && e.code === "KeyR" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && session) {
+        e.preventDefault()
+        void session.toggle()
+        return
+      }
       // The becoming (⇧B, then [ ] and Esc) — the song's history over the viewport.
       if (!typing && becoming?.key(e)) {
         e.preventDefault()
@@ -1887,7 +1923,9 @@ const boot = async (resume?: Transport) => {
         else doUndo()
       }
       if (e.code === "Escape") {
-        if (morphTo?.cancel()) {
+        if (actions?.closeMenu()) {
+          // The action menu closes first — nothing ran.
+        } else if (morphTo?.cancel()) {
           // A morph waiting for its target lets go — nothing written.
         } else if (cancelAxis()) {
           // An axis drag in flight dies here — the override reverted, nothing written.
@@ -2008,6 +2046,62 @@ const boot = async (resume?: Transport) => {
     app.style.setProperty("--timeline-h", `${132 + Math.min(8 * 16, lanesHeight(laneCount))}px`)
   }
   syncLanes()
+
+  // --- Holon actions (editor/actions.ts) ------------------------------------
+  //
+  // What a symbol can DO: every DreamNode opens its source and dives one
+  // layer down; a holon adds its own (`actions()`). In the inspector, and
+  // on a long press over the viewport (hands: pinch-hold → menuAt).
+  actions = playerMode
+    ? undefined
+    : mountActions({
+        canvas,
+        pick: pickAt,
+        sceneKey,
+        path: placePath,
+        showSource: (file) => {
+          if (!code) return
+          if (!code.open) toggleCode()
+          void code.load(file)
+        },
+        busy: () => !!move || !!axis || !!morphTo?.picking,
+        note: (text) => showNote(text),
+        signal: ac.signal,
+      })
+
+  // --- Live sessions (editor/recorder.ts, scripts/session.ts) ----------------
+  //
+  // ⇧R records a walk — every fire, the view, the voice — into
+  // refs/sessions/<id>/; stopping offers to write it into the song as a
+  // passage after the clip the walk was held in (appendSession, undoable).
+  // `?session=<id>` (the player's "write it in the editor") offers that too.
+  const session = playerMode
+    ? undefined
+    : mountSessions({
+        track: $("track"),
+        dream,
+        recorder: keepRecorder({
+          scene: sceneKey,
+          sceneFile: () => sceneFile,
+          automaton: () => walk?.game.automaton,
+          observer: dream.observer,
+          heldAt: () => current,
+          pathOf: (h) => {
+            const path = holonPathOf(dream, h)
+            return path ? `this.${path}` : undefined
+          },
+          clocks: () => walk?.capture((h) => holonPathOf(dream, h)).clocks ?? [],
+          note: (text) => showNote(text),
+        }),
+        sceneFile: () => sceneFile,
+        currentT: () => current,
+        isPlaying: () => playing,
+        pause: () => pause(),
+        send: sendOp,
+        note: (text) => showNote(text),
+        pending: new URLSearchParams(location.search).get("session") ?? undefined,
+        signal: ac.signal,
+      })
 
   // --- The becoming (editor/becoming.ts) -------------------------------------
   //
@@ -2139,6 +2233,7 @@ const boot = async (resume?: Transport) => {
     const walked = walk?.step(now) ?? false
     syncLanes()
     becoming?.sync(current)
+    session?.tick(now)
     if (playing) {
       // A still (a board with no choreography yet) has no time to loop.
       const t = duration > 0 ? ((now - anchor) / 1000) % duration : 0
@@ -2240,10 +2335,14 @@ const boot = async (resume?: Transport) => {
     if (q.has("backdrop") && !playerMode) {
       setBackdrop(q.get("backdrop")!, q.get("mode") ?? "under", Number(q.get("offset") ?? 0))
     }
-    await settled(Number(q.get("t") ?? 0))
+    // A node dived into (?path=) opens built, held and framed — a symbol
+    // you went down to look at, at its own size, not a cutscene.
+    const dived = placePath.length > 0 && !q.has("t") && !playerMode
+    await settled(dived ? duration : Number(q.get("t") ?? 0))
+    if (dived && dream.roots[0]) frameHolon(dream.roots[0])
     // The player is the cutscene loop: it plays unless told not to. The
     // creator editor holds still on a ?t= deep link.
-    if (q.get("autoplay") !== "0" && (playerMode || !q.has("t"))) play()
+    else if (q.get("autoplay") !== "0" && (playerMode || !q.has("t"))) play()
   }
 
   // What headless driving can reach: the transport, the camera and the
@@ -2375,6 +2474,27 @@ const boot = async (resume?: Transport) => {
       owns: (x: number, y: number) => walk.owns(x, y),
       clickAt: (x: number, y: number) => walk.game.clickAt(x, y),
       seconds: () => walk.seconds,
+    },
+    // --- Holon actions, driven headlessly (and by hands: pinch-hold) ---------
+    actions: actions && {
+      at: (x: number, y: number) => {
+        const found = actions?.at(x, y)
+        return found && { holon: classNameOf(found.holon), actions: found.actions.map((a) => ({ id: a.id, label: a.label })) }
+      },
+      menuAt: (x: number, y: number) => actions?.menuAt(x, y) ?? false,
+      closeMenu: () => actions?.closeMenu() ?? false,
+      run: (x: number, y: number, id: string) => {
+        const found = actions?.at(x, y)
+        return found && actions ? actions.run(found.holon, id) : Promise.resolve(false)
+      },
+      up: () => actions?.up() ?? false,
+    },
+    // --- Live sessions, driven headlessly --------------------------------------
+    session: session && {
+      toggle: () => session.toggle(),
+      recording: () => session.recording,
+      write: (id?: string) => session.write(id),
+      last: () => session.last,
     },
     // --- The becoming, driven headlessly --------------------------------------
     becoming: becoming && {

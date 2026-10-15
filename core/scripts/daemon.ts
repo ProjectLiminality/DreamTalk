@@ -61,6 +61,7 @@ import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
 import { becomingResponse, history as becomingHistory } from "./becoming"
+import { passageOf, prepareVoice, readSession, sessionFileResponse } from "./session"
 import { displayHub } from "../sketch/display"
 import type { InstructRequest, RecognizeRequest } from "../sketch/protocol"
 import { changedRange, type ChangedRange } from "../editor/undo"
@@ -68,6 +69,7 @@ import type { BunPlugin, ServerWebSocket } from "bun"
 import {
   applyAppendCheckpoint,
   applySaveState,
+  applyAppendPassage,
   applyDeleteSpan,
   applyInsertSpan,
   applySetBackdrop,
@@ -82,6 +84,7 @@ import {
   type DeleteSpanOp,
   type InsertSpanOp,
   type SaveStateOp,
+  type AppendSessionOp,
   type OpResult,
   type SetBackdropOp,
   type SetOverrideOp,
@@ -466,6 +469,7 @@ type OpMessage = (
   | DeleteSpanOp
   | InsertSpanOp
   | SaveStateOp
+  | AppendSessionOp
 ) & {
   type: "op"
   file?: string
@@ -550,7 +554,7 @@ const inverseFor = (
   }
   // appendCheckpoint INSERTS, and deleteSpan/insertSpan are undo's own
   // ops — all three invert as "put these exact byte ranges back".
-  if (msg.op === "appendCheckpoint" || msg.op === "saveState" || msg.op === "deleteSpan" || msg.op === "insertSpan")
+  if (msg.op === "appendCheckpoint" || msg.op === "appendSession" || msg.op === "saveState" || msg.op === "deleteSpan" || msg.op === "insertSpan")
     return spanEditInverse(before, after, file)
   return undefined
 }
@@ -614,6 +618,7 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     "setBackdrop",
     "setOverride",
     "appendCheckpoint",
+    "appendSession",
     "saveState",
     "setRunTime",
     "deleteSpan",
@@ -633,8 +638,25 @@ const applyOp = async (ws: ServerWebSocket<unknown>, msg: OpMessage): Promise<vo
     log("op base hash stale — rebasing onto current content")
   }
 
+  // A live session is rendered here, from its own folder — never from text
+  // the client sent (scripts/session.ts): its voice transcribed if need be
+  // and cut into the narration cache, then the passage written like any op.
+  let passage = ""
+  if (msg.op === "appendSession") {
+    try {
+      passage = passageOf(await prepareVoice(repoRoot, await readSession(repoRoot, msg.id)))
+    } catch (err) {
+      return reject(`session: ${String((err as Error).message ?? err)}`)
+    }
+  }
   const apply = (): OpResult => {
     switch (msg.op) {
+      case "appendSession":
+        return applyAppendPassage(
+          current,
+          { placement: msg.placement, anchor: msg.anchor, ordinal: msg.ordinal, file },
+          passage,
+        )
       case "setBackdrop":
         return applySetBackdrop(current, { op: "setBackdrop", path: msg.path, offset: msg.offset })
       case "setRunTime":
@@ -843,6 +865,8 @@ const server = Bun.serve<SocketData>({
     const face = FACE_PATH.exec(url.pathname)
     if (face) return faceResponse(face[1]!)
     // The becoming (scripts/becoming.ts): a song's history, and each commit's own player.
+    if (url.pathname.startsWith("/api/session/"))
+      return sessionFileResponse(req, repoRoot, decodeURIComponent(url.pathname.slice("/api/session/".length)))
     if (url.pathname === "/api/becoming") return becomingHistoryResponse(url.searchParams.get("file"))
     if (url.pathname.startsWith("/becoming/")) return (await becomingResponse(repoRoot, url.pathname)) ?? serveStatic(url.pathname)
     return serveStatic(url.pathname)

@@ -494,6 +494,73 @@ const ensureMorphImport = (file: SourceFile, relFile?: string): string | undefin
  * the scene's own idiom — explicit param references under `together` —
  * so the generated line is indistinguishable from a hand-written one.
  */
+/**
+ * Where a statement goes among unfold()'s: after/before the statement that
+ * holds the anchored play (or, in a helper-played song, the one its
+ * ordinal names), or at the end. Shared by every op that inserts a beat.
+ */
+const placeInUnfold = (
+  source: string,
+  op: { placement: "after" | "before" | "end"; anchor?: { start: number; end: number }; ordinal?: number },
+): { unfold: MethodDeclaration; index: number } | string => {
+  const unfold = findUnfold(source)
+  if (!unfold) return "no class with an unfold() method found"
+  if (!unfold.getBody()) return "unfold() has no body"
+  // insertStatements() counts comment nodes as statements, so the index
+  // must be found in the SAME list — a DreamWeaving's prose comments
+  // otherwise shift every insertion up by one per comment above it.
+  const statements = unfold.getStatementsWithComments()
+  let index = statements.length
+  if (op.placement !== "end") {
+    if (!op.anchor) return `placement '${op.placement}' needs an anchor span`
+    const { start, end } = op.anchor
+    let at = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
+    if (at < 0 && op.ordinal !== undefined) {
+      const found = playStatement(unfold, statements, op.anchor, op.ordinal)
+      if (typeof found === "string") return found
+      // Inside a statement that plays several, only its edge is a place.
+      if (found && found.offset !== (op.placement === "before" ? 0 : found.plays - 1))
+        return "that clip is one of several a single statement plays — place it by hand"
+      if (found) at = found.index
+    }
+    if (at < 0) return "no statement at the anchored span — reload and recapture"
+    index = op.placement === "before" ? at : at + 1
+  }
+  return { unfold, index }
+}
+
+/**
+ * A recorded live session written into the song (scripts/session.ts): the
+ * passage — statements the daemon generated from the session folder, never
+ * text a client sent — inserted after the clip the walk was held in.
+ */
+export interface AppendSessionOp {
+  op: "appendSession"
+  /** The session id (refs/sessions/<id>) — the daemon reads and renders it. */
+  id: string
+  placement: "after" | "before" | "end"
+  anchor?: { start: number; end: number }
+  ordinal?: number
+  file?: string
+}
+
+export const applyAppendPassage = (
+  source: string,
+  op: Omit<AppendSessionOp, "op" | "id">,
+  passage: string,
+): OpResult => {
+  if (!passage.trim()) return { ok: false, reason: "an empty session — nothing to write" }
+  const placed = placeInUnfold(source, op)
+  if (typeof placed === "string") return { ok: false, reason: placed }
+  const { unfold, index } = placed
+  unfold.insertStatements(index, passage)
+  if (passage.includes("together(")) {
+    const failure = ensureTogetherImport(unfold.getSourceFile(), op.file)
+    if (failure) return { ok: false, reason: failure }
+  }
+  return { ok: true, text: unfold.getSourceFile().getFullText() }
+}
+
 export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): OpResult => {
   const transitions = op.transitions ?? []
   const clocks = op.clocks ?? []
@@ -516,32 +583,9 @@ export const applyAppendCheckpoint = (source: string, op: AppendCheckpointOp): O
       return { ok: false, reason: `target '${target.path}' has a non-finite value` }
   }
 
-  const unfold = findUnfold(source)
-  if (!unfold) return { ok: false, reason: "no class with an unfold() method found" }
-  if (!unfold.getBody()) return { ok: false, reason: "unfold() has no body" }
-
-  // insertStatements() counts comment nodes as statements, so the index
-  // must be found in the SAME list — a DreamWeaving's prose comments
-  // otherwise shift every insertion up by one per comment above it.
-  const statements = unfold.getStatementsWithComments()
-  let index = statements.length
-  if (op.placement !== "end") {
-    if (!op.anchor) return { ok: false, reason: `placement '${op.placement}' needs an anchor span` }
-    const { start, end } = op.anchor
-    const direct = statements.findIndex((s) => s.getStart() <= start && s.getEnd() >= end)
-    let at = direct
-    if (at < 0 && op.ordinal !== undefined) {
-      const found = playStatement(unfold, statements, op.anchor, op.ordinal)
-      if (typeof found === "string") return { ok: false, reason: found }
-      // Inside a statement that plays several, only its edge is a place.
-      if (found && found.offset !== (op.placement === "before" ? 0 : found.plays - 1))
-        return { ok: false, reason: "that clip is one of several a single statement plays — place it by hand" }
-      if (found) at = found.index
-    }
-    if (at < 0)
-      return { ok: false, reason: "no statement at the anchored span — reload and recapture" }
-    index = op.placement === "before" ? at : at + 1
-  }
+  const placed = placeInUnfold(source, op)
+  if (typeof placed === "string") return { ok: false, reason: placed }
+  const { unfold, index } = placed
 
   const duration = numberLiteral(op.duration ?? 1)
   const calls = [
