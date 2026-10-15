@@ -18,6 +18,7 @@ import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop } from "./game"
+import { mountHands } from "./handplay"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -374,6 +375,24 @@ const main = async () => {
     hoverAt: (x: number, y: number) => game.hoverAt(x, y),
     clickAt: (x: number, y: number) => game.clickAt(x, y),
   }
+  // Hands (demo/handplay.ts): any HandFrame source pushes here — the
+  // webcam / Leap / replay / simulator (src/hands), or a harness. In free
+  // play the pinch cursor hovers and clicks symbol parts, a pinch-drag on a
+  // handle scrubs its axis, closed hands grab the scene.
+  const hands = mountHands({
+    target: {
+      live: () => game.on && !creator.on && !explorer.on,
+      hoverAt: (x, y) => game.hoverAt(x, y),
+      click: (x, y) => game.click(x, y),
+      axisAt: (x, y) => game.axisAt(x, y),
+      axisIndex: (id) => game.axisIndex(id),
+      scrubAxis: (id, u) => game.scrubAxis(id, u),
+      settleAxis: (id) => game.settleAxis(id),
+      view: () => game.view,
+    },
+    signal: ac.signal,
+  })
+  ;(window as unknown as Record<string, unknown>).__dtHands = hands
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
   if (query.get("play") === "free") {
     playing = false

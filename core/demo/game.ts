@@ -529,6 +529,33 @@ export class GameLoop {
     this.click(clientX, clientY, now + 150)
   }
 
+  /** The walkable axis whose handle is under this client point, if any (a hand's pinch asks). */
+  axisAt(clientX: number, clientY: number): string | undefined {
+    if (!this.#live()) return undefined
+    return this.#ownerAt(clientX, clientY)?.axis.id
+  }
+
+  /** Where an axis stands as a continuous index into its positions, and how many there are. */
+  axisIndex(id: string): { i: number; n: number } {
+    const a = this.automaton.axis(id)
+    return { i: Math.max(0, a.positions.findIndex((p) => p.name === this.automaton.position(id))), n: a.positions.length }
+  }
+
+  /** Hold an axis at continuous point u (a hand dragging its handle; Automaton.scrub). */
+  scrubAxis(id: string, u: number): void {
+    if (!this.#on) return
+    this.automaton.scrub(id, u)
+    this.#renderHud()
+  }
+
+  /** Let a scrubbed axis go: it eases on to its nearest position. */
+  settleAxis(id: string): void {
+    if (!this.#on) return
+    this.automaton.settle(id)
+    this.#flash = performance.now()
+    this.#renderHud()
+  }
+
   /** Click as if here: fires the owning axis, if any. */
   clickAt(clientX: number, clientY: number): string | undefined {
     const hit = this.#ownerAt(clientX, clientY)
