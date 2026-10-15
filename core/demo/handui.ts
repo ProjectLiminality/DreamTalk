@@ -61,10 +61,55 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
   prompt.className = "dt-hui dt-hui-prompt"
   const buttons = document.createElement("div")
   buttons.className = "dt-hui dt-hui-buttons"
-  buttons.innerHTML = `<button data-do="calibrate">calibrate · C</button><button data-do="talk">hand talk · I</button>`
+  buttons.innerHTML = `<button data-do="pinch">pinch point</button><button data-do="calibrate">calibrate · C</button><button data-do="talk">hand talk · I</button>`
   const panel = document.createElement("div")
   panel.className = "dt-hui dt-hui-panel"
   panel.style.display = "none"
+  // --- pinch point: the cursor's thumb weight and offset, by hand ------------
+  const tune = document.createElement("div")
+  tune.className = "dt-hui dt-hui-panel"
+  tune.style.display = "none"
+  const SLIDERS = [
+    ["w", "thumb weight", 0, 1, "0 index tip · 1 thumb tip"],
+    ["ox", "offset →", -0.6, 0.6, "hand sizes, + right"],
+    ["oy", "offset ↓", -0.6, 0.6, "hand sizes, + down"],
+  ] as const
+  tune.innerHTML =
+    `<h4>pinch point</h4>` +
+    SLIDERS.map(
+      ([k, label, lo, hi, hint]) =>
+        `<div class="dt-hui-row" title="${hint}"><span style="min-width:84px">${label}</span>` +
+        `<input type="range" data-k="${k}" min="${lo}" max="${hi}" step="0.01" style="flex:1;accent-color:rgb(255,199,84)">` +
+        `<span data-v="${k}" style="min-width:36px;text-align:right;color:#ddd"></span></div>`,
+    ).join("") +
+    `<div class="dt-hui-row"><a href="#" data-do="reset" style="color:#888">reset to calibrated</a></div>`
+  const showTune = () => {
+    const c = hands.calibration
+    for (const [k] of SLIDERS) {
+      ;(tune.querySelector(`[data-k="${k}"]`) as HTMLInputElement).value = String(c[k])
+      tune.querySelector(`[data-v="${k}"]`)!.textContent = c[k].toFixed(2)
+    }
+  }
+  tune.addEventListener("input", (e) => {
+    const el = e.target as HTMLInputElement
+    const k = el.dataset.k as "w" | "ox" | "oy" | undefined
+    if (!k) return
+    hands.calibration = { ...hands.calibration, [k]: Number(el.value) }
+    tune.querySelector(`[data-v="${k}"]`)!.textContent = Number(el.value).toFixed(2)
+  })
+  tune.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).dataset.do !== "reset") return
+    e.preventDefault()
+    hands.resetCalibration()
+    showTune()
+  })
+  const toggleTune = (on = tune.style.display === "none") => {
+    tune.style.display = on ? "" : "none"
+    if (on) {
+      togglePanel(false)
+      showTune()
+    }
+  }
   const legend = document.createElement("div")
   legend.className = "dt-hui dt-hui-legend"
   let rows = new Map<Gesture, HTMLElement>()
@@ -86,23 +131,31 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
     renderLegend()
   })
   renderLegend()
-  document.body.append(prompt, buttons, panel, legend)
+  document.body.append(prompt, buttons, panel, legend, tune)
   signal.addEventListener("abort", () => {
+    tune.remove()
     legend.remove()
     prompt.remove()
     buttons.remove()
     panel.remove()
   })
 
-  const calibrate = () => void hands.calibrate()
+  const calibrate = () =>
+    void hands.calibrate().then(() => {
+      if (tune.style.display !== "none") showTune()
+    })
   const togglePanel = (on = panel.style.display === "none") => {
     panel.style.display = on ? "" : "none"
-    if (on) renderPanel()
+    if (on) {
+      tune.style.display = "none"
+      renderPanel()
+    }
   }
   buttons.addEventListener("click", (e) => {
     const what = (e.target as HTMLElement).dataset.do
     if (what === "calibrate") calibrate()
     if (what === "talk") togglePanel()
+    if (what === "pinch") toggleTune()
   })
 
   // --- hand talk panel ---------------------------------------------------------
@@ -176,6 +229,7 @@ export const mountHandUI = (hands: HandPlay, signal: AbortSignal): void => {
       if (e.code === "Escape") {
         if (hands.calibrating) hands.cancelCalibration()
         else if (panel.style.display !== "none") togglePanel(false)
+        else if (tune.style.display !== "none") toggleTune(false)
         return
       }
       if (!hands.handsActive && !hands.calibrating) return

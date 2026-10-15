@@ -89,6 +89,8 @@ const loadGrabHand = (): GrabHand => {
  */
 const HOVER_STEP = 4
 const CALIBRATION_KEY = "dreamtalk.pinch-calibration"
+/** The last FITTED calibration — what "reset to calibrated" returns to after a hand-set one. */
+const FITTED_KEY = "dreamtalk.pinch-calibration.fitted"
 const MUDRA_KEY = "dreamtalk.mudras"
 
 /** The stored hand-talk: learned mudras and the action each invokes. */
@@ -118,9 +120,9 @@ const CALIBRATION_TARGETS = [
   { x: 0.5, y: 0.2 },
 ]
 
-const loadCalibration = (): PinchCalibration => {
+const loadCalibration = (key = CALIBRATION_KEY): PinchCalibration => {
   try {
-    const raw = localStorage.getItem(CALIBRATION_KEY)
+    const raw = localStorage.getItem(key)
     if (raw) {
       const c = JSON.parse(raw) as PinchCalibration
       if ([c.w, c.ox, c.oy].every(Number.isFinite)) return c
@@ -160,6 +162,14 @@ export interface HandPlay {
   readonly gesture: Gesture | undefined
   /** Which hand grabs (the other points and pinches) — remembered in this browser. */
   grabHand: GrabHand
+  /**
+   * The pinch cursor's calibration, live: w the thumb's weight (0 the index
+   * tip … 1 the thumb tip), ox / oy an offset in hand sizes. Setting it moves
+   * the cursor at once and is remembered (a hand-set value).
+   */
+  calibration: PinchCalibration
+  /** Back to the last fitted calibration (C), or the default if none was fitted. */
+  resetCalibration(): PinchCalibration
   readonly controller: GestureController
   readonly mudras: Mudras
   /**
@@ -542,6 +552,7 @@ export const mountHands = (opts: {
           controller.cursor.calibration = fit
           try {
             localStorage.setItem(CALIBRATION_KEY, JSON.stringify(fit))
+            localStorage.setItem(FITTED_KEY, JSON.stringify(fit))
           } catch {}
           const done = calibration.done
           calibration = undefined
@@ -663,6 +674,26 @@ export const mountHands = (opts: {
     },
     get gesture() {
       return gesture
+    },
+    get calibration() {
+      return { ...controller.cursor.calibration }
+    },
+    set calibration(c: PinchCalibration) {
+      controller.cursor.calibration = { ...c }
+      try {
+        localStorage.setItem(CALIBRATION_KEY, JSON.stringify(c))
+      } catch {}
+    },
+    resetCalibration() {
+      let fit = loadCalibration(FITTED_KEY)
+      try {
+        if (localStorage.getItem(FITTED_KEY) === null) fit = { ...DEFAULT_CALIBRATION }
+      } catch {}
+      controller.cursor.calibration = fit
+      try {
+        localStorage.setItem(CALIBRATION_KEY, JSON.stringify(fit))
+      } catch {}
+      return { ...fit }
     },
     get grabHand() {
       return controller.grabHand
