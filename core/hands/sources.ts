@@ -10,7 +10,9 @@
  *
  * Replay and sim are deterministic: `at(t)` shows the frame at t and stops
  * their own clock (a host that requests time, as TASTE.md asks); `play()`
- * gives the clock back.
+ * gives the clock back. Playing, they never skip: when the page stalls (a
+ * shader prewarm, a long frame) every frame the stall swallowed is emitted on
+ * the next tick, in order — the take reaches the gesture layer whole.
  */
 
 import {
@@ -21,7 +23,7 @@ import {
   type HandMessage,
   type HandSource,
 } from "../src/hands"
-import { SIM_SCRIPTS, simDuration, simFrameAt, type SimKey } from "./sim"
+import { SIM_FPS, SIM_SCRIPTS, simDuration, simFrameAt, type SimKey } from "./sim"
 import { WebcamSource } from "./webcam"
 
 /** The Leap, relayed by the studio daemon. */
@@ -85,6 +87,8 @@ abstract class ClockedSource extends HandEmitter implements HandSource {
   }
   /** The frame at t (seconds). */
   protected abstract frame(t: number): HandFrame | undefined
+  /** Every frame in (t0, t1], in order — what a tick from t0 to t1 must not skip. */
+  abstract framesIn(t0: number, t1: number): HandFrame[]
   abstract get duration(): number
   protected media(): HTMLMediaElement | undefined {
     return undefined
@@ -117,18 +121,19 @@ abstract class ClockedSource extends HandEmitter implements HandSource {
       m.currentTime = from
       void m.play().catch(() => {})
     }
-    let last: HandFrame | undefined
+    let lastT = from - 1e-9
     const step = () => {
       if (!this.#playing) return
       // With a voice playing, its clock is the clock: hands and words stay together.
-      let t = m && !m.paused ? m.currentTime : (performance.now() - this.#t0) / 1000
+      const t = m && !m.paused ? m.currentTime : (performance.now() - this.#t0) / 1000
       if (t > this.duration) {
+        for (const f of this.framesIn(lastT, this.duration)) this.emit(f)
         if (!this.loop) return this.pause()
         this.play(0)
         return
       }
-      const f = this.frame(t)
-      if (f && f !== last) this.emit((last = f))
+      for (const f of this.framesIn(lastT, t)) this.emit(f)
+      lastT = t
       this.#raf = requestAnimationFrame(step)
     }
     this.#raf = requestAnimationFrame(step)
@@ -175,6 +180,9 @@ export class ReplaySource extends ClockedSource {
   protected frame(t: number) {
     return frameAt(this.frames, t)
   }
+  framesIn(t0: number, t1: number) {
+    return this.frames.filter((f) => f.t > t0 && f.t <= t1)
+  }
 }
 
 /** A scripted hand on its own clock. */
@@ -191,6 +199,12 @@ export class SimSource extends ClockedSource {
   }
   protected frame(t: number) {
     return simFrameAt(this.#keys, t)
+  }
+  /** The script sampled on its own 60 fps grid, whatever the page's frame rate. */
+  framesIn(t0: number, t1: number) {
+    const out: HandFrame[] = []
+    for (let k = Math.floor(t0 * SIM_FPS) + 1; k / SIM_FPS <= t1; k++) out.push(simFrameAt(this.#keys, k / SIM_FPS))
+    return out
   }
 }
 

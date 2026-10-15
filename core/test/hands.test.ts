@@ -15,10 +15,10 @@ import {
   type Vec3,
 } from "../src/hands"
 import { LEAP_BONE_SIZE, LEAP_DIGIT_SIZE, LEAP_HAND_SIZE, LEAP_OFF, leapHands } from "../hands/leap"
-import { PINCH_BIAS, PINCH_GAP, poseHand, poseJoints, SIM_SCRIPTS, simFrameAt, simFrames } from "../hands/sim"
+import { PINCH_BIAS, PINCH_GAP, PINCH_TARGETS, pinchAtScript, poseHand, poseJoints, SIM_MUDRAS, SIM_SCRIPTS, simFrameAt, simFrames } from "../hands/sim"
 import { placeHand, webcamHand, type Landmark } from "../hands/webcam"
 import { HandsRecorder, type SessionLink } from "../hands/recorder"
-import { ReplaySource } from "../hands/sources"
+import { ReplaySource, SimSource } from "../hands/sources"
 import { screenFrame } from "../hands/screen"
 
 const close = (a: Vec3, b: Vec3, eps: number) => expect(dist(a, b)).toBeLessThan(eps)
@@ -206,5 +206,40 @@ describe("the gesture layer's screen space", () => {
     expect(up.hands[0]!.joints[J.wrist]![1]).toBeLessThan(0.5) // higher hand, higher on screen (y down)
     expect(h.scale).toBeGreaterThan(0.2)
     expect(h.scale).toBeLessThan(0.6)
+  })
+})
+
+describe("calibration takes and hand shapes", () => {
+  test("a scripted pinch lands its tips on the target; the open hand's midpoint does not", () => {
+    const { keys, contacts } = pinchAtScript(PINCH_TARGETS)
+    for (const c of contacts) {
+      const at = screenFrame(simFrameAt(keys, c.t)).hands[0]!
+      const mid = (h: typeof at) => [(h.joints[J.thumbTip]![0] + h.joints[J.indexTip]![0]) / 2, (h.joints[J.thumbTip]![1] + h.joints[J.indexTip]![1]) / 2]
+      const m = mid(at)
+      expect(Math.hypot(m[0]! - c.x, m[1]! - c.y)).toBeLessThan(0.005)
+      const hover = mid(screenFrame(simFrameAt(keys, c.t - 0.25)).hands[0]!)
+      expect(Math.hypot(hover[0]! - c.x, hover[1]! - c.y)).toBeGreaterThan(0.02) // the bias a calibration fits
+    }
+  })
+
+  test("curls shape a hand digit by digit: pointing is the index out, the rest folded", () => {
+    const f = simFrameAt(SIM_MUDRAS["point-circle"]!, 1)
+    const h = f.hands[0]!
+    expect(dist(h.joints[J.indexTip]!, h.palm.position)).toBeGreaterThan(dist(h.joints[J.middleTip]!, h.palm.position) * 1.8)
+    expect(simFrameAt(SIM_MUDRAS.gyan!, 0.8).hands[0]!.pinch).toBeCloseTo(1)
+  })
+})
+
+describe("played sources never skip", () => {
+  test("a stall from 0.78 s to 2.99 s still yields every frame between, in order", () => {
+    const sim = new SimSource("grab-turn", false)
+    const fs = sim.framesIn(0.78, 2.99)
+    expect(fs.length).toBe(Math.floor(2.99 * 60) - Math.floor(0.78 * 60))
+    for (let i = 1; i < fs.length; i++) expect(fs[i]!.t - fs[i - 1]!.t).toBeCloseTo(1 / 60, 6)
+    const frames = decodeFrames(readFileSync(new URL("./fixtures/hands/drag.jsonl", import.meta.url), "utf8"))
+    const r = ReplaySource.of(frames)
+    const between = r.framesIn(0.5, 1.5)
+    expect(between.length).toBe(frames.filter((f) => f.t > 0.5 && f.t <= 1.5).length)
+    expect(between[0]!.t).toBeGreaterThan(0.5)
   })
 })

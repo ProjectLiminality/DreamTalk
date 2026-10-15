@@ -1,0 +1,30 @@
+{
+  "about": "sim: a right hand pinching at five screen targets (gesture space: x, y in [0,1], y down); t = when the tips met",
+  "contacts": [
+    {
+      "x": 0.5,
+      "y": 0.5,
+      "t": 0.5
+    },
+    {
+      "x": 0.25,
+      "y": 0.3,
+      "t": 2
+    },
+    {
+      "x": 0.75,
+      "y": 0.3,
+      "t": 3.5
+    },
+    {
+      "x": 0.25,
+      "y": 0.7,
+      "t": 5
+    },
+    {
+      "x": 0.75,
+      "y": 0.7,
+      "t": 6.5
+    }
+  ]
+}

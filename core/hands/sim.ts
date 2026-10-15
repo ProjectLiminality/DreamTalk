@@ -41,6 +41,8 @@ export interface HandPose {
   yaw?: number
   /** Tilt about the hand's sideways axis, radians (+: fingers up). */
   pitch?: number
+  /** Per-digit curl 0..1, thumb first — a hand shape (a mudra); overrides `grab` digit by digit. */
+  curls?: [number, number, number, number, number]
 }
 
 // The right hand, palm down, fingers toward −z, wrist at the origin (mm).
@@ -89,8 +91,9 @@ const finger = (mcp: Vec3, seg: [number, number, number], c: number): Vec3[] => 
 export const poseJoints = (pose: HandPose): Vec3[] => {
   const g = Math.min(1, Math.max(0, pose.grab))
   const pinch = Math.min(1, Math.max(0, pose.pinch)) * (1 - g)
-  const thumb = THUMB_OPEN.map((p, i) => mix(p, THUMB_FIST[i]!, g))
-  const fingers = MCP.map((m, i) => finger(m, SEG[i]!, g))
+  const curl = (d: number) => Math.min(1, Math.max(0, pose.curls?.[d] ?? g))
+  const thumb = THUMB_OPEN.map((p, i) => mix(p, THUMB_FIST[i]!, curl(0)))
+  const fingers = MCP.map((m, i) => finger(m, SEG[i]!, curl(i + 1)))
   if (pinch > 0) {
     // The index curls a little toward the thumb; both tips travel to the meeting point.
     const index = finger(MCP[0]!, SEG[0]!, 0.35 * pinch)
@@ -200,6 +203,9 @@ const poseBetween = (a: Omit<HandPose, "side">, b: Omit<HandPose, "side">, u: nu
   grab: lerp(a.grab, b.grab, u),
   yaw: lerp(a.yaw ?? 0, b.yaw ?? 0, u),
   pitch: lerp(a.pitch ?? 0, b.pitch ?? 0, u),
+  ...(a.curls || b.curls
+    ? { curls: [0, 1, 2, 3, 4].map((d) => lerp(a.curls?.[d] ?? a.grab, b.curls?.[d] ?? b.grab, u)) as HandPose["curls"] }
+    : {}),
 })
 
 /** The script's frame at t (clamped to its span). */
@@ -218,8 +224,11 @@ export const simFrameAt = (keys: readonly SimKey[], t: number, box: HandBox = LE
   return { t, source, hands, box }
 }
 
+/** The sim's own sampling rate (what a played script emits, stall or no stall). */
+export const SIM_FPS = 60
+
 /** The script sampled at `fps` over its whole span. */
-export const simFrames = (keys: readonly SimKey[], fps = 60): HandFrame[] => {
+export const simFrames = (keys: readonly SimKey[], fps = SIM_FPS): HandFrame[] => {
   const end = keys[keys.length - 1]!.t
   const n = Math.floor(end * fps) + 1
   return Array.from({ length: n }, (_, k) => simFrameAt(keys, k / fps))
@@ -227,3 +236,87 @@ export const simFrames = (keys: readonly SimKey[], fps = 60): HandFrame[] => {
 
 /** A script's span, seconds. */
 export const simDuration = (keys: readonly SimKey[]): number => keys[keys.length - 1]?.t ?? 0
+
+// --- pinching at given screen points -------------------------------------------
+
+/** A screen point (the gesture layer's space: x, y ∈ [0, 1], y down) → the frame, at the box's depth. */
+export const screenToFrame = (x: number, y: number, box: HandBox = LEAP_BOX): Vec3 => [
+  box.center[0] + (x - 0.5) * box.size[0],
+  box.center[1] + (0.5 - y) * box.size[1],
+  box.center[2],
+]
+
+/** Where the fingers meet at a full pinch, relative to the wrist (a right hand, unturned). */
+const contactOffset = (): Vec3 => {
+  const j = poseJoints({ side: "right", at: [0, 0, 0], pinch: 1, grab: 0 })
+  return mix(j[4]!, j[8]!, 0.5)
+}
+
+/**
+ * A right hand that comes to rest over each target, pinches so the tips meet
+ * exactly there — the thumb travelling much less than the index, as
+ * poseJoints models it — and lets go. `contacts` are the truths a
+ * thumb-bias calibration should recover: where and when each pinch closed.
+ * The open hand's thumb–index midpoint is NOT over the target: that offset
+ * is the bias.
+ */
+export const pinchAtScript = (
+  targets: readonly (readonly [number, number])[],
+  box: HandBox = LEAP_BOX,
+): { keys: SimKey[]; contacts: { x: number; y: number; t: number }[] } => {
+  const off = contactOffset()
+  const wristFor = ([x, y]: readonly [number, number]): Vec3 => {
+    const p = screenToFrame(x, y, box)
+    return [p[0] - off[0], p[1] - off[1], p[2] - off[2]]
+  }
+  const keys: SimKey[] = []
+  const contacts: { x: number; y: number; t: number }[] = []
+  let t = 0
+  for (const target of targets) {
+    const at = wristFor(target)
+    keys.push({ t, right: { at, pinch: 0, grab: 0 } }) // arrived (from the last target: 0.6 s of travel)
+    keys.push({ t: t + 0.3, right: { at, pinch: 0, grab: 0 } }) // hover, still
+    keys.push({ t: t + 0.5, right: { at, pinch: 1, grab: 0 } }) // closed: the click
+    contacts.push({ x: target[0], y: target[1], t: t + 0.5 })
+    keys.push({ t: t + 0.7, right: { at, pinch: 1, grab: 0 } })
+    keys.push({ t: t + 0.9, right: { at, pinch: 0, grab: 0 } })
+    t += 1.5
+  }
+  return { keys, contacts }
+}
+
+/** The five calibration targets: the centre and four towards the corners. */
+export const PINCH_TARGETS: readonly (readonly [number, number])[] = [
+  [0.5, 0.5],
+  [0.25, 0.3],
+  [0.75, 0.3],
+  [0.25, 0.7],
+  [0.75, 0.7],
+]
+
+// --- simulated mudras (shapes only — David's own come from his recordings) -----
+
+const GYAN: [number, number, number, number, number] = [0, 0, 0, 0, 0]
+const POINT: [number, number, number, number, number] = [0.9, 0, 1, 1, 1]
+
+/** Named simulated mudras: `gyan` (thumb and index touch, the rest open) held 3×; `point-circle` (index out, the rest folded) drawing a circle 3×. */
+export const SIM_MUDRAS: Record<string, SimKey[]> = {
+  gyan: [0, 1, 2].flatMap((k) => {
+    const t = k * 2
+    return [
+      { t, right: { ...open(0), curls: GYAN } },
+      { t: t + 0.4, right: { ...open(0), pinch: 1, curls: GYAN } },
+      { t: t + 1.2, right: { ...open(0), pinch: 1, curls: GYAN } },
+      { t: t + 1.6, right: { ...open(0), curls: GYAN } },
+    ]
+  }),
+  "point-circle": [
+    { t: 0, right: { ...open(0), curls: [0, 0, 0, 0, 0] } },
+    { t: 0.4, right: { ...open(50), curls: POINT } },
+    ...Array.from({ length: 3 * 8 }, (_, i) => {
+      const a = ((i + 1) / 8) * 2 * Math.PI
+      return { t: 0.4 + (i + 1) * 0.15, right: { ...open(Math.cos(a) * 50, Math.sin(a) * 50), curls: POINT } }
+    }),
+    { t: 4.4, right: { ...open(50), curls: [0, 0, 0, 0, 0] } },
+  ],
+}
