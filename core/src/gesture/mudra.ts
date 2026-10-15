@@ -23,6 +23,12 @@
  * — it becomes a CANDIDATE for the intent layer (jev.ts), which also hears
  * what is being said.
  *
+ * REST. A hand at rest is not "no mudra" by itself — an open hand sits close
+ * to every open-fingered mudra. Record the hand at rest as a mudra named with
+ * a leading underscore (`_rest`): it competes in the matching like any other,
+ * so a resting hand matches it and nothing else, but it is never reported as
+ * a candidate and never invokes.
+ *
  * Pure and frame-clocked: a recorded take recognises the same mudras.
  */
 
@@ -226,13 +232,16 @@ export class MudraRecogniser {
     scored.sort((a, b) => a.d - b.d)
     const candidates: Candidate[] = scored
       .filter((s) => s.d <= this.maxDistance)
+      .filter((s) => !s.name.startsWith("_") || s === scored[0]) // rest competes; it is dropped below
       .map((s, i) => {
         const next = scored.find((o, j) => j !== i && o.name !== s.name)
         const margin = next ? Math.min(1, (next.d - s.d) / Math.max(next.d, 1e-9)) : 1
         const closeness = 1 - s.d / this.maxDistance
         return { name: s.name, distance: s.d, confidence: Math.max(0, Math.min(1, margin * closeness * 2)), t: frame.t }
       })
-    const top = candidates[0]
+    // The hand at rest wins, or loses, like any class — but is never news.
+    const top = candidates[0]?.name.startsWith("_") ? undefined : candidates[0]
+    for (let i = candidates.length - 1; i >= 0; i--) if (candidates[i]!.name.startsWith("_")) candidates.splice(i, 1)
     let invoked: Candidate | undefined
     if (top && top.confidence >= this.invokeAt) {
       const kind = this.library.mudras.find((m) => m.name === top.name)!.kind

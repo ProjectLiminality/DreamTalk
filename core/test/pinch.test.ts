@@ -38,13 +38,13 @@ const pinchAt = (cursor: PinchCursor, contact: { x: number; y: number }, opts: P
   for (let k = 0; k <= 12; k++, t += dt) {
     const u = k / 12
     const s = cursor.update(handAt(contact, u * u * (3 - 2 * u), opts), t)
-    if (s.pressed) {
-      click = { x: s.x, y: s.y }
-      sample = s.sample
-    }
+    if (s.pressed) click = { x: s.x, y: s.y }
   }
-  // open again
-  for (let k = 0; k <= 12; k++, t += dt) cursor.update(handAt(contact, 1 - k / 12, opts), t)
+  // open again — the completed pinch's sample arrives on release
+  for (let k = 0; k <= 12; k++, t += dt) {
+    const s = cursor.update(handAt(contact, 1 - k / 12, opts), t)
+    if (s.released) sample = s.sample
+  }
   return { click: click!, sample: sample!, t }
 }
 

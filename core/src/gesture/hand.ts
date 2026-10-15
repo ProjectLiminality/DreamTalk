@@ -1,14 +1,18 @@
 /**
- * The hand as the gesture layer reads it — the HandFrame stream the "hands"
- * input layer (src/hands) delivers from a webcam (MediaPipe), a Leap, a
- * recorded take or the simulator, all in ONE space:
+ * The hand as the gesture layer reads it — a SCREEN PROJECTION of the one
+ * canonical HandFrame (src/hands.ts: millimetres, device-centred, +y up,
+ * +z toward the user, every source — webcam, Leap, replay, simulator). The
+ * projection is hands/screen.ts `screenFrame(f)`: the source's comfortable
+ * box spans the screen, so
  *
  *   x ∈ [0,1] left → right as the user sees the screen,
  *   y ∈ [0,1] top → bottom,
- *   z depth in the same units, + away from the user (toward the screen).
+ *   z depth in units of the box's width, + away from the user (toward the screen),
+ *   scale = wrist → middle knuckle in those units.
  *
  * Joints are MediaPipe's 21 landmarks. `t` is the source clock in seconds:
- * every filter here runs on it, so a replay is deterministic.
+ * every filter here runs on it, so a replay is deterministic. Nothing here
+ * is a second canonical frame — the gesture layer only ever reads this view.
  */
 
 export type Joint = readonly [number, number, number]

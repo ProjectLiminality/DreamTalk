@@ -66,7 +66,7 @@ export interface PinchSample {
   /** Thumb and index tips `lookback` before the press. */
   thumb: { x: number; y: number }
   index: { x: number; y: number }
-  /** Where the fingers met: their midpoint at the press. */
+  /** Where the fingers met: their midpoint at the pinch's closest gap. */
   contact: { x: number; y: number }
   scale: number
 }
@@ -84,7 +84,10 @@ export interface CursorState {
   pressed: boolean
   /** This frame ended one. */
   released: boolean
-  /** The onset sample on a press (for calibration). */
+  /**
+   * On RELEASE, the completed pinch as calibration needs it: the tips just
+   * before the press, and where they actually met (the closest gap).
+   */
   sample?: PinchSample
 }
 
@@ -102,6 +105,8 @@ export class PinchCursor {
   #history: { t: number; hover: { x: number; y: number }; thumb: { x: number; y: number }; index: { x: number; y: number }; scale: number }[] = []
   #pinched = false
   #lock?: { at: { x: number; y: number }; from: { x: number; y: number } }
+  /** The pinch in progress, for its calibration sample. */
+  #pending?: { sample: PinchSample; gap: number }
   #handback?: { from: { x: number; y: number }; t: number }
   #last: CursorState = { tracked: false, x: 0.5, y: 0.5, approach: 0, pinched: false, pressed: false, released: false }
 
@@ -150,15 +155,20 @@ export class PinchCursor {
       const before = this.#at(t - this.lookback)
       this.#lock = { at: before.hover, from: hover }
       this.#handback = undefined
-      sample = {
-        thumb: before.thumb,
-        index: before.index,
-        contact: { x: (T[0] + I[0]) / 2, y: (T[1] + I[1]) / 2 },
-        scale: before.scale,
+      this.#pending = {
+        sample: { thumb: before.thumb, index: before.index, contact: { x: (T[0] + I[0]) / 2, y: (T[1] + I[1]) / 2 }, scale: before.scale },
+        gap,
       }
     } else if (this.#pinched && gap > this.off) {
       this.#pinched = false
       released = true
+      sample = this.#pending?.sample
+      this.#pending = undefined
+    }
+    // While pinched, the contact is wherever the tips came CLOSEST.
+    if (this.#pinched && this.#pending && gap < this.#pending.gap) {
+      this.#pending.gap = gap
+      this.#pending.sample.contact = { x: (T[0] + I[0]) / 2, y: (T[1] + I[1]) / 2 }
     }
 
     let x = hover.x

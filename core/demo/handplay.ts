@@ -171,6 +171,11 @@ export const mountHands = (opts: {
   }
 
   let scrub: { id: string; i: number; n: number; moved: boolean } | undefined
+  /**
+   * A mudra invoked while the fingers were pinched (gyan IS a pinch): that
+   * pinch was hand talk, not a click — its release does not click.
+   */
+  let pinchSpoke = false
   let calibration: { k: number; samples: PinchSample[]; done: (c: PinchCalibration) => void } | undefined
   const client = (p: { x: number; y: number }) => ({ x: p.x * window.innerWidth, y: p.y * window.innerHeight })
 
@@ -232,6 +237,7 @@ export const mountHands = (opts: {
     } else if (store.library.mudras.length > 0) {
       const rec = recogniser.update(frame)
       candidates = rec.candidates
+      if (rec.invoked && it.cursor.pinched) pinchSpoke = true
       if (rec.invoked && store.bindings[rec.invoked.name]) act(store.bindings[rec.invoked.name]!, `mudra:${rec.invoked.name}`)
       jev.see(rec.candidates)
       jev.actions = actionsFor()
@@ -252,7 +258,7 @@ export const mountHands = (opts: {
       target.hoverAt(p.x, p.y)
     }
     if (calibration) {
-      if (it.press && c.sample) {
+      if (c.released && c.sample) {
         calibration.samples.push(c.sample)
         calibration.k++
         if (calibration.k >= CALIBRATION_TARGETS.length) {
@@ -282,9 +288,10 @@ export const mountHands = (opts: {
       }
       if (it.click) {
         const p = client(it.click)
-        target.click(p.x, p.y)
+        if (!pinchSpoke) target.click(p.x, p.y)
         scrub = undefined
       }
+      if (it.press || c.released) pinchSpoke = false
     }
     // Grab: the scene in the hands, through the view layer like any gesture.
     const view = target.view()
