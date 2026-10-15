@@ -73,13 +73,18 @@ export const palm = (h: Hand): Joint => {
  * index tip out front, meeting the thumb — so a pinch never reads as a grab.
  * (The Leap's own grab number reads a curled-finger pinch as a fist, and has
  * read a real fist as low as 0.37, so it is not used.) The farthest tip's
- * distance to the palm centre, in hand sizes, maps from open (~1.1) to a
- * fist (~0.6). Scale-free, so near and far hands read alike.
+ * distance to the palm centre, in hand sizes, maps from open (0.9) to a fist
+ * (0.45) — measured on David's hand over the Leap (2026-10-15): a fist
+ * 0.38–0.43, his natural pinch (the other fingers curled, the index bent to
+ * the thumb) ~0.72 → 0.4 here, an open hand ~0.9. Scale-free.
  */
+/** Thumb tip to index tip, in hand sizes — ~0.17 pinched, ~0.45 in a fist, ~0.6+ open (David's hand, the Leap). */
+export const pinchGap = (h: Hand): number => dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / (h.scale || 1)
+
 export const grabStrength = (h: Hand): number => {
   const c = palm(h)
   let r = 0
   for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(h.joints[i]!, c))
   r /= h.scale || 1
-  return Math.min(1, Math.max(0, (1.1 - r) / (1.1 - 0.6)))
+  return Math.min(1, Math.max(0, (0.9 - r) / (0.9 - 0.45)))
 }

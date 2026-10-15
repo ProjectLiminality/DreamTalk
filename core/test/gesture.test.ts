@@ -28,6 +28,8 @@ const hand = (id: number, side: "left" | "right", x: number, y: number, o: { ope
   const gap = 1.0 * s * (1 - (o.pinch ?? 0))
   if ((o.pinch ?? 0) > 0 || open >= 1) j[8] = [contact.x + 0.75 * gap * 0.7, contact.y - 0.75 * gap * 0.7, z]
   j[4] = [contact.x - 0.25 * gap * 0.7, contact.y + 0.25 * gap * 0.7, z]
+  // a fist's thumb lies across the curled fingers, ~0.45 hand sizes from the index tip (as measured)
+  if ((o.pinch ?? 0) === 0 && open < 1) j[4] = [x + (0.05 - 0.4 * open) * s, y - 0.4 * s, z]
   return { id, side, confidence: 1, joints: j, scale: s }
 }
 
@@ -75,13 +77,26 @@ describe("gesture controller", () => {
   })
 
   test("a fist never clicks — it grabs", () => {
+    // the fingers curl into a fist; the thumb lies across them, away from the index tip
     const fs: HandFrame[] = []
     let t = 0
-    for (let k = 0; k <= 20; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 1 - k / 20, pinch: k / 20 })))
-    for (let k = 0; k < 20; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 0, pinch: 1 })))
+    for (let k = 0; k <= 20; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 1 - k / 20 })))
+    for (let k = 0; k < 20; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 0 })))
     const out = run(fs)
     expect(out.some((i) => i.click || i.press)).toBe(false)
     expect(out.at(-1)!.grab.holding).toBe(true)
+  })
+
+  test("a natural pinch with the other fingers curled still clicks — it never grabs", () => {
+    // David's own pinch (the Leap, 2026-10-15): middle, ring and pinky curled, the index bent to meet the thumb
+    const fs: HandFrame[] = []
+    let t = 0
+    for (let k = 0; k < 30; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 0, pinch: 0.01 })))
+    for (let k = 0; k <= 10; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 0, pinch: 0.01 + (0.99 * k) / 10 })))
+    for (let k = 0; k <= 10; k++, t += 1 / 60) fs.push(frame(t, hand(1, "right", 0.5, 0.5, { open: 0, pinch: 1 - (0.99 * k) / 10 })))
+    const out = run(fs)
+    expect(out.filter((i) => i.click).length).toBe(1)
+    expect(out.some((i) => i.grab.holding)).toBe(false)
   })
 
   test("deterministic: the same take, the same intents", () => {

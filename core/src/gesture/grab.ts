@@ -77,6 +77,8 @@ export class GrabController {
     const dt = this.#t === undefined ? 0 : Math.max(0, t - this.#t)
     this.#t = t
     for (const h of hands) {
+      // A natural pinch (the other fingers curled, the index out front to
+      // meet the thumb) reads ~0.4 here, a fist 1: curl alone tells them apart.
       const g = grabStrength(h)
       if (this.#holding.has(h.id) ? g < this.off : g > this.on) {
         if (this.#holding.has(h.id)) this.#holding.delete(h.id)

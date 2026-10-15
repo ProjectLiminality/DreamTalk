@@ -60,6 +60,8 @@ export class GestureController {
 
   update(frame: HandFrame): Intent {
     const grab = this.grab.update(frame.hands, frame.t)
+    // A hand points unless it holds the scene or is closing into a fist
+    // (a natural pinch, the other fingers curled, reads ~0.4 — it points).
     const free = frame.hands.filter((h) => !this.grab.isHolding(h.id) && grabStrength(h) < this.pinchGrabLimit)
     // Keep the same pointing hand while it stays free; else the right one; else any.
     const pointer =

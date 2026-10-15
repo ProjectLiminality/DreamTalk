@@ -408,6 +408,7 @@ const main = async () => {
     jev: query.get("jev") === "1",
     // No recorder in the player: with Jev on, it listens for itself.
     listen: true,
+    session: query.get("hands") === "replay" ? (query.get("session") ?? undefined) : undefined,
   })
   ;(window as unknown as Record<string, unknown>).__dtHands = hands
   // Calibration and hand talk, on screen while a hand is in play (C, I).

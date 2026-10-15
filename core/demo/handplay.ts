@@ -151,6 +151,12 @@ export const mountHands = (opts: {
    * transcript: a browser runs one recognition at a time.
    */
   listen?: boolean
+  /**
+   * A replayed session's id (`?hands=replay&session=…`): its recorded
+   * transcript (session.json tracks.transcript, on the session clock — the
+   * replay's frame clock) is heard as playback passes each line.
+   */
+  session?: string
 }): HandPlay => {
   const { target } = opts
   const controller = new GestureController({ pinch: { calibration: loadCalibration() } })
@@ -172,6 +178,18 @@ export const mountHands = (opts: {
   const hear = (line: { text: string; final: boolean }) => jev.hear({ t: handClock, text: line.text, final: line.final })
   let listening = false
   let recorderLinked = false
+  // A replayed session's words, delivered as its frames pass them.
+  let lines: { t0: number; t1: number; text: string }[] = []
+  let nextLine = 0
+  let lastFrameT = -Infinity
+  if (opts.session) {
+    fetch(`/api/session/${encodeURIComponent(opts.session)}/session.json`)
+      .then((r) => (r.ok ? r.json() : undefined))
+      .then((j: { tracks?: { transcript?: { t0: number; t1: number; text: string }[] } } | undefined) => {
+        lines = [...(j?.tracks?.transcript ?? [])].sort((a, b) => a.t1 - b.t1)
+      })
+      .catch(() => {})
+  }
   if (opts.jev && opts.listen) {
     type Rec = {
       continuous: boolean
@@ -317,6 +335,15 @@ export const mountHands = (opts: {
   const push = (frame: HandFrame): Intent => {
     const it = controller.update(frame)
     handClock = frame.t
+    if (lines.length) {
+      // A seek or a loop goes back: start again from the first line still ahead.
+      if (frame.t < lastFrameT) {
+        const i = lines.findIndex((l) => l.t1 > frame.t)
+        nextLine = i === -1 ? lines.length : i
+      }
+      while (nextLine < lines.length && lines[nextLine]!.t1 <= frame.t) hear({ text: lines[nextLine++]!.text, final: true })
+      lastFrameT = frame.t
+    }
     if (it.cursor.tracked || frame.hands.length > 0) lastSeen = performance.now()
     // The session recorder's voice, when one records (editor/recorder.ts onTranscript).
     if (!recorderLinked) {
