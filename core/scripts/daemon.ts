@@ -51,6 +51,7 @@ import { appendComment, isValidScene, parseCommentInput, readComments, setResolv
 import { recognizeCompare, recognizeConfig, recognizeMemo, recordPick } from "./recognize"
 import { whereIs } from "./where"
 import { instruct } from "./instruct"
+import { jevAvailable, jevDecide } from "./jev"
 import { boardNameOf, boardResponse, listBoards } from "./boards"
 import { catalogueResponse } from "./catalogue"
 import { buildPlayer } from "./local-holons"
@@ -741,6 +742,16 @@ const compareResponse = async (req: Request): Promise<Response> => {
   return Response.json(await recognizeCompare(body))
 }
 
+/** POST /api/jev — the intent layer's one question (scripts/jev.ts); 503 when no fast model is configured. */
+const jevResponse = async (req: Request): Promise<Response> => {
+  if (!jevAvailable()) return Response.json({ action: null, confidence: 0, reason: "no fast decision model configured" }, { status: 503 })
+  try {
+    return Response.json(await jevDecide(await req.json()))
+  } catch (err) {
+    return Response.json({ action: null, confidence: 0, reason: String((err as Error)?.message ?? err).slice(0, 200) }, { status: 500 })
+  }
+}
+
 const instructResponse = async (req: Request): Promise<Response> => {
   let body: InstructRequest
   try {
@@ -798,6 +809,7 @@ const server = Bun.serve<SocketData>({
         () => Response.json({ ok: false }, { status: 400 }),
       )
     if (url.pathname === "/api/instruct" && req.method === "POST") return instructResponse(req)
+    if (url.pathname === "/api/jev" && req.method === "POST") return jevResponse(req)
     if (url.pathname === "/api/boards") return Response.json(await listBoards(repoRoot))
     if (url.pathname === "/api/catalogue") return catalogueResponse(repoRoot)
     if (url.pathname.startsWith("/api/board/"))
