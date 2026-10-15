@@ -19,6 +19,7 @@ import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop } from "./game"
 import { mountHands } from "./handplay"
+import { mountHandSource } from "../hands/mount"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -379,7 +380,10 @@ const main = async () => {
   // webcam / Leap / replay / simulator (src/hands), or a harness. In free
   // play the pinch cursor hovers and clicks symbol parts, a pinch-drag on a
   // handle scrubs its axis, closed hands grab the scene.
+  // `?hands=webcam|leap|replay|sim` (hands/mount.ts): the source, in the gesture layer's screen space.
+  const handSource = mountHandSource()
   const hands = mountHands({
+    source: handSource?.screen,
     target: {
       live: () => game.on && !creator.on && !explorer.on,
       hoverAt: (x, y) => game.hoverAt(x, y),

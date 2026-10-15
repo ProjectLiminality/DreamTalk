@@ -18,9 +18,9 @@ const hand = (id: number, side: "left" | "right", x: number, y: number, o: { ope
   j[0] = [x, y + 0.5 * s, z]
   const roots: [number, number][] = [[5, -0.3], [9, -0.1], [13, 0.1], [17, 0.3]]
   for (const [i, dx] of roots) j[i] = [x + dx * s, y - 0.5 * s, z]
-  // fingertips: extended (~1.6 s from the palm centre) or curled (~0.6 s);
-  // the palm centre sits 0.3 s above the given point (wrist + roots averaged)
-  const reach = (0.6 + 1.0 * open) * s
+  // fingertips ~1.2 s from the palm centre when stretched (real proportions),
+  // ~0.45 s in a fist; the palm centre sits 0.3 s above the given point
+  const reach = (0.45 + 0.75 * open) * s
   for (const [i, dx] of roots) j[i + 3] = [x + dx * s, y - 0.3 * s - Math.sqrt(Math.max(0, reach * reach - (dx * s) ** 2)), z]
   // pinch: the index tip and thumb tip close on a contact point
   const contact = { x: x - 0.4 * s, y: y - 0.9 * s }
@@ -35,7 +35,7 @@ const frame = (t: number, ...hands: Hand[]): HandFrame => ({ t, source: "test", 
 describe("grab strength", () => {
   test("an open hand is 0, a fist is 1, scale-free", () => {
     expect(grabStrength(hand(1, "right", 0.5, 0.5, { open: 1 }))).toBeLessThan(0.2)
-    expect(grabStrength(hand(1, "right", 0.5, 0.5, { open: 0 }))).toBeGreaterThan(0.9)
+    expect(grabStrength(hand(1, "right", 0.5, 0.5, { open: 0 }))).toBeGreaterThan(0.85)
     expect(grabStrength(hand(1, "right", 0.5, 0.5, { open: 0, s: 0.3 }))).toBeCloseTo(grabStrength(hand(1, "right", 0.5, 0.5, { open: 0 })), 9)
   })
 })

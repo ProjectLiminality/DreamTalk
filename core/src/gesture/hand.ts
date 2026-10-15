@@ -63,15 +63,18 @@ export const palm = (h: Hand): Joint => {
 }
 
 /**
- * How closed the hand is, 0 open … 1 fist: the four fingertips' mean
- * distance to the palm centre, in hand sizes, mapped from open (~1.6) to
- * closed (~0.7). Scale-free, so near and far hands read alike.
+ * How closed the hand is, 0 open … 1 fist. The device's own reading when it
+ * has one (the Leap and the simulator do); otherwise the four fingertips'
+ * mean distance to the palm centre, in hand sizes, mapped from open (~1.15:
+ * the palm centre sits ~0.8 up the palm, the tips ~1.9) to a fist (~0.55).
+ * Scale-free, so near and far hands read alike.
  */
 export const grabStrength = (h: Hand): number => {
+  if (h.grab !== undefined) return h.grab
   const c = palm(h)
   const tips = [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]
   let d = 0
   for (const i of tips) d += dist(h.joints[i]!, c)
   const r = d / tips.length / (h.scale || 1)
-  return Math.min(1, Math.max(0, (1.6 - r) / (1.6 - 0.7)))
+  return Math.min(1, Math.max(0, (1.15 - r) / (1.15 - 0.55)))
 }

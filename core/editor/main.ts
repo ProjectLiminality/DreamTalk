@@ -42,6 +42,7 @@ import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
+import { mountHandSource } from "../hands/mount"
 import { Param, type ParamValue } from "../src/params"
 import { isColor } from "../src/constants"
 import { anchorOf, sceneFileOf, type SourceAnchor } from "./anchors"
@@ -1707,6 +1708,7 @@ const boot = async (resume?: Transport) => {
   if (walk) {
     const game = walk.game
     ;(window as unknown as Record<string, unknown>).__dtHands = mountHands({
+      source: mountHandSource()?.screen,
       target: {
         live: () => !playing && !creator?.on && game.on,
         hoverAt: (x, y) => game.hoverAt(x, y),
