@@ -37,10 +37,12 @@ export interface HandPose {
   pinch: number
   /** 0 open … 1 a fist. */
   grab: number
-  /** Turn about +y, radians (0: fingers point at the screen, −z). */
+  /** Turn about +y, radians (0: fingers point at the screen, −z; +: counter-clockwise seen from above). */
   yaw?: number
-  /** Tilt about the hand's sideways axis, radians (+: fingers up). */
+  /** Tilt about the hand's sideways axis, radians (+: fingers up — knuckles up for a fist). */
   pitch?: number
+  /** Roll about the fingers' axis, radians (+: counter-clockwise seen from the wrist looking along the fingers). */
+  roll?: number
   /** Per-digit curl 0..1, thumb first — a hand shape (a mudra); overrides `grab` digit by digit. */
   curls?: [number, number, number, number, number]
 }
@@ -143,9 +145,14 @@ export const poseJoints = (pose: HandPose): Vec3[] => {
   const sy = Math.sin(yaw)
   const cp = Math.cos(pitch)
   const sp = Math.sin(pitch)
-  return local.map(([x0, y0, z0]) => {
-    const x = x0 * flip
-    // pitch about x (+ lifts the fingers: −z turns toward +y), then yaw about y
+  const cr = Math.cos(pose.roll ?? 0)
+  const sr = Math.sin(pose.roll ?? 0)
+  return local.map(([xm, ym, z0]) => {
+    // roll about the fingers' axis (z), then pitch about x (+ lifts the fingers:
+    // −z turns toward +y), then yaw about y — all about the wrist
+    const xf = xm * flip
+    const x = xf * cr - ym * sr
+    const y0 = xf * sr + ym * cr
     const y1 = y0 * cp - z0 * sp
     const z1 = y0 * sp + z0 * cp
     return [pose.at[0] + x * cy + z1 * sy, pose.at[1] + y1, pose.at[2] - x * sy + z1 * cy]
@@ -170,6 +177,8 @@ export interface SimKey {
 const C = LEAP_BOX.center
 const at = (dx: number, dy: number, dz: number): Vec3 => [C[0] + dx, C[1] - 60 + dy, C[2] + 40 + dz]
 const open = (x: number, y = 0, z = 0) => ({ at: at(x, y, z), pinch: 0, grab: 0 })
+const DEG30 = Math.PI / 6
+const DEG40 = (40 * Math.PI) / 180
 
 export const SIM_SCRIPTS: Record<string, SimKey[]> = {
   /** An open right hand drawing a slow circle: the hover cursor. */
@@ -207,6 +216,39 @@ export const SIM_SCRIPTS: Record<string, SimKey[]> = {
     { t: 2.5, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
     { t: 3.0, right: { ...open(0), curls: [0, 0, 1, 1, 1] } },
   ],
+  /**
+   * A LEFT fist closes, then turns on each axis and back, ~1 s each: yaw 40°
+   * clockwise seen from above (yaw −0.70), pitch 30° knuckles up, roll 30°
+   * (counter-clockwise from the wrist) — then opens. For the 6-DoF hold.
+   */
+  "fist-turn": [
+    { t: 0, left: open(-40) },
+    { t: 0.3, left: open(-40) },
+    { t: 0.7, left: { ...open(-40), grab: 1 } },
+    { t: 1.7, left: { ...open(-40), grab: 1, yaw: -DEG40 } },
+    { t: 2.7, left: { ...open(-40), grab: 1 } },
+    { t: 3.7, left: { ...open(-40), grab: 1, pitch: DEG30 } },
+    { t: 4.7, left: { ...open(-40), grab: 1 } },
+    { t: 5.7, left: { ...open(-40), grab: 1, roll: DEG30 } },
+    { t: 6.7, left: { ...open(-40), grab: 1 } },
+    { t: 7.1, left: open(-40) },
+    { t: 7.5, left: open(-40) },
+  ],
+  /** A LEFT fist closes and carries 60 mm right, 40 mm up, 50 mm toward the screen, then opens. */
+  "fist-carry": [
+    { t: 0, left: open(-40) },
+    { t: 0.3, left: open(-40) },
+    { t: 0.7, left: { ...open(-40), grab: 1 } },
+    { t: 2.2, left: { ...open(20, 40, -50), grab: 1 } },
+    { t: 2.6, left: open(20, 40, -50) },
+    { t: 3.0, left: open(20, 40, -50) },
+  ],
+  /**
+   * Left fist, then right; they spread from 160 to 320 mm apart, turn
+   * together 30° about the vertical (steering), both wrists twist 25° about
+   * the line between them, then open.
+   */
+  "two-fists": twoFists(),
   /** Pinch, carry 120 mm to the right, release. */
   drag: [
     { t: 0, right: open(-60) },
@@ -235,6 +277,29 @@ export const SIM_SCRIPTS: Record<string, SimKey[]> = {
   ],
 }
 
+/** two-fists: hands on a line through the box centre, `half` mm from it, the line turned `turn` about +y. */
+function twoFists(): SimKey[] {
+  const pair = (half: number, turn: number, twist: number, lg: number, rg: number): Omit<SimKey, "t"> => {
+    const c = Math.cos(turn)
+    const s = Math.sin(turn)
+    // The line between the hands is x turned by `turn`; twisting about it is a pitch for both (in their own frames).
+    const place = (sign: number, g: number) => ({ ...open(sign * half * c, 0, -sign * half * s), grab: g, yaw: turn, pitch: twist })
+    return { left: place(-1, lg), right: place(1, rg) }
+  }
+  const keys: SimKey[] = [
+    { t: 0, ...pair(80, 0, 0, 0, 0) },
+    { t: 0.4, ...pair(80, 0, 0, 1, 0) },
+    { t: 0.8, ...pair(80, 0, 0, 1, 1) },
+    { t: 2.3, ...pair(160, 0, 0, 1, 1) },
+  ]
+  // The steering turn as an arc (four steps), not a chord.
+  for (let k = 1; k <= 4; k++) keys.push({ t: 2.3 + k * 0.3, ...pair(160, (DEG30 * k) / 4, 0, 1, 1) })
+  keys.push({ t: 4.4, ...pair(160, DEG30, (25 * Math.PI) / 180, 1, 1) })
+  keys.push({ t: 4.8, ...pair(160, DEG30, (25 * Math.PI) / 180, 0, 0) })
+  keys.push({ t: 5.2, ...pair(160, DEG30, (25 * Math.PI) / 180, 0, 0) })
+  return keys
+}
+
 const smooth = (u: number) => u * u * (3 - 2 * u)
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u
 
@@ -244,6 +309,7 @@ const poseBetween = (a: Omit<HandPose, "side">, b: Omit<HandPose, "side">, u: nu
   grab: lerp(a.grab, b.grab, u),
   yaw: lerp(a.yaw ?? 0, b.yaw ?? 0, u),
   pitch: lerp(a.pitch ?? 0, b.pitch ?? 0, u),
+  roll: lerp(a.roll ?? 0, b.roll ?? 0, u),
   ...(a.curls || b.curls
     ? { curls: [0, 1, 2, 3, 4].map((d) => lerp(a.curls?.[d] ?? a.grab, b.curls?.[d] ?? b.grab, u)) as HandPose["curls"] }
     : {}),

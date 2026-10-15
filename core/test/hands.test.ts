@@ -290,3 +290,42 @@ describe("the sim matches David's hand", () => {
     expect(leastCurled(h)).toBeGreaterThan(0.6)
   })
 })
+
+describe("6-DoF fists for the hold", () => {
+  const at = (name: string, t: number) => simFrameAt(SIM_SCRIPTS[name]!, t)
+  test("fist-turn: a left fist; its palm axes turn with it — yaw clockwise from above, knuckles up, roll", () => {
+    const rest = at("fist-turn", 0.7).hands[0]!
+    expect(rest.side).toBe("left")
+    expect(rest.grab).toBeCloseTo(1)
+    const yawed = at("fist-turn", 1.7).hands[0]!
+    expect(yawed.palm.direction[0]).toBeGreaterThan(0.55) // −z turned toward +x: clockwise seen from above
+    expect(Math.acos(Math.max(-1, Math.min(1, -yawed.palm.direction[2]))) * (180 / Math.PI)).toBeCloseTo(40, -1)
+    const pitched = at("fist-turn", 3.7).hands[0]!
+    expect(pitched.palm.direction[1]).toBeGreaterThan(rest.palm.direction[1] + 0.4) // knuckles up
+    const rolled = at("fist-turn", 5.7).hands[0]!
+    const dot = rolled.palm.normal[0] * rest.palm.normal[0] + rolled.palm.normal[1] * rest.palm.normal[1] + rolled.palm.normal[2] * rest.palm.normal[2]
+    expect(Math.acos(Math.min(1, dot)) * (180 / Math.PI)).toBeCloseTo(30, -1)
+    expect(Math.abs(rolled.palm.direction[2] - rest.palm.direction[2])).toBeLessThan(0.05) // a roll keeps the fingers' axis
+  })
+
+  test("fist-carry: 60 mm right, 40 mm up, 50 mm toward the screen", () => {
+    const d = sub(at("fist-carry", 2.2).hands[0]!.joints[J.wrist]!, at("fist-carry", 0.7).hands[0]!.joints[J.wrist]!)
+    expect(d[0]).toBeCloseTo(60, 0)
+    expect(d[1]).toBeCloseTo(40, 0)
+    expect(d[2]).toBeCloseTo(-50, 0)
+  })
+
+  test("two-fists: 160 → 320 mm apart, the pair turned 30° about the vertical, wrists twisted", () => {
+    const apart = (t: number) => {
+      const [l, r] = at("two-fists", t).hands
+      return sub(r!.joints[J.wrist]!, l!.joints[J.wrist]!)
+    }
+    expect(Math.hypot(...apart(0.8))).toBeCloseTo(160, 0)
+    const wide = apart(3.5)
+    expect(Math.hypot(...wide)).toBeCloseTo(320, 0)
+    expect(Math.atan2(-wide[2], wide[0]) * (180 / Math.PI)).toBeCloseTo(30, 0)
+    const twisted = at("two-fists", 4.4).hands
+    expect(twisted.every((h) => h.grab === 1 && h.confidence === 1)).toBe(true)
+    expect(twisted[0]!.palm.direction[1]).toBeGreaterThan(0.3) // both pitched by the twist
+  })
+})
