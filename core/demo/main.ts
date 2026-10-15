@@ -422,7 +422,7 @@ const main = async () => {
     signal: ac.signal,
     // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).
     jev: query.get("jev") === "1",
-    // No recorder in the player: with Jev on, it listens for itself.
+    // With Jev on it listens for itself — stepping aside while ⇧R records (the recorder's lines reach Jev then).
     listen: true,
     session: query.get("hands") === "replay" ? (query.get("session") ?? undefined) : undefined,
   })

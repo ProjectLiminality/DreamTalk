@@ -288,18 +288,34 @@ export const mountHands = (opts: {
             if (text) hear({ text, final: res.isFinal })
           }
         }
+        // A browser runs one recognition at a time: while the session
+        // recorder records (⇧R) it has the microphone, and its lines reach
+        // Jev through onTranscript — this listener steps aside, and comes
+        // back when the recording ends.
+        const recorderHasIt = () =>
+          (window as unknown as { __dtRecorder?: { recording?: boolean } }).__dtRecorder?.recording === true
+        let running = false
+        const begin = () => {
+          if (running || opts.signal.aborted || recorderHasIt()) return
+          try {
+            r.start()
+            running = true
+          } catch {}
+        }
         // Recognition stops on its own after a silence; keep listening while mounted.
         r.onend = () => {
-          if (listening && !opts.signal.aborted) {
-            try {
-              r.start()
-            } catch {}
-          }
+          running = false
+          if (listening) begin()
         }
-        r.start()
         listening = true
+        begin()
+        const watch = setInterval(() => {
+          if (recorderHasIt() && running) r.stop()
+          else if (!running) begin()
+        }, 1000)
         opts.signal.addEventListener("abort", () => {
           listening = false
+          clearInterval(watch)
           r.stop()
         })
       } catch {}
