@@ -2495,6 +2495,9 @@ const boot = async (resume?: Transport) => {
       recording: () => session.recording,
       write: (id?: string) => session.write(id),
       last: () => session.last,
+      // The live session's name and clock — hand frames (core/hands) stamp themselves on it.
+      id: () => window.__dtRecorder?.id,
+      clock: () => window.__dtRecorder?.clock() ?? 0,
     },
     // --- The becoming, driven headlessly --------------------------------------
     becoming: becoming && {

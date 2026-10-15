@@ -104,6 +104,15 @@ export const sessionFileResponse = async (req: Request, repoRoot: string, rest: 
     const bytes = new Uint8Array(await req.arrayBuffer())
     if (new URL(req.url).searchParams.get("append") === "1") await appendFile(path, bytes)
     else await writeFile(path, bytes)
+    // session.json names every track in the folder; hands.jsonl may arrive before or after it.
+    const json = join(dir, "session.json")
+    if ((file === "session.json" || file === "hands.jsonl") && existsSync(json)) {
+      try {
+        const s = JSON.parse(await readFile(json, "utf8")) as Session
+        const next = withTracks(dir, s)
+        if (next !== s) await writeFile(json, JSON.stringify(next, null, 2))
+      } catch {}
+    }
     return Response.json({ ok: true, bytes: bytes.length })
   }
   const blob = Bun.file(path)
@@ -111,12 +120,16 @@ export const sessionFileResponse = async (req: Request, repoRoot: string, rest: 
   return new Response(blob, { headers: { "Cache-Control": "no-store" } })
 }
 
+/** Files other recorders put in the folder (hands.jsonl), listed in `files` — their last append may follow stop(). */
+const withTracks = (dir: string, s: Session): Session =>
+  existsSync(join(dir, "hands.jsonl")) && !s.files?.hands ? { ...s, files: { ...s.files, hands: "hands.jsonl" } } : s
+
 export const readSession = async (repoRoot: string, id: string): Promise<Session> => {
   const dir = sessionDir(repoRoot, id)
   if (!dir) throw new Error(`bad session id '${id}'`)
   const s = JSON.parse(await readFile(join(dir, "session.json"), "utf8")) as Session
   if (s.version !== 1 || s.id !== id) throw new Error("not a version-1 session")
-  return s
+  return withTracks(dir, s)
 }
 
 // --- The passage --------------------------------------------------------------------

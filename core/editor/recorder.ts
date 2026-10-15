@@ -101,6 +101,18 @@ export class SessionRecorder {
     this.#lastFocus = undefined
   }
 
+  readonly #hear = new Set<(line: { text: string; final: boolean; t: number }) => void>()
+
+  /**
+   * Hear what is said while a session records (the browser allows one
+   * recognition at a time, so this is THE voice): interim lines as they
+   * form, finals as they settle; `t` on the session clock. Returns unsubscribe.
+   */
+  onTranscript(fn: (line: { text: string; final: boolean; t: number }) => void): () => void {
+    this.#hear.add(fn)
+    return () => this.#hear.delete(fn)
+  }
+
   /** The last session this recorder wrote (kept across remounts, like the recorder). */
   lastId: string | undefined
   lastSeconds: number | undefined
@@ -200,6 +212,8 @@ export class SessionRecorder {
       duration,
       clocks: this.#opts.clocks(),
       tracks: { fires: this.#fires, camera: this.#camera, focus: this.#focus, transcript: this.#transcript },
+      // Other recorders' tracks in this folder (hands.jsonl) are listed by
+      // the daemon when it reads the session — their last chunk may land later.
       files: audio ? { audio: "voice.webm" } : {},
     }
     await put("session.json", JSON.stringify(session, null, 2))
@@ -224,15 +238,16 @@ export class SessionRecorder {
     try {
       const r = new R()
       r.continuous = true
-      r.interimResults = false
+      r.interimResults = true
       r.onresult = (e) => {
         const t = this.clock()
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const res = e.results[i]!
-          if (!res.isFinal) continue
-          // A final result lands at its END; its start is the previous line's end, or a guess.
           const text = res[0]!.transcript.trim()
           if (!text) continue
+          for (const fn of this.#hear) fn({ text, final: res.isFinal, t })
+          if (!res.isFinal) continue
+          // A final result lands at its END; its start is the previous line's end, or a guess.
           const words = text.split(/\s+/).length
           const t0 = Math.max(this.#transcript.at(-1)?.t1 ?? 0, t - words * 0.4)
           this.#transcript.push({ t0, t1: t, text })
