@@ -142,6 +142,46 @@ All distances are in hand sizes (wrist to middle knuckle, ~88 mm).
 - A fist is read from the joints alone. The Leap's own grab number read
   1.0 for both your pinch and your fist, so it is not used.
 
+## Where the hands come from (agent *hands*)
+
+Every source speaks one frame: 21 joints in millimetres, device-centred
+(+x your right, +y up, +z toward you), the palm's pose, and the device's
+own pinch/grab when it has them. The gesture layer never knows which
+source it is reading.
+
+- **Leap** (`hands=leap`). The Ultraleap software (Gemini 5.17) is
+  already on your Mac. The studio starts the bridge itself, which reads
+  the Leap through Ultraleap's own library and relays every frame. It asks
+  for frames even when the browser is not the focused app.
+  - **If nothing moves:** run `cd core && bun scripts/leap-bridge.ts
+    --doctor`. It checks each step, then counts down while you hold a hand
+    over the Leap, printing palm position, the fingertip gap and pinch/grab.
+- **Webcam** (`hands=webcam`). MediaPipe runs on its own worker, so it
+  never stalls the picture. It reads the camera at 640×480 at its top frame
+  rate, 30 detections a second, about 24 ms per frame in the model. Depth is
+  estimated from your hand's size, so near/far is rough. `&camres=1280x720`
+  and `&fov=` tune it; `&handsworker=0` falls back to the page's thread.
+- **Is it real time?** The small panel bottom left shows the source's
+  status and, under it, `92 ev/s → 60/s · 10 ms old · 60 fps`: device frames
+  per second → frames used per second · how old a frame is when it is used ·
+  the page's frame rate. Measured with a Leap-rate feed in the editor on
+  flowmap: 10 ms old, 60 fps.
+- **Recording.** ⇧R (the live session) also records every hand frame, ~100
+  a second from the Leap, into the session folder as `hands.jsonl`, on the
+  same clock as your voice. Replay it with `&hands=replay&session=<id>`.
+  Your voice plays along and sets the clock.
+- **Simulated hands** for tests and for working without a device: `hover`,
+  `pinch`, `drag`, `pinch-curled` (your natural pinch), `grab-turn`,
+  `spread`, the left-fist holds `fist-turn` / `fist-carry` / `two-fists`, and
+  two shapes `gyan` and `point-circle` (mine, not your mudras). The sim's
+  fist is measured off yours: thumb across the fingers, 0.41 hand sizes from
+  the index tip.
+
+**What would help most next:** a recorded session of your own hands: once
+at rest, then two or three of your mudras, saying each name aloud. The
+gesture thresholds are then checked against your hands, not the
+simulator's.
+
 ## How it is built
 
 | File | What |
@@ -156,14 +196,16 @@ All distances are in hand sizes (wrist to middle knuckle, ~88 mm).
 | `demo/spark.ts` | where the spark stands (the view's frustum, depth included) |
 | `demo/game.ts` | `GameLoop.spark`: 3D picking among the walkable symbols, and what hides the spark |
 | `demo/handui.ts` | legend, buttons, pinch-point panel, hand-talk panel |
+| `src/render/pickcull.ts`, `pickworld.ts` (agent *hands*) | the fast exact picker: the screen pick and the 3D `pickNear` / `pickRay` the spark uses, gated against the exhaustive pick by `scripts/pick-gate.ts` |
 
-**Cost per frame.** The hand path costs microseconds:
-- the controller ~0.5 µs;
-- a 3D pick ~2 µs;
-- moving gestures are matched at most 30 times a second.
+**Cost per frame.**
+- The controller costs ~0.5 µs.
+- The spark's exact 3D picks cost ~0.3 ms per query in the gallery (~7,800
+  pieces of ink), 0.01 ms in the tuning room.
+- Moving gestures are matched at most 30 times a second.
 
-The page's slow screen pick (~70 ms in the gallery) is no longer called on
-every hand frame. *hands* is making it fast for the mouse too.
+The screen pick, for the mouse too, went from ~70 ms to ~1 ms in the
+gallery (earth 35 → 0.7 ms) with the same answers.
 
 ## What to try
 
