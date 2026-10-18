@@ -1761,6 +1761,7 @@ const boot = async (resume?: Transport) => {
         view: () => view,
         fire: (id, position) => game.fire(id, position),
         axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
+        hovered: () => game.hovered ?? undefined,
         changed: () => void host.renderFrame(current).then(() => syncPanel()),
         // Pinch-and-hold: the holon-action menu (editor/actions.ts), like a pointer long press.
         menuAt: (x, y) => (window as unknown as { __dt?: { actions?: { menuAt(x: number, y: number): void } } }).__dt?.actions?.menuAt(x, y),

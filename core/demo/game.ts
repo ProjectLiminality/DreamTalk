@@ -648,6 +648,11 @@ export class GameLoop {
     this.#spark = s
   }
 
+  /** The handle hovered now (by pointer, hand or spark), if any. */
+  get hovered(): Holon | null {
+    return this.#hovered?.handle ?? null
+  }
+
   /** How hidden the spark is behind ink: 0 in front of every handle … 1 behind one. */
   sparkHidden(): number {
     const s = this.#spark

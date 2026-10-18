@@ -30,6 +30,7 @@ import { MudraRecogniser, learn, type Candidate, type MudraLibrary } from "../sr
 import { Jev, httpJev, type JevDecision } from "../src/gesture/jev"
 import type { GrabHand } from "../src/gesture/controller"
 import type { Spark } from "./game"
+import type { Holon } from "../src/holon"
 import type { SparkPlace } from "./spark"
 import { handBasis, heldPose, holdPose, PoseFilter, toWorld, twoHandMotion, type Basis } from "../src/gesture/hold"
 import type { Pose } from "../src/view"
@@ -54,6 +55,8 @@ export interface HandTarget {
   axes?(): { id: string; label: string }[]
   /** The view or a pose changed: a host that only paints on demand repaints. */
   changed?(): void
+  /** What the hand hovers now (GameLoop.hovered) — what "unpack" opens. */
+  hovered?(): Holon | undefined
   /**
    * Spatial pointing (demo/spark.ts): where the spark stands for a cursor at
    * this client point and depth (−1 near … 0 the focus … +1 far). Without
@@ -342,7 +345,13 @@ export const mountHands = (opts: {
       }
     } else if (verb === "home") target.view()?.reset(performance.now())
     // `at`: where the hand was (client px) — a summoned symbol appears there.
-    else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined, world: place ? { ...place.spark.p } : undefined } }))
+    else if (verb === "unpack" || verb === "back") {
+      // Into the hovered symbol's own song or state space, and back out (editor/nest.ts).
+      const nest = (window as unknown as { __dtNest?: { unpack(h: Holon): Promise<unknown>; unpackHovered(): Promise<unknown>; back(): Promise<unknown> } }).__dtNest
+      if (!nest) return false
+      const h = target.hovered?.()
+      void (verb === "back" ? nest.back() : h ? nest.unpack(h) : nest.unpackHovered())
+    } else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined, world: place ? { ...place.spark.p } : undefined } }))
     else return false
     last = { action, by, t: performance.now() / 1000 }
     target.changed?.()
@@ -780,7 +789,7 @@ export const mountHands = (opts: {
         calibration?.done(undefined)
         calibration = { k: 0, samples: [], done: resolve }
       }),
-    actionNames: () => ["home", "invoke:dismiss", ...(target.axes?.() ?? []).map((a) => `fire:${a.id}`)],
+    actionNames: () => ["home", "unpack", "back", "invoke:dismiss", ...(target.axes?.() ?? []).map((a) => `fire:${a.id}`)],
     cancelCalibration: () => {
       const c = calibration
       calibration = undefined

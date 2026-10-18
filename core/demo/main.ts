@@ -438,6 +438,7 @@ const main = async () => {
       view: () => game.view,
       fire: (id, position) => game.fire(id, position),
       axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
+      hovered: () => game.hovered ?? undefined,
       // The pinch point is a spark in the scene (demo/spark.ts); `?spark=0` keeps it a dot on the screen.
       ...(query.get("spark") === "0"
         ? {}
