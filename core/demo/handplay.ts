@@ -345,12 +345,15 @@ export const mountHands = (opts: {
       }
     } else if (verb === "home") target.view()?.reset(performance.now())
     // `at`: where the hand was (client px) — a summoned symbol appears there.
-    else if (verb === "unpack" || verb === "back") {
-      // Into the hovered symbol's own song or state space, and back out (editor/nest.ts).
-      const nest = (window as unknown as { __dtNest?: { unpack(h: Holon): Promise<unknown>; unpackHovered(): Promise<unknown>; back(): Promise<unknown> } }).__dtNest
+    else if (verb === "unpack" || verb === "states" || verb === "back") {
+      // Into the hovered symbol's own song, or its state space (its lattice), and back out (editor/nest.ts).
+      type Nest = { unpack(h: Holon): Promise<unknown>; unpackHovered(): Promise<unknown>; states(h?: Holon): Promise<unknown>; statesHovered(): Promise<unknown>; back(): Promise<unknown> }
+      const nest = (window as unknown as { __dtNest?: Nest }).__dtNest
       if (!nest) return false
       const h = target.hovered?.()
-      void (verb === "back" ? nest.back() : h ? nest.unpack(h) : nest.unpackHovered())
+      if (verb === "back") void nest.back()
+      else if (verb === "states") void (h ? nest.states(h) : nest.statesHovered())
+      else void (h ? nest.unpack(h) : nest.unpackHovered())
     } else if (verb === "invoke") window.dispatchEvent(new CustomEvent("dreamtalk:invoke", { detail: { name: rest, by, at: pointSeen ? { ...pointAt } : undefined, world: place ? { ...place.spark.p } : undefined } }))
     else return false
     last = { action, by, t: performance.now() / 1000 }
@@ -789,7 +792,7 @@ export const mountHands = (opts: {
         calibration?.done(undefined)
         calibration = { k: 0, samples: [], done: resolve }
       }),
-    actionNames: () => ["home", "unpack", "back", "invoke:dismiss", ...(target.axes?.() ?? []).map((a) => `fire:${a.id}`)],
+    actionNames: () => ["home", "unpack", "states", "back", "invoke:dismiss", ...(target.axes?.() ?? []).map((a) => `fire:${a.id}`)],
     cancelCalibration: () => {
       const c = calibration
       calibration = undefined
