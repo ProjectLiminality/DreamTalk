@@ -13,6 +13,10 @@ import { FigureBustDemoDream } from "./FigureBustDemo"
 import { SandTalkDemoDream } from "./SandTalkDemo"
 import { TribeDemoDream, TribeWebDemoDream, TribesDemoDream } from "./TribeDemo"
 import type { DreamClass } from "../../src/dream"
+import { DivideDemoDream } from "./DivideDemo"
+import { DreamSongDemoDream } from "./DreamSongDemo"
+import { SongLineDemoDream } from "./SongLineDemo"
+import { CoherenceBeaconDemoDream } from "./CoherenceBeaconDemo"
 import { NoosphereDemoDream } from "./NoosphereDemo"
 import { WorldviewDemoDream } from "./WorldviewDemo"
 import { FieldDemoDream, FieldSwarmDemoDream } from "./FieldDemo"
@@ -23,8 +27,26 @@ import { DreamNodeDemoDream } from "./DreamNodeDemo"
 import { InterBrainDemoDream } from "./InterBrainDemo"
 import { AttractorDemoDream } from "./AttractorDemo"
 import { ResonanceDemoDream } from "./ResonanceDemo"
+import { DreamGardenDemoDream } from "./DreamGardenDemo"
+import { LiminalWebDemoDream } from "./LiminalWebDemo"
+import { DigitalCampfireDemoDream } from "./DigitalCampfireDemo"
+import { BookDemoDream, IconsDemoDream, RadioTowerDemoDream } from "./IconsDemo"
+import { VaultDemoDream } from "./VaultDemo"
+import { SpheresDemoDream } from "./SpheresDemo"
 
 export const interbrainScenes: Record<string, DreamClass> = {
+  "ib-icons": IconsDemoDream,
+  "ib-radiotower": RadioTowerDemoDream,
+  "ib-book": BookDemoDream,
+  "ib-vault": VaultDemoDream,
+  "ib-spheres": SpheresDemoDream,
+  "ib-dreamgarden": DreamGardenDemoDream,
+  "ib-liminalweb": LiminalWebDemoDream,
+  "ib-campfire": DigitalCampfireDemoDream,
+  "ib-divide": DivideDemoDream,
+  "ib-dreamsong": DreamSongDemoDream,
+  "ib-songline": SongLineDemoDream,
+  "ib-beacon": CoherenceBeaconDemoDream,
   "ib-worldview": WorldviewDemoDream,
   "ib-attractor": AttractorDemoDream,
   "ib-resonance": ResonanceDemoDream,

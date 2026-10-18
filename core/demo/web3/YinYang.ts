@@ -71,7 +71,7 @@
  * half-circles stitched where they touch — from the blue lobe's rim point,
  * under the blue node, to the tangent point, then over the red node to the red
  * rim point. At an equal split that is the classic two R/2 semicircles; as the
- * split moves the S leans with it. One polyline (`sCurve`), drawn on as one
+ * split moves the S leans with it. One polyline, drawn on as one
  * stroke, rotating rigidly with the nodes — in the frames they are one body.
  *
  * THE FIELD-LINES — THE DECISION
@@ -119,13 +119,14 @@
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Null } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, seen, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
 import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { clamp01 } from "../../src/math"
 import { FragmentedEarth } from "../../vocabulary/FragmentedEarth/FragmentedEarth"
+import { Divide } from "../../vocabulary/Divide/Divide"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
  *  (f_00005: the outer ring spans ~y0.13→0.87, ~530px of 720, so ~265 at
@@ -197,28 +198,10 @@ const RED_RING = seen(250, 86, 65)
 const LATTICE_RED = seen(150, 60, 52)
 
 /**
- * The yin-yang divider as one polyline, for a blue-lobe share `split`: the
- * blue lobe (radius split·R, centred on −x) from its rim point under the blue
- * node to where the lobes touch, then the red lobe (the rest, centred on +x)
- * over the red node to its rim point. Local space, unrotated — `orbit`
- * rotates the whole figure that carries it.
+ * The yin-yang divider is `vocabulary/Divide` — the one implementation of
+ * the S (the InterBrain film's Engineering │ Gardening and DreamWeaving
+ * arcs are the same curve). Lobe A is the blue lobe; its share is `split`.
  */
-const sCurve = (split: number, segments = 48): { x: number; y: number; z: number }[] => {
-  const pts: { x: number; y: number; z: number }[] = []
-  const rb = split * OUTER_R
-  const rr = OUTER_R - rb
-  // Blue lobe's lower half: centre (−rr, 0), from (−R, 0) round the bottom.
-  for (let i = 0; i <= segments; i++) {
-    const a = Math.PI + (i / segments) * Math.PI // 180° → 360°
-    pts.push({ x: -rr + Math.cos(a) * rb, y: Math.sin(a) * rb, z: 0 })
-  }
-  // Red lobe's upper half: centre (rb, 0), from the touch point over the top.
-  for (let i = 1; i <= segments; i++) {
-    const a = Math.PI - (i / segments) * Math.PI // 180° → 0°
-    pts.push({ x: rb + Math.cos(a) * rr, y: Math.sin(a) * rr, z: 0 })
-  }
-  return pts
-}
 
 
 export class YinYangDream extends Dream {
@@ -253,8 +236,8 @@ export class YinYangDream extends Dream {
    *  outward over `birth`. */
   outer = new Circle({ radius: OUTER_R, tint: WHITE, stroke: 2 })
 
-  /** The S-curve divider. Draws on over `divide`. */
-  divider!: Line
+  /** The S-curve divider (vocabulary/Divide). Draws on over `divide`. */
+  divider!: Divide
 
   blueNode!: Group
   redNode!: Group
@@ -265,14 +248,11 @@ export class YinYangDream extends Dream {
     // The S-curve, rotated rigidly with the whole figure. Its points are derived
     // from `orbit` (the rotation) and its draw-on rides `divide`. It is staged at
     // the root, so the figure rotation is applied to its points HERE.
-    this.divider = new Line({ tint: WHITE, stroke: 1.6 })
-    deriveRot(this.divider, this, () => {
-      const th = this.turn
-      const c = Math.cos(th)
-      const s = Math.sin(th)
-      return sCurve(this.split()).map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: 0 }))
-    })
-    this.divider.creation.follow(this.divide.creation.map((c) => clamp01(c)))
+    this.divider = new Divide({ radius: OUTER_R, tint: WHITE, stroke: 1.6 })
+    this.divider.split.follow(this.orbit.creation.map(() => this.split()))
+    this.divider.turn.follow(this.orbit.creation.map(() => this.turn))
+    void this.divider.parts
+    this.divider.curve.creation.follow(this.divide.creation.map((c) => clamp01(c)))
     this.outer.radius.follow(this.birth.creation.map(() => outerPx(this.birthTime()) / PX))
 
     // The two nodes. Each is a Group carrying its globe + decoration; the whole
@@ -443,15 +423,3 @@ export class YinYangDream extends Dream {
     )
   }
 }
-
-/**
- * Give a Line derived `points` (primitives.ts derivePoints), keyed on the
- * live `turn` AND the three beats that drive the nodes' sizes, so a
- * size-swap or a rotation both re-emit.
- */
-const deriveRot = (line: Line, dream: YinYangDream, compute: () => Vec3Like[]): void =>
-  derivePoints(
-    line,
-    () => [dream.turnValue, dream.birth.creation.value, dream.divide.creation.value, dream.orbit.creation.value],
-    compute,
-  )
