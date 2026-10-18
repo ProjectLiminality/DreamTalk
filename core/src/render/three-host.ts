@@ -700,6 +700,102 @@ const countStrokes = (dream: Dream): number => {
   return n
 }
 
+/**
+ * RESIDENCY (song.ts) — a song's chapters as the host mounts them: each
+ * chapter's roots, the chapters to keep mounted at t, and the roots no
+ * single chapter owns (a song's own holon, or one two chapters share),
+ * which stay mounted throughout. Undefined for anything that is not a
+ * song (duck-typed, as liveRoots and layerFades are).
+ */
+interface Residency {
+  chapters: readonly (readonly Holon[])[]
+  residentAt: (t: number) => readonly number[]
+  always: readonly Holon[]
+}
+
+const residencyOf = (dream: Dream): Residency | undefined => {
+  const song = dream as unknown as {
+    residentAt?: (t: number) => readonly number[]
+    chapters?: readonly { dream: Dream }[]
+  }
+  if (typeof song.residentAt !== "function" || !song.chapters) return undefined
+  const chapters = song.chapters.map((c) => c.dream.roots)
+  const owners = new Map<Holon, number>()
+  for (const roots of chapters) for (const r of roots) owners.set(r, (owners.get(r) ?? 0) + 1)
+  const shared = new Set([...owners].filter(([, n]) => n > 1).map(([r]) => r))
+  return {
+    chapters: chapters.map((roots) => roots.filter((r) => !shared.has(r))),
+    residentAt: (t) => song.residentAt!.call(dream, t),
+    always: dream.roots.filter((r) => !owners.has(r) || shared.has(r)),
+  }
+}
+
+/** A mounted chapter (RESIDENCY): its root groups, its text layout, its warm-up. */
+interface ChapterMount {
+  roots: readonly Holon[]
+  /** How many of `roots` are begun — a chapter waiting for its cut mounts a slice a frame. */
+  attached: number
+  /** Holons still to attach (with their parent group and root), depth-first from the top. */
+  queue: [Holon, THREE.Object3D, Holon][]
+  groups: THREE.Object3D[]
+  /** The next composite order this chapter claims. */
+  order: number
+  /** Every attached Text's layout. */
+  texts: Promise<void>[]
+  /** Settles once every attached Text has laid out. */
+  ready: Promise<void>
+  laidOut: boolean
+  /** The background shader/render-object builds started so far. */
+  warm?: Promise<void>
+}
+
+/** What residency needs of three's RenderObject (renderers/common/RenderObject.js). */
+interface RenderObjectLike {
+  material: THREE.EventDispatcher<object>
+  geometry: THREE.EventDispatcher<object>
+  _sourceMaterial: THREE.EventDispatcher<object> | null
+  onMaterialDispose: () => void
+  onGeometryDispose: () => void
+  onDispose: () => void
+}
+
+/**
+ * RenderObject.dispose(), for many at once. Each one listens on its
+ * material, and a song's materials are SHARED (ribbon.ts, fill.ts): one
+ * removeEventListener at a time is an indexOf + splice on a listener list
+ * as long as everything ever drawn — quadratic, ~1 s to release a chapter.
+ * So each shared list is filtered once, then the rest of dispose() runs.
+ */
+const releaseRenderObjects = (ros: readonly RenderObjectLike[]): void => {
+  if (ros.length === 0) return
+  const off = new Map<THREE.EventDispatcher<object>, Set<() => void>>()
+  const drop = (m: THREE.EventDispatcher<object> | null, fn: () => void) => {
+    if (!m) return
+    let fns = off.get(m)
+    if (!fns) off.set(m, (fns = new Set()))
+    fns.add(fn)
+  }
+  for (const ro of ros) {
+    drop(ro.material, ro.onMaterialDispose)
+    drop(ro._sourceMaterial, ro.onMaterialDispose)
+  }
+  for (const [m, fns] of off) {
+    const listeners = (m as unknown as { _listeners?: Record<string, (() => void)[]> })._listeners
+    const list = listeners?.dispose
+    if (!list) continue
+    let k = 0
+    for (const fn of list) if (!fns.has(fn)) list[k++] = fn
+    list.length = k
+  }
+  for (const ro of ros) {
+    ro.geometry.removeEventListener("dispose" as never, ro.onGeometryDispose as never)
+    ro.onDispose()
+  }
+}
+
+/** Is every holon of a mounting chapter attached? */
+const complete = (mount: ChapterMount): boolean => mount.attached === mount.roots.length && mount.queue.length === 0
+
 /** The params whose change requires re-sampling the polyline. */
 const shapeKey = (holon: Stroke): number[] => {
   const phase = [holon.drawStart.value, holon.drawReversed.value ? 1 : 0]
@@ -1051,19 +1147,31 @@ export class ThreeHost {
   static async mount(
     dream: Dream,
     canvas: HTMLCanvasElement,
-    opts: { useInstancedRibbons?: boolean | "auto" } = {},
+    opts: {
+      useInstancedRibbons?: boolean | "auto"
+      /** A DreamSong mounts only the chapters near the playhead (RESIDENCY below); false mounts every chapter. */
+      residency?: boolean
+      /** The song time the first frame will show — the chapters resident there are mounted before ready. */
+      at?: number
+    } = {},
   ): Promise<ThreeHost> {
     await Promise.resolve() // keep the signature async-stable
     dream.build()
+    // RESIDENCY: a song's chapters mount lazily. An explicit instancing
+    // request keeps every chapter mounted (a batch's runs are laid out once).
+    const residency = opts.residency !== false && opts.useInstancedRibbons !== true ? residencyOf(dream) : undefined
     // "auto": count the built dream's strokes and instance only where it wins.
     // An explicit boolean (the byte-identity harness) overrides the threshold.
-    const flag =
-      opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
+    // A resident song never batches (no song's runs are long enough to win).
+    const flag = residency
+      ? false
+      : opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
         ? countStrokes(dream) >= ThreeHost.INSTANCE_THRESHOLD
         : opts.useInstancedRibbons
     const host = new ThreeHost(dream, canvas, flag)
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
+    if (residency) return host.mountResident(residency, opts.at ?? 0)
     for (const root of dream.roots) host.attach(root, host.scene)
     // Clips (src/clip.ts): their ink switches to clipped materials; a batch
     // draws with one material, so a scene with clipped strokes renders them
@@ -1387,7 +1495,11 @@ export class ThreeHost {
       }
     }
 
-    for (const part of holon.parts) this.attach(part, group, root)
+    // RESIDENCY: a chapter mounting in slices takes its parts from a
+    // queue — the same depth-first order, pausable between holons.
+    const queue = this.attachQueue
+    if (queue) for (let k = holon.parts.length - 1; k >= 0; k--) queue.push([holon.parts[k]!, group, root])
+    else for (const part of holon.parts) this.attach(part, group, root)
   }
 
   /**
@@ -1403,6 +1515,10 @@ export class ThreeHost {
   async renderFrame(t: number): Promise<void> {
     this.frameT = t
     this.dream.applyAt(t)
+    if (this.residency) {
+      const settling = this.reside(t)
+      if (settling) await settling
+    }
     this.beforeSync?.()
     this.sync()
     // When sync() left every world matrix settled and nothing has moved
@@ -1422,6 +1538,8 @@ export class ThreeHost {
     } finally {
       if (settled) this.scene.matrixWorldAutoUpdate = true
     }
+    // RESIDENCY: chapters mounted this frame warm up behind it.
+    if (this.residency) this.warmMounted()
   }
 
   /** Composites fading wholes as single pictures (layers.ts). */
@@ -3530,10 +3648,17 @@ export class ThreeHost {
     void holon.parts // compose before attaching
     const instanced = this.instanced
     this.instanced = false
+    // RESIDENCY: above every chapter's composite orders, as attach-last always was.
+    const order = this.nextFillOrder
+    if (this.residency) this.nextFillOrder = this.adoptedOrder ?? (this.residency.chapters.length + 1) * ThreeHost.CHAPTER_ORDERS + 1
     try {
       this.attach(holon, this.scene)
     } finally {
       this.instanced = instanced
+      if (this.residency) {
+        this.adoptedOrder = this.nextFillOrder
+        this.nextFillOrder = order
+      }
     }
     this.rootGroups = undefined
     this.inks = undefined
@@ -3575,6 +3700,346 @@ export class ThreeHost {
     this.rootGroups = undefined
     this.inks = undefined
   }
+
+  // --- RESIDENCY (song.ts) -------------------------------------------------
+  //
+  // A long song cannot keep every chapter's picture in the tab (the
+  // InterBrain film mounted whole: ~150k holons, ~3.3 GB of heap, most of
+  // it ribbon geometry and render objects). A resident song mounts only the
+  // chapters song.residentAt(t) names — the live ones, the next one a few
+  // seconds before its cut, the last one a moment after — and releases the
+  // rest: bindings, meshes, GPU buffers, render objects.
+  //
+  // Purity: what is mounted never reaches a pixel. Only live chapters draw
+  // (the song gates the rest to 0 and they are dormant here), and a live
+  // chapter is always resident. A chapter mounted afresh is attached from
+  // the holons as they stand and synced like any binding on its first frame
+  // (fresh signatures, syncedEpoch reset), so at t it is exactly the
+  // chapter that never left — setT's second render settles its matrices,
+  // as it does for any jump. Composite order is a chapter's own: chapter i
+  // claims render orders from (i + 1)·CHAPTER_ORDERS, the same orders on
+  // every mount and above every earlier chapter's, as attach order gave
+  // them when everything mounted at once.
+
+  /** The song's chapters as mounted lazily; undefined for every other dream. */
+  private residency?: Residency
+  /** The next composite order an adopted holon claims in a resident song. */
+  private adoptedOrder?: number
+  /** Set while a chapter mounts in slices: attach() queues parts here instead of recursing. */
+  private attachQueue?: [Holon, THREE.Object3D, Holon][]
+  /** Mounted chapters by index. */
+  private readonly mounted = new Map<number, ChapterMount>()
+  /** Root groups mounted since the last warm-up pass, with their chapter. */
+  private unwarmed: { mount: ChapterMount; groups: THREE.Object3D[]; warmedTo?: number }[] = []
+  /** Render objects built per mesh — released with their chapter (shared materials never dispose them). */
+  private readonly renderObjectsOf = new WeakMap<THREE.Object3D, RenderObjectLike[]>()
+  /** Render-order headroom per chapter (RESIDENCY). */
+  static readonly CHAPTER_ORDERS = 2 ** 32
+
+  /** mount() for a resident song: the song-wide roots, then the chapters resident at `at`. */
+  private async mountResident(residency: Residency, at: number): Promise<ThreeHost> {
+    this.residency = residency
+    // Record every render object three builds, by object, so a released
+    // chapter can release its own: they listen on the SHARED materials,
+    // which never dispose, so nothing else would ever let them go.
+    const objects = (this.renderer as unknown as { _objects?: { createRenderObject: (...a: unknown[]) => RenderObjectLike } })._objects
+    if (objects) {
+      const create = objects.createRenderObject.bind(objects)
+      objects.createRenderObject = (...a: unknown[]) => {
+        const ro = create(...a)
+        // Once only: three disposes a stale one itself (a cache-key change),
+        // and a second onDispose would rebuild its node state to destroy it.
+        const onDispose = ro.onDispose
+        let gone = false
+        ro.onDispose = () => {
+          if (gone) return
+          gone = true
+          onDispose()
+        }
+        const object = a[3] as THREE.Object3D
+        const list = this.renderObjectsOf.get(object)
+        if (list) list.push(ro)
+        else this.renderObjectsOf.set(object, [ro])
+        return ro
+      }
+    }
+    for (const root of residency.always) this.attach(root, this.scene)
+    this.freezeStaticMatrices()
+    if (this.gatherClips()) this.dedupeClipTexts()
+    await Promise.all(this.texts.map((t) => t.binding.ready))
+    for (const i of residency.residentAt(at)) this.mountChapter(i)
+    await Promise.all([...this.mounted.values()].map((m) => m.ready))
+    this.warmMounted()
+    return this
+  }
+
+  /**
+   * Bring the mounted set to residentAt(t): release what left it, mount
+   * what entered. A LIVE chapter mounts whole, now; one only waiting for
+   * its cut mounts a few roots a frame (MOUNT_BUDGET_MS), so playback
+   * does not stall for the second a large chapter takes to build. Returns
+   * a promise only when a live chapter's text is still laying out — a
+   * frame must not draw a chapter without its words.
+   */
+  private reside(t: number): Promise<void> | undefined {
+    const residency = this.residency!
+    const want = residency.residentAt(t)
+    for (const i of [...this.mounted.keys()]) if (!want.includes(i)) this.unmountChapter(i)
+    const live = (this.dream as { liveRoots?: ReadonlySet<Holon> }).liveRoots
+    const isLive = (i: number) => residency.chapters[i]!.some((r) => live?.has(r) ?? true)
+    let budget: number | undefined
+    for (const i of want) {
+      const mount = this.mounted.get(i)
+      if (mount && complete(mount)) continue
+      if (isLive(i)) this.mountChapter(i)
+      else if (budget === undefined || performance.now() < budget) {
+        budget ??= performance.now() + ThreeHost.MOUNT_BUDGET_MS
+        this.mountChapter(i, budget)
+      }
+    }
+    const waiting = want.filter(isLive).map((i) => this.mounted.get(i)!).filter((m) => !m.laidOut)
+    return waiting.length > 0 ? Promise.all(waiting.map((m) => m.ready)).then(() => {}) : undefined
+  }
+
+  /** Milliseconds a frame spends mounting (or warming) a chapter that is not on screen yet — at least a slice. */
+  static readonly MOUNT_BUDGET_MS = 10
+
+  /** The mounted chapter indices, ascending — the harness reads it. */
+  get residentChapters(): number[] {
+    return [...this.mounted.keys()].sort((a, b) => a - b)
+  }
+
+  /** Attach chapter i's remaining roots — all of them, or (with `until`) as many as fit before that time, at least one. */
+  private mountChapter(i: number, until?: number): void {
+    const roots = this.residency!.chapters[i]!
+    let mount = this.mounted.get(i)
+    if (!mount) {
+      mount = {
+        roots,
+        attached: 0,
+        queue: [],
+        groups: [],
+        order: (i + 1) * ThreeHost.CHAPTER_ORDERS + 1,
+        texts: [],
+        ready: Promise.resolve(),
+        laidOut: true,
+      }
+      this.mounted.set(i, mount)
+    }
+    const mark = {
+      strokes: this.strokes.length,
+      fills: this.fills.length,
+      washes: this.washes.length,
+      drawingWashes: this.drawingWashes.length,
+      arrows: this.arrows.length,
+      cylinders: this.cylinders.length,
+      texts: this.texts.length,
+    }
+    const groupsBefore = this.groups.length
+    // The chapter's own composite orders, continued across its slices; its
+    // holons attached depth-first off a queue, a few hundred between clock reads.
+    const order = this.nextFillOrder
+    this.nextFillOrder = mount.order
+    const before = this.scene.children.length
+    const queue = mount.queue
+    this.attachQueue = queue
+    try {
+      for (let n = 1; queue.length > 0 || mount.attached < mount.roots.length; n++) {
+        if (queue.length === 0) {
+          const root = roots[mount.attached++]!
+          queue.push([root, this.scene, root])
+        }
+        const [holon, parent, root] = queue.pop()!
+        this.attach(holon, parent, root)
+        if (until !== undefined && (n & 63) === 0 && performance.now() >= until) break
+      }
+    } finally {
+      this.attachQueue = undefined
+      mount.order = this.nextFillOrder
+      this.nextFillOrder = order
+    }
+    mount.groups.push(...this.scene.children.slice(before))
+    const added = this.groups.slice(groupsBefore)
+    // freezeStaticMatrices, for these bindings only.
+    const freeze = (o: THREE.Object3D) => {
+      o.matrixAutoUpdate = false
+      o.matrixWorldNeedsUpdate = true
+    }
+    for (const { ribbon } of this.strokes.slice(mark.strokes)) freeze(ribbon.mesh)
+    for (const { fill } of this.fills.slice(mark.fills)) freeze(fill.mesh)
+    for (const { fill } of this.washes.slice(mark.washes)) freeze(fill.mesh)
+    for (const { fill } of this.drawingWashes.slice(mark.drawingWashes)) freeze(fill.mesh)
+    for (const { fill } of this.arrows.slice(mark.arrows)) freeze(fill.mesh)
+    for (const c of this.cylinders.slice(mark.cylinders)) {
+      for (const r of [c.farCap, c.nearBack, c.nearFront, c.lineA, c.lineB]) freeze(r.mesh)
+    }
+    const texts = this.texts.slice(mark.texts).map((t) => t.binding.ready)
+    if (texts.length > 0) {
+      mount.texts.push(...texts)
+      mount.laidOut = false
+      const all = mount.texts.length
+      const ready = Promise.all(mount.texts).then(() => {
+        if (mount.texts.length === all) mount.laidOut = true
+      })
+      mount.ready = ready
+    }
+    // Warmed whole, once whole: a slice's parts land under earlier slices' groups.
+    if (complete(mount)) this.unwarmed.push({ mount, groups: mount.groups })
+    if (added.some((b) => clipOf(b.holon)) && this.gatherClips()) this.dedupeClipTexts()
+    // Authored glows, kept current instead of re-gathered over every group.
+    if (this.authoredGlow) {
+      for (const { holon } of added) {
+        const g = seenGlow(holon)
+        if (g) this.authoredGlow.set(holon, g)
+      }
+      this.authoredGlowOver = this.groups.length
+    }
+    this.residencyChanged()
+  }
+
+  private unmountChapter(i: number): void {
+    const mount = this.mounted.get(i)!
+    this.mounted.delete(i)
+    this.unwarmed = this.unwarmed.filter((w) => w.mount !== mount)
+    const gone = new Set<Holon>()
+    for (const root of mount.roots.slice(0, mount.attached)) for (const h of root.walk()) gone.add(h)
+    const objects = new Set<THREE.Object3D>()
+    for (const g of mount.groups) g.traverse((o) => void objects.add(o))
+
+    for (const t of this.texts) if (gone.has(t.holon)) t.binding.dispose()
+    for (const b of this.groups) if (gone.has(b.holon)) for (const p of b.transform) p.unwatch(b)
+    const prune = <B extends { holon: Holon }>(list: readonly B[]): void => {
+      const l = list as B[]
+      let k = 0
+      for (const b of l) if (!gone.has(b.holon)) l[k++] = b
+      l.length = k
+    }
+    for (const b of this.strokes) if (gone.has(b.holon)) this.blurOf.delete(b.ribbon)
+    for (const b of this.polylines) if (gone.has(b.holon)) this.blurOf.delete(b.ribbon)
+    prune(this.groups)
+    prune(this.strokes)
+    prune(this.cylinders)
+    prune(this.fills)
+    prune(this.washes)
+    prune(this.surfaces)
+    prune(this.polylines)
+    prune(this.drawingWashes)
+    prune(this.arrows)
+    prune(this.texts)
+    const sp = this.superpositions as { group: THREE.Object3D }[]
+    for (let k = sp.length - 1; k >= 0; k--) if (objects.has(sp[k]!.group)) sp.splice(k, 1)
+    // Halos of released ink go with it (they live in the glow layer).
+    for (const [key, halo] of this.halos) {
+      const ink = key instanceof RibbonStroke ? key.mesh : (key as THREE.Object3D)
+      if (!objects.has(ink)) continue
+      for (const m of halo.meshes()) {
+        m.removeFromParent()
+        m.geometry.dispose()
+        objects.add(m)
+      }
+      this.halos.delete(key)
+      this.litHalos.delete(halo)
+    }
+    for (const [region, meshes] of this.clips) {
+      for (const m of meshes) if (objects.has(m)) meshes.delete(m)
+      if (meshes.size === 0) this.clips.delete(region)
+    }
+    for (const o of objects) this.clipOfMesh.delete(o)
+    const ct = this.clipTexts
+    for (let k = ct.length - 1; k >= 0; k--) if (objects.has(ct[k]!.group)) ct.splice(k, 1)
+    for (const h of gone) {
+      this.rootOf.delete(h)
+      this.washedByAncestor.delete(h)
+      this.authoredGlow?.delete(h)
+    }
+    if (this.authoredGlow) this.authoredGlowOver = this.groups.length
+    for (const g of mount.groups) g.removeFromParent()
+    // GPU: every geometry (materials are shared), and every render object
+    // three built for these meshes — again once an in-flight warm-up ends,
+    // since it may still be building some.
+    const release = () => {
+      const ros: RenderObjectLike[] = []
+      for (const o of objects) {
+        const list = this.renderObjectsOf.get(o)
+        if (list) {
+          ros.push(...list)
+          this.renderObjectsOf.delete(o)
+        }
+      }
+      releaseRenderObjects(ros)
+    }
+    for (const o of objects) if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry.dispose()
+    release()
+    void mount.warm?.then(release)
+    this.residencyChanged()
+  }
+
+  /** Every cache keyed on the binding lists or the graph starts over. */
+  private residencyChanged(): void {
+    this.rootGroups = undefined
+    this.inks = undefined
+    this.groupIndex = undefined
+    this.syncedEpoch = Number.NaN
+    this.cullLatchIdle = false
+    this.dormancyVersion++
+    // The 3D pick's sphere index starts over (and lets released strokes go).
+    this.strokeSpheres = undefined
+    this.inkStale = true
+    this.inkReshaped.length = 0
+    this.inkMoved.length = 0
+  }
+
+  /** gatherClips() is a mount-time pass; run again it would list a clipped Text twice. */
+  private dedupeClipTexts(): void {
+    const seen = new Set<THREE.Object3D>()
+    const ct = this.clipTexts
+    let k = 0
+    for (const c of ct) if (!seen.has(c.group)) (seen.add(c.group), (ct[k++] = c))
+    ct.length = k
+  }
+
+  /**
+   * Warm the chapters mounted since the last pass, in the background —
+   * prewarm()'s technique per chapter: every hidden object in it (its
+   * root groups too, when it is dormant) is shown for the synchronous
+   * gather of compileAsync only, so no frame sees it.
+   */
+  private warmMounted(): void {
+    if (this.unwarmed.length === 0) return
+    // A few root groups a frame: the gather is synchronous, and a large
+    // chapter's whole would hold one frame for half a second.
+    const until = performance.now() + ThreeHost.MOUNT_BUDGET_MS
+    const builds: Promise<void>[] = []
+    while (this.unwarmed.length > 0 && (builds.length === 0 || performance.now() < until)) {
+      const next = this.unwarmed[0]!
+      const g = next.groups[next.warmedTo ?? 0]!
+      next.warmedTo = (next.warmedTo ?? 0) + 1
+      if (next.warmedTo >= next.groups.length) this.unwarmed.shift()
+      const shown: THREE.Object3D[] = []
+      let compiling: Promise<void>
+      try {
+        g.traverse((o) => {
+          if (!o.visible) {
+            o.visible = true
+            shown.push(o)
+          }
+        })
+        compiling = this.renderer.compileAsync(g, this.camera, this.scene)
+      } finally {
+        for (const o of shown) o.visible = false
+      }
+      const mount = next.mount
+      mount.warm = Promise.all([mount.warm, compiling]).then(
+        () => {},
+        () => {},
+      )
+      builds.push(mount.warm)
+    }
+    const prior = this.warmed
+    this.warmed = Promise.all([prior, ...builds]).then(() => {})
+  }
+
+
 
   /**
    * Glow a holon's ink (its whole subtree), several holons', or none
@@ -3838,6 +4303,9 @@ export class ThreeHost {
     const layer = new THREE.Group()
     // Identity, never moved: each halo carries its ink's world matrix itself.
     layer.matrixAutoUpdate = false
+    // RESIDENCY: chapter ink sits at orders far above glow.ts's MASK_ORDER,
+    // so the halos composite after it as a group (three's groupOrder).
+    if (this.residency) layer.renderOrder = 1
     this.scene.add(layer)
     return layer
   }

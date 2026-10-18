@@ -206,6 +206,13 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
     ;(this.#watchers ??= []).push(w)
   }
 
+  /** Stop telling `w` (a host releasing a binding — three-host.ts residency). */
+  unwatch(w: { dirty: boolean }): void {
+    const ws = this.#watchers
+    const i = ws ? ws.indexOf(w) : -1
+    if (i >= 0) ws!.splice(i, 1)
+  }
+
   #changed(): void {
     this.#changedAt = ++epoch
     const ws = this.#watchers

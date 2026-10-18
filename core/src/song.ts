@@ -149,6 +149,59 @@ const frameHeight = (observer: Observer): number => {
 const liftsOf = (dream: Dream): Param<number>[] =>
   dream.roots.filter((r) => !r.y.isBound).map((r) => r.y)
 
+/**
+ * RESIDENCY — which chapters a host keeps MOUNTED (geometry, GPU buffers,
+ * render objects) at song time t. A long song cannot hold every chapter's
+ * picture at once (the InterBrain film: 151k holons, ~4 GB of tab); only
+ * the chapters near the playhead need to be in the host. These are pure
+ * functions of the chapters' windows and t, so what is mounted never
+ * depends on how the playhead got there — and since only LIVE chapters
+ * draw (the gate hides the rest), what is mounted never reaches a pixel.
+ *
+ *  - live: on screen at t — the active chapter (chapterAt's rule: the last
+ *    whose offset ≤ t, clamped at both ends) and, inside a transition's
+ *    overlap, the chapter it leaves;
+ *  - resident: the live ones, plus every chapter whose window opens within
+ *    `ahead` seconds (mounted before its cut, so playback crosses it with
+ *    the chapter's matrices settled and its shaders warm) and every chapter
+ *    whose window closed less than `behind` seconds ago (a small scrub back
+ *    across a cut does not remount).
+ */
+export interface ChapterWindow {
+  offset: number
+  span: number
+}
+
+/** Seconds before its cut a chapter is mounted (RESIDENCY). */
+export const RESIDENT_AHEAD = 12
+/** Seconds after its window a chapter stays mounted (RESIDENCY). */
+export const RESIDENT_BEHIND = 2
+
+/** The chapters on screen at t, ascending (RESIDENCY). */
+export const liveChapters = (windows: readonly ChapterWindow[], t: number): number[] => {
+  if (windows.length === 0) return []
+  let active = 0
+  for (let i = 0; i < windows.length; i++) if (t >= windows[i]!.offset) active = i
+  const prev = windows[active - 1]
+  // Inside an overlap the chapter left behind is still drawing.
+  return prev && t >= windows[active]!.offset && t < prev.offset + prev.span ? [active - 1, active] : [active]
+}
+
+/** The chapters a host keeps mounted at t, ascending (RESIDENCY). */
+export const residentChapters = (
+  windows: readonly ChapterWindow[],
+  t: number,
+  ahead = RESIDENT_AHEAD,
+  behind = RESIDENT_BEHIND,
+): number[] => {
+  const keep = new Set(liveChapters(windows, t))
+  windows.forEach((w, i) => {
+    const end = w.offset + w.span
+    if ((t >= w.offset - ahead && t < w.offset) || (t >= end && t < end + behind)) keep.add(i)
+  })
+  return [...keep].sort((a, b) => a - b)
+}
+
 /** One chapter fading as a single picture: its roots and its weight. */
 export interface LayerFade {
   roots: readonly Holon[]
@@ -212,6 +265,16 @@ export class DreamSong extends Dream {
   get chapters(): readonly Chapter[] {
     this.build()
     return this.#chapters
+  }
+
+  /**
+   * The chapters a host keeps mounted at song time t (RESIDENCY above) —
+   * a pure function of the chapters' windows and t. The host
+   * (three-host.ts) mounts each chapter's roots when it enters this set
+   * and releases them when it leaves.
+   */
+  residentAt(t: number): number[] {
+    return residentChapters(this.chapters, t)
   }
 
   /**
