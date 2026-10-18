@@ -72,6 +72,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
   #source?: Readable<T>
   #gate = 1
   #bias = 0
+  #fader?: Param<number>
   #changedAt = 0
   #watchers?: { dirty: boolean }[]
 
@@ -95,7 +96,8 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
   get value(): T {
-    const v = this.#source ? this.#source.value : this.#value
+    let v = this.#source ? this.#source.value : this.#value
+    if (this.#fader && this.#source && typeof v === "number") v = (v * this.#fader.value) as T
     if (typeof v !== "number" || (this.#gate === 1 && this.#bias === 0)) return v
     return (v * this.#gate + this.#bias) as unknown as T
   }
@@ -141,6 +143,24 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
     if (d === this.#bias) return
     this.#bias = d
     this.#changed()
+  }
+
+  /**
+   * A BOUND param's fade channel: a completion (1 = transparent) that
+   * multiplies the binding's reading, created on first ask. It is how a
+   * whole-holon FadeIn/FadeOut (verbs.ts) reaches a leaf whose opacity
+   * follows a derivation (a RadioTower line's presence, a DreamNode ring):
+   * the binding cannot be written, but its fader is an ordinary param the
+   * timeline can animate. Unlike `gate` (DreamSong's hiding, set
+   * imperatively) it is animatable; the two compose. It only ever scales a
+   * bound reading — an unbound param is faded by writing its value.
+   */
+  get fader(): Param<number> {
+    if (!this.#fader) {
+      this.#fader = completion(1)
+      this.#fader.name = `${this.name ?? this.id}.fader`
+    }
+    return this.#fader
   }
 
   set value(v: T) {

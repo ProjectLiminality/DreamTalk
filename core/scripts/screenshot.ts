@@ -12,7 +12,11 @@ const times = tArgs.length ? tArgs.map(Number) : [0.5, 1.9, 3.0, 5.0, 6.5]
 
 mkdirSync(outDir, { recursive: true })
 
+/** Heavy scenes (a whole DreamSong) can take minutes to build; wait for the page, not the network. */
+const BOOT_TIMEOUT = 10 * 60 * 1000
+
 const browser = await puppeteer.launch({
+  protocolTimeout: BOOT_TIMEOUT,
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,
   args: [
@@ -29,8 +33,13 @@ try {
   const page = await browser.newPage()
   await page.setViewport({ width: 1280, height: 760 })
   page.on("console", (msg) => console.log("[page]", msg.text()))
-  await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 })
-  await page.waitForFunction("window.__dt !== undefined", { timeout: 30000 })
+  // "load", not networkidle0: a 404 or a streaming asset keeps the network
+  // busy forever on heavy scenes. The page says itself when it is done.
+  await page.goto(url, { waitUntil: "load", timeout: BOOT_TIMEOUT })
+  await page.waitForFunction("window.__dt !== undefined && (window.__dt.ready || window.__dt.error)", {
+    timeout: BOOT_TIMEOUT,
+    polling: 250,
+  })
 
   const status = await page.evaluate(() => ({
     ready: window.__dt!.ready,
@@ -39,6 +48,7 @@ try {
   }))
   if (!status.ready) {
     console.error("BOOT FAILED:", status.error)
+    browser.process()?.kill("SIGKILL")
     process.exit(1)
   }
   console.log(`ready — duration ${status.duration.toFixed(2)}s`)
@@ -51,5 +61,12 @@ try {
     console.log("wrote", path)
   }
 } finally {
-  await browser.close()
+  // browser.close() sometimes never resolves (a GPU process that will not
+  // die): give it a few seconds, then kill the process and exit regardless.
+  const closed = await Promise.race([
+    browser.close().then(() => true, () => false),
+    new Promise<boolean>((r) => setTimeout(() => r(false), 5000)),
+  ])
+  if (!closed) browser.process()?.kill("SIGKILL")
 }
+process.exit(process.exitCode ?? 0)

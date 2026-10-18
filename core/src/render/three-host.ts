@@ -1725,7 +1725,8 @@ export class ThreeHost {
         binding.version = holon.geomVersion
         fill.setMesh(holon.positions, holon.indices)
       }
-      fill.style(holon.fillOpacity.value * holon.opacity.value, liftTint(holon.tint.value, this.highlightOf(holon)))
+      // Seen opacity (certainty.ts): a Layer's presence fades the land as it does the strokes.
+      fill.style(holon.fillOpacity.value * seenOf(holon).value, liftTint(holon.tint.value, this.highlightOf(holon)))
       if (binding.gradient) {
         fill.setGradient(holon.fillFalloff.value, holon.fillFalloffRadius.value)
         fill.setGradientAt(holon.fillFalloffX.value, holon.fillFalloffY.value, holon.fillFalloffZ.value)

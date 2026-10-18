@@ -76,11 +76,20 @@ export const UnDraw = UnCreate
 export const Erase = (holon: Holon): Anim =>
   deep(holon, (h) => (h instanceof Stroke ? h.erasure.sequence(0, 1) : none))
 
+/**
+ * Fade a whole, holon-deep. A descendant whose opacity is BOUND (it
+ * follows a presence, a state, a derivation — RadioTower's lines,
+ * DreamNode's rings) cannot be written, so the fade goes through that
+ * param's fader (params.ts), which multiplies the binding's reading: the
+ * whole fades as one, and the derivation underneath keeps running.
+ */
+const fadeChannel = (h: Holon) => (h.opacity.isBound ? h.opacity.fader : h.opacity)
+
 export const FadeIn = (holon: Holon): Anim =>
-  deep(holon, (h) => h.opacity.sequence(0, 1))
+  deep(holon, (h) => fadeChannel(h).sequence(0, 1))
 
 export const FadeOut = (holon: Holon): Anim =>
-  deep(holon, (h) => h.opacity.to(0))
+  deep(holon, (h) => fadeChannel(h).to(0))
 
 export const Move = (
   holon: Holon,

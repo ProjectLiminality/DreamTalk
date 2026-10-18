@@ -2,7 +2,7 @@
  * The editor daemon (EDITOR.md, build order v1): bun scripts/daemon.ts [port]
  *
  * Serves the editor like serve.ts, plus the bidirectional loop:
- *   - watches core/demo + core/src, rebuilds the editor bundle (debounced
+ *   - watches core/demo + core/src + core/vocabulary, rebuilds the editor bundle (debounced
  *     ~50 ms), pushes {type:"reload"} to clients over /ws; rebuilds the
  *     player bundle too (demo/dist, with any local holon scenes —
  *     local-holons.ts — so a holons/ scene never drops out), and watches
@@ -452,7 +452,7 @@ const noteChange = (dir: string, filename: string | null) => {
   scheduleFlush()
 }
 
-for (const dir of ["core/demo", "core/src", "core/editor", "core/hands", "holons"]) {
+for (const dir of ["core/demo", "core/src", "core/vocabulary", "core/editor", "core/hands", "holons"]) {
   if (!existsSync(`${repoRoot}${dir}`)) continue
   watch(`${repoRoot}${dir}`, { recursive: true }, (_event, filename) =>
     noteChange(dir, filename),
