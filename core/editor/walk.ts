@@ -45,6 +45,9 @@ export interface WalkOpts {
   attend?(channel: "game", holon: Holon | null, amount: number): void
   /** Many holons' world ink boxes in one sweep — what a hand's spark points among (GameLoop.spark). */
   worldBoundsOfEach?: GameHost["worldBoundsOfEach"]
+  /** Exact 3D ink queries (ThreeHost.pickNear / pickRay) — what a hand's spark points at and what hides it. */
+  pickNear?: GameHost["pickNear"]
+  pickRay?: GameHost["pickRay"]
   roots: readonly Holon[]
   overrides: Overrides
   /** Is the transport playing? (The walk lives only in a held frame.) */
@@ -145,6 +148,8 @@ export class EditorWalk {
         boundsOf: opts.boundsOf,
         attend: opts.attend ? (c, h, a) => opts.attend!(c, h, a) : undefined,
         worldBoundsOfEach: opts.worldBoundsOfEach,
+        pickNear: opts.pickNear,
+        pickRay: opts.pickRay,
         setBeforeSync: () => {},
       },
       {

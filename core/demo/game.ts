@@ -57,6 +57,13 @@ export interface GameHost {
   boundsOf(holon: Holon): PixelBox | undefined
   /** World-space ink bounds — when given, framing is exact from any view (ThreeHost.worldBoundsOf). */
   worldBoundsOf?(holon: Holon): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | undefined
+  /**
+   * Exact 3D queries on the visible ink (ThreeHost.pickNear / pickRay): the
+   * nearest accepted ink to a point, the first along a ray. With them a
+   * spark points at strokes, not boxes; without, at the handles' boxes.
+   */
+  pickNear?(point: Vec, radius: number, opts: { accept?: (h: Holon) => boolean }): { holon: Holon; distance: number } | undefined
+  pickRay?(origin: Vec, direction: Vec, opts: { maxDistance?: number; accept?: (h: Holon) => boolean }): { holon: Holon; t: number } | undefined
   /** Many holons' world ink boxes in one sweep (ThreeHost.worldBoundsOfEach) — what a spark points among. */
   worldBoundsOfEach?(holons: Iterable<Holon>): Map<Holon, Box>
   /** Install (or clear) the per-frame write after the timeline's apply. */
@@ -646,6 +653,12 @@ export class GameLoop {
     const s = this.#spark
     if (!s) return 0
     const d = { x: s.p.x - s.eye.x, y: s.p.y - s.eye.y, z: s.p.z - s.eye.z }
+    if (this.#host.pickRay) {
+      // Any visible ink between the eye and the spark hides it — stroke-exact.
+      // Ink the spark is touching (within half its reach) does not.
+      const len = Math.hypot(d.x, d.y, d.z)
+      return this.#host.pickRay(s.eye, d, { maxDistance: Math.max(0, len - s.radius / 2) }) ? 1 : 0
+    }
     let hidden = 0
     for (const { box } of this.#handleBoxes()) {
       const hit = rayBox(s.eye, d, box)
@@ -675,6 +688,16 @@ export class GameLoop {
 
   /** The walkable handle the spark is at: inside (the smallest), else nearest within reach, else first on the eye's ray. */
   #ownerNear(s: Spark): { handle: Holon; axis: Axis } | null {
+    const host = this.#host
+    if (host.pickNear) {
+      // On the ink itself: the nearest stroke that belongs to a walkable
+      // handle (others are no candidates), else the first one on the eye's
+      // ray through the spark.
+      const accept = (h: Holon) => this.#handleUp(h) !== null
+      const dir = { x: s.p.x - s.eye.x, y: s.p.y - s.eye.y, z: s.p.z - s.eye.z }
+      const hit = host.pickNear(s.p, s.radius, { accept })?.holon ?? host.pickRay?.(s.eye, dir, { accept })?.holon
+      return hit ? this.#handleUp(hit) : null
+    }
     const walkable = (h: Holon) => this.#handleOf.get(h)?.find((x) => this.automaton.enabled(x.id))
     let best: { handle: Holon; axis: Axis; d: number; v: number } | undefined
     for (const { handle, box } of this.#handleBoxes()) {
@@ -706,7 +729,12 @@ export class GameLoop {
   /** Walk up from the picked holon to the nearest handle with a walkable axis. */
   #ownerAt(clientX: number, clientY: number): { handle: Holon; axis: Axis } | null {
     if (this.#spark) return this.#ownerNear(this.#spark)
-    let node = this.#host.pick(clientX, clientY)
+    return this.#handleUp(this.#host.pick(clientX, clientY))
+  }
+
+  /** From a holon up to the nearest handle with a walkable axis, if any. */
+  #handleUp(from: Holon | undefined): { handle: Holon; axis: Axis } | null {
+    let node = from
     while (node) {
       const axes = this.#handleOf.get(node)
       const a = axes?.find((x) => this.automaton.enabled(x.id))

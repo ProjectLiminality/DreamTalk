@@ -42,7 +42,7 @@ import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
-import { frozenSpace, sparkSpace } from "../demo/spark"
+import { frozenSpace, inkQueries, sparkSpace } from "../demo/spark"
 import type { Spark } from "../demo/game"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "../demo/summon"
@@ -1040,6 +1040,8 @@ const boot = async (resume?: Transport) => {
           if (host.attend(c, h, a)) void host.renderFrame(current)
         },
         worldBoundsOfEach: (hs) => host.worldBoundsOfEach(hs),
+        // A hand's spark points at the ink itself (pickNear / pickRay).
+        ...inkQueries(host),
         roots: dream.roots,
         overrides,
         isPlaying: () => playing,

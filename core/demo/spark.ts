@@ -10,6 +10,7 @@
 import * as THREE from "three/webgpu"
 import type { ThreeHost } from "../src/render/three-host"
 import type { Spark } from "./game"
+import type { Holon } from "../src/holon"
 
 /** The spark's reach for a pick, in the view's half-heights at the focus. */
 const REACH = 0.12
@@ -78,3 +79,17 @@ const placer = () => {
     return { spark: { p, eye: { x: o.x, y: o.y, z: o.z }, radius: REACH * half }, scale: persp ? ahead / at : 1 }
   }
 }
+
+/**
+ * The host's exact 3D ink queries in the game loop's plain-vector terms
+ * (GameHost.pickNear / pickRay): what a spark points at and what hides it.
+ */
+export const inkQueries = (host: ThreeHost) => ({
+  pickNear: (p: { x: number; y: number; z: number }, radius: number, opts: { accept?: (h: Holon) => boolean }) =>
+    host.pickNear(new THREE.Vector3(p.x, p.y, p.z), radius, opts),
+  pickRay: (
+    o: { x: number; y: number; z: number },
+    d: { x: number; y: number; z: number },
+    opts: { maxDistance?: number; accept?: (h: Holon) => boolean },
+  ) => host.pickRay(new THREE.Vector3(o.x, o.y, o.z), new THREE.Vector3(d.x, d.y, d.z), opts),
+})

@@ -18,7 +18,7 @@ import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop, type Spark } from "./game"
-import { frozenSpace, sparkSpace } from "./spark"
+import { frozenSpace, inkQueries, sparkSpace } from "./spark"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
@@ -143,6 +143,8 @@ const main = async () => {
       boundsOf: (h) => host.boundsOf(h),
       worldBoundsOf: (h) => host.worldBoundsOf(h),
       worldBoundsOfEach: (hs) => host.worldBoundsOfEach(hs),
+      // A hand's spark points at the ink itself (pickNear / pickRay).
+      ...inkQueries(host),
       setBeforeSync: (fn) => (host.beforeSync = fn),
       // A handle's glow (src/glow.ts); the game loop renders every frame.
       attend: (channel, holon, amount) => host.attend(channel, holon, amount),
