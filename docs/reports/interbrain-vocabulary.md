@@ -537,3 +537,66 @@ external drives — David's call.
 SQLite/protobuf inside the bundle; read-only, via a copy into refs/) for
 the segment table — clip names, in/out points, narration offsets — before
 the chapter compositions are timed.
+
+## Amendment — the Final Cut segment table (2026-10-18)
+
+Read from COPIES only (`refs/interbrain/fcp/*.fcpevent`, copied from
+`~/Movies/ProjectLiminality.fcpbundle/InterBrain/{InterBrain,InSearchOfTheThirdAttractor}/CurrentVersion.fcpevent`
+and the event's own database; the live library was never opened). The
+`.fcpevent` is a Core Data SQLite store: objects in `ZCOLLECTION`, each
+object's properties an NSKeyedArchiver plist in `ZCOLLECTIONMD`
+(`displayName`, `clippedRange` = source in/duration as rational seconds,
+`anchorPair` = parent/child offsets of connected clips, `anchoredLane`).
+Parent→child is the unordered join table `Z_3CHILDCOLLECTIONS` — **the
+spine's ORDER is not stored as a column**, so a cumulative read of the
+primary storyline does not reproduce the film (tested: rowid order puts
+TheAncientArmsRace at 224 s instead of 333 s). What the database does give,
+exactly, is the production's *anatomy* (scripts: `refs/interbrain/fcp/dump.py`,
+`spine.py`; tree in `tree.txt`):
+
+**How the film was made** (this replaces the §0 guess "one continuous
+Keynote timeline"):
+
+1. **Each chapter is ONE Keynote export, cut up.** The main timeline holds
+   495 primary-storyline pieces, and almost all are slices of eight chapter
+   exports — InSearchOfTheThirdAttractor ×59 (273 s used),
+   TheAncientArmsRace ×58 (228 s), TheViciousCycle ×60 (322 s),
+   GoingUpstream ×68 (345 s), FixingTheLens ×28 (131 s),
+   IntroducingTheInterBrain ×90 (419 s), BreakingTheSpell ×68 (326 s),
+   ANewBeginning ×44 (180 s) — each slice a `clippedRange` into its export.
+   Holds were trimmed and builds re-timed by cutting, not in Keynote.
+2. **Numbered inserts are separate exports**: `<Chapter>N` (e.g.
+   GoingUpstream1–8, IntroducingTheInterBrain1–5, FixingTheLens1–4,
+   InSearchOfTheThirdAttractor2/3/6/7, TheAncientArmsRace1–2,
+   TheViciousCycle1/2/4, BreakingTheSpell1/2/4, ANewBeginning1/2) — 1–16
+   uses each; these are the set-pieces rendered outside the main deck (the
+   particle field, C4D shots), placed as connected clips (`anchorPair`
+   offsets e.g. 144.8 s, 227.1 s) or spine pieces. Plus
+   `ChaosDistopiaOscillation` ×3 and `DreamWeavingSpeed` ×5 (the
+   prototype screen capture).
+3. **The narration rode IN the chapter exports** (`GoingUpstream - a1` ×41,
+   `TheViciousCycle - a1` ×33: Keynote's recorded slideshow audio), with
+   **72 re-recorded pickup takes** patched over it, each named for its first
+   words. Placed on the transcript (word timestamps), they mark where David
+   re-voiced — and so the sentence-level seams of the edit:
+
+   0:20.0 `the_level_of_fragmentation` · 0:56.2 `among_the_most` · 2:14.9 `the_closer_we_move` · 3:26.4 `this_seems_to_leave_us` · 4:12.0 `clearly_if_we_seek` · 4:19.8 `fortunately_what_we` · 4:45.0 `knowing_this_we_ought` · 5:09.4 `where_everyone_uses` · 5:42.6 `to_move_towards` · 7:12.7 `each_type_acts` · 7:19.1 `lets_refer_to` · 8:20.4 `for_this_simple_reason` · 8:46.0 `it_thus_plays_out` · 8:58.1 `the_art_of_war` · 10:47.8 `to_truly_grasp` · 12:15.4 `turning_you_into` · 13:03.9 `the_primal_distortion` · 13:20.9 `leading_to_the_insane` · 13:38.2 `thus_even_above` · 13:59.3 `through_this_autopoetic` · 14:06.9 `a_collective_hyperagent` · 14:17.7 `it_structures_itself` · 14:43.7 `one_in_which_tragically` · 15:19.5 `debasing_its_own_substrate` · 15:27.2 `to_allow_for_freedom` · 16:01.5 `it_goes_without_saying` · 16:17.4 `so_this_entire_story` · 17:02.3 `the_only_way` · 17:48.1 `our_contemporary_communication` · 18:30.0 `the_antithesis_of` · 19:06.7 `which_in_a_stark` · 19:21.5 `but_what_should_that_mean` · 19:24.3 `we_were_gardeners` · 19:49.2 `an_ancient_practice` · 21:00.3 `famously_referred_to` · 21:03.2 `which_in_a_peaceful` · 21:40.7 `the_written_word` · 22:32.1 `however_this_scale` · 23:21.9 `in_our_search_for` · 23:29.4 `from_being_agents_of` · 24:15.3 `take_any_complex` · 24:25.0 `these_fragmented_partial` · 24:44.8 `through_this_simple_formula` · 26:41.6 `there_are_two_main` · 27:18.8 `the_second_problem` · 27:43.6 `managing_it_in` · 27:47.8 `reflecting_a_bureaucratic` · 28:08.3 `the_interbrain_as_a_whole` · 28:50.7 `sandtalk_symbols_hence` · 29:02.9 `allowing_us_to` · 29:20.7 `one_that_is_able` · 30:30.4 `notice_that_ideas` · 31:15.9 `we_store_them_without` · 31:21.8 `here_we_simply` · 31:43.4 `for_every_dreamtalk` · 31:58.3 `by_tracking_this` · 32:07.9 `connecting_each_dream` · 34:01.1 `just_by_returning_to` · 34:05.2 `we_reconnect_with` · 34:11.5 `from_which_a_communication` · 34:44.9 `with_all_that_we_have` · 36:01.8 `and_just_like_with` · 38:54.2 `doing_this_new_and` · 39:06.3 `uniting_the_human_family` · 39:41.1 `taking_in_all_troubled_souls` · 39:58.4 `however_these_visions` · 40:56.0 `while_our_main` · 40:56.0 `while_our_main_focus` · 41:22.9 `because_this_relationship` · 42:47.7 `together_we_can_lift` · 43:03.3 `the_spellof_fragmentation` · 43:10.4 `not_against_an_external`
+
+   (`analysis/narration-takes.json`; a take whose words repeat later in the
+   script is placed at the first exact match.)
+4. **Transitions**: Cross Dissolve ×66 (88.7 s total), Fade To Color ×7
+   (the chapter dips), Circle ×2, Push ×2; markers ×6.
+5. **Music bin**: 3Blue1Brown (Vincent Rubinetti) "Sixes", "Reflections",
+   "Fractals", "Fives" ×1–2 each, and **Pink Floyd "Shine On You Crazy
+   Diamond (Parts I–V)" ×15** (not credited in the description — a fact
+   for David, not a reproduction concern; audio is out of scope).
+6. **External**: "This is Extremely Dangerous to Our Democracy" (the 16:01
+   news collage audio), `CrowdfundingMonologue Clip` ×2 (166 s — the talking
+   head, from Take1/6/7), `TheAgeOfMiracles` (an asset ref — corpus #05
+   material), `FeatureDemo`, `LiminalWeb`, `Overlay` clip refs.
+
+**Consequence for the build**: the chapter scenes are timed to the
+narration (song time = video time, measured from `frames5` and the
+transcript), with the pickup seams above as natural beat boundaries; the
+Keynote export's own pacing is unrecoverable and irrelevant, since the
+film's pacing is the edit's.
