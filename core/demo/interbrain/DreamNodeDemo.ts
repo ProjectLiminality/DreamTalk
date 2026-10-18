@@ -19,12 +19,12 @@ import { together } from "../../src/anim"
 import { Create, UnCreate } from "../../src/verbs"
 import { DreamNode, ImportLines } from "../../vocabulary/DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
-import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 
 const PX = 0.48
 
 const symbol = () => new DreamTalkSymbol({ radius: 100 })
-const interbrain = () => new InterBrain({ radius: 200, logoStroke: 2 })
+const interbrain = () => new InterBrainGem({ radius: 200, logoStroke: 2 })
 
 /** f10760's three: a dreamer below, a DreamTalk symbol and the InterBrain above. */
 const holarchy = () => {

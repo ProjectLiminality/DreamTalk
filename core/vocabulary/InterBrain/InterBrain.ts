@@ -1,216 +1,265 @@
 /**
- * InterBrain — the face of the InterBrain: the Project Liminality Logo at
- * the heart of a faceted crystal, a dark bloom round the Logo.
+ * InterBrain — David's InterBrain symbol: "the flower-of-life sphere
+ * arrangement with the obsidian crystals and the Project Liminality logo
+ * inside" (2026-10-18, docs/VISION-HYPEROBJECT.md). The red geodesic flower
+ * of life, a gem in every node, the Logo at its heart — and, folded inside
+ * it, what it holds: the symbol UNFOLDS into the UI.
  *
- * THE CONCEPT (InterBrain film, 27:07): "a collectively interconnected
- * inter-brain in which we all participate as equals" — the instrument the
- * film builds towards; in the film its icon sits in a ring as a DreamNode
- * (f8221, f12376 red; f9271 blue).
+ * THE CONCEPT (InterBrain film, 27:07, 39:27): "a collectively
+ * interconnected inter-brain in which we all participate as equals" — "a
+ * collective knowledge garden". The film's InterBrain sphere (f11896,
+ * f11941, f12796, f13201), the teaser (2025-05-12, 0:33–0:38: the blue
+ * narrative lattice with a crystal boxed in each node turning into the red
+ * flower of life, a crystal in each node) and the 2025 C4D work
+ * (DreamTalkVocabulary/FlowerOfLife/FlowerOfLifeSphere, the end of
+ * TreeOfLifeOpening) are all this one sphere.
  *
- * OUR OWN FACE. The film's icon is a third-party note app's crystal with the
- * Logo pasted in (docs/reports/interbrain-vocabulary.md §6, default 4). Its
- * COMPOSITION is David's (InterBrain.png, 2025-04-06): the Logo at the heart
- * of a crystal, wrapped in a dark bloom. This holon keeps that composition
- * and draws the crystal anew, as a DreamTalk construction — a
- * double-terminated hexagonal quartz seen face-on, symmetric about its axis,
- * NOT the app's leaning rounded silhouette.
+ * ONE IMPLEMENTATION. The sphere IS the Noosphere in its InterBrain state
+ * (bloom 1, garden 1, interbrain 1 — imported, its states held here); the
+ * gems are `InterBrainGem` (this DreamNode's own part: OUR crystal, the
+ * Logo at its heart — the small icon the film rings as a DreamNode); the
+ * heart is a `DreamNode` holding the `Logo`.
  *
- * MEASURED on InterBrain.png (732², the crystal's alpha box 568 × 731):
+ * THE UNFOLD (VISION-HYPEROBJECT, "The symbol unfolds into the UI"): one
+ * number, `unfold` 0..1, so it scrubs and the automaton walks it — clicking
+ * the symbol in free play is the transition into what it holds, not a
+ * zoom-and-fade. Along it:
  *
- *   crystal          half-height H (= `radius`), half-width 0.777·H
- *   Logo ring        radius 0.304·H, centre 0.142·H below the crystal's
- *   bloom            dark from the Logo out to ≈ 1.9 × its ring
+ *   [0, RELEASE]       the gems facing you release a DreamNode each — a ring
+ *                      drawing round the gem (a gem is a node in potential)
+ *   [FLY0, FLY1]       they fly out to a liminal web round the heart: friends
+ *                      (dreamers, red) and the dreams you hold with them
+ *                      (blue), alternating (LiminalWeb's `webLayout`); the
+ *                      heart's ring draws on and grows into the web's centre;
+ *                      the sphere opens (swells, fades) behind them
+ *   [SONG0, 1]         the song's chapters arrive as a SongLine beside the
+ *                      web — the DreamSong that IS using the InterBrain
  *
- * THE CRYSTAL (units of H, y up): apexes (0, ±1); the girdle's outer
- * corners (±W, ±G) and inner (front) corners (±W/2, ±G·INNER) — the front
- * face reads a little lower, as a prism seen from just above does. Nine
- * facets: three on each termination, three on the prism. Each facet is a
- * faint purple wash, shaded by a light from the upper left (its centroid's
- * direction · LIGHT), so the crystal has the reference's lavender-to-violet
- * turn; the edges are strokes.
+ * A song is one path through this axis; free play is every other path.
  *
- * The Logo (vocabulary/Logo) is imported, never redrawn, and keeps its own
- * Create choreography; it is built at its native 200 and sized by `scale`,
- * which is how the Logo says it is resized.
+ * MEASURED: f11941 — the InterBrain sphere's geodesic is ν 2 (Noosphere's
+ * header). The heart's size has no frame yet (the film never shows the Logo
+ * in the sphere): HEART = 0.3 of the sphere's radius, chosen so the Logo
+ * sits inside the central ring of nodes; `heart` scales it, 0 hides it.
  */
 
-import { Circle, Group, Line, Null, Shape, type Vec3Like } from "../../src/parts/primitives"
-import { color, completion, integer, length, scalar } from "../../src/params"
-import { BLACK, rgb, type Color } from "../../src/constants"
-import { eased, restage, together, type Anim } from "../../src/anim"
+import { Group, Null } from "../../src/parts/primitives"
+import { completion, derive, integer, length, scalar } from "../../src/params"
+import { presence } from "../../src/certainty"
+import { restage, together, type Anim } from "../../src/anim"
+import { toggle, type StateSpace } from "../../src/automaton"
+import type { Holon, Overrides } from "../../src/holon"
 import { Create } from "../../src/verbs"
 import { Logo } from "../Logo/Logo"
+import { Noosphere } from "../Noosphere/Noosphere"
+import { DreamNode, FACE_FILL } from "../DreamNode/DreamNode"
+import { DREAM_FACES, DREAMER_FACES } from "../DreamGarden/DreamGarden"
+import { webLayout, type Relations } from "../LiminalWeb/LiminalWeb"
+import { SongLine } from "../SongLine/SongLine"
 
-/** The crystal, in units of its half-height (see header). */
-export const CRYSTAL = {
-  halfWidth: 0.777,
-  girdle: 0.5,
-  inner: 0.88,
-  logo: 0.304,
-  logoDrop: 0.142,
+// The gem is this DreamNode's part — re-exported so `InterBrain/InterBrain`
+// stays the one door into the folder.
+export { CRYSTAL, InterBrainGem, crystalCorners, crystalEdges, crystalFacets, facetLight } from "./InterBrainGem"
+
+/** The construction, in units of the sphere's radius R (see header). */
+export const INTERBRAIN = {
+  /** The geodesic frequency of the InterBrain sphere (f11941). */
+  frequency: 2,
+  /** The heart Logo's ring. */
+  heart: 0.3,
+  /** The web's centre ring, unfolded. */
+  web: 0.5,
+  /** The sphere's swell as it opens. */
+  swell: 0.35,
+  /** The SongLine: its node's ring, and where the node sits. */
+  song: 0.11,
+  songX: 1.45,
+  songY: -0.85,
 } as const
-/** The light the facets are shaded by: from the upper left. */
-const LIGHT = { x: -0.6, y: 0.8 }
-/** One bloom disc's darkness; n of them stacked reach 1 − (1 − v)^n. */
-const BLOOM_VEIL = 0.17
-/** The Logo's native radius (vocabulary/Logo). */
-const LOGO_NATIVE = 200
 
-const P = (x: number, y: number): Vec3Like => ({ x, y, z: 0 })
+/** The unfold's phases. */
+export const RELEASE = 0.3
+export const FLY0 = 0.15
+export const FLY1 = 0.75
+export const SONG0 = 0.65
 
-/** The crystal's corners at half-height H. */
-export const crystalCorners = (H: number) => {
-  const W = CRYSTAL.halfWidth * H
-  const G = CRYSTAL.girdle * H
-  const g = G * CRYSTAL.inner
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+const phase = (v: number, a: number, b: number) => clamp01((v - a) / (b - a))
+const smooth = (u: number) => u * u * (3 - 2 * u)
+const lerp = (a: number, b: number, u: number) => a + (b - a) * u
+
+/** A holder whose presence fades all it holds. */
+class Layer extends Group {
+  there = presence(1)
+}
+
+/** What the InterBrain holds, unfolded: the heart (node 0) and its ring,
+ *  friends and dreams alternating from the top, clockwise. Friends are
+ *  DREAMER_FACES 1–3 (0 is David: the one holding it), dreams the
+ *  DreamTalk symbol, the Vision, the liminal Mind. */
+export const held = (heart: () => Holon): Relations => {
+  const [, kin, peer, friend] = DREAMER_FACES
+  const [, , dreamtalk, vision, , mind] = DREAM_FACES
   return {
-    top: P(0, H),
-    bottom: P(0, -H),
-    /** The girdle above / below, left to right: outer, inner, inner, outer. */
-    upper: [P(-W, G), P(-W / 2, g), P(W / 2, g), P(W, G)],
-    lower: [P(-W, -G), P(-W / 2, -g), P(W / 2, -g), P(W, -G)],
+    nodes: [
+      { name: "liminality", kind: "dream", face: heart },
+      { name: "friend", kind: "dreamer", face: friend! },
+      { name: "dreamtalk", kind: "dream", face: dreamtalk! },
+      { name: "kin", kind: "dreamer", face: kin! },
+      { name: "vision", kind: "dream", face: vision! },
+      { name: "peer", kind: "dreamer", face: peer! },
+      { name: "mind", kind: "dream", face: mind! },
+    ],
+    // The heart holds them all: what the InterBrain holds is what is tied to it.
+    ties: [1, 2, 3, 4, 5, 6].map((i) => [0, i] as [number, number]),
   }
 }
-
-/** The nine facets as closed loops (each convex). */
-export const crystalFacets = (H: number): Vec3Like[][] => {
-  const { top, bottom, upper: u, lower: l } = crystalCorners(H)
-  const loop = (...ps: Vec3Like[]) => [...ps, ps[0]!]
-  return [
-    loop(top, u[0]!, u[1]!),
-    loop(top, u[1]!, u[2]!),
-    loop(top, u[2]!, u[3]!),
-    loop(u[0]!, l[0]!, l[1]!, u[1]!),
-    loop(u[1]!, l[1]!, l[2]!, u[2]!),
-    loop(u[2]!, l[2]!, l[3]!, u[3]!),
-    loop(bottom, l[1]!, l[0]!),
-    loop(bottom, l[2]!, l[1]!),
-    loop(bottom, l[3]!, l[2]!),
-  ]
-}
-
-/** The crystal's edges: the silhouette first, then the inner edges. */
-export const crystalEdges = (H: number): Vec3Like[][] => {
-  const { top, bottom, upper: u, lower: l } = crystalCorners(H)
-  return [
-    [top, u[3]!, l[3]!, bottom, l[0]!, u[0]!, top],
-    [u[0]!, u[1]!, u[2]!, u[3]!],
-    [l[0]!, l[1]!, l[2]!, l[3]!],
-    [u[1]!, top, u[2]!],
-    [l[1]!, bottom, l[2]!],
-    [u[1]!, l[1]!],
-    [u[2]!, l[2]!],
-  ]
-}
-
-/** 0 (in shadow) … 1 (lit): a facet's centroid direction against LIGHT. */
-export const facetLight = (loop: readonly Vec3Like[]): number => {
-  const pts = loop.slice(0, -1)
-  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
-  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
-  const d = Math.hypot(cx, cy)
-  if (d < 1e-9) return 0.5
-  return 0.5 + 0.5 * ((cx * LIGHT.x + cy * LIGHT.y) / d)
-}
-
-const mix = (a: Color, b: Color, u: number): Color => ({
-  r: a.r + (b.r - a.r) * u,
-  g: a.g + (b.g - a.g) * u,
-  b: a.b + (b.b - a.b) * u,
-})
 
 export class InterBrain extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
 
-  /** The crystal's half-height — the symbol's one size (and its reach). */
-  radius = length(200)
+  /** The sphere's radius — the symbol's one size (and its reach, folded). */
+  radius = length(400)
+  /** The geodesic frequency (construction; f11941: 2). */
+  frequency = integer(INTERBRAIN.frequency)
+  /** The heart Logo's ring, × `radius` (0 hides it). */
+  heart = scalar(INTERBRAIN.heart)
+  /** How many chapters the song line holds (construction). */
+  chapters = integer(8)
+  /** 0 the symbol … 1 unfolded into what it holds (see header). */
+  unfold = completion(0)
 
-  /** The edges' purple, and the facets' wash from shadow to light. */
-  tint = color(rgb(0xb4, 0x96, 0xff))
-  shadowTint = color(rgb(0x4c, 0x14, 0xc8))
-  lightTint = color(rgb(0xb8, 0x94, 0xff))
-  stroke = length(1.6)
-  edgeOpacity = completion(1)
-  /** The facets' wash — 0 is pure line-art. */
-  facetOpacity = completion(0.7)
+  sphere!: Noosphere
+  shell!: Layer
+  core!: DreamNode
+  nodes: DreamNode[] = []
+  strands: Layer[] = []
+  songline!: SongLine
+  song!: Layer
 
-  /** The dark bloom round the Logo: nested veils from its ring outward. */
-  bloomOpacity = completion(1)
-  bloomRings = integer(14)
-  bloomReach = scalar(1.9)
+  constructor(overrides: Overrides = {}) {
+    super(overrides)
+  }
 
-  /** The Logo's pen. */
-  logoStroke = length(3)
-
-  facets!: Group
-  edges!: Group
-  bloom!: Group
-  logo!: Logo
-
-  /** How far the symbol reaches from its centre: the apexes. */
+  /** How far the symbol reaches from its centre: the sphere's limb. */
   get reach(): number {
     return this.radius.value
   }
 
   protected override compose(): void {
-    const H = this.radius.value
+    const R = () => this.radius.value
+    const u = () => this.unfold.value
+    const release = () => smooth(phase(u(), 0, RELEASE))
+    const fly = () => smooth(phase(u(), FLY0, FLY1))
+    const open = () => smooth(phase(u(), 0.1, 0.6))
 
-    this.facets = this.add(
-      new Group({
-        members: crystalFacets(H).map(
-          (loop) =>
-            new Shape({
-              tint: mix(this.shadowTint.value, this.lightTint.value, facetLight(loop)),
-              fillOpacity: this.facetOpacity,
-              outlines: [new Line({ points: loop })],
-            }),
-        ),
-      }),
-    )
-    this.edges = this.add(
-      new Group({
-        members: crystalEdges(H).map(
-          (points) => new Line({ points, tint: this.tint, stroke: this.stroke, opacity: this.edgeOpacity }),
-        ),
-      }),
-    )
+    // THE SPHERE: the Noosphere in its InterBrain state, held there (its
+    // own axes stand down — they are not this symbol's); it swells and
+    // fades as the symbol opens.
+    this.sphere = new Noosphere({ radius: this.radius.value, frequency: this.frequency.value })
+    const hold = (v: number) => derive(() => v)
+    this.sphere.bloom.follow(hold(1))
+    this.sphere.garden.follow(hold(1))
+    this.sphere.interbrain.follow(hold(1))
+    this.sphere.flat.follow(hold(0))
+    this.sphere.fragment.follow(hold(0))
+    this.sphere.lens.follow(hold(0))
+    this.sphere.radius.follow(this.unfold.map(() => R() * (1 + INTERBRAIN.swell * open())))
+    // The heart is INSIDE: drawn first, so the near face's lines and gems
+    // pass over it as the sphere turns.
+    const inside = this.add(new Group())
+    this.shell = this.add(new Layer({ members: [this.sphere] }))
+    this.shell.there.follow(this.unfold.map(() => 1 - open()))
+    void this.sphere.parts
 
-    // The dark bloom: black discs, nested, each a thin veil — where more of
-    // them overlap it is darker, so the heart is near black and the dark
-    // thins out to `bloomReach` × the Logo's ring, swallowing the facets.
-    const lr = CRYSTAL.logo * H
-    const cy = -CRYSTAL.logoDrop * H
-    const n = this.bloomRings.value
-    const reach = this.bloomReach.value
-    this.bloom = this.add(
-      new Group({
-        members: Array.from({ length: n }, (_, i) => {
-          const u = i / Math.max(1, n - 1)
-          return new Circle({
-            y: cy,
-            radius: lr * (reach + (1.02 - reach) * u),
-            tint: BLACK,
-            stroke: 0,
-            fillOpacity: i === n - 1 ? 1 : BLOOM_VEIL,
-            opacity: this.bloomOpacity,
-          })
-        }),
-      }),
-    )
+    // THE WEB the symbol holds: node 0 is the heart, the Logo in a ring
+    // that is hidden while folded.
+    const relations = held(() => new Logo({ radius: 200 }))
+    const C = () => INTERBRAIN.web * R()
+    let memo: { key: number; v: ReturnType<typeof webLayout> } | undefined
+    const places = () => {
+      if (memo?.key !== R()) memo = { key: R(), v: webLayout(relations, 0) }
+      return memo.v
+    }
+    // Each satellite leaves from a gem facing you, the one nearest its
+    // bearing (chosen at compose: the sphere's initial turn).
+    const near = this.sphere.slots
+      .map((slot, i) => ({ slot, i, x: slot.x.value, y: slot.y.value }))
+      .filter(({ slot }) => slot.there.value > 0.5 && slot.scale.value > 0)
+      .filter(({ x, y }) => Math.hypot(x, y) > INTERBRAIN.heart * R() * 1.1)
+    const taken = new Set<number>()
+    const origin = (place: { x: number; y: number }) => {
+      const bearing = Math.atan2(place.y, place.x)
+      let best: (typeof near)[number] | undefined
+      let bestD = Infinity
+      for (const c of near) {
+        if (taken.has(c.i)) continue
+        let d = Math.abs(Math.atan2(c.y, c.x) - bearing)
+        d = Math.min(d, 2 * Math.PI - d)
+        if (d < bestD) (bestD = d), (best = c)
+      }
+      if (best) taken.add(best.i)
+      return best?.slot
+    }
 
-    this.logo = this.add(new Logo({ y: cy, scale: lr / LOGO_NATIVE, stroke: this.logoStroke }))
+    relations.nodes.forEach((spec, i) => {
+      const node = new DreamNode({ kind: spec.kind, face: spec.face(), ringStroke: 2 })
+      const place = () => places()[i]!
+      if (i === 0) {
+        // The heart: the Logo at HEART × R, folded; the web's centre, unfolded.
+        const r0 = () => (this.heart.value * R()) / FACE_FILL
+        node.radius.follow(this.unfold.map(() => lerp(r0(), C(), fly())))
+        node.ringOpacity.follow(this.unfold.map(() => fly()))
+        this.core = node
+        inside.attach(node)
+        this.nodes.push(node)
+        return
+      }
+      const slot = origin(place())
+      // Where the gem is now (it turns and swells with the sphere), and its ring's size.
+      const gx = () => (slot ? slot.x.value : 0)
+      const gy = () => (slot ? slot.y.value : 0)
+      const gr = () => (slot ? (slot.scale.value * 100) / FACE_FILL : 0)
+      node.x.follow(this.unfold.map(() => lerp(gx(), place().x * C(), fly())))
+      node.y.follow(this.unfold.map(() => lerp(gy(), place().y * C(), fly())))
+      node.radius.follow(this.unfold.map(() => lerp(gr(), place().r * C(), fly())))
+      const strand = this.add(new Layer({ members: [node] }))
+      strand.there.follow(this.unfold.map(() => release()))
+      this.nodes.push(node)
+      this.strands.push(strand)
+    })
+
+    // THE SONG: its chapters as a song line, beside the web.
+    this.songline = new SongLine({
+      size: derive(() => INTERBRAIN.song * R()),
+      count: this.chapters.value,
+      x: derive(() => INTERBRAIN.songX * R()),
+      y: derive(() => INTERBRAIN.songY * R()),
+    })
+    this.songline.grow.follow(this.unfold.map(() => smooth(phase(u(), SONG0, 1))))
+    this.song = this.add(new Layer({ members: [this.songline] }))
+    this.song.there.follow(this.unfold.map(() => smooth(phase(u(), SONG0 - 0.1, SONG0 + 0.05))))
   }
 
-  /** The crystal's edges draw, its facets wash in and the bloom darkens the
-   *  heart; then the Logo makes itself, with its own choreography. */
+  /** The sphere draws on from the top, then the Logo makes itself at its
+   *  heart; what it holds stays folded (`unfold` walks it). */
   override createAnim(): Anim {
     void this.parts
     return together(
-      restage(eased("smooth", ...this.edges.parts.map((e) => e.creation.sequence(0, 1))), 0, 0.5),
-      restage(this.facetOpacity.sequence(0, this.facetOpacity.value), 0.25, 0.6),
-      restage(this.bloomOpacity.sequence(0, this.bloomOpacity.value), 0.3, 0.6),
-      restage(Create(this.logo), 0.55, 1),
+      restage(Create(this.sphere), 0, 0.75),
+      restage(Create(this.core), 0.45, 1),
+      ...this.nodes.slice(1).map((n) => restage(Create(n), 0.9, 1)),
+      restage(Create(this.songline), 0.9, 1),
     )
+  }
+
+  /** Walkable: click the symbol (or `u`) — it unfolds into what it holds. */
+  override stateSpace(): StateSpace | undefined {
+    void this.parts
+    if (this.unfold.isBound) return undefined
+    return {
+      axes: [toggle("unfold", this.unfold, { key: "u", off: ["symbol", 0], on: ["unfolded", 1], duration: 3, handles: [this] })],
+    }
   }
 }

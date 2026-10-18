@@ -28,7 +28,7 @@ import { Divide, FILM_TURN } from "../../vocabulary/Divide/Divide"
 import { DreamSongSymbol } from "../../vocabulary/DreamSongSymbol/DreamSongSymbol"
 import { DreamNode } from "../../vocabulary/DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
-import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 import { Vision } from "../../vocabulary/Vision/Vision"
 import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { Circle } from "../../../holons/Circle/Circle"
@@ -56,7 +56,7 @@ const TALK_WOVEN = [
 
 export class DreamSongDemoDream extends Dream {
   talks = [
-    new InterBrain({ radius: 200, logoStroke: 2 }),
+    new InterBrainGem({ radius: 200, logoStroke: 2 }),
     new DreamTalkSymbol({ radius: 100 }),
     new Vision({ radius: 100 }),
   ].map(

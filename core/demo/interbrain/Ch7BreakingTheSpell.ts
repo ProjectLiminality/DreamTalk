@@ -46,7 +46,7 @@ import { Layer } from "../../vocabulary/Figure/Figure"
 import { Tribe, latticeNodes, nodePosition } from "../../vocabulary/Tribe/Tribe"
 import { Book } from "../../vocabulary/Book/Book"
 import { RadioTower } from "../../vocabulary/RadioTower/RadioTower"
-import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 import { Noosphere, HEX } from "../../vocabulary/Noosphere/Noosphere"
 import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { DreamNode, ImportLines } from "../../vocabulary/DreamNode/DreamNode"
@@ -151,8 +151,8 @@ const holarchy = (faces: (() => Holon)[], parentPx = 126, sourcePx = 102, outPx 
   return { group, parent, sources, lines, children }
 }
 
-const ib = () => new InterBrain({ radius: 200, logoStroke: 2 })
-const dt = () => new DreamTalkSymbol({ radius: 100 })
+const ib = () => new InterBrainGem({ radius: 200, logoStroke: 2 })
+const dt = () => new DreamTalkSymbol({ radius: 100, resolution: 0.25 })
 const vision = () => new Vision({ radius: 100, tint: RED })
 const SONG_FACES = [vision, dt, ib]
 
@@ -171,7 +171,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
 
   // B. The InterBrain tribe in 3D, the broadcast mesh above (f10531).
   tilted = new Tribe({ size: R(248), rings: 1, stroke: 2, p: -1.15 })
-  crystals: InterBrain[] = []
+  crystals: InterBrainGem[] = []
   masts: RadioTower[] = []
   mesh: Line[] = []
   tribe3d: Layer
@@ -293,7 +293,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
   tunnel = this.layer(this.warp, this.chainGroup)
 
   // O. The healed lens (f11791).
-  lens = new Worldview({ source: SOURCE.radiant, lens: LENS.flower })
+  lens = new Worldview({ globes: ["radiant"], source: SOURCE.radiant, lens: LENS.flower })
   lensShot = this.layer(this.lens)
 
   // P. The noosphere heals; the InterBrain sphere; narratives transmuted (f11811–f12141).
@@ -315,7 +315,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
     for (const { x, y } of nodes) {
       const wy = y * Math.cos(tilt)
       const wz = -y * Math.sin(tilt)
-      this.crystals.push(new InterBrain({ radius: R(30), logoStroke: 1.5, x, y: wy + R(14), z: wz }))
+      this.crystals.push(new InterBrainGem({ radius: R(30), logoStroke: 1.5, x, y: wy + R(14), z: wz }))
       this.masts.push(new RadioTower({ size: R(24), x, y: wy + R(62), z: wz }))
     }
     const at = (i: number) => ({ x: this.masts[i]!.x.value, y: this.masts[i]!.y.value + R(12), z: this.masts[i]!.z.value })
@@ -418,7 +418,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
         if (Math.abs(x) > R(700)) continue
         const d = Math.hypot(x, y) / s
         if (d < 0.1) continue
-        this.latticeNodes.push(new DreamNode({ radius: R(30), ringStroke: 1.4, dreamTint: RED, face: new InterBrain({ radius: 100, logoStroke: 1 }), x, y }))
+        this.latticeNodes.push(new DreamNode({ radius: R(30), ringStroke: 1.4, dreamTint: RED, face: new InterBrainGem({ radius: 100, logoStroke: 1 }), x, y }))
         if (d < 2.1) this.cylNodes.push(new DreamNode({ radius: R(30), ringStroke: 2, face: foundingCylinder({ stroke: 1.6 }), x, y }))
       }
     this.cylNodes.unshift(new DreamNode({ radius: R(30), ringStroke: 2, face: foundingCylinder({ stroke: 1.6 }) }))

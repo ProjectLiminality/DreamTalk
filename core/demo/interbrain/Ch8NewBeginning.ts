@@ -45,7 +45,7 @@ import { Layer } from "../../vocabulary/Figure/Figure"
 import { Noosphere } from "../../vocabulary/Noosphere/Noosphere"
 import { Vault } from "../../vocabulary/Vault/Vault"
 import { icon } from "../../vocabulary/Icons/Icons"
-import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 import { DreamNode } from "../../vocabulary/DreamNode/DreamNode"
 import { Spheres } from "../../vocabulary/Spheres/Spheres"
 import { HyperAgent } from "../../vocabulary/HyperAgent/HyperAgent"
@@ -91,7 +91,7 @@ export class Ch8NewBeginningDream extends ShotDream {
 
   // B. Second brain → InterBrain → the sphere among the stars.
   notes = icon("notes", { size: R(300) })
-  ibNode = new DreamNode({ radius: R(140), dreamTint: RED, faceFill: 122 / 134, face: new InterBrain({ radius: 300 }) })
+  ibNode = new DreamNode({ radius: R(140), dreamTint: RED, faceFill: 122 / 134, face: new InterBrainGem({ radius: 300 }) })
   brains = this.layer(this.notes, this.ibNode)
   stars = new Field({ density: 0.35, wholeness: 0.5, opacity: 0.6 })
   bigSphere = sphere(288)
@@ -151,7 +151,7 @@ export class Ch8NewBeginningDream extends ShotDream {
   tunnel = this.layer(this.warp, this.chainGroup)
   dense = new Noosphere({ radius: R(560), frequency: 7, bloom: 1, garden: 1, y: Y(700) })
   denseShot = this.layer(this.dense)
-  earth = new DreamTalkSymbol({ radius: R(250) })
+  earth = new DreamTalkSymbol({ radius: R(250), resolution: 0.5 })
   earthShot = this.layer(this.earth)
 
   // J. The picture-in-picture over the footage's placeholder.

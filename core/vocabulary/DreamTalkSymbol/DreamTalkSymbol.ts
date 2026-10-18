@@ -100,6 +100,9 @@ export class DreamTalkSymbol extends Null {
   bloomSpread = scalar(0.04)
   bloomStrength = scalar(0.5)
   bloomFalloff = scalar(2.2)
+  /** Construction-time: how finely the globe is meshed (Earth's `resolution`:
+   *  1 for a globe that fills the frame, 0.5 to ~170 px radius, 0.25 to ~60). */
+  resolution = 1
 
   earth!: Earth
   earthOnPage!: Recede
@@ -121,6 +124,7 @@ export class DreamTalkSymbol extends Null {
       coastOpacity: 0,
       borderOpacity: 0,
       mapLines: false,
+      resolution: this.resolution,
       h: this.spin,
       p: this.tilt,
     })

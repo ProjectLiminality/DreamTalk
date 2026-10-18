@@ -311,8 +311,10 @@ export class Spheres extends Null {
       decoration: derive(wounded(0)),
       limb: 1,
       boltTint: rgb(0x8c, 0x8c, 0x8c),
+      // the film's biosphere is at most ~160 px: half the full mesh
+      resolution: 0.5,
     })
-    this.radiant = new DreamTalkSymbol({ radius: derive(() => unitR() * SPHERES.radiantRing), globe: 1 / SPHERES.radiantRing })
+    this.radiant = new DreamTalkSymbol({ radius: derive(() => unitR() * SPHERES.radiantRing), globe: 1 / SPHERES.radiantRing, resolution: 0.5 })
     this.biosphere.attach(new Layer({ members: [this.earth], presence: derive(() => 1 - this.healOf(0)) }))
     this.biosphere.attach(new Layer({ members: [this.radiant], presence: derive(() => this.healOf(0)) }))
 

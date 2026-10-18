@@ -118,7 +118,7 @@ export class Ch3ViciousCycleDream extends Dream {
   private now = 0
 
   // ── the lens (f3256 → f3512)
-  view = new Worldview({ light: 0, prism: 0 })
+  view = new Worldview({ globes: ["lens"], light: 0, prism: 0 })
   lensA = layer(this.view)
 
   // ── the hand and the mind in the prism's triangle (f3564 → f3609)
@@ -147,7 +147,7 @@ export class Ch3ViciousCycleDream extends Dream {
 
   // ── the eye in the lens (f3935, f4076)
   eyeInLens = new MolochEye({ height: 60, stroke: 2.2, y: -73 })
-  view2 = new Worldview({ source: SOURCE.fragmented, lens: LENS.noosphere, lensFace: this.eyeInLens, distortion: 1, strings: 1 })
+  view2 = new Worldview({ globes: [], source: SOURCE.fragmented, lens: LENS.noosphere, lensFace: this.eyeInLens, distortion: 1, strings: 1 })
   lensB = layer(this.view2)
 
   // ── boxed tribes ⚡ (f3987 → f4038)
@@ -166,7 +166,7 @@ export class Ch3ViciousCycleDream extends Dream {
   spiritL = layer(this.spirit)
 
   // ── multipolar (f4489 → f4771)
-  view3 = new Worldview({ source: SOURCE.fragmented, lens: LENS.lattice, distortion: 1, strings: 1, pullers: 1 })
+  view3 = new Worldview({ globes: [], source: SOURCE.fragmented, lens: LENS.lattice, distortion: 1, strings: 1, pullers: 1 })
   lensC = layer(this.view3)
   held = new Noosphere({ radius: 62 / PX, frequency: 4, y: Y(410) })
   heldL = layer(this.held)

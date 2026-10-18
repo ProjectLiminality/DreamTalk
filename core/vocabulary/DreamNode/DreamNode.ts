@@ -93,7 +93,7 @@ export const reachOf = (face: Holon): number => {
 }
 
 /** The default dream face: a DreamTalk symbol. */
-const dreamFace = (): Holon => new DreamTalkSymbol({ radius: 100 })
+const dreamFace = (): Holon => new DreamTalkSymbol({ radius: 100, resolution: 0.5 })
 /** The default dreamer face: David's portrait (f9271). */
 const dreamerFace = (): Holon => new Sketch({ data: david, height: 200, stroke: 1.2 })
 

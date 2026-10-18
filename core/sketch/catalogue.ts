@@ -47,6 +47,7 @@ import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { DreamTalkSymbol } from "../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { DreamNode } from "../vocabulary/DreamNode/DreamNode"
 import { InterBrain } from "../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../vocabulary/InterBrain/InterBrainGem"
 import { Logo } from "../vocabulary/Logo/Logo"
 // The InterBrain cast (corpus #14).
 import { Vault } from "../vocabulary/Vault/Vault"
@@ -117,6 +118,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "DreamTalkSymbol", folder: "DreamTalkSymbol", cls: DreamTalkSymbol },
   { className: "DreamNode", folder: "DreamNode", cls: DreamNode },
   { className: "InterBrain", folder: "InterBrain", cls: InterBrain },
+  { className: "InterBrainGem", folder: "InterBrain", cls: InterBrainGem },
   { className: "Logo", folder: "Logo", cls: Logo },
   // The InterBrain cast (corpus #14).
   { className: "Vault", folder: "Vault", cls: Vault },

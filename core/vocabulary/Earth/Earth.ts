@@ -194,17 +194,33 @@ const memo = new Map<string, Geography>()
  * 1:10m inside them: fills meet exactly along the cell lines, strokes are
  * cut where they cross the region's edge (features.ts Region).
  */
-export const geography = (region: Region = regionOf()): Geography => {
-  const hit = memo.get(region.key)
+export const geography = (region: Region = regionOf(), resolution = 1): Geography => {
+  // A coarse mesh only without packs: their cells are the full grid's.
+  const res = region.packs.length ? 1 : meshShare(resolution)
+  const key = `${region.key}@${res}`
+  const hit = memo.get(key)
   if (hit) return hit
+  const step = MAX_STEP / res
+  const cellsPerFace = Math.max(4, Math.round(CELLS_PER_FACE * res))
   const byRank: SpherePolygon[][][] = [Array.from({ length: RANKS }, () => [])]
   const coast: GeoLine[] = []
+  const tolerance = THIN_DEG[res] ?? 0
   const takeLand = (rings: readonly Ring[], polys: SpherePolygon[][], part: (pts: Vec3[]) => Vec3[][]) => {
     let rankOfOuter = 0
+    let outerKept = true
     for (const ring of rings) {
       const rank = Math.min(RANKS - 1, ring.meta & 15)
       const hole = (ring.meta & 16) !== 0
-      const dense = densifyLonLat(ring.coords, MAX_STEP)
+      const coords = tolerance > 0 ? thinLonLat(ring.coords, tolerance) : ring.coords
+      // An islet (or lake hole) thinner than the tolerance is below the
+      // pixel at the size a coarse globe is built for: it goes, its holes with it.
+      if (coords.length < 6) {
+        if (!hole) outerKept = false
+        continue
+      }
+      if (hole && !outerKept) continue
+      if (!hole) outerKept = true
+      const dense = densifyLonLat(coords, step)
       const pts = lonLatToUnits(dense)
       if (hole) {
         const list = polys[rankOfOuter]!
@@ -228,7 +244,7 @@ export const geography = (region: Region = regionOf()): Geography => {
   const borders: GeoLine[] = []
   const takeBorders = (rings: readonly Ring[], part: (pts: Vec3[]) => Vec3[][]) => {
     for (const line of rings) {
-      for (const points of part(lonLatToUnits(densifyLonLat(line.coords, MAX_STEP)))) {
+      for (const points of part(lonLatToUnits(densifyLonLat(line.coords, step)))) {
         borders.push({ rank: Math.min(RANKS - 1, line.meta & 15), cls: (line.meta >> 4) & 7, points, width: Infinity })
       }
     }
@@ -238,12 +254,12 @@ export const geography = (region: Region = regionOf()): Geography => {
   const land = Array.from({ length: RANKS }, (_, rank) =>
     mergeMeshes(
       byRank.map((polys, k) =>
-        triangulateSphere(polys[rank]!, CELLS_PER_FACE, k === 0 ? region.outside : region.inside),
+        triangulateSphere(polys[rank]!, cellsPerFace, k === 0 ? region.outside : region.inside),
       ),
     ),
   )
-  const geo: Geography = { land, coast, borders, ball: sphereMesh() }
-  memo.set(region.key, geo)
+  const geo: Geography = { land, coast, borders, ball: sphereMesh(Math.round(192 * res), Math.round(96 * res)) }
+  memo.set(key, geo)
   return geo
 }
 
@@ -305,6 +321,56 @@ const scaledMesh = (mesh: SphereMesh, r: number): Float32Array => {
   return out
 }
 
+/**
+ * The static meshes (ball, land, lakes) scaled once per radius and SHARED
+ * by every Earth built at it: they are never written after construction,
+ * and the film's globes are built at a handful of radii (FragmentedEarth's
+ * 33, DreamTalkSymbol's 100), so sixty Earths hold a few copies, not sixty.
+ */
+const scaledShared = new WeakMap<SphereMesh, Map<number, Float32Array>>()
+const sharedMesh = (mesh: SphereMesh, r: number): Float32Array => {
+  let byR = scaledShared.get(mesh)
+  if (!byR) scaledShared.set(mesh, (byR = new Map()))
+  let out = byR.get(r)
+  if (!out) byR.set(r, (out = scaledMesh(mesh, r)))
+  return out
+}
+
+/**
+ * How far apart (degrees, east-west scaled by cos lat) a coarse mesh keeps
+ * its rings' points: 0.4° is half a pixel on a globe 150 px across.
+ */
+const THIN_DEG: Record<number, number> = { 1: 0, 0.5: 0.15, 0.25: 0.4 }
+
+/**
+ * A ring's points thinned to `tol` degrees apart. The lon/lat cut's own
+ * points (lon ±180, the pole walk at −90) are always kept, so the shore
+ * runs still split where the dataset cut, not along a thinned chord.
+ */
+const thinLonLat = (coords: ArrayLike<number>, tol: number): number[] => {
+  const out: number[] = []
+  const n = coords.length / 2
+  let lastLon = NaN
+  let lastLat = NaN
+  for (let i = 0; i < n; i++) {
+    const lon = coords[2 * i]!
+    const lat = coords[2 * i + 1]!
+    const cut = Math.abs(lon) === 180 || lat <= -89.999
+    const dx = (lon - lastLon) * Math.cos((lat * Math.PI) / 180)
+    const dy = lat - lastLat
+    if (cut || i === 0 || !(dx * dx + dy * dy < tol * tol)) {
+      out.push(lon, lat)
+      lastLon = lon
+      lastLat = lat
+    }
+  }
+  return out
+}
+
+/** `resolution` snapped to the shares the meshes are built (and memoised) at. */
+const meshShare = (resolution: number): number =>
+  resolution >= 1 ? 1 : resolution >= 0.5 ? 0.5 : 0.25
+
 /** The quiet grey borders default to — present, never louder than the shore. */
 export const BORDER_GREY = rgb(0x8c, 0x8c, 0x8c)
 
@@ -348,6 +414,17 @@ export class Earth extends Null {
 
   /** The map zoom the Earth is drawn for (Natural Earth min_zoom): see LOD above. */
   detail = scalar(2)
+  /**
+   * Construction-time: how finely the globe is MESHED, as a share of the
+   * full build (1, made for a globe that fills the frame) — snapped to 1,
+   * 0.5 or 0.25. The land's grid (64 cells a cube face), its densified
+   * edges (every 0.5°), the ball and the night coarsen together; the
+   * features (`detail`) do not. At 0.25 a globe has ~1/5 of the triangles
+   * and, under ~150 px across, the same pixels: the InterBrain film's
+   * DreamNode faces are 5–30 px. Ignored with `packs` (their cells are
+   * the full grid's).
+   */
+  resolution = 1
 
   /** The silhouette circle as a stroke — 0 (the default) draws none. Needs `seenFrom`. */
   limbTint = color(rgb(0x30, 0x30, 0x30))
@@ -502,11 +579,12 @@ export class Earth extends Null {
 
   protected override compose(): void {
     const region = regionOf(this.packs)
-    const geo = geography(region)
+    const res = region.packs.length ? 1 : meshShare(this.resolution)
+    const geo = geography(region, res)
     const r = this.radius.value
 
     this.ball = this.add(new Surface({ solid: true, tint: this.sea }))
-    this.ball.positions = scaledMesh(geo.ball, r * (1 - BALL_INSET))
+    this.ball.positions = sharedMesh(geo.ball, r * (1 - BALL_INSET))
     this.ball.indices = geo.ball.indices
 
     // The occluder: the horizon plane, filled to the horizon circle,
@@ -530,7 +608,7 @@ export class Earth extends Null {
           fillFalloffZ: derive(() => this.latLonToLocal(this.lightLat.value, this.lightLon.value).z),
         }),
       )
-      sheet.positions = scaledMesh(mesh, r)
+      sheet.positions = sharedMesh(mesh, r)
       sheet.indices = mesh.indices
       this.landSheets.push(sheet)
     })
@@ -555,14 +633,20 @@ export class Earth extends Null {
           fillOpacity: derive(() => this.lakeOpacity.value * lod(rank, this.detail.value)),
         }),
       )
-      sheet.positions = scaledMesh(mesh, r)
-      sheet.indices = mesh.indices
+      // Like the night: lakes that are off hold no mesh until `lakeOpacity` rises.
+      const empty = { positions: new Float32Array(0), indices: new Uint32Array(0) }
+      deriveSurface(sheet, () => String(this.lakeOpacity.value > 0), () =>
+        this.lakeOpacity.value > 0 ? { positions: sharedMesh(mesh, r), indices: mesh.indices } : empty,
+      )
       this.lakeSheets.push(sheet)
     }
     // Night over everything filled: a full-strength cap beyond the twilight,
     // then thin bands across it whose opacity falls toward the day side.
     const sun = () => latLonToUnit(this.sunLat.value, this.sunLon.value)
-    const sunKey = () => `${this.sunLat.value},${this.sunLon.value}`
+    // A night that is off holds no mesh (most globes never show one); it is
+    // built the moment `nightOpacity` rises.
+    const night = () => this.nightOpacity.value > 0
+    const sunKey = () => `${this.sunLat.value},${this.sunLon.value},${night()}`
     const anti = (): Vec3 => {
       const p = sun()
       return { x: -p.x, y: -p.y, z: -p.z }
@@ -579,7 +663,8 @@ export class Earth extends Null {
         new Surface({ tint: this.nightTint, fillOpacity: derive(() => this.nightOpacity.value * weight) }),
       )
       deriveSurface(sheet, sunKey, () => {
-        const m = sphereBand(anti(), a0, a1)
+        if (!night()) return { positions: new Float32Array(0), indices: new Uint32Array(0) }
+        const m = sphereBand(anti(), a0, a1, Math.round(128 * res), (1.5 * Math.PI) / 180 / res)
         return { positions: scaledMesh(m, r), indices: m.indices }
       })
       this.nightSheets.push(sheet)

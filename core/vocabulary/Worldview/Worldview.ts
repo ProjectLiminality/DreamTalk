@@ -322,9 +322,18 @@ export class Worldview extends Null {
    *  (by default the Noosphere). */
   sourceFace?: Holon = undefined
   lensFace?: Holon = undefined
+  /**
+   * Construction-time: the optional globes to build — `radiant` (source 2)
+   * and `lens` (lens 1, the world in the lens). Each is a whole Earth; a
+   * scene that never visits one leaves it out and its slot stays empty
+   * (the film's eight worldviews reach the radiant once and the lens Earth
+   * once). Both by default. The source Earth (0–1) is always built.
+   */
+  globes: readonly ("radiant" | "lens")[] = ["radiant", "lens"]
 
   // parts
   fragmented!: FragmentedEarth
+  /** Undefined unless `globes` holds "radiant". */
   radiant!: DreamTalkSymbol
   eye!: Eye
   prismLine!: Line
@@ -502,16 +511,20 @@ export class Worldview extends Null {
       limb: 1,
       boltLength: 0.155,
       boltTint: seen(170, 170, 170),
+      // The source globe is S.r (133 px at scale 1): half the full mesh.
+      resolution: 0.5,
     })
-    this.radiant = new DreamTalkSymbol({ radius: WV.radiantRing, globe: S.r / WV.radiantRing, spin: this.spin, tilt: this.tilt })
+    if (this.globes.includes("radiant")) {
+      this.radiant = new DreamTalkSymbol({ radius: WV.radiantRing, globe: S.r / WV.radiantRing, spin: this.spin, tilt: this.tilt, resolution: 0.5 })
+    }
     // 0 → 1: the bare Earth gathers its fragmented band (one globe, the
     // FragmentedEarth's own); 1 → 2 cross-fades to the radiant symbol;
     // 2 → 3 to the face handed in. A globe is a solid, which a presence does
     // not fade, so the absent one is folded away (scale 0) at the midpoint.
     const sources: [Holon, () => number, () => boolean][] = [
       [this.fragmented, () => (src.value <= 1 ? 1 : tent(src.value, 1)), () => src.value < 1.5],
-      [this.radiant, () => tent(src.value, 2), () => src.value >= 1.5 && src.value < 2.5],
     ]
+    if (this.radiant) sources.push([this.radiant, () => tent(src.value, 2), () => src.value >= 1.5 && src.value < 2.5])
     if (this.sourceFace) sources.push([this.sourceFace, () => clamp01(src.value - 2), () => src.value >= 2.5])
     for (const [h, there, shown] of sources) {
       const slot = this.add(new Slot({ x: S.x, y: S.y, members: [h] }))
@@ -550,13 +563,15 @@ export class Worldview extends Null {
       return slot
     }
     lensSlot(LENS.empty, [])
-    {
+    if (this.globes.includes("lens")) {
       const e = new Earth({
         radius: EARTH_R,
         land: WHITE,
         coastOpacity: 0,
         borderOpacity: 0,
         mapLines: false,
+        // the world in the lens is small (49 px at scale 1)
+        resolution: 0.25,
         limbTint: WHITE,
         limbStroke: 1.2,
         h: this.spin,
@@ -567,7 +582,7 @@ export class Worldview extends Null {
       this.recedes.push(r)
       if (this.observer) r.seenFrom(this.observer)
       lensSlot(LENS.earth, [r], true)
-    }
+    } else lensSlot(LENS.earth, [])
     {
       const N = WV.narrative
       const grid: Holon[] = []

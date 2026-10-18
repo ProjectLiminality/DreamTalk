@@ -113,6 +113,9 @@ export class FragmentedEarth extends Null {
    *  grey (f3541: 28 px of a 180 px ring, ≈ 170 grey). */
   boltLength = scalar(BOLT_LENGTH)
   boltTint = color(WHITE)
+  /** Construction-time: how finely the globe is meshed (Earth's `resolution`:
+   *  1 for a globe that fills the frame, 0.5 to ~170 px radius, 0.25 to ~60). */
+  resolution = 1
 
   earth!: Earth
   globeOnPage!: Recede
@@ -132,6 +135,7 @@ export class FragmentedEarth extends Null {
       coastOpacity: 0,
       borderOpacity: 0,
       mapLines: false,
+      resolution: this.resolution,
       h: this.spin,
       p: this.tilt,
       limbStroke: derive(() => 1.4 * this.limb.value),

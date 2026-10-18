@@ -52,7 +52,7 @@ import type { Holon, Overrides } from "../../src/holon"
 import { presence } from "../../src/certainty"
 import { DreamNode, reachOf } from "../DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../DreamTalkSymbol/DreamTalkSymbol"
-import { InterBrain } from "../InterBrain/InterBrain"
+import { InterBrainGem } from "../InterBrain/InterBrainGem"
 import { Vision } from "../Vision/Vision"
 import { Logo } from "../Logo/Logo"
 
@@ -74,11 +74,11 @@ export type Slot = Holon | "text"
 
 /** The film's page (f10906). */
 export const filmSlots = (): Slot[] => [
-  new InterBrain({ radius: 100 }),
+  new InterBrainGem({ radius: 100 }),
   "text",
   "text",
   new Vision({ radius: 100 }),
-  new DreamTalkSymbol({ radius: 100 }),
+  new DreamTalkSymbol({ radius: 100, resolution: 0.25 }),
   "text",
 ]
 

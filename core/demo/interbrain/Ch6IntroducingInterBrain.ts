@@ -52,7 +52,7 @@ import { CHAPTERS, titleCard } from "./film"
 import { ChapterDream, PX, arrow, label, layer, notes, pkm, u, vortex } from "./Ch5FixingTheLens"
 import { LENS, SOURCE, Worldview } from "../../vocabulary/Worldview/Worldview"
 import { Mind } from "../../vocabulary/Mind/Mind"
-import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 import { DreamNode } from "../../vocabulary/DreamNode/DreamNode"
 import { Vault } from "../../vocabulary/Vault/Vault"
 import { Tribe } from "../../vocabulary/Tribe/Tribe"
@@ -74,7 +74,7 @@ const CH = CHAPTERS[5]!
 
 /** An InterBrain in a red ring, `r` px, at (x, y) px. */
 const brainNode = (r: number, x = 0, y = 0, kind: "dream" | "dreamer" = "dreamer") =>
-  new DreamNode({ radius: u(r), ringStroke: 2.5, kind, face: new InterBrain({ radius: 200, logoStroke: 2 }), x: u(x), y: u(y) })
+  new DreamNode({ radius: u(r), ringStroke: 2.5, kind, face: new InterBrainGem({ radius: 200, logoStroke: 2 }), x: u(x), y: u(y) })
 
 /** Ancient → book → radio tower → Modern (f8386). */
 const timeline = () =>
@@ -108,7 +108,7 @@ export class Ch6IntroducingInterBrainDream extends ChapterDream {
   gardening = layer(label("Knowledge", 240 - 148, 230, 26, WHITE, "left"), label("Gardening", 240 + 12, 230, 26, RED, "left"))
 
   // 1609: the worldview ↔ the vortex, recalled (f8046).
-  wv = new Worldview({ source: SOURCE.earth, lens: LENS.lattice, distortion: 1, strings: 1, x: u(-330), y: u(-15), scale: 0.45 })
+  wv = new Worldview({ globes: [], source: SOURCE.earth, lens: LENS.lattice, distortion: 1, strings: 1, x: u(-330), y: u(-15), scale: 0.45 })
   vx = vortex(u(196), 1.05)
   recall = layer(this.wv, arrow(-58, 0, 58, 0, true, 3), new Group({ x: u(340), scale: 0.68, members: [this.vx.whole] }))
 
@@ -125,18 +125,18 @@ export class Ch6IntroducingInterBrainDream extends ChapterDream {
   brain2 = layer(notes(216, -290, 20))
   doc = layer(new Square({ size: u(216), tint: BLUE, stroke: 2, x: u(-290), y: u(20) }), icon("document", { size: u(150), tint: BLUE, stroke: 2, x: u(-290), y: u(20) }))
   ibRing = new DreamNode({ radius: u(120), ringStroke: 2.5, kind: "dreamer", face: null, x: u(280), y: u(20) })
-  ibFace = layer(new InterBrain({ radius: u(100), logoStroke: 2, x: u(280), y: u(20) }))
+  ibFace = layer(new InterBrainGem({ radius: u(100), logoStroke: 2, x: u(280), y: u(20) }))
   question = layer(label("?", 280, -10, 90))
   unit = layer(arrow(-30, 20, 25, 20, false, 3), this.ibRing, label("Second Brain", -290, -130, 13), label("InterBrain", 280, -130, 13))
 
   // 1717: Sand Talk (f8656), its radiant sand symbol arriving last.
-  sand = new DreamTalkSymbol({ globe: 0.001, landOpacity: 0, bloomOpacity: 0, latticeOpacity: 0, ringTint: WHITE, ringOpacity: 0, rayOpacity: 0 })
+  sand = new DreamTalkSymbol({ globe: 0.001, resolution: 0.25, landOpacity: 0, bloomOpacity: 0, latticeOpacity: 0, ringTint: WHITE, ringOpacity: 0, rayOpacity: 0 })
   sandTalk = new SandTalk({ size: u(424), symbol: this.sand, y: u(10) })
   sandL = layer(this.sandTalk)
   sandLabel = layer(label("Sand Talk", 0, -244, 30))
 
   // 1741: Digital SandTalk → DreamTalk → GitRepo → DreamNode (f8761, f8986).
-  dts = new DreamTalkSymbol({})
+  dts = new DreamTalkSymbol({ resolution: 0.5 })
   node = new DreamNode({ radius: u(214), face: this.dts, y: u(50), scale: 1.21 })
   nodeL = layer(this.node)
   digital = layer(label("Digital SandTalk", 0, -230, 30))
@@ -203,28 +203,28 @@ export class Ch6IntroducingInterBrainDream extends ChapterDream {
   earthL = layer(this.earth)
 
   // 1989: the InterBrain lattice (f9966, f9991) — a tribe of InterBrains.
-  latticeFaces: InterBrain[] = []
+  latticeFaces: InterBrainGem[] = []
   lattice = new Tribe({
     size: u(260),
     rings: 5,
     stroke: 2.4,
     face: (r: number) => {
-      const ib = new InterBrain({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 })
+      const ib = new InterBrainGem({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 })
       this.latticeFaces.push(ib)
       return ib
     },
   })
   /** The seven that come first (f9966). */
-  seven = new Tribe({ size: u(260), rings: 1, stroke: 2.4, face: (r: number) => new InterBrain({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 }) })
+  seven = new Tribe({ size: u(260), rings: 1, stroke: 2.4, face: (r: number) => new InterBrainGem({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 }) })
   sevenL = layer(this.seven)
   latticeL = layer(this.lattice)
-  lit = new Tribe({ size: u(126), rings: 2, stroke: 1.6, face: (r: number) => new InterBrain({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 }) })
+  lit = new Tribe({ size: u(126), rings: 2, stroke: 1.6, face: (r: number) => new InterBrainGem({ radius: r * 0.7, logoStroke: 1.5, bloomRings: 4 }) })
   litL = new Layer({ z: 2, members: [this.lit] })
   resonance = new Resonance({ radius: 2 * 126 + 30, amount: 1, reach: 0.3, z: 3 })
   resL = layer(this.resonance)
 
   // 2005: a node's journey, the SongLine (f10036, f10141).
-  hopper = new DreamNode({ radius: u(18), ringStroke: 2, face: new DreamTalkSymbol({}), x: u(-193), y: u(117) })
+  hopper = new DreamNode({ radius: u(18), ringStroke: 2, face: new DreamTalkSymbol({ resolution: 0.25 }), x: u(-193), y: u(117) })
   hopL = layer(this.hopper, ...[[-136, 117], [-66, 107], [-26, 52]].map(([x, y]) => new Clip({ size: u(14), x: u(x!), y: u(y!) })))
   songline = new SongLine({ size: u(80), count: 3, grow: 0, y: u(-140) })
   songL = layer(this.songline, label("SongLine", 0, -280, 16))

@@ -44,7 +44,7 @@ import { restage, together, type Anim } from "../../src/anim"
 import { Create } from "../../src/verbs"
 import type { Holon } from "../../src/holon"
 import { presence } from "../../src/certainty"
-import { InterBrain, CRYSTAL as IB } from "../InterBrain/InterBrain"
+import { InterBrainGem, CRYSTAL as IB } from "../InterBrain/InterBrainGem"
 import { SandTalk } from "../SandTalk/SandTalk"
 import { Vision } from "../Vision/Vision"
 import { DreamGarden } from "../DreamGarden/DreamGarden"
@@ -120,7 +120,7 @@ export class DigitalCampfire extends Null {
   symbol?: Holon | null = undefined
 
   shells: Ellipse[] = []
-  crystals: InterBrain[] = []
+  crystals: InterBrainGem[] = []
   gardenL!: DreamGarden
   gardenR!: DreamGarden
   sandTalk!: SandTalk
@@ -203,7 +203,7 @@ export class DigitalCampfire extends Null {
     this.gardenR = gardenFor(1, this.rightCount.value)
     for (const side of [-1, 1] as const) {
       const ib = this.add(
-        new InterBrain({
+        new InterBrainGem({
           radius: H,
           logoStroke: 2,
           // Opaque, as the film's are: the shells pass behind them.

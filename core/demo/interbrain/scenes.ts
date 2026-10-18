@@ -34,7 +34,7 @@ import { ConflictDemoDream } from "./ConflictDemo"
 import { VisionDemoDream } from "./VisionDemo"
 import { MolochEyeDemoDream } from "./MolochEyeDemo"
 import { DreamNodeDemoDream } from "./DreamNodeDemo"
-import { InterBrainDemoDream } from "./InterBrainDemo"
+import { InterBrainDemoDream, InterBrainGemDemoDream, InterBrainUnfoldDemoDream } from "./InterBrainDemo"
 import { AttractorDemoDream } from "./AttractorDemo"
 import { ResonanceDemoDream } from "./ResonanceDemo"
 import { DreamGardenDemoDream } from "./DreamGardenDemo"
@@ -81,6 +81,8 @@ export const interbrainScenes: Record<string, DreamClass> = {
   "ib-eye": MolochEyeDemoDream,
   "ib-dreamnode": DreamNodeDemoDream,
   "ib-interbrain": InterBrainDemoDream,
+  "ib-interbrain-unfold": InterBrainUnfoldDemoDream,
+  "ib-interbrain-gem": InterBrainGemDemoDream,
   "ib-mind": MindDemoDream,
   "ib-narrative": NarrativeDemoDream,
   "ib-puppeteer": PuppeteerDemoDream,

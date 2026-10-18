@@ -156,7 +156,7 @@ export class Ch2ArmsRaceDream extends ChapterDream {
 
   private realms(): void {
     // 402: the Earth alone, "Engineering" beneath it (f2016).
-    const earth = new FragmentedEarth({ radius: px(125 / 0.62), globe: 0.62, decoration: 0, limb: 1, x: px(1e5) })
+    const earth = new FragmentedEarth({ radius: px(125 / 0.62), globe: 0.62, decoration: 0, limb: 1, resolution: 0.5, x: px(1e5) })
     const engineering = label("Engineering", 0, -221, 13)
     const first = this.tableau(earth, engineering)
     this.show(first, 401.6, 409.6, 1.6, 1.2)
@@ -241,7 +241,7 @@ export class Ch2ArmsRaceDream extends ChapterDream {
     const depth = ax([[-333, 270], [-333, -244]])
     const words = [label("Breadth", 460, 264, 16), label("Depth", -333, -276, 16)]
     // The three realms down the side: the struck Earth, the boxed social sphere, the dim engineered noosphere.
-    const bio = new FragmentedEarth({ radius: px(48), globe: 0.62, limb: 1, boltLength: 0.155, boltTint: rgb(140, 140, 140), x: px(1e5), y: px(210) })
+    const bio = new FragmentedEarth({ radius: px(48), globe: 0.62, limb: 1, boltLength: 0.155, boltTint: rgb(140, 140, 140), resolution: 0.25, x: px(1e5), y: px(210) })
     const socialBox = new Rectangle({ width: px(84), height: px(84), tint: BLUE, stroke: 2.4, x: px(-425), y: px(15) })
     const noo = new Noosphere({ radius: px(48), bloom: 1, garden: 0, x: px(-425), y: px(-175) })
     const column = this.tableau(bio, socialBox, noo, breadth, depth, ...words)
@@ -279,7 +279,7 @@ export class Ch2ArmsRaceDream extends ChapterDream {
 
   /** 585–612: "A nuclear blast … can easily be traced back to its source. The psi-war equivalent …" (9:51–10:09; f2986, f3041). */
   private psyWar(): void {
-    const world = new FragmentedEarth({ radius: px(95), globe: 0.62, limb: 1, boltLength: 0.155, boltTint: rgb(140, 140, 140), x: px(1e5), y: px(150) })
+    const world = new FragmentedEarth({ radius: px(95), globe: 0.62, limb: 1, boltLength: 0.155, boltTint: rgb(140, 140, 140), resolution: 0.5, x: px(1e5), y: px(150) })
     const noo = new Noosphere({ radius: px(115), bloom: 1, garden: 0, x: px(-435), y: px(-155) })
     const realms = this.tableau(world, noo)
     this.show(realms, 585.2, 612, 2, 2)

@@ -169,7 +169,7 @@ export class Ch5FixingTheLensDream extends ChapterDream {
   turn = layer(this.eyeD, this.eyeL, this.mindD, arrow(-76, -96, 8, -96), this.mindL)
 
   // 1419: the manipulated lens (f7096).
-  wvA = new Worldview({ source: SOURCE.fragmented, lens: LENS.noosphere, lensFace: new MolochEye({ height: 70, iris: 0, y: -60 }), distortion: 1, strings: 1, y: u(-10) })
+  wvA = new Worldview({ globes: [], source: SOURCE.fragmented, lens: LENS.noosphere, lensFace: new MolochEye({ height: 70, iris: 0, y: -60 }), distortion: 1, strings: 1, y: u(-10) })
   manipulated = layer(this.wvA)
 
   // 1437: the collective of liminal minds (f7186) condensing into the disk.
@@ -200,7 +200,7 @@ export class Ch5FixingTheLensDream extends ChapterDream {
   swap = layer(arrow(-58, 0, 58, 0, true, 3))
 
   // 1497–1590: the worldview that is fixed (f7501 small, f7546 … f7726).
-  wvC = new Worldview({ source: SOURCE.earth, lens: LENS.lattice, distortion: 1, strings: 1, sourceFace: new Group({}) })
+  wvC = new Worldview({ globes: [], source: SOURCE.earth, lens: LENS.lattice, distortion: 1, strings: 1, sourceFace: new Group({}) })
   wvCG = new Group({ x: u(-330), y: u(-15), scale: 0.45, members: [this.wvC] })
   fixing = layer(this.wvCG)
   /** The digital twin: the notes, flying from the lens to the world's place. */

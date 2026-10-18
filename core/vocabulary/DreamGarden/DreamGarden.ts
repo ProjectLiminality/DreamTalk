@@ -50,7 +50,7 @@ import type { Holon } from "../../src/holon"
 import { presence } from "../../src/certainty"
 import { DreamNode, type Kind } from "../DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../DreamTalkSymbol/DreamTalkSymbol"
-import { InterBrain } from "../InterBrain/InterBrain"
+import { InterBrainGem } from "../InterBrain/InterBrainGem"
 import { Logo } from "../Logo/Logo"
 import { Vision } from "../Vision/Vision"
 import { MolochEye } from "../MolochEye/MolochEye"
@@ -136,8 +136,9 @@ const portrait = (data: typeof david) => () => new Sketch({ data, height: 200, s
 /** The dreams the film's garden holds (f9406), each a symbol of its own. */
 export const DREAM_FACES: (() => Holon)[] = [
   () => new Logo({ radius: 100 }),
-  () => new InterBrain({ radius: 100, logoStroke: 1.4 }),
-  () => new DreamTalkSymbol({ radius: 100 }),
+  () => new InterBrainGem({ radius: 100, logoStroke: 1.4 }),
+  // a garden's (and a web's) faces are a few px: the coarse globe
+  () => new DreamTalkSymbol({ radius: 100, resolution: 0.25 }),
   () => new Vision({ radius: 100, ring: 1 }),
   () => new Reach({ span: 200, members: [new MolochEye({ height: 100, iris: 1 })] }),
   () => new Mind({ size: 160, liminal: 1, framed: 0 }),

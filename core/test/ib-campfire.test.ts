@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { CAMPFIRE, DigitalCampfire, loopPoints } from "../vocabulary/DigitalCampfire/DigitalCampfire"
-import { InterBrain, CRYSTAL } from "../vocabulary/InterBrain/InterBrain"
+import { InterBrainGem, CRYSTAL } from "../vocabulary/InterBrain/InterBrainGem"
 import { SandTalk } from "../vocabulary/SandTalk/SandTalk"
 import { DreamGarden } from "../vocabulary/DreamGarden/DreamGarden"
 
@@ -38,7 +38,7 @@ describe("DigitalCampfire", () => {
     const c = new DigitalCampfire({ size: U })
     void c.parts
     c.crystals.forEach((ib, i) => {
-      expect(ib).toBeInstanceOf(InterBrain)
+      expect(ib).toBeInstanceOf(InterBrainGem)
       near(ib.x.value, c.shells[i]!.x.value)
       near(ib.radius.value, CAMPFIRE.crystal * U)
       near(ib.y.value, CAMPFIRE.crystalY * U)

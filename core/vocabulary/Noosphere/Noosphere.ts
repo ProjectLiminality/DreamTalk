@@ -71,10 +71,10 @@ import { angle, color, completion, derive, integer, length } from "../../src/par
 import { BLUE, RED, TAU, WHITE, rgb, type Color } from "../../src/constants"
 import { presence } from "../../src/certainty"
 import { eased, restage, together, type Anim } from "../../src/anim"
-import { axis, toggle, type StateSpace } from "../../src/automaton"
+import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import type { Overrides } from "../../src/holon"
 import { Conflict } from "../Conflict/Conflict"
-import { InterBrain } from "../InterBrain/InterBrain"
+import { InterBrainGem } from "../InterBrain/InterBrainGem"
 import {
   flowerArcs,
   geodesic,
@@ -334,7 +334,7 @@ export class Noosphere extends Null {
     const g0 = geodesic(nu())
     this.faces = sphereAdd(new Group())
     this.slots = (nu() <= MAX_FACES_NU ? g0.vertices : []).map((v) => {
-      const ib = new InterBrain({ radius: 100, bloomRings: 3, logoStroke: 1.4, stroke: 1 })
+      const ib = new InterBrainGem({ radius: 100, bloomRings: 3, logoStroke: 1.4, stroke: 1 })
       const slot = new Layer({ members: [ib] })
       const at = () => orient(v, this.spin.value, this.pitch.value)
       slot.x.follow(this.spin.map(() => at()[0] * R()))
@@ -484,14 +484,18 @@ export class Noosphere extends Null {
   override stateSpace(): StateSpace | undefined {
     void this.parts
     const handles = [this]
+    // A param a whole drives (InterBrain holds its sphere's states) is not
+    // walkable here: skip it BEFORE declaring (toggle/axis refuse a bound param).
+    const free = (p: { isBound: boolean }) => !p.isBound
     const axes = [
-      toggle("bloom", this.bloom, { off: ["lattice", 0], on: ["flower", 1], handles }),
-      toggle("garden", this.garden, { off: ["narrative-engineered", 0], on: ["vision-gardened", 1], duration: 2, handles }),
-      toggle("flat", this.flat, { off: ["sphere", 0], on: ["disk", 1], duration: 1.5, handles }),
-      axis("fragment", this, { whole: { fragment: 0 }, struck: { fragment: CUT }, hexagon: { fragment: HEX }, vortex: { fragment: 1 } }, { duration: 2, handles }),
-      toggle("interbrain", this.interbrain, { off: ["noosphere", 0], on: ["interbrain", 1], duration: 1.5, handles }),
-      toggle("lens", this.lens, { off: ["dark", 0], on: ["lit", 1], handles }),
-    ].filter((a) => a.params().every((p) => !p.isBound))
-    return { axes, clocks: [this.spin] }
+      free(this.bloom) && toggle("bloom", this.bloom, { off: ["lattice", 0], on: ["flower", 1], handles }),
+      free(this.garden) && toggle("garden", this.garden, { off: ["narrative-engineered", 0], on: ["vision-gardened", 1], duration: 2, handles }),
+      free(this.flat) && toggle("flat", this.flat, { off: ["sphere", 0], on: ["disk", 1], duration: 1.5, handles }),
+      free(this.fragment) &&
+        axis("fragment", this, { whole: { fragment: 0 }, struck: { fragment: CUT }, hexagon: { fragment: HEX }, vortex: { fragment: 1 } }, { duration: 2, handles }),
+      free(this.interbrain) && toggle("interbrain", this.interbrain, { off: ["noosphere", 0], on: ["interbrain", 1], duration: 1.5, handles }),
+      free(this.lens) && toggle("lens", this.lens, { off: ["dark", 0], on: ["lit", 1], handles }),
+    ].filter((a): a is Axis => !!a)
+    return { axes, clocks: this.spin.isBound ? [] : [this.spin] }
   }
 }
