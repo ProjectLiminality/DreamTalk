@@ -89,29 +89,47 @@ export const outlineEntries = (parts: readonly Holon[]): OutlineEntry[] => {
 interface Row {
   holon: Holon
   el: HTMLDivElement
-  /** Children rows, for collapse. */
-  childrenEl?: HTMLDivElement
-  twisty?: HTMLDivElement
+}
+
+/**
+ * A row that discloses — a whole, a folded run, a song's chapter. Its
+ * children are built the first time it opens (`fill`), never before: an
+ * outline of a whole song must not build rows for parts nobody opened.
+ */
+interface Disclosure {
+  childrenEl: HTMLDivElement
+  twisty: HTMLDivElement
+  /** Builds the children on first open; undefined once built. */
+  fill?: () => void
+  /** Is it on the path to this selection? */
+  wants(chain: ReadonlySet<Holon>, current: Holon | null): boolean
   /**
-   * The row is open only because it is on the path to the selection —
-   * not because anyone asked for it. Such a row closes again when the
-   * selection leaves, so revealing one grid line does not permanently
-   * turn a 48-part Axes into a dump. A hand-thrown twisty clears the
-   * flag: an explicit choice outranks the automatic one.
+   * Open only because it is on the path to the selection — not because
+   * anyone asked for it. Such a row closes again when the selection
+   * leaves, so revealing one grid line does not permanently turn a
+   * 48-part Axes into a dump. A hand-thrown twisty clears the flag: an
+   * explicit choice outranks the automatic one.
    */
   revealed?: boolean
 }
 
-/** A folded run's disclosure row — same open/close life as a Row, no holon. */
-interface GroupRow {
-  members: Holon[]
-  childrenEl: HTMLDivElement
-  twisty: HTMLDivElement
-  revealed?: boolean
+/** A lazy song (src/song.ts LAZY CONSTRUCTION), as the outline reads it. */
+interface LazySong {
+  lazy: boolean
+  chapters: readonly { dream: object; offset: number; span: number }[]
+  constructed: number[]
+  ownRoots: readonly Holon[]
+  chapterRoots(i: number): readonly Holon[]
+  sceneOf(i: number): { name: string }
+}
+const lazySongOf = (dream: object): LazySong | undefined => {
+  const s = dream as Partial<LazySong>
+  return s.lazy === true && Array.isArray(s.chapters) && typeof s.chapterRoots === "function" && typeof s.sceneOf === "function" ? (s as LazySong) : undefined
 }
 
 export interface OutlineHandle {
-  /** Re-highlight from the store (subscribed automatically). */
+  /** A lazy song built or dropped chapters: the chapter rows follow. */
+  refresh(): void
   dispose(): void
 }
 
@@ -124,7 +142,7 @@ export const mountOutline = (
 ): OutlineHandle => {
   container.textContent = ""
   const rows: Row[] = []
-  const groups: GroupRow[] = []
+  const discs: Disclosure[] = []
   /**
    * What opens by default. An Eye's five parts want to be visible; an
    * Axes' fifty grid lines do not — a panel that opens with fifty
@@ -136,10 +154,16 @@ export const mountOutline = (
    */
   const AUTO_EXPAND_MAX_ROWS = 8
 
-  const setOpen = (childrenEl: HTMLDivElement, twisty: HTMLDivElement, open: boolean): void => {
-    childrenEl.style.display = open ? "" : "none"
-    twisty.textContent = open ? "▼" : "▶"
+  const setOpen = (d: Disclosure, open: boolean): void => {
+    if (open && d.fill) {
+      const fill = d.fill
+      d.fill = undefined
+      fill()
+    }
+    d.childrenEl.style.display = open ? "" : "none"
+    d.twisty.textContent = open ? "▼" : "▶"
   }
+  const isOpen = (d: Disclosure) => d.childrenEl.style.display !== "none"
 
   const build = (holon: Holon, depth: number, parentEl: HTMLElement): void => {
     const row = document.createElement("div")
@@ -187,26 +211,30 @@ export const mountOutline = (
       attachFaceTip(row, classNameOf(holon), signal)
     }
     parentEl.appendChild(row)
-
-    const entry: Row = { holon, el: row }
-    rows.push(entry)
+    rows.push({ holon, el: row })
 
     if (entries.length === 0) return
     const childrenEl = document.createElement("div")
-    entry.childrenEl = childrenEl
-    entry.twisty = twisty
-    setOpen(childrenEl, twisty, entries.length <= AUTO_EXPAND_MAX_ROWS)
+    const d: Disclosure = {
+      childrenEl,
+      twisty,
+      fill: () => {
+        for (const child of entries) {
+          if (child.kind === "holon") build(child.holon, depth + 1, childrenEl)
+          else buildGroup(child.holons, depth + 1, childrenEl)
+        }
+      },
+      wants: (chain, current) => chain.has(holon) && holon !== current,
+    }
+    discs.push(d)
     twisty.addEventListener("click", (e) => {
       e.stopPropagation()
-      setOpen(childrenEl, twisty, childrenEl.style.display === "none")
+      setOpen(d, !isOpen(d))
       // Deliberate: this row now stays as the user left it.
-      entry.revealed = false
+      d.revealed = false
     }, { signal })
     parentEl.appendChild(childrenEl)
-    for (const child of entries) {
-      if (child.kind === "holon") build(child.holon, depth + 1, childrenEl)
-      else buildGroup(child.holons, depth + 1, childrenEl)
-    }
+    setOpen(d, entries.length <= AUTO_EXPAND_MAX_ROWS)
   }
 
   const buildGroup = (members: Holon[], depth: number, parentEl: HTMLElement): void => {
@@ -231,62 +259,127 @@ export const mountOutline = (
     parentEl.appendChild(row)
     const childrenEl = document.createElement("div")
     parentEl.appendChild(childrenEl)
-    const group: GroupRow = { members, childrenEl, twisty }
-    groups.push(group)
-    setOpen(childrenEl, twisty, false)
+    const d: Disclosure = {
+      childrenEl,
+      twisty,
+      fill: () => {
+        for (const member of members) build(member, depth + 1, childrenEl)
+      },
+      wants: (chain) => members.some((member) => chain.has(member)),
+    }
+    discs.push(d)
+    setOpen(d, false)
     // The whole row is the disclosure — presentation, not a holon, so a
     // click toggles rather than selects.
-    const toggle = (e: Event) => {
+    row.addEventListener("click", (e) => {
       e.stopPropagation()
-      setOpen(childrenEl, twisty, childrenEl.style.display === "none")
-      group.revealed = false
-    }
-    row.addEventListener("click", toggle, { signal })
-    for (const member of members) build(member, depth + 1, childrenEl)
+      setOpen(d, !isOpen(d))
+      d.revealed = false
+    }, { signal })
   }
 
-  for (const root of roots) build(root, 0, container)
+  // A lazy song lists its chapters as closed rows, each built (and its
+  // chapter constructed) only when opened — or already standing because
+  // the playhead reached it. The song's own holons come first.
+  const song = lazySongOf(dream)
+  const chapterRows: { d: Disclosure; row: HTMLDivElement; i: number; filledWith?: readonly Holon[] }[] = []
+  const buildChapter = (i: number): void => {
+    const ch = song!.chapters[i]!
+    const row = document.createElement("div")
+    row.className = "node chapter"
+    row.style.paddingLeft = "8px"
+    const twisty = document.createElement("div")
+    twisty.className = "twisty"
+    row.appendChild(twisty)
+    const name = document.createElement("span")
+    name.className = "nclass"
+    name.textContent = `${i + 1} · ${song!.sceneOf(i).name.replace(/Dream$/, "")}`
+    row.appendChild(name)
+    const at = document.createElement("span")
+    at.className = "nident"
+    at.textContent = `${Math.round(ch.offset)} s`
+    row.appendChild(at)
+    container.appendChild(row)
+    const childrenEl = document.createElement("div")
+    container.appendChild(childrenEl)
+    const entry = { d: undefined as unknown as Disclosure, row, i, filledWith: undefined as readonly Holon[] | undefined }
+    entry.d = {
+      childrenEl,
+      twisty,
+      fill: () => {
+        // Opening a chapter that is not standing constructs it (song.ts chapterRoots).
+        const rs = song!.chapterRoots(i)
+        entry.filledWith = rs
+        for (const r of rs) build(r, 1, childrenEl)
+      },
+      // Only a standing chapter can hold the selection — never construct one to ask.
+      wants: (chain) => song!.constructed.includes(i) && song!.chapterRoots(i).some((r) => chain.has(r)),
+    }
+    discs.push(entry.d)
+    chapterRows.push(entry)
+    setOpen(entry.d, false)
+    row.addEventListener("click", (e) => {
+      e.stopPropagation()
+      setOpen(entry.d, !isOpen(entry.d))
+      entry.d.revealed = false
+    }, { signal })
+  }
+  const sameRoots = (a: readonly Holon[], b: readonly Holon[]) => a.length === b.length && a.every((h, k) => h === b[k])
+  const refreshChapters = (): void => {
+    if (!song) return
+    const standing = new Set(song.constructed)
+    for (const c of chapterRows) {
+      c.row.classList.toggle("built", standing.has(c.i))
+      // Its rows were built for holons the song has since dropped or rebuilt: build again when next opened.
+      if (c.filledWith && (!standing.has(c.i) || !sameRoots(song.chapterRoots(c.i), c.filledWith))) {
+        const open = isOpen(c.d) && standing.has(c.i)
+        const gone = new Set<Holon>()
+        for (const r of c.filledWith) for (const h of r.walk()) gone.add(h)
+        for (let k = rows.length - 1; k >= 0; k--) if (gone.has(rows[k]!.holon)) rows.splice(k, 1)
+        for (let k = discs.length - 1; k >= 0; k--) if (c.d.childrenEl.contains(discs[k]!.childrenEl)) discs.splice(k, 1)
+        c.d.childrenEl.textContent = ""
+        c.filledWith = undefined
+        c.d.fill = () => {
+          const rs = song.chapterRoots(c.i)
+          c.filledWith = rs
+          for (const r of rs) build(r, 1, c.d.childrenEl)
+        }
+        setOpen(c.d, open)
+      }
+    }
+  }
+
+  if (song) {
+    for (const root of song.ownRoots) build(root, 0, container)
+    song.chapters.forEach((_, i) => buildChapter(i))
+    refreshChapters()
+  } else for (const root of roots) build(root, 0, container)
 
   const unsubscribe = selection.subscribe((current) => {
-    for (const { holon, el } of rows) {
-      el.classList.toggle("selected", holon === current)
-    }
     // Reveal a selection made in the viewport: open every collapsed
-    // ancestor, and close again the ones a PREVIOUS selection opened.
-    // Without that second half, clicking one grid line would leave its
-    // 48-part Axes expanded forever — the panel would accumulate into
-    // exactly the dump the auto-expand rule exists to prevent.
+    // ancestor (building it if it never was), and close again the ones a
+    // PREVIOUS selection opened. Without that second half, clicking one
+    // grid line would leave its 48-part Axes expanded forever — the panel
+    // would accumulate into exactly the dump the auto-expand rule exists
+    // to prevent. Opening appends its children's disclosures: the loop reaches them too.
     const chain = new Set<Holon>()
     for (let node: Holon | null | undefined = current; node; node = node.parent) chain.add(node)
-    for (const row of rows) {
-      const { childrenEl, twisty, holon } = row
-      if (!childrenEl || !twisty) continue
-      const wanted = chain.has(holon) && holon !== current
-      if (wanted && childrenEl.style.display === "none") {
-        setOpen(childrenEl, twisty, true)
-        row.revealed = true
-      } else if (!wanted && row.revealed) {
-        setOpen(childrenEl, twisty, false)
-        row.revealed = false
+    for (let k = 0; k < discs.length; k++) {
+      const d = discs[k]!
+      const wanted = d.wants(chain, current)
+      if (wanted && !isOpen(d)) {
+        setOpen(d, true)
+        d.revealed = true
+      } else if (!wanted && d.revealed) {
+        setOpen(d, false)
+        d.revealed = false
       }
     }
-    // A folded run opens the same way a collapsed whole does: when the
-    // selection is one of its members (or ink inside one), and closes
-    // again when the selection moves on.
-    for (const group of groups) {
-      const wanted = group.members.some((member) => chain.has(member))
-      if (wanted && group.childrenEl.style.display === "none") {
-        setOpen(group.childrenEl, group.twisty, true)
-        group.revealed = true
-      } else if (!wanted && group.revealed) {
-        setOpen(group.childrenEl, group.twisty, false)
-        group.revealed = false
-      }
-    }
+    for (const { holon, el } of rows) el.classList.toggle("selected", holon === current)
     if (!current) return
     const found = rows.find((r) => r.holon === current)
     found?.el.scrollIntoView({ block: "nearest" })
   })
 
-  return { dispose: unsubscribe }
+  return { refresh: refreshChapters, dispose: unsubscribe }
 }

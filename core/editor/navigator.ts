@@ -36,6 +36,9 @@ export const orderedSceneKeys = (registry: Record<string, DreamClass>): string[]
   return [...chapters, ...composite, ...rest]
 }
 
+/** How long the rail waits after mounting before it draws a tile (the open scene boots first). */
+const BOOT_GRACE_MS = 1500
+
 export interface NavigatorHandle {
   dispose(): void
 }
@@ -99,18 +102,23 @@ export const mountNavigator = (
     }
   }
 
-  // Fill tiles one per frame: cached ones resolve in the first breaths,
-  // cold ones each get their own so the rail never blocks the editor —
-  // nearest the open slide first, so what is on screen is drawn first.
+  // Draw a tile only once it scrolls into the rail's view, one per idle slice
+  // and none in the editor's first breaths —
+  // drawing one constructs its whole scene, and a rail of ~280 (the whole
+  // InterBrain song and its lattice among them) drawn up front cost seconds
+  // of frames and hundreds of MB before anyone looked. Nearest the open
+  // slide first, among those in view.
+  const order = new Map(pending.map((p, i) => [p.img, i]))
   const here = pending.findIndex((p) => p.key === currentKey)
-  if (here >= 0) {
-    const at = new Map(pending.map((p, i) => [p, i]))
-    pending.sort((a, b) => Math.abs(at.get(a)! - here) - Math.abs(at.get(b)! - here))
-  }
+  const byImg = new Map(pending.map((p) => [p.img, p]))
+  const queue: typeof pending = []
   let alive = true
+  let scheduled = false
   const fill = () => {
+    scheduled = false
     if (!alive) return
-    const next = pending.shift()
+    if (here >= 0) queue.sort((a, b) => Math.abs(order.get(a.img)! - here) - Math.abs(order.get(b.img)! - here))
+    const next = queue.shift()
     if (!next) return
     // One scene that cannot be drawn must not stop the rest of the rail.
     let url: string | undefined
@@ -119,13 +127,41 @@ export const mountNavigator = (
     } catch {}
     if (url) next.img.src = url
     else next.img.classList.add("blank")
-    requestAnimationFrame(fill)
+    schedule()
   }
-  requestAnimationFrame(fill)
+  let warm = false
+  const schedule = () => {
+    if (scheduled || !queue.length || !warm) return
+    scheduled = true
+    const idle = (window as { requestIdleCallback?: (fn: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+    if (idle) idle(fill, { timeout: 2000 })
+    else setTimeout(fill, 16)
+  }
+  // The scene being opened comes first: the rail waits until it has drawn.
+  setTimeout(() => {
+    warm = true
+    schedule()
+  }, BOOT_GRACE_MS)
+  const seen = new IntersectionObserver(
+    (hits) => {
+      for (const h of hits) {
+        if (!h.isIntersecting) continue
+        const p = byImg.get(h.target as HTMLImageElement)
+        if (!p) continue
+        seen.unobserve(h.target)
+        queue.push(p)
+      }
+      schedule()
+    },
+    { root, rootMargin: "200px 0px" },
+  )
+  for (const p of pending) seen.observe(p.img)
+  signal.addEventListener("abort", () => seen.disconnect())
 
   return {
     dispose() {
       alive = false
+      seen.disconnect()
     },
   }
 }

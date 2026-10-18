@@ -58,6 +58,11 @@ export interface WalkOpts {
   /** Pause the transport — a fire from the inspector while playing. */
   pause: () => void
   hud: boolean
+  /**
+   * The group a root's axes list under when the State panel is long — a
+   * lazy song names its chapter (editor/main.ts); default: the root's class.
+   */
+  groupOf?(root: Holon): string | undefined
   /** The scene's own axes (Dream.stateSpace()) — walked beside the holons'. */
   scene?: () => StateSpace | undefined
   /** The editor's own axes, listed above the scene's when nothing is selected. */
@@ -105,6 +110,9 @@ export interface WalkAxisView {
  * live layer owns every release (play clears it, Escape discards it), so
  * GameLoop is told every param is the song's — its release writes nothing.
  */
+/** Past this many axes the State panel lists closed groups (a chapter, a root) instead of every row. */
+const PANEL_GROUP_OVER = 24
+
 const EVERY_PARAM = { has: () => true } as unknown as ReadonlySet<Param<ParamValue>>
 
 /** The State group's id prefix for the editor's own axes. */
@@ -138,6 +146,8 @@ export class EditorWalk {
   #panelAxes: ReadonlySet<string> | undefined
   #panelEditor: readonly EditorAxis[] = []
   #panelKey = ""
+  /** The State panel's groups opened by hand (a long panel lists its groups closed). */
+  readonly #openGroups = new Set<string>()
 
   constructor(opts: WalkOpts) {
     this.#opts = opts
@@ -351,6 +361,13 @@ export class EditorWalk {
     const rows = document.createElement("div")
     box.appendChild(rows)
     rows.addEventListener("click", (e) => {
+      const group = (e.target as HTMLElement).closest<HTMLElement>("[data-group]")?.dataset.group
+      if (group !== undefined) {
+        if (!this.#openGroups.delete(group)) this.#openGroups.add(group)
+        this.#panelKey = ""
+        this.#refreshPanel()
+        return
+      }
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-pos]")
       const row = el?.closest<HTMLElement>("[data-axis]")
       const id = row?.dataset.axis
@@ -454,16 +471,38 @@ export class EditorWalk {
     if (key === this.#panelKey) return
     this.#panelKey = key
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
-    panel.innerHTML = views
-      .map((v) => {
-        const pos = v.positions
-          .map((p) => `<span data-pos="${esc(p)}"${p === v.position ? ' class="at"' : ""}>${esc(p)}</span>`)
+    // Long (a whole song's live chapters): one closed row per group — its
+    // chapter, else its root — opened by a click; only open groups' axes are rowed.
+    let groups: { name: string; views: WalkAxisView[] }[] | undefined
+    if (scene.length > PANEL_GROUP_OVER) {
+      const a = this.game.automaton
+      const byName = new Map<string, WalkAxisView[]>()
+      for (const v of scene) {
+        let root = a.axis(v.id).owner
+        while (root?.parent) root = root.parent
+        const name = (root && this.#opts.groupOf?.(root)) ?? (root ? root.constructor.name.replace(/\d+$/, "") : "scene")
+        byName.set(name, [...(byName.get(name) ?? []), v])
+      }
+      groups = [...byName].map(([name, vs]) => ({ name, views: vs }))
+    }
+    const rowOf = (v: WalkAxisView) => {
+      const pos = v.positions
+        .map((p) => `<span data-pos="${esc(p)}"${p === v.position ? ' class="at"' : ""}>${esc(p)}</span>`)
+        .join("")
+      const own = v.id.startsWith(EDITOR)
+      const last = own && v === editor[editor.length - 1] && scene.length > 0
+      const cls = `walkrow${own ? " editorrow" : ""}${last ? " last" : ""}${v.enabled ? "" : " off"}${v.progress < 1 ? " going" : ""}`
+      return `<div class="${cls}" data-axis="${esc(v.id)}"><label>${esc(v.label)}</label><i>${esc(v.key ?? "")}</i><div>${pos}</div></div>`
+    }
+    panel.innerHTML = groups
+      ? editor.map(rowOf).join("") +
+        groups
+          .map((g) => {
+            const open = this.#openGroups.has(g.name)
+            const head = `<div class="walkgroup" data-group="${esc(g.name)}">${open ? "▼" : "▶"} ${esc(g.name)} <i>${g.views.length}</i></div>`
+            return open ? head + g.views.map(rowOf).join("") : head
+          })
           .join("")
-        const own = v.id.startsWith(EDITOR)
-        const last = own && v === editor[editor.length - 1] && scene.length > 0
-        const cls = `walkrow${own ? " editorrow" : ""}${last ? " last" : ""}${v.enabled ? "" : " off"}${v.progress < 1 ? " going" : ""}`
-        return `<div class="${cls}" data-axis="${esc(v.id)}"><label>${esc(v.label)}</label><i>${esc(v.key ?? "")}</i><div>${pos}</div></div>`
-      })
-      .join("")
+      : views.map(rowOf).join("")
   }
 }

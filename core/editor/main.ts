@@ -489,7 +489,26 @@ const boot = async (resume?: Transport) => {
     }
     if (spec) bdRef.value = spec.path
   }
-  if (!playerMode) void populateRefs().catch(() => {})
+  // The refs list is long (22k files): its options are made when the picker
+  // is first reached for (hover or focus), not at every boot — a backdrop already set shows by itself.
+  if (!playerMode) {
+    if (spec) {
+      const only = document.createElement("option")
+      only.value = spec.path
+      only.textContent = spec.path.replace(/^refs\//, "")
+      bdRef.appendChild(only)
+      bdRef.value = spec.path
+    }
+    let populated = false
+    const populate = () => {
+      if (populated) return
+      populated = true
+      void populateRefs().catch(() => (populated = false))
+    }
+    // On hover, so the list has arrived by the click that opens it.
+    bdRef.addEventListener("pointerenter", populate, listen)
+    bdRef.addEventListener("focus", populate, listen)
+  }
 
   const commitBackdrop = async (path: string, offset: number) => {
     if (!sceneFile) return showNote("no scene file to write the backdrop into")
@@ -917,8 +936,8 @@ const boot = async (resume?: Transport) => {
   }
 
   // --- Holarchy outline (cmd+shift+L) --------------------------------------
-  if (!playerMode)
-    mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
+  // A lazy song (the whole InterBrain) lists its chapters, each built only when opened or reached.
+  const outline = playerMode ? undefined : mountOutline(treeRoot, dream as unknown as object, dream.roots, selection, ac.signal)
 
   // --- Scene navigator + cast bar (EDITOR-V3 step 2) ------------------------
   //
@@ -1032,10 +1051,28 @@ const boot = async (resume?: Transport) => {
   // its key fires it — and the fired pose rides the live layer, so the
   // inspector reads it, Escape discards it and ⌘K captures it. Creator
   // mode selects everything; elsewhere a click still selects.
+  // A lazy song (the whole InterBrain): which chapter a live root belongs
+  // to — the State panel's groups. Read off the standing chapters only
+  // (never constructing one to ask), re-read when the song's roots change.
+  const lazySong = dream as unknown as { lazy?: boolean; constructed?: number[]; chapterRoots?(i: number): readonly Holon[]; sceneOf?(i: number): { name: string } }
+  let chapterOfRoot: { for: readonly Holon[]; map: Map<Holon, string> } | undefined
+  const chapterOf = (root: Holon): string | undefined => {
+    if (!lazySong.lazy || !lazySong.constructed || !lazySong.chapterRoots || !lazySong.sceneOf) return undefined
+    if (chapterOfRoot?.for !== dream.roots) {
+      const map = new Map<Holon, string>()
+      for (const i of lazySong.constructed) {
+        const label = `${i + 1} · ${lazySong.sceneOf(i).name.replace(/Dream$/, "")}`
+        for (const r of lazySong.chapterRoots(i)) map.set(r, label)
+      }
+      chapterOfRoot = { for: dream.roots, map }
+    }
+    return chapterOfRoot.map.get(root)
+  }
   const walk = playerMode
     ? undefined
     : new EditorWalk({
         canvas,
+        groupOf: chapterOf,
         pick: pickAt,
         boundsOf: (h) => host.boundsOf(h),
         // The paused editor draws only on demand: repaint when the glow changes.
@@ -2336,9 +2373,10 @@ const boot = async (resume?: Transport) => {
   let walkedRoots = dream.roots
   const loop = async (now: number) => {
     if (!alive) return
-    if (walk && dream.roots !== walkedRoots) {
+    if (dream.roots !== walkedRoots) {
       walkedRoots = dream.roots
-      walk.reroot(walkedRoots)
+      walk?.reroot(walkedRoots)
+      outline?.refresh()
     }
     const walked = walk?.step(now) ?? false
     toolkit?.tick(now)

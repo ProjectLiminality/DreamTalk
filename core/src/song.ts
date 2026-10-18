@@ -369,6 +369,11 @@ export class DreamSong extends Dream {
     return this.#lazy ? super.roots : this.roots
   }
 
+  /** Chapter i's scene class — its name without constructing it (a lazy song's outline, editor/outline.ts). */
+  sceneOf(i: number): new () => Dream {
+    return this.#lazy ? this.#scenes[i]! : (this.chapters[i]!.dream.constructor as new () => Dream)
+  }
+
   /** Chapter i's roots, constructing it if a lazy song has not (or no longer has). */
   chapterRoots(i: number): readonly Holon[] {
     return this.chapters[i]!.dream.roots

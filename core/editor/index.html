@@ -169,6 +169,10 @@
     /* A folded run of anonymous same-class parts ("Line ×20") —
        presentation, not a holon: the row discloses, it never selects. */
     .node.run .nclass { color: var(--dim); }
+    /* A lazy song's chapter (outline.ts): dim until it stands — built because the playhead reached it or it was opened. */
+    .node.chapter { cursor: pointer; }
+    .node.chapter .nclass { color: var(--dim); }
+    .node.chapter.built .nclass { color: inherit; }
     /* Symbol glyphs — the holon's own geometry, at row scale. Slightly
        dimmed at rest so a long tree still reads as text; full strength on
        hover and on the selected row, where the shape IS what is being
@@ -263,6 +267,9 @@
     .walkrow i { font-style: normal; color: var(--dimmer); font-family: var(--mono); }
     .walkrow span { color: var(--dim); cursor: pointer; margin-right: 8px; }
     .walkrow span:hover { color: var(--text); }
+    .walkgroup { color: var(--dim); cursor: pointer; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .walkgroup:hover { color: var(--text); }
+    .walkgroup i { font-style: normal; color: var(--dimmer); font-family: var(--mono); margin-left: 4px; }
     .walkrow span.at { color: var(--bright); }
     .walkrow.going span.at { color: var(--blue); }
     .walkrow.off { opacity: 0.4; }
