@@ -5,6 +5,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   OUTLINE_DRIFT,
+  RETRACE_BUDGET,
+  forgetMovingRetrace,
+  grantMovingRetrace,
   noteTextSync,
   onTextLayout,
   outlineRetraceDue,
@@ -25,12 +28,12 @@ describe("outlineRetraceDue", () => {
   test("a scale still moving through time keeps the traced contours", () => {
     expect(outlineRetraceDue({ ...base, bucket: 12, lastBucket: 11, t: 2, lastT: 1.9 })).toBe(false)
   })
-  test("…until the scale holds for a frame", () => {
-    expect(outlineRetraceDue({ ...base, bucket: 12, lastBucket: 12, t: 2, lastT: 1.9 })).toBe(true)
+  test("…until the scale holds for a frame (then within the frame's budget)", () => {
+    expect(outlineRetraceDue({ ...base, bucket: 12, lastBucket: 12, t: 2, lastT: 1.9 })).toBe("budget")
   })
-  test("…or drifts past OUTLINE_DRIFT (~10%)", () => {
+  test("…or drifts past OUTLINE_DRIFT (~10%): then within the frame's budget", () => {
     const far = base.traced + OUTLINE_DRIFT + 1
-    expect(outlineRetraceDue({ ...base, bucket: far, lastBucket: far - 1, t: 2, lastT: 1.9 })).toBe(true)
+    expect(outlineRetraceDue({ ...base, bucket: far, lastBucket: far - 1, t: 2, lastT: 1.9 })).toBe("budget")
     expect(Math.exp(OUTLINE_DRIFT * Math.log(1.005))).toBeCloseTo(1.1, 2)
   })
   test("no t from the caller: every bucket change retraces", () => {
@@ -106,4 +109,32 @@ test("requestOutlineSettle: a frame kept stale while a settle is in flight still
   tick() // frames stopped
   expect(repaints).toBe(1)
   off()
+})
+
+describe("grantMovingRetrace", () => {
+  // Ids far from any live binding's.
+  const ids = Array.from({ length: RETRACE_BUDGET + 3 }, (_, i) => 1_000_000 + i)
+
+  test("a moving frame retraces at most RETRACE_BUDGET texts, the longest-waiting first", () => {
+    // Frame 1: everyone drifted at once — the first RETRACE_BUDGET get it.
+    const f1 = ids.map((id) => grantMovingRetrace(id, 101))
+    expect(f1.filter(Boolean).length).toBe(RETRACE_BUDGET)
+    expect(f1.slice(0, RETRACE_BUDGET).every(Boolean)).toBe(true)
+    // Frame 2: a new drifter comes FIRST in host order, but the waiters
+    // from frame 1 hold the reserved slots.
+    const late = 2_000_000
+    const newcomer = grantMovingRetrace(late, 102)
+    const waiters = ids.slice(RETRACE_BUDGET).map((id) => grantMovingRetrace(id, 102))
+    expect(waiters.every(Boolean)).toBe(true)
+    expect(newcomer).toBe(RETRACE_BUDGET - waiters.length > 0)
+    for (const id of [...ids, late]) forgetMovingRetrace(id)
+  })
+
+  test("a forgotten text (retraced by a held frame, or disposed) waits no longer", () => {
+    for (const id of ids) grantMovingRetrace(id, 201)
+    for (const id of ids) forgetMovingRetrace(id)
+    // Nobody reserved: a fresh drifter gets a slot at once.
+    expect(grantMovingRetrace(3_000_000, 202)).toBe(true)
+    forgetMovingRetrace(3_000_000)
+  })
 })

@@ -614,17 +614,67 @@ export const outlineRetraceDue = (o: {
   lastBucket: number
   t: number | undefined
   lastT: number
-}): boolean => {
+}): boolean | "budget" => {
   if (!o.seen) return false
   if (o.stale) return true
   if (o.bucket === o.traced) return false
-  const moving =
-    o.t !== undefined &&
-    !Object.is(o.t, o.lastT) &&
-    o.bucket !== o.lastBucket &&
-    Math.abs(o.bucket - o.traced) <= OUTLINE_DRIFT
-  return !moving
+  // A held frame (same t as the last, or no t) retraces at once, exactly.
+  if (o.t === undefined || Object.is(o.t, o.lastT)) return true
+  // Frames moving through time: a retrace only within the frame's budget
+  // (grantMovingRetrace) — once the scale has held for a frame (a slow
+  // zoom crosses a bucket only every few frames, and retracing every text
+  // on each pause between crossings was the whole cost again), or once it
+  // has drifted too far. Otherwise the traced contours are kept.
+  return o.bucket === o.lastBucket || Math.abs(o.bucket - o.traced) > OUTLINE_DRIFT
+    ? "budget"
+    : false
 }
+
+/**
+ * The retrace budget of a moving frame (lead, 2026-10-18): labels on
+ * turning slices drift past OUTLINE_DRIFT every few frames, all of them,
+ * and retracing them together was still most of such a frame. So a
+ * moving frame retraces at most RETRACE_BUDGET of its drifted texts —
+ * the ones waiting longest first — and the rest keep their contours a
+ * little longer (and ask for the settle, which still finishes them
+ * exactly once frames stop). A held frame and a fresh layout are never
+ * budgeted, so still frames are untouched.
+ *
+ * A frame is recognised by its t: every moving frame has a new one. The
+ * oldest waiters from earlier frames hold reserved slots; texts newly
+ * drifted this frame take what is left, first come.
+ */
+export const RETRACE_BUDGET = 4
+let budgetT = Number.NaN
+let budgetFrame = 0
+let budgetFree = 0
+let reserved = new Set<number>()
+/** Texts drifted past OUTLINE_DRIFT, by the frame they started waiting. */
+const waiting = new Map<number, number>()
+export const grantMovingRetrace = (id: number, t: number): boolean => {
+  if (!Object.is(t, budgetT)) {
+    budgetT = t
+    budgetFrame++
+    reserved = new Set(
+      [...waiting].sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, RETRACE_BUDGET).map(([k]) => k),
+    )
+    budgetFree = RETRACE_BUDGET - reserved.size
+  }
+  if (!waiting.has(id)) waiting.set(id, budgetFrame)
+  let ok = false
+  if (reserved.delete(id)) ok = true
+  else if (budgetFree > 0) {
+    budgetFree--
+    ok = true
+  }
+  if (ok) waiting.delete(id)
+  return ok
+}
+/** A text retraced (or went away) by any path: it waits no longer. */
+export const forgetMovingRetrace = (id: number): void => {
+  waiting.delete(id)
+}
+let nextTextId = 0
 
 const buildOutlines = (
   geometry: THREE.BufferGeometry,
@@ -1001,6 +1051,8 @@ export const attachText = (
   let currentKey = ""
   /** A layout landed whose outlines are not yet traced (see relayout). */
   let outlinesStale = false
+  /** This binding's place in the moving-frame retrace budget. */
+  const textId = nextTextId++
   /** The previous sync's bucket and time: is the scale still moving? */
   let lastBucket = Number.NaN
   let lastT = Number.NaN
@@ -1022,6 +1074,7 @@ export const attachText = (
   /** (Re)trace the contours of the mounted layout at the current inset. */
   const rebuildOutlines = () => {
     if (!mesh) return
+    forgetMovingRetrace(textId)
     dropOutlines()
     outlines = buildOutlines(mesh.geometry, holon.stroke.value, insetScale)
     for (const outline of outlines) {
@@ -1130,7 +1183,7 @@ export const attachText = (
       const bucket = insetBucketOf(pixelsPerUnit)
       const seenNow =
         opacity > 0 && holon.creation.value > 0 && holon.erasure.value < 1
-      const due = outlineRetraceDue({
+      const want = outlineRetraceDue({
         stale: outlinesStale,
         seen: seenNow,
         bucket,
@@ -1139,6 +1192,7 @@ export const attachText = (
         t,
         lastT,
       })
+      const due = want === "budget" ? grantMovingRetrace(textId, t!) : want
       lastBucket = bucket
       lastT = t ?? Number.NaN
       noteTextSync()
@@ -1162,6 +1216,7 @@ export const attachText = (
     },
     dispose(): void {
       disposed = true
+      forgetMovingRetrace(textId)
       layoutToken++
       dropOutlines()
       if (mesh) {
