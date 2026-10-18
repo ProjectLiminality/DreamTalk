@@ -111,6 +111,7 @@ describe("MorphToWord", () => {
     expect(line.points.length).toBe(2)
     // Squashed, not re-drawn: every stroke ends ON the line, within its span.
     m.toWord.morph.value = 1
+    m.toWord.opacity.value = 1 // drawn (a hidden morpher reads nothing)
     const [a, b] = line.points as [Vec3Like, Vec3Like]
     const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
     const ink = m.toWord.parts.filter((p): p is Line => p instanceof Line).filter((l) => l.points.length >= 2)
@@ -140,6 +141,7 @@ describe("MorphToWord", () => {
     expect(m.word.x.value).toBeCloseTo(100, 6)
     expect(m.word.opacity.value).toBe(0)
     m.toWord.morph.value = 1
+    m.toWord.opacity.value = 1 // drawn (a hidden morpher reads nothing)
     void m.toWord.parts
     const ink = m.toWord.parts.filter((p): p is Line => p instanceof Line).filter((l) => l.points.length >= 2)
     expect(ink.length).toBeGreaterThanOrEqual(5)

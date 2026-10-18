@@ -127,6 +127,9 @@ export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => 
 /** The world-space curves a holon offers a morph (`partCurvesOf` without the parts). */
 export const curvesOf = (h: Holon): Vec3Like[][] => partCurvesOf(h).map((c) => c.curve)
 
+/** A hidden morpher's slots' key: constant, so they recompute once on hiding and never again until shown. */
+const HIDDEN_KEY: readonly number[] = [-1]
+
 const chainOf = (h: Holon): number[] => {
   const out: number[] = []
   for (let n: Holon | undefined = h; n; n = n.parent)
@@ -549,11 +552,15 @@ export class MorphCurves extends Stroke {
     const { sources, targets, opts } = this.ends
     const count = (hs: Holon[]) => hs.reduce((s, h) => s + curvesOf(h).length, 0)
     const capacity = opts.capacity ?? Math.max(32, 2 * (count(sources) + count(targets)))
+    // A hidden morpher (opacity 0 — at rest under MorphMany, or put away by
+    // its owner) reads NOTHING: no curves, no plan, no tint, so a scene full
+    // of finished morphs costs nothing while its clock runs.
+    const shown = () => this.opacity.value > 0
     for (let i = 0; i < capacity; i++) {
       const slot = new Line({
-        tint: derive((): Color => this.pieceTint(i)),
+        tint: derive((): Color => (shown() ? this.pieceTint(i) : WHITE)),
         stroke: this.stroke,
-        opacity: derive(() => this.opacity.value * this.pieceAlpha(i)),
+        opacity: derive(() => (shown() ? this.opacity.value * this.pieceAlpha(i) : 0)),
         creation: this.creation,
       })
       // The curves are WORLD space; a morpher staged at the root draws them
@@ -561,8 +568,9 @@ export class MorphCurves extends Stroke {
       // them into its own frame first.
       derivePoints(
         slot,
-        () => [this.curves().version, ...(this.parent ? chainOf(this) : [])],
+        () => (shown() ? [this.curves().version, ...(this.parent ? chainOf(this) : [])] : HIDDEN_KEY),
         () => {
+          if (!shown()) return []
           const c = this.curves().curves[i] ?? []
           return this.parent ? c.map((p) => toLocal(slot, p)) : c
         },

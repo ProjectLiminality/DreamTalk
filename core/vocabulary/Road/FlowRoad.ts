@@ -184,6 +184,9 @@ const planFor = (seen: Seen, radius: number): MorphPlan => {
   return plan
 }
 
+/** The loops' key while nothing is drawn (concrete still in the dots' fade): constant, so nothing recomputes. */
+const IDLE: readonly number[] = [-1]
+
 const cross = (a: Vec3Like, b: Vec3Like): Vec3Like => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x })
 const dot = (a: Vec3Like, b: Vec3Like): number => a.x * b.x + a.y * b.y + a.z * b.z
 const norm = (a: Vec3Like): Vec3Like => {
@@ -378,7 +381,7 @@ export class FlowRoad extends Group {
 
     // The road: the flow's line splitting into two edges as the morph runs.
     const road = new Polylines({ tint: ink, stroke: this.stroke, opacity: derive(drawn) })
-    deriveLoops(road, () => [paramEpoch()], () => {
+    deriveLoops(road, () => (drawn() ? [paramEpoch()] : IDLE), () => {
       if (!drawn()) return []
       const { points } = this.state()
       const m = phase().morph
@@ -402,7 +405,7 @@ export class FlowRoad extends Group {
       stroke: this.stroke,
       opacity: derive(drawn),
     })
-    deriveLoops(fleet, () => [paramEpoch()], () => {
+    deriveLoops(fleet, () => (drawn() ? [paramEpoch()] : IDLE), () => {
       if (!drawn()) return []
       const m = phase().morph
       const out: Vec3Like[][] = []
