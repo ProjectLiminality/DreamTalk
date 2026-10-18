@@ -386,6 +386,30 @@ or another holon — promote it) / NEW.
    talking head (44:25–47:00) and photoreal C4D looks — reproduced as their
    symbolic layer only. Agree?
 
+### §6 — the defaults taken (lead, 2026-10-18; **default, David may overturn**)
+
+1. **Bust**: ONE person symbol — `Figure` gains the bust as a form (`form`
+   param), the 2024 `HeadWithShoulders` becomes that form, not a second
+   symbol (abilities over separate classes).
+2. **Eye**: ONE eye with an `iris` param (cube ↔ vision) — `MolochEye`; the
+   domesticated and the liminal eye are two states of one implementation,
+   which is what the film's morph (2520–2552) needs anyway.
+3. **Names**: the concept the film speaks wins. `SMark` → **`Vision`**
+   (`vocabulary/Vision`; `Regenaissance/SMark.ts` stays only as a thin
+   re-export, noted in docs/reports/consolidation.md). `LightNode` → the
+   transcript names the concept **DreamTalk** ("the digital extension of
+   SandTalk", 29:08) — which collides with the framework's own name, so the
+   holon is **`DreamTalkSymbol`** (the symbol, as the film says "a DreamTalk
+   symbol", 29:14); `LightNode` stays as the thin re-export the Web3 shots
+   import.
+4. **InterBrain face**: our own — the Logo at the heart of a faceted crystal
+   with the dark bloom, redrawn as line-art from the 2025-04-06
+   `InterBrain.png` / `InterBrainLogo300.png`; the third-party app's crystal
+   silhouette and the second-brain app icon are NOT redrawn (the second
+   brain becomes a neutral "notes" face).
+5. **Footage / photoreal C4D**: symbolic layer only (CORPUS rule); the talking
+   head and the news collage keep placeholder beats for timing.
+
 ## 7. Proposed holon list and build order (most-reused first)
 
 Counted by how many chapters each appears in (§4). Every new holon lands in
