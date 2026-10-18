@@ -7,6 +7,7 @@
  */
 
 import type { DreamClass } from "../src/dream"
+import { interbrainScenes } from "./interbrain/scenes"
 import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
 import { VocabShowcaseDream } from "./VocabShowcase"
@@ -115,6 +116,8 @@ import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
 export const scenes: Record<string, DreamClass> = {
+  // The InterBrain DreamSong (corpus #14): its symbols and chapters.
+  ...interbrainScenes,
   founding: CylinderDream,
   squarecircle: SquareCircleDream,
   geometrysketch: GeometrySketchDemoDream,
