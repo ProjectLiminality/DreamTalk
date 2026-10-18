@@ -22,7 +22,7 @@
  * The keys are in RESERVED_KEYS (src/automaton.ts).
  */
 
-import { Dream } from "../src/dream"
+import { Dream, type DreamSlot } from "../src/dream"
 import { together } from "../src/anim"
 import { Create } from "../src/verbs"
 import { gatherStateSpace, type Fired, type StateSpace } from "../src/automaton"
@@ -55,8 +55,17 @@ export interface ToolkitHost {
   /** The scene's holons and its own state space: the minimap's machine. */
   roots: readonly Holon[]
   space?: StateSpace
+  /** The scene's own presenter slots (Dream.slots): slot k is [k − 1], unless the viewer saved one. */
+  slots?: readonly DreamSlot[]
   signal: AbortSignal
 }
+
+/** A scene slot as a link state: the song moment, held in free play unless told otherwise, with its levels. */
+export const sceneSlotState = (s: DreamSlot): LinkState => ({
+  t: s.t,
+  ...(s.free === false ? {} : { f: { c: 0, j: [] } }),
+  ...(s.nest?.length ? { n: [...s.nest] } : {}),
+})
 
 /** A state, as a link holds it. */
 export interface LinkState {
@@ -346,12 +355,15 @@ export const mountToolkit = (host: ToolkitHost): Toolkit => {
     }
   }
   const recall = async (slot: number) => {
-    const s = decodeState(readSlots()[slot] ?? null)
+    // The viewer's own save first; else the scene's slot (Dream.slots), by name.
+    const own = decodeState(readSlots()[slot] ?? null)
+    const scene = own ? undefined : host.slots?.[slot - 1]
+    const s = own ?? (scene && sceneSlotState(scene))
     if (!s) {
       toast(`${slot}: empty — ⇧${slot} saves`)
       return false
     }
-    toast(`${slot} ↺`)
+    toast(scene ? `${slot} · ${scene.name}` : `${slot} ↺`)
     await restore(s)
     write(true)
     return true

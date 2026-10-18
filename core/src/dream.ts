@@ -204,6 +204,16 @@ export class Observer extends Holon {
   }
 }
 
+/** A presenter slot a scene declares (Dream.slots). */
+export interface DreamSlot {
+  name: string
+  t: number
+  /** Held in free play (default) or playing. */
+  free?: boolean
+  /** Levels to open, outermost first, by name (Nest.openByName). */
+  nest?: string[]
+}
+
 export abstract class Dream {
   readonly observer = new Observer()
   #cursor = 0
@@ -245,6 +255,17 @@ export abstract class Dream {
    */
   stateSpace(): StateSpace | undefined {
     return undefined
+  }
+
+  /**
+   * Optional: the scene's own presenter slots — named moments a demo walks
+   * with 1–9 / ⌥1–9 (demo/toolkit.ts). Slot k is `slots()[k − 1]`; a slot
+   * the viewer saved (⇧k) overrides the scene's. Each is a song moment,
+   * held in free play unless `free` is false, and optionally a nest path
+   * (levels opened by name, Nest.openByName) — "inside a site's systems".
+   */
+  slots(): readonly DreamSlot[] {
+    return []
   }
 
   /** One of the scene's own axes, by id — `this.play(this.stateAxis("look").to("busy"), 1.2)`. */

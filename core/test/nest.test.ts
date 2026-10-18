@@ -9,7 +9,7 @@ import { Dream, type DreamClass } from "../src/dream"
 import { Holon } from "../src/holon"
 import { Observer } from "../src/dream"
 import { ViewLayer } from "../src/view"
-import { latticeDream, NestStack, songLatticeDream, statesOf, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
+import { latticeDream, levelNameOf, NestStack, songLatticeDream, statesOf, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { StateLattice } from "../vocabulary/StateLattice/StateLattice"
 
@@ -68,6 +68,9 @@ describe("what a symbol unpacks into — its WatchMe", () => {
     expect(symbolAt(m.mine)).toBe(m.mine)
     expect(symbolAt(m.plain)).toBe(m)
     expect(watchMeOf(scenes, m.mine)).toMatchObject({ Dream: SiteDream, alone: false })
+    // Its level is named by that level, so a link reopens THIS site; a plain part keeps its node name.
+    expect(levelNameOf(m.mine)).toBe("SiteDream")
+    expect(levelNameOf(m)).toBe("Sites")
   })
 })
 

@@ -128,6 +128,14 @@ export const statesOf = (scenes: Record<string, DreamClass>, holon: Holon): Watc
   return { Dream: songLatticeDream(wm.Dream, nodeNameOf(holon)), alone: false, framed: true, key: wm.key && `${wm.key} ◇` }
 }
 
+/**
+ * A level's name in the nest path (and so in a link): the class of the level
+ * a holon unpacks into when it names its own (Holon.unpack — one site of a
+ * map, by its data), else the symbol's node name. So a link reopens THAT
+ * site, not whichever part of the same class is largest on screen.
+ */
+export const levelNameOf = (holon: Holon): string => holon.unpack()?.name || nodeNameOf(holon)
+
 /** The symbol touched: the nearest at-or-above a hit that is sovereign or has its own level (Holon.unpack). */
 export const symbolAt = (hit: Holon | undefined): Holon | undefined => {
   for (let h: Holon | null | undefined = hit; h; h = h.parent) if (isSovereign(h) || h.unpack() !== undefined) return h
@@ -187,7 +195,7 @@ export class NestStack {
     return this.#saved.map((s) => s.name)
   }
 
-  enter(surface: LevelSurface, holon: Holon, name = nodeNameOf(holon)): Saved {
+  enter(surface: LevelSurface, holon: Holon, name = levelNameOf(holon)): Saved {
     const view = surface.view()
     const saved: Saved = {
       holon,
@@ -542,6 +550,8 @@ export const mountNest = (opts: NestOpts): Nest => {
       }
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
       if (typing) return
+      // ⌥1–9 recalls a presenter slot (demo/toolkit.ts) from any depth: the page's, not the level's.
+      if (e.altKey && /^Digit[1-9]$/.test(e.code)) return
       e.stopImmediatePropagation()
       if (e.code === "Escape") {
         e.preventDefault()
@@ -610,7 +620,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       }
       let best: Holon | undefined
       for (const r of surface.roots?.() ?? [])
-        for (const h of r.walk()) if (symbolAt(h) === h && nodeNameOf(h) === base && area(h) > (best ? area(best) : 0)) best = h
+        for (const h of r.walk()) if (symbolAt(h) === h && levelNameOf(h) === base && area(h) > (best ? area(best) : 0)) best = h
       if (best) return lattice ? states(best) : unpack(best)
       // "<song> ◇" with no symbol of that name: the open level's own song, through its lattice.
       return lattice && inners.length ? states() : Promise.resolve(false)

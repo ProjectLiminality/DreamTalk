@@ -25,3 +25,15 @@ describe("a link to a state", () => {
     for (const k of [PRESENTER_KEY, MINIMAP_KEY, ...SHIFTED_DIGITS]) expect(RESERVED_KEYS).toContain(k)
   })
 })
+
+describe("scene slots (Dream.slots)", () => {
+  test("a scene slot is its song moment, held in free play, with its levels", () => {
+    const { sceneSlotState } = require("../demo/toolkit") as typeof import("../demo/toolkit")
+    expect(sceneSlotState({ name: "globe", t: 7 })).toEqual({ t: 7, f: { c: 0, j: [] } })
+    expect(sceneSlotState({ name: "playing", t: 3, free: false })).toEqual({ t: 3 })
+    expect(sceneSlotState({ name: "inside", t: 60, nest: ["FlowEntity"] })).toEqual({ t: 60, f: { c: 0, j: [] }, n: ["FlowEntity"] })
+    // It survives a link round trip unchanged.
+    const s = sceneSlotState({ name: "inside", t: 60, nest: ["FlowEntity"] })
+    expect(decodeState(encodeState(s))).toEqual(s)
+  })
+})

@@ -598,6 +598,7 @@ const main = async () => {
     },
     roots: dream.roots,
     space: dream.stateSpace(),
+    slots: dream.slots(),
     signal: ac.signal,
   })
   ;(window as unknown as Record<string, unknown>).__dtToolkit = toolkit
