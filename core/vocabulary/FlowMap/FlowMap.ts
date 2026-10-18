@@ -732,18 +732,44 @@ export class FlowMap extends Null {
     const k = total > 1 ? 1 / total : 1
     const ws = w.map((x) => x * k)
     const unfocused = Math.max(0, 1 - ws.reduce((a, b) => a + b, 0))
+    const focused = 1 - unfocused
+    // The fiber gathers round its site on the first 60% of the focus, so it
+    // is centred before the zoom (the last 60%) carries it out to fill the
+    // view — the zoom never scales a half-gathered fiber off-centre.
+    const gathered = smooth(0, 0.6, focused)
+    const fiberWeight = (i: number) => (focused > 1e-9 ? (ws[i]! * gathered) / focused : 0)
+    // Fiber to fiber: two weighted fibers, A going and B coming.
+    const live = ws.flatMap((x, i) => (x > 1e-9 ? [i] : []))
+    const split = live.length > 1
     const place = (id: string, full: Vec2): Vec2 => {
-      let x = full.x * unfocused
-      let y = full.y * unfocused
-      let sum = unfocused
+      let x = full.x * (1 - gathered)
+      let y = full.y * (1 - gathered)
+      let sum = 1 - gathered
       fibers.forEach((fb, i) => {
         const t = fb.target.get(id)
         if (!t || ws[i]! <= 0) return
-        x += t.x * ws[i]!
-        y += t.y * ws[i]!
-        sum += ws[i]!
+        x += t.x * fiberWeight(i)
+        y += t.y * fiberWeight(i)
+        sum += fiberWeight(i)
       })
-      return sum > 1e-9 ? { x: x / sum, y: y / sum } : full
+      if (sum <= 1e-9) return full
+      x /= sum
+      y /= sum
+      // Moving between two fibers' seats it swings aside (left of its way),
+      // so two entities trading places — the old site leaving the centre,
+      // the new one arriving — pass each other instead of meeting midway.
+      if (live.length === 2) {
+        const [i, j] = live as [number, number]
+        const ti = fibers[i]!.target.get(id)
+        const tj = fibers[j]!.target.get(id)
+        if (ti && tj) {
+          const a = ws[j]! / (ws[i]! + ws[j]!)
+          const bow = 0.3 * 4 * a * (1 - a)
+          x += -(tj.y - ti.y) * bow
+          y += (tj.x - ti.x) * bow
+        }
+      }
+      return { x, y }
     }
     // In order, never at once (valueflow): going in, the outsiders fade on
     // the first 40% of the focus and the zoom follows on the rest; coming
@@ -751,11 +777,13 @@ export class FlowMap extends Null {
     // fades in at full scale. `shown` is what the whole picture keeps;
     // fiber to fiber (focused throughout) it stays 0, so nothing outside
     // either fiber flashes in at zoom.
-    const focused = 1 - unfocused
     const shown = 1 - smooth(0, 0.4, focused)
     // How much a fiber holds `of`: the focus weights' share, as a fraction of the focus.
     const held = (of: (fb: Fiber) => number) => (focused > 1e-9 ? fibers.reduce((a, fb, i) => a + (ws[i]! > 0 ? ws[i]! * of(fb) : 0), 0) / focused : 0)
-    const present = (fiberShare: number) => shown + (1 - shown) * fiberShare
+    // Fiber to fiber, what only one of them holds crossfades in turn — the
+    // going fiber's own gone by halfway, the coming one's after — so two
+    // centre sites (and their labels) never stack.
+    const present = (fiberShare: number) => shown + (1 - shown) * (split ? smooth(0.5, 1, fiberShare) : fiberShare)
     // Present in slice k: everything when unfocused; in a fiber, only what
     // acts there — slice 0 stands for the whole flat picture until the
     // stack opens.

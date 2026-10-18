@@ -546,6 +546,13 @@ describe("FlowMap", () => {
     const outside = MOCK_FLOWMAP.members.findIndex((x) => x.id !== "A" && x.id !== "G" && half.memberPresence[0]![MOCK_FLOWMAP.members.indexOf(x)] === 0)
     expect(outside).toBeGreaterThanOrEqual(0)
     expect(half.zoom).toBeGreaterThan(1)
+    // … and what is there midway never stacks: every pair of shown members
+    // stands apart (the centre sites swing past each other, one fading out
+    // before the other fades in).
+    const shownAt = MOCK_FLOWMAP.members.flatMap((_, i) => (half.memberPresence[0]![i]! > 0 ? [half.members[i]!] : []))
+    for (let i = 0; i < shownAt.length; i++)
+      for (let j = i + 1; j < shownAt.length; j++)
+        expect(Math.hypot(shownAt[i]!.x - shownAt[j]!.x, shownAt[i]!.y - shownAt[j]!.y)).toBeGreaterThan(R * 0.05)
   })
 
   test("a flow naming an unknown entity is refused", () => {
