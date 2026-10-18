@@ -527,6 +527,25 @@ describe("FlowMap", () => {
     expect(focus.at!(ring)).toBe("A")
     expect(m.frame().unfocused).toBe(1)
     expect(m.frame().zoom).toBe(1)
+    // In order, never at once: near the whole map the outsiders are there at
+    // full scale; deep in the focus they are gone before the zoom shows.
+    w.value = 0.3
+    expect(m.frame().zoom).toBe(1)
+    expect(m.frame().memberPresence[0]![idx("H")]).toBeGreaterThan(0)
+    w.value = 0.6
+    expect(m.frame().memberPresence[0]![idx("H")]).toBe(0)
+    expect(m.frame().unfocused).toBe(0)
+    expect(m.frame().zoom).toBeGreaterThan(1)
+    // Fiber to fiber: what lies in neither never flashes in.
+    const B = MOCK_FLOWMAP.members.findIndex((x) => x.id === "G")
+    const wb = (m as unknown as Record<string, { value: number }>)[`focus_${B}`]!
+    w.value = 0.5
+    wb.value = 0.5
+    const half = m.frame()
+    expect(half.unfocused).toBe(0)
+    const outside = MOCK_FLOWMAP.members.findIndex((x) => x.id !== "A" && x.id !== "G" && half.memberPresence[0]![MOCK_FLOWMAP.members.indexOf(x)] === 0)
+    expect(outside).toBeGreaterThanOrEqual(0)
+    expect(half.zoom).toBeGreaterThan(1)
   })
 
   test("a flow naming an unknown entity is refused", () => {

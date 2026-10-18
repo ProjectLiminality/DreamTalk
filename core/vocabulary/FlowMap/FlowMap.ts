@@ -745,26 +745,37 @@ export class FlowMap extends Null {
       })
       return sum > 1e-9 ? { x: x / sum, y: y / sum } : full
     }
+    // In order, never at once (valueflow): going in, the outsiders fade on
+    // the first 40% of the focus and the zoom follows on the rest; coming
+    // back the same, reversed — the fiber zooms out first, the whole map
+    // fades in at full scale. `shown` is what the whole picture keeps;
+    // fiber to fiber (focused throughout) it stays 0, so nothing outside
+    // either fiber flashes in at zoom.
+    const focused = 1 - unfocused
+    const shown = 1 - smooth(0, 0.4, focused)
+    // How much a fiber holds `of`: the focus weights' share, as a fraction of the focus.
+    const held = (of: (fb: Fiber) => number) => (focused > 1e-9 ? fibers.reduce((a, fb, i) => a + (ws[i]! > 0 ? ws[i]! * of(fb) : 0), 0) / focused : 0)
+    const present = (fiberShare: number) => shown + (1 - shown) * fiberShare
     // Present in slice k: everything when unfocused; in a fiber, only what
     // acts there — slice 0 stands for the whole flat picture until the
     // stack opens.
     const presentIn = (id: string, slice: number) =>
-      unfocused +
-      fibers.reduce((a, fb, i) => {
-        if (ws[i]! <= 0) return a
-        const any = fb.target.has(id) ? 1 : 0
-        const at = fb.slices[slice]?.has(id) ? 1 : 0
-        return a + ws[i]! * (slice === 0 ? any + (at - any) * spread : at)
-      }, 0)
+      present(
+        held((fb) => {
+          const any = fb.target.has(id) ? 1 : 0
+          const at = fb.slices[slice]?.has(id) ? 1 : 0
+          return slice === 0 ? any + (at - any) * spread : at
+        }),
+      )
     const slices = Array.from({ length: sliceCount }, (_, s) => s)
     return {
-      unfocused,
-      zoom: unfocused + fibers.reduce((a, fb, i) => a + fb.zoom * ws[i]!, 0),
+      unfocused: shown,
+      zoom: 1 + (held((fb) => fb.zoom) - 1) * smooth(0.4, 1, focused),
       members: members.map((p, i) => place(d.members[i]!.id, p)),
       partners: partners.map((p, i) => place((d.partners ?? [])[i]!.id, p)),
       memberPresence: slices.map((s) => d.members.map((m) => presentIn(m.id, s))),
       partnerPresence: slices.map((s) => (d.partners ?? []).map((p) => presentIn(p.id, s))),
-      flowPresence: d.flows.map((_, fi) => unfocused + fibers.reduce((a, fb, i) => a + (fb.flows.has(fi) ? ws[i]! : 0), 0)),
+      flowPresence: d.flows.map((_, fi) => present(held((fb) => (fb.flows.has(fi) ? 1 : 0)))),
     }
   }
 
@@ -1474,7 +1485,7 @@ interface Frame {
   discs: Disc[]
   members: Vec2[]
   partners: Vec2[]
-  /** 1 with no site focused … 0 fully in a fiber: what the whole picture keeps. */
+  /** 1 with no site focused … 0 fully in a fiber: what the whole picture keeps (gone by 40% of the focus, so it never shows at zoom). */
   unfocused: number
   /** The stack's scale under the focus: 1 unfocused … the fiber's own zoom, so it fills the view. */
   zoom: number
