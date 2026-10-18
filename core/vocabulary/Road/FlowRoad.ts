@@ -206,7 +206,7 @@ const idleRoads = (() => {
   let scheduled = false
   const tick = (deadline: { timeRemaining(): number }) => {
     scheduled = false
-    const hasTime = () => deadline.timeRemaining() > 6
+    const hasTime = (ms = 6) => deadline.timeRemaining() > ms
     for (const ref of watched) {
       if (!hasTime()) break
       const road = ref.deref()
@@ -262,6 +262,7 @@ export class FlowRoad extends Group {
   stroke = length(2)
 
   private road!: { source: FlowSource; opts: FlowRoadOptions }
+  private pathMemo?: { raw: readonly Vec3Like[]; key: number[]; points: Vec3Like[]; lengths: number[] }
   private memo?: { epoch: number; value: { points: Vec3Like[]; lengths: number[]; riders: Rider[] } }
 
   constructor(source: FlowSource, overrides: Overrides & FlowRoadOptions = {}) {
@@ -278,12 +279,14 @@ export class FlowRoad extends Group {
    * not yet seen — so the morph's first frame does not pay for them. Pure
    * caching: what a frame shows is unchanged. Stops when `hasTime` says so.
    */
-  prepare(hasTime: () => boolean): void {
+  prepare(hasTime: (ms?: number) => boolean): void {
     for (const r of this.state().riders) {
       if (!hasTime()) return
       if (r.scale <= 0) continue
       const seen = seenFrom(r.az, r.el, r.step)
-      if (!hasTime()) return
+      // A plan (~5–8 ms) only when it fits in what is left of the idle
+      // period — never pushing into the next frame.
+      if (!hasTime(10)) return
       planFor(seen, this.ringRadius())
     }
   }
@@ -309,14 +312,43 @@ export class FlowRoad extends Group {
     if (this.memo?.epoch === epoch) return this.memo.value
     const { source, opts } = this.road
     const frame = source.frame
-    const here = (p: Vec3Like) => (!frame || frame === this.parent ? p : toLocal(this, toWorld(frame, p)))
+    // The source frame → this space, as ONE affine map read once a frame
+    // (four points through the chains), not every path point through world
+    // space — a flow deep in a FlowMap's stack walks a long chain of derived
+    // transforms each time.
+    const direct = !frame || frame === this.parent
+    const via = (p: Vec3Like) => toLocal(this, toWorld(frame!, p))
+    const A = direct ? undefined : (() => {
+      const o = via({ x: 0, y: 0, z: 0 })
+      const d = (q: Vec3Like) => ({ x: q.x - o.x, y: q.y - o.y, z: q.z - o.z })
+      return { o, ex: d(via({ x: 1, y: 0, z: 0 })), ey: d(via({ x: 0, y: 1, z: 0 })), ez: d(via({ x: 0, y: 0, z: 1 })) }
+    })()
+    const here = (p: Vec3Like): Vec3Like =>
+      A
+        ? {
+            x: A.o.x + p.x * A.ex.x + p.y * A.ey.x + p.z * A.ez.x,
+            y: A.o.y + p.x * A.ex.y + p.y * A.ey.y + p.z * A.ez.y,
+            z: A.o.z + p.x * A.ex.z + p.y * A.ey.z + p.z * A.ez.z,
+          }
+        : p
+    // The path and its arc lengths, kept while the source's array and the map stand.
     const raw = source.path()
-    const points = raw.map(here)
-    const lengths = [0]
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1]!
-      const b = points[i]!
-      lengths.push(lengths[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z))
+    const mapKey = A ? [A.o, A.ex, A.ey, A.ez].flatMap((v) => [v.x, v.y, v.z]) : []
+    const pc = this.pathMemo
+    let points: Vec3Like[]
+    let lengths: number[]
+    if (pc && pc.raw === raw && pc.key.length === mapKey.length && pc.key.every((v, i) => v === mapKey[i])) {
+      points = pc.points
+      lengths = pc.lengths
+    } else {
+      points = raw.map(here)
+      lengths = [0]
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1]!
+        const b = points[i]!
+        lengths.push(lengths[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z))
+      }
+      this.pathMemo = { raw, key: mapKey, points, lengths }
     }
     // Up, in this space (the source frame's `up` carried over).
     const u0 = opts.up ?? { x: 0, y: 1, z: 0 }
@@ -361,17 +393,6 @@ export class FlowRoad extends Group {
     return value
   }
 
-  /** A truck-space point (truck units, origin its middle) placed for a rider. */
-  private place(r: Rider, q: Vec3Like): Vec3Like {
-    const k = r.scale
-    const h = TRUCK_HALF_HEIGHT * k
-    return {
-      x: r.at.x + r.up.x * h + (q.x * r.fwd.x + q.y * r.up.x + q.z * r.side.x) * k,
-      y: r.at.y + r.up.y * h + (q.x * r.fwd.y + q.y * r.up.y + q.z * r.side.y) * k,
-      z: r.at.z + r.up.z * h + (q.x * r.fwd.z + q.y * r.up.z + q.z * r.side.z) * k,
-    }
-  }
-
   protected override compose(): void {
     const { opts } = this.road
     const ink = opts.lineTint ?? WHITE
@@ -413,7 +434,26 @@ export class FlowRoad extends Group {
         if (r.scale <= 0) continue
         const curves =
           m >= 1 ? seenOf(r).strokes : blendTravel(planFor(seenOf(r), this.ringRadius()), m)
-        for (const c of curves) out.push(c.map((q) => this.place(r, q)))
+        // Inlined place(): the hot loop of a riding fleet.
+        const k = r.scale
+        const h = TRUCK_HALF_HEIGHT * k
+        const ox = r.at.x + r.up.x * h
+        const oy = r.at.y + r.up.y * h
+        const oz = r.at.z + r.up.z * h
+        const f = r.fwd
+        const u = r.up
+        const sd = r.side
+        for (const c of curves) {
+          const line = new Array<Vec3Like>(c.length)
+          for (let i = 0; i < c.length; i++) {
+            const q = c[i]!
+            const x = q.x * k
+            const y = q.y * k
+            const z = q.z * k
+            line[i] = { x: ox + x * f.x + y * u.x + z * sd.x, y: oy + x * f.y + y * u.y + z * sd.y, z: oz + x * f.z + y * u.z + z * sd.z }
+          }
+          out.push(line)
+        }
       }
       return out
     })
