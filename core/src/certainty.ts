@@ -33,7 +33,7 @@
  */
 
 import type { Holon } from "./holon"
-import { completion, paramEpoch, type Param, type Readable } from "./params"
+import { completion, noteReads, paramEpoch, quietEpoch, trackReads, type Param, type Readable, type Reads } from "./params"
 
 const CERTAINTIES = new WeakSet<Param<number>>()
 
@@ -152,18 +152,26 @@ export const seenOpacity = (holon: Holon): Readable<number> => {
   if (chain.length === 0 && there.length === 0) return holon.opacity
   const own = holon.opacity
   // Memoised per param change (paramEpoch): every leaf reads this every frame.
+  // The memo keeps the reads it was computed from and replays them (READS,
+  // params.ts), so a tracked reading stays transparent.
   let epoch = -1
   let seen = 0
+  let reads: Reads = { deps: [], opaque: false }
   return {
     get value() {
-      const now = paramEpoch()
-      if (now === epoch) return seen
-      epoch = now
-      let c = 1
-      for (const p of chain) c *= p.value
-      let k = 1
-      for (const p of there) k *= p.value
-      seen = own.value * k * ghost(c)
+      const now = quietEpoch()
+      if (now !== epoch) {
+        epoch = now
+        reads = { deps: [], opaque: false }
+        seen = trackReads(reads, () => {
+          let c = 1
+          for (const p of chain) c *= p.value
+          let k = 1
+          for (const p of there) k *= p.value
+          return own.value * k * ghost(c)
+        })
+      }
+      noteReads(reads.deps, reads.opaque)
       return seen
     },
   }

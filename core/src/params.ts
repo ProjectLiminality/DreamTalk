@@ -44,10 +44,50 @@ let nextParamId = 1
  * visible edges). It never makes a memo stale — only cheaper to confirm.
  */
 let epoch = 0
-export const paramEpoch = (): number => epoch
+export const paramEpoch = (): number => {
+  // A memo keyed on the epoch hides its reads from a tracker: what it
+  // answers from cannot be listed, so the reading is opaque (see READS).
+  if (reads) reads.opaque = true
+  return epoch
+}
 export const bumpParamEpoch = (): void => {
   epoch++
 }
+
+/**
+ * READS — which params a reading depends on. While `trackReads` runs, every
+ * Param read (directly, or inside a derivation) is listed; a memo that
+ * answers by the epoch makes the reading `opaque` (its reads are unknown),
+ * unless it replays its own with `noteReads`. The host keeps a binding's
+ * list and skips the binding while none of them has changed since
+ * (`changedAt`): a reading that is a pure function of params is the same.
+ */
+export interface Reads {
+  deps: Param<ParamValue>[]
+  opaque: boolean
+}
+let reads: Reads | undefined
+export const trackReads = <T>(into: Reads, fn: () => T): T => {
+  const outer = reads
+  reads = into
+  try {
+    return fn()
+  } finally {
+    reads = outer
+  }
+}
+/** A memo answering for reads it made earlier: list them for whoever tracks now. */
+export const noteReads = (deps: readonly Param<ParamValue>[], opaque: boolean): void => {
+  if (!reads) return
+  for (let i = 0; i < deps.length; i++) reads.deps.push(deps[i]!)
+  if (opaque) reads.opaque = true
+}
+/** A reading that depends on something no param lists (the camera): opaque. */
+export const readsOpaque = (): void => {
+  if (reads) reads.opaque = true
+}
+/** The epoch, read by a memo that replays its reads (noteReads) — not opaque. */
+export const quietEpoch = (): number => epoch
 
 export class Param<T extends ParamValue = number> implements Readable<T> {
   readonly id: number
@@ -96,6 +136,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
   get value(): T {
+    if (reads) reads.deps.push(this as unknown as Param<ParamValue>)
     let v = this.#source ? this.#source.value : this.#value
     if (this.#fader && this.#source && typeof v === "number") v = (v * this.#fader.value) as T
     if (typeof v !== "number" || (this.#gate === 1 && this.#bias === 0)) return v

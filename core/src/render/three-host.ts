@@ -26,7 +26,7 @@ import { orthoHalfHeight, type Dream } from "../dream"
 import { setLiveObserver } from "../geometry/frames"
 import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
-import { paramEpoch } from "../params"
+import { paramEpoch, quietEpoch, readsOpaque, trackReads, type ParamValue, type Reads } from "../params"
 import { isPresence, seenCertainty, seenOpacity, withChainMemo } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
@@ -142,6 +142,19 @@ interface StrokeBinding {
    * per-mesh path (the oracle) renders this stroke's own mesh.
    */
   slot?: BatchSlot
+  /**
+   * READS (params.ts): the params the last sync of this stroke read, the
+   * epoch it read them at, and what that sync left — so a stroke none of
+   * whose params has changed since is skipped whole (see sync). Undefined
+   * until synced, or when its reading is opaque (an epoch memo) or long.
+   */
+  reads?: Reads
+  readAt?: number
+  /** Last sync's width, glow lift, line version and the visibility style() left. */
+  lastWidth?: number
+  lastLift?: number
+  lastLineVersion?: number
+  lastShown?: boolean
   /** The run this stroke's slot lives in (instancing on). */
   batch?: RibbonBatch
   look: StyleParams
@@ -914,6 +927,12 @@ const EMPTY_KEY: number[] = []
  * small value array. A superset of the old array comparison in every
  * case, so no stale geometry is possible.
  */
+/** READS: has none of these params changed since `at`? */
+const unchangedSince = (deps: readonly Param<ParamValue>[], at: number): boolean => {
+  for (let i = 0; i < deps.length; i++) if (deps[i]!.changedAt > at) return false
+  return true
+}
+
 const sigChanged = (holon: Stroke, prev: ShapeSig): boolean => {
   if (prev.line) {
     const line = prev.line
@@ -1882,50 +1901,39 @@ export class ThreeHost {
     let widest = 0
     for (const binding of this.awake(this.strokes)) {
       const { holon, ribbon } = binding
-      const { look } = binding
-      const opacity = look.opacity.value
-      const width = look.stroke.value
-      // The geometry dirty-check: an O(1) version+phase compare for a Line
-      // (the many-point case that dominated this loop), the small
-      // shape-param array for a parametric shape. A superset of the old
-      // per-frame flatten+compare, so no stale geometry — see ShapeSig.
-      // A stroke that cannot show (seen opacity or width 0: ribbon.style
-      // hides it, picking and glow skip hidden ink) leaves its geometry —
-      // and a derived polyline's computation — until the frame it can: its
-      // signature is kept, so that frame finds the change and reshapes
-      // before the draw (state-space residency at the leaf).
-      if (!held && opacity > 0 && width > 0 && sigChanged(holon, binding.sig)) {
-        // `undefined` from a Line means its derived polyline has emptied
-        // out this frame — pass it through so the ribbon empties too.
-        const pts = polyline(holon)
-        if (pts || holon instanceof Line) {
-          ribbon.setPoints(pts ?? [])
-          this.blurOf.get(ribbon)?.setPoints(pts ?? [])
-          this.noteReshaped(binding)
-        }
-      }
       const lift = this.highlightOf(holon)
-      const creation = look.creation.value
-      const tint = look.tint.value
+      // READS: nothing this stroke read last time has changed since, its
+      // glow, its line's points and the visibility it was left with are as
+      // they were (the cull may have hidden it since), and it was not
+      // metering a pen front (a reading of the camera): it would sync to
+      // exactly what it shows — skip it.
+      const known = binding.reads
+      if (
+        known !== undefined &&
+        lift === binding.lastLift &&
+        ribbon.mesh.visible === binding.lastShown &&
+        (binding.sig.line === undefined || binding.sig.line.geomVersion === binding.lastLineVersion) &&
+        unchangedSince(known.deps, binding.readAt!)
+      ) {
+        if (binding.lastWidth! > widest) widest = binding.lastWidth!
+        continue
+      }
+      // A held frame skips the geometry check, so what it reads is not the
+      // whole list: it keeps the last one (still exact — nothing changed).
+      let width: number
+      if (held && known !== undefined) width = this.syncStroke(binding, held, lift)
+      else {
+        const reads: Reads = { deps: [], opaque: false }
+        const readAt = quietEpoch()
+        width = trackReads(reads, () => this.syncStroke(binding, held, lift))
+        binding.reads = held || reads.opaque || reads.deps.length > ThreeHost.MAX_READS ? undefined : reads
+        binding.readAt = readAt
+      }
       if (width > widest) widest = width
-      const erasure = look.erasure.value
-      // One screen-arc measurement serves both fronts (perf F): a stroke
-      // mid-draw AND mid-erase used to project its polyline twice. Only a
-      // front strictly inside (0, 1) needs it — screenArc's own early outs.
-      // A stroke that cannot show (opacity or width 0 — ribbon.style hides
-      // it whatever its fronts say) is not measured at all.
-      const seen = opacity > 0 && width > 0
-      const creationMid = seen && !(creation <= 0) && !(creation >= 1)
-      const erasureMid = seen && !(erasure <= 0) && !(erasure >= 1)
-      const measured =
-        creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined
-      ribbon.style(
-        creationMid ? this.arcFrom(measured, creation) : creation <= 0 ? 0 : 1,
-        opacity,
-        liftTint(tint, lift),
-        width * (1 + 2 * lift),
-        erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1,
-      )
+      binding.lastWidth = width
+      binding.lastLift = lift
+      binding.lastLineVersion = binding.sig.line?.geomVersion
+      binding.lastShown = ribbon.mesh.visible
     }
     this.widestStroke = widest
     for (const binding of this.awake(this.fills, false)) {
@@ -2058,6 +2066,58 @@ export class ThreeHost {
     // it sees the cull's visibility decisions and this frame's settled
     // world matrices + camera. A no-op when instancing is off.
     this.packRibbonBatch()
+  }
+
+  /** Most params a stroke's sync may read and still be skipped by READS (the check reads each one's changedAt). */
+  static readonly MAX_READS = 64
+
+  /** One stroke's per-frame sync (READS: run tracked); returns its width. */
+  private syncStroke(binding: StrokeBinding, held: boolean, lift: number): number {
+    const { holon, ribbon, look } = binding
+    const opacity = look.opacity.value
+    const width = look.stroke.value
+    // The geometry dirty-check: an O(1) version+phase compare for a Line
+    // (the many-point case that dominated this loop), the small
+    // shape-param array for a parametric shape. A superset of the old
+    // per-frame flatten+compare, so no stale geometry — see ShapeSig.
+    // A stroke that cannot show (seen opacity or width 0: ribbon.style
+    // hides it, picking and glow skip hidden ink) leaves its geometry —
+    // and a derived polyline's computation — until the frame it can: its
+    // signature is kept, so that frame finds the change and reshapes
+    // before the draw (state-space residency at the leaf).
+    if (!held && opacity > 0 && width > 0 && sigChanged(holon, binding.sig)) {
+      // `undefined` from a Line means its derived polyline has emptied
+      // out this frame — pass it through so the ribbon empties too.
+      const pts = polyline(holon)
+      if (pts || holon instanceof Line) {
+        ribbon.setPoints(pts ?? [])
+        this.blurOf.get(ribbon)?.setPoints(pts ?? [])
+        this.noteReshaped(binding)
+      }
+    }
+    const creation = look.creation.value
+    const tint = look.tint.value
+    const erasure = look.erasure.value
+    // One screen-arc measurement serves both fronts (perf F): a stroke
+    // mid-draw AND mid-erase used to project its polyline twice. Only a
+    // front strictly inside (0, 1) needs it — screenArc's own early outs.
+    // A stroke that cannot show (opacity or width 0 — ribbon.style hides
+    // it whatever its fronts say) is not measured at all.
+    const seen = opacity > 0 && width > 0
+    const creationMid = seen && !(creation <= 0) && !(creation >= 1)
+    const erasureMid = seen && !(erasure <= 0) && !(erasure >= 1)
+    const measured =
+      creationMid || erasureMid ? this.measureScreenArc(ribbon) : undefined
+    ribbon.style(
+      creationMid ? this.arcFrom(measured, creation) : creation <= 0 ? 0 : 1,
+      opacity,
+      liftTint(tint, lift),
+      width * (1 + 2 * lift),
+      erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1,
+    )
+    // A pen front is a reading of the camera, which no param lists.
+    if (creationMid || erasureMid) readsOpaque()
+    return width
   }
 
   /**
