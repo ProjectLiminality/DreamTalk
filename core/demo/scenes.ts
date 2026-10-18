@@ -48,6 +48,7 @@ import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { FlowMapMoneyDream } from "./vocabulary/FlowMapMoney"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
 import { HorizonsDream } from "./vocabulary/Horizons"
+import { LossyChainDream } from "./vocabulary/LossyChain"
 import { Scene00Dream } from "./origins/Scene00"
 import { Scene01Dream } from "./origins/Scene01"
 import { Scene02Dream } from "./origins/Scene02"
@@ -275,6 +276,8 @@ export const scenes: Record<string, DreamClass> = {
   sop: SOPLoopDream,
   // Planning horizons: when we care, about what, and who — the open seat a ghost.
   horizons: HorizonsDream,
+  // The lossy chain: information rising to the humans who decide, thinning at every arrow.
+  lossychain: LossyChainDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
