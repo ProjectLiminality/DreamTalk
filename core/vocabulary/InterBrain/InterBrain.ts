@@ -199,8 +199,10 @@ export class InterBrain extends Null {
     }
     // Each satellite leaves from a gem facing you, the one nearest its
     // bearing (chosen at compose: the sphere's initial turn).
+    // (A slot's own x/y are in the turning ball's frame; its place in the
+    // sphere's frame is slotPoint — real 3-D, turned.)
     const near = this.sphere.slots
-      .map((slot, i) => ({ slot, i, x: slot.x.value, y: slot.y.value }))
+      .map((slot, i) => ({ slot, i, ...this.sphere.slotPoint(i) }))
       .filter(({ slot }) => slot.there.value > 0.5 && slot.scale.value > 0)
       .filter(({ x, y }) => Math.hypot(x, y) > INTERBRAIN.heart * R() * 1.1)
     const taken = new Set<number>()
@@ -215,7 +217,7 @@ export class InterBrain extends Null {
         if (d < bestD) (bestD = d), (best = c)
       }
       if (best) taken.add(best.i)
-      return best?.slot
+      return best
     }
 
     relations.nodes.forEach((spec, i) => {
@@ -233,9 +235,9 @@ export class InterBrain extends Null {
       }
       const slot = origin(place())
       // Where the gem is now (it turns and swells with the sphere), and its ring's size.
-      const gx = () => (slot ? slot.x.value : 0)
-      const gy = () => (slot ? slot.y.value : 0)
-      const gr = () => (slot ? (slot.scale.value * 100) / FACE_FILL : 0)
+      const gx = () => (slot ? this.sphere.slotPoint(slot.i).x : 0)
+      const gy = () => (slot ? this.sphere.slotPoint(slot.i).y : 0)
+      const gr = () => (slot ? (slot.slot.scale.value * 100) / FACE_FILL : 0)
       node.x.follow(this.unfold.map(() => lerp(gx(), place().x * C(), fly())))
       node.y.follow(this.unfold.map(() => lerp(gy(), place().y * C(), fly())))
       node.radius.follow(this.unfold.map(() => lerp(gr(), place().r * C(), fly())))

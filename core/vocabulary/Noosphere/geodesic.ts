@@ -279,6 +279,85 @@ export const nodeGlyphs = (g: Geodesic, rho: number, sides: number, phase = Math
     })
   })
 
+/**
+ * The eye in a sphere's own frame, as the one number that decides what of
+ * the sphere it sees: `toward` the unit direction to the eye, `k` the
+ * horizon plane's offset — a unit point p is in sight exactly when
+ * p·toward > k (k = R/d; 0 for an orthographic eye at infinity). See
+ * geometry/sphere.ts horizonCircle: the same plane, unit radius.
+ */
+export interface SphereEye {
+  toward: V3
+  k: number
+}
+
+export const sphereEye = (eye: { x: number; y: number; z: number }, radius: number, orthographic: boolean): SphereEye | undefined => {
+  const d = Math.hypot(eye.x, eye.y, eye.z)
+  if (d < 1e-12) return undefined
+  const toward: V3 = [eye.x / d, eye.y / d, eye.z / d]
+  if (orthographic) return { toward, k: 0 }
+  if (d <= radius) return undefined
+  return { toward, k: radius / d }
+}
+
+/**
+ * Split 3-D polylines on the UNIT sphere (the sphere's own frame — nothing
+ * turned, nothing projected) at the horizon the eye sees, into the runs in
+ * sight (`near`) and behind (`far`), scaled to `radius` and left in 3-D: the
+ * host's camera draws them where they are. The crossing is interpolated
+ * onto the horizon plane.
+ */
+export const eyeRuns = (lines: readonly V3[][], radius: number, eye: SphereEye): { near: Vec3Like[][]; far: Vec3Like[][] } => {
+  const f = (p: V3) => p[0] * eye.toward[0] + p[1] * eye.toward[1] + p[2] * eye.toward[2] - eye.k
+  const P = (p: V3): Vec3Like => ({ x: p[0] * radius, y: p[1] * radius, z: p[2] * radius })
+  const near: Vec3Like[][] = []
+  const far: Vec3Like[][] = []
+  for (const l of lines) {
+    let cur: Vec3Like[] | undefined
+    let side = false
+    for (let i = 0; i < l.length; i++) {
+      const p = l[i]!
+      const s = f(p) > 0
+      if (!cur) {
+        cur = [P(p)]
+        side = s
+        continue
+      }
+      if (s !== side) {
+        const a = l[i - 1]!
+        const fa = f(a)
+        const t = fa / (fa - f(p))
+        const c = P([a[0] + (p[0] - a[0]) * t, a[1] + (p[1] - a[1]) * t, a[2] + (p[2] - a[2]) * t])
+        cur.push(c)
+        if (cur.length >= 2) (side ? near : far).push(cur)
+        cur = [c]
+        side = s
+      }
+      cur.push(P(p))
+    }
+    if (cur && cur.length >= 2) (side ? near : far).push(cur)
+  }
+  return { near, far }
+}
+
+/** The geodesic's edges as chords, each sampled so the horizon can cut it. */
+export const latticeChords = (g: Geodesic, samples = 6): V3[][] =>
+  g.edges.map(([a, b]) => {
+    const A = g.vertices[a]!
+    const B = g.vertices[b]!
+    return Array.from({ length: samples + 1 }, (_, i) => {
+      const t = i / samples
+      return [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t] as V3
+    })
+  })
+
+/** The turn that stands a holon's +z on the unit normal `n` (host order
+ *  Rz(b)·Rx(p)·Ry(h)): h = asin(nx), p = atan2(−ny, nz). */
+export const normalTurn = (n: V3): { h: number; p: number } => ({
+  h: Math.asin(Math.max(-1, Math.min(1, n[0]))),
+  p: Math.atan2(-n[1], n[2]),
+})
+
 /** Turn every polyline and keep its near runs, projected at `radius`. */
 export const nearRuns = (lines: readonly V3[][], radius: number, spin: number, pitch: number): Vec3Like[][] =>
   lines.flatMap((l) => sideRuns(l.map((p) => orient(p, spin, pitch)), true, radius))

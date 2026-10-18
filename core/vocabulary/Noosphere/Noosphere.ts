@@ -75,15 +75,20 @@ import { axis, toggle, type Axis, type StateSpace } from "../../src/automaton"
 import type { Overrides } from "../../src/holon"
 import { Conflict } from "../Conflict/Conflict"
 import { InterBrainGem } from "../InterBrain/InterBrainGem"
+import type { Observer } from "../../src/dream"
+import { localView, viewOf, type View } from "../../src/geometry/frames"
 import {
+  eyeRuns,
   flowerArcs,
   geodesic,
-  latticeLoops,
+  latticeChords,
   meanEdgeAngle,
-  nearRuns,
   nodeGlyphs,
   nodeRings,
+  normalTurn,
   orient,
+  sphereEye,
+  type SphereEye,
   sectorFlower,
   sectorRim,
   sectorTriangle,
@@ -171,6 +176,8 @@ export class Noosphere extends Null {
   latticeStroke = length(0.6)
   /** The lattice's far face. */
   backOpacity = completion(0.35)
+  /** The flower sphere's far face (its petals and rings seen through it). */
+  flowerBack = completion(0.22)
   narrativeTint = color(BLUE)
   /** The narrative-engineered sphere is dim (f5716: its brightest ≈ 0.4 of the red's,
    *  and the host blends in linear light — 0.2 here reads as 0.4 on screen). */
@@ -199,7 +206,9 @@ export class Noosphere extends Null {
   rings!: Polylines
   narratives!: Polylines
   seeds!: Polylines
-  rim!: Circle
+  /** The sphere itself, in 3-D: its own frame turned by spin/pitch. */
+  ball!: Group
+  rim!: Line
   glow!: Circle
   faces!: Group
   slots: Layer[] = []
@@ -211,6 +220,25 @@ export class Noosphere extends Null {
 
   constructor(overrides: Overrides = {}) {
     super(overrides)
+  }
+
+  /** The eye the sphere is drawn for: the observer `seenFrom` named, else
+   *  the framework's default (perspective, 1500 out on +z). */
+  eye?: () => View
+  seenFrom(observer: Observer): void {
+    this.eye = () => viewOf(observer)
+  }
+  /** The eye in the ball's own frame (through every transform above it). */
+  sphereEyeNow(): SphereEye | undefined {
+    const v = localView(this.ball, this.eye?.() ?? { eye: { x: 0, y: 0, z: 1500 } })
+    return "eye" in v ? sphereEye(v.eye, this.radius.value, false) : sphereEye(v.toward, this.radius.value, true)
+  }
+  /** Node i's point in the Noosphere's own frame (turned by spin/pitch). */
+  slotPoint(i: number): { x: number; y: number; z: number } {
+    const v = geodesic(Math.max(1, Math.round(this.frequency.value))).vertices[i]!
+    const [x, y, z] = orient(v, this.spin.value, this.pitch.value)
+    const R = this.radius.value
+    return { x: x * R, y: y * R, z: z * R }
   }
 
   /** The node spacing (radians) at the current frequency. */
@@ -234,6 +262,23 @@ export class Noosphere extends Null {
     this.sphere = this.whole.attach(new Layer())
     this.sphere.there.follow(this.flat.map((f) => 1 - f))
     const sphereAdd = <T extends Null>(h: T) => (this.sphere.attach(h), h)
+    // THE BALL: every line and gem lives in the sphere's own frame, on the
+    // unit sphere × R, and the frame turns — real 3-D, so the camera's orbit
+    // sees what is there. What is in sight is decided by the eye's horizon
+    // (geometry/sphere.ts), in that frame, every time the eye or turn moves.
+    this.ball = this.sphere.attach(new Group())
+    this.ball.h.follow(this.spin)
+    this.ball.p.follow(this.pitch)
+    const ballAdd = <T extends Null>(h: T) => (this.ball.attach(h), h)
+    const eyeNow = () => this.sphereEyeNow()
+    const eyeKey = () => {
+      const e = eyeNow()
+      return e ? `${e.toward.map((c) => c.toFixed(5)).join(",")},${e.k.toFixed(5)}` : "none"
+    }
+    const split = (lines: readonly [number, number, number][][]) => {
+      const e = eyeNow()
+      return e ? eyeRuns(lines, R(), e) : { near: [], far: [] }
+    }
 
     // The lens's light (f2311): a lit disc, white-gold at the heart.
     this.glow = sphereAdd(
@@ -256,18 +301,18 @@ export class Noosphere extends Null {
       return loops.filter((l) => Math.max(...l.map((p) => p.y)) > front)
     }
 
-    const lattice = () => {
-      const [s, p] = turn()
-      return latticeLoops(geodesic(nu()), R(), s, p)
+    void turn
+    const memo = <T,>(f: () => T, key: () => string) => {
+      let m: { key: string; v: T } | undefined
+      return () => {
+        const k = key()
+        if (m?.key !== k) m = { key: k, v: f() }
+        return m.v
+      }
     }
-    let latticeMemo: { key: string; v: ReturnType<typeof lattice> } | undefined
-    const latticeNow = () => {
-      const key = `${nu()},${R()},${turn().join(",")}`
-      if (latticeMemo?.key !== key) latticeMemo = { key, v: lattice() }
-      return latticeMemo.v
-    }
-    const latticeKey = () => [nu(), R(), this.spin.value, this.pitch.value, cr()]
-    this.latticeNear = sphereAdd(
+    const latticeNow = memo(() => split(latticeChords(geodesic(nu()))), () => `${nu()},${R()},${eyeKey()}`)
+    const latticeKey = () => [nu(), R(), eyeKey(), cr()]
+    this.latticeNear = ballAdd(
       new Polylines({
         tint: this.latticeTint,
         stroke: this.latticeStroke,
@@ -275,7 +320,7 @@ export class Noosphere extends Null {
       }),
     )
     deriveLoops(this.latticeNear, latticeKey, () => revealed(latticeNow().near))
-    this.latticeFar = sphereAdd(
+    this.latticeFar = ballAdd(
       new Polylines({
         tint: this.latticeTint,
         stroke: this.latticeStroke,
@@ -288,7 +333,7 @@ export class Noosphere extends Null {
     const flowerTint = derive(() => mix(this.narrativeTint.value, this.visionTint.value, this.garden.value))
     const flowerOpacity = () => this.bloom.value * (this.narrativeOpacity.value + (1 - this.narrativeOpacity.value) * this.garden.value)
     const rho = () => NOOSPHERE.node * meanEdgeAngle(geodesic(nu()))
-    const sphereKey = () => [nu(), R(), this.spin.value, this.pitch.value, cr()]
+    const sphereKey = () => [nu(), R(), eyeKey(), cr()]
     // The links bend with `garden` (straight → petals), in 48 steps so a
     // transition reuses what it has computed.
     const bendStep = () => Math.round(this.garden.value * 48)
@@ -304,47 +349,77 @@ export class Noosphere extends Null {
     }
     // A coarse sphere is drawn bigger, so its pen is heavier (f11941 vs f5716).
     const flowerPen = derive(() => this.flowerStroke.value * (7 / nu()))
-    this.flower = sphereAdd(
-      new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(() => flowerOpacity() * (1 - (1 - this.linkOpacity.value) * this.garden.value)) }),
-    )
-    deriveLoops(this.flower, () => [...sphereKey(), bendStep()], () => revealed(nearRuns(arcsOf(nu()), R(), ...turn())))
-    this.rings = sphereAdd(new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(flowerOpacity) }))
-    deriveLoops(this.rings, sphereKey, () => revealed(nearRuns(nodeRings(geodesic(nu()), rho()), R(), ...turn())))
+    const linkOpacity = () => flowerOpacity() * (1 - (1 - this.linkOpacity.value) * this.garden.value)
+    const flowerNow = memo(() => split(arcsOf(nu())), () => `${nu()},${R()},${bendStep()},${eyeKey()}`)
+    const ringsNow = memo(() => split(nodeRings(geodesic(nu()), rho())), () => `${nu()},${R()},${eyeKey()}`)
+    this.flower = ballAdd(new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(linkOpacity) }))
+    deriveLoops(this.flower, () => [...sphereKey(), bendStep()], () => revealed(flowerNow().near))
+    const flowerFar = ballAdd(new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(() => linkOpacity() * this.flowerBack.value) }))
+    deriveLoops(flowerFar, () => [...sphereKey(), bendStep()], () => revealed(flowerNow().far))
+    this.rings = ballAdd(new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(flowerOpacity) }))
+    deriveLoops(this.rings, sphereKey, () => revealed(ringsNow().near))
+    const ringsFar = ballAdd(new Polylines({ tint: flowerTint, stroke: flowerPen, opacity: derive(() => flowerOpacity() * this.flowerBack.value) }))
+    deriveLoops(ringsFar, sphereKey, () => revealed(ringsNow().far))
     // What each node holds: a narrative (the blue cube's face, a square) or
     // a seed (a small circle) — gone where an InterBrain takes the node.
     const held = (u: () => number) => derive(() => flowerOpacity() * u() * (1 - this.interbrain.value) * 0.8)
-    this.narratives = sphereAdd(new Polylines({ tint: flowerTint, stroke: 1, opacity: held(() => 1 - this.garden.value) }))
+    this.narratives = ballAdd(new Polylines({ tint: flowerTint, stroke: 1, opacity: held(() => 1 - this.garden.value) }))
     deriveLoops(this.narratives, sphereKey, () =>
-      revealed(nearRuns(nodeGlyphs(geodesic(nu()), rho() * NOOSPHERE.glyph * 1.2, 4), R(), ...turn())),
+      revealed(split(nodeGlyphs(geodesic(nu()), rho() * NOOSPHERE.glyph * 1.2, 4)).near),
     )
-    this.seeds = sphereAdd(new Polylines({ tint: flowerTint, stroke: 1, opacity: held(() => this.garden.value) }))
-    deriveLoops(this.seeds, sphereKey, () =>
-      revealed(nearRuns(nodeGlyphs(geodesic(nu()), rho() * NOOSPHERE.glyph, 16), R(), ...turn())),
-    )
+    this.seeds = ballAdd(new Polylines({ tint: flowerTint, stroke: 1, opacity: held(() => this.garden.value) }))
+    deriveLoops(this.seeds, sphereKey, () => revealed(split(nodeGlyphs(geodesic(nu()), rho() * NOOSPHERE.glyph, 16)).near))
 
     // The limb: the InterBrain sphere is ringed (f11941).
-    this.rim = sphereAdd(
-      new Circle({ radius: this.radius, tint: this.visionTint, stroke: 2, opacity: derive(() => this.interbrain.value * this.bloom.value) }),
-    )
+    // The limb is the eye's horizon on the sphere (geometry/sphere.ts), a
+    // circle in 3-D — not a ring drawn on the page.
+    this.rim = ballAdd(new Line({ tint: this.visionTint, stroke: 2, opacity: derive(() => this.interbrain.value * this.bloom.value) }))
+    derivePoints(this.rim, () => [R(), eyeKey()], () => {
+      const e = eyeNow()
+      if (!e) return []
+      const [tx, ty, tz] = e.toward
+      const ref: [number, number, number] = Math.abs(ty) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+      let u: [number, number, number] = [ty * ref[2] - tz * ref[1], tz * ref[0] - tx * ref[2], tx * ref[1] - ty * ref[0]]
+      const l = Math.hypot(...u)
+      u = [u[0] / l, u[1] / l, u[2] / l]
+      const w: [number, number, number] = [ty * u[2] - tz * u[1], tz * u[0] - tx * u[2], tx * u[1] - ty * u[0]]
+      const c = e.k * R()
+      const r = R() * Math.sqrt(1 - e.k * e.k)
+      return Array.from({ length: 97 }, (_, i) => {
+        const a = (i / 96) * TAU
+        return {
+          x: tx * c + (u[0] * Math.cos(a) + w[0] * Math.sin(a)) * r,
+          y: ty * c + (u[1] * Math.cos(a) + w[1] * Math.sin(a)) * r,
+          z: tz * c + (u[2] * Math.cos(a) + w[2] * Math.sin(a)) * r,
+        }
+      })
+    })
 
     // The InterBrains, one per node, fitted inside its ring and foreshortened
     // with it; a node's InterBrain shows on the near face only.
     // A node too small to hold one gets none: the InterBrain sphere is
     // coarse (ν 2, f11941); past MAX_FACES_NU a ring is a few pixels.
     const g0 = geodesic(nu())
-    this.faces = sphereAdd(new Group())
+    // Each gem stands AT its node, on the surface, facing out along the
+    // normal: the camera foreshortens it, nothing else does. A gem past the
+    // horizon is out of sight (the ball has no surface to hide it behind).
+    this.faces = ballAdd(new Group())
     this.slots = (nu() <= MAX_FACES_NU ? g0.vertices : []).map((v) => {
       const ib = new InterBrainGem({ radius: 100, bloomRings: 3, logoStroke: 1.4, stroke: 1 })
       const slot = new Layer({ members: [ib] })
-      const at = () => orient(v, this.spin.value, this.pitch.value)
-      slot.x.follow(this.spin.map(() => at()[0] * R()))
-      slot.y.follow(this.spin.map(() => at()[1] * R()))
-      // Ring radius on the page ≈ R·sin(ρ); the crystal fills 0.8 of it.
-      slot.scale.follow(this.spin.map(() => (0.8 * R() * Math.sin(rho()) * (0.35 + 0.65 * Math.max(0, at()[2]))) / 100))
+      const { h, p } = normalTurn(v)
+      slot.x.follow(this.radius.map((r) => v[0] * r))
+      slot.y.follow(this.radius.map((r) => v[1] * r))
+      slot.z.follow(this.radius.map((r) => v[2] * r))
+      slot.h.follow(derive(() => h))
+      slot.p.follow(derive(() => p))
+      // The node's ring radius ≈ R·sin(ρ); the crystal fills 0.8 of it.
+      slot.scale.follow(this.radius.map((r) => (0.8 * r * Math.sin(rho())) / 100))
       slot.there.follow(
         this.interbrain.map((k) => {
-          const z = at()[2]
-          return k * this.bloom.value * clamp01(z / 0.15)
+          const e = eyeNow()
+          const f = e ? v[0] * e.toward[0] + v[1] * e.toward[1] + v[2] * e.toward[2] - e.k : 0
+          return k * this.bloom.value * clamp01(f / 0.15)
         }),
       )
       this.faces.attach(slot)

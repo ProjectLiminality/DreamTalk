@@ -91,7 +91,8 @@ describe("InterBrain", () => {
     for (const s of ib.strands) expect(s.there.value).toBe(0)
     expect(ib.song.there.value).toBe(0)
     // Every satellite leaves from a distinct gem, at that gem's place and size.
-    const gems = ib.sphere.slots.map((s) => [s.x.value, s.y.value] as const)
+    // A gem's place in the sphere's frame (the ball turns; slots sit in it).
+    const gems = ib.sphere.slots.map((_, i) => [ib.sphere.slotPoint(i).x, ib.sphere.slotPoint(i).y] as const)
     const at = ib.nodes.slice(1).map((n) => gems.findIndex(([x, y]) => Math.hypot(x - n.x.value, y - n.y.value) < 1e-6))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect(new Set(at).size).toBe(at.length)
