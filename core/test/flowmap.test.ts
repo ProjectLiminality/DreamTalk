@@ -116,6 +116,33 @@ describe("flow-map geometry", () => {
     expect(f.outer).toBeCloseTo(Math.hypot(outer[0]!.x, outer[0]!.y), 9)
   })
 
+  test("a one-in, one-out fiber reads in reading direction: in → site → out", () => {
+    const data: FlowMapData = {
+      members: [{ id: "A", label: "Site A" }],
+      partners: [
+        { id: "S1", label: "Supplier 1", side: "in", class: "raw" },
+        { id: "K1", label: "Customer 1", side: "out", class: "finished" },
+      ],
+      stages: [
+        { id: "raw", label: "raw" },
+        { id: "finished", label: "finished" },
+      ],
+      flows: [
+        { from: "S1", to: "A", stage: "raw" },
+        { from: "A", to: "K1", stage: "finished" },
+      ],
+    }
+    const m = new FlowMap({ radius: R, data })
+    void m.parts
+    ;(m as unknown as Record<string, { value: number }>)["focus_0"]!.value = 1
+    const f = m.frame()
+    const [s1, k1] = f.partners
+    expect(s1!.y).toBeCloseTo(0, 9)
+    expect(k1!.y).toBeCloseTo(0, 9)
+    expect(s1!.x).toBeLessThan(0)
+    expect(k1!.x).toBeCloseTo(-s1!.x, 9)
+  })
+
   test("members sit on a hex lattice, in mirror pairs about their region's axis; never scattered", () => {
     // The 20-member instance: 13 conversion, 2 both, 3 extrusion, 2 neither.
     const cats = [

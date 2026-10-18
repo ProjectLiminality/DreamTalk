@@ -707,6 +707,13 @@ export class FlowMap extends Null {
       )
       const target = new Map<string, Vec2>([[site.id, { x: 0, y: 0 }]])
       entities.forEach((e, j) => target.set(e.id, rings.points[j]!))
+      // One in and one out: the whole fiber is a single level diameter,
+      // exactly symmetric either way round — so choose the turn that reads
+      // in reading direction, in → site → out. Not a left/right SYSTEM
+      // (David rejected that); every other fiber stays class polygons.
+      if (entities.length === 2 && entities[0]!.dir !== entities[1]!.dir) {
+        for (const e of entities) target.set(e.id, { x: (e.dir === "in" ? -1 : 1) * rings.outer, y: 0 })
+      }
       // The fiber fills the view: the stack scales so its outer ring glides
       // out past where the whole map's partner ring stood (capped, so a lone
       // pair is not huge).
