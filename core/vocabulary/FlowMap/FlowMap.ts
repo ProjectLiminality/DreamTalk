@@ -96,7 +96,7 @@ import {
   trimToRim,
   facingAngles,
   clearYaw,
-  classRing,
+  fiberRings,
   type Disc,
   type PartnerSide,
   type Vec2,
@@ -650,6 +650,7 @@ export class FlowMap extends Null {
       members: focus.members,
       partners: focus.partners,
       unfocused: focus.unfocused,
+      zoom: focus.zoom,
       memberPresence: focus.memberPresence,
       partnerPresence: focus.partnerPresence,
       flowPresence: focus.flowPresence,
@@ -693,22 +694,23 @@ export class FlowMap extends Null {
         }
       })
       // The same rule as the ring (David): no left/right halves — each CLASS
-      // its own regular polygon round the site. Sites (sending, receiving)
-      // on an inner ring, external partners on an outer one by their class;
+      // (sites sending, sites receiving, each partner class) its own regular
+      // polygon round the site, the whole fiber symmetric (fiberRings);
       // within a class, in order of angle in the full picture.
       const angleOf = (id: string) => Math.atan2(posOf(id).y, posOf(id).x)
       const entities = [...ins.map((id) => ({ id, dir: "in" })), ...outs.map((id) => ({ id, dir: "out" }))]
       entities.sort((a, b) => angleOf(a.id) - angleOf(b.id) || a.id.localeCompare(b.id))
       const pclass = new Map((d.partners ?? []).map((p) => [p.id, p.class ?? p.side]))
-      const siteRing = entities.filter((e) => mIndex.has(e.id))
-      const partnerRingEs = entities.filter((e) => pIndex.has(e.id))
-      // The inner ring starts at the top, the outer at the left — so a lone
-      // site never lines up with a partner diameter through the centre.
-      const inner = classRing(siteRing.map((e) => `sites-${e.dir}`), R * 0.42, Math.PI / 2)
-      const outer = classRing(partnerRingEs.map((e) => pclass.get(e.id)!), R * 0.85)
+      const rings = fiberRings(
+        entities.map((e) => (mIndex.has(e.id) ? { cls: `sites-${e.dir}`, site: true } : { cls: pclass.get(e.id)!, site: false })),
+        R,
+      )
       const target = new Map<string, Vec2>([[site.id, { x: 0, y: 0 }]])
-      siteRing.forEach((e, j) => target.set(e.id, inner.points[j]!))
-      partnerRingEs.forEach((e, j) => target.set(e.id, outer.points[j]!))
+      entities.forEach((e, j) => target.set(e.id, rings.points[j]!))
+      // The fiber fills the view: the stack scales so its outer ring glides
+      // out past where the whole map's partner ring stood (capped, so a lone
+      // pair is not huge).
+      const zoom = Math.min(3.5, Math.max(1, (R * 1.6) / rings.outer))
       // Which fiber entities act in slice k: a flow of stage s acts at its
       // source in slice s and at its target in slice s + 1.
       const slices = d.stages.map(() => new Set<string>()).concat([new Set<string>()])
@@ -718,7 +720,7 @@ export class FlowMap extends Null {
         slices[st]!.add(f.from)
         slices[st + 1]!.add(f.to)
       }
-      return { site: site.id, target, flows, slices }
+      return { site: site.id, target, flows, slices, zoom }
     })
   }
 
@@ -757,6 +759,7 @@ export class FlowMap extends Null {
     const slices = Array.from({ length: sliceCount }, (_, s) => s)
     return {
       unfocused,
+      zoom: unfocused + fibers.reduce((a, fb, i) => a + fb.zoom * ws[i]!, 0),
       members: members.map((p, i) => place(d.members[i]!.id, p)),
       partners: partners.map((p, i) => place((d.partners ?? [])[i]!.id, p)),
       memberPresence: slices.map((s) => d.members.map((m) => presentIn(m.id, s))),
@@ -1413,6 +1416,7 @@ export class FlowMap extends Null {
         members: [...slices, ...stages],
         h: derive(() => this.frame().heading),
         p: derive(() => this.frame().pitch),
+        scale: derive(() => this.frame().zoom),
       }),
     )
   }
@@ -1472,6 +1476,8 @@ interface Frame {
   partners: Vec2[]
   /** 1 with no site focused … 0 fully in a fiber: what the whole picture keeps. */
   unfocused: number
+  /** The stack's scale under the focus: 1 unfocused … the fiber's own zoom, so it fills the view. */
+  zoom: number
   /** Per slice, per member / partner: there (1) or gone (0) under the focus. */
   memberPresence: number[][]
   partnerPresence: number[][]
@@ -1484,6 +1490,8 @@ interface Fiber {
   target: Map<string, Vec2>
   flows: Set<number>
   slices: Set<string>[]
+  /** How far the stack scales up to fill the view with this fiber. */
+  zoom: number
 }
 
 /** Free-play keys for the stage layers — letters clear of the player's reserved set and this map's own keys. */

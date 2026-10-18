@@ -393,6 +393,39 @@ export const classRing = (classes: readonly string[], ring: number, start = Math
   return { points, exact }
 }
 
+/**
+ * A site focus's neighbours round the site, the WHOLE fiber symmetric
+ * (David). Few (≤ `single`): ONE ring, each class its own regular polygon,
+ * interleaved (classRing) — 3 neighbours an equilateral triangle, 4 a
+ * square. Many: sites on an inner ring, partners on an outer, each turned so
+ * the vertical is a mirror axis of both (odd counts point up, even counts sit
+ * flat; two make a level diameter). Points in input order; `outer` is the
+ * outermost ring's radius.
+ */
+export const fiberRings = (
+  entities: readonly { cls: string; site: boolean }[],
+  R: number,
+  single = 12,
+): { points: Vec2[]; outer: number } => {
+  const start = (k: number) => Math.PI / 2 + (k > 0 && k % 2 === 0 ? Math.PI / k : 0)
+  // Wide enough that neighbours never crowd: ~0.32 R of arc apiece.
+  const radius = (k: number) => Math.max(R * 0.42, (k * R * 0.32) / (2 * Math.PI))
+  const n = entities.length
+  const sites = entities.filter((e) => e.site)
+  const others = entities.filter((e) => !e.site)
+  if (n <= single || sites.length === 0 || others.length === 0) {
+    const ring = radius(n)
+    return { points: classRing(entities.map((e) => e.cls), ring, start(n)).points, outer: ring }
+  }
+  const ri = radius(sites.length)
+  const ro = Math.max(ri + R * 0.36, radius(others.length))
+  const inner = classRing(sites.map((e) => e.cls), ri, start(sites.length)).points
+  const outer = classRing(others.map((e) => e.cls), ro, start(others.length)).points
+  let i = 0
+  let o = 0
+  return { points: entities.map((e) => (e.site ? inner[i++]! : outer[o++]!)), outer: ro }
+}
+
 /** The partners' seats on the ring (see partnerRing). */
 export const partnerLayout = (classes: readonly string[], R: number): Vec2[] => partnerRing(classes, R).points
 

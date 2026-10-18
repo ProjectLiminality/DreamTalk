@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { rotHPB } from "../src/parts/curves"
 import {
   facingAngles,
+  fiberRings,
   clearYaw,
   arcTable,
   atArcLength,
@@ -87,6 +88,32 @@ describe("flow-map geometry", () => {
     expect(of("semi-out")).toEqual([5, 11, 17])
     // A class that cannot be regular on the ring is said so.
     expect(partnerRing(["a", "a", "b", "b", "b"], R).exact).toBe(false)
+  })
+
+  test("a fiber is symmetric as a whole: few on one ring, many on two rings sharing the vertical mirror", () => {
+    const site = (cls: string) => ({ cls, site: true })
+    const partner = (cls: string) => ({ cls, site: false })
+    // Four of three classes: one square, sitting flat (a mirror on the vertical).
+    const sq = fiberRings([partner("raw"), site("sites-out"), partner("semi-out"), partner("raw")], R)
+    expect(sq.outer).toBeCloseTo(R * 0.42, 9)
+    const xs = sq.points.map((p) => p.x).sort((a, b) => a - b)
+    expect(xs[0]! + xs[3]!).toBeCloseTo(0, 9)
+    expect(xs[1]! + xs[2]!).toBeCloseTo(0, 9)
+    // Two classes of one apiece: a level diameter.
+    const two = fiberRings([partner("raw"), partner("semi-out")], R).points
+    expect(two[0]!.y).toBeCloseTo(0, 9)
+    expect(two[0]!.x + two[1]!.x).toBeCloseTo(0, 9)
+    // Many: sites inner, partners outer, each mirrored about the vertical.
+    const many = [...Array(5).fill(0).map(() => site("sites-in")), ...Array(10).fill(0).map(() => partner("raw"))]
+    const f = fiberRings(many, R)
+    const mirrored = (pts: { x: number; y: number }[]) =>
+      pts.every((p) => pts.some((q) => Math.abs(q.x + p.x) < 1e-9 && Math.abs(q.y - p.y) < 1e-9))
+    const inner = f.points.slice(0, 5)
+    const outer = f.points.slice(5)
+    expect(mirrored(inner)).toBe(true)
+    expect(mirrored(outer)).toBe(true)
+    expect(Math.hypot(outer[0]!.x, outer[0]!.y)).toBeGreaterThan(Math.hypot(inner[0]!.x, inner[0]!.y))
+    expect(f.outer).toBeCloseTo(Math.hypot(outer[0]!.x, outer[0]!.y), 9)
   })
 
   test("members sit on a hex lattice, in mirror pairs about their region's axis; never scattered", () => {
@@ -455,7 +482,7 @@ describe("FlowMap", () => {
     expect(m.stateSpace().axes.find((a) => a.id === "semi.concrete")!.positions.map((p) => p.name)).toEqual(["lines", "roads"])
   })
 
-  test("site focus: only the site's fiber stays, rearranged — the site centred, inflows left, outflows right", () => {
+  test("site focus: only the site's fiber stays, rearranged round the site centred, the whole fiber symmetric and filling the view", () => {
     const m = new FlowMap({ radius: R })
     void m.parts
     const space = m.stateSpace()
@@ -471,16 +498,19 @@ describe("FlowMap", () => {
     expect(Math.hypot(f.members[A]!.x, f.members[A]!.y)).toBeLessThan(1e-9)
     const idx = (id: string) => MOCK_FLOWMAP.members.findIndex((x) => x.id === id)
     const pidx = (id: string) => MOCK_FLOWMAP.partners!.findIndex((x) => x.id === id)
-    // No left/right halves: partners on the outer ring, sites on the inner,
-    // each class its own polygon — S1 and Q1 are classes of one each (a
-    // slot apiece on the outer ring: a diameter).
-    const r = (p: { x: number; y: number }) => Math.hypot(p.x, p.y)
-    expect(r(f.partners[pidx("S1")]!)).toBeCloseTo(R * 0.85, 9)
-    expect(r(f.partners[pidx("Q1")]!)).toBeCloseTo(R * 0.85, 9)
-    expect(r(f.members[idx("D")]!)).toBeCloseTo(R * 0.42, 9)
-    const s1 = f.partners[pidx("S1")]!
-    const q1 = f.partners[pidx("Q1")]!
-    expect(Math.hypot(s1.x + q1.x, s1.y + q1.y)).toBeLessThan(1e-6)
+    // No left/right halves, and the WHOLE fiber symmetric: three neighbours
+    // (S1 raw in, D a site it sends to, Q1 semi out) on one ring, an
+    // equilateral triangle pointing up.
+    const tri = [f.partners[pidx("S1")]!, f.members[idx("D")]!, f.partners[pidx("Q1")]!]
+    for (const p of tri) expect(Math.hypot(p.x, p.y)).toBeCloseTo(R * 0.42, 9)
+    for (let i = 0; i < 3; i++) {
+      const p = tri[i]!
+      const q = tri[(i + 1) % 3]!
+      expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeCloseTo(R * 0.42 * Math.sqrt(3), 9)
+    }
+    expect(Math.max(...tri.map((p) => p.y))).toBeCloseTo(R * 0.42, 9)
+    // It fills the view: the stack scales up (capped at 3.5).
+    expect(f.zoom).toBe(3.5)
     // Outside the fiber: gone, not dimmed.
     expect(f.memberPresence[0]![idx("H")]).toBe(0)
     expect(f.partnerPresence[0]![pidx("K3")]).toBe(0)
@@ -496,6 +526,7 @@ describe("FlowMap", () => {
     w.value = 0
     expect(focus.at!(ring)).toBe("A")
     expect(m.frame().unfocused).toBe(1)
+    expect(m.frame().zoom).toBe(1)
   })
 
   test("a flow naming an unknown entity is refused", () => {
