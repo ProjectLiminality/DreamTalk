@@ -117,6 +117,7 @@ import { FlowMapGrainDream, FlowMapGrainPerspDream, GeoFlowGrainDream, GrainDrea
 import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
 import { FormsDream, MorphSolidsDream } from "./MorphAnyDemo"
+import { FlowRoadDream } from "./FlowRoadDemo"
 import { CircleDream } from "../../holons/Circle/Circle"
 import { SquareDream } from "../../holons/Square/Square"
 
@@ -151,6 +152,8 @@ export const scenes: Record<string, DreamClass> = {
   // How to morph anything: one thing in three forms (a state axis in free play), and 3D into 3D.
   forms: FormsDream,
   "morph-solids": MorphSolidsDream,
+  // A flow made concrete: twenty channels → roads, their particles → trucks.
+  "flow-road": FlowRoadDream,
   circle: CircleDream,
   square: SquareDream,
   smoke: FoundingSmokeDream,

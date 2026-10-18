@@ -184,7 +184,7 @@ const restingMorphers = (() => {
     if (scheduled || !idle || !watched.size) return
     scheduled = true
     // A look every ~100 ms is plenty: a morph is staged long before it plays.
-    setTimeout(() => idle(tick), 100)
+    setTimeout(() => idle.call(globalThis, tick), 100)
   }
   return {
     watch(m: MorphCurves) {
