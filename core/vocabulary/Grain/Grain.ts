@@ -43,7 +43,8 @@ import { WHITE, rgb, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Overrides } from "../../src/holon"
 import { certainty } from "../../src/certainty"
-import { Param, completion, derive, length, paramEpoch, scalar } from "../../src/params"
+import { Param, completion, derive, length, scalar } from "../../src/params"
+import { memoReads } from "../../src/memo"
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { rotHPB } from "../../src/parts/curves"
 import { Text } from "../../src/parts/text"
@@ -220,18 +221,14 @@ export class Grain extends Stroke {
     super({ stroke: 2.5, ...rest })
     this.opts = { observer, category, symbol, label, item, neutral, stand }
     // Read by every leaf under the grain every frame (the renderer's
-    // ghost and superposition): once per param epoch.
-    let epoch = -1
-    let c = 1
+    // ghost and superposition): once per param epoch, replaying its reads
+    // (src/memo.ts) so the host can still skip what did not move.
     this.certainty.follow(
-      derive(() => {
-        const e = paramEpoch()
-        if (e !== epoch) {
-          epoch = e
-          c = rungCertainty(this.rung(), [this.massKnown.value, this.categoryKnown.value, this.typeKnown.value, this.itemKnown.value])
-        }
-        return c
-      }),
+      derive(
+        memoReads(() =>
+          rungCertainty(this.rung(), [this.massKnown.value, this.categoryKnown.value, this.typeKnown.value, this.itemKnown.value]),
+        ),
+      ),
     )
   }
 
@@ -247,8 +244,9 @@ export class Grain extends Stroke {
    * params and the camera; once per param epoch.
    */
   rung(): number {
-    const e = paramEpoch()
-    if (this.rungMemo?.epoch === e) return this.rungMemo.g
+    return this.rungNow()
+  }
+  private rungNow = memoReads((): number => {
     const g = this.grain.value
     const px = this.detailPx.value
     let shown = g
@@ -256,10 +254,8 @@ export class Grain extends Stroke {
       const t = smoothstep(px, 1.5 * px, this.screenSize(this.opts.observer))
       shown = Math.min(g, 1 + t * (g - 1))
     }
-    this.rungMemo = { epoch: e, g: shown }
     return shown
-  }
-  private rungMemo?: { epoch: number; g: number }
+  })
 
   /** The symbol's size on screen, pixels of a 720-high frame. */
   screenSize(o: Observer): number {
@@ -283,16 +279,14 @@ export class Grain extends Stroke {
   private toward(): Vec3Like {
     // Read by every slot of every grain each frame: answered once per
     // param epoch (nothing it reads can change between two equal epochs).
-    const e = paramEpoch()
-    if (this.towardMemo?.epoch === e) return this.towardMemo.k
+    return this.towardNow()
+  }
+  private towardNow = memoReads((): Vec3Like => {
     const v = this.view()
     const d = "eye" in v ? v.eye : v.toward
     const l = Math.hypot(d.x, d.y, d.z) || 1
-    const k = snapDirection({ x: d.x / l, y: d.y / l, z: d.z / l })
-    this.towardMemo = { epoch: e, k }
-    return k
-  }
-  private towardMemo?: { epoch: number; k: Vec3Like }
+    return snapDirection({ x: d.x / l, y: d.y / l, z: d.z / l })
+  })
 
   /** The dot's outline: a circle facing the viewer, grain-local, closed. */
   dotOutline(n = 48): Vec3Like[] {
@@ -405,16 +399,7 @@ export class Grain extends Stroke {
   protected override compose(): void {
     const { observer, symbol, label, item } = this.opts
     // Read by every slot each frame: once per param epoch.
-    let phEpoch = -1
-    let ph = grainPhases(0)
-    const phases = () => {
-      const e = paramEpoch()
-      if (e !== phEpoch) {
-        phEpoch = e
-        ph = grainPhases(this.rung())
-      }
-      return ph
-    }
+    const phases = memoReads(() => grainPhases(this.rung()))
     // With an item symbol the type's symbol hands over to it on 2 → 3.
     const typeFill = () => {
       const ph = phases()
@@ -491,11 +476,7 @@ export class Grain extends Stroke {
     let lastKey = ""
     const piecesNow = () => this.ink()
     let memo: Vec3Like[][] = []
-    let lastEpoch = -1
-    const current = () => {
-      const e = paramEpoch()
-      if (e === lastEpoch) return memo
-      lastEpoch = e
+    const current = memoReads((): Vec3Like[][] => {
       const ids = [this.symbol, this.item].map((s) => (s && s.opacity.value > 0 ? drawingId(s.drawing()) : 0))
       const key = `${this.rung()}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}|${ids.join(",")}`
       if (key !== lastKey) {
@@ -504,17 +485,10 @@ export class Grain extends Stroke {
         version++
       }
       return memo
-    }
-    let tintEpoch = -1
-    let poolTint: Color = WHITE
-    const inkTint = (): Color => {
-      const e = paramEpoch()
-      if (e !== tintEpoch) {
-        tintEpoch = e
-        poolTint = this.rung() > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph)
-      }
-      return poolTint
-    }
+    })
+    const inkTint = memoReads(
+      (): Color => (this.rung() > 2 ? this.tint.value : mixColor(this.dotTint(), this.tint.value, phases().morph)),
+    )
     if (symbol) {
       // ONE stroke for all of it (src/parts/polylines.ts): every piece and
       // edge a loop of the same ribbon, so a flow of hundreds of grains

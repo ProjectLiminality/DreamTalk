@@ -27,7 +27,8 @@ import type { Observer } from "../dream"
 import type { Overrides } from "../holon"
 import type { Color } from "../constants"
 import { BLACK } from "../constants"
-import { derive, paramEpoch, type Readable } from "../params"
+import { derive, type Readable } from "../params"
+import { memoReads } from "../memo"
 import { ghost, seenCertainty } from "../certainty"
 import { Line, Stroke, derivePoints, type Vec3Like } from "./primitives"
 import { Surface } from "./surface"
@@ -151,7 +152,6 @@ export abstract class SolidDrawing extends Stroke {
   private seen!: { observer?: Observer; lineSlots: number; faceSlots: number; viewBucket: number; shareViews: number; solidFaces: boolean }
   private buckets = new Map<string, Drawing>()
   private memo?: { key: number[]; drawing: Drawing }
-  private memoEpoch = -1
 
   constructor(overrides: Overrides & SolidDrawingOptions = {}) {
     const { observer, lineSlots, faceSlots, viewBucket, shareViews, solidFaces, ...rest } = overrides
@@ -183,9 +183,13 @@ export abstract class SolidDrawing extends Stroke {
 
   /** The visible drawing in LOCAL space, memoised on the view and the solids. */
   drawing(): Drawing {
-    const epoch = paramEpoch()
-    if (this.memo && this.memoEpoch === epoch) return this.memo.drawing
-    this.memoEpoch = epoch
+    return this.drawingThisFrame()
+  }
+  // Once per param epoch, replaying its reads (src/memo.ts): a stroke built
+  // on the drawing stays skippable by the host while nothing it read moved.
+  private drawingThisFrame = memoReads((): Drawing => this.solve())
+
+  private solve(): Drawing {
     const share = this.seen.shareViews
     if (share > 0) {
       const drawing = sharedDrawing(this, share)
