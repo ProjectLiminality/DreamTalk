@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { Observer } from "../src/dream"
+import { Line } from "../src/parts/primitives"
 import { BLUE, RED } from "../src/constants"
 import { totalLength } from "../src/geometry/correspond"
 import type { SolidDrawing } from "../src/parts/soliddrawing"
@@ -341,5 +342,30 @@ describe("Grain — solid faces honour the ghost and the fade", () => {
     expect(tint().b).toBeCloseTo(BLUE.b, 6)
     g.opacity.value = 0.5
     expect(tint().b).toBeCloseTo(BLUE.b * 0.5, 6)
+  })
+})
+
+describe("Grain — a dot computes no drawing", () => {
+  test("while the grain is a dot, its (mesh) symbol never solves hidden lines, however its surfaces are read", async () => {
+    const { Surface } = await import("../src/parts/surface")
+    for (const make of [(o: Record<string, unknown>) => new FilmReel(o), (o: Record<string, unknown>) => new Pallet(o)]) {
+      const g = new Grain({ observer: observer(), category: BLUE, symbol: make, grain: 1 })
+      void g.parts
+      const sym = g.symbol!
+      let solves = 0
+      const real = sym.drawing.bind(sym)
+      sym.drawing = () => (solves++, real())
+      for (const p of sym.parts) {
+        void p.opacity.value
+        if (p instanceof Surface) {
+          void p.tint.value
+          void p.geomVersion
+          void p.positions
+        }
+        if (p instanceof Line) void p.points
+      }
+      for (const p of g.parts) if (p instanceof Line) void p.points
+      expect(solves).toBe(0)
+    }
   })
 })

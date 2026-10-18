@@ -250,13 +250,14 @@ export abstract class SolidDrawing extends Stroke {
     }
     // Filled meshes: one opaque, depth-writing Surface each (their fill
     // occludes by depth, not by painting order), sized by the solids the
-    // drawing declares now.
+    // drawing declares now. Read through `shown()`, like every slot: a
+    // hidden solid (a Grain still a dot) must not solve its hidden lines.
     const meshes = this.solids().filter((x) => x.kind === "mesh" && x.fill).length
     for (let i = 0; i < meshes; i++) {
       const surface = new Surface({
         solid: true,
         tint: derive((): Color => {
-          const c = this.drawing().surfaces?.[i]?.fill ?? BLACK
+          const c = this.shown().surfaces?.[i]?.fill ?? BLACK
           const k = this.solidDim()
           return { r: c.r * k, g: c.g * k, b: c.b * k }
         }),
@@ -264,9 +265,9 @@ export abstract class SolidDrawing extends Stroke {
         opacity: this.opacity,
       })
       deriveSurface(surface, () => {
-        const m = this.drawing().surfaces?.[i]
+        const m = this.shown().surfaces?.[i]
         return m ? [meshId(m.positions), meshId(m.triangles)] : [0, 0]
-      }, () => this.drawing().surfaces?.[i])
+      }, () => this.shown().surfaces?.[i])
       this.add(surface)
     }
     for (let i = 0; i < this.seen.lineSlots; i++) {
