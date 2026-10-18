@@ -51,6 +51,40 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [SOPLoop](SOPLoop/) | demand ghosted, `?scene=sop` t=4.5 | primitives (geometry/lemniscate, flowmap stream, certainty) | planning tests |
 | [Horizons](Horizons/) | all three horizons, `?scene=horizons` t=14 | Figure (geometry/horizons, certainty) | planning tests |
 
+## The InterBrain cast (corpus #14, 2026-10-18)
+
+The concepts of "The InterBrain – How Collective DreamWeaving Can Heal the
+World", one holon each, every one an `ib-*` scene with a side-by-side
+against the film (`docs/reports/interbrain/*-compare.png`; ontology in
+`docs/reports/interbrain-vocabulary.md` §4). Existing symbols the film
+reuses were extended, not copied: MolochEye (`iris`: the domesticated ↔
+liminal eye), Figure (the bust form), Vision (was SMark), DreamTalkSymbol
+(was LightNode), Cylinder, Earth, Plot, Logo.
+
+| Symbol | The concept (the film's words) | Composes |
+|---|---|---|
+| [Conflict](Conflict/) | the bolt between two values; radiating, a pathology | — |
+| [Attractor](Attractor/) | freedom/order, chaos/oppression, the oscillation, the third axis | Circle, Square, Conflict, Cylinder, MolochEye |
+| [Field](Field/) | fragmentation (red) ↔ wholeness (cyan); burst; swarm | — |
+| [Mind](Mind/) | domesticated (DomesticatedMind; framed = MolochConsciousness) ↔ liminal | Figure (bust), FoldableCube, Vision |
+| [Noosphere](Noosphere/) | the superstructure of stories: lattice, engineered, gardened, whole, fragmented, InterBrain sphere | DreamNode/InterBrain |
+| [Spheres](Spheres/) | biosphere / social sphere / noosphere; order of influence, ladder of leverage | Earth, Noosphere, Icons |
+| [Worldview](Worldview/) | world → lens → eye; distortion, strings, looking at the lens | Earth, FragmentedEarth, Eye, Noosphere, Puppeteer |
+| [FragmentedEarth](FragmentedEarth/) | the planet under narrative warfare | Earth, Conflict |
+| [Puppeteer](Puppeteer/) | manipulation without awareness or consent | — |
+| [HyperAgent](HyperAgent/) | the war machine (divide and conquer) ↔ the hyper-agent of love | Mind, MolochEye, Conflict, Puppeteer |
+| [Tribe](Tribe/) | the ancient tribe ↔ the modern boxed web | Mind, Fire |
+| [Fire](Fire/), [SandTalk](SandTalk/) | the campfire; symbols in the sand while talking | Figure, Fire |
+| [Divide](Divide/) | engineering │ gardening; the S of dreamweaving | — |
+| [Book](Book/), [RadioTower](RadioTower/) | the written word; broadcast | — |
+| [Vault](Vault/) | knowledge managed: documents in categories | Icons |
+| [DreamNode](DreamNode/) | the vehicle (a git repo): dream / dreamer; holarchy | DreamTalkSymbol, Sketch |
+| [InterBrain](InterBrain/) | our own face: the Logo in a crystal | Logo |
+| [DreamGarden](DreamGarden/), [LiminalWeb](LiminalWeb/), [DigitalCampfire](DigitalCampfire/) | nodes without imposed structure; dreams ↔ dreamers; the video call | DreamNode, SandTalk, InterBrain |
+| [SongLine](SongLine/), [DreamSong](DreamSong/), [CoherenceBeacon](CoherenceBeacon/) | provenance; woven symbols; reach coupled to coherence | DreamNode, Field, RadioTower |
+| [Resonance](Resonance/) | ripples round a group that resonates | — |
+| [Icons](Icons/) | the film's props (weapons, buildings, devices) — an invisible asset table | — |
+
 ## Abilities
 
 One entry so far, and it is a different KIND of thing: not a symbol you
