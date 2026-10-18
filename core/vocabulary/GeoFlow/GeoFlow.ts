@@ -44,7 +44,7 @@ import { Text } from "../../src/parts/text"
 import { eyeDistance, toLocal, toWorld } from "../../src/geometry/frames"
 import { Circle, Group, Null } from "../../src/parts/primitives"
 import { rgb, WHITE, type Color } from "../../src/constants"
-import { completion, derive, length, scalar, type Param, type ParamValue } from "../../src/params"
+import { completion, derive, length, paramEpoch, scalar, type Param, type ParamValue } from "../../src/params"
 import { together } from "../../src/anim"
 import { axis, type StateSpace } from "../../src/automaton"
 import { certainty } from "../../src/certainty"
@@ -56,6 +56,24 @@ import { Connection } from "../Earth/Connection"
 import { FlowEntity, FlowMap, MOCK_FLOWMAP, type FlowMapData } from "../FlowMap/FlowMap"
 import { MorphCurves } from "../Morph/MorphCurves"
 import { MOCK_GEO } from "./mockGeo"
+
+/**
+ * A reading that is the same until some param is written: computed once
+ * per paramEpoch. For pose maths read many times a frame (every stroke's
+ * camera read reaches the observer's zoom; every traveler reads x and y).
+ */
+const perEpoch = <T>(f: () => T): (() => T) => {
+  let seen = Number.NaN
+  let v: T
+  return () => {
+    const e = paramEpoch()
+    if (e !== seen) {
+      v = f()
+      seen = e
+    }
+    return v
+  }
+}
 
 /** A place on the planet, and how sure we are of it (0 = a guess, ghosted). */
 export interface GeoPoint {
@@ -258,12 +276,15 @@ export class GeoFlow extends Null {
    */
   orthoZoom(): number {
     void this.parts
+    return this.orthoZoomNow()
+  }
+  private orthoZoomNow = perEpoch(() => {
     // The eye's distance from the view's own pose, never through the
     // observer (whose zoom this very number drives in ortho).
     const d = viewPose(this.earth, this.eye, this.fov).distance
     const H = Math.max(1e-6, d - this.hoverDistance) * Math.tan(this.fov / 2)
     return 1023 / (2 * H * (16 / 9))
-  }
+  })
 
   /** How far the abstract plane hovers from the focus (set at composition). */
   private hoverDistance = 0
@@ -457,10 +478,12 @@ export class GeoFlow extends Null {
       observer.orthographic.follow(derive(flat))
       observer.zoom.follow(derive(() => (flat() ? this.orthoZoom() : 1)))
     }
-    const mapScale = derive(() => {
-      const d = Math.max(1, eyeDistance(observer) - hover)
-      return (d * Math.tan(observer.fov.value / 2) * this.fill.value * this.breadth.value) / MAP_R
-    })
+    const mapScale = derive(
+      perEpoch(() => {
+        const d = Math.max(1, eyeDistance(observer) - hover)
+        return (d * Math.tan(observer.fov.value / 2) * this.fill.value * this.breadth.value) / MAP_R
+      }),
+    )
     const twin = new Circle({ radius: MAP_R, stroke: 3, opacity: 0 })
     void map.parts
     const front = map.slices[0]!
@@ -483,12 +506,13 @@ export class GeoFlow extends Null {
       const t0 = start + 0.04
       const u = () => ss(t0, t0 + glide, a())
       const flying = () => a() >= start && a() < t0 + glide
-      const at = () => {
+      const from = perEpoch(() => onPlane(site))
+      const at = perEpoch(() => {
         const k = u()
-        const from = onPlane(site)
+        const f = from()
         const e = seat()
-        return { x: from.x + (e.x.value - from.x) * k, y: from.y + (e.y.value - from.y) * k }
-      }
+        return { x: f.x + (e.x.value - f.x) * k, y: f.y + (e.y.value - f.y) * k }
+      })
       const presence = derive(() => (flying() ? ss(start, t0, a()) : 0))
       const ink = derive(tint)
       return new Traveler({
