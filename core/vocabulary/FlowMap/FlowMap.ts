@@ -69,6 +69,7 @@ import { certainty, presence, presencesOf, wobble } from "../../src/certainty"
 import type { Observer } from "../../src/dream"
 import type { SolidDrawing } from "../../src/parts/soliddrawing"
 import { Grain, NEUTRAL } from "../Grain/Grain"
+import { FlowRoad } from "../Road/FlowRoad"
 import { Pallet } from "../Pallet/Pallet"
 import { FilmReel } from "../FilmReel/FilmReel"
 import { Pouch } from "../Pouch/Pouch"
@@ -235,6 +236,8 @@ export class Flow extends Group {
   carriers: Group[] = []
   /** The inverse flow: money, back down the same channel (see FlowMap.money). */
   money?: MoneyLane
+  /** The flow made concrete: its road and trucks (stage(id).concrete) — when the map was built with `roads`. */
+  road?: FlowRoad
   /**
    * The channel's full path, in the STACK's frame (`FlowMap.stack` — compose
    * with its transform for world space), sampled evenly in parameter.
@@ -264,6 +267,12 @@ export class FlowStage extends Group {
   certainty = certainty(1)
   /** How sure its particles' material type is — a guess (low) ghosts the symbol, not the dot. */
   typeKnown = completion(1)
+  /**
+   * Abstract (0) or concrete (1): each flow's channel becomes a road and
+   * each particle a truck, one to one (vocabulary/Road FlowRoad — the
+   * universal morph, line → road edges, dot → truck).
+   */
+  concrete = completion(0)
   /** What its particles are — the neutral dot until a richer symbol is asked for. */
   symbol = choice("dot", PARTICLE_SYMBOLS)
   /**
@@ -335,6 +344,12 @@ export class FlowMap extends Null {
    * a lane per flow doubles the particles.
    */
   moneyLanes: boolean | undefined = undefined
+  /**
+   * Build each flow's road (vocabulary/Road FlowRoad), walked per stage by
+   * `stage(id).concrete`: the channel becomes a road, each particle a truck.
+   * A construction choice — a road per flow is a holon tree of its own.
+   */
+  roads = false
   private lanesWanted(): boolean {
     return this.moneyLanes ?? this.data.flows.some((f) => f.valueSeries !== undefined)
   }
@@ -484,6 +499,20 @@ export class FlowMap extends Null {
           duration: 1.2,
         }),
       )
+    // Lines ↔ roads, per stage, once its flows show.
+    if (this.roads) this.data.stages.forEach((sd, i) => {
+      const stage = this.stages[i]!
+      axes.push(
+        toggle(`${sd.id}.concrete`, stage.concrete, {
+          label: `${sd.label ?? sd.id} as roads`,
+          off: ["lines", 0],
+          on: ["roads", 1],
+          duration: 3,
+          when: () => stage.shown.value > 0.5,
+          handles: () => stage.flows,
+        }),
+      )
+    })
     return { axes, clocks: [this.time] }
   }
 
@@ -808,6 +837,8 @@ export class FlowMap extends Null {
       const sd = d.stages[si]!
       const tint = sd.tint ?? STAGE_TINTS[si % STAGE_TINTS.length]!
       const flowCertainty = f.certainty ?? 1
+      // Its road (built once the particles exist, below); read lazily.
+      let road: FlowRoad | undefined
       // Over time: the flow's volume (as a share of the busiest flow's
       // busiest period) and its data coverage at the current `period`.
       const series = f.series && this.data.periods ? f.series : undefined
@@ -881,7 +912,12 @@ export class FlowMap extends Null {
         // A flow whose data says nothing moved draws nothing; it appears as
         // volume arrives (a conjectured flow keeps its typical level).
         opacity: derive(
-          () => this.channel.value * smooth(0, 0.15, stage.shown.value) * (series ? smooth(0, 0.05, share()) : 1) * valueShown(),
+          () =>
+            this.channel.value *
+            smooth(0, 0.15, stage.shown.value) *
+            (series ? smooth(0, 0.05, share()) : 1) *
+            valueShown() *
+            (road ? road.abstractShown() : 1),
         ),
       })
       // The channel draws on from source to target as its layer is shown —
@@ -911,13 +947,16 @@ export class FlowMap extends Null {
       const n = Math.max(2, Math.ceil(longest / (this.spacing.value / rate)))
       const seed = fi * 7.31 + 0.37
       const dots: (Circle | Grain)[] = []
+      // Each particle's visibility BEFORE a road hides it — what a truck is
+      // for (one per visible particle). Read through `particles()`.
+      const seen: (() => number)[] = []
       const carriers: Group[] = []
       const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
       const spindle = sd.symbol ? SPINDLES[sd.symbol] : undefined
       const stageRate = Math.max(...d.flows.filter((g) => g.stage === f.stage).map((g) => g.rate ?? 1))
       for (let j = 0; j < n; j++) {
         let memoEpoch = -1
-        let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0 }
+        let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0, vis: 0 }
         const cur = () => {
           const epoch = paramEpoch()
           if (memoEpoch === epoch) return memo
@@ -931,7 +970,8 @@ export class FlowMap extends Null {
           const { points, lengths } = channel()
           const L = lengths[lengths.length - 1]!
           const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
-          const o = streamFade(s, L, shown) * (series ? thinning(j, share()) : 1) * valueShown()
+          const vis = streamFade(s, L, shown) * (series ? thinning(j, share()) : 1) * valueShown()
+          const o = vis * (road ? road.abstractShown() : 1)
           const p = atArcLength(points, lengths, Math.min(s, L))
           const c = stage.certainty.value * sure()
           const w = wobble(seed * 13 + j, this.time.value, c, R() * 0.035)
@@ -947,7 +987,7 @@ export class FlowMap extends Null {
             // the stack's frame, keeps the turned spindle ≥ 35° off it.
             if (spindle) heading = clearYaw(heading, spindle, this.viewInStack())
           }
-          memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o, heading }
+          memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o, heading, vis }
           return memo
         }
         const dot = material
@@ -973,11 +1013,13 @@ export class FlowMap extends Null {
           : new Circle({
               radius: derive(() => R() * 0.02),
               stroke: 0,
-              fillOpacity: 1,
+              // As the road comes, the dot lets go of its fill first.
+              fillOpacity: derive(() => (road ? road.dotFill() : 1)),
               tint,
               opacity: derive(() => cur().o),
             })
         dots.push(dot)
+        seen.push(() => cur().vis)
         const at = { x: derive(() => cur().x), y: derive(() => cur().y), z: derive(() => cur().z) }
         carriers.push(
           material
@@ -1056,21 +1098,49 @@ export class FlowMap extends Null {
         moneyLane.coins = coins
       }
 
-      const flow = new Flow({ members: moneyLane ? [line, ...carriers, moneyLane] : [line, ...carriers], certainty: flowCertainty })
+      // --- the concrete flow: a road with trucks, one per visible particle ----
+      const particles = () => {
+        const { lengths } = channel()
+        const L = lengths[lengths.length - 1]!
+        return dots.map((_, j) => {
+          const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
+          return s > L || L <= 0 || seen[j]!() <= 0.01 ? -1 : s / L
+        })
+      }
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const map = this
+      if (this.roads) road = new FlowRoad(
+        {
+          path: () => channel().points,
+          particles,
+          // The channel is stated in the stack's frame (built below).
+          get frame() {
+            return map.stack
+          },
+          certainty: () => stage.certainty.value * sure(),
+        },
+        {
+          seenBy: this.seenBy,
+          dotTint: tint,
+          concrete: stage.concrete,
+          cargo: tint,
+          dotRadius: derive(() => R() * 0.02),
+          truckLength: derive(() => R() * 0.11),
+          width: derive(() => R() * 0.07),
+        },
+      )
+      const flow = new Flow({
+        members: [line, ...carriers, ...(moneyLane ? [moneyLane] : []), ...(road ? [road] : [])],
+        certainty: flowCertainty,
+      })
+      flow.road = road
       flow.money = moneyLane
       if (series) flow.certainty.follow(derive(sure))
       flow.line = line
       flow.dots = dots
       flow.carriers = carriers
       flow.path = () => channel().points
-      flow.particles = () => {
-        const { lengths } = channel()
-        const L = lengths[lengths.length - 1]!
-        return dots.map((_, j) => {
-          const s = streamArc(j, n, sp(), this.speed.value, this.time.value, seed % 1)
-          return s > L || L <= 0 ? -1 : s / L
-        })
-      }
+      flow.particles = particles
       flows.push(flow)
       stage.attach(flow)
       stage.flows.push(flow)

@@ -7,7 +7,8 @@
  * rim into a vesica, the sites take their colours) and folds back; the flow
  * layers switch on one by one — raw material in (ghosted: conjecture),
  * semi-finished, finished out; the whole map tilts into the stage stack,
- * the categories return in 3D, and it all lays flat and face-on again.
+ * the categories return in 3D, the semi-finished flows turn concrete —
+ * roads with trucks — and back, and it all lays flat and face-on again.
  * Last, the data arrives for the raw-material inflow: its blur of
  * potentiality collapses into solid actuality.
  *
@@ -23,7 +24,7 @@ import { Circle, Line } from "../../src/parts/primitives"
 
 export class FlowMapDream extends Dream {
   // Who sees it: labels and particles face the camera as the viewer orbits.
-  map = new FlowMap({ radius: 300, seenBy: () => this.observer })
+  map = new FlowMap({ radius: 300, seenBy: () => this.observer, roads: true })
 
   /** Play `anim` over `dt` seconds while the flow keeps running. */
   private flowing(dt: number, ...anims: Anim[]): void {
@@ -78,6 +79,11 @@ export class FlowMapDream extends Dream {
     this.flowing(2.5)
     this.flowing(2.5, m.grain.to(1))
     this.flowing(3)
+    // Abstract → concrete: the semi-finished flows become roads, every
+    // particle a truck — and back.
+    this.flowing(3, m.stage("semi").concrete.to(1))
+    this.flowing(3)
+    this.flowing(2.5, m.stage("semi").concrete.to(0))
     // And back: flat, face-on, exactly.
     this.flowing(3, m.expand.to(0))
     this.flowing(2)

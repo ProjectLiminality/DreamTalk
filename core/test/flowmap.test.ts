@@ -437,6 +437,29 @@ describe("FlowMap", () => {
     expect(t.positions.map((p) => p.name)).toEqual(["guess", "data"])
   })
 
+  test("roads: built only on request; a stage's concrete walks its flows' roads, trucks one per visible particle", () => {
+    const plain = new FlowMap({ radius: R })
+    void plain.parts
+    expect(plain.flows[0]!.road).toBeUndefined()
+    expect(plain.stateSpace().axes.some((a) => a.id.endsWith(".concrete"))).toBe(false)
+    const m = new FlowMap({ radius: R, roads: true })
+    void m.parts
+    const st = m.stage("semi")
+    st.shown.value = 1
+    m.time.value = 3
+    const f = st.flows[0]!
+    expect(f.road!.concrete).toBe(st.concrete)
+    const visible = f.particles().filter((s) => s >= 0).length
+    expect(visible).toBeGreaterThan(0)
+    st.concrete.value = 1
+    // The abstract line and dots hand over to the road …
+    expect(f.line.opacity.value).toBe(0)
+    expect(f.dots.every((d) => d.opacity.value === 0)).toBe(true)
+    // … and the road still gets a truck for every particle that was showing.
+    expect(f.particles().filter((s) => s >= 0).length).toBe(visible)
+    expect(m.stateSpace().axes.find((a) => a.id === "semi.concrete")!.positions.map((p) => p.name)).toEqual(["lines", "roads"])
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)
