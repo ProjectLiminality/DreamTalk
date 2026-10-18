@@ -35,6 +35,7 @@ import type { Param, ParamValue } from "../src/params"
 import type { ViewDelta, ViewLayer } from "../src/view"
 import { ThreeHost } from "../src/render/three-host"
 import { GameLoop } from "../demo/game"
+import { inkQueries } from "../demo/spark"
 import { aloneDream, isSovereign, nodeNameOf } from "./dreamnodes"
 import { Dream } from "../src/dream"
 import { gatherStateSpace, type StateSpace } from "../src/automaton"
@@ -326,6 +327,9 @@ export const mountNest = (opts: NestOpts): Nest => {
         worldBoundsOf: (h) => host.worldBoundsOf(h),
         setBeforeSync: (fn) => (host.beforeSync = fn),
         attend: (c, h, a) => void host.attend(c, h, a),
+        // A hand's spark points at the ink itself, as in the scene beneath.
+        worldBoundsOfEach: (hs) => host.worldBoundsOfEach(hs),
+        ...inkQueries(host),
       },
       {
         roots: dream.roots,
