@@ -131,6 +131,7 @@ export class FragmentedEarth extends Null {
       land: WHITE,
       coastOpacity: 0,
       borderOpacity: 0,
+      mapLines: false,
       h: this.spin,
       p: this.tilt,
       limbStroke: derive(() => 1.4 * this.limb.value),

@@ -120,6 +120,7 @@ export class DreamTalkSymbol extends Null {
       landOpacity: this.landOpacity,
       coastOpacity: 0,
       borderOpacity: 0,
+      mapLines: false,
       h: this.spin,
       p: this.tilt,
     })

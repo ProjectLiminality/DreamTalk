@@ -363,6 +363,15 @@ export class Earth extends Null {
   graticuleOpacity = completion(0)
   /** Degrees between major graticule lines — construction-time. */
   graticuleStep = 15
+  /**
+   * Construction-time: false builds none of the map's LINES — coasts,
+   * borders, lake shores, rivers, graticule (≈3,300 Line holons) — for a
+   * globe that only ever shows its land, limb and night. Their params stay
+   * and simply drive nothing. The InterBrain film's globes (FragmentedEarth,
+   * DreamTalkSymbol, Worldview's lens Earth) are this: 60 of them carried
+   * 197k invisible holons, 57% of the whole song, past the browser's heap.
+   */
+  mapLines = true
 
   /** Lakes: their water (`lake`, default the sea's black) and their shores (the coast's pen). */
   lake = color(rgb(0, 0, 0))
@@ -578,64 +587,66 @@ export class Earth extends Null {
 
     const strokes = new Null()
     this.add(strokes)
-    // The graticule lies under every other stroke.
-    for (const g of graticuleLines(this.graticuleStep)) {
-      this.graticuleLines.push(
-        addTo(
-          strokes,
-          new Line({
-            points: scaled(g.points, r),
-            tint: this.graticuleTint,
-            stroke: this.graticuleStroke,
-            opacity: derive(() => this.graticuleOpacity.value * lod(g.rank, this.detail.value)),
-          }),
-        ),
-      )
+    if (this.mapLines) {
+      // The graticule lies under every other stroke.
+      for (const g of graticuleLines(this.graticuleStep)) {
+        this.graticuleLines.push(
+          addTo(
+            strokes,
+            new Line({
+              points: scaled(g.points, r),
+              tint: this.graticuleTint,
+              stroke: this.graticuleStroke,
+              opacity: derive(() => this.graticuleOpacity.value * lod(g.rank, this.detail.value)),
+            }),
+          ),
+        )
+      }
+      const fineness = this.finenessGauge()
+      const lineOf = (g: GeoLine, kind: "coast" | "border"): Line => {
+        const coast = kind === "coast"
+        const presence = coast ? this.coastOpacity : this.borderOpacity
+        return new Line({
+          points: scaled(g.points, r),
+          tint: coast ? this.coastTint : this.borderTint,
+          stroke: coast ? this.coastStroke : this.borderStroke,
+          creation: coast ? this.coastDraw : this.borderDraw,
+          opacity: derive(
+            () => presence.value * lod(g.rank, this.detail.value) * (coast ? fineness(g.width) : 1),
+          ),
+        })
+      }
+      for (const g of geo.coast) this.coastLines.push(addTo(strokes, lineOf(g, "coast")))
+      for (const g of lakes.shores) {
+        this.lakeShores.push(
+          addTo(
+            strokes,
+            new Line({
+              points: scaled(g.points, r),
+              tint: this.coastTint,
+              stroke: this.coastStroke,
+              creation: this.coastDraw,
+              opacity: derive(() => this.lakeOpacity.value * this.coastOpacity.value * lod(g.rank, this.detail.value)),
+            }),
+          ),
+        )
+      }
+      for (const g of riverGeometry(region)) {
+        this.riverLines.push(
+          addTo(
+            strokes,
+            new Line({
+              points: scaled(g.points, r),
+              tint: this.riverTint,
+              stroke: this.riverStroke,
+              creation: this.riverDraw,
+              opacity: derive(() => this.riverOpacity.value * lod(g.rank, this.detail.value)),
+            }),
+          ),
+        )
+      }
+      for (const g of geo.borders) this.borderLines.push(addTo(strokes, lineOf(g, "border")))
     }
-    const fineness = this.finenessGauge()
-    const lineOf = (g: GeoLine, kind: "coast" | "border"): Line => {
-      const coast = kind === "coast"
-      const presence = coast ? this.coastOpacity : this.borderOpacity
-      return new Line({
-        points: scaled(g.points, r),
-        tint: coast ? this.coastTint : this.borderTint,
-        stroke: coast ? this.coastStroke : this.borderStroke,
-        creation: coast ? this.coastDraw : this.borderDraw,
-        opacity: derive(
-          () => presence.value * lod(g.rank, this.detail.value) * (coast ? fineness(g.width) : 1),
-        ),
-      })
-    }
-    for (const g of geo.coast) this.coastLines.push(addTo(strokes, lineOf(g, "coast")))
-    for (const g of lakes.shores) {
-      this.lakeShores.push(
-        addTo(
-          strokes,
-          new Line({
-            points: scaled(g.points, r),
-            tint: this.coastTint,
-            stroke: this.coastStroke,
-            creation: this.coastDraw,
-            opacity: derive(() => this.lakeOpacity.value * this.coastOpacity.value * lod(g.rank, this.detail.value)),
-          }),
-        ),
-      )
-    }
-    for (const g of riverGeometry(region)) {
-      this.riverLines.push(
-        addTo(
-          strokes,
-          new Line({
-            points: scaled(g.points, r),
-            tint: this.riverTint,
-            stroke: this.riverStroke,
-            creation: this.riverDraw,
-            opacity: derive(() => this.riverOpacity.value * lod(g.rank, this.detail.value)),
-          }),
-        ),
-      )
-    }
-    for (const g of geo.borders) this.borderLines.push(addTo(strokes, lineOf(g, "border")))
     this.terminator = addTo(
       strokes,
       new Line({ tint: this.terminatorTint, stroke: this.terminatorStroke, opacity: this.terminatorOpacity }),

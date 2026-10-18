@@ -90,8 +90,6 @@ export const primeLayers = (dream: Dream): void => {
   const hidden = Object.values(dream).filter((v): v is Layer => v instanceof Layer && v.presence.value === 0)
   dream.set(...hidden.map((l) => fadeLayer(l, 0)))
 }
-/** The film's title card (f3210: 494 px wide, centred). */
-export const TITLE_SIZE = 136
 
 /** A mind's frame side → its size R (Mind: triangle side = √3·1.15·R). */
 const mindR = (sidePx: number): number => sidePx / PX / (Math.sqrt(3) * 1.15)
@@ -210,7 +208,7 @@ export class Ch3ViciousCycleDream extends Dream {
 
   unfold() {
     primeLayers(this)
-    titleCard(this, { ...CH, card: [639.2, 644] }, TITLE_SIZE)
+    titleCard(this, CH)
 
     // ── The world and the eye; the direct path, crossed out (10:49–11:05)
     const v = this.view

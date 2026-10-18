@@ -79,8 +79,6 @@ export const arrow = (x0: number, y0: number, x1: number, y1: number, both = fal
  */
 export const PARKED = 40000
 
-/** The title card's size (film.ts default reads ~2× small against the film). */
-export const TITLE = 130
 /** Text size vs the font px measured on the frames (fitted on f7856). */
 const TEXT_FIT = 1.25
 
@@ -222,7 +220,7 @@ export class Ch5FixingTheLensDream extends ChapterDream {
   webL = layer(this.web, ...this.webNotes)
 
   unfold() {
-    titleCard(this, CH, TITLE)
+    titleCard(this, CH)
 
     // domesticated → liminal
     this.show(this.turn, 1402.3, 1)

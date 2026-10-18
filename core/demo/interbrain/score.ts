@@ -29,11 +29,6 @@ export const PX = 720 / 1500
 /** Frame pixels (from the 1280×720 frame's centre, y up) → scene units. */
 export const px = (v: number): number => v / PX
 
-/**
- * The card's em in units: f61's "In Search of the" is ≈420 px wide, 7.2 em of
- * Times — a 58 px em (film.ts's default 34 units sets it at 16 px).
- */
-export const TITLE_SIZE = px(58)
 
 export abstract class ChapterDream extends Dream {
   /** Which chapter (index into CHAPTERS). */
@@ -86,7 +81,7 @@ export abstract class ChapterDream extends Dream {
   /** The title card, then the chapter's own beats; the duration is the window's, exactly. */
   unfold(): void {
     this.go(this.chapter.start)
-    titleCard(this, this.chapter, TITLE_SIZE)
+    titleCard(this, this.chapter)
     this.beats()
     this.go(this.chapter.end)
   }

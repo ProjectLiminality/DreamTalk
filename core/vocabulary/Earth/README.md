@@ -29,6 +29,7 @@ The planet as one programmatic object: a true 3D sphere with its land filled on 
 | labels | country names (capitals, tracked) and city names (with a dot): `labels: { countries: 5, cities: 4 }` builds those with Natural Earth min_label / min_zoom up to the given values. They face the camera, keep a constant pixel size, fade in with `detail` and out toward the horizon, and composite over the land as an overlay | `labelTint` `labelOpacity` `labelSize` `labelBias` |
 
 | night | the side away from the sun (`sunLat`, `sunLon`) darkened, softened across a `twilight`-degree band in 12 steps; the terminator as its own stroke | `nightTint` `nightOpacity` `terminatorTint` `terminatorStroke` `terminatorOpacity` |
+| (no map lines) | construction-time `mapLines: false` builds none of the coasts, borders, lake shores, rivers or graticule (≈3,300 Line holons) — for a globe that only ever shows land, limb and night (FragmentedEarth, DreamTalkSymbol, Worldview's lens Earth); their params remain and drive nothing | `mapLines` |
 | atmosphere | a hatched halo outside the limb: the silhouettes of 7 slightly larger spheres, fading outward | `atmosphereTint` `atmosphereOpacity` `atmosphereWidth` |
 | light | the land lit radially from a place, `land × (1 − lightFalloff · smoothstep(0, lightReach, d))` (Web3's LightSpread) | `lightLat` `lightLon` `lightFalloff` `lightReach` |
 

@@ -49,7 +49,7 @@ import { BLUE, RED, WHITE } from "../../src/constants"
 import { Layer } from "../../vocabulary/Figure/Figure"
 import { Create } from "../../src/verbs"
 import { CHAPTERS, titleCard } from "./film"
-import { ChapterDream, PX, TITLE, arrow, label, layer, notes, pkm, u, vortex } from "./Ch5FixingTheLens"
+import { ChapterDream, PX, arrow, label, layer, notes, pkm, u, vortex } from "./Ch5FixingTheLens"
 import { LENS, SOURCE, Worldview } from "../../vocabulary/Worldview/Worldview"
 import { Mind } from "../../vocabulary/Mind/Mind"
 import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
@@ -230,7 +230,7 @@ export class Ch6IntroducingInterBrainDream extends ChapterDream {
   songL = layer(this.songline, label("SongLine", 0, -280, 16))
 
   unfold() {
-    titleCard(this, CH, TITLE)
+    titleCard(this, CH)
     const P = this.p
     void this.node.parts
     void this.fire.parts
