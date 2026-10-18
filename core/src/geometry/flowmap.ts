@@ -328,9 +328,16 @@ export type PartnerSide = "in" | "out" | "both"
  * In the stage stack each slice shows only the classes that act there, so
  * each layer keeps its own polygon.
  */
-export const partnerRing = (classes: readonly string[], R: number): { points: Vec2[]; exact: boolean } => {
+export const partnerRing = (classes: readonly string[], R: number): { points: Vec2[]; exact: boolean } => classRing(classes, R * 1.36)
+
+/**
+ * The slot solver behind partnerRing, for any ring: n things on n equal
+ * slots of a ring of radius `ring` (slot 0 at `start`, default 180°), each class a regular
+ * polygon — a class of one sits on a slot, a class of two is a diameter.
+ * Exact when every class size divides n and the classes interleave.
+ */
+export const classRing = (classes: readonly string[], ring: number, start = Math.PI): { points: Vec2[]; exact: boolean } => {
   const n = classes.length
-  const ring = R * 1.36
   if (n === 0) return { points: [], exact: true }
   const order: string[] = []
   for (const c of classes) if (!order.includes(c)) order.push(c)
@@ -380,7 +387,7 @@ export const partnerRing = (classes: readonly string[], R: number): { points: Ve
   const points = classes.map((c) => {
     const i = next.get(c) ?? 0
     next.set(c, i + 1)
-    const a = Math.PI + (2 * Math.PI * slotOf.get(c)![i]!) / n
+    const a = start + (2 * Math.PI * slotOf.get(c)![i]!) / n
     return { x: ring * Math.cos(a), y: ring * Math.sin(a) }
   })
   return { points, exact }
@@ -561,21 +568,4 @@ export const clearYaw = (
     }
   }
   return best
-}
-
-/**
- * A site's FIBER (David, 2026-10-18): the focused site at the centre, the
- * entities flowing INTO it evenly spaced on the left semicircle, those it
- * flows OUT to evenly spaced on the right — equal arcs, top to bottom in
- * the order given (callers pass them by their height in the full picture,
- * so the glide crosses as little as it can). Radius `r`. Pure.
- */
-export const fiberLayout = (inflow: number, outflow: number, r: number): { centre: Vec2; ins: Vec2[]; outs: Vec2[] } => {
-  const arc = (k: number, side: 1 | -1) =>
-    Array.from({ length: k }, (_, j) => {
-      // From the top (π/2) round the side, in equal steps, centred.
-      const a = Math.PI / 2 + side * Math.PI * ((j + 0.5) / k)
-      return { x: r * Math.cos(a), y: r * Math.sin(a) }
-    })
-  return { centre: { x: 0, y: 0 }, ins: arc(inflow, 1), outs: arc(outflow, -1) }
 }

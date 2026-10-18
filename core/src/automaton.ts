@@ -79,6 +79,14 @@ export interface AxisOpts {
    * (vocabulary/StateLattice). Undefined for a handle: the next, as ever.
    */
   at?: (handle: Holon) => string | undefined
+  /**
+   * Where Esc takes this axis back to (its "home" — a focus's `none`): in
+   * free play, Esc walks every live axis that is elsewhere back to its
+   * escape position (demo/game.ts), after the game's own pinch-focus and
+   * never while a nested level is open (nest's Esc is its own). Unset: Esc
+   * leaves the axis be.
+   */
+  escape?: string
 }
 
 /**
@@ -109,6 +117,7 @@ export interface Axis {
   readonly via?: (from: string, to: string) => Anim
   /** The position a handle stands for, if it stands for one (AxisOpts.at). */
   readonly at?: (handle: Holon) => string | undefined
+  readonly escape?: string
   /** The owning elements (resolved). */
   handles(): Holon[]
   /** The song's spelling: an Anim into this position, for `this.play(…)`. */
@@ -151,6 +160,7 @@ const makeAxis = (id: string, positions: Position[], opts: AxisOpts): Axis => {
     when: opts.when,
     via: opts.via,
     at: opts.at,
+    escape: opts.escape,
     handles: () => (typeof handles === "function" ? handles() : (handles ?? [])),
     to(name) {
       const pos = positions.find((p) => p.name === name)

@@ -532,6 +532,13 @@ export class GameLoop {
       this.setFocus(null)
       return true
     }
+    // Esc walks every live axis that is away from its escape position back
+    // to it (a site focus back to the whole map — AxisOpts.escape).
+    if (e.code === "Escape") {
+      const home = this.automaton.axes.filter((x) => x.escape !== undefined && this.automaton.position(x.id) !== x.escape && this.#live_(x))
+      for (const x of home) this.fire(x.id, x.escape)
+      if (home.length > 0) return true
+    }
     const a = this.#keys.get(e.key)?.find((x) => this.#live_(x))
     if (!a) return false
     this.fire(a.id)

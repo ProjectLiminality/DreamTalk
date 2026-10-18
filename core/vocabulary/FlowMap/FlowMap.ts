@@ -96,7 +96,7 @@ import {
   trimToRim,
   facingAngles,
   clearYaw,
-  fiberLayout,
+  classRing,
   type Disc,
   type PartnerSide,
   type Vec2,
@@ -510,6 +510,8 @@ export class FlowMap extends Null {
     axes.push(
       axis("focus", this, focusPositions, {
         key: "z",
+        // Esc returns to the whole map.
+        escape: "none",
         duration: 1.6,
         handles: () => [...ringsOf.keys()],
         at: (h) => {
@@ -661,10 +663,10 @@ export class FlowMap extends Null {
   private focusWeights: Param<number>[] = []
 
   /**
-   * Each member's FIBER: the site, every entity flowing into it (left
-   * semicircle, top to bottom by height in the categorised picture), every
-   * entity it flows out to (right semicircle), their flows, and which of
-   * them act in which slice of the stack.
+   * Each member's FIBER: the site at the centre, every entity flowing into
+   * it and every entity it flows out to — each class its own regular polygon
+   * (sites on an inner ring, partners on an outer), their flows, and which
+   * of them act in which slice of the stack.
    */
   private fibers(R: number, categorised: Vec2[], partnerPos: Vec2[]): Fiber[] {
     const d = this.data
@@ -690,13 +692,23 @@ export class FlowMap extends Null {
           if (!outs.includes(f.to) && !ins.includes(f.to)) outs.push(f.to)
         }
       })
-      const byHeight = (a: string, b: string) => posOf(b).y - posOf(a).y || a.localeCompare(b)
-      ins.sort(byHeight)
-      outs.sort(byHeight)
-      const geo = fiberLayout(ins.length, outs.length, R * 0.82)
-      const target = new Map<string, Vec2>([[site.id, geo.centre]])
-      ins.forEach((id, j) => target.set(id, geo.ins[j]!))
-      outs.forEach((id, j) => target.set(id, geo.outs[j]!))
+      // The same rule as the ring (David): no left/right halves — each CLASS
+      // its own regular polygon round the site. Sites (sending, receiving)
+      // on an inner ring, external partners on an outer one by their class;
+      // within a class, in order of angle in the full picture.
+      const angleOf = (id: string) => Math.atan2(posOf(id).y, posOf(id).x)
+      const entities = [...ins.map((id) => ({ id, dir: "in" })), ...outs.map((id) => ({ id, dir: "out" }))]
+      entities.sort((a, b) => angleOf(a.id) - angleOf(b.id) || a.id.localeCompare(b.id))
+      const pclass = new Map((d.partners ?? []).map((p) => [p.id, p.class ?? p.side]))
+      const siteRing = entities.filter((e) => mIndex.has(e.id))
+      const partnerRingEs = entities.filter((e) => pIndex.has(e.id))
+      // The inner ring starts at the top, the outer at the left — so a lone
+      // site never lines up with a partner diameter through the centre.
+      const inner = classRing(siteRing.map((e) => `sites-${e.dir}`), R * 0.42, Math.PI / 2)
+      const outer = classRing(partnerRingEs.map((e) => pclass.get(e.id)!), R * 0.85)
+      const target = new Map<string, Vec2>([[site.id, { x: 0, y: 0 }]])
+      siteRing.forEach((e, j) => target.set(e.id, inner.points[j]!))
+      partnerRingEs.forEach((e, j) => target.set(e.id, outer.points[j]!))
       // Which fiber entities act in slice k: a flow of stage s acts at its
       // source in slice s and at its target in slice s + 1.
       const slices = d.stages.map(() => new Set<string>()).concat([new Set<string>()])

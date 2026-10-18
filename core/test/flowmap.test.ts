@@ -461,6 +461,7 @@ describe("FlowMap", () => {
     const space = m.stateSpace()
     const focus = space.axes.find((a) => a.id === "focus")!
     expect(focus.positions[0]!.name).toBe("none")
+    expect(focus.escape).toBe("none") // Esc returns to the whole map
     // Site A: in from S1 (raw); out to D (semi), Q1 (semi-out).
     const A = MOCK_FLOWMAP.members.findIndex((x) => x.id === "A")
     const w = (m as unknown as Record<string, { value: number }>)[`focus_${A}`]!
@@ -470,9 +471,16 @@ describe("FlowMap", () => {
     expect(Math.hypot(f.members[A]!.x, f.members[A]!.y)).toBeLessThan(1e-9)
     const idx = (id: string) => MOCK_FLOWMAP.members.findIndex((x) => x.id === id)
     const pidx = (id: string) => MOCK_FLOWMAP.partners!.findIndex((x) => x.id === id)
-    expect(f.partners[pidx("S1")]!.x).toBeLessThan(0) // inflow: left
-    expect(f.members[idx("D")]!.x).toBeGreaterThan(0) // outflow: right
-    expect(f.partners[pidx("Q1")]!.x).toBeGreaterThan(0)
+    // No left/right halves: partners on the outer ring, sites on the inner,
+    // each class its own polygon — S1 and Q1 are classes of one each (a
+    // slot apiece on the outer ring: a diameter).
+    const r = (p: { x: number; y: number }) => Math.hypot(p.x, p.y)
+    expect(r(f.partners[pidx("S1")]!)).toBeCloseTo(R * 0.85, 9)
+    expect(r(f.partners[pidx("Q1")]!)).toBeCloseTo(R * 0.85, 9)
+    expect(r(f.members[idx("D")]!)).toBeCloseTo(R * 0.42, 9)
+    const s1 = f.partners[pidx("S1")]!
+    const q1 = f.partners[pidx("Q1")]!
+    expect(Math.hypot(s1.x + q1.x, s1.y + q1.y)).toBeLessThan(1e-6)
     // Outside the fiber: gone, not dimmed.
     expect(f.memberPresence[0]![idx("H")]).toBe(0)
     expect(f.partnerPresence[0]![pidx("K3")]).toBe(0)

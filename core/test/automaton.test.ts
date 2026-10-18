@@ -167,7 +167,7 @@ describe("FlowMap as the first citizen", () => {
     const a = new Automaton(gatherStateSpace([m]))
     expect(a.axes.map((x) => x.id)).toEqual([
       "grain", "expand", "labels", "raw", "semi", "finished",
-      "raw.open", "raw.certainty", "semi.open", "finished.open",
+      "raw.open", "raw.certainty", "semi.open", "finished.open", "focus",
     ])
     a.enter()
     expect(a.position("expand")).toBe("flat")
