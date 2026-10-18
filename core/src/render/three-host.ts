@@ -1068,13 +1068,13 @@ export class ThreeHost {
    * frame (perf J: Web3 asked it of ~32k strokes a frame for ~1.6 ms). The
    * whole list outside a song.
    */
-  private awake<B extends { holon: Holon }>(list: readonly B[], dozes = true): readonly B[] {
-    if (this.dormant === undefined && (this.dozing === undefined || !dozes)) return list
+  private awake<B extends { holon: Holon }>(list: readonly B[]): readonly B[] {
+    if (this.dormant === undefined && this.dozing === undefined) return list
     // Keyed on the list and its length too: bindings are appended after
     // mount (a text's contours), and a grown list must be filtered again.
     const hit = this.awakeCache.get(list)
     if (hit && hit.version === this.dormancyVersion && hit.n === list.length) return hit.list as B[]
-    const dozing = dozes ? this.dozing : undefined
+    const dozing = this.dozing
     const awake = list.filter((b) => !this.asleep(b.holon) && !dozing?.has(b.holon))
     this.awakeCache.set(list, { version: this.dormancyVersion, n: list.length, list: awake })
     return awake
@@ -1882,19 +1882,11 @@ export class ThreeHost {
     let widest = 0
     for (const binding of this.awake(this.strokes)) {
       const { holon, ribbon } = binding
-      const { look } = binding
-      const opacity = look.opacity.value
-      const width = look.stroke.value
       // The geometry dirty-check: an O(1) version+phase compare for a Line
       // (the many-point case that dominated this loop), the small
       // shape-param array for a parametric shape. A superset of the old
       // per-frame flatten+compare, so no stale geometry — see ShapeSig.
-      // A stroke that cannot show (seen opacity or width 0: ribbon.style
-      // hides it, picking and glow skip hidden ink) leaves its geometry —
-      // and a derived polyline's computation — until the frame it can: its
-      // signature is kept, so that frame finds the change and reshapes
-      // before the draw (state-space residency at the leaf).
-      if (!held && opacity > 0 && width > 0 && sigChanged(holon, binding.sig)) {
+      if (!held && sigChanged(holon, binding.sig)) {
         // `undefined` from a Line means its derived polyline has emptied
         // out this frame — pass it through so the ribbon empties too.
         const pts = polyline(holon)
@@ -1905,8 +1897,11 @@ export class ThreeHost {
         }
       }
       const lift = this.highlightOf(holon)
+      const { look } = binding
       const creation = look.creation.value
+      const opacity = look.opacity.value
       const tint = look.tint.value
+      const width = look.stroke.value
       if (width > widest) widest = width
       const erasure = look.erasure.value
       // One screen-arc measurement serves both fronts (perf F): a stroke
@@ -1928,7 +1923,7 @@ export class ThreeHost {
       )
     }
     this.widestStroke = widest
-    for (const binding of this.awake(this.fills, false)) {
+    for (const binding of this.awake(this.fills)) {
       const { holon, fill } = binding
       if (!held && sigChanged(holon, binding.sig)) {
         fill.setPolygon(
@@ -1964,18 +1959,15 @@ export class ThreeHost {
     }
     for (const binding of this.awake(this.polylines)) {
       const { holon, ribbon, look } = binding
-      // No pen front: shown while created and not erased.
-      const on = look.creation.value > 0 && look.erasure.value < 1 ? 1 : 0
-      const opacity = look.opacity.value
-      const width = look.stroke.value
-      // Hidden lines keep their loops (and skip deriving them) until they can show, as strokes do.
-      if (on > 0 && opacity > 0 && width > 0 && holon.geomVersion !== binding.version) {
+      if (holon.geomVersion !== binding.version) {
         const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
         binding.version = holon.geomVersion
         ribbon.setLoops(loops)
         this.blurOf.get(ribbon)?.setLoops(loops)
       }
-      ribbon.style(on, opacity, look.tint.value, width)
+      // No pen front: shown while created and not erased.
+      const on = look.creation.value > 0 && look.erasure.value < 1 ? 1 : 0
+      ribbon.style(on, look.opacity.value, look.tint.value, look.stroke.value)
     }
     for (const binding of this.awake(this.surfaces)) {
       const { holon, fill } = binding

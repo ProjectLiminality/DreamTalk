@@ -148,6 +148,8 @@ export interface LevelSurface {
   view(): ViewLayer | undefined
   /** Hold the level still; the returned resume puts it back as it was. */
   hold(): () => void
+  /** The level's holons — where a level is found again by name (a link to a state). */
+  roots?(): readonly Holon[]
 }
 
 /** What an unpack remembered, so coming back is exact. */
@@ -173,6 +175,11 @@ export class NestStack {
 
   get top(): Saved | undefined {
     return this.#saved[this.#saved.length - 1]
+  }
+
+  /** Where the song's own view stood before the first level opened. */
+  get outerDelta(): ViewDelta | undefined {
+    return this.#saved[0]?.delta
   }
 
   /** The names from the song down to here (a breadcrumb). */
@@ -244,6 +251,14 @@ export interface Nest {
    * depth 0: the song beneath is theirs). `dreamtalk:nest` on window says when it changes.
    */
   top(): NestTop | undefined
+  /**
+   * Open the next level by its path name (Nest.path's spelling): the largest
+   * on-screen symbol of that name in the top level, "<name> ◇" its state
+   * space — how a link to a state opens its nest again.
+   */
+  openByName(name: string): Promise<boolean>
+  /** The song's view as it stood before the first level opened (it glides back there on return). */
+  readonly outerDelta: ViewDelta | undefined
 }
 
 /** The open level on top: its game loop, canvas and host. */
@@ -356,6 +371,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       key: wm.key,
       surface: {
         canvas,
+        roots: () => dream.roots,
         pick: pickAt,
         clientBoxOf: (h) => clientBox(host, canvas, h),
         worldBoundsOf: (h) => host.worldBoundsOf(h),
@@ -565,6 +581,9 @@ export const mountNest = (opts: NestOpts): Nest => {
     get path() {
       return stack.path
     },
+    get outerDelta() {
+      return stack.outerDelta
+    },
     unpack,
     unpackAt,
     unpackHovered: () => (pointer ? unpackAt(pointer.x, pointer.y) : Promise.resolve(false)),
@@ -580,6 +599,21 @@ export const mountNest = (opts: NestOpts): Nest => {
         playing: inner ? inner.playing && !inner.game.on : undefined,
         song: inner?.key ?? inner?.dream.constructor.name,
       }
+    },
+    openByName(name) {
+      const lattice = name.endsWith(" ◇")
+      const base = lattice ? name.slice(0, -2) : name
+      const surface = top()
+      const area = (h: Holon) => {
+        const b = surface.clientBoxOf(h)
+        return b ? b.w * b.h : 0
+      }
+      let best: Holon | undefined
+      for (const r of surface.roots?.() ?? [])
+        for (const h of r.walk()) if (symbolAt(h) === h && nodeNameOf(h) === base && area(h) > (best ? area(best) : 0)) best = h
+      if (best) return lattice ? states(best) : unpack(best)
+      // "<song> ◇" with no symbol of that name: the open level's own song, through its lattice.
+      return lattice && inners.length ? states() : Promise.resolve(false)
     },
     top() {
       const inner = inners[inners.length - 1]

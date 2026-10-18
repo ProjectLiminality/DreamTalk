@@ -27,6 +27,7 @@ import { mountHandUI } from "./handui"
 import { SessionRecorder } from "../editor/recorder"
 import { holonPathOf } from "../editor/checkpoint"
 import { clientBox, mountNest, symbolAt } from "../editor/nest"
+import { mountToolkit, type Toolkit } from "./toolkit"
 import type { Holon } from "../src/holon"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
@@ -184,6 +185,8 @@ const main = async () => {
 
   /** How deep a nested symbol is open (editor/nest.ts) — the song beneath is frozen meanwhile. */
   let nestDepth = 0
+  /** Links to any state, the minimap, presenter mode (demo/toolkit.ts) — mounted once the page is. */
+  let toolkit: Toolkit | undefined
   const frame = async (now: number) => {
     game.hold(creator.on || explorer.on || nestDepth > 0, now)
     game.tick(now)
@@ -199,6 +202,7 @@ const main = async () => {
       sfx.update(t, true)
       readout.textContent = `t = ${t.toFixed(2)}s / ${duration.toFixed(2)}s`
     }
+    toolkit?.tick(now)
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
@@ -366,6 +370,7 @@ const main = async () => {
 
   document.addEventListener("keydown", (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    if (!creator.on && !explorer.on && toolkit?.key(e)) return
     if (isExplorerToggle(e) || (e.code === "Escape" && explorer.on)) {
       e.preventDefault()
       explorer.toggle(e.code === "Escape" ? false : undefined)
@@ -526,6 +531,7 @@ const main = async () => {
   const nest = mountNest({
     outer: {
       canvas,
+      roots: () => dream.roots,
       pick: (x, y) => pickAt(x, y),
       clientBoxOf: (h) => clientBox(host, canvas, h),
       worldBoundsOf: (h) => host.worldBoundsOf(h),
@@ -556,6 +562,35 @@ const main = async () => {
     await host.renderFrame(current)
     game.enter(current)
   }
+  toolkit = mountToolkit({
+    sceneKey: sceneName,
+    game,
+    view: () => game.view,
+    nest,
+    t: () => current,
+    seek: async (t, free) => {
+      current = t
+      if (free) {
+        // The song's own values at t, with no walk written over them: what a
+        // fresh entry reads its base from (game.enter re-installs the walk).
+        host.beforeSync = undefined
+        playing = false
+        narrator.update(Number.NaN, false)
+        sfx.update(Number.NaN, false)
+        await host.renderFrame(t)
+        await host.renderFrame(t)
+        game.enter(t)
+      } else {
+        if (game.on) game.leave()
+        t0 = performance.now() - t * 1000
+        playing = true
+      }
+    },
+    roots: dream.roots,
+    space: dream.stateSpace(),
+    signal: ac.signal,
+  })
+  ;(window as unknown as Record<string, unknown>).__dtToolkit = toolkit
   window.__dt = {
     ready: true,
     duration,

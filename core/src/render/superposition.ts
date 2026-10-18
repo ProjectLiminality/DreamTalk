@@ -130,10 +130,9 @@ export class RibbonSuperposition {
    * cloud to place.
    */
   sync(t: number, upp: () => number): void {
-    // The ink first: a hidden stroke's cloud is hidden whatever its certainty (and that reading may be a derivation).
-    const shown = shownOf(this.main)
-    const c = shown.opacity <= 0 ? 1 : this.certainty.value
+    const c = this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
+    const shown = shownOf(this.main)
     if (u <= 0 || shown.opacity <= 0) {
       if (this.shown) for (const echo of this.echoes) echo.mesh.visible = false
       this.shown = false
@@ -188,9 +187,9 @@ export class FillSuperposition {
   }
 
   sync(t: number, upp: () => number): void {
-    const { opacity, tint } = this.look()
-    const c = opacity <= 0 ? 1 : this.certainty.value
+    const c = this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
+    const { opacity, tint } = this.look()
     if (u <= 0 || opacity <= 0) {
       if (this.shown) for (const echo of this.echoes) echo.mesh.visible = false
       this.shown = false

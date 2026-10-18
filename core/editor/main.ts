@@ -97,6 +97,7 @@ import { axisSegments, lanesHeight, mountStateLanes, type StateLanesHandle } fro
 import type { Clip } from "../src/timeline"
 import { UndoStack, undoAction, type ChangedRange, type OpDescriptor } from "./undo"
 import { Overrides, type Pose } from "./overrides"
+import { mountToolkit, type Toolkit } from "../demo/toolkit"
 
 interface Transport {
   t: number
@@ -1784,6 +1785,8 @@ const boot = async (resume?: Transport) => {
   // --- Transport -----------------------------------------------------------
   let playing = false
   let current = 0
+  /** Links to any state, the minimap, presenter mode — mounted with the nest, below. */
+  let toolkit: Toolkit | undefined
   let anchor = performance.now()
   let alive = true
 
@@ -1869,6 +1872,7 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
+      if (!typing && !creator?.on && toolkit?.key(e)) return
       // Enter: unpack the symbol under the pointer into its own song (editor/nest.ts).
       if (!typing && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
         e.preventDefault()
@@ -2112,6 +2116,7 @@ const boot = async (resume?: Transport) => {
     : mountNest({
         outer: {
           canvas,
+          roots: () => dream.roots,
           pick: pickAt,
           clientBoxOf: (h) => clientBox(host, canvas, h),
           worldBoundsOf: (h) => host.worldBoundsOf(h),
@@ -2130,6 +2135,29 @@ const boot = async (resume?: Transport) => {
         note: (text) => showNote(text),
         signal: ac.signal,
       })
+
+  // Links to any state, the minimap, presenter mode (demo/toolkit.ts) — the
+  // player's, here too: paused is the editor's free play (the walk).
+  toolkit =
+    walk && nest
+      ? mountToolkit({
+          sceneKey,
+          game: walk.game,
+          view: () => view,
+          nest,
+          t: () => current,
+          seek: async (t, free) => {
+            pause()
+            await paint(t)
+            await host.renderFrame(t)
+            if (free) walk.ground()
+            else play()
+          },
+          roots: dream.roots,
+          space: dream.stateSpace(),
+          signal: ac.signal,
+        })
+      : undefined
 
   /** Sovereign symbols whose ink lies on the canvas now (largest first is a fair guess at "the one on screen"). */
   const area = (h: Holon): number => {
@@ -2307,6 +2335,7 @@ const boot = async (resume?: Transport) => {
   const loop = async (now: number) => {
     if (!alive) return
     const walked = walk?.step(now) ?? false
+    toolkit?.tick(now)
     syncLanes()
     becoming?.sync(current)
     session?.tick(now)

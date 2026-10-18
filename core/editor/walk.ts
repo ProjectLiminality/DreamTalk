@@ -369,6 +369,11 @@ export class EditorWalk {
     this.#panelKey = ""
   }
 
+  /** Enter the walk now, from the world on screen (a link to a state replays into it). */
+  ground(now = performance.now()): void {
+    if (this.walkable) this.#ground(now)
+  }
+
   // --- internals -----------------------------------------------------------
 
   /** (Re-)enter from the world on screen when it moved under the walk. */

@@ -43,7 +43,7 @@
 
 import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
-import { Automaton, RESERVED_KEYS, gatherStateSpace, type Axis, type StateSpace } from "../src/automaton"
+import { Automaton, RESERVED_KEYS, gatherStateSpace, type Axis, type Fired, type StateSpace } from "../src/automaton"
 import { lerpParamValue, smooth } from "../src/transitions"
 import { HOVER, SELECTED } from "../src/glow"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
@@ -473,6 +473,22 @@ export class GameLoop {
     if (n < 2) return
     const i = this.#focus ? this.#owners.indexOf(this.#focus) : by > 0 ? -1 : 0
     this.setFocus(this.#owners[(((i + by) % n) + n) % n]!)
+  }
+
+  /**
+   * Walk a saved path again — every fire at its own clock, then the clock
+   * where it stood — so the walked state is exactly what it was (a link to a
+   * state, demo/toolkit.ts). Call right after enter().
+   */
+  replay(fired: readonly Fired[], clock: number, now = performance.now()): void {
+    if (!this.#on) return
+    for (const f of fired) {
+      this.automaton.clock = f.clock
+      this.automaton.fire(f.axis, f.position)
+    }
+    this.automaton.clock = clock
+    if (this.#origin !== undefined) this.#origin = now - clock * 1000
+    this.#renderHud()
   }
 
   fire(id: string, position?: string): void {

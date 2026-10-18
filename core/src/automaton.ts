@@ -94,11 +94,13 @@ export interface AxisOpts {
  * Space (song ↔ free), ` (creator mode), ~ (explorer), m (sound), h (HUD),
  * r (view home), f (frame), c (calibrate the hands' pinch), i (hand talk —
  * demo/handui.ts), Enter (unpack the symbol under the pointer into its own
- * song; ⇧Enter its state space — editor/nest.ts). An axis may not declare one
+ * song; ⇧Enter its state space — editor/nest.ts), q (presenter mode), y (the
+ * minimap) and ⇧1–9 (! @ # $ % ^ & * ( — save the state to a slot; demo/toolkit.ts).
+ * An axis may not declare one
  * (test/reservedkeys.test.ts scans every shipped holon). Esc and the
  * arrows are named keys, not characters, so no axis can collide with them.
  */
-export const RESERVED_KEYS: readonly string[] = [" ", "`", "~", "m", "h", "r", "f", "c", "i", "Enter"]
+export const RESERVED_KEYS: readonly string[] = [" ", "`", "~", "m", "h", "r", "f", "c", "i", "Enter", "q", "y", "!", "@", "#", "$", "%", "^", "&", "*", "("]
 
 export interface Position {
   name: string
