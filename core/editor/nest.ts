@@ -301,6 +301,7 @@ export const mountNest = (opts: NestOpts): Nest => {
     try {
       const wm = watchMeOf(opts.scenes, symbol)
       const saved = stack.enter(surface, symbol)
+      opts.onDepth?.(stack.depth)
       opts.note(`↓ ${saved.name}${wm.alone ? " (its state space)" : ""} · esc comes back`)
       // "Inside of": the view glides into the symbol and past it…
       const view = surface.view()

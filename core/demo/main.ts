@@ -25,6 +25,8 @@ import { mountSummoning } from "./summon"
 import { mountHandUI } from "./handui"
 import { SessionRecorder } from "../editor/recorder"
 import { holonPathOf } from "../editor/checkpoint"
+import { clientBox, mountNest, symbolAt } from "../editor/nest"
+import type { Holon } from "../src/holon"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
 // the oracle's modelView·local the way the shader does). Harness-only.
@@ -173,8 +175,10 @@ const main = async () => {
     game.enter(current)
   }
 
+  /** How deep a nested symbol is open (editor/nest.ts) — the song beneath is frozen meanwhile. */
+  let nestDepth = 0
   const frame = async (now: number) => {
-    game.hold(creator.on || explorer.on, now)
+    game.hold(creator.on || explorer.on || nestDepth > 0, now)
     game.tick(now)
     ;(window as unknown as { __dtRecorder?: SessionRecorder }).__dtRecorder?.tick(now)
     if (game.on && !creator.on && !explorer.on) {
@@ -346,6 +350,11 @@ const main = async () => {
       void toggleGame()
       return
     }
+    if (e.code === "KeyU" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !creator.on && !explorer.on) {
+      e.preventDefault()
+      void nest.unpackHovered()
+      return
+    }
     if (e.code === "KeyR" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault()
       void toggleRecord()
@@ -381,6 +390,27 @@ const main = async () => {
     view: game.view,
     hoverAt: (x: number, y: number) => game.hoverAt(x, y),
     clickAt: (x: number, y: number) => game.clickAt(x, y),
+    // Nesting (u / Esc), for the harness.
+    nest: {
+      /** Unpack the largest on-screen symbol of this class. */
+      unpack: (name: string) => {
+        const area = (h: Holon) => {
+          const b = host.boundsOf(h)
+          if (!b) return 0
+          const w = Math.min(b.max.x, canvas.width) - Math.max(b.min.x, 0)
+          const v = Math.min(b.max.y, canvas.height) - Math.max(b.min.y, 0)
+          return w > 0 && v > 0 ? w * v : 0
+        }
+        let best: Holon | undefined
+        for (const r of dream.roots)
+          for (const h of r.walk())
+            if (symbolAt(h) === h && h.constructor.name.replace(/\d+$/, "") === name && area(h) > (best ? area(best) : 0)) best = h
+        return best ? nest.unpack(best) : Promise.resolve(false)
+      },
+      unpackAt: (x: number, y: number) => nest.unpackAt(x, y),
+      back: () => nest.back(),
+      state: () => ({ ...nest.state(), outerT: game.on ? game.heldAt : current, delta: game.view ? { ...game.view.delta } : undefined }),
+    },
     // The live session (⇧R), for hands and the harness — the editor's spelling.
     session: {
       toggle: () => toggleRecord(),
@@ -467,6 +497,30 @@ const main = async () => {
     const q = new URLSearchParams({ scene: sceneName, t: game.heldAt.toFixed(2), session: id })
     recNote.innerHTML = `session ${id} kept · <a href="/?${q}" style="color:#00a2ff">write it into the song ↗</a>`
   }
+  // Nesting (editor/nest.ts): `u` over a symbol unpacks it into its own song
+  // (its WatchMe) or state space; Esc comes back to exactly this moment —
+  // the song beneath is held (free play), never re-timed.
+  const nest = mountNest({
+    outer: {
+      canvas,
+      pick: (x, y) => pickAt(x, y),
+      clientBoxOf: (h) => clientBox(host, canvas, h),
+      worldBoundsOf: (h) => host.worldBoundsOf(h),
+      view: () => game.view,
+      hold: () => {
+        const wasPlaying = !game.on
+        if (!game.on) void toggleGame()
+        return () => {
+          if (wasPlaying && game.on) void toggleGame()
+        }
+      },
+    },
+    scenes,
+    note: (text) => (recNote.textContent = text),
+    // While a symbol is open the song beneath is frozen whole — its clocks too.
+    onDepth: (d) => (nestDepth = d),
+    signal: ac.signal,
+  })
   // Summoning (demo/summon.ts): `invoke:<Symbol>` brings a shelf symbol in at the hand, `invoke:dismiss` sends it off.
   ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({ host, canvas, signal: ac.signal })
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
