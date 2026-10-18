@@ -87,7 +87,7 @@ export class LatticeDream extends Dream {
  * a line through them, its current state lit at t (scene time = song time).
  */
 export class LatticeInterBrainDream extends Dream {
-  song = new InterBrainSongDream()
+  song = new InterBrainSongDream({ lazy: false }) // the whole film's machine, every chapter
   lattice = new StateLattice({
     machine: (() => {
       const tl = this.song.build()

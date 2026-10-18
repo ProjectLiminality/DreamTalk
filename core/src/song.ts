@@ -75,6 +75,7 @@
 import { Dream, orthoHalfHeight, type DreamClass, type Observer } from "./dream"
 import type { Holon } from "./holon"
 import type { Param, ParamValue } from "./params"
+import { Timeline } from "./timeline"
 import {
   buildIn,
   buildOut,
@@ -105,6 +106,7 @@ export type SceneSpec = DreamClass | { scene: DreamClass; span?: number }
 export type ChapterSpec = SceneSpec | [SceneSpec, Transition]
 
 export interface Chapter {
+  /** The chapter's scene. In a lazy song (LAZY CONSTRUCTION) reading it constructs the chapter if it is not standing. */
   dream: Dream
   /** Global song time at which this chapter's local t = 0. */
   offset: number
@@ -202,6 +204,50 @@ export const residentChapters = (
   return [...keep].sort((a, b) => a - b)
 }
 
+/**
+ * LAZY CONSTRUCTION — a song may also not CONSTRUCT the chapters away from
+ * the playhead (`new DreamSong(specs, { lazy: true })`). Residency keeps a
+ * chapter out of the host; this keeps it out of the heap: its Dream, its
+ * holon trees, its clips. It needs every chapter to declare its `span`, so
+ * the windows, the offsets and the duration are known without building
+ * one (an InterBrain-length song: eight chapters, ~600 MB of trees).
+ *
+ *  - Constructed: the chapters resident at the sampled t (residentAt), and
+ *    up to `keep` (default 1) more, the most recently resident — a jump
+ *    back to where the playhead just was does not construct again. The
+ *    rest are dropped; reading `chapter.dream` constructs one on demand.
+ *  - Timeline: each constructed chapter carries its own clips placed at
+ *    its offset — exactly the segments the composite would hold for its
+ *    params (a chapter's params are its own), with the same arithmetic —
+ *    applied after the song's own clips. A chapter is a deterministic
+ *    construction, so one built again is the chapter that never left:
+ *    the song stays a pure function of t, bit for bit.
+ *  - The song's own parts stand as before: its clips (`build()`, `clips`),
+ *    its `narration` and staged holons. `roots` is the song's own plus the
+ *    CONSTRUCTED chapters' — so a walker of `roots` (editor, explorer,
+ *    automaton) sees the chapters near the playhead only; `ownRoots` is
+ *    the song's own. `soundtrack` is the song's own score (the chapters'
+ *    sounding holons are not gathered — it is read once, at boot).
+ *  - `eager()` before the first build turns it back into the composite as
+ *    it always was (every chapter constructed, one timeline) — for a host
+ *    that mounts every chapter at once (three-host.ts, `residency: false`).
+ */
+export interface DreamSongOptions {
+  /** Construct only the chapters near the playhead (LAZY CONSTRUCTION). Every chapter must declare its span. */
+  lazy?: boolean
+  /** Lazy songs: constructed chapters kept beyond the resident ones, most recent first. Default 1. */
+  keep?: number
+}
+
+/** A constructed chapter of a lazy song (LAZY CONSTRUCTION). */
+interface Built {
+  dream: Dream
+  /** The chapter's clips at its offset — the composite's segments for its params. */
+  timeline: Timeline
+  /** Its opacity params, once each (perf J). */
+  opacities: Param<number>[]
+}
+
 /** One chapter fading as a single picture: its roots and its weight. */
 export interface LayerFade {
   roots: readonly Holon[]
@@ -256,9 +302,149 @@ export class DreamSong extends Dream {
     return this.#live
   }
 
-  constructor(chapters: readonly ChapterSpec[]) {
+  /** LAZY CONSTRUCTION: whether chapters are constructed only near the playhead. */
+  #lazy: boolean
+  /** Lazy: constructed chapters kept beyond the resident ones. */
+  readonly #keep: number
+  /** Lazy: each chapter's scene class. */
+  #scenes: (new () => Dream)[] = []
+  /** Lazy: the constructed chapters by index, least recently used first. */
+  #built = new Map<number, Built>()
+  /** Lazy: the resolved transition windows between constructed neighbours, by incoming index. */
+  #lazyWindows = new Map<number, TransitionWindow>()
+  /** Lazy: driven params (the song's own + the constructed chapters'), cached until the set changes. */
+  #lazyDriven?: Set<Param<ParamValue>>
+  /** Lazy: `roots`, cached until the constructed set changes. */
+  #rootsMemo?: readonly Holon[]
+  #unfolded = false
+
+  constructor(chapters: readonly ChapterSpec[], opts: DreamSongOptions = {}) {
     super()
     this.#specs = chapters
+    this.#lazy = opts.lazy ?? false
+    this.#keep = opts.keep ?? 1
+    if (this.#lazy) {
+      for (const spec of chapters) {
+        const scene = Array.isArray(spec) ? spec[0] : spec
+        if (typeof scene === "function" || scene.span === undefined) {
+          throw new Error("DreamSong: a lazy song needs every chapter to declare its span")
+        }
+      }
+    }
+  }
+
+  /** LAZY CONSTRUCTION: whether this song constructs its chapters only near the playhead. */
+  get lazy(): boolean {
+    return this.#lazy
+  }
+
+  /**
+   * Construct every chapter up front — the composite as it always was —
+   * for a host that mounts the whole song at once. Only before the song
+   * is built; a song that is not lazy is unchanged.
+   */
+  eager(): void {
+    if (!this.#lazy) return
+    if (this.#unfolded) throw new Error("DreamSong.eager(): the song is already built lazily")
+    this.#lazy = false
+  }
+
+  /** Lazy: the chapters constructed now, ascending (every chapter, for a song that is not lazy). */
+  get constructed(): number[] {
+    if (!this.#lazy) return this.chapters.map((_, i) => i)
+    return [...this.#built.keys()].sort((a, b) => a - b)
+  }
+
+  /** The song's own roots — its staged and animated holons, no chapter's. */
+  get ownRoots(): readonly Holon[] {
+    return this.#lazy ? super.roots : this.roots
+  }
+
+  /** Chapter i's roots, constructing it if a lazy song has not (or no longer has). */
+  chapterRoots(i: number): readonly Holon[] {
+    return this.chapters[i]!.dream.roots
+  }
+
+  /** Lazy: the song's own roots and the constructed chapters', in chapter order (LAZY CONSTRUCTION). */
+  override get roots(): readonly Holon[] {
+    const own = super.roots
+    if (!this.#lazy) return own
+    this.#rootsMemo ??= [
+      ...own,
+      ...[...this.#built.keys()].sort((a, b) => a - b).flatMap((i) => this.#built.get(i)!.dream.roots),
+    ]
+    return this.#rootsMemo
+  }
+
+  /** A lazy song's soundtrack is its own score (LAZY CONSTRUCTION). */
+  protected override get soundingRoots(): readonly Holon[] {
+    return this.ownRoots
+  }
+
+  /** Lazy: chapter i, constructed if it is not standing, and marked most recently used. */
+  #construct(i: number): Built {
+    let built = this.#built.get(i)
+    if (built) {
+      this.#built.delete(i)
+      this.#built.set(i, built)
+      return built
+    }
+    const offset = this.#chapters[i]!.offset
+    const dream = new this.#scenes[i]!()
+    // Placed exactly as unfold() places an eager chapter's clips.
+    const placed = dream.clips.map((clip) => ({ anim: clip.anim, start: offset + clip.start, duration: clip.duration }))
+    const holons = dream.roots.flatMap((root) => [...root.walk()])
+    built = { dream, timeline: new Timeline(placed), opacities: [...new Set(holons.map((h) => h.opacity))] }
+    this.#built.set(i, built)
+    this.#lazyChanged()
+    return built
+  }
+
+  /** Lazy: drop the constructed chapters beyond the resident ones and the `keep` most recent. */
+  #evict(resident: readonly number[]): void {
+    let spare = this.#keep
+    let changed = false
+    // Only a window resolved (and so possibly glided) has anything to put back.
+    const driven = this.#lazyWindows.size > 0 ? this.#lazyResolve().driven : undefined
+    for (const i of [...this.#built.keys()].reverse()) {
+      if (resident.includes(i)) continue
+      if (spare > 0) {
+        spare--
+        continue
+      }
+      // A window touching it goes too — its glided params put back first.
+      for (const [into, w] of this.#lazyWindows) {
+        if (w.from !== i && w.into !== i) continue
+        this.#restoreWindow(w, driven!)
+        this.#lazyWindows.delete(into)
+      }
+      this.#built.delete(i)
+      changed = true
+    }
+    if (changed) this.#lazyChanged()
+  }
+
+  #lazyChanged(): void {
+    this.#lazyDriven = undefined
+    this.#rootsMemo = undefined
+  }
+
+  /** Lazy: driven params and the windows between constructed neighbours. */
+  #lazyResolve(): { driven: Set<Param<ParamValue>>; windows: TransitionWindow[] } {
+    if (!this.#lazyDriven) {
+      const driven = new Set(this.build().params)
+      for (const built of this.#built.values()) for (const p of built.timeline.params) driven.add(p)
+      this.#lazyDriven = driven
+      for (const i of [...this.#built.keys()]) {
+        if (i === 0 || !this.#built.has(i - 1) || this.#lazyWindows.has(i)) continue
+        const w = this.#windowInto(i)
+        if (w) this.#lazyWindows.set(i, w)
+      }
+    }
+    return {
+      driven: this.#lazyDriven,
+      windows: [...this.#lazyWindows.values()].sort((a, b) => a.start - b.start),
+    }
   }
 
   /** The placed chapters. Building the song is what places them. */
@@ -288,13 +474,16 @@ export class DreamSong extends Dream {
    * duration is the sum of the spans minus the sum of the overlaps.
    */
   unfold(): void {
+    this.#unfolded = true
     let offset = 0
     let prev: Chapter | undefined
-    for (const spec of this.#specs) {
+    let prevName = ""
+    for (const [index, spec] of this.#specs.entries()) {
       const [scene, transition] = Array.isArray(spec) ? spec : [spec, undefined]
       const SceneCtor = typeof scene === "function" ? scene : scene.scene
-      const dream = new SceneCtor()
-      const span = (typeof scene === "function" ? undefined : scene.span) ?? dream.duration
+      // LAZY CONSTRUCTION: the window is the declared span; nothing is built.
+      const dream = this.#lazy ? undefined : new SceneCtor()
+      const span = (typeof scene === "function" ? undefined : scene.span) ?? dream!.duration
       const d = transition?.duration ?? 0
       if (d > 0) {
         if (!prev) {
@@ -304,24 +493,38 @@ export class DreamSong extends Dream {
         if (d > room || d > span) {
           throw new Error(
             `DreamSong: a ${d}s ${transition!.kind} does not fit its adjacent chapters` +
-              ` (${room}s of '${prev.dream.constructor.name}' remain, incoming span ${span}s)`,
+              ` (${room}s of '${prevName}' remain, incoming span ${span}s)`,
           )
         }
         offset -= d
         this.wait(-d)
       }
-      for (const clip of dream.clips) {
-        const placed = this.play(clip.anim, clip.duration)
-        placed.start = offset + clip.start
-        this.wait(-clip.duration)
+      let chapter: Chapter
+      if (dream) {
+        for (const clip of dream.clips) {
+          const placed = this.play(clip.anim, clip.duration)
+          placed.start = offset + clip.start
+          this.wait(-clip.duration)
+        }
+        for (const root of dream.roots) this.stage(root)
+        chapter = { dream, offset, span }
+      } else {
+        const construct = () => this.#construct(index).dream
+        this.#scenes.push(SceneCtor)
+        chapter = {
+          offset,
+          span,
+          get dream() {
+            return construct()
+          },
+        }
       }
-      for (const root of dream.roots) this.stage(root)
-      const chapter: Chapter = { dream, offset, span }
       if (d > 0) chapter.transition = transition
       this.#chapters.push(chapter)
       this.wait(span)
       offset += span
       prev = chapter
+      prevName = SceneCtor.name
     }
   }
 
@@ -354,34 +557,49 @@ export class DreamSong extends Dream {
       this.#driven = new Set(timeline.params)
       this.#windows = []
       for (let i = 1; i < this.#chapters.length; i++) {
-        const ch = this.#chapters[i]!
-        const transition = ch.transition
-        if (!transition || transition.kind === "cut") continue
-        const window: TransitionWindow = {
-          kind: transition.kind,
-          start: ch.offset,
-          end: ch.offset + transition.duration,
-          from: i - 1,
-          into: i,
-          pairs: [],
-          outs: [],
-          ins: [],
-          lifts: { from: [], into: [] },
-        }
-        if (transition.kind === "magicMove") {
-          const a = this.#chapters[i - 1]!
-          const match = matchRoots(a.dream, a.dream.roots, ch.dream, ch.dream.roots)
-          window.pairs = match.pairs.flatMap(([ra, rb]) => matchedParams(ra, rb))
-          window.outs = match.outs.flatMap((root) => [...root.walk()])
-          window.ins = match.ins.flatMap((root) => [...root.walk()])
-        }
-        if (transition.kind === "slide") {
-          window.lifts = { from: liftsOf(this.#chapters[i - 1]!.dream), into: liftsOf(ch.dream) }
-        }
-        this.#windows.push(window)
+        const window = this.#windowInto(i)
+        if (window) this.#windows.push(window)
       }
     }
     return { holons: this.#holons, driven: this.#driven, windows: this.#windows }
+  }
+
+  /** The transition window into chapter i, resolved — undefined for a cut. */
+  #windowInto(i: number): TransitionWindow | undefined {
+    const ch = this.#chapters[i]!
+    const transition = ch.transition
+    if (!transition || transition.kind === "cut") return undefined
+    const window: TransitionWindow = {
+      kind: transition.kind,
+      start: ch.offset,
+      end: ch.offset + transition.duration,
+      from: i - 1,
+      into: i,
+      pairs: [],
+      outs: [],
+      ins: [],
+      lifts: { from: [], into: [] },
+    }
+    if (transition.kind === "magicMove") {
+      const a = this.#chapters[i - 1]!
+      const match = matchRoots(a.dream, a.dream.roots, ch.dream, ch.dream.roots)
+      window.pairs = match.pairs.flatMap(([ra, rb]) => matchedParams(ra, rb))
+      window.outs = match.outs.flatMap((root) => [...root.walk()])
+      window.ins = match.ins.flatMap((root) => [...root.walk()])
+    }
+    if (transition.kind === "slide") {
+      window.lifts = { from: liftsOf(this.#chapters[i - 1]!.dream), into: liftsOf(ch.dream) }
+    }
+    return window
+  }
+
+  /** Put a window's glided params back: driven ones are the timeline's, undriven ones their default. */
+  #restoreWindow(w: TransitionWindow, driven: Set<Param<ParamValue>>): void {
+    for (const { a, b } of w.pairs) {
+      if (!driven.has(a)) a.value = a.defaultValue
+      if (!driven.has(b)) b.value = b.defaultValue
+    }
+    for (const y of [...w.lifts.from, ...w.lifts.into]) if (!driven.has(y as Param<ParamValue>)) y.value = y.defaultValue
   }
 
   /**
@@ -393,7 +611,16 @@ export class DreamSong extends Dream {
   override applyAt(t: number): void {
     const timeline = this.build()
     timeline.apply(t)
-    const { driven, windows } = this.#resolve()
+    // LAZY CONSTRUCTION: the resident chapters stand and sample their own
+    // placed clips; the rest are dropped (all but the `keep` most recent).
+    if (this.#lazy) {
+      const resident = this.residentAt(t)
+      for (const i of resident) this.#construct(i).timeline.apply(t)
+      this.#evict(resident)
+    }
+    const { driven, windows } = this.#lazy ? this.#lazyResolve() : this.#resolve()
+    const opacitiesOf = (i: number): readonly Param<number>[] | undefined =>
+      this.#lazy ? this.#built.get(i)?.opacities : this.#opacities![i]
 
     // The one window containing t (unfold() sizes them disjoint).
     const window = windows.find((w) => t >= w.start && t < w.end)
@@ -401,14 +628,7 @@ export class DreamSong extends Dream {
     // Glide overlay: outside a window every glided param is restored —
     // driven ones by apply(t) above, undriven ones to their declared
     // default (a previous sample inside the window wrote them).
-    for (const w of windows) {
-      if (w === window) continue
-      for (const { a, b } of w.pairs) {
-        if (!driven.has(a)) a.value = a.defaultValue
-        if (!driven.has(b)) b.value = b.defaultValue
-      }
-      for (const y of [...w.lifts.from, ...w.lifts.into]) if (!driven.has(y as Param<ParamValue>)) y.value = y.defaultValue
-    }
+    for (const w of windows) if (w !== window) this.#restoreWindow(w, driven)
     if (window && window.kind === "magicMove") {
       const e = smooth((t - window.start) / (window.end - window.start))
       for (const { a, b } of window.pairs) {
@@ -440,9 +660,12 @@ export class DreamSong extends Dream {
     this.#live = new Set()
     for (let i = 0; i < this.#chapters.length; i++) {
       const chapter = this.#chapters[i]!
+      // A lazy song's dropped chapters have nothing to gate (a live one always stands).
+      const opacities = opacitiesOf(i)
+      if (!opacities) continue
       const live = chapter === active || chapter === fromChapter
       if (live) for (const root of chapter.dream.roots) this.#live.add(root)
-      for (const opacity of this.#opacities![i]!) {
+      for (const opacity of opacities) {
         opacity.gate = live ? 1 : 0
         if (live && !opacity.isBound && !driven.has(opacity as Param<ParamValue>)) {
           opacity.value = opacity.defaultValue

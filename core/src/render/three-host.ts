@@ -708,7 +708,14 @@ const countStrokes = (dream: Dream): number => {
  * song (duck-typed, as liveRoots and layerFades are).
  */
 interface Residency {
-  chapters: readonly (readonly Holon[])[]
+  /** How many chapters the song has. */
+  count: number
+  /**
+   * Chapter i's roots as the song holds them NOW. A lazy song (song.ts LAZY
+   * CONSTRUCTION) constructs the chapter on asking, and hands back a new
+   * tree once it has dropped the old one — a mount of the old tree is stale.
+   */
+  rootsOf: (i: number) => readonly Holon[]
   residentAt: (t: number) => readonly number[]
   always: readonly Holon[]
 }
@@ -717,14 +724,28 @@ const residencyOf = (dream: Dream): Residency | undefined => {
   const song = dream as unknown as {
     residentAt?: (t: number) => readonly number[]
     chapters?: readonly { dream: Dream }[]
+    lazy?: boolean
+    ownRoots?: readonly Holon[]
+    chapterRoots?: (i: number) => readonly Holon[]
   }
   if (typeof song.residentAt !== "function" || !song.chapters) return undefined
+  // A lazy song's chapters construct their own trees: none shares a root.
+  if (song.lazy && song.ownRoots && typeof song.chapterRoots === "function") {
+    return {
+      count: song.chapters.length,
+      rootsOf: (i) => song.chapterRoots!.call(dream, i),
+      residentAt: (t) => song.residentAt!.call(dream, t),
+      always: song.ownRoots,
+    }
+  }
   const chapters = song.chapters.map((c) => c.dream.roots)
   const owners = new Map<Holon, number>()
   for (const roots of chapters) for (const r of roots) owners.set(r, (owners.get(r) ?? 0) + 1)
   const shared = new Set([...owners].filter(([, n]) => n > 1).map(([r]) => r))
+  const owned = chapters.map((roots) => roots.filter((r) => !shared.has(r)))
   return {
-    chapters: chapters.map((roots) => roots.filter((r) => !shared.has(r))),
+    count: owned.length,
+    rootsOf: (i) => owned[i]!,
     residentAt: (t) => song.residentAt!.call(dream, t),
     always: dream.roots.filter((r) => !owners.has(r) || shared.has(r)),
   }
@@ -1156,10 +1177,13 @@ export class ThreeHost {
     } = {},
   ): Promise<ThreeHost> {
     await Promise.resolve() // keep the signature async-stable
-    dream.build()
     // RESIDENCY: a song's chapters mount lazily. An explicit instancing
     // request keeps every chapter mounted (a batch's runs are laid out once).
-    const residency = opts.residency !== false && opts.useInstancedRibbons !== true ? residencyOf(dream) : undefined
+    const resident = opts.residency !== false && opts.useInstancedRibbons !== true
+    // A song mounted whole stands whole: a lazily constructed one (song.ts) builds every chapter.
+    if (!resident) (dream as { eager?: () => void }).eager?.()
+    dream.build()
+    const residency = resident ? residencyOf(dream) : undefined
     // "auto": count the built dream's strokes and instance only where it wins.
     // An explicit boolean (the byte-identity harness) overrides the threshold.
     // A resident song never batches (no song's runs are long enough to win).
@@ -3650,7 +3674,7 @@ export class ThreeHost {
     this.instanced = false
     // RESIDENCY: above every chapter's composite orders, as attach-last always was.
     const order = this.nextFillOrder
-    if (this.residency) this.nextFillOrder = this.adoptedOrder ?? (this.residency.chapters.length + 1) * ThreeHost.CHAPTER_ORDERS + 1
+    if (this.residency) this.nextFillOrder = this.adoptedOrder ?? (this.residency.count + 1) * ThreeHost.CHAPTER_ORDERS + 1
     try {
       this.attach(holon, this.scene)
     } finally {
@@ -3784,9 +3808,12 @@ export class ThreeHost {
   private reside(t: number): Promise<void> | undefined {
     const residency = this.residency!
     const want = residency.residentAt(t)
-    for (const i of [...this.mounted.keys()]) if (!want.includes(i)) this.unmountChapter(i)
+    // A mount whose chapter the song has since constructed afresh is stale.
+    for (const [i, mount] of [...this.mounted]) {
+      if (!want.includes(i) || mount.roots !== residency.rootsOf(i)) this.unmountChapter(i)
+    }
     const live = (this.dream as { liveRoots?: ReadonlySet<Holon> }).liveRoots
-    const isLive = (i: number) => residency.chapters[i]!.some((r) => live?.has(r) ?? true)
+    const isLive = (i: number) => residency.rootsOf(i).some((r) => live?.has(r) ?? true)
     let budget: number | undefined
     for (const i of want) {
       const mount = this.mounted.get(i)
@@ -3811,7 +3838,7 @@ export class ThreeHost {
 
   /** Attach chapter i's remaining roots — all of them, or (with `until`) as many as fit before that time, at least one. */
   private mountChapter(i: number, until?: number): void {
-    const roots = this.residency!.chapters[i]!
+    const roots = this.residency!.rootsOf(i)
     let mount = this.mounted.get(i)
     if (!mount) {
       mount = {

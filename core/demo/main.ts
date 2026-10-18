@@ -89,7 +89,13 @@ const main = async () => {
   // t and compares).
   const q = new URLSearchParams(location.search).get("instanced")
   const useInstancedRibbons = q === "1" ? true : q === "0" ? false : "auto"
-  const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons })
+  // A DreamSong mounts only the chapters near the playhead (three-host.ts
+  // RESIDENCY); `?resident=0` mounts every chapter at once, as before.
+  const host = await ThreeHost.mount(dream, canvas, {
+    useInstancedRibbons,
+    residency: query.get("resident") !== "0",
+    at: Math.max(0, Number(query.get("t")) || 0),
+  })
   if (place.alone) await frameAlone(host, dream, canvas)
   const duration = dream.duration
 

@@ -45,8 +45,16 @@ const SCENES = [
 ] as const
 
 export class InterBrainSongDream extends DreamSong {
-  constructor() {
-    super(SCENES.map((scene, k) => ({ scene, span: CHAPTERS[k]!.end - CHAPTERS[k]!.start })))
+  /**
+   * Lazy by default (song.ts LAZY CONSTRUCTION): every chapter declares its
+   * span (the film's own cuts), so only the chapters near the playhead are
+   * built — a whole-film walker asks for `{ lazy: false }`.
+   */
+  constructor(opts: { lazy?: boolean } = {}) {
+    super(
+      SCENES.map((scene, k) => ({ scene, span: CHAPTERS[k]!.end - CHAPTERS[k]!.start })),
+      { lazy: opts.lazy ?? true },
+    )
   }
 
   /** The narration first, at absolute times; then the chapters from 0. */

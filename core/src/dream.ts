@@ -327,7 +327,7 @@ export abstract class Dream {
   get soundtrack(): Soundtrack {
     const timeline = this.build()
     if (this.#soundtrack) return this.#soundtrack
-    const cues = this.roots.flatMap((r) => [...r.walk()].flatMap((h) => (isSounding(h) ? h.soundCues() : [])))
+    const cues = this.soundingRoots.flatMap((r) => [...r.walk()].flatMap((h) => (isSounding(h) ? h.soundCues() : [])))
     const events = [...this.#sounds]
     if (this.#chimes) events.push(...creationChimes(this.#clips))
     if (cues.length > 0) {
@@ -337,6 +337,11 @@ export abstract class Dream {
     }
     this.#soundtrack = new Soundtrack(events)
     return this.#soundtrack
+  }
+
+  /** The roots whose sounding holons the soundtrack gathers — all of them (a lazy DreamSong: its own, song.ts). */
+  protected get soundingRoots(): readonly Holon[] {
+    return this.roots
   }
 
   /** Register the reference layer (TASTE: The Editor). One per dream. */
