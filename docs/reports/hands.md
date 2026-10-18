@@ -181,10 +181,9 @@ every hand frame. *hands* is making it fast for the mouse too.
 
 ## Open questions
 
-- **Exact ink for the spark.** It picks and dims against each symbol's ink
-  *box*, so it can dim over the empty middle of an Eye. *hands* is building
-  exact 3D queries (`pickNear`, `pickRay`); the spark will switch to them
-  when they land.
+- **Exact ink for the spark** — done (2026-10-18): it picks and dims on
+  the strokes themselves (hands' `pickNear` / `pickRay`), no longer on the
+  symbols' boxes.
 - **Holding is verified by math and headless tests, not yet by your
   hand.** The axis signs follow the Leap frame (= the camera frame for a
   desk-mounted Leap). Your first hold tells whether that is true.
