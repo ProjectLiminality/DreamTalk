@@ -450,62 +450,127 @@ const loopLength = (loop: readonly Vec3Like[]): number => {
  * from welding into one another's loops.
  */
 /**
- * One glyph's boundary contours, cached per layout: the contours are a
- * pure function of the glyph geometry, but the outlines are rebuilt every
- * frame the projection scale moves (a dolly), and recovering the rings
- * each time was a third of that cost. Keyed by the position attribute and
- * its version, so a relayout or any write to the positions misses.
+ * Traced glyph contours, ONE cache shared by every Text holon (lead,
+ * 2026-10-18). Boundary rings and their insets are a pure function of
+ * the laid-out geometry (positions, triangles, glyph ids) and, for the
+ * insets, of the inset depth — so they are keyed by an exact fingerprint
+ * of that geometry, not by the BufferAttribute that carries it. A text
+ * remounted by residency (song chapters attach and detach near the
+ * playhead), or a second holon laid out to the very same geometry, reuses
+ * the traces instead of welding and insetting the same glyphs again.
+ *
+ * Keyed on the exact geometry rather than on one glyph's shape moved to
+ * the origin: the weld lattice and every float in the inset depend on the
+ * absolute coordinates, so a translated reuse would not be byte-identical.
+ *
+ * Bounded: least-recently-used entries go once the cached points pass
+ * TRACE_BUDGET_POINTS (a point is one small object, so ~50 MB at most).
  */
-const ringCache = new WeakMap<
-  THREE.BufferAttribute,
-  {
-    version: number
-    rings: Map<number, Vec3Like[][]>
-    /** Inset results per "glyph|inset" — see glyphInsets. */
-    insets: Map<string, { loop: Vec3Like[]; depth: number }[]>
+type Traced = Vec3Like[][] | { loop: Vec3Like[]; depth: number }[]
+const TRACE_BUDGET_POINTS = 1_000_000
+const traceCache = new Map<string, { value: Traced; points: number }>()
+let tracePoints = 0
+const tracedPoints = (value: Traced): number => {
+  let n = 0
+  for (const v of value) n += Array.isArray(v) ? v.length : v.loop.length
+  return n
+}
+const traced = <T extends Traced>(key: string, make: () => T): T => {
+  const hit = traceCache.get(key)
+  if (hit) {
+    // Refresh recency: a Map iterates in insertion order.
+    traceCache.delete(key)
+    traceCache.set(key, hit)
+    return hit.value as T
   }
->()
+  const value = make()
+  const points = tracedPoints(value)
+  traceCache.set(key, { value, points })
+  tracePoints += points
+  for (const [k, e] of traceCache) {
+    if (tracePoints <= TRACE_BUDGET_POINTS || k === key) break
+    traceCache.delete(k)
+    tracePoints -= e.points
+  }
+  return value
+}
+
+/** 64 bits (two independent 32-bit hashes) over an array's exact bytes. */
+const hashInto = (h: [number, number], array: ArrayLike<number>): void => {
+  const typed = ArrayBuffer.isView(array)
+    ? (array as unknown as ArrayBufferView)
+    : new Float64Array(array as ArrayLike<number>)
+  const aligned = typed.byteOffset % 4 === 0
+  const words = aligned ? typed.byteLength >> 2 : 0
+  const view32 = new Uint32Array(typed.buffer, typed.byteOffset, words)
+  const view8 = new Uint8Array(typed.buffer, typed.byteOffset + words * 4, typed.byteLength - words * 4)
+  let a = h[0] ^ typed.byteLength
+  let b = h[1] ^ Math.imul(typed.byteLength, 0x9e3779b1)
+  const step = (w: number): void => {
+    a = Math.imul(a ^ w, 0x01000193) // FNV-1a step
+    b = Math.imul(b ^ w, 0x5bd1e995) // murmur-style mix
+    b ^= b >>> 15
+  }
+  for (let i = 0; i < view32.length; i++) step(view32[i]!)
+  for (let i = 0; i < view8.length; i++) step(view8[i]!)
+  h[0] = a >>> 0
+  h[1] = b >>> 0
+}
 
 /**
- * One glyph's inset contours at one inset depth, cached per layout: a
- * pure function of the rings and the depth. With the projection scale
- * quantized (insetBucket), a scrub back to a scale already seen costs only
- * the ribbon rebuild.
+ * The geometry's fingerprint, memoised per position attribute and its
+ * version (a relayout or any write to the positions recomputes it).
  */
-const glyphInsets = (
+const fingerprints = new WeakMap<THREE.BufferAttribute, { version: number; key: string }>()
+const geometryKey = (
   position: THREE.BufferAttribute,
-  g: number,
-  rings: Vec3Like[][],
-  inset: number,
-): { loop: Vec3Like[]; depth: number }[] => {
-  const entry = ringCache.get(position)!
-  const key = `${g}|${inset}`
-  let found = entry.insets.get(key)
-  if (!found) {
-    found = rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop)))
-    entry.insets.set(key, found)
-  }
-  return found
+  indices: ArrayLike<number>,
+  glyphIndex: THREE.BufferAttribute,
+): string => {
+  const memo = fingerprints.get(position)
+  if (memo && memo.version === position.version) return memo.key
+  const h: [number, number] = [0x811c9dc5, 0x2545f491]
+  hashInto(h, position.array as ArrayLike<number>)
+  hashInto(h, indices)
+  hashInto(h, glyphIndex.array as ArrayLike<number>)
+  const key =
+    `${position.count}:${indices.length}:${glyphIndex.itemSize}:` +
+    `${h[0].toString(36)}${h[1].toString(36)}`
+  fingerprints.set(position, { version: position.version, key })
+  return key
 }
+
+/**
+ * One glyph's boundary contours (shared cache, above): a pure function
+ * of the glyph geometry, while the outlines are rebuilt every frame the
+ * projection scale moves (a dolly) and on every remount.
+ */
 const glyphRings = (
-  position: THREE.BufferAttribute,
+  geoKey: string,
   positions: ArrayLike<number>,
   indices: ArrayLike<number>,
   glyphIndex: THREE.BufferAttribute,
   g: number,
-): Vec3Like[][] => {
-  let entry = ringCache.get(position)
-  if (!entry || entry.version !== position.version) {
-    entry = { version: position.version, rings: new Map(), insets: new Map() }
-    ringCache.set(position, entry)
-  }
-  let rings = entry.rings.get(g)
-  if (!rings) {
-    rings = boundaryLoops(positions, indices, (t) => glyphIndex.getX(indices[t * 3]!) === g)
-    entry.rings.set(g, rings)
-  }
-  return rings
-}
+): Vec3Like[][] =>
+  traced(`${geoKey}|${g}`, () =>
+    boundaryLoops(positions, indices, (t) => glyphIndex.getX(indices[t * 3]!) === g),
+  )
+
+/**
+ * One glyph's inset contours at one inset depth (shared cache): a pure
+ * function of the rings and the depth. With the projection scale
+ * quantized (insetBucket), a scrub back to a scale already seen costs only
+ * the ribbon rebuild.
+ */
+const glyphInsets = (
+  geoKey: string,
+  g: number,
+  rings: Vec3Like[][],
+  inset: number,
+): { loop: Vec3Like[]; depth: number }[] =>
+  traced(`${geoKey}|${g}|${inset}`, () =>
+    rings.map((loop) => insetLoopDeepest(loop, inset, rings.filter((r) => r !== loop))),
+  )
 
 /**
  * The projection scale a Text insets its contours at, QUANTIZED onto a
@@ -541,6 +606,7 @@ const buildOutlines = (
   }
   if (glyphCount === 0) return []
 
+  const geoKey = geometryKey(position, indices, glyphIndex)
   const windows = writeWindows(glyphCount)
   const outlines: GlyphOutline[] = []
   for (let g = 0; g < glyphCount; g++) {
@@ -553,10 +619,10 @@ const buildOutlines = (
     // encode blur, so pulling the hard edge a further pixel in only
     // thins the stems.
     const inset = strokePx / 2 / Math.max(pixelsPerUnit, 1e-6)
-    const rings = glyphRings(position, positions, indices, glyphIndex, g)
+    const rings = glyphRings(geoKey, positions, indices, glyphIndex, g)
     // Each contour against its siblings too: a counter and its outline
     // share the stem between them, and neither inset may cross it.
-    const loops = glyphInsets(position, g, rings, inset)
+    const loops = glyphInsets(geoKey, g, rings, inset)
     // NOTE (open): where along its contour the 2021 pen STARTED is not
     // recoverable here. C4D began each stroke at its spline's first
     // point — the font's own contour start — and three-text hands over
@@ -843,6 +909,8 @@ export const attachText = (
   let insetBucket = insetBucketOf(DEFAULT_PIXELS_PER_UNIT)
   let insetScale = insetScaleOf(insetBucket)
   let currentKey = ""
+  /** A layout landed whose outlines are not yet traced (see relayout). */
+  let outlinesStale = false
   let layoutToken = 0
   let disposed = false
 
@@ -931,10 +999,14 @@ export const attachText = (
         } else {
           mesh.geometry = geometry
         }
-        // The traced outlines, rebuilt for this layout. They are added
-        // AFTER the solid so a fully written letter reads as one shape
-        // rather than an outline sitting on top of its own fill.
-        rebuildOutlines()
+        // The traced outlines, rebuilt for this layout at the next sync —
+        // which knows the frame's real projection scale. Tracing here at
+        // the default scale was thrown away by that first sync whenever
+        // the camera's scale differed (a second full trace per mount).
+        // They are added AFTER the solid so a fully written letter reads
+        // as one shape rather than an outline sitting on top of its fill.
+        dropOutlines()
+        outlinesStale = true
         handle?.dispose()
         handle = next
         for (const fn of layoutListeners) fn()
@@ -957,9 +1029,10 @@ export const attachText = (
       // resize) rebuilds the contours — a few hundred points repacked,
       // and only when the number actually changes.
       const bucket = insetBucketOf(pixelsPerUnit)
-      if (mesh && bucket !== insetBucket) {
+      if (mesh && (outlinesStale || bucket !== insetBucket)) {
         insetBucket = bucket
         insetScale = insetScaleOf(bucket)
+        outlinesStale = false
         rebuildOutlines()
       }
       if (!mesh || !material) return
