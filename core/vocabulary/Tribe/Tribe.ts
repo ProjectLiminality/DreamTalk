@@ -57,6 +57,7 @@ import { Circle, Ellipse, Group, Line, Null, Shape, derivePoints, type Vec3Like 
 import { color, completion, derive, integer, length } from "../../src/params"
 import { BLACK, BLUE, PI, RED, WHITE, type Color } from "../../src/constants"
 import { lerp } from "../../src/math"
+import type { Holon } from "../../src/holon"
 import { restage, together, type Anim } from "../../src/anim"
 import { Create } from "../../src/verbs"
 import { axis, type StateSpace } from "../../src/automaton"
@@ -166,6 +167,13 @@ export class Tribe extends Null {
   dim = completion(0.29)
   /** Pen width in screen px for frames and edges. */
   stroke = length(2.6)
+  /**
+   * Construction: what each node holds instead of a mind, made for a node
+   * circle of the given radius — the tribe of InterBrains, "your unique
+   * small tribe" scaled into the InterBrain lattice (f9966, f9991). Unset:
+   * the minds.
+   */
+  face?: (radius: number) => Holon = undefined
 
   /** Walkable (src/automaton.ts): ancient ↔ modern, bare ↔ boxed. */
   override stateSpace(): StateSpace | undefined {
@@ -261,13 +269,16 @@ export class Tribe extends Null {
         // Both follow the era; the body's edge is the frame's.
         for (const line of [outline, frame]) derivePoints(line, () => [m.value], () => nodeOutline(D, m.value))
         const bust = (u: number) => lerp(TRIBE.bustAncient, TRIBE.bustModern, u) * D
-        const mind = new Mind({
-          size: TRIBE.bustAncient * D / MIND.bust,
-          liminal: derive(() => 1 - m.value),
-          framed: derive(() => 0),
-          scale: derive(() => bust(m.value) / bust(0)),
-          stroke: this.stroke.map((w) => w * 0.85),
-        })
+        const held = this.face?.(TRIBE.circle * D)
+        const mind =
+          held ??
+          new Mind({
+            size: TRIBE.bustAncient * D / MIND.bust,
+            liminal: derive(() => 1 - m.value),
+            framed: derive(() => 0),
+            scale: derive(() => bust(m.value) / bust(0)),
+            stroke: this.stroke.map((w) => w * 0.85),
+          })
         const middle = n.q === 0 && n.r === 0
         const box = new Layer({
           y: TRIBE.boxY * D,
@@ -278,7 +289,7 @@ export class Tribe extends Null {
             new Circle({ radius: TRIBE.box * D, tint: BLUE, stroke }),
           ],
         })
-        this.minds.push(mind)
+        if (mind instanceof Mind) this.minds.push(mind)
         this.frames.push(frame)
         this.boxes.push(box)
         const node = new Group({ x: p.x, y: p.y, members: [body, frame, mind, box] })

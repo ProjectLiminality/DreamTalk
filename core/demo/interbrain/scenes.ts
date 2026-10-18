@@ -13,6 +13,14 @@ import { FigureBustDemoDream } from "./FigureBustDemo"
 import { SandTalkDemoDream } from "./SandTalkDemo"
 import { TribeDemoDream, TribeWebDemoDream, TribesDemoDream } from "./TribeDemo"
 import type { DreamClass } from "../../src/dream"
+import { Ch7BreakingTheSpellDream } from "./Ch7BreakingTheSpell"
+import { Ch8NewBeginningDream } from "./Ch8NewBeginning"
+import { Ch5FixingTheLensDream } from "./Ch5FixingTheLens"
+import { Ch6IntroducingInterBrainDream } from "./Ch6IntroducingInterBrain"
+import { Ch1ThirdAttractorDream } from "./Ch1ThirdAttractor"
+import { Ch2ArmsRaceDream } from "./Ch2ArmsRace"
+import { Ch3ViciousCycleDream } from "./Ch3ViciousCycle"
+import { Ch4GoingUpstreamDream } from "./Ch4GoingUpstream"
 import { DivideDemoDream } from "./DivideDemo"
 import { DreamSongDemoDream } from "./DreamSongDemo"
 import { SongLineDemoDream } from "./SongLineDemo"
@@ -35,6 +43,14 @@ import { VaultDemoDream } from "./VaultDemo"
 import { SpheresDemoDream } from "./SpheresDemo"
 
 export const interbrainScenes: Record<string, DreamClass> = {
+  "ib-ch5": Ch5FixingTheLensDream,
+  "ib-ch6": Ch6IntroducingInterBrainDream,
+  "ib-ch7": Ch7BreakingTheSpellDream,
+  "ib-ch8": Ch8NewBeginningDream,
+  "ib-ch1": Ch1ThirdAttractorDream,
+  "ib-ch2": Ch2ArmsRaceDream,
+  "ib-ch3": Ch3ViciousCycleDream,
+  "ib-ch4": Ch4GoingUpstreamDream,
   "ib-icons": IconsDemoDream,
   "ib-radiotower": RadioTowerDemoDream,
   "ib-book": BookDemoDream,
