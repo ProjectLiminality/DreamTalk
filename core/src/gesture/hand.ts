@@ -15,7 +15,9 @@
  * is a second canonical frame — the gesture layer only ever reads this view.
  */
 
-export type Joint = readonly [number, number, number]
+import { fingertipReach, palmCentre, tipGap, type P3 } from "../hands"
+
+export type Joint = P3
 
 export interface Hand {
   id: number
@@ -46,36 +48,13 @@ export interface HandFrame {
   aspect?: number
 }
 
-/** MediaPipe landmark indices used here. */
-export const J = {
-  wrist: 0,
-  thumbTip: 4,
-  indexMcp: 5,
-  indexTip: 8,
-  middleMcp: 9,
-  middleTip: 12,
-  ringMcp: 13,
-  ringTip: 16,
-  pinkyMcp: 17,
-  pinkyTip: 20,
-} as const
-
-export const dist = (a: Joint, b: Joint): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+// The skeleton's names and the hand's measures are said once, in src/hands.ts
+// (palm centre, gap, reach — what the thresholds below were tuned on); this
+// view reads them in its own units.
+export { J, dist } from "../hands"
 
 /** The palm's centre: wrist and the four finger roots, averaged. */
-export const palm = (h: Hand): Joint => {
-  const ids = [J.wrist, J.indexMcp, J.middleMcp, J.ringMcp, J.pinkyMcp]
-  let x = 0
-  let y = 0
-  let z = 0
-  for (const i of ids) {
-    const p = h.joints[i]!
-    x += p[0]
-    y += p[1]
-    z += p[2]
-  }
-  return [x / ids.length, y / ids.length, z / ids.length]
-}
+export const palm = (h: Hand): Joint => palmCentre(h.joints)
 
 /**
  * How closed the hand is, 0 open … 1 fist — from the joints, for every
@@ -90,15 +69,9 @@ export const palm = (h: Hand): Joint => {
  * the thumb) ~0.72 → 0.4 here, an open hand ~0.9. Scale-free.
  */
 /** Thumb tip to index tip, in hand sizes — ~0.17 pinched, ~0.45 in a fist, ~0.6+ open (David's hand, the Leap). */
-export const pinchGap = (h: Hand): number => h.gap ?? dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / (h.scale || 1)
+export const pinchGap = (h: Hand): number => h.gap ?? tipGap(h.joints, h.scale || 1)
 
 /** The least-curled fingertip's distance from the palm centre, in hand sizes. */
-export const reach = (h: Hand): number => {
-  if (h.reach !== undefined) return h.reach
-  const c = palm(h)
-  let r = 0
-  for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(h.joints[i]!, c))
-  return r / (h.scale || 1)
-}
+export const reach = (h: Hand): number => h.reach ?? fingertipReach(h.joints, h.scale || 1)
 
 export const grabStrength = (h: Hand): number => Math.min(1, Math.max(0, (0.9 - reach(h)) / (0.9 - 0.45)))

@@ -9,7 +9,7 @@
  * nothing from the gesture layer, and the gesture layer nothing from here.
  */
 
-import { dist, J, toNdc, type HandFrame, type Vec3 } from "../src/hands"
+import { dist, fingertipReach, handSize, J, tipGap, toNdc, type HandFrame, type Vec3 } from "../src/hands"
 
 export interface ScreenHand {
   id: number
@@ -31,16 +31,6 @@ export interface ScreenHand {
   palm: { at: [number, number, number]; normal: Vec3; direction: Vec3 }
 }
 
-/** The palm centre (wrist and the four finger roots) and the farthest of the four fingertips from it, in hand sizes. */
-const reachOf = (j: readonly Vec3[], size: number): number => {
-  const roots = [J.wrist, J.indexMcp, J.middleMcp, J.ringMcp, J.pinkyMcp]
-  const c: Vec3 = [0, 0, 0]
-  for (const i of roots) for (let k = 0; k < 3; k++) c[k]! += j[i]![k]! / roots.length
-  let r = 0
-  for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(j[i]!, c))
-  return r / size
-}
-
 export interface ScreenFrame {
   t: number
   source: string
@@ -56,7 +46,7 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
     source: f.source,
     aspect: f.box.size[0] / f.box.size[1],
     hands: f.hands.map((h) => {
-      const size = dist(h.joints[J.wrist]!, h.joints[J.middleMcp]!) || 1
+      const size = handSize(h.joints) || 1
       const toScreen = (p: Vec3): [number, number, number] => {
         const n = toNdc(p, f.box)
         return [(n[0] + 1) / 2, (1 - n[1]) / 2, -n[2] / 2 / zUnit]
@@ -70,8 +60,8 @@ export const screenFrame = (f: HandFrame): ScreenFrame => {
         scale: dist(joints[J.wrist]!, joints[J.middleMcp]!),
         ...(h.pinch === undefined ? {} : { pinch: h.pinch }),
         ...(h.grab === undefined ? {} : { grab: h.grab }),
-        gap: dist(h.joints[J.thumbTip]!, h.joints[J.indexTip]!) / size,
-        reach: reachOf(h.joints, size),
+        gap: tipGap(h.joints, size),
+        reach: fingertipReach(h.joints, size),
         palm: { at: toScreen(h.palm.position), normal: h.palm.normal, direction: h.palm.direction },
       }
     }),

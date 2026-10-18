@@ -138,7 +138,10 @@ export const toNdc = (p: Vec3, box: HandBox): Vec3 => [
 export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 export const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s]
-export const dist = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+/** A point any hand space holds: millimetres here, the gesture layer's screen units there. */
+export type P3 = readonly [number, number, number]
+
+export const dist = (a: P3, b: P3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 export const lerp3 = (a: Vec3, b: Vec3, u: number): Vec3 => [
   a[0] + (b[0] - a[0]) * u,
   a[1] + (b[1] - a[1]) * u,
@@ -154,6 +157,43 @@ export const normalize = (a: Vec3): Vec3 => {
   return l > 1e-9 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0]
 }
 
+// --- the hand's measures, said once -----------------------------------------
+//
+// The palm centre, the thumb–index gap and the fingertip reach are what the
+// gesture layer's thresholds are tuned on (David's hand, the Leap,
+// 2026-10-15: a fist reaches 0.38–0.43 hand sizes, his pinch closes the gap
+// to ~0.17). One definition, read by palmOf, hands/screen.ts and
+// src/gesture/hand.ts alike, in whatever space the joints are given — so
+// editing one can never de-tune the other.
+
+/** The palm's centre: the wrist and the four finger roots, averaged. */
+export const palmCentre = (joints: readonly P3[]): Vec3 => {
+  let x = 0
+  let y = 0
+  let z = 0
+  for (const i of [J.wrist, J.indexMcp, J.middleMcp, J.ringMcp, J.pinkyMcp]) {
+    const p = joints[i]!
+    x += p[0]
+    y += p[1]
+    z += p[2]
+  }
+  return [x / 5, y / 5, z / 5]
+}
+
+/** Thumb tip to index tip, in units of `size` (a hand size: wrist → middle knuckle). */
+export const tipGap = (joints: readonly P3[], size: number): number => dist(joints[J.thumbTip]!, joints[J.indexTip]!) / size
+
+/** The least-curled fingertip's distance from the palm centre, in units of `size` — how open the hand is. */
+export const fingertipReach = (joints: readonly P3[], size: number): number => {
+  const c = palmCentre(joints)
+  let r = 0
+  for (const i of [J.indexTip, J.middleTip, J.ringTip, J.pinkyTip]) r = Math.max(r, dist(joints[i]!, c))
+  return r / size
+}
+
+/** A hand size: wrist to middle knuckle, in the joints' own units. */
+export const handSize = (joints: readonly P3[]): number => dist(joints[J.wrist]!, joints[J.middleMcp]!)
+
 /**
  * A palm read off the joints — for sources that give only the skeleton.
  * Position: the middle of wrist and the four knuckles; normal out of the
@@ -164,9 +204,8 @@ export const palmOf = (joints: Vec3[], side: Side): Palm => {
   const w = joints[J.wrist]!
   const i = joints[J.indexMcp]!
   const m = joints[J.middleMcp]!
-  const r = joints[J.ringMcp]!
   const p = joints[J.pinkyMcp]!
-  const position = scale(add(add(add(w, i), add(m, r)), p), 1 / 5)
+  const position = palmCentre(joints)
   const a = sub(i, w)
   const b = sub(p, w)
   return {

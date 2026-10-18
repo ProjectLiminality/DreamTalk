@@ -13,8 +13,10 @@
  * bias correction can be tested against exactly that.
  */
 
+import { clamp01, lerp } from "../src/math"
 import {
   LEAP_BOX,
+  lerp3,
   palmOf,
   type Hand,
   type HandBox,
@@ -91,7 +93,6 @@ const THUMB_FIST: Vec3[] = [
   [5, -48, -70],
 ]
 
-const mix = (a: Vec3, b: Vec3, u: number): Vec3 => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]
 
 /** A finger from its knuckle, curled by c (0..1): flexion turns −z toward −y. */
 const finger = (mcp: Vec3, seg: [number, number, number], c: number): Vec3[] => {
@@ -108,16 +109,16 @@ const finger = (mcp: Vec3, seg: [number, number, number], c: number): Vec3[] => 
 
 /** The 21 joints of a pose, in the frame. */
 export const poseJoints = (pose: HandPose): Vec3[] => {
-  const g = Math.min(1, Math.max(0, pose.grab))
-  const pinch = Math.min(1, Math.max(0, pose.pinch)) * (1 - g)
-  const curl = (d: number) => Math.min(1, Math.max(0, pose.curls?.[d] ?? g))
+  const g = clamp01(pose.grab)
+  const pinch = clamp01(pose.pinch) * (1 - g)
+  const curl = (d: number) => clamp01(pose.curls?.[d] ?? g)
   // The thumb closes after the fingers and wraps AROUND the curled index (a
   // curved path through THUMB_WRAP), so a fist never passes through a pinch.
   const tc = pose.curls ? curl(0) : Math.max(0, (g - THUMB_LAG) / (1 - THUMB_LAG))
   const thumb = THUMB_OPEN.map((p, i) => {
-    const a = mix(p, THUMB_WRAP[i]!, tc)
-    const b = mix(THUMB_WRAP[i]!, THUMB_FIST[i]!, tc)
-    return mix(a, b, tc)
+    const a = lerp3(p, THUMB_WRAP[i]!, tc)
+    const b = lerp3(THUMB_WRAP[i]!, THUMB_FIST[i]!, tc)
+    return lerp3(a, b, tc)
   })
   const fingers = MCP.map((m, i) => finger(m, SEG[i]!, curl(i + 1)))
   if (pinch > 0) {
@@ -125,14 +126,14 @@ export const poseJoints = (pose: HandPose): Vec3[] => {
     const index = finger(MCP[0]!, SEG[0]!, 0.35 * pinch)
     const t0 = thumb[3]!
     const i0 = fingers[0]![3]!
-    const meet = mix(t0, i0, PINCH_BIAS)
+    const meet = lerp3(t0, i0, PINCH_BIAS)
     const dir = [i0[0] - t0[0], i0[1] - t0[1], i0[2] - t0[2]] as Vec3
     const len = Math.hypot(dir[0], dir[1], dir[2]) || 1
     const half = PINCH_GAP / 2 / len
     const iTarget: Vec3 = [meet[0] + dir[0] * half, meet[1] + dir[1] * half, meet[2] + dir[2] * half]
     const tTarget: Vec3 = [meet[0] - dir[0] * half, meet[1] - dir[1] * half, meet[2] - dir[2] * half]
-    const iShift = mix([0, 0, 0], [iTarget[0] - index[3]![0], iTarget[1] - index[3]![1], iTarget[2] - index[3]![2]], pinch)
-    const tShift = mix([0, 0, 0], [tTarget[0] - t0[0], tTarget[1] - t0[1], tTarget[2] - t0[2]], pinch)
+    const iShift = lerp3([0, 0, 0], [iTarget[0] - index[3]![0], iTarget[1] - index[3]![1], iTarget[2] - index[3]![2]], pinch)
+    const tShift = lerp3([0, 0, 0], [tTarget[0] - t0[0], tTarget[1] - t0[1], tTarget[2] - t0[2]], pinch)
     fingers[0] = index.map((p, k) => [p[0] + iShift[0] * [0, 0.25, 0.6, 1][k]!, p[1] + iShift[1] * [0, 0.25, 0.6, 1][k]!, p[2] + iShift[2] * [0, 0.25, 0.6, 1][k]!])
     thumb[2] = [thumb[2]![0] + tShift[0] * 0.5, thumb[2]![1] + tShift[1] * 0.5, thumb[2]![2] + tShift[2] * 0.5]
     thumb[3] = [t0[0] + tShift[0], t0[1] + tShift[1], t0[2] + tShift[2]]
@@ -301,10 +302,9 @@ function twoFists(): SimKey[] {
 }
 
 const smooth = (u: number) => u * u * (3 - 2 * u)
-const lerp = (a: number, b: number, u: number) => a + (b - a) * u
 
 const poseBetween = (a: Omit<HandPose, "side">, b: Omit<HandPose, "side">, u: number): Omit<HandPose, "side"> => ({
-  at: mix(a.at, b.at, u),
+  at: lerp3(a.at, b.at, u),
   pinch: lerp(a.pinch, b.pinch, u),
   grab: lerp(a.grab, b.grab, u),
   yaw: lerp(a.yaw ?? 0, b.yaw ?? 0, u),
@@ -321,7 +321,7 @@ export const simFrameAt = (keys: readonly SimKey[], t: number, box: HandBox = LE
   while (i < keys.length - 2 && keys[i + 1]!.t <= t) i++
   const a = keys[i]!
   const b = keys[Math.min(i + 1, keys.length - 1)]!
-  const u = b.t > a.t ? smooth(Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)))) : 0
+  const u = b.t > a.t ? smooth(clamp01((t - a.t) / (b.t - a.t))) : 0
   const hands: Hand[] = []
   for (const side of ["left", "right"] as const) {
     const pa = a[side]
@@ -356,7 +356,7 @@ export const screenToFrame = (x: number, y: number, box: HandBox = LEAP_BOX): Ve
 /** Where the fingers meet at a full pinch, relative to the wrist (a right hand, unturned). */
 const contactOffset = (): Vec3 => {
   const j = poseJoints({ side: "right", at: [0, 0, 0], pinch: 1, grab: 0 })
-  return mix(j[4]!, j[8]!, 0.5)
+  return lerp3(j[4]!, j[8]!, 0.5)
 }
 
 /**
