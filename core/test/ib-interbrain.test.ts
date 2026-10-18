@@ -131,4 +131,15 @@ describe("InterBrain", () => {
     for (const id of ["bloom", "garden", "flat", "fragment", "interbrain", "lens"]) expect(space.axes.some((a) => a.id === id)).toBe(false)
     expect(space.clocks).toContain(ib.sphere.spin)
   })
+
+  test("what it holds is not walkable on its own: `unfold` is the ONLY axis, so the HUD lists it and every click is the symbol's", () => {
+    const ib = new InterBrain({ radius: 400 })
+    const space = gatherStateSpace([ib])
+    expect(space.axes.map((a) => a.id)).toEqual(["unfold"])
+    expect(new Set(space.axes.map((a) => a.owner))).toEqual(new Set([ib]))
+    // Held where they stand: friends stay dreamers, dreams stay dreams.
+    expect(ib.nodes.slice(1).map((n) => n.kind.value)).toEqual([1, 0, 1, 0, 1, 0])
+    // A DreamNode on its own still walks its kind.
+    expect(new DreamNode().stateSpace()?.axes.map((a) => a.id)).toEqual(["kind"])
+  })
 })

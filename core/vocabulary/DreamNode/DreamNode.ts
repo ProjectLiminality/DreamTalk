@@ -140,8 +140,10 @@ export class DreamNode extends Null {
   }
 
   /** Walkable: dream ↔ dreamer — click the node, or `k`. */
-  override stateSpace(): StateSpace {
+  override stateSpace(): StateSpace | undefined {
     void this.parts
+    // A whole that drives the kind (InterBrain's held web) owns it.
+    if (this.kind.isBound) return undefined
     return {
       axes: [toggle("kind", this.kind, { key: "k", off: ["dream", DREAM], on: ["dreamer", DREAMER], handles: [this.ring] })],
     }

@@ -88,6 +88,21 @@ const phase = (v: number, a: number, b: number) => clamp01((v - a) / (b - a))
 const smooth = (u: number) => u * u * (3 - 2 * u)
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u
 
+/** Hold every walkable param in `h` (itself and its parts) where it stands:
+ *  a param a whole drives is not walkable (src/automaton.ts — Noosphere's
+ *  `free`, Earth's, Mind's, Conflict's, DreamNode's guards). */
+export const holdStates = (h: Holon): void => {
+  for (const part of h.walk()) {
+    for (const a of part.stateSpace()?.axes ?? []) {
+      for (const p of a.params()) {
+        if (p.isBound) continue
+        const v = p.value
+        p.follow(derive(() => v))
+      }
+    }
+  }
+}
+
 /** A holder whose presence fades all it holds. */
 class Layer extends Group {
   there = presence(1)
@@ -240,6 +255,13 @@ export class InterBrain extends Null {
     this.songline.grow.follow(this.unfold.map(() => smooth(phase(u(), SONG0, 1))))
     this.song = this.add(new Layer({ members: [this.songline] }))
     this.song.there.follow(this.unfold.map(() => smooth(phase(u(), SONG0 - 0.1, SONG0 + 0.05))))
+
+    // What it holds is the symbol's, not walkable on its own: every state of
+    // its parts (the sphere's bolts, a node's kind, a face's axes, the song
+    // line's node) is held where it stands, so `unfold` is its one axis —
+    // the HUD lists it, and a click anywhere on the symbol, folded or
+    // unfolded, is the symbol's. (Unpack a face to walk it on its own.)
+    for (const part of [this.sphere, ...this.nodes, this.songline]) holdStates(part)
   }
 
   /** The sphere draws on from the top, then the Logo makes itself at its
