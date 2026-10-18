@@ -102,9 +102,12 @@ export const songLatticeDream = (Song: DreamClass, name: string): DreamClass => 
   return Through
 }
 
-/** A holon's WatchMe: the scene that explains it, else the symbol alone. */
+/** A holon's WatchMe: its own level (Holon.unpack), else the scene that explains its class, else the symbol alone. */
 export const watchMeOf = (scenes: Record<string, DreamClass>, holon: Holon): WatchMe => {
   const name = nodeNameOf(holon)
+  // Its own level, from its own data (Holon.unpack), before its class's.
+  const own = holon.unpack()
+  if (own) return { Dream: own, alone: false }
   const entries = Object.entries(scenes)
   for (const suffix of ["WatchMeDream", "Dream", "DemoDream"]) {
     const hit = entries.find(([, Ctor]) => Ctor.name === `${name}${suffix}`)
@@ -125,9 +128,9 @@ export const statesOf = (scenes: Record<string, DreamClass>, holon: Holon): Watc
   return { Dream: songLatticeDream(wm.Dream, nodeNameOf(holon)), alone: false, framed: true, key: wm.key && `${wm.key} ◇` }
 }
 
-/** The symbol touched: the nearest sovereign at-or-above a hit. */
+/** The symbol touched: the nearest at-or-above a hit that is sovereign or has its own level (Holon.unpack). */
 export const symbolAt = (hit: Holon | undefined): Holon | undefined => {
-  for (let h: Holon | null | undefined = hit; h; h = h.parent) if (isSovereign(h)) return h
+  for (let h: Holon | null | undefined = hit; h; h = h.parent) if (isSovereign(h) || h.unpack() !== undefined) return h
   return undefined
 }
 

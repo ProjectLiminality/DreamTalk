@@ -46,6 +46,29 @@ describe("what a symbol unpacks into — its WatchMe", () => {
     const b = new Beacon()
     expect(symbolAt(b.ring)).toBe(b)
   })
+
+  test("a part with its own level (Holon.unpack) opens that, from its own data; its siblings still open the whole", () => {
+    class SiteDream extends Dream {
+      unfold() {}
+    }
+    class Site extends Holon {
+      constructor(readonly own: boolean) {
+        super()
+      }
+      override unpack(): DreamClass | undefined {
+        return this.own ? SiteDream : undefined
+      }
+    }
+    class Sites extends Holon {
+      static sovereign = true
+      mine = new Site(true)
+      plain = new Site(false)
+    }
+    const m = new Sites()
+    expect(symbolAt(m.mine)).toBe(m.mine)
+    expect(symbolAt(m.plain)).toBe(m)
+    expect(watchMeOf(scenes, m.mine)).toMatchObject({ Dream: SiteDream, alone: false })
+  })
 })
 
 describe("the return is exact", () => {

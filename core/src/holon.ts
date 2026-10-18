@@ -25,6 +25,7 @@
 import { together, type Anim } from "./anim"
 import type { Axis, StateSpace } from "./automaton"
 import type { HolonAction } from "./actions"
+import type { DreamClass } from "./dream"
 import type { KeepOut } from "./view"
 import {
   angle,
@@ -286,6 +287,16 @@ export class Holon {
    * every sovereign symbol has (open its DreamNode, dive in).
    */
   actions(): HolonAction[] | undefined {
+    return undefined
+  }
+
+  /**
+   * Optional: the level this very holon unpacks into (Enter — editor/nest.ts),
+   * built from its own data — a part that is not sovereign can still open
+   * its own song (a FlowMap's site into its systems). Undefined: unpacking
+   * it opens the nearest sovereign symbol above, by its class's WatchMe.
+   */
+  unpack(): DreamClass | undefined {
     return undefined
   }
 
