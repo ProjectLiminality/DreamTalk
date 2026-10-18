@@ -96,6 +96,7 @@ import {
   trimToRim,
   facingAngles,
   clearYaw,
+  fiberLayout,
   type Disc,
   type PartnerSide,
   type Vec2,
@@ -223,6 +224,8 @@ const mix = (a: Color, b: Color, u: number): Color => ({
 export class FlowEntity extends Group {
   /** Is this entity real data (1) or a placeholder we are painting (0)? */
   certainty = certainty(1)
+  /** There (1) or gone (0) — a site focus keeps only its fiber. */
+  presence = presence(1)
   ring!: Circle
   /** Its name inside the ring (members with a `label`; shown by `memberLabels`). */
   label?: Text
@@ -239,6 +242,8 @@ export class FlowSlice extends Group {
 /** One flow: its channel and the particles running down it. */
 export class Flow extends Group {
   certainty = certainty(1)
+  /** There (1) or gone (0) — a site focus keeps only its fiber's flows. */
+  presence = presence(1)
   line!: Line
   /** The particles themselves — filled Circles (the neutral "dot"), or Grains in a material stage. */
   dots: (Circle | Grain)[] = []
@@ -446,7 +451,8 @@ export class FlowMap extends Null {
       axes.push(
         toggle(sd.id, stage.shown, {
           label: name,
-          key: String(i + 1),
+          // Letters, not digits (1–9 are the player's view slots).
+          key: STAGE_KEYS[i],
           off: ["hidden", 0],
           on: ["shown", 1],
           handles: () => (stage.label ? [stage.label] : []),
@@ -493,10 +499,31 @@ export class FlowMap extends Null {
         )
       }
     })
+    // Site focus — the fiber: none, or one member; each member ring stands
+    // for its own site (touch it to focus there; touch the focused site to
+    // return).
+    const sites = this.data.members
+    const focusPositions: Record<string, Record<string, number>> = { none: Object.fromEntries(sites.map((_, i) => [`focus_${i}`, 0])) }
+    sites.forEach((m, i) => (focusPositions[m.id] = Object.fromEntries(sites.map((_, j) => [`focus_${j}`, j === i ? 1 : 0]))))
+    const ringsOf = new Map<Holon, string>()
+    for (const sl of this.slices) sl.sites.forEach((e, i) => (ringsOf.set(e, sites[i]!.id), ringsOf.set(e.ring, sites[i]!.id)))
+    axes.push(
+      axis("focus", this, focusPositions, {
+        key: "z",
+        duration: 1.6,
+        handles: () => [...ringsOf.keys()],
+        at: (h) => {
+          const id = ringsOf.get(h)
+          if (!id) return undefined
+          const i = sites.findIndex((m) => m.id === id)
+          return this.focusWeights[i]!.value > 0.5 ? "none" : id
+        },
+      }),
+    )
     if (this.lanesWanted())
       axes.push(
         axis("money", this, { value: { money: 0 }, both: { money: 0.5 }, money: { money: 1 } }, {
-          key: "$",
+          key: "k",
           duration: 1.6,
           handles: () => this.flows.map((f) => f.line),
         }),
@@ -529,7 +556,7 @@ export class FlowMap extends Null {
   // --- the pure state of the picture, memoised per param change ---------------
 
   // Memo slots — plain fields, not #-private: the holon is a Proxy.
-  private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number; scale: number }
+  private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number; scale: number; fibers: Fiber[] }
   private memoKey: number[] = []
   private memoFrame?: Frame
   private warnedRing = false
@@ -566,7 +593,7 @@ export class FlowMap extends Null {
         "FlowMap: partner classes cannot each be a regular polygon on the n-slot ring (every class size must divide n, and the classes must interleave) — each keeps as even a spread as the free slots allow.",
       )
     }
-    this.memoLayout = { flat, categorised, partners, R, scale }
+    this.memoLayout = { flat, categorised, partners, R, scale, fibers: this.fibers(R, categorised, partners) }
     return this.memoLayout
   }
 
@@ -587,6 +614,7 @@ export class FlowMap extends Null {
       this.tilt.value,
       this.pitch.value,
       ...this.stages.map((s) => s.open.value),
+      ...this.focusWeights.map((w) => w.value),
     ]
     if (this.memoFrame && key.length === this.memoKey.length && key.every((v, i) => v === this.memoKey[i])) return this.memoFrame
     this.memoKey = key
@@ -608,6 +636,7 @@ export class FlowMap extends Null {
       return { x: f.x + (c.x - f.x) * g, y: f.y + (c.y - f.y) * g }
     })
     const visible = depths.map((z, k) => (k === 0 ? 1 : smooth(0.04, 0.4, (z - depths[k - 1]!) / Math.max(1e-6, this.gap.value))))
+    const focus = this.focusBlend(members, L.partners, L.fibers, spread, depths.length)
     this.memoFrame = {
       R,
       depths,
@@ -616,10 +645,112 @@ export class FlowMap extends Null {
       heading: this.tilt.value * turn,
       pitch: this.pitch.value * turn,
       discs: categoryDiscs((this.data.categories ?? []).length, R, g),
-      members,
-      partners: L.partners,
+      members: focus.members,
+      partners: focus.partners,
+      unfocused: focus.unfocused,
+      memberPresence: focus.memberPresence,
+      partnerPresence: focus.partnerPresence,
+      flowPresence: focus.flowPresence,
     }
     return this.memoFrame
+  }
+
+  // --- site focus: the fiber ---------------------------------------------------
+
+  /** One weight per member (`focus_<i>`): how far the map is focused on that site. Declared in compose. */
+  private focusWeights: Param<number>[] = []
+
+  /**
+   * Each member's FIBER: the site, every entity flowing into it (left
+   * semicircle, top to bottom by height in the categorised picture), every
+   * entity it flows out to (right semicircle), their flows, and which of
+   * them act in which slice of the stack.
+   */
+  private fibers(R: number, categorised: Vec2[], partnerPos: Vec2[]): Fiber[] {
+    const d = this.data
+    // Its own id maps: a layout may be asked for before compose has run.
+    const mIndex = new Map(d.members.map((m, i) => [m.id, i]))
+    const pIndex = new Map((d.partners ?? []).map((p, i) => [p.id, i]))
+    const posOf = (id: string): Vec2 => {
+      const m = mIndex.get(id)
+      return m !== undefined ? categorised[m]! : partnerPos[pIndex.get(id)!]!
+    }
+    const stageOf = (id: string) => d.stages.findIndex((s) => s.id === id)
+    return d.members.map((site) => {
+      const ins: string[] = []
+      const outs: string[] = []
+      const flows = new Set<number>()
+      d.flows.forEach((f, fi) => {
+        if (f.to === site.id && f.from !== site.id) {
+          flows.add(fi)
+          if (!ins.includes(f.from)) ins.push(f.from)
+        }
+        if (f.from === site.id && f.to !== site.id) {
+          flows.add(fi)
+          if (!outs.includes(f.to) && !ins.includes(f.to)) outs.push(f.to)
+        }
+      })
+      const byHeight = (a: string, b: string) => posOf(b).y - posOf(a).y || a.localeCompare(b)
+      ins.sort(byHeight)
+      outs.sort(byHeight)
+      const geo = fiberLayout(ins.length, outs.length, R * 0.82)
+      const target = new Map<string, Vec2>([[site.id, geo.centre]])
+      ins.forEach((id, j) => target.set(id, geo.ins[j]!))
+      outs.forEach((id, j) => target.set(id, geo.outs[j]!))
+      // Which fiber entities act in slice k: a flow of stage s acts at its
+      // source in slice s and at its target in slice s + 1.
+      const slices = d.stages.map(() => new Set<string>()).concat([new Set<string>()])
+      for (const fi of flows) {
+        const f = d.flows[fi]!
+        const st = stageOf(f.stage)
+        slices[st]!.add(f.from)
+        slices[st + 1]!.add(f.to)
+      }
+      return { site: site.id, target, flows, slices }
+    })
+  }
+
+  /** Positions and presences with the focus weights applied (pure in the frame's inputs). */
+  private focusBlend(members: Vec2[], partners: Vec2[], fibers: Fiber[], spread: number, sliceCount: number) {
+    const d = this.data
+    const w = this.focusWeights.map((p) => Math.max(0, p.value))
+    const total = w.reduce((a, b) => a + b, 0)
+    const k = total > 1 ? 1 / total : 1
+    const ws = w.map((x) => x * k)
+    const unfocused = Math.max(0, 1 - ws.reduce((a, b) => a + b, 0))
+    const place = (id: string, full: Vec2): Vec2 => {
+      let x = full.x * unfocused
+      let y = full.y * unfocused
+      let sum = unfocused
+      fibers.forEach((fb, i) => {
+        const t = fb.target.get(id)
+        if (!t || ws[i]! <= 0) return
+        x += t.x * ws[i]!
+        y += t.y * ws[i]!
+        sum += ws[i]!
+      })
+      return sum > 1e-9 ? { x: x / sum, y: y / sum } : full
+    }
+    // Present in slice k: everything when unfocused; in a fiber, only what
+    // acts there — slice 0 stands for the whole flat picture until the
+    // stack opens.
+    const presentIn = (id: string, slice: number) =>
+      unfocused +
+      fibers.reduce((a, fb, i) => {
+        if (ws[i]! <= 0) return a
+        const any = fb.target.has(id) ? 1 : 0
+        const at = fb.slices[slice]?.has(id) ? 1 : 0
+        return a + ws[i]! * (slice === 0 ? any + (at - any) * spread : at)
+      }, 0)
+    const slices = Array.from({ length: sliceCount }, (_, s) => s)
+    return {
+      unfocused,
+      members: members.map((p, i) => place(d.members[i]!.id, p)),
+      partners: partners.map((p, i) => place((d.partners ?? [])[i]!.id, p)),
+      memberPresence: slices.map((s) => d.members.map((m) => presentIn(m.id, s))),
+      partnerPresence: slices.map((s) => (d.partners ?? []).map((p) => presentIn(p.id, s))),
+      flowPresence: d.flows.map((_, fi) => unfocused + fibers.reduce((a, fb, i) => a + (fb.flows.has(fi) ? ws[i]! : 0), 0)),
+    }
   }
 
   /** Where entity `id` sits in slice k, in the stack's frame. */
@@ -688,6 +819,13 @@ export class FlowMap extends Null {
     const d = this.data
     const cats = d.categories ?? []
     const partners = d.partners ?? []
+    // One focus weight per member — a param of this map, so an axis can
+    // walk it (stateSpace "focus").
+    d.members.forEach((_, i) => {
+      const w = completion(0)
+      ;(this as unknown as Record<string, Param<number>>)[`focus_${i}`] = w
+      this.focusWeights.push(w)
+    })
     d.members.forEach((m, i) => this.memberIndex.set(m.id, i))
     partners.forEach((p, i) => this.partnerIndex.set(p.id, i))
     for (const f of d.flows) {
@@ -730,7 +868,7 @@ export class FlowMap extends Null {
     const slices: FlowSlice[] = []
     for (let k = 0; k < sliceCount; k++) {
       const vis: Readable<number> = derive(() => this.frame().visible[k]!)
-      const ringed: Readable<number> = derive(() => this.frame().visible[k]! * this.rim.value)
+      const ringed: Readable<number> = derive(() => this.frame().visible[k]! * this.rim.value * this.frame().unfocused)
       const hull = new Circle({ radius: this.radius, stroke: 3, opacity: ringed })
       const discs = cats.map(
         (c, i) =>
@@ -741,7 +879,7 @@ export class FlowMap extends Null {
             y: derive(() => this.frame().discs[i]!.y),
             tint: derive(() => mix(WHITE, c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!, smooth(0, 0.45, this.grain.value))),
             // At grain 0 a disc IS the group circle, so it shares the rim's presence.
-            opacity: derive(() => this.frame().visible[k]! * Math.max(this.rim.value, smooth(0, 0.3, this.grain.value))),
+            opacity: derive(() => this.frame().visible[k]! * Math.max(this.rim.value, smooth(0, 0.3, this.grain.value)) * this.frame().unfocused),
           }),
       )
       const members = d.members.map((m, i) => {
@@ -774,6 +912,7 @@ export class FlowMap extends Null {
         })
         e.ring = ring
         e.label = label
+        e.presence.follow(derive(() => this.frame().memberPresence[k]![i]!))
         return e
       })
       const outer = partners.map((p, i) => {
@@ -801,6 +940,7 @@ export class FlowMap extends Null {
           y: derive(() => this.frame().partners[i]!.y),
         })
         e.ring = ring
+        e.presence.follow(derive(() => this.frame().partnerPresence[k]![i]!))
         return e
       })
       // Category names ride the front slice, by their discs, outside the rim
@@ -816,7 +956,7 @@ export class FlowMap extends Null {
             size: derive(labelSize),
             tint: c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!,
             // By its disc while flat; the legend takes over once staged.
-            opacity: derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * (1 - smooth(0, 0.5, this.expand.value))),
+            opacity: derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * (1 - smooth(0, 0.5, this.expand.value)) * this.frame().unfocused),
           })
           this.categoryLabels.push(text)
           named.push(
@@ -1145,6 +1285,7 @@ export class FlowMap extends Null {
       })
       flow.road = road
       flow.money = moneyLane
+      flow.presence.follow(derive(() => this.frame().flowPresence[fi]!))
       if (series) flow.certainty.follow(derive(sure))
       flow.line = line
       flow.dots = dots
@@ -1238,7 +1379,7 @@ export class FlowMap extends Null {
     const legendRows: Holon[] = []
     cats.forEach((c, i) => {
       const tint = c.tint ?? CATEGORY_TINTS[i % CATEGORY_TINTS.length]!
-      const shown = derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * smooth(0.5, 1, this.expand.value))
+      const shown = derive(() => this.labels.value * smooth(0.5, 1, this.grain.value) * smooth(0.5, 1, this.expand.value) * this.frame().unfocused)
       const y = derive(() => R() * (1.62 - 0.16 * i))
       legendRows.push(
         new Circle({ radius: derive(() => R() * 0.03), stroke: 0, fillOpacity: 1, tint, opacity: shown, x: derive(() => -R() * 2.05), y }),
@@ -1317,7 +1458,24 @@ interface Frame {
   discs: Disc[]
   members: Vec2[]
   partners: Vec2[]
+  /** 1 with no site focused … 0 fully in a fiber: what the whole picture keeps. */
+  unfocused: number
+  /** Per slice, per member / partner: there (1) or gone (0) under the focus. */
+  memberPresence: number[][]
+  partnerPresence: number[][]
+  flowPresence: number[]
 }
+
+/** A member's fiber: its own targets in the focused picture, its flows, who acts in which slice. */
+interface Fiber {
+  site: string
+  target: Map<string, Vec2>
+  flows: Set<number>
+  slices: Set<string>[]
+}
+
+/** Free-play keys for the stage layers — letters clear of the player's reserved set and this map's own keys. */
+const STAGE_KEYS = ["a", "s", "d", "j", "x", "b", "n", "v"]
 
 /** The board's own colours: raw material blue, semi-finished white, finished red. */
 const STAGE_TINTS: Color[] = [BLUE, WHITE, RED]

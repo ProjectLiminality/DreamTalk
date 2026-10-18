@@ -455,6 +455,41 @@ describe("FlowMap", () => {
     expect(m.stateSpace().axes.find((a) => a.id === "semi.concrete")!.positions.map((p) => p.name)).toEqual(["lines", "roads"])
   })
 
+  test("site focus: only the site's fiber stays, rearranged — the site centred, inflows left, outflows right", () => {
+    const m = new FlowMap({ radius: R })
+    void m.parts
+    const space = m.stateSpace()
+    const focus = space.axes.find((a) => a.id === "focus")!
+    expect(focus.positions[0]!.name).toBe("none")
+    // Site A: in from S1 (raw); out to D (semi), Q1 (semi-out).
+    const A = MOCK_FLOWMAP.members.findIndex((x) => x.id === "A")
+    const w = (m as unknown as Record<string, { value: number }>)[`focus_${A}`]!
+    w.value = 1
+    const f = m.frame()
+    expect(f.unfocused).toBe(0)
+    expect(Math.hypot(f.members[A]!.x, f.members[A]!.y)).toBeLessThan(1e-9)
+    const idx = (id: string) => MOCK_FLOWMAP.members.findIndex((x) => x.id === id)
+    const pidx = (id: string) => MOCK_FLOWMAP.partners!.findIndex((x) => x.id === id)
+    expect(f.partners[pidx("S1")]!.x).toBeLessThan(0) // inflow: left
+    expect(f.members[idx("D")]!.x).toBeGreaterThan(0) // outflow: right
+    expect(f.partners[pidx("Q1")]!.x).toBeGreaterThan(0)
+    // Outside the fiber: gone, not dimmed.
+    expect(f.memberPresence[0]![idx("H")]).toBe(0)
+    expect(f.partnerPresence[0]![pidx("K3")]).toBe(0)
+    const unrelated = MOCK_FLOWMAP.flows.findIndex((x) => x.from === "G" && x.to === "H")
+    expect(f.flowPresence[unrelated]).toBe(0)
+    expect(m.flows[unrelated]!.presence.value).toBe(0)
+    // The fiber's own flows stay.
+    const own = MOCK_FLOWMAP.flows.findIndex((x) => x.from === "A" && x.to === "D")
+    expect(f.flowPresence[own]).toBe(1)
+    // A handle stands for its own site; touching the focused site returns.
+    const ring = m.slices[0]!.sites[A]!.ring
+    expect(focus.at!(ring)).toBe("none")
+    w.value = 0
+    expect(focus.at!(ring)).toBe("A")
+    expect(m.frame().unfocused).toBe(1)
+  })
+
   test("a flow naming an unknown entity is refused", () => {
     const bad: FlowMapData = { ...MOCK_FLOWMAP, flows: [{ from: "nobody", to: "A", stage: "raw" }] }
     expect(() => new FlowMap({ data: bad }).parts).toThrow(/unknown entity 'nobody'/)

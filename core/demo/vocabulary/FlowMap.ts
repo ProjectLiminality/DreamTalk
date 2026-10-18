@@ -91,6 +91,13 @@ export class FlowMapDream extends Dream {
     // the blur crystallises into solid lines.
     this.flowing(3, m.stage("raw").certainty.to(1))
     this.flowing(3)
+    // Site focus — the fiber: only site A, what flows into it and what it
+    // flows out to remain, rearranged round it; then the whole map returns.
+    const focus = m.stateAxis("focus")
+    this.flowing(2.2, focus.to("A"))
+    this.flowing(3)
+    this.flowing(2.2, focus.to("none"))
+    this.flowing(1)
   }
 }
 

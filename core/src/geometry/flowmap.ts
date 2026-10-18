@@ -562,3 +562,20 @@ export const clearYaw = (
   }
   return best
 }
+
+/**
+ * A site's FIBER (David, 2026-10-18): the focused site at the centre, the
+ * entities flowing INTO it evenly spaced on the left semicircle, those it
+ * flows OUT to evenly spaced on the right — equal arcs, top to bottom in
+ * the order given (callers pass them by their height in the full picture,
+ * so the glide crosses as little as it can). Radius `r`. Pure.
+ */
+export const fiberLayout = (inflow: number, outflow: number, r: number): { centre: Vec2; ins: Vec2[]; outs: Vec2[] } => {
+  const arc = (k: number, side: 1 | -1) =>
+    Array.from({ length: k }, (_, j) => {
+      // From the top (π/2) round the side, in equal steps, centred.
+      const a = Math.PI / 2 + side * Math.PI * ((j + 0.5) / k)
+      return { x: r * Math.cos(a), y: r * Math.sin(a) }
+    })
+  return { centre: { x: 0, y: 0 }, ins: arc(inflow, 1), outs: arc(outflow, -1) }
+}
