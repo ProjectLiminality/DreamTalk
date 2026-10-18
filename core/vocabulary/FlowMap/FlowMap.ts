@@ -61,7 +61,7 @@
 import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { invRotHPB } from "../../src/parts/curves"
-import { angle, choice, completion, derive, length, paramEpoch, scalar, state, type Param, type Readable } from "../../src/params"
+import { angle, choice, completion, derive, length, noteReads, quietEpoch, scalar, state, trackReads, type Param, type Readable, type Reads } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
@@ -562,7 +562,7 @@ export class FlowMap extends Null {
   private memoKey: number[] = []
   private memoFrame?: Frame
   private warnedRing = false
-  private memoEpoch = -1
+  private frameMemo = quietMemo(() => this.computeFrame())
   /** Every presence on the map and above it (resolved at first use — a wrapper may adopt the map late). */
   private presences?: Param<number>[]
   /** Is anything of the map visible at all? Particles skip their work when not. */
@@ -599,14 +599,17 @@ export class FlowMap extends Null {
     return this.memoLayout
   }
 
-  /** Everything the picture's geometry depends on, except time. */
+  /**
+   * Everything the picture's geometry depends on, except time. O(1) after
+   * the first call per param change (quietMemo): every particle reads this
+   * several times a frame, and the key below reads ~10 params through the
+   * holon proxy.
+   */
   frame(): Frame {
-    // O(1) after the first call per param change: every particle reads this
-    // several times a frame, and the key below reads ~10 params through the
-    // holon proxy (src/params.ts paramEpoch — it moves on any param write).
-    const epoch = paramEpoch()
-    if (this.memoFrame && this.memoEpoch === epoch) return this.memoFrame
-    this.memoEpoch = epoch
+    return this.frameMemo()
+  }
+
+  private computeFrame(): Frame {
     const key = [
       this.radius.value,
       this.memberScale.value,
@@ -846,34 +849,28 @@ export class FlowMap extends Null {
     })
   }
 
-  private memoViewEpoch = -1
-  private memoView = { x: 0, z: 1 }
-  /** The direction toward the camera, in the stack's frame, on its ground (xz) plane. */
-  private viewInStack(): { x: number; z: number } {
-    const epoch = paramEpoch()
-    if (this.memoViewEpoch === epoch) return this.memoView
-    this.memoViewEpoch = epoch
+  private viewMemo = quietMemo(() => {
     const f = this.frame()
     const o = this.seenBy?.()
     const phi = o ? o.phi.value : 0
     const th = o ? o.theta.value : 0
     const world = { x: Math.cos(th) * Math.sin(phi), y: Math.sin(th), z: Math.cos(th) * Math.cos(phi) }
     const v = invRotHPB(world, f.pitch, f.heading, 0)
-    this.memoView = { x: v.x, z: v.z }
-    return this.memoView
+    return { x: v.x, z: v.z }
+  })
+  /** The direction toward the camera, in the stack's frame, on its ground (xz) plane. */
+  private viewInStack(): { x: number; z: number } {
+    return this.viewMemo()
   }
 
-  private memoTurnEpoch = -1
-  private memoTurn = { h: 0, p: 0, b: 0 }
-  /** The carriers' common turn: Ry(−heading)·Rx(−pitch)·Ry(φ)·Rx(−θ) as h/p/b (see geometry/flowmap facingAngles). */
-  private facingTurn(): { h: number; p: number; b: number } {
-    const epoch = paramEpoch()
-    if (this.memoTurnEpoch === epoch) return this.memoTurn
-    this.memoTurnEpoch = epoch
+  private turnMemo = quietMemo(() => {
     const f = this.frame()
     const o = this.seenBy?.()
-    this.memoTurn = facingAngles(f.heading, f.pitch, o ? o.phi.value : 0, o ? o.theta.value : 0)
-    return this.memoTurn
+    return facingAngles(f.heading, f.pitch, o ? o.phi.value : 0, o ? o.theta.value : 0)
+  })
+  /** The carriers' common turn: Ry(−heading)·Rx(−pitch)·Ry(φ)·Rx(−θ) as h/p/b (see geometry/flowmap facingAngles). */
+  private facingTurn(): { h: number; p: number; b: number } {
+    return this.turnMemo()
   }
 
   protected override compose(): void {
@@ -896,19 +893,7 @@ export class FlowMap extends Null {
     }
     // Readings every leaf shares, memoised per param change: each would
     // otherwise cross the holon proxy thousands of times a frame.
-    const epochMemo = <T,>(f: () => T): (() => T) => {
-      let e = -1
-      let v: T
-      return () => {
-        const now = paramEpoch()
-        if (now !== e) {
-          e = now
-          v = f()
-        }
-        return v
-      }
-    }
-    const R = epochMemo(() => this.radius.value)
+    const R = quietMemo(() => this.radius.value)
     const stageIndex = (id: string): number => d.stages.findIndex((s) => s.id === id)
     const labelSize = () => R() * 0.085
 
@@ -1166,12 +1151,8 @@ export class FlowMap extends Null {
       const spindle = sd.symbol ? SPINDLES[sd.symbol] : undefined
       const stageRate = Math.max(...d.flows.filter((g) => g.stage === f.stage).map((g) => g.rate ?? 1))
       for (let j = 0; j < n; j++) {
-        let memoEpoch = -1
         let memo = { x: 0, y: 0, z: 0, o: 0, heading: 0, vis: 0 }
-        const cur = () => {
-          const epoch = paramEpoch()
-          if (memoEpoch === epoch) return memo
-          memoEpoch = epoch
+        const cur = quietMemo(() => {
           const shown = stage.shown.value
           // Nothing to see: keep the last place, show nothing, skip the work.
           if (shown <= 0 || !this.present()) {
@@ -1200,7 +1181,7 @@ export class FlowMap extends Null {
           }
           memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o, heading, vis }
           return memo
-        }
+        })
         const dot = material
           ? new Grain({
               observer: this.seenBy?.(),
@@ -1258,12 +1239,8 @@ export class FlowMap extends Null {
         derivePoints(moneyLine, () => [this.frame(), stage.shown.value, this.money.value], () => lanePoints(-1, true))
         const coins: Group[] = []
         for (let j = 0; j < n; j++) {
-          let memoEpoch = -1
           let memo = { x: 0, y: 0, z: 0, o: 0 }
-          const cur = () => {
-            const epoch = paramEpoch()
-            if (memoEpoch === epoch) return memo
-            memoEpoch = epoch
+          const cur = quietMemo(() => {
             if (stage.shown.value <= 0 || this.money.value <= 0 || !this.present()) {
               memo = { ...memo, o: 0 }
               return memo
@@ -1280,7 +1257,7 @@ export class FlowMap extends Null {
             const off = lane(-1)
             memo = { x: p.x + w.x + off.x, y: p.y + w.y + off.y, z: p.z, o }
             return memo
-          }
+          })
           // A coin: a gold disc with a deeper ring struck inside it.
           const face = new Circle({
             radius: derive(() => R() * 0.024),
@@ -1507,6 +1484,31 @@ export class FlowMap extends Null {
 
 /** A member's ring radius for a group of radius R. */
 const memberRadius = (R: number): number => R * 0.058
+
+/**
+ * A reading memoised per param change that stays transparent to the host's
+ * skip (params.ts READS): it keeps the reads it was computed from and
+ * replays them (noteReads) on every cached answer, so a stroke reading it
+ * is skipped while none of them moved — where a memo keyed on paramEpoch()
+ * would make the stroke opaque.
+ */
+const quietMemo = <T,>(f: () => T): (() => T) => {
+  let epoch = -1
+  let value!: T
+  let reads: Reads = { deps: [], opaque: false }
+  return () => {
+    const now = quietEpoch()
+    if (now !== epoch) {
+      epoch = now
+      reads = { deps: [], opaque: false }
+      value = trackReads(reads, f)
+      // Each param once: the host skips only a short list (MAX_READS).
+      reads.deps = [...new Set(reads.deps)]
+    }
+    noteReads(reads.deps, reads.opaque)
+    return value
+  }
+}
 
 interface Frame {
   R: number
