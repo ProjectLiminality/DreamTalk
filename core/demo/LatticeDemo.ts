@@ -22,7 +22,7 @@
 import { Dream, render } from "../src/index"
 import { Create } from "../src/verbs"
 import { BLUE, GOLD, RED } from "../src/constants"
-import { together } from "../src/anim"
+import { eased, together } from "../src/anim"
 import { gatherStateSpace, type StateSpace } from "../src/automaton"
 import { machinesOf } from "../src/lattice"
 import { CoherenceBeacon } from "../vocabulary/CoherenceBeacon/CoherenceBeacon"
@@ -31,6 +31,8 @@ import { Mind } from "../vocabulary/Mind/Mind"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { Worldview } from "../vocabulary/Worldview/Worldview"
 import { StateLattice } from "../vocabulary/StateLattice/StateLattice"
+import { InterBrainSongDream } from "./interbrain/InterBrainSong"
+import { CHAPTERS } from "./interbrain/film"
 
 const TOP = 1150
 
@@ -77,4 +79,41 @@ export class LatticeDream extends Dream {
   }
 }
 
-if (import.meta.main) render(LatticeDream)
+
+/**
+ * The InterBrain song's own machine (`?scene=lattice-interbrain`): every
+ * walkable holon of the eight chapters — 1,392 axes, ~10^446 states — as
+ * a lattice per machine, the chapters left to right; the song's 2,835 s as
+ * a line through them, its current state lit at t (scene time = song time).
+ */
+export class LatticeInterBrainDream extends Dream {
+  song = new InterBrainSongDream()
+  lattice = new StateLattice({
+    machine: (() => {
+      const tl = this.song.build()
+      void tl
+      const m = machinesOf(
+        gatherStateSpace(this.song.roots, this.song.stateSpace()),
+        this.song.chapters.map((c, k) => ({ label: `${k + 1} · ${CHAPTERS[k]!.title.replace(/\n/g, " ")}`, roots: c.dream.roots })),
+      )
+      m.label = "The InterBrain"
+      return m
+    })(),
+    song: () => this.song.build(),
+    playhead: "song",
+    span: 240,
+    woven: 16,
+    blockAspect: 0.4,
+  })
+
+  unfold() {
+    const o = this.observer
+    o.radius.value = o.radius.defaultValue = 15500
+    this.stage(this.lattice)
+    this.play(Create(this.lattice), 2)
+    const d = this.song.build().duration
+    this.play(eased("linear", this.lattice.time.to(d)), d)
+  }
+}
+
+if (import.meta.main) render(LatticeInterBrainDream)

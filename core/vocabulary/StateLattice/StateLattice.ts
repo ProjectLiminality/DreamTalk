@@ -54,6 +54,8 @@ import {
 export interface LatticeSong {
   valueAt(p: Param<ParamValue>, t: number): ParamValue
   duration: number
+  /** The params the song moves (Timeline.params): a factor touching none of them stands still. */
+  params?: readonly Param<ParamValue>[]
 }
 
 type P = { x: number; y: number; z: number }
@@ -106,6 +108,8 @@ export class StateLattice extends Null {
   woven = 64
   /** At most this many interactive nodes in all; beyond, only the song's factors are. */
   interactive = 1500
+  /** A block's grid: columns over rows (1 square; less, taller blocks — many blocks side by side). */
+  blockAspect = 1
   /** Label each factor (else only the blocks). */
   labels = true
 
@@ -136,10 +140,32 @@ export class StateLattice extends Null {
     let p = this.#paths.get(f)
     if (!p) {
       const s = this.#song()
-      p = s ? songPath(f, (q, t) => s.valueAt(q, t), 0, s.duration, Math.min(0.25, s.duration / 400)) : []
+      if (!s) p = []
+      else {
+        this.#moved ??= new Set(s.params ?? [])
+        const still = s.params && !f.axes.some((a) => a.params().some((q) => this.#moved!.has(q)))
+        p = still
+          ? [{ t: 0, node: currentNode(f, (q) => s.valueAt(q, 0)) }]
+          : songPath(f, (q, t) => s.valueAt(q, t), 0, s.duration, Math.min(0.25, s.duration / 400))
+      }
       this.#paths.set(f, p)
     }
     return p
+  }
+  #moved: Set<Param<ParamValue>> | undefined
+
+  /** A factor's node at song time t, off its path (exact to the path's sampling). */
+  #nodeAt(f: Factor, t: number): number {
+    const path = this.#pathOf(f)
+    let lo = 0
+    let hi = path.length - 1
+    if (hi < 0) return 0
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (path[mid]!.t <= t) lo = mid
+      else hi = mid - 1
+    }
+    return path[lo]!.node
   }
 
   protected override compose(): void {
@@ -159,13 +185,13 @@ export class StateLattice extends Null {
     // about the lattice's own origin (so it turns about its middle).
     const cell = S * 1.7
     const plan: { d: Drawn; span: number; at: P }[] = []
-    const heads: { text: string; x: number }[] = []
+    const heads: { text: string; x: number; w: number }[] = []
     const states = (l: number) => (l < 6 ? Math.round(10 ** l).toLocaleString("en") : `10^${l.toFixed(0)}`)
     let x0 = 0
     let bottom = 0
     blocks.forEach((block, b) => {
       const list = all[b]!
-      const cols = Math.max(1, Math.ceil(Math.sqrt(list.length)))
+      const cols = Math.max(1, Math.ceil(Math.sqrt(list.length * this.blockAspect)))
       list.forEach(({ factor, depth, machine: m }, i) => {
         const at: P = { x: x0 + (i % cols) * cell, y: -Math.floor(i / cols) * cell, z: 0 }
         bottom = Math.min(bottom, at.y)
@@ -174,7 +200,7 @@ export class StateLattice extends Null {
         plan.push({ d: { factor, depth, machine: m, places }, span, at })
       })
       // The block's name and what it spans, woven with all its parts.
-      heads.push({ text: `${block.label} — ${states(block.woven)} states`, x: x0 + ((cols - 1) * cell) / 2 })
+      heads.push({ text: `${block.label} — ${states(block.woven)} states`, x: x0 + ((cols - 1) * cell) / 2, w: cols * cell })
       x0 += cols * cell + cell * 1.1
     })
     const xs = plan.map((q) => q.at.x)
@@ -199,7 +225,18 @@ export class StateLattice extends Null {
         )
       }
     }
-    for (const h of heads) this.add(new Text({ content: h.text, size: S * 0.2, x: h.x - cx, y: cell * 0.62 - cy, tint: WHITE }))
+    for (const h of heads) this.add(new Text({ content: h.text, size: Math.max(S * 0.2, Math.min(h.w * 0.05, S * 0.6)), x: h.x - cx, y: cell * 0.62 - cy, tint: WHITE }))
+    // Several machines woven into one: the whole and what weaving them made of it.
+    if (blocks.length > 1)
+      this.add(
+        new Text({
+          content: `${machine.label} — ${states(machine.woven)} states`,
+          size: S * 0.5,
+          x: 0,
+          y: cell * 1.5 - cy,
+          tint: WHITE,
+        }),
+      )
 
     // The song line: each factor's path, and the thread through them all —
     // read lazily (first drawn), since a scene's own song is built after
@@ -209,22 +246,27 @@ export class StateLattice extends Null {
       this.drawn.map((d) => this.#pathOf(d.factor)).flatMap((path, i) => (path.length > 1 ? [path.map((s) => this.drawn[i]!.places[s.node]!)] : [])),
     )
     this.thread = this.add(new Line({ tint: GOLD, stroke: 1.2, opacity: 0.55 }))
-    derivePoints(this.thread, () => [0], () =>
-      this.drawn
+    // The song's moves in time order; on a song playhead, the thread is
+    // drawn as far as the song has come.
+    let moves: { t: number; from: P; to: P }[] | undefined
+    const allMoves = () =>
+      (moves ??= this.drawn
         .flatMap((d) => {
           const path = this.#pathOf(d.factor)
           return path.slice(1).map((s, k) => ({ t: s.t, from: d.places[path[k]!.node]!, to: d.places[s.node]! }))
         })
-        .sort((a, b) => a.t - b.t)
-        .flatMap((m) => [m.from, m.to]),
-    )
-    if (this.playhead === "song")
-      this.thread.creation.follow(
-        this.time.map((t) => {
-          const d = this.#song()?.duration
-          return d ? t / d : 1
-        }),
-      )
+        .sort((a, b) => a.t - b.t))
+    const reached = () => {
+      const m = allMoves()
+      if (this.playhead !== "song") return m.length
+      let n = 0
+      while (n < m.length && m[n]!.t <= this.time.value) n++
+      return n
+    }
+    derivePoints(this.thread, () => [reached()], () => {
+      const pts = allMoves().slice(0, reached()).flatMap((m) => [m.from, m.to])
+      return pts.length >= 2 ? pts : [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }]
+    })
   }
 
   #drawFactor(d: Drawn, span: number, clickable: boolean): void {
@@ -244,7 +286,8 @@ export class StateLattice extends Null {
       const e = paramEpoch()
       if (e !== seen) {
         seen = e
-        at = currentNode(factor, this.readAt)
+        // On a song: off its path (a still factor costs nothing); live: off the params.
+        at = this.playhead === "song" && this.#song() ? this.#nodeAt(factor, this.time.value) : currentNode(factor, this.readAt)
       }
       return at
     }
