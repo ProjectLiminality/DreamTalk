@@ -155,6 +155,12 @@ export class GeoFlow extends Null {
   planeMembers: ((geo: GeoFlow) => Holon[]) | undefined = undefined
 
   /**
+   * Options for the FlowMap GeoFlow builds, merged over its own defaults
+   * (`{ roads: true, particleMax: 0.09 }`, …). Construction-time.
+   */
+  mapOptions: Overrides | undefined = undefined
+
+  /**
    * Stagger the rise: the headquarters over the first 30% of `rise`, the
    * sites over the rest, spread by this fraction (0 = all together, as one).
    * Construction-time.
@@ -295,6 +301,7 @@ export class GeoFlow extends Null {
       memberScale: 0.85,
       time: this.time,
       seenBy: () => observer,
+      ...this.mapOptions,
     })
     this.map = map
     const tintOf = new Map((data.categories ?? []).map((c) => [c.id, c.tint ?? WHITE]))

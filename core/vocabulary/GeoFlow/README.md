@@ -34,6 +34,7 @@ this.play(geo.view.to(1, { easing: "linear" }), 6.6)
 - `viewExtras: [[param, atGlobe, atAbstract], …]` makes the **v** axis walk your params too.
 - `GEOFLOW_WINDOWS` exposes the transition's windows, to time your own beats against them.
 - `planeMembers: (geo) => holons` builds a song's plane pieces once GeoFlow is composed (they may read `geo.map`); the same as `inPlane` for each.
+- `mapOptions: { roads: true, … }` is merged over GeoFlow's own options for the FlowMap it builds.
 - `geo.eyeDistance()` is the eye's distance to the abstract plane in map units, which is constant because the plane is rescaled to keep the group at `fill`.
 
 **Options for a song** (construction-time; all off by default):

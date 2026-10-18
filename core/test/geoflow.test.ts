@@ -125,6 +125,16 @@ describe("GeoFlow's options for a song", () => {
     expect(mark.parent).toBe(g.map.parent)
     expect(g.eyeDistance()).toBeCloseTo(300 / (Math.tan(g.fov / 2) * g.fill.value), 9)
   })
+  test("mapOptions reach the FlowMap GeoFlow builds, over its own defaults", () => {
+    const g = new GeoFlow({ seenBy: () => new Observer(), mapOptions: { roads: true, memberScale: 0.5 } })
+    void g.parts
+    expect(g.map.roads).toBe(true)
+    expect(g.map.memberScale.value).toBe(0.5)
+    const plain = new GeoFlow({ seenBy: () => new Observer() })
+    void plain.parts
+    expect(plain.map.roads).toBe(false)
+    expect(plain.map.memberScale.value).toBe(0.85)
+  })
 })
 
 /** The plane's hover from the focus (half the eye's height over the region). */
