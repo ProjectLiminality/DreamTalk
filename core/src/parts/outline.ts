@@ -318,11 +318,16 @@ export const insetLoopDeepest = (
   // no edge reversing, and the pen would poke out the far side. A small
   // tail (2%) may sit closer: the miter-capped needle corners, by design.
   const outer = loopArea(loop) > 0 // interior on the left: inside the ring
+  // Even-odd crossing count, asked only of the edges whose y-span holds
+  // p.y (the crossing test is false for every other edge): the same
+  // parity, from a band index instead of the whole ring.
+  let bands: YBands | undefined
   const within = (p: Vec3Like): boolean => {
+    bands ??= new YBands(loop)
     let inside = false
-    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
-      const a = loop[i]!
-      const b = loop[j]!
+    for (const e of bands.at(p.y)) {
+      const a = loop[e]!
+      const b = loop[e === 0 ? loop.length - 1 : e - 1]!
       if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
         inside = !inside
       }
@@ -375,17 +380,43 @@ export const insetLoopDeepest = (
 
 /**
  * The segments of a contour and its sibling contours, binned by a uniform
- * grid whose cell is at least every query radius — so the 3×3 cells around
- * a point hold every segment that could lie within it. `near` gives the
- * same answer as testing every segment: own edges count only when asked.
+ * grid. `near` visits only the cells the query disc's box overlaps — a
+ * segment closer to p than r has a point inside that box, and every cell
+ * its bounding box covers lists it — so it gives the same answer as
+ * testing every segment: own edges count only when asked.
+ *
+ * The cell is half the largest query radius, so a query reads ~3×3 to
+ * 5×5 small cells rather than 3×3 big ones; a candidate is first judged
+ * on its squared distance, and only one within a hair of r (1e-9
+ * relative — far above the few ulps between hypot and a square root) is
+ * measured with the very segmentDistance the all-pairs walk used. The
+ * booleans, and so every inset, are exactly the same.
  */
 class SegmentGrid {
   private readonly cells = new Map<number, number[]>()
+  private readonly ax: number[] = []
+  private readonly ay: number[] = []
   private readonly a: Vec3Like[] = []
   private readonly b: Vec3Like[] = []
   private readonly own: boolean[] = []
+  private stamp: Int32Array = new Int32Array(0)
+  private query = 0
+  private readonly cell: number
 
-  constructor(loop: Loop, others: readonly Loop[], private readonly cell: number) {
+  constructor(loop: Loop, others: readonly Loop[], radius: number) {
+    // Half the query radius — but never below the mean segment length,
+    // or a long edge would be listed in a long run of tiny cells.
+    let total = 0
+    let count = 0
+    for (const ring of [loop, ...others]) {
+      for (let e = 0; e < ring.length; e++) {
+        const a = ring[e]!
+        const b = ring[(e + 1) % ring.length]!
+        total += Math.abs(b.x - a.x) + Math.abs(b.y - a.y)
+        count++
+      }
+    }
+    const cell = (this.cell = Math.max(radius / 2, count > 0 ? total / count : 0) || 1)
     const add = (ring: Loop, own: boolean) => {
       for (let e = 0; e < ring.length; e++) {
         const a = ring[e]!
@@ -393,6 +424,8 @@ class SegmentGrid {
         const id = this.a.length
         this.a.push(a)
         this.b.push(b)
+        this.ax.push(a.x)
+        this.ay.push(a.y)
         this.own.push(own)
         const x0 = Math.floor(Math.min(a.x, b.x) / cell)
         const x1 = Math.floor(Math.max(a.x, b.x) / cell)
@@ -400,7 +433,7 @@ class SegmentGrid {
         const y1 = Math.floor(Math.max(a.y, b.y) / cell)
         for (let x = x0; x <= x1; x++) {
           for (let y = y0; y <= y1; y++) {
-            const key = this.key(x, y)
+            const key = SegmentGrid.key(x, y)
             const list = this.cells.get(key)
             if (list) list.push(id)
             else this.cells.set(key, [id])
@@ -410,27 +443,100 @@ class SegmentGrid {
     }
     add(loop, true)
     for (const ring of others) add(ring, false)
+    this.stamp = new Int32Array(this.a.length)
   }
 
-  private key(x: number, y: number): number {
-    return (x + 0x8000) * 0x10000 + (y + 0x8000)
+  /** A collision only merges two cells' lists — extra candidates, never a missed one. */
+  private static key(x: number, y: number): number {
+    return (x + 0x2000000) * 0x4000000 + (y + 0x2000000)
   }
 
   /** Is any (sibling, or own when `withOwn`) segment closer to p than r? */
   near(p: Vec3Like, r: number, withOwn: boolean): boolean {
-    const cx = Math.floor(p.x / this.cell)
-    const cy = Math.floor(p.y / this.cell)
-    for (let x = cx - 1; x <= cx + 1; x++) {
-      for (let y = cy - 1; y <= cy + 1; y++) {
-        const list = this.cells.get(this.key(x, y))
+    const cell = this.cell
+    // The query box, padded past any rounding of p ± r.
+    const m = r + 1e-9 * (r + Math.abs(p.x) + Math.abs(p.y))
+    const x0 = Math.floor((p.x - m) / cell)
+    const x1 = Math.floor((p.x + m) / cell)
+    const y0 = Math.floor((p.y - m) / cell)
+    const y1 = Math.floor((p.y + m) / cell)
+    const r2 = r * r
+    const lo = r2 * (1 - 1e-9)
+    const hi = r2 * (1 + 1e-9)
+    const q = ++this.query
+    const stamp = this.stamp
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        const list = this.cells.get(SegmentGrid.key(x, y))
         if (!list) continue
         for (const id of list) {
+          if (stamp[id] === q) continue
+          stamp[id] = q
           if (!withOwn && this.own[id]) continue
-          if (segmentDistance(p, this.a[id]!, this.b[id]!) < r) return true
+          const a = this.a[id]!
+          const b = this.b[id]!
+          // segmentDistance, up to its final hypot.
+          const dx = b.x - a.x
+          const dy = b.y - a.y
+          const len2 = dx * dx + dy * dy
+          const t =
+            len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0
+          const ex = p.x - (a.x + dx * t)
+          const ey = p.y - (a.y + dy * t)
+          const d2 = ex * ex + ey * ey
+          if (d2 >= hi) continue
+          if (d2 < lo || segmentDistance(p, a, b) < r) return true
         }
       }
     }
     return false
+  }
+}
+
+/**
+ * A ring's edges binned by horizontal bands of y: band k lists every edge
+ * e (loop[e] to loop[e - 1], the crossing walk's own pairing) whose y-span
+ * touches it, so the edges that can straddle a height are those of its
+ * band. Outside the ring's y-range no edge straddles at all.
+ */
+class YBands {
+  private readonly lists: number[][]
+  private readonly minY: number
+  private readonly h: number
+  private static readonly NONE: number[] = []
+
+  constructor(loop: Loop) {
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const p of loop) {
+      if (p.y < minY) minY = p.y
+      if (p.y > maxY) maxY = p.y
+    }
+    const count = Math.max(1, Math.round(Math.sqrt(loop.length)))
+    this.minY = minY
+    this.h = maxY > minY ? (maxY - minY) / count : 1
+    this.lists = Array.from({ length: count }, () => [])
+    for (let e = 0; e < loop.length; e++) {
+      const a = loop[e]!
+      const b = loop[e === 0 ? loop.length - 1 : e - 1]!
+      const k0 = this.band(Math.min(a.y, b.y))
+      const k1 = this.band(Math.max(a.y, b.y))
+      for (let k = k0; k <= k1; k++) this.lists[k]!.push(e)
+    }
+  }
+
+  private band(y: number): number {
+    return Math.min(this.lists.length - 1, Math.max(0, Math.floor((y - this.minY) / this.h)))
+  }
+
+  /**
+   * The edges whose y-span may hold y — a superset of the straddling ones.
+   * Below the ring (or NaN) none straddles; above it the last band's list
+   * is a superset too (the clamp).
+   */
+  at(y: number): readonly number[] {
+    if (!(y >= this.minY)) return YBands.NONE
+    return this.lists[this.band(y)]!
   }
 }
 
