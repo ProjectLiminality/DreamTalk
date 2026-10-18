@@ -937,6 +937,48 @@ export const onTextLayout = (fn: () => void): (() => void) => {
 }
 
 /**
+ * The settle render after a zoom (lead, 2026-10-18). A Text keeps stale
+ * contours while the scale moves through time (outlineRetraceDue); if the
+ * frames then STOP — paused mid-zoom — no next frame would retrace them,
+ * and the paused picture would stay up to OUTLINE_DRIFT off. So a deferring
+ * sync requests one settle: after a whole frame with no Text sync at all,
+ * the layout listeners fire, the host repaints the held t, and that frame
+ * (same t as the last) retraces exactly. While frames keep coming nothing
+ * fires — each deferring frame simply asks again.
+ */
+let textSyncs = 0
+let settleRequested = false
+/** A request arrived while one was in flight (a later frame kept stale too). */
+let settleAgain = false
+const nextFrame = (fn: () => void): void => {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fn())
+  else setTimeout(fn, 16)
+}
+export const requestOutlineSettle = (later: (fn: () => void) => void = nextFrame): void => {
+  if (settleRequested) {
+    settleAgain = true
+    return
+  }
+  settleRequested = true
+  settleAgain = false
+  // The first tick closes the frame that asked; the second sees whether
+  // any frame was drawn since. Frames came and one of them kept stale
+  // contours again: watch on from there.
+  later(() => {
+    const seen = textSyncs
+    later(() => {
+      settleRequested = false
+      if (textSyncs === seen) for (const fn of layoutListeners) fn()
+      else if (settleAgain) requestOutlineSettle(later)
+    })
+  })
+}
+/** Every TextBinding.sync counts here (a frame was drawn). */
+export const noteTextSync = (): void => {
+  textSyncs++
+}
+
+/**
  * Mount a Text holon into a host group. The host owns the group's
  * transform (the standard params); this binding owns the glyph geometry
  * and the material's uniforms.
@@ -1099,6 +1141,9 @@ export const attachText = (
       })
       lastBucket = bucket
       lastT = t ?? Number.NaN
+      noteTextSync()
+      // Kept stale this frame: make sure a stop here still settles.
+      if (mesh && !due && seenNow && bucket !== insetBucket) requestOutlineSettle()
       if (mesh && due) {
         insetBucket = bucket
         insetScale = insetScaleOf(bucket)

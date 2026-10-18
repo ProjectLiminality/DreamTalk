@@ -3,7 +3,13 @@
  * held frames exactly, a moving zoom lazily, an unseen text never.
  */
 import { describe, expect, test } from "bun:test"
-import { OUTLINE_DRIFT, outlineRetraceDue } from "../src/render/text"
+import {
+  OUTLINE_DRIFT,
+  noteTextSync,
+  onTextLayout,
+  outlineRetraceDue,
+  requestOutlineSettle,
+} from "../src/render/text"
 
 const base = { stale: false, seen: true, bucket: 10, traced: 10, lastBucket: 10, t: 1, lastT: 1 }
 
@@ -37,4 +43,67 @@ describe("outlineRetraceDue", () => {
     expect(outlineRetraceDue({ ...base, seen: false, stale: true })).toBe(false)
     expect(outlineRetraceDue({ ...base, seen: false, bucket: 40, lastBucket: 40 })).toBe(false)
   })
+})
+
+describe("requestOutlineSettle", () => {
+  // A hand-cranked frame clock: each tick runs what was queued for it.
+  const clock = () => {
+    let queue: (() => void)[] = []
+    return {
+      later: (fn: () => void) => void queue.push(fn),
+      tick: () => {
+        const q = queue
+        queue = []
+        for (const fn of q) fn()
+      },
+    }
+  }
+
+  test("frames stop after a kept-stale sync: one settle repaint", () => {
+    const c = clock()
+    let repaints = 0
+    const off = onTextLayout(() => repaints++)
+    requestOutlineSettle(c.later)
+    requestOutlineSettle(c.later) // coalesced
+    c.tick()
+    c.tick()
+    expect(repaints).toBe(1)
+    c.tick()
+    expect(repaints).toBe(1)
+    off()
+  })
+
+  test("frames keep coming: no repaint", () => {
+    const c = clock()
+    let repaints = 0
+    const off = onTextLayout(() => repaints++)
+    requestOutlineSettle(c.later)
+    c.tick()
+    noteTextSync() // a frame was drawn in between
+    c.tick()
+    expect(repaints).toBe(0)
+    off()
+  })
+})
+
+test("requestOutlineSettle: a frame kept stale while a settle is in flight still settles", () => {
+  let queue: (() => void)[] = []
+  const later = (fn: () => void) => void queue.push(fn)
+  const tick = () => {
+    const q = queue
+    queue = []
+    for (const fn of q) fn()
+  }
+  let repaints = 0
+  const off = onTextLayout(() => repaints++)
+  requestOutlineSettle(later)
+  tick()
+  noteTextSync() // the next frame drew…
+  requestOutlineSettle(later) // …and kept stale again (coalesced into the one in flight)
+  tick() // in-flight check: frames came — but watch on
+  expect(repaints).toBe(0)
+  tick()
+  tick() // frames stopped
+  expect(repaints).toBe(1)
+  off()
 })
