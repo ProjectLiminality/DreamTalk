@@ -9,7 +9,9 @@ import { Dream, type DreamClass } from "../src/dream"
 import { Holon } from "../src/holon"
 import { Observer } from "../src/dream"
 import { ViewLayer } from "../src/view"
-import { NestStack, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
+import { latticeDream, NestStack, songLatticeDream, statesOf, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
+import { Eye } from "../vocabulary/Eye/Eye"
+import { StateLattice } from "../vocabulary/StateLattice/StateLattice"
 
 class Ring extends Holon {}
 class Beacon extends Holon {
@@ -101,5 +103,39 @@ describe("the return is exact", () => {
     expect(stack.leave(s)!.name).toBe("Lens")
     expect(stack.leave(s)!.name).toBe("Beacon")
     expect(stack.leave(s)).toBeUndefined()
+  })
+})
+
+class EyeDream extends Dream {
+  eye = new Eye()
+  unfold() {
+    this.stage(this.eye)
+    this.play(this.eye.stateAxis("opening").to("closed"), 1)
+    this.play(this.eye.stateAxis("opening").to("open"), 1)
+  }
+}
+
+describe("the symbol with its state space — the lattice", () => {
+  test("a songless symbol with states opens beside its lattice, the lattice's nodes walkable", () => {
+    const Beside = latticeDream(Eye, "Eye")!
+    expect(Beside.name).toBe("EyeLatticeDream")
+    const d = new Beside() as Dream & { symbol: Eye; lattice: StateLattice }
+    expect(d.symbol).toBeInstanceOf(Eye)
+    expect(d.lattice).toBeInstanceOf(StateLattice)
+    expect(d.stateSpace()?.axes.length ?? 0).toBeGreaterThan(0)
+    // A symbol with no states has no lattice to stand beside: it opens alone.
+    expect(latticeDream(Shard, "Shard")).toBeUndefined()
+  })
+
+  test("a symbol with a WatchMe shows its lattice on demand, the WatchMe's song as its playhead", () => {
+    const Through = songLatticeDream(EyeDream, "Eye")
+    const d = new Through() as Dream & { lattice: StateLattice; built: { duration: number } }
+    expect(d.lattice.playhead).toBe("song")
+    expect(d.built.duration).toBeCloseTo(2, 6)
+    expect(d.lattice.machine?.parts.length ?? 0).toBeGreaterThan(0)
+    // statesOf: a WatchMe'd symbol → its song through the lattice; a songless one → the lattice beside it.
+    const wm = statesOf(scenes, new Beacon())
+    expect(wm).toMatchObject({ alone: false, framed: true, key: "ib-beacon ◇" })
+    expect(statesOf({}, new Eye())).toMatchObject({ alone: true, framed: true })
   })
 })

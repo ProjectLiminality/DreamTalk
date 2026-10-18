@@ -31,6 +31,8 @@ export interface ActionsOpts {
   busy(): boolean
   /** Unpack a symbol in place — its own song, then back (editor/nest.ts). */
   unpack?(holon: Holon): void
+  /** Its state space in place — the lattice, its song line lit (editor/nest.ts). */
+  states?(holon: Holon): void
   note(text: string): void
   signal: AbortSignal
 }
@@ -52,7 +54,7 @@ export const placeUrl = (search: string, sceneKey: string, path: readonly string
 }
 
 /** Everything a holon offers: its own actions after the DreamNode built-ins. */
-export const actionsOf = (holon: Holon, opts: Pick<ActionsOpts, "sceneKey" | "path" | "unpack">): HolonAction[] => {
+export const actionsOf = (holon: Holon, opts: Pick<ActionsOpts, "sceneKey" | "path" | "unpack" | "states">): HolonAction[] => {
   const out: HolonAction[] = []
   if (isSovereign(holon)) {
     const name = nodeNameOf(holon)
@@ -60,6 +62,10 @@ export const actionsOf = (holon: Holon, opts: Pick<ActionsOpts, "sceneKey" | "pa
     if (opts.unpack) {
       const unpack = opts.unpack
       out.push({ id: "unpack", label: `unpack ${name}`, run: () => unpack(holon) })
+    }
+    if (opts.states) {
+      const states = opts.states
+      out.push({ id: "states", label: `${name}'s state space`, run: () => states(holon) })
     }
     out.push({
       id: "open",

@@ -790,7 +790,7 @@ export class GameLoop {
   }
 
   #renderHud(): void {
-    if (!this.#on || !this.#hudShown || !this.walkable) {
+    if (!this.#on || !this.#hudShown || this.#covered || !this.walkable) {
       this.#hud.style.display = "none"
       return
     }
@@ -818,6 +818,13 @@ export class GameLoop {
   }
 
   #hudKey = ""
+  #covered = false
+
+  /** A level opened over this one (editor/nest.ts): its HUD steps aside until it closes. */
+  set covered(on: boolean) {
+    this.#covered = on
+    this.#renderHud()
+  }
 
   #paint(now: number): void {
     // The adjacent possible moves with the picture: refresh the HUD when it changes.

@@ -29,13 +29,19 @@
  * symbol under the pointer one level deeper; Esc comes back.
  */
 
-import type { Dream, DreamClass } from "../src/dream"
+import type { DreamClass } from "../src/dream"
 import type { Holon } from "../src/holon"
 import type { Param, ParamValue } from "../src/params"
 import type { ViewDelta, ViewLayer } from "../src/view"
 import { ThreeHost } from "../src/render/three-host"
 import { GameLoop } from "../demo/game"
 import { aloneDream, isSovereign, nodeNameOf } from "./dreamnodes"
+import { Dream } from "../src/dream"
+import { gatherStateSpace, type StateSpace } from "../src/automaton"
+import { machinesOf } from "../src/lattice"
+import { together } from "../src/anim"
+import { Create } from "../src/verbs"
+import { StateLattice } from "../vocabulary/StateLattice/StateLattice"
 
 // --- What a symbol unpacks into ----------------------------------------------------
 
@@ -43,8 +49,56 @@ export interface WatchMe {
   Dream: DreamClass
   /** The registry key, when the WatchMe is a registered scene. */
   key?: string
-  /** True when no scene explains it: the symbol is framed alone. */
+  /** True when no scene explains it: the symbol is framed alone (beside its lattice, when it has states). */
   alone: boolean
+  /** A level drawn for the occasion (a lattice): framed to its content once mounted. */
+  framed?: boolean
+  /** Where its song should start (a lattice following a song from the moment it was opened). */
+  startAt?: number
+}
+
+/** The scene one symbol stands in beside its machine (LatticeDemo's pattern), nodes walkable. */
+export const latticeDream = (Ctor: new () => Holon, name: string): DreamClass | undefined => {
+  if (gatherStateSpace([new Ctor()]).axes.length === 0) return undefined
+  const Beside = class extends Dream {
+    symbol = new Ctor()
+    lattice = new StateLattice({ machine: machinesOf(gatherStateSpace([this.symbol])), playhead: "live" })
+    override stateSpace(): StateSpace {
+      // The nodes are buttons: each walks the symbol to that state.
+      return { axes: this.lattice.axes() }
+    }
+    unfold() {
+      this.stage(this.symbol)
+      this.stage(this.lattice)
+      this.play(together(Create(this.symbol), Create(this.lattice)), 1.5)
+    }
+  }
+  Object.defineProperty(Beside, "name", { value: `${name}LatticeDream` })
+  return Beside
+}
+
+/**
+ * A song's machine, its song line lit — the WatchMe's path through the
+ * state space it explains, the lit node following the song from `from`.
+ */
+export const songLatticeDream = (Song: DreamClass, name: string): DreamClass => {
+  const Through = class extends Dream {
+    song = new Song()
+    built = this.song.build()
+    lattice = new StateLattice({
+      machine: machinesOf(gatherStateSpace(this.song.roots, this.song.stateSpace())),
+      song: () => this.built,
+      playhead: "song",
+    })
+    unfold() {
+      this.stage(this.lattice)
+      this.set(this.lattice.time.to(0))
+      this.play(together(Create(this.lattice), this.lattice.time.by(1, { easing: "linear" })), 1)
+      this.play(this.lattice.time.to(this.built.duration, { easing: "linear" }), Math.max(0.1, this.built.duration - 1))
+    }
+  }
+  Object.defineProperty(Through, "name", { value: `${name}SongLatticeDream` })
+  return Through
 }
 
 /** A holon's WatchMe: the scene that explains it, else the symbol alone. */
@@ -57,7 +111,17 @@ export const watchMeOf = (scenes: Record<string, DreamClass>, holon: Holon): Wat
   }
   const byKey = entries.find(([key]) => key === name.toLowerCase())
   if (byKey) return { Dream: byKey[1], key: byKey[0], alone: false }
-  return { Dream: aloneDream(holon.constructor as new () => Holon, name), alone: true }
+  // No song of its own: the symbol beside its state lattice (if it has states).
+  const Ctor = holon.constructor as new () => Holon
+  const beside = latticeDream(Ctor, name)
+  return beside ? { Dream: beside, alone: true, framed: true } : { Dream: aloneDream(Ctor, name), alone: true }
+}
+
+/** A symbol's state space ON DEMAND: its WatchMe's machine with the song line lit, else its own lattice. */
+export const statesOf = (scenes: Record<string, DreamClass>, holon: Holon): WatchMe => {
+  const wm = watchMeOf(scenes, holon)
+  if (wm.alone) return wm
+  return { Dream: songLatticeDream(wm.Dream, nodeNameOf(holon)), alone: false, framed: true, key: wm.key && `${wm.key} ◇` }
 }
 
 /** The symbol touched: the nearest sovereign at-or-above a hit. */
@@ -112,11 +176,11 @@ export class NestStack {
     return this.#saved.map((s) => s.name)
   }
 
-  enter(surface: LevelSurface, holon: Holon): Saved {
+  enter(surface: LevelSurface, holon: Holon, name = nodeNameOf(holon)): Saved {
     const view = surface.view()
     const saved: Saved = {
       holon,
-      name: nodeNameOf(holon),
+      name,
       box: surface.clientBoxOf(holon),
       delta: view ? { ...view.delta } : undefined,
       resume: surface.hold(),
@@ -159,6 +223,14 @@ export interface Nest {
   unpackAt(clientX: number, clientY: number): Promise<boolean>
   /** Unpack the symbol under the pointer (the Enter key). */
   unpackHovered(): Promise<boolean>
+  /**
+   * Open a state space (⇧Enter): a symbol's — its WatchMe's machine with the
+   * song line lit, else its own lattice — or, with none, the machine of the
+   * song being watched in the open level, from this moment.
+   */
+  states(holon?: Holon): Promise<boolean>
+  /** ⇧Enter: the state space of the symbol under the pointer, else of the open level's song. */
+  statesHovered(): Promise<boolean>
   /** Come back one level. Resolves when the transition has landed. */
   back(): Promise<boolean>
   /** The top level's state (headless): its t, whether it plays, its song. */
@@ -186,7 +258,7 @@ const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000))
 /**
  * The machine is also on the page as `window.__dtNest` — the named actions a
  * hand gesture binds to (demo/handplay.ts): `unpackHovered()` (or
- * `unpack(holon)`) and `back()`.
+ * `unpack(holon)`), `statesHovered()` (or `states(holon)`) and `back()`.
  */
 export const mountNest = (opts: NestOpts): Nest => {
   const stack = new NestStack()
@@ -270,7 +342,9 @@ export const mountNest = (opts: NestOpts): Nest => {
             inner.playing = false
             game.enter(inner.t)
           }
+          game.covered = true
           return () => {
+            game.covered = false
             if (!was) return
             game.leave()
             inner.anchor = performance.now() - game.heldAt * 1000
@@ -280,7 +354,8 @@ export const mountNest = (opts: NestOpts): Nest => {
       },
     }
     track(canvas, ac.signal)
-    // Its own clock: the WatchMe plays through once and holds its last pose.
+    // Its own clock: the WatchMe plays through once, then holds its last pose
+    // walkable (free play) — explore it, its nodes or handles are buttons.
     const frame = async (now: number) => {
       if (ac.signal.aborted) return
       game.tick(now)
@@ -288,28 +363,36 @@ export const mountNest = (opts: NestOpts): Nest => {
       else {
         if (inner.playing) {
           inner.t = Math.min(dream.duration, (now - inner.anchor) / 1000)
-          if (inner.t >= dream.duration) inner.playing = false
+          if (inner.t >= dream.duration) {
+            inner.playing = false
+            game.enter(inner.t)
+          }
         }
         await host.renderFrame(inner.t)
       }
       requestAnimationFrame(frame)
     }
-    await host.renderFrame(0)
+    if (wm.startAt) {
+      inner.t = Math.min(dream.duration, wm.startAt)
+      inner.anchor = performance.now() - inner.t * 1000
+    }
+    await host.renderFrame(dream.duration)
+    if (wm.framed) await frameLevel(dream, host)
+    await host.renderFrame(inner.t)
     requestAnimationFrame(frame)
     return inner
   }
 
-  const unpack = async (holon: Holon): Promise<boolean> => {
+  /** Open a level for a symbol: its WatchMe, or its state space (a lattice). */
+  const open = async (symbol: Holon, wm: WatchMe, name?: string): Promise<boolean> => {
     if (busy) return false
-    const symbol = symbolAt(holon) ?? holon
     const surface = top()
     const under = surface.canvas
     busy = true
     try {
-      const wm = watchMeOf(opts.scenes, symbol)
-      const saved = stack.enter(surface, symbol)
+      const saved = stack.enter(surface, symbol, name)
       opts.onDepth?.(stack.depth)
-      opts.note(`↓ ${saved.name}${wm.alone ? " (its state space)" : ""} · esc comes back`)
+      opts.note(`↓ ${saved.name}${wm.alone || wm.framed ? " — its state space" : ""} · esc comes back`)
       // "Inside of": the view glides into the symbol and past it…
       const view = surface.view()
       const b = surface.worldBoundsOf(symbol)
@@ -343,6 +426,31 @@ export const mountNest = (opts: NestOpts): Nest => {
       pendingBack = undefined
       queued?.()
     }
+  }
+
+  const unpack = (holon: Holon): Promise<boolean> => {
+    const symbol = symbolAt(holon) ?? holon
+    return open(symbol, watchMeOf(opts.scenes, symbol))
+  }
+
+  /**
+   * The state space ON DEMAND: a symbol's (its WatchMe's machine with the
+   * song line lit, else its own lattice) — or, given none inside a level,
+   * the machine of the song being watched there, from this very moment.
+   */
+  const states = (holon?: Holon): Promise<boolean> => {
+    const symbol = holon && (symbolAt(holon) ?? holon)
+    if (symbol) return open(symbol, statesOf(opts.scenes, symbol), `${nodeNameOf(symbol)} ◇`)
+    const inner = inners[inners.length - 1]
+    if (!inner) return Promise.resolve(false)
+    const name = inner.dream.constructor.name.replace(/Dream$/, "")
+    const wm: WatchMe = {
+      Dream: songLatticeDream(inner.dream.constructor as DreamClass, name),
+      alone: false,
+      framed: true,
+      startAt: inner.game.on ? inner.game.heldAt : inner.t,
+    }
+    return open(inner.dream.roots[0]!, wm, `${name} ◇`)
   }
 
   const back = async (): Promise<boolean> => {
@@ -406,6 +514,10 @@ export const mountNest = (opts: NestOpts): Nest => {
           inner.playing = false
           inner.game.enter(inner.t)
         }
+      } else if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // ⇧Enter: the state space — of the symbol under the pointer, else of this song, from now.
+        e.preventDefault()
+        void states(pointer ? symbolAt(top().pick(pointer.x, pointer.y)) : undefined)
       } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && pointer) {
         e.preventDefault()
         void unpackAt(pointer.x, pointer.y)
@@ -430,6 +542,8 @@ export const mountNest = (opts: NestOpts): Nest => {
     unpack,
     unpackAt,
     unpackHovered: () => (pointer ? unpackAt(pointer.x, pointer.y) : Promise.resolve(false)),
+    states,
+    statesHovered: () => states(pointer ? symbolAt(top().pick(pointer.x, pointer.y)) : undefined),
     back,
     state() {
       const inner = inners[inners.length - 1]
@@ -448,6 +562,56 @@ export const mountNest = (opts: NestOpts): Nest => {
     if (w.__dtNest === nest) w.__dtNest = undefined
   })
   return nest
+}
+
+type Box = { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
+const union = (boxes: (Box | undefined)[]): Box | undefined =>
+  boxes.reduce<Box | undefined>((u, b) => {
+    if (!b) return u
+    if (!u) return { min: { ...b.min }, max: { ...b.max } }
+    return {
+      min: { x: Math.min(u.min.x, b.min.x), y: Math.min(u.min.y, b.min.y), z: Math.min(u.min.z, b.min.z) },
+      max: { x: Math.max(u.max.x, b.max.x), y: Math.max(u.max.y, b.max.y), z: Math.max(u.max.z, b.max.z) },
+    }
+  }, undefined)
+
+/**
+ * A level drawn for the occasion: a symbol and its lattice side by side —
+ * the lattice sized to the symbol, set just right of it — and the view
+ * framing both. (Measured at the level's last pose, where everything is drawn.)
+ */
+const frameLevel = async (dream: Dream, host: ThreeHost): Promise<void> => {
+  const d = dream as unknown as { symbol?: Holon; lattice?: Holon }
+  if (d.symbol && d.lattice) {
+    const sb = host.worldBoundsOf(d.symbol)
+    const lb = host.worldBoundsOf(d.lattice)
+    if (sb && lb) {
+      const sh = Math.max(sb.max.y - sb.min.y, sb.max.x - sb.min.x, 1)
+      const lh = Math.max(lb.max.y - lb.min.y, lb.max.x - lb.min.x, 1)
+      const k = (1.2 * sh) / lh
+      const L = d.lattice as unknown as { scale: Param<number>; x: Param<number>; y: Param<number> }
+      L.scale.value = L.scale.value * k
+      // Its left edge a symbol's width to the right of the symbol, centres level.
+      const lcx = (lb.min.x + lb.max.x) / 2
+      const lcy = (lb.min.y + lb.max.y) / 2
+      L.x.value = L.x.value + (sb.max.x + 0.35 * sh + ((lb.max.x - lb.min.x) * k) / 2 - lcx)
+      L.y.value = L.y.value + ((sb.min.y + sb.max.y) / 2 - lcy)
+      await host.renderFrame(dream.duration)
+    }
+  }
+  // Framed in the level's own camera, not the viewer's layer: it holds while
+  // the level plays (the view layer writes only in free play), and `r` comes home to it.
+  const all = union(dream.roots.map((r) => host.worldBoundsOf(r)))
+  const o = dream.observer
+  if (!all || o.orthographic.value) return
+  const set = (p: Param<number>, v: number) => (p.value = p.defaultValue = v)
+  set(o.x, (all.min.x + all.max.x) / 2)
+  set(o.y, (all.min.y + all.max.y) / 2)
+  set(o.z, (all.min.z + all.max.z) / 2)
+  // Fit the box's face to the 16:9 frame at the view layer's fill.
+  const R = Math.max((all.max.x - all.min.x) / (16 / 9), all.max.y - all.min.y, (all.max.z - all.min.z) / 2) / 2
+  set(o.radius, (R / (0.6 * Math.tan(o.fov.value / 2))) * (o.zoom.value || 1))
+  await host.renderFrame(dream.duration)
 }
 
 /** A holon's box on a canvas in client px (host.boundsOf is drawing-buffer px). */

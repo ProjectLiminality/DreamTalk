@@ -1883,9 +1883,10 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
       // Enter: unpack the symbol under the pointer into its own song (editor/nest.ts).
-      if (!typing && e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
+      if (!typing && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
         e.preventDefault()
-        void nest.unpackHovered()
+        // ⇧Enter: its state space instead — the lattice, its song line lit.
+        void (e.shiftKey ? nest.statesHovered() : nest.unpackHovered())
         return
       }
       // ⇧R: record a live session (editor/recorder.ts) — the walk, the view, the voice.
@@ -2109,6 +2110,7 @@ const boot = async (resume?: Transport) => {
         },
         busy: () => !!move || !!axis || !!morphTo?.picking,
         unpack: (holon) => void nest?.unpack(holon),
+        states: (holon) => void nest?.states(holon),
         note: (text) => showNote(text),
         signal: ac.signal,
       })
@@ -2130,7 +2132,9 @@ const boot = async (resume?: Transport) => {
           hold: () => {
             const was = playing
             pause()
+            if (walk) walk.game.covered = true
             return () => {
+              if (walk) walk.game.covered = false
               if (was) play()
             }
           },
@@ -2586,6 +2590,15 @@ const boot = async (resume?: Transport) => {
         return h ? nest.unpack(h) : Promise.resolve(false)
       },
       unpackAt: (x: number, y: number) => nest.unpackAt(x, y),
+      /** The state space of the largest on-screen symbol of this class (or, with none, of the open level's song). */
+      states: (name?: string) => {
+        const h = name
+          ? nestable()
+              .filter((x) => classNameOf(x).replace(/\d+$/, "") === name)
+              .sort((a, b) => area(b) - area(a))[0]
+          : undefined
+        return name && !h ? Promise.resolve(false) : nest.states(h)
+      },
       back: () => nest.back(),
       state: () => ({ ...nest.state(), outerT: current, outerPlaying: playing, delta: { ...view.delta } }),
     },

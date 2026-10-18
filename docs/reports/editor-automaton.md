@@ -77,15 +77,28 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
   only while a level is open; pressed while a level is still opening, it
   comes back as soon as the level has opened.
 - WatchMe: the registered scene `<Class>WatchMeDream` / `<Class>Dream` /
-  `<Class>DemoDream`, else the symbol alone with its state space.
+  `<Class>DemoDream`. A symbol with no song of its own opens **beside its
+  StateLattice**, framed together: every node is a button, and clicking one
+  walks the symbol into that state (a stateless symbol opens alone).
+- **Shift+Enter** (or "<X>'s state space" in the action menu) opens a
+  symbol's state space on demand. For a symbol with a WatchMe, that is the
+  lattice of the WatchMe's machine, with the song line lit gold as a path
+  through it and its current state following the song. Shift+Enter inside a
+  level with nothing hovered opens the lattice of that level's own song,
+  starting at the moment you were at. Esc comes back as usual.
 - Frame-exact return by construction: the song beneath is held (its
   free-play clocks too), never re-timed, and its view delta is restored as
   a value. Verified byte-identical on the whole InterBrain song.
 - Enter is in RESERVED_KEYS (`u` is an axis key: Worldview's pullers, the
   InterBrain unfold). Hands bind to `window.__dtNest.unpackHovered()` /
-  `back()`.
+  `statesHovered()` / `back()`.
+- While a level is open, the HUD of the level beneath steps aside
+  (`GameLoop.covered`).
 - Try it: `/demo/?scene=interbrain&t=2295` → Space → hover the beacon →
-  Enter → explore → Esc. The editor is the same: `/?scene=ib-ch7&t=225`.
+  Enter → explore → Esc. Shift+Enter over the beacon shows its 128-state
+  lattice with the song line. Songless: `/demo/?scene=ib-ch1&t=60` → Space →
+  Enter over the Dialectic → click a cube corner. The editor is the same:
+  `/?scene=ib-ch7&t=225`.
 - Code: editor/nest.ts (the stack, pure in NestStack), wired into
   demo/main.ts and editor/main.ts; test/nest.test.ts.
 

@@ -86,7 +86,7 @@ export interface AxisOpts {
  * Space (song ↔ free), ` (creator mode), ~ (explorer), m (sound), h (HUD),
  * r (view home), f (frame), c (calibrate the hands' pinch), i (hand talk —
  * demo/handui.ts), Enter (unpack the symbol under the pointer into its own
- * song — editor/nest.ts). An axis may not declare one
+ * song; ⇧Enter its state space — editor/nest.ts). An axis may not declare one
  * (test/reservedkeys.test.ts scans every shipped holon). Esc and the
  * arrows are named keys, not characters, so no axis can collide with them.
  */

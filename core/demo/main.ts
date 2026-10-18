@@ -350,9 +350,10 @@ const main = async () => {
       void toggleGame()
       return
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !creator.on && !explorer.on) {
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !creator.on && !explorer.on) {
       e.preventDefault()
-      void nest.unpackHovered()
+      // ⇧Enter: its state space instead — the lattice, its song line lit.
+      void (e.shiftKey ? nest.statesHovered() : nest.unpackHovered())
       return
     }
     if (e.code === "KeyR" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -369,6 +370,21 @@ const main = async () => {
   ;(window as unknown as Record<string, unknown>).__dtCreator = creator
 
   ;(window as unknown as Record<string, unknown>).__dtHost = host
+  /** The largest on-screen symbol of this class — what the harness unpacks by name. */
+  const largestOnScreen = (name: string): Holon | undefined => {
+    const area = (h: Holon) => {
+      const b = host.boundsOf(h)
+      if (!b) return 0
+      const w = Math.min(b.max.x, canvas.width) - Math.max(b.min.x, 0)
+      const v = Math.min(b.max.y, canvas.height) - Math.max(b.min.y, 0)
+      return w > 0 && v > 0 ? w * v : 0
+    }
+    let best: Holon | undefined
+    for (const r of dream.roots)
+      for (const h of r.walk())
+        if (symbolAt(h) === h && h.constructor.name.replace(/\d+$/, "") === name && area(h) > (best ? area(best) : 0)) best = h
+    return best
+  }
   // Headless driving of the game loop: enter at t, fire, render at a clock.
   ;(window as unknown as Record<string, unknown>).__dtGame = {
     game,
@@ -394,18 +410,13 @@ const main = async () => {
     nest: {
       /** Unpack the largest on-screen symbol of this class. */
       unpack: (name: string) => {
-        const area = (h: Holon) => {
-          const b = host.boundsOf(h)
-          if (!b) return 0
-          const w = Math.min(b.max.x, canvas.width) - Math.max(b.min.x, 0)
-          const v = Math.min(b.max.y, canvas.height) - Math.max(b.min.y, 0)
-          return w > 0 && v > 0 ? w * v : 0
-        }
-        let best: Holon | undefined
-        for (const r of dream.roots)
-          for (const h of r.walk())
-            if (symbolAt(h) === h && h.constructor.name.replace(/\d+$/, "") === name && area(h) > (best ? area(best) : 0)) best = h
+        const best = largestOnScreen(name)
         return best ? nest.unpack(best) : Promise.resolve(false)
+      },
+      /** Its state space (⇧Enter) — or, with no name, the open level's song through its lattice. */
+      states: (name?: string) => {
+        const best = name ? largestOnScreen(name) : undefined
+        return name && !best ? Promise.resolve(false) : nest.states(best)
       },
       unpackAt: (x: number, y: number) => nest.unpackAt(x, y),
       back: () => nest.back(),
@@ -511,7 +522,9 @@ const main = async () => {
       hold: () => {
         const wasPlaying = !game.on
         if (!game.on) void toggleGame()
+        game.covered = true
         return () => {
+          game.covered = false
           if (wasPlaying && game.on) void toggleGame()
         }
       },
