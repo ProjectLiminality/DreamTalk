@@ -234,8 +234,33 @@ export const mountHands = (opts: {
   session?: string
   /** The element the scene is drawn in: the hands span it (the editor's viewport); default the window. */
   within?: HTMLElement
+  /**
+   * The topmost LEVEL, when one is open over this scene (editor/nest.ts —
+   * a symbol unpacked into its own song or state space): the hands then
+   * act there and only there — the spark, the pinch, the hold, a summon —
+   * and the scene beneath gets nothing. One pipeline, retargeted.
+   */
+  level?: () => { target: HandTarget; within?: HTMLElement } | undefined
 }): HandPlay => {
-  const { target } = opts
+  /** Where the hands act now: the topmost level's target, else this scene's. */
+  let target = opts.target
+  let within = opts.within
+  let level: ReturnType<NonNullable<typeof opts.level>>
+  /** Follow the top level: a new one takes the hands whole — nothing held, pointed or pinched carries across. */
+  const retarget = () => {
+    const now = opts.level?.()
+    if (now?.target === level?.target) return
+    target.pointWith?.(null)
+    level = now
+    target = now?.target ?? opts.target
+    within = now ? now.within : opts.within
+    place = undefined
+    hold = undefined
+    scrub = undefined
+    held = undefined
+    area.at = Number.NEGATIVE_INFINITY
+    controller.grab.stop()
+  }
   const controller = new GestureController({ pinch: { calibration: loadCalibration() }, grabHand: loadGrabHand() })
   const overlay = makeOverlay("dt-hand-cursor", 70)
   document.body.append(overlay)
@@ -390,7 +415,7 @@ export const mountHands = (opts: {
   const span = () => {
     const now = performance.now()
     if (now - area.at > 500) {
-      const r = opts.within?.getBoundingClientRect()
+      const r = within?.getBoundingClientRect()
       area.left = r?.left ?? 0
       area.top = r?.top ?? 0
       area.width = r?.width || window.innerWidth
@@ -535,6 +560,7 @@ export const mountHands = (opts: {
   /** The view turned since the last pick: what is under a still cursor may have changed. */
   let viewMoved = false
   const onFrame = () => {
+    retarget()
     raf = 0
     if (viewMoved) target.changed?.()
     // The spark: placed, tested for what hides it and hovered every display
@@ -562,6 +588,7 @@ export const mountHands = (opts: {
   }
 
   const push = (frame: HandFrame): Intent => {
+    retarget()
     const it = controller.update(frame)
     handClock = frame.t
     if (lines.length) {

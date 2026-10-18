@@ -38,6 +38,12 @@ export interface SummonOpts {
   signal: AbortSignal
   /** A host that paints only on demand (the paused editor) repaints. */
   changed?(): void
+  /**
+   * Where a summon lands NOW, when not here: the topmost level unpacked over
+   * this scene (editor/nest.ts) — a symbol summoned inside a level is that
+   * level's, and leaves with it.
+   */
+  site?: () => { host: ThreeHost; canvas: HTMLCanvasElement; changed?(): void } | undefined
   /** Seconds the draw-on (and the draw-off) takes. */
   drawSeconds?: number
   /** How much of the view's height a summoned symbol fills. */
@@ -48,6 +54,8 @@ export interface Summoned {
   className: string
   holon: Holon
   release: () => void
+  /** The host it lives in. */
+  host: ThreeHost
 }
 
 export interface Summoning {
@@ -65,13 +73,14 @@ const shelfClass = (name: string) => {
 }
 
 export const mountSummoning = (opts: SummonOpts): Summoning => {
-  const { host, canvas } = opts
+  /** The host and canvas a summon lands in now (see SummonOpts.site). */
+  const here = () => opts.site?.() ?? { host: opts.host, canvas: opts.canvas, changed: opts.changed }
   const seconds = opts.drawSeconds ?? 1.2
   const fill = opts.fill ?? 0.2
   const summoned: Summoned[] = []
 
   /** Play an anim over `seconds` of wall time, writing its tracks each frame. */
-  const animate = (anim: ReturnType<typeof Create>) =>
+  const animate = (anim: ReturnType<typeof Create>, changed = opts.changed) =>
     new Promise<void>((resolve) => {
       const tl = new Timeline([{ anim, start: 0, duration: seconds }])
       tl.apply(0)
@@ -80,7 +89,7 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
         if (opts.signal.aborted) return resolve()
         const t = Math.min(seconds, (performance.now() - t0) / 1000)
         tl.apply(t)
-        opts.changed?.()
+        changed?.()
         if (t < seconds) requestAnimationFrame(step)
         else resolve()
       }
@@ -88,7 +97,7 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
     })
 
   /** A client point → the world point on the plane through the view's focus, facing the camera. */
-  const worldAt = (at: { x: number; y: number }) => {
+  const worldAt = (host: ThreeHost, canvas: HTMLCanvasElement, at: { x: number; y: number }) => {
     const r = canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((at.x - r.left) / r.width) * 2 - 1, -(((at.y - r.top) / r.height) * 2 - 1))
     const cam = host.camera
@@ -103,7 +112,7 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
   }
 
   /** World units spanned by the view's height at a point this far from the camera. */
-  const viewHeightAt = (distance: number) => {
+  const viewHeightAt = (host: ThreeHost, distance: number) => {
     const cam = host.camera
     if (cam instanceof THREE.OrthographicCamera) return (cam.top - cam.bottom) / cam.zoom
     return 2 * distance * Math.tan(THREE.MathUtils.degToRad((cam as THREE.PerspectiveCamera).fov) / 2)
@@ -114,15 +123,16 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
     if (!entry) return undefined
     const holon = new (entry.cls as unknown as new () => Holon)()
     void holon.parts
+    const { host, canvas, changed } = here()
     const r = canvas.getBoundingClientRect()
     // Where the hand's spark stands (depth and all), else on the focus plane under the point.
     const { point, distance } = world
       ? { point: new THREE.Vector3(world.x, world.y, world.z), distance: host.camera.position.distanceTo(new THREE.Vector3(world.x, world.y, world.z)) }
-      : worldAt(at ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 })
+      : worldAt(host, canvas, at ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 })
     // Sized to the view: its own drawn extent scaled to `fill` of the view's height.
     const ext = extentOf(holon)
     const size = Math.max(ext?.w ?? 0, ext?.h ?? 0) || 200
-    const scale = (fill * viewHeightAt(distance)) / size
+    const scale = (fill * viewHeightAt(host, distance)) / size
     holon.scale.value = scale
     // Centred on the point: its own extent's centre lands there.
     holon.x.value = point.x - (ext?.cx ?? 0) * scale
@@ -131,9 +141,9 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
     const anim = Create(holon)
     new Timeline([{ anim, start: 0, duration: seconds }]).apply(0) // undrawn before its first frame
     const release = host.adopt(holon)
-    const s: Summoned = { className: entry.className, holon, release }
+    const s: Summoned = { className: entry.className, holon, release, host }
     summoned.push(s)
-    void animate(anim)
+    void animate(anim, changed)
     window.dispatchEvent(
       new CustomEvent("dreamtalk:summoned", {
         detail: { className: entry.className, at: { x: holon.x.value, y: holon.y.value, z: holon.z.value }, scale, t: performance.now() / 1000 },
@@ -144,8 +154,10 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
 
   /** The summoned symbol the spark is in or nearest to (within a view's tenth), else none. */
   const summonedNear = (p: Vec): Summoned | undefined => {
+    const { host } = here()
     let best: { s: Summoned; d: number } | undefined
     for (const s of summoned) {
+      if (s.host !== host) continue // only what lives where the hand is
       const b = host.worldBoundsOf(s.holon)
       if (!b) continue
       const d = Math.hypot(
@@ -155,17 +167,19 @@ export const mountSummoning = (opts: SummonOpts): Summoning => {
       )
       if (!best || d < best.d) best = { s, d }
     }
-    const reach = 0.1 * viewHeightAt(host.camera.position.distanceTo(new THREE.Vector3(p.x, p.y, p.z)))
+    const reach = 0.1 * viewHeightAt(host, host.camera.position.distanceTo(new THREE.Vector3(p.x, p.y, p.z)))
     return best && best.d <= reach ? best.s : undefined
   }
 
   const dismiss = async (which?: Summoned) => {
-    const s = which ?? summoned[summoned.length - 1]
+    const where = here()
+    const s = which ?? summoned.filter((x) => x.host === where.host).at(-1)
     if (!s) return
     summoned.splice(summoned.indexOf(s), 1)
-    await animate(UnCreate(s.holon))
+    const changed = s.host === where.host ? where.changed : opts.changed
+    await animate(UnCreate(s.holon), changed)
     s.release()
-    opts.changed?.()
+    changed?.()
     window.dispatchEvent(new CustomEvent("dreamtalk:dismissed", { detail: { className: s.className } }))
   }
 

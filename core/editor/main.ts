@@ -42,7 +42,8 @@ import { Holon } from "../src/holon"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "./touchcamera"
 import { mountHands } from "../demo/handplay"
-import { frozenSpace, inkQueries, sparkSpace } from "../demo/spark"
+import { inkQueries } from "../demo/spark"
+import { gameTarget, nestLevel, nestSite } from "../demo/handtarget"
 import type { Spark } from "../demo/game"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "../demo/summon"
@@ -1750,39 +1751,24 @@ const boot = async (resume?: Transport) => {
     const game = walk.game
     const hands = mountHands({
       source: mountHandSource()?.screen,
-      target: {
+      target: gameTarget({
+        game,
+        host,
         live: () => !playing && !creator?.on && game.on,
-        hoverAt: (x, y) => game.hoverAt(x, y),
-        click: (x, y) => game.click(x, y),
-        axisAt: (x, y) => game.axisAt(x, y),
-        axisIndex: (id) => game.axisIndex(id),
-        scrubAxis: (id, u) => game.scrubAxis(id, u),
-        settleAxis: (id) => game.settleAxis(id),
+        // The grab turns this editor's own view; the paused editor paints on demand.
         view: () => view,
-        fire: (id, position) => game.fire(id, position),
-        axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
-        hovered: () => game.hovered ?? undefined,
         changed: () => void host.renderFrame(current).then(() => syncPanel()),
         // Pinch-and-hold: the holon-action menu (editor/actions.ts), like a pointer long press.
         menuAt: (x, y) => (window as unknown as { __dt?: { actions?: { menuAt(x: number, y: number): void } } }).__dt?.actions?.menuAt(x, y),
-        // The pinch point is a spark in the scene (demo/spark.ts), as in the player; `?spark=0` keeps the flat dot.
-        ...(new URLSearchParams(location.search).get("spark") === "0"
-          ? {}
-          : {
-              sparkAt: sparkSpace(host),
-              pointWith: (s: Spark | null) => {
-                game.spark = s
-                return game.sparkHidden()
-              },
-            }),
-        // One hand holding the scene: 1:1, about where it closed (src/gesture/hold.ts).
-        holdSpace: () => ({ pose: view.pose(), at: frozenSpace(host) }),
-      },
+        spark: new URLSearchParams(location.search).get("spark") !== "0",
+      }),
       signal: ac.signal,
       jev: new URLSearchParams(location.search).get("jev") === "1",
       session: new URLSearchParams(location.search).get("hands") === "replay" ? (new URLSearchParams(location.search).get("session") ?? undefined) : undefined,
       // The hands span the viewport, not the whole window with its panels.
       within: canvas,
+      // A symbol unpacked into its own level (editor/nest.ts) takes the hands whole.
+      level: nestLevel(new URLSearchParams(location.search).get("spark") !== "0"),
     })
     ;(window as unknown as Record<string, unknown>).__dtHands = hands
     mountHandUI(hands, ac.signal, canvas)
@@ -1791,6 +1777,7 @@ const boot = async (resume?: Transport) => {
       canvas,
       signal: ac.signal,
       changed: () => void host.renderFrame(current),
+      site: nestSite,
     })
   }
 

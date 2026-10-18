@@ -18,7 +18,8 @@ import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop, type Spark } from "./game"
-import { frozenSpace, inkQueries, sparkSpace } from "./spark"
+import { inkQueries } from "./spark"
+import { gameTarget, nestLevel, nestSite } from "./handtarget"
 import { mountHands } from "./handplay"
 import { mountHandSource } from "../hands/mount"
 import { mountSummoning } from "./summon"
@@ -88,13 +89,7 @@ const main = async () => {
   // t and compares).
   const q = new URLSearchParams(location.search).get("instanced")
   const useInstancedRibbons = q === "1" ? true : q === "0" ? false : "auto"
-  // A DreamSong mounts only the chapters near the playhead (three-host.ts
-  // RESIDENCY); `?resident=0` mounts every chapter at once, as before.
-  const host = await ThreeHost.mount(dream, canvas, {
-    useInstancedRibbons,
-    residency: query.get("resident") !== "0",
-    at: Math.max(0, Number(query.get("t")) || 0),
-  })
+  const host = await ThreeHost.mount(dream, canvas, { useInstancedRibbons })
   if (place.alone) await frameAlone(host, dream, canvas)
   const duration = dream.duration
 
@@ -444,31 +439,12 @@ const main = async () => {
   const handSource = mountHandSource()
   const hands = mountHands({
     source: handSource?.screen,
-    target: {
-      live: () => game.on && !creator.on && !explorer.on,
-      hoverAt: (x, y) => game.hoverAt(x, y),
-      click: (x, y) => game.click(x, y),
-      axisAt: (x, y) => game.axisAt(x, y),
-      axisIndex: (id) => game.axisIndex(id),
-      scrubAxis: (id, u) => game.scrubAxis(id, u),
-      settleAxis: (id) => game.settleAxis(id),
-      view: () => game.view,
-      fire: (id, position) => game.fire(id, position),
-      axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
-      hovered: () => game.hovered ?? undefined,
-      // The pinch point is a spark in the scene (demo/spark.ts); `?spark=0` keeps it a dot on the screen.
-      ...(query.get("spark") === "0"
-        ? {}
-        : {
-            sparkAt: sparkSpace(host),
-            pointWith: (s: Spark | null) => {
-              game.spark = s
-              return game.sparkHidden()
-            },
-          }),
-      // One hand holding the scene: 1:1, about where it closed (src/gesture/hold.ts); `?hold=0` the older orbit.
-      holdSpace: () => ({ pose: game.view!.pose(), at: frozenSpace(host) }),
-    },
+    // The scene's game loop, through the one spelling every level uses
+    // (demo/handtarget.ts): the spark in its space, a hold turning its view.
+    // `?spark=0` keeps a flat dot; `?hold=0` the older orbit grab.
+    target: gameTarget({ game, host, live: () => game.on && !creator.on && !explorer.on, spark: query.get("spark") !== "0" }),
+    // A symbol unpacked into its own level (editor/nest.ts) takes the hands whole; the song beneath gets none.
+    level: nestLevel(query.get("spark") !== "0"),
     signal: ac.signal,
     // `?jev=1`: uncertain mudras are put to the intent layer (POST /api/jev).
     jev: query.get("jev") === "1",
@@ -542,7 +518,7 @@ const main = async () => {
     signal: ac.signal,
   })
   // Summoning (demo/summon.ts): `invoke:<Symbol>` brings a shelf symbol in at the hand, `invoke:dismiss` sends it off.
-  ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({ host, canvas, signal: ac.signal })
+  ;(window as unknown as Record<string, unknown>).__dtSummon = mountSummoning({ host, canvas, signal: ac.signal, site: nestSite })
   // `?play=free`: open in the game loop, at ?t= or the song's last pose.
   if (query.get("play") === "free") {
     playing = false
