@@ -586,6 +586,45 @@ const INSET_STEP = Math.log(1.005)
 const insetBucketOf = (pixelsPerUnit: number): number =>
   Math.round(Math.log(Math.max(pixelsPerUnit, 1e-6)) / INSET_STEP)
 const insetScaleOf = (bucket: number): number => Math.exp(bucket * INSET_STEP)
+/**
+ * How far (in buckets) the scale may drift from the one the contours were
+ * traced at while it is still moving before they are retraced anyway: ~10%,
+ * i.e. the inset off by at most a tenth of half a pen.
+ */
+export const OUTLINE_DRIFT = Math.round(Math.log(1.1) / INSET_STEP)
+
+/**
+ * Whether a Text retraces its contours this frame (TextBinding.sync):
+ * when they are stale or traced at another bucket — but never while the
+ * text is unseen (its contour strokes are hidden), and not while the
+ * scale is still moving through time (a new t, a bucket other than the
+ * last frame's) unless it has drifted more than OUTLINE_DRIFT buckets
+ * from the traced one. A frame at the last frame's t (setT's second
+ * render) is never "moving", so a held frame always retraces exactly.
+ */
+export const outlineRetraceDue = (o: {
+  /** A layout landed whose contours are not yet traced. */
+  stale: boolean
+  /** Seen opacity > 0 and the pen between creation and erasure. */
+  seen: boolean
+  bucket: number
+  /** The bucket the current contours were traced at. */
+  traced: number
+  /** The previous frame's bucket and t (NaN for none). */
+  lastBucket: number
+  t: number | undefined
+  lastT: number
+}): boolean => {
+  if (!o.seen) return false
+  if (o.stale) return true
+  if (o.bucket === o.traced) return false
+  const moving =
+    o.t !== undefined &&
+    !Object.is(o.t, o.lastT) &&
+    o.bucket !== o.lastBucket &&
+    Math.abs(o.bucket - o.traced) <= OUTLINE_DRIFT
+  return !moving
+}
 
 const buildOutlines = (
   geometry: THREE.BufferGeometry,
@@ -702,8 +741,17 @@ export interface TextBinding {
    * `stroke / 2 / pixelsPerUnit` units. The host measures it from the
    * live camera; a caller with no camera may leave it out and get the
    * 2021 rig's own 1.28, which is what every video-01 scene renders at.
+   *
+   * `t` is the frame's time, when the caller has one. While frames move
+   * through time AND the projection scale keeps crossing buckets (a zoom
+   * or dolly in playback), the traced contours are kept as they are (their
+   * width is in pixels, only the inset lags) and retraced once the scale
+   * holds, or once it has drifted past OUTLINE_DRIFT. A frame at the same
+   * t as the last (setT renders twice) always retraces exactly, so a held
+   * frame is the same pixels as before. Without `t`, every bucket change
+   * retraces at once, as before.
    */
-  sync(pixelsPerUnit?: number): void
+  sync(pixelsPerUnit?: number, t?: number): void
   dispose(): void
   /** Resolves once the first layout has been mounted. */
   readonly ready: Promise<void>
@@ -911,6 +959,9 @@ export const attachText = (
   let currentKey = ""
   /** A layout landed whose outlines are not yet traced (see relayout). */
   let outlinesStale = false
+  /** The previous sync's bucket and time: is the scale still moving? */
+  let lastBucket = Number.NaN
+  let lastT = Number.NaN
   let layoutToken = 0
   let disposed = false
 
@@ -1023,13 +1074,32 @@ export const attachText = (
   return {
     holon,
     ready,
-    sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT): void {
+    sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT, t?: number): void {
       if (layoutKey(holon) !== currentKey) void relayout()
+      // Seen opacity: its own fade times its inherited certainty (certainty.ts).
+      const opacity = seen.value
       // The inset depends on the projection, so a camera move (or a
       // resize) rebuilds the contours — a few hundred points repacked,
-      // and only when the number actually changes.
+      // and only when the number actually changes. Not while the text is
+      // unseen (every contour stroke is hidden then — ribbon.style), and
+      // not while the scale is still moving through time (see sync's doc):
+      // tracing every glyph anew each frame of a zoom was most of a busy
+      // frame's cost.
       const bucket = insetBucketOf(pixelsPerUnit)
-      if (mesh && (outlinesStale || bucket !== insetBucket)) {
+      const seenNow =
+        opacity > 0 && holon.creation.value > 0 && holon.erasure.value < 1
+      const due = outlineRetraceDue({
+        stale: outlinesStale,
+        seen: seenNow,
+        bucket,
+        traced: insetBucket,
+        lastBucket,
+        t,
+        lastT,
+      })
+      lastBucket = bucket
+      lastT = t ?? Number.NaN
+      if (mesh && due) {
         insetBucket = bucket
         insetScale = insetScaleOf(bucket)
         outlinesStale = false
@@ -1038,8 +1108,6 @@ export const attachText = (
       if (!mesh || !material) return
       material.progress.value = holon.creation.value
       material.erasure.value = holon.erasure.value
-      // Seen opacity: its own fade times its inherited certainty (certainty.ts).
-      const opacity = seen.value
       material.fade.value = opacity
       const tint: Color = holon.tint.value
       material.tint.value.setRGB(tint.r, tint.g, tint.b)

@@ -1934,7 +1934,7 @@ export class ThreeHost {
       // the contour in is a reading of this frame's projection.
       for (const { binding, group, holon } of this.texts) {
         if (this.asleep(holon)) continue
-        binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()))
+        binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()), this.frameT)
       }
       // Uncertainty's echoes: offsets in pixels, so after the settle.
       for (const { blur, group } of this.superpositions) {
