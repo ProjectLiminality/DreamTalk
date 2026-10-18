@@ -13,6 +13,7 @@ import { FigureBustDemoDream } from "./FigureBustDemo"
 import { SandTalkDemoDream } from "./SandTalkDemo"
 import { TribeDemoDream, TribeWebDemoDream, TribesDemoDream } from "./TribeDemo"
 import type { DreamClass } from "../../src/dream"
+import { InterBrainSongDream } from "./InterBrainSong"
 import { Ch7BreakingTheSpellDream } from "./Ch7BreakingTheSpell"
 import { Ch8NewBeginningDream } from "./Ch8NewBeginning"
 import { Ch5FixingTheLensDream } from "./Ch5FixingTheLens"
@@ -43,6 +44,8 @@ import { VaultDemoDream } from "./VaultDemo"
 import { SpheresDemoDream } from "./SpheresDemo"
 
 export const interbrainScenes: Record<string, DreamClass> = {
+  // The whole film as ONE DreamSong, song time = video time, David narrating.
+  interbrain: InterBrainSongDream,
   "ib-ch5": Ch5FixingTheLensDream,
   "ib-ch6": Ch6IntroducingInterBrainDream,
   "ib-ch7": Ch7BreakingTheSpellDream,
