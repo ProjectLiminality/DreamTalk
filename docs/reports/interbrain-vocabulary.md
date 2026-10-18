@@ -487,3 +487,53 @@ Machine snapshots, Trash, ~/Movies) is reported in the amendment below.
 | `docs/reports/interbrain/ch{1..8}-sheet.jpg` | per-chapter sheets |
 
 URL: https://www.youtube.com/watch?v=v5dBRmjF8mc
+
+## Amendment — the source sweep (2026-10-18)
+
+Read-only sweep of Spotlight, iCloud, Keynote containers, Time Machine,
+Trash, GitHub and ~/Movies. The production folder (`~/ProjectLiminality/TheInterBrain/`)
+is gone and no copy turned up, but three things survive that change the
+method for the build phase:
+
+1. **The Final Cut edit survives.** `~/Movies/ProjectLiminality.fcpbundle/InterBrain/`
+   (490 MB, ≈45 projects incl. the main "InterBrain" timeline,
+   InSearchOfTheThirdAttractor, Teaser, CrowdfundingMonologue, DreamWeaving,
+   ChaosOrderSynthesis). Timelines and edit decisions are intact; 159 of 167
+   linked media are offline (they lived in the deleted folder). The offline
+   clip NAMES are themselves a map of the production: `Chapters/` held 44
+   `.m4v` Keynote exports — IntroducingTheInterBrain(1–5),
+   TheViciousCycle(1–4), TheAncientArmsRace(1–2), GoingUpstream(1–8),
+   FixingTheLens(1–4), BreakingTheSpell(1–5),
+   InSearchOfTheThirdAttractor(1–7), ANewBeginning(1–2) — and
+   `Recordings/Narration/` held 73 `.m4a` takes named after their opening
+   words (e.g. `the_spellof_fragmentation`, `a_collective_hyperagent`). So
+   the timeline gives the **exact clip boundaries** (sub-chapter segments,
+   narration placement) that §0 measured from the pixels — a stronger
+   timing source, readable without the media. Only low-res thumbnail media
+   (`Render Files/Thumbnail Media`, 429 MB) remain of the lost clips.
+   Confirms the technique reading: the chapters were Keynote exports
+   assembled in Final Cut (with Pink Floyd's "Welcome To The Machine" and the
+   3Blue1Brown score in the music bin).
+2. **Chapter 1 survives as a master**: `DreamTalkVocabulary/InSearchOfTheThirdAttractor/InSearchOfTheThirdAttractor.mov`
+   (1080p H.264, 346 s, 2025-05-30) — corpus #15, confirmed as the
+   chapter-1 cut.
+3. **April-2025 screen recordings and voice memos** (iCloud Unclutter):
+   DreamWeaving.mov, LinkIdeasToPeople.mov, DragAndDrop.mov, … (the
+   prototype being shown), InterBrainConcept.m4a (2025-03-24), and
+   `InterBrain.png` / `InterBrainLogo300.png` (2025-04-06) — the InterBrain
+   app face as it was then (relevant to §6 question 4).
+
+Also from 2025, possibly feeding chapters: `DreamTalkVocabulary/Noosphere/NoosphereProjection.c4d`
+(2025-04-28 — the Noosphere sphere), `DreamTalkVocabulary/FlowerOfLife/FlowerOfLifeSphere/`
+(C4D + renders — the flower-of-life sphere), `CRI/ThirdAttractor/ThirdAttractor.key`
+(also on GitHub as `InterfaceGuy/ThirdAttractor`), MolochConsciousness.key
+(05-04), DreamWeaving.key (03-11). Nothing found in Time Machine (none
+configured, no local snapshots), Trash, Keynote autosave, Desktop/Documents/
+Downloads, or GitHub (`ProjectLiminality/InterBrain` postdates the video).
+Not checked: iCloud "Recently Deleted" (30-day window, icloud.com only) and
+external drives — David's call.
+
+**Next step this unlocks**: parse the Final Cut project (its database is
+SQLite/protobuf inside the bundle; read-only, via a copy into refs/) for
+the segment table — clip names, in/out points, narration offsets — before
+the chapter compositions are timed.
