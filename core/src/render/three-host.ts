@@ -59,6 +59,8 @@ import { FillShape, ellipsePolygon } from "./fill"
 import { attachText, type TextBinding } from "./text"
 import { capArc, capPolylineFrom, generatorPoint, silhouetteAngles } from "./silhouette"
 import { screenArcRemap, type ProjectedPoint } from "./screen-arc"
+import { CHUNK, mayReach, segmentBoxes, triangleBoxes, vertexBox, type Boxes } from "./pickcull"
+import { boxDistance, boxFarthest, pointSegment, pointTriangle, raySegment, rayNearBox, rayTriangle, worldBox } from "./pickworld"
 import { LayerCompositor } from "./layers"
 
 const STROKE_SEGMENTS = 128
@@ -119,6 +121,8 @@ interface ShapeSig {
 interface StrokeBinding {
   holon: Stroke
   ribbon: RibbonStroke
+  /** The stroke-width param, read past the holon's proxy — the fast pick's tolerance (set on first pick). */
+  pickWidth?: { readonly value: number }
   /** Shape signature for the geometry-regen dirty-check (see ShapeSig). */
   sig: ShapeSig
   /**
@@ -1536,7 +1540,11 @@ export class ThreeHost {
     }
     this.movedGroups.length = 0
     this.matricesSettled = true
+    this.settledStructure = structureEpoch
   }
+
+  /** The graph's structure when matrices were last settled — a node added since has no settled matrix yet. */
+  private settledStructure = -1
 
   /** The groups sync() re-composed this frame — the targeted settle's roots. */
   private readonly movedGroups: THREE.Object3D[] = []
@@ -2634,8 +2642,82 @@ export class ThreeHost {
    * Ties break toward the DEEPEST holon (a part over its whole) and then
    * toward the closest ink, so clicking an Eye's pupil selects the pupil
    * and clicking one grid line of an Axes selects that Line.
+   *
+   * FAST, EXACT (pickcull.ts): each buffer's local chunk boxes (cached until
+   * its geometry changes) are projected first; ink whose box cannot come
+   * within the tolerance of the cursor is never measured, and a holon
+   * shallower than the best so far is never measured either. Same answers
+   * as `pickReference` (the exhaustive pick), ~70 ms → ~1 ms in the gallery.
    */
   pick(ndcX: number, ndcY: number): Holon | undefined {
+    const width = this.renderer.domElement.width || 1280
+    const height = this.renderer.domElement.height || 720
+    const px = ((ndcX + 1) / 2) * width
+    const py = ((1 - ndcY) / 2) * height
+    // Settled since the last frame and no node added or removed since: every
+    // world matrix already is the float a forced update would make (perf F)
+    // — skip the walk over every node (~8k in the gallery, ~2.5 ms).
+    if (!this.matricesSettled || this.settledStructure !== structureEpoch) this.scene.updateMatrixWorld(true)
+    this.pickViewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+    this.pickModel.fill(NaN) // the view may have moved since the last pick
+
+    let best: { holon: Holon; depth: number; distance: number } | undefined
+    const consider = (holon: Holon, distance: number, tolerance: number) => {
+      if (distance > tolerance || this.asleep(holon)) return
+      const depth = this.depthOf(holon)
+      // Deeper wins outright; at equal depth, nearer ink wins.
+      if (best && (best.depth > depth || (best.depth === depth && best.distance <= distance))) return
+      best = { holon, depth, distance }
+    }
+    // A holon shallower than the best so far cannot win: skip measuring it.
+    const outranked = (holon: Holon) => best !== undefined && this.depthOf(holon) < best.depth
+
+    for (const binding of this.strokes) {
+      if (outranked(binding.holon)) continue
+      // The raw holon's param, kept on the binding: the same value, without the proxy's
+      // and the internals lookup's toll on every read (7k strokes in the gallery).
+      const strokeWidth = (binding.pickWidth ??= rawHolon(binding.holon).stroke)
+      const tolerance = strokeWidth.value / 2 + ThreeHost.PICK_SLOP
+      consider(binding.holon, this.ribbonDistanceCulled(binding.ribbon, px, py, width, height, tolerance), tolerance)
+    }
+    for (const binding of this.cylinders) {
+      if (outranked(binding.holon)) continue
+      const tolerance = binding.holon.stroke.value / 2 + ThreeHost.PICK_SLOP
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB]) {
+        consider(binding.holon, this.ribbonDistanceCulled(ribbon, px, py, width, height, tolerance), tolerance)
+      }
+    }
+    for (const binding of this.fills) {
+      if (outranked(binding.holon)) continue
+      consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
+    }
+    for (const binding of [...this.washes, ...this.drawingWashes]) {
+      if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01) continue
+      if (outranked(binding.holon)) continue
+      consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
+    }
+    for (const binding of this.surfaces) {
+      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01) continue
+      if (outranked(binding.holon)) continue
+      consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
+    }
+    for (const binding of this.arrows) {
+      if (outranked(binding.holon)) continue
+      consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
+    }
+    for (const { binding, group } of this.texts) {
+      if (outranked(binding.holon)) continue
+      consider(binding.holon, this.groupScreenDistance(group, px, py, width, height, true), 0)
+    }
+    return best?.holon
+  }
+
+  /**
+   * The exhaustive pick — every segment and triangle of every visible
+   * binding projected — kept verbatim as the oracle the fast `pick` must
+   * agree with (scripts/pick-gate.ts).
+   */
+  pickReference(ndcX: number, ndcY: number): Holon | undefined {
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
     const px = ((ndcX + 1) / 2) * width
@@ -2687,6 +2769,341 @@ export class ThreeHost {
       consider(binding.holon, this.groupScreenDistance(group, px, py, width, height), 0)
     }
     return best?.holon
+  }
+
+  // --- Picking in 3D: the nearest ink to a point, the first along a ray -----
+  //
+  // For a hand's spark, which stands in space. The same ink as `pick`, by the
+  // same rules — what you cannot see you cannot touch: invisible meshes, the
+  // undrawn and erased spans of a stroke, hidden washes and surfaces, and
+  // sleeping roots stay out. Each buffer's local chunk boxes (pickcull.ts)
+  // become world boxes, cached until the buffer or its world matrix changes,
+  // so a query measures only the ink near it (pickworld.ts).
+
+  /**
+   * The nearest visible ink within `radius` (world units) of `point`: its
+   * holon, the distance, and the nearest point on the ink. Nearest wins;
+   * within 5% of the radius of the nearest, the deeper holon wins (a pupil
+   * inside its eye).
+   */
+  pickNear(
+    point: THREE.Vector3,
+    radius: number,
+    opts: { exhaustive?: boolean } = {},
+  ): { holon: Holon; distance: number; at: THREE.Vector3 } | undefined {
+    this.settleForPick()
+    // `exhaustive` measures every piece, no box skipped — the oracle the culled query is gated against.
+    const far = (dist: number) => !opts.exhaustive && dist > radius
+    const px = point.x
+    const py = point.y
+    const pz = point.z
+    const near = new Map<Holon, { distance: number; at: [number, number, number] }>()
+    const offer = (holon: Holon, distance: number, x: number, y: number, z: number) => {
+      const had = near.get(holon)
+      if (!had || distance < had.distance) near.set(holon, { distance, at: [x, y, z] })
+    }
+    this.forEachInk((piece) => {
+      if (piece.kind === "ribbon") {
+        const w = this.ribbonWorld(piece.ribbon)
+        if (!w || far(boxDistance(w.whole, 0, px, py, pz))) return
+        for (let k = 0; k < w.n; k++) {
+          if (far(boxDistance(w.chunks, k * 6, px, py, pz))) continue
+          this.forEachRibbonSegment(piece.ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
+            const [d, u] = pointSegment(px, py, pz, ax, ay, az, bx, by, bz)
+            if (d <= radius) offer(piece.holon, d, ax + (bx - ax) * u, ay + (by - ay) * u, az + (bz - az) * u)
+          })
+        }
+      } else if (piece.kind === "fill") {
+        const w = this.fillWorld(piece.fill)
+        if (!w || far(boxDistance(w.whole, 0, px, py, pz))) return
+        const p: [number, number, number] = [px, py, pz]
+        for (let k = 0; k < w.n; k++) {
+          if (far(boxDistance(w.chunks, k * 6, px, py, pz))) continue
+          this.forEachTriangle(piece.fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
+            const [d, x, y, z] = pointTriangle(p, a, b, c)
+            if (d <= radius) offer(piece.holon, d, x, y, z)
+          })
+        }
+      } else {
+        this.forEachGlyphBox(piece.group, (box) => {
+          const d = boxDistance(box, 0, px, py, pz)
+          if (d <= radius)
+            offer(
+              piece.holon,
+              d,
+              Math.min(Math.max(px, box[0]!), box[3]!),
+              Math.min(Math.max(py, box[1]!), box[4]!),
+              Math.min(Math.max(pz, box[2]!), box[5]!),
+            )
+        })
+      }
+    })
+    let nearest = Infinity
+    for (const { distance } of near.values()) nearest = Math.min(nearest, distance)
+    let best: { holon: Holon; depth: number; distance: number; at: [number, number, number] } | undefined
+    for (const [holon, { distance, at }] of near) {
+      if (distance > nearest + 0.05 * radius) continue
+      const depth = this.depthOf(holon)
+      if (!best || depth > best.depth || (depth === best.depth && distance < best.distance)) best = { holon, depth, distance, at }
+    }
+    return best && { holon: best.holon, distance: best.distance, at: new THREE.Vector3(...best.at) }
+  }
+
+  /**
+   * The first visible ink along the ray `origin + t·direction` (t ≤
+   * maxDistance): its holon, t, and the point. A stroke counts where its
+   * centreline passes within its own half-width plus `tolerancePx` pixels of
+   * the ray, the pixel measured at that ink's distance from the eye (so a ray
+   * from the eye through a screen point agrees with what is drawn there);
+   * fills by their triangles, text by its glyph boxes. At equal t the deeper
+   * holon wins.
+   */
+  pickRay(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    opts: { maxDistance?: number; tolerancePx?: number; exhaustive?: boolean } = {},
+  ): { holon: Holon; t: number; at: THREE.Vector3 } | undefined {
+    this.settleForPick()
+    // `exhaustive`: every piece measured, no box skipped (the gate's oracle).
+    const missed = (enter: number) => !opts.exhaustive && (Number.isNaN(enter) || (best !== undefined && enter > best.t))
+    const len = direction.length()
+    if (!(len > 0)) return undefined
+    const dx = direction.x / len
+    const dy = direction.y / len
+    const dz = direction.z / len
+    const ox = origin.x
+    const oy = origin.y
+    const oz = origin.z
+    const tMax = opts.maxDistance ?? Infinity
+    const extra = opts.tolerancePx ?? 0
+    const eye = this.camera.getWorldPosition(new THREE.Vector3())
+    const perPx = this.worldPerPixel()
+    const o: [number, number, number] = [ox, oy, oz]
+    const d: [number, number, number] = [dx, dy, dz]
+    let best: { holon: Holon; t: number; depth: number; at: [number, number, number] } | undefined
+    const offer = (holon: Holon, t: number, x: number, y: number, z: number) => {
+      if (t > tMax) return
+      if (best && t > best.t + 1e-9) return
+      const depth = this.depthOf(holon)
+      if (best && Math.abs(t - best.t) <= 1e-9 && depth <= best.depth) return
+      best = { holon, t, depth, at: [x, y, z] }
+    }
+    this.forEachInk((piece) => {
+      if (piece.kind === "ribbon") {
+        const w = this.ribbonWorld(piece.ribbon)
+        if (!w) return
+        const tolPx = piece.widthPx / 2 + extra
+        const pad = (b: ArrayLike<number>, at: number) => tolPx * perPx(boxFarthest(b, at, eye.x, eye.y, eye.z))
+        if (missed(rayNearBox(w.whole, 0, ox, oy, oz, dx, dy, dz, tMax, pad(w.whole, 0)))) return
+        for (let k = 0; k < w.n; k++) {
+          if (missed(rayNearBox(w.chunks, k * 6, ox, oy, oz, dx, dy, dz, tMax, pad(w.chunks, k * 6)))) continue
+          this.forEachRibbonSegment(piece.ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
+            const [dist, t, u] = raySegment(ox, oy, oz, dx, dy, dz, tMax, ax, ay, az, bx, by, bz)
+            const x = ax + (bx - ax) * u
+            const y = ay + (by - ay) * u
+            const z = az + (bz - az) * u
+            if (dist <= tolPx * perPx(Math.hypot(x - eye.x, y - eye.y, z - eye.z))) offer(piece.holon, t, x, y, z)
+          })
+        }
+      } else if (piece.kind === "fill") {
+        const w = this.fillWorld(piece.fill)
+        if (!w || missed(rayNearBox(w.whole, 0, ox, oy, oz, dx, dy, dz, tMax, 0))) return
+        for (let k = 0; k < w.n; k++) {
+          if (missed(rayNearBox(w.chunks, k * 6, ox, oy, oz, dx, dy, dz, tMax, 0))) continue
+          this.forEachTriangle(piece.fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
+            const t = rayTriangle(o, d, a, b, c)
+            if (t !== undefined) offer(piece.holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
+          })
+        }
+      } else {
+        this.forEachGlyphBox(piece.group, (box) => {
+          const t = rayNearBox(box, 0, ox, oy, oz, dx, dy, dz, tMax, 0)
+          if (!Number.isNaN(t)) offer(piece.holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
+        })
+      }
+    })
+    const b = best as { holon: Holon; t: number; at: [number, number, number] } | undefined
+    return b && { holon: b.holon, t: b.t, at: new THREE.Vector3(...b.at) }
+  }
+
+  /** The world matrices a pick reads, current — the same rule as `pick`'s. */
+  private settleForPick(): void {
+    if (!this.matricesSettled || this.settledStructure !== structureEpoch) this.scene.updateMatrixWorld(true)
+  }
+
+  /** World units per drawing-buffer pixel at distance `t` from the eye. */
+  private worldPerPixel(): (t: number) => number {
+    const height = this.renderer.domElement.height || 720
+    const cam = this.camera
+    if (cam instanceof THREE.PerspectiveCamera) {
+      const k = (2 * Math.tan((cam.fov * Math.PI) / 360)) / (cam.zoom * height)
+      return (t) => t * k
+    }
+    const ortho = cam as unknown as THREE.OrthographicCamera
+    const span = (ortho.top - ortho.bottom) / (ortho.zoom || 1) / height
+    return () => span
+  }
+
+  /** Every pickable piece of visible ink, by `pick`'s rules. */
+  private forEachInk(
+    fn: (
+      piece:
+        | { kind: "ribbon"; holon: Holon; ribbon: RibbonStroke; widthPx: number }
+        | { kind: "fill"; holon: Holon; fill: FillShape }
+        | { kind: "glyphs"; holon: Holon; group: THREE.Object3D },
+    ) => void,
+  ): void {
+    for (const binding of this.strokes) {
+      if (this.asleep(binding.holon)) continue
+      const width = (binding.pickWidth ??= rawHolon(binding.holon).stroke).value
+      fn({ kind: "ribbon", holon: binding.holon, ribbon: binding.ribbon, widthPx: width })
+    }
+    for (const binding of this.cylinders) {
+      if (this.asleep(binding.holon)) continue
+      const width = binding.holon.stroke.value
+      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB])
+        fn({ kind: "ribbon", holon: binding.holon, ribbon, widthPx: width })
+    }
+    for (const binding of this.fills) if (!this.asleep(binding.holon)) fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
+    for (const binding of [...this.washes, ...this.drawingWashes]) {
+      if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01 || this.asleep(binding.holon)) continue
+      fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
+    }
+    for (const binding of this.surfaces) {
+      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01 || this.asleep(binding.holon)) continue
+      fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
+    }
+    for (const binding of this.arrows) if (!this.asleep(binding.holon)) fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
+    for (const { binding, group } of this.texts) if (!this.asleep(binding.holon)) fn({ kind: "glyphs", holon: binding.holon, group })
+  }
+
+  /** World boxes of a buffer's local chunk boxes, cached until the boxes or the world matrix change. */
+  private readonly worldBoxCache = new WeakMap<object, { local: Boxes; m: Float64Array; whole: Float64Array; chunks: Float64Array; n: number }>()
+  private worldBoxesOf(key: object, local: Boxes, matrix: THREE.Matrix4) {
+    const e = matrix.elements
+    let w = this.worldBoxCache.get(key)
+    if (w && w.local === local) {
+      let same = true
+      for (let i = 0; i < 16; i++)
+        if (w.m[i] !== e[i]) {
+          same = false
+          break
+        }
+      if (same) return w
+    }
+    const n = Math.ceil(local.count / CHUNK)
+    w = { local, m: Float64Array.from(e), whole: new Float64Array(6), chunks: new Float64Array(n * 6), n }
+    worldBox(local.whole, 0, e, w.whole)
+    for (let k = 0; k < n; k++) worldBox(local.chunks, k * 6, e, w.chunks, k * 6)
+    this.worldBoxCache.set(key, w)
+    return w
+  }
+
+  private ribbonWorld(ribbon: RibbonStroke) {
+    if (!ribbon.mesh.visible) return undefined
+    const count = ribbon.geometry.instanceCount
+    const start = ribbon.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute | undefined
+    if (count < 1 || !start) return undefined
+    return this.worldBoxesOf(ribbon, segmentBoxes(ribbon.geometry, start.data.array as Float32Array, start.data.version, count), ribbon.mesh.matrixWorld)
+  }
+
+  private fillWorld(fill: FillShape) {
+    if (!fill.mesh.visible) return undefined
+    const geometry = fill.mesh.geometry
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+    const index = geometry.getIndex()
+    if (!position || !index) return undefined
+    return this.worldBoxesOf(fill, triangleBoxes(geometry, position, index), fill.mesh.matrixWorld)
+  }
+
+  /**
+   * A ribbon's visible segments [from, to), in world space, each clipped to
+   * the drawn window — ribbonDistance's own reading of the buffers.
+   */
+  private forEachRibbonSegment(
+    ribbon: RibbonStroke,
+    from: number,
+    to: number,
+    fn: (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => void,
+  ): void {
+    const count = ribbon.geometry.instanceCount
+    const start = ribbon.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute | undefined
+    const dist = ribbon.geometry.getAttribute("instanceDistanceStart") as THREE.InterleavedBufferAttribute | undefined
+    if (!start || !dist) return
+    const positions = start.data.array as Float32Array
+    const distances = dist.data.array as Float32Array
+    const drawn = ribbon.drawnLength
+    const erased = ribbon.erasedLength
+    const m = ribbon.mesh.matrixWorld.elements
+    const tx = (x: number, y: number, z: number, r: number) => m[r]! * x + m[r + 4]! * y + m[r + 8]! * z + m[r + 12]!
+    for (let i = from, end = Math.min(to, count); i < end; i++) {
+      const d0 = distances[i * 2]!
+      const d1 = distances[i * 2 + 1]!
+      if (d0 >= drawn || d1 <= erased) continue
+      const lx = positions[i * 6]!
+      const ly = positions[i * 6 + 1]!
+      const lz = positions[i * 6 + 2]!
+      const mx = positions[i * 6 + 3]!
+      const my = positions[i * 6 + 4]!
+      const mz = positions[i * 6 + 5]!
+      let ax = tx(lx, ly, lz, 0)
+      let ay = tx(lx, ly, lz, 1)
+      let az = tx(lx, ly, lz, 2)
+      let bx = tx(mx, my, mz, 0)
+      let by = tx(mx, my, mz, 1)
+      let bz = tx(mx, my, mz, 2)
+      const span = d1 - d0
+      if (span > 1e-9) {
+        const f = Math.max(0, Math.min(1, (erased - d0) / span))
+        const g = Math.max(0, Math.min(1, (drawn - d0) / span))
+        if (g <= f) continue
+        const ex = bx - ax
+        const ey = by - ay
+        const ez = bz - az
+        bx = ax + ex * g
+        by = ay + ey * g
+        bz = az + ez * g
+        ax += ex * f
+        ay += ey * f
+        az += ez * f
+      }
+      fn(ax, ay, az, bx, by, bz)
+    }
+  }
+
+  /** A fill's triangles [from, to), in world space. */
+  private forEachTriangle(
+    fill: FillShape,
+    from: number,
+    to: number,
+    fn: (a: [number, number, number], b: [number, number, number], c: [number, number, number]) => void,
+  ): void {
+    const geometry = fill.mesh.geometry
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute
+    const index = geometry.getIndex()!
+    const m = fill.mesh.matrixWorld.elements
+    const vertex = (v: number): [number, number, number] => {
+      const x = position.getX(v)
+      const y = position.getY(v)
+      const z = position.getZ(v)
+      return [
+        m[0]! * x + m[4]! * y + m[8]! * z + m[12]!,
+        m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
+        m[2]! * x + m[6]! * y + m[10]! * z + m[14]!,
+      ]
+    }
+    for (let i = from * 3, end = Math.min(to * 3, index.count); i < end; i += 3)
+      fn(vertex(index.getX(i)), vertex(index.getX(i + 1)), vertex(index.getX(i + 2)))
+  }
+
+  /** The world box of each visible glyph mesh under a text's group. */
+  private forEachGlyphBox(group: THREE.Object3D, fn: (box: Float64Array) => void): void {
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.visible) return
+      const position = child.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+      if (!position) return
+      fn(this.worldBoxesOf(child, vertexBox(child.geometry, position), child.matrixWorld).whole)
+    })
   }
 
   /**
@@ -3186,6 +3603,8 @@ export class ThreeHost {
     py: number,
     width: number,
     height: number,
+    from = 0,
+    to = Infinity,
   ): number {
     if (!ribbon.mesh.visible) return Infinity
     const count = ribbon.geometry.instanceCount
@@ -3206,7 +3625,7 @@ export class ThreeHost {
     const a = new THREE.Vector3()
     const b = new THREE.Vector3()
     let best = Infinity
-    for (let i = 0; i < count; i++) {
+    for (let i = from, end = Math.min(to, count); i < end; i++) {
       // Skip segments entirely outside the visible arc-length window.
       const d0 = distances[i * 2]!
       const d1 = distances[i * 2 + 1]!
@@ -3239,6 +3658,8 @@ export class ThreeHost {
     py: number,
     width: number,
     height: number,
+    fromTriangle = 0,
+    toTriangle = Infinity,
   ): number {
     if (!fill.mesh.visible) return Infinity
     const geometry = fill.mesh.geometry
@@ -3251,12 +3672,82 @@ export class ThreeHost {
       v.fromBufferAttribute(position, vertex).applyMatrix4(matrix)
       return this.toScreen(v, width, height)
     }
-    for (let i = 0; i < index.count; i += 3) {
+    for (let i = fromTriangle * 3, end = Math.min(toTriangle * 3, index.count); i < end; i += 3) {
       const p0 = project(index.getX(i))
       const p1 = project(index.getX(i + 1))
       const p2 = project(index.getX(i + 2))
       if (!p0 || !p1 || !p2) continue
       if (pointInTriangle2D(px, py, p0, p1, p2)) return 0
+    }
+    return Infinity
+  }
+
+  /** Scratch for the fast pick: the camera's view-projection, and one buffer's MVP. */
+  private readonly pickViewProjection = new THREE.Matrix4()
+  private readonly pickModelViewProjection = new THREE.Matrix4()
+  /** The model matrix the MVP above was made from (siblings share theirs: the Earth's thousands of strokes). */
+  private readonly pickModel = new Float64Array(16).fill(NaN)
+
+  /** projection · view · model for the fast pick — reused while consecutive buffers share a world matrix. */
+  private pickMvp(world: THREE.Matrix4): ArrayLike<number> {
+    const e = world.elements
+    const last = this.pickModel
+    let same = true
+    for (let i = 0; i < 16; i++)
+      if (e[i] !== last[i]) {
+        same = false
+        break
+      }
+    if (!same) {
+      last.set(e)
+      this.pickModelViewProjection.multiplyMatrices(this.pickViewProjection, world)
+    }
+    return this.pickModelViewProjection.elements
+  }
+
+  /**
+   * ribbonDistance, measured only on the chunks whose boxes can reach within
+   * `tolerance` px of the cursor (pickcull.ts). Equal to ribbonDistance
+   * whenever that is ≤ tolerance; otherwise both are > tolerance (or ∞).
+   */
+  private ribbonDistanceCulled(
+    ribbon: RibbonStroke,
+    px: number,
+    py: number,
+    width: number,
+    height: number,
+    tolerance: number,
+  ): number {
+    if (!ribbon.mesh.visible) return Infinity
+    const count = ribbon.geometry.instanceCount
+    if (count < 1) return Infinity
+    const start = ribbon.geometry.getAttribute("instanceStart") as THREE.InterleavedBufferAttribute | undefined
+    if (!start) return Infinity
+    const boxes = segmentBoxes(ribbon.geometry, start.data.array as Float32Array, start.data.version, count)
+    const mvp = this.pickMvp(ribbon.mesh.matrixWorld)
+    if (!mayReach(boxes.whole, 0, mvp, width, height, px, py, tolerance)) return Infinity
+    let best = Infinity
+    for (let k = 0, n = Math.ceil(count / CHUNK); k < n; k++) {
+      if (!mayReach(boxes.chunks, k * 6, mvp, width, height, px, py, tolerance)) continue
+      const d = this.ribbonDistance(ribbon, px, py, width, height, k * CHUNK, (k + 1) * CHUNK)
+      if (d < best) best = d
+    }
+    return best
+  }
+
+  /** fillDistance, tested only in the triangle chunks whose boxes contain the cursor. */
+  private fillDistanceCulled(fill: FillShape, px: number, py: number, width: number, height: number): number {
+    if (!fill.mesh.visible) return Infinity
+    const geometry = fill.mesh.geometry
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+    const index = geometry.getIndex()
+    if (!position || !index) return Infinity
+    const boxes = triangleBoxes(geometry, position, index)
+    const mvp = this.pickMvp(fill.mesh.matrixWorld)
+    if (!mayReach(boxes.whole, 0, mvp, width, height, px, py, 0)) return Infinity
+    for (let k = 0, n = Math.ceil(boxes.count / CHUNK); k < n; k++) {
+      if (!mayReach(boxes.chunks, k * 6, mvp, width, height, px, py, 0)) continue
+      if (this.fillDistance(fill, px, py, width, height, k * CHUNK, (k + 1) * CHUNK) === 0) return 0
     }
     return Infinity
   }
@@ -3268,6 +3759,7 @@ export class ThreeHost {
     py: number,
     width: number,
     height: number,
+    cull = false,
   ): number {
     let hit = Infinity
     object.traverse((child) => {
@@ -3275,6 +3767,10 @@ export class ThreeHost {
       if (!(child instanceof THREE.Mesh) || !child.visible) return
       const position = child.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
       if (!position) return
+      if (cull) {
+        const mvp = this.pickMvp(child.matrixWorld)
+        if (!mayReach(vertexBox(child.geometry, position).whole, 0, mvp, width, height, px, py, 0)) return
+      }
       // Glyph quads are small and numerous; their screen AABB is the
       // honest, cheap answer for "did the cursor land on this text".
       const box = new THREE.Box2()
