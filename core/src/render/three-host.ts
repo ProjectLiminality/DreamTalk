@@ -1141,12 +1141,7 @@ export class ThreeHost {
    */
   private lightsRadially(holon: Stroke, fill: FillShape, curved = false): boolean {
     const f = holon.fillFalloff
-    let uses = f.value > 0 || f.isBound
-    for (const clip of this.dream.clips) {
-      for (const track of clip.anim.tracks) {
-        if (track.param === (f as unknown as typeof track.param)) uses = true
-      }
-    }
+    const uses = f.value > 0 || f.isBound || this.tracked().has(f)
     if (uses) {
       if (curved) fill.useSurfaceGradient()
       else fill.useGradient()
@@ -1162,13 +1157,26 @@ export class ThreeHost {
     // follows a birth driver that is 0 at attach, no track names the param
     // itself, so no wash was ever built and the land drew as bare outline.
     if (holon.fillOpacity.isBound) return true
-    for (const clip of this.dream.clips) {
-      for (const track of clip.anim.tracks) {
-        if (track.param === (holon.fillOpacity as unknown as typeof track.param)) return true
-      }
-    }
-    return false
+    return this.tracked().has(holon.fillOpacity)
   }
+
+  /**
+   * Every param some clip's track names — "does a track move it?" asked
+   * once per stroke at attach. Scanning the clips per stroke was O(strokes
+   * × tracks): 318k strokes × 13.8k tracks on the whole InterBrain song,
+   * minutes of attach. Rebuilt whenever the clip list has grown (a holon
+   * adopted after the dream gained clips sees them).
+   */
+  private tracked(): ReadonlySet<unknown> {
+    const clips = this.dream.clips
+    if (!this.trackedParams || this.trackedParams.clips !== clips.length) {
+      const params = new Set<unknown>()
+      for (const clip of clips) for (const track of clip.anim.tracks) params.add(track.param)
+      this.trackedParams = { clips: clips.length, params }
+    }
+    return this.trackedParams.params
+  }
+  private trackedParams?: { clips: number; params: Set<unknown> }
 
   private attach(holon: Holon, parent: THREE.Object3D, root: Holon = holon): void {
     this.rootOf.set(holon, root)
@@ -2698,7 +2706,7 @@ export class ThreeHost {
       consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
     }
     for (const binding of this.surfaces) {
-      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01) continue
+      if (binding.holon.fillOpacity.value * seenOf(binding.holon).value <= 0.01) continue
       if (outranked(binding.holon)) continue
       consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
     }
@@ -2760,7 +2768,7 @@ export class ThreeHost {
       consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
     }
     for (const binding of this.surfaces) {
-      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01) continue
+      if (binding.holon.fillOpacity.value * seenOf(binding.holon).value <= 0.01) continue
       consider(binding.holon, this.fillDistance(binding.fill, px, py, width, height), 0)
     }
     for (const binding of this.arrows) {
@@ -2971,7 +2979,7 @@ export class ThreeHost {
       fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
     }
     for (const binding of this.surfaces) {
-      if (binding.holon.fillOpacity.value * binding.holon.opacity.value <= 0.01 || this.asleep(binding.holon)) continue
+      if (binding.holon.fillOpacity.value * seenOf(binding.holon).value <= 0.01 || this.asleep(binding.holon)) continue
       fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
     }
     for (const binding of this.arrows) if (!this.asleep(binding.holon)) fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
