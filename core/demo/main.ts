@@ -350,7 +350,7 @@ const main = async () => {
       void toggleGame()
       return
     }
-    if (e.code === "KeyU" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !creator.on && !explorer.on) {
+    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !creator.on && !explorer.on) {
       e.preventDefault()
       void nest.unpackHovered()
       return
@@ -390,7 +390,7 @@ const main = async () => {
     view: game.view,
     hoverAt: (x: number, y: number) => game.hoverAt(x, y),
     clickAt: (x: number, y: number) => game.clickAt(x, y),
-    // Nesting (u / Esc), for the harness.
+    // Nesting (Enter / Esc), for the harness.
     nest: {
       /** Unpack the largest on-screen symbol of this class. */
       unpack: (name: string) => {
@@ -497,7 +497,7 @@ const main = async () => {
     const q = new URLSearchParams({ scene: sceneName, t: game.heldAt.toFixed(2), session: id })
     recNote.innerHTML = `session ${id} kept · <a href="/?${q}" style="color:#00a2ff">write it into the song ↗</a>`
   }
-  // Nesting (editor/nest.ts): `u` over a symbol unpacks it into its own song
+  // Nesting (editor/nest.ts): Enter over a symbol unpacks it into its own song
   // (its WatchMe) or state space; Esc comes back to exactly this moment —
   // the song beneath is held (free play), never re-timed.
   const nest = mountNest({

@@ -67,6 +67,28 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
 - The HUD is off by default in the editor (the State group is its editor
   form); `h` or `?hud=1` shows it in the viewport.
 
+## Unpack a symbol, and come back (nesting)
+
+- While a song plays (player: Space for free play; editor: paused), press
+  **Enter** over a symbol, or choose "unpack <X>" in its action menu or
+  long press. The view glides into the symbol and past it, while its own
+  song (its WatchMe) grows out of the box it occupied. Inside, Space walks
+  it, Enter goes a level deeper, and **Esc** comes back. Esc is consumed
+  only while a level is open; pressed while a level is still opening, it
+  comes back as soon as the level has opened.
+- WatchMe: the registered scene `<Class>WatchMeDream` / `<Class>Dream` /
+  `<Class>DemoDream`, else the symbol alone with its state space.
+- Frame-exact return by construction: the song beneath is held (its
+  free-play clocks too), never re-timed, and its view delta is restored as
+  a value. Verified byte-identical on the whole InterBrain song.
+- Enter is in RESERVED_KEYS (`u` is an axis key: Worldview's pullers, the
+  InterBrain unfold). Hands bind to `window.__dtNest.unpackHovered()` /
+  `back()`.
+- Try it: `/demo/?scene=interbrain&t=2295` → Space → hover the beacon →
+  Enter → explore → Esc. The editor is the same: `/?scene=ib-ch7&t=225`.
+- Code: editor/nest.ts (the stack, pure in NestStack), wired into
+  demo/main.ts and editor/main.ts; test/nest.test.ts.
+
 ## ⌘K in the song's idiom, clocks running
 
 - A walked transition is written as an axis to a named position:

@@ -1881,8 +1881,8 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
-      // u: unpack the symbol under the pointer into its own song (editor/nest.ts).
-      if (!typing && e.code === "KeyU" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
+      // Enter: unpack the symbol under the pointer into its own song (editor/nest.ts).
+      if (!typing && e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
         e.preventDefault()
         void nest.unpackHovered()
         return
@@ -2115,7 +2115,7 @@ const boot = async (resume?: Transport) => {
   // --- Nesting (editor/nest.ts) -----------------------------------------------
   //
   // Unpack a symbol on screen into its own song (its WatchMe) or state
-  // space — u over it, or "unpack" in its actions — explore, Esc back to
+  // space — Enter over it, or "unpack" in its actions — explore, Esc back to
   // exactly this moment. The song beneath is held, never re-timed.
   const nest = playerMode
     ? undefined

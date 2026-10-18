@@ -25,7 +25,7 @@
  * `<Class>DemoDream`, or a registry key equal to the class name), else
  * the symbol itself framed alone, its state space walkable (aloneDream).
  * Each inner level runs the player's GameLoop: Space holds the world and
- * makes it walkable (orbit, axes), Space again plays on; `u` unpacks the
+ * makes it walkable (orbit, axes), Space again plays on; Enter unpacks the
  * symbol under the pointer one level deeper; Esc comes back.
  */
 
@@ -157,7 +157,7 @@ export interface Nest {
   unpack(holon: Holon): Promise<boolean>
   /** Unpack the symbol under a point of the top level. */
   unpackAt(clientX: number, clientY: number): Promise<boolean>
-  /** Unpack the symbol under the pointer (the `u` key). */
+  /** Unpack the symbol under the pointer (the Enter key). */
   unpackHovered(): Promise<boolean>
   /** Come back one level. Resolves when the transition has landed. */
   back(): Promise<boolean>
@@ -183,10 +183,17 @@ interface Inner {
 
 const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000))
 
+/**
+ * The machine is also on the page as `window.__dtNest` — the named actions a
+ * hand gesture binds to (demo/handplay.ts): `unpackHovered()` (or
+ * `unpack(holon)`) and `back()`.
+ */
 export const mountNest = (opts: NestOpts): Nest => {
   const stack = new NestStack()
   const inners: Inner[] = []
   let busy = false
+  /** Esc pressed while a level was still opening: honoured the moment it has. */
+  let pendingBack: (() => void) | undefined
   let pointer: { x: number; y: number } | undefined
 
   const top = (): LevelSurface => inners[inners.length - 1]?.surface ?? opts.outer
@@ -332,10 +339,15 @@ export const mountNest = (opts: NestOpts): Nest => {
       return true
     } finally {
       busy = false
+      const queued = pendingBack
+      pendingBack = undefined
+      queued?.()
     }
   }
 
   const back = async (): Promise<boolean> => {
+    // Still opening (the WatchMe mounts, the view glides in): come back as soon as it has.
+    if (busy && stack.depth > 0) return new Promise((done) => (pendingBack = () => void back().then(done)))
     const inner = inners[inners.length - 1]
     if (busy || !inner) return false
     busy = true
@@ -363,13 +375,21 @@ export const mountNest = (opts: NestOpts): Nest => {
     }
   }
 
-  // Keys while a level is open: Space holds/plays it, u unpacks deeper, Esc
+  // Keys while a level is open: Space holds/plays it, Enter unpacks deeper, Esc
   // comes back — and nothing reaches the level beneath.
   document.addEventListener(
     "keydown",
     (e) => {
       const inner = inners[inners.length - 1]
-      if (!inner) return
+      if (!inner) {
+        // A level is still opening (its song mounting): Esc already means "back".
+        if (stack.depth > 0 && e.code === "Escape") {
+          e.stopImmediatePropagation()
+          e.preventDefault()
+          void back()
+        }
+        return
+      }
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
       if (typing) return
       e.stopImmediatePropagation()
@@ -386,7 +406,7 @@ export const mountNest = (opts: NestOpts): Nest => {
           inner.playing = false
           inner.game.enter(inner.t)
         }
-      } else if (e.code === "KeyU" && !e.metaKey && !e.ctrlKey && !e.altKey && pointer) {
+      } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && pointer) {
         e.preventDefault()
         void unpackAt(pointer.x, pointer.y)
       } else inner.game.key(e)
@@ -400,7 +420,7 @@ export const mountNest = (opts: NestOpts): Nest => {
     return unpack(hit)
   }
 
-  return {
+  const nest: Nest = {
     get depth() {
       return stack.depth
     },
@@ -422,6 +442,12 @@ export const mountNest = (opts: NestOpts): Nest => {
       }
     },
   }
+  ;(window as unknown as { __dtNest?: Nest }).__dtNest = nest
+  opts.signal.addEventListener("abort", () => {
+    const w = window as unknown as { __dtNest?: Nest }
+    if (w.__dtNest === nest) w.__dtNest = undefined
+  })
+  return nest
 }
 
 /** A holon's box on a canvas in client px (host.boundsOf is drawing-buffer px). */
