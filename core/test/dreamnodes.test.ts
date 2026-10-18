@@ -43,7 +43,10 @@ describe("dreamNodesOf", () => {
   })
 
   test("a class is one node however many instances — the others fade", () => {
-    const globe = treeOf("yinyang").children.find((n) => n.name === "Earth")!
+    // The yin-yang's two Earths now sit inside its sovereign lobes
+    // (FragmentedEarth, DreamTalkSymbol — popped out for the InterBrain film),
+    // so the class node is found anywhere in the tree, not only at its top.
+    const globe = flatten(treeOf("yinyang")).find((n) => n.name === "Earth")!
     // Two Earths, listed by the scene AND gathered by their Groups: still two.
     expect(globe.count).toBe(2)
     expect(globe.others).toHaveLength(1)

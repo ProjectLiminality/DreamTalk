@@ -48,6 +48,32 @@ import { DreamTalkSymbol } from "../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { DreamNode } from "../vocabulary/DreamNode/DreamNode"
 import { InterBrain } from "../vocabulary/InterBrain/InterBrain"
 import { Logo } from "../vocabulary/Logo/Logo"
+// The InterBrain cast (corpus #14).
+import { Vault } from "../vocabulary/Vault/Vault"
+import { SongLine } from "../vocabulary/SongLine/SongLine"
+import { Worldview } from "../vocabulary/Worldview/Worldview"
+import { LiminalWeb } from "../vocabulary/LiminalWeb/LiminalWeb"
+import { Mind } from "../vocabulary/Mind/Mind"
+import { Book } from "../vocabulary/Book/Book"
+import { Dialectic } from "../vocabulary/Attractor/Dialectic"
+import { Attractor } from "../vocabulary/Attractor/Attractor"
+import { Resonance } from "../vocabulary/Resonance/Resonance"
+import { FragmentedEarth } from "../vocabulary/FragmentedEarth/FragmentedEarth"
+import { Fire } from "../vocabulary/Fire/Fire"
+import { Noosphere } from "../vocabulary/Noosphere/Noosphere"
+import { DigitalCampfire } from "../vocabulary/DigitalCampfire/DigitalCampfire"
+import { RadioTower } from "../vocabulary/RadioTower/RadioTower"
+import { Field } from "../vocabulary/Field/Field"
+import { SandTalk } from "../vocabulary/SandTalk/SandTalk"
+import { HyperAgent } from "../vocabulary/HyperAgent/HyperAgent"
+import { DreamSong } from "../vocabulary/DreamSong/DreamSong"
+import { Conflict } from "../vocabulary/Conflict/Conflict"
+import { Tribe } from "../vocabulary/Tribe/Tribe"
+import { Divide } from "../vocabulary/Divide/Divide"
+import { DreamGarden } from "../vocabulary/DreamGarden/DreamGarden"
+import { Puppeteer } from "../vocabulary/Puppeteer/Puppeteer"
+import { Spheres } from "../vocabulary/Spheres/Spheres"
+import { CoherenceBeacon } from "../vocabulary/CoherenceBeacon/CoherenceBeacon"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { MolochEye } from "../vocabulary/MolochEye/MolochEye"
 import { Pallet } from "../vocabulary/Pallet/Pallet"
@@ -91,6 +117,32 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "DreamNode", folder: "DreamNode", cls: DreamNode },
   { className: "InterBrain", folder: "InterBrain", cls: InterBrain },
   { className: "Logo", folder: "Logo", cls: Logo },
+  // The InterBrain cast (corpus #14).
+  { className: "Vault", folder: "Vault", cls: Vault },
+  { className: "SongLine", folder: "SongLine", cls: SongLine },
+  { className: "Worldview", folder: "Worldview", cls: Worldview },
+  { className: "LiminalWeb", folder: "LiminalWeb", cls: LiminalWeb },
+  { className: "Mind", folder: "Mind", cls: Mind },
+  { className: "Book", folder: "Book", cls: Book },
+  { className: "Dialectic", folder: "Attractor", cls: Dialectic },
+  { className: "Attractor", folder: "Attractor", cls: Attractor },
+  { className: "Resonance", folder: "Resonance", cls: Resonance },
+  { className: "FragmentedEarth", folder: "FragmentedEarth", cls: FragmentedEarth },
+  { className: "Fire", folder: "Fire", cls: Fire },
+  { className: "Noosphere", folder: "Noosphere", cls: Noosphere },
+  { className: "DigitalCampfire", folder: "DigitalCampfire", cls: DigitalCampfire },
+  { className: "RadioTower", folder: "RadioTower", cls: RadioTower },
+  { className: "Field", folder: "Field", cls: Field },
+  { className: "SandTalk", folder: "SandTalk", cls: SandTalk },
+  { className: "HyperAgent", folder: "HyperAgent", cls: HyperAgent },
+  { className: "DreamSong", folder: "DreamSong", cls: DreamSong },
+  { className: "Conflict", folder: "Conflict", cls: Conflict },
+  { className: "Tribe", folder: "Tribe", cls: Tribe },
+  { className: "Divide", folder: "Divide", cls: Divide },
+  { className: "DreamGarden", folder: "DreamGarden", cls: DreamGarden },
+  { className: "Puppeteer", folder: "Puppeteer", cls: Puppeteer },
+  { className: "Spheres", folder: "Spheres", cls: Spheres },
+  { className: "CoherenceBeacon", folder: "CoherenceBeacon", cls: CoherenceBeacon },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
   { className: "MolochEye", folder: "MolochEye", cls: MolochEye },
   { className: "Pallet", folder: "Pallet", cls: Pallet },
