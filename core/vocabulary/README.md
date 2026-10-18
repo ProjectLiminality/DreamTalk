@@ -42,7 +42,9 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [Logo](Logo/) | finished mark, `?scene=o09` | primitives | o3 scores 30/30 + 25/26; logo tests (Cramer) |
 | [System](System/) | gears+icon, `?scene=o03` | Sketch (six assets) | o5: 16/16 pixel-exact layout predictions; system tests |
 | [Vitruvian](Vitruvian/) | traced, `?scene=vitruvian` | Fourier + primitives | Web3 shot 12; vitruvian scene |
-| [LightNode](LightNode/) | the hero, `?scene=web3s15` | Earth + primitives | Web3 shots 2–3 (red lobe), 15; GlobeDemo |
+| [DreamTalkSymbol](DreamTalkSymbol/) (was LightNode) | the hero, `?scene=web3s15` | Earth + primitives | Web3 shots 2–3 (red lobe), 15; GlobeDemo; InterBrain f8746/f9076 |
+| [DreamNode](DreamNode/) | in its blue ring, `?scene=ib-dreamnode` t≈3.5 | DreamTalkSymbol + Sketch (david) + primitives | ib-dreamnode tests; InterBrain f9076/f9271/f10760 |
+| [InterBrain](InterBrain/) | the crystal, `?scene=ib-interbrain` t≈3.9 | Logo + primitives | ib-interbrain tests; InterBrain.png, f12376 |
 | [Regenaissance](Regenaissance/) | fully drawn, `?scene=regenaissance` | Earth + SMark (+ great-circle lattice) | regenaissance tests; recognizer on David's own sketch |
 | [Earth](Earth/) | whole Earth, Europe facing, `?scene=earth` | primitives + Surface (Natural Earth 1:50m) + Factory/Headquarters | earth tests (31): projection, on-sphere triangulation vs exact area, horizon occluder, data integrity |
 | [FlowMap](FlowMap/) | staged + categorised, `?scene=flowmap` t=26 | primitives (geometry/flowmap, certainty) | flowmap tests (16) |

@@ -19,13 +19,30 @@
  * convention (h = 830px, the alpha half-height); where the two differ,
  * the centerline number is the geometry and the reconciliation is noted
  * at the constant.
+ *
+ * THE IRIS (`iris`, 0..1): what the eye holds. 0 is the domesticated eye
+ * of the InterBrain film — the blue cube, Narrative (f31, f46, f12661) —
+ * and every scene that never touches it. 1 is the LIMINAL eye: the same
+ * lens and ring with the red Vision mark in the iris instead (f12691,
+ * f7021 top right, f13111). Measured on f12691: iris ring 102 px
+ * (centreline), the S's crossings of the vertical axis at ±53.75 px =
+ * ±0.537·R and the dot/square centres 76.3 px apart = 0.76·R, so
+ * R = 100.2 px: the mark fills the iris ring, R/h = VISION_IRIS_RATIO
+ * (0.98). Its band is the film's lighter FILM_BAND. In the film the cube
+ * dissolves into red particles and the mark appears (f12661 → f12691);
+ * here the param crossfades — the cube shrinks and fades over the first
+ * 60 %, the mark grows and fades in over the last 60 % (particles are
+ * another holon's job).
  */
 
-import { color, length } from "../../src/params"
+import { color, completion, length } from "../../src/params"
 import { eased, together, type Anim } from "../../src/anim"
 import { ease } from "../../src/timeline"
 import { Arc, Circle, Ellipse, Line, Square, Stroke, type Vec3Like } from "../../src/parts/primitives"
-import { BLACK, BLUE, PI, WHITE } from "../../src/constants"
+import { BLACK, BLUE, PI, RED, WHITE } from "../../src/constants"
+import { clamp01 } from "../../src/math"
+import { toggle, type StateSpace } from "../../src/automaton"
+import { FILM_BAND, Vision } from "../Vision/Vision"
 
 /**
  * The 3-4-5 construction. Each lens arc subtends a half-span whose sine
@@ -89,6 +106,17 @@ const PUPIL_STROKE_RATIO = 2.284
  * outer-ink convention: 808/830.)
  */
 const IRIS_FILL_RATIO = 1 - LENS_STROKE_RATIO / 2
+
+/** The liminal eye's mark: its radius R over the iris ring's h (f12691,
+ *  R = 100.2 px in a 102 px ring — the mark fills the iris). */
+const VISION_IRIS_RATIO = 0.98
+
+/** The iris crossfade: how much cube, how much Vision, at `iris` = i. The
+ *  cube leaves over [0, 0.6], the mark arrives over [0.4, 1]; both smooth. */
+export const cubeAt = (i: number): number => 1 - ease("smooth", clamp01(i / 0.6))
+export const visionAt = (i: number): number => ease("smooth", clamp01((i - 0.4) / 0.6))
+/** The scale a leaving / arriving part is drawn at, for its amount a. */
+const grow = (a: number): number => 0.3 + 0.7 * a
 
 /**
  * Draw several equal-length strokes as ONE pen with one shared ease —
@@ -177,6 +205,27 @@ export class MolochEye extends Stroke {
   /** The four corner connectors, back corner → front corner (compose()). */
   connectors: Line[] = []
 
+  /** What the iris holds: 0 the cube (the domesticated eye, the default),
+   *  1 the red Vision mark (the liminal eye, f12691). */
+  iris = completion(0)
+  /** The liminal eye's mark (compose()); invisible while iris = 0. Not
+   *  built at all for an eye that is a quiet PART of another symbol
+   *  (isPart, iris 0 and unbound at compose): TheWall's hundreds of
+   *  MindVirus gazes never open, and should not carry a mark's meshes. */
+  vision?: Vision
+
+  /** A part of another sovereign symbol (MindVirus's gaze), not standing alone. */
+  private get isPart(): boolean {
+    return (this.parent?.constructor as { sovereign?: boolean } | undefined)?.sovereign === true
+  }
+
+  /** Standing alone, the eye walks cube ↔ vision. As a PART of another
+   *  symbol (MindVirus's gaze) it yields its states to that whole. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.iris.isBound || this.isPart || !this.vision) return undefined
+    return { axes: [toggle("iris", this.iris, { off: ["cube", 0], on: ["vision", 1], duration: 2, handles: [this] })] }
+  }
+
   protected override compose(): void {
     const front = (this.height.value * PUPIL_EDGE_RATIO) / 2
     const back = front * K
@@ -205,6 +254,24 @@ export class MolochEye extends Stroke {
         ),
       )
     }
+    // The iris: the cube's parts leave as one (about the centre, where
+    // they all stand), the mark arrives — after the cube and the disk, so
+    // its fills composite over both. A quiet part (see `vision`) keeps
+    // only its cube, untouched.
+    if (this.isPart && !this.iris.isBound && this.iris.value === 0) return
+    for (const part of [this.pupilBack, this.pupilFront, ...this.connectors]) {
+      part.opacity.follow(this.iris.map(cubeAt))
+      part.scale.follow(this.iris.map((i) => grow(cubeAt(i))))
+    }
+    this.vision = this.add(
+      new Vision({
+        radius: this.height.times(VISION_IRIS_RATIO),
+        tint: RED,
+        weight: FILM_BAND,
+      }),
+    )
+    this.vision.presence.follow(this.iris.map(visionAt))
+    this.vision.scale.follow(this.iris.map((i) => grow(visionAt(i))))
   }
 
   /**
@@ -224,8 +291,10 @@ export class MolochEye extends Stroke {
       [together(...this.connectors.map((c) => c.creation.sequence(0, 1))), 0.62, 0.78],
       [this.pupilFront.creation.sequence(0, 1), 0.72, 0.9],
       [this.irisFill.creation.sequence(0, 1), 0.92, 1],
+      // A liminal eye writes its mark where the cube would arrive.
+      ...(this.vision && this.iris.value > 0 ? [[this.vision.createAnim(), 0.5, 0.9] as [Anim, number, number]] : []),
     )
   }
 }
 
-export { LENS_STROKE_RATIO, PUPIL_EDGE_RATIO, PUPIL_STROKE_RATIO, IRIS_FILL_RATIO }
+export { LENS_STROKE_RATIO, PUPIL_EDGE_RATIO, PUPIL_STROKE_RATIO, IRIS_FILL_RATIO, VISION_IRIS_RATIO }

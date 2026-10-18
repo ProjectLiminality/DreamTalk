@@ -2,7 +2,7 @@
  * Shot15Hero — shot 15 (≈130–146s): Web3 spreading light. The world inside a
  * flower of life, a bold red ring, and long white rays.
  *
- The node is the LightNode holon (vocabulary/LightNode) — the same symbol
+ The node is the DreamTalkSymbol holon (vocabulary/DreamTalkSymbol) — the same symbol
  * as the yin-yang's red lobe and GlobeDemo's hero panel — at the reference's
  * proportions, measured on f_00136 at 1280w (scene units at this camera,
  * 1.28px each),
@@ -25,13 +25,13 @@
 
 import { Dream } from "../../src/index"
 import { together } from "../../src/anim"
-import { LightNode } from "../../vocabulary/LightNode/LightNode"
+import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { HERO_RING_RADIUS } from "./ClarityField"
 
 const GLOBE_R = 83
 
 export class Shot15HeroDream extends Dream {
-  node = new LightNode({
+  node = new DreamTalkSymbol({
     radius: HERO_RING_RADIUS,
     globe: GLOBE_R / HERO_RING_RADIUS,
     spin: 0.15,

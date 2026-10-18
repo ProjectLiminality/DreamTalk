@@ -43,6 +43,8 @@ const finite = (v: unknown): v is number => typeof v === "number" && Number.isFi
 export const RENAMED_SYMBOLS: Readonly<Record<string, string>> = {
   /** The flat Web3 Globe became the Earth (2026-10-13). */
   globe: "earth",
+  /** LightNode is a DreamTalk symbol, as the InterBrain film names it (2026-10-18). */
+  lightNode: "dreamTalkSymbol",
 }
 
 const renamed = (id: string): string => RENAMED_SYMBOLS[id] ?? id

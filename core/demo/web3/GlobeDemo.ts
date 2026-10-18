@@ -14,7 +14,7 @@
  * Each is set on the page (Recede), so the hero's decoration composites
  * around it in attach order, as a flat picture's would.
  *
- * The hero's halo, ring and rays are the LightNode holon — the same symbol
+ * The hero's halo, ring and rays are the DreamTalkSymbol holon — the same symbol
  * shots 2–3 and 15 use — not decoration drawn here.
  */
 
@@ -23,7 +23,7 @@ import { together } from "../../src/anim"
 import { Earth } from "../../vocabulary/Earth/Earth"
 import { Recede } from "../../src/parts/recede"
 import { rgb, TAU } from "../../src/constants"
-import { LightNode } from "../../vocabulary/LightNode/LightNode"
+import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 
 const HERO_R = 52
 const HALO_R = 128
@@ -53,9 +53,9 @@ export class GlobeDemoDream extends Dream {
   })
   outline = new Recede({ members: [this.outlineEarth], reach: 105, x: 270, y: 120 })
 
-  // BELOW — the hero (shot 15): the LightNode, the Earth in its bloom,
+  // BELOW — the hero (shot 15): the DreamTalkSymbol, the Earth in its bloom,
   // flower of life, red ring and rays, at this sheet's size.
-  hero = new LightNode({ radius: HALO_R + 6, globe: HERO_R / (HALO_R + 6), y: -125 })
+  hero = new DreamTalkSymbol({ radius: HALO_R + 6, globe: HERO_R / (HALO_R + 6), y: -125 })
 
   unfold() {
     this.observer.look("front")

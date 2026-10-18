@@ -19,7 +19,7 @@
  *   - two equal circles stacked on the vertical axis, overlapping in a
  *     VESICA (the eye) — the top one holds the lattice globe, the bottom
  *     one the Earth;
- *   - in the vesica, a white ring holding the red SMark (./SMark.ts);
+ *   - in the vesica, a white ring holding the red Vision mark (../Vision/Vision.ts);
  *   - the VERTICAL AXIS through both centres, which passes BEHIND the eye.
  *
  * MEASURED off WelcomeToTheRegenaissance.png (px, 1080²; fits by least
@@ -63,7 +63,7 @@ import { Earth } from "../Earth/Earth"
 import { Recede } from "../../src/parts/recede"
 import type { Observer } from "../../src/dream"
 import { GREAT_CIRCLE_NORMALS, greatCircleHalves, outsideDisc } from "./lattice"
-import { MARK_RED, SMark } from "./SMark"
+import { MARK_RED, Vision } from "../Vision/Vision"
 import { toggle, type StateSpace } from "../../src/automaton"
 
 /** The frame's gold, lifted from the measured median for a thin line. */
@@ -128,7 +128,7 @@ export class Regenaissance extends Null {
   globe!: Recede
   vesica!: Line
   eyeRing!: Circle
-  sMark?: SMark
+  sMark?: Vision
 
   private observer?: Observer
 
@@ -207,7 +207,7 @@ export class Regenaissance extends Null {
     // --- the eye: white ring, red mark ------------------------------------
     const m = REGEN.mark * r
     this.eyeRing = this.add(new Circle({ radius: m, tint: this.eyeTint, stroke: this.ringStroke }))
-    if (this.mark.value) this.sMark = this.add(new SMark({ radius: m, tint: this.markTint }))
+    if (this.mark.value) this.sMark = this.add(new Vision({ radius: m, tint: this.markTint }))
   }
 
   /**

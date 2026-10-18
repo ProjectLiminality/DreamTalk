@@ -119,14 +119,13 @@
  */
 
 import { Dream } from "../../src/index"
-import { Circle, Group, Line, Null, Shape, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { WHITE, TAU, seen, type Color } from "../../src/constants"
 import { c4dEaseWith } from "../../src/timeline"
-import { Earth } from "../../vocabulary/Earth/Earth"
-import { Recede } from "../../src/parts/recede"
-import { LightNode } from "../../vocabulary/LightNode/LightNode"
+import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { clamp01 } from "../../src/math"
+import { FragmentedEarth } from "../../vocabulary/FragmentedEarth/FragmentedEarth"
 
 /** The big yin-yang circle's radius — it fills most of the frame height
  *  (f_00005: the outer ring spans ~y0.13→0.87, ~530px of 720, so ~265 at
@@ -157,7 +156,6 @@ const SWAP = 0.375
  */
 const BLUE_RING_PER_LOBE = 0.547
 const RED_RING_PER_LOBE = 0.577
-const BLUE_GLOBE_OF_RING = 0.46
 const RED_GLOBE_OF_RING = 0.415
 /**
  * THE BIRTH, measured at 30fps (2026-10-04). The film's yin-yang does not
@@ -194,15 +192,7 @@ const globePx = (tl: number) => 258.5 - 223.5 * c4dEaseWith((tl + 1) / 2.95, 0.3
 const separation = (tl: number) => c4dEaseWith((tl + 0.65) / 2.7, 0.2, 0.4)
 const outerPx = (tl: number) => 259 + 21 * c4dEaseWith((tl + 1) / 3, 0.25, 0.25)
 
-/** Blue-node lightning glyphs and field-line spirals. */
-const BOLT_COUNT = 8
-const FIELD_COUNT = 8
-/** The blue grid's line spacing, as a fraction of the ring's radius. */
-const GRID_SPACING = 0.42
-/** Colours sampled from the full-resolution frames (14.4s, 19.0s). */
-const BLUE_RING = seen(2, 148, 246)
-const BLUE_LATTICE = seen(40, 120, 190)
-const RED_FIELD = seen(212, 76, 60)
+/** Colours sampled from the full-resolution frames (19.0s). */
 const RED_RING = seen(250, 86, 65)
 const LATTICE_RED = seen(150, 60, 52)
 
@@ -230,86 +220,6 @@ const sCurve = (split: number, segments = 48): { x: number; y: number; z: number
   return pts
 }
 
-/**
- * One grid line's two pieces inside the band r0 < |p| < r1: the line runs
- * along angle `phi`, offset `c` from the centre. A line that clears the
- * inner circle is split at its middle so every line is two pieces.
- */
-const gridPieces = (
-  phi: number,
-  c: number,
-  r0: number,
-  r1: number,
-): [{ x: number; y: number; z: number }[], { x: number; y: number; z: number }[]] => {
-  const dx = Math.cos(phi)
-  const dy = Math.sin(phi)
-  const at = (s: number) => ({ x: -dy * c + dx * s, y: dx * c + dy * s, z: 0 })
-  const so = Math.sqrt(Math.max(r1 * r1 - c * c, 0))
-  const si = Math.abs(c) < r0 ? Math.sqrt(r0 * r0 - c * c) : 0
-  return [
-    [at(-so), at(-si)],
-    [at(si), at(so)],
-  ]
-}
-
-/**
- * The lightning-bolt glyph, traced off the 14.4s frame at full resolution
- * (the top bolt): a FILLED ⚡ — a thick slanted stroke,
- * a jog back across, a thinner stroke down to an arrowhead. Stated as
- * [inward, lateral] in units of its length, from the middle of its wide end;
- * the tip points at the globe. Every bolt is this one, turned.
- */
-const BOLT_OUTLINE: readonly (readonly [number, number])[] = [
-  [0, -0.091], [0, 0.091], [0.364, -0.055], [0.309, 0.164], [0.509, 0.109],
-  [0.836, 0.055], [0.873, 0.091], [1, -0.018], [0.873, -0.073], [0.836, -0.036],
-  [0.564, 0], [0.6, -0.236],
-]
-/** Where the bolts sit: wide end at 0.78 of the ring's radius, 0.24 long
- *  (antialiased edge included — the traced mask's hard threshold reads ~12%
- *  short, and the first render showed it). */
-const BOLT_OUTER = 0.78
-const BOLT_LENGTH = 0.24
-
-/** A bolt's closed outline at angle `a`, for a ring of radius `ring`. */
-const bolt = (a: number, ring: number): { x: number; y: number; z: number }[] => {
-  const dx = -Math.cos(a) // inward
-  const dy = -Math.sin(a)
-  const L = ring * BOLT_LENGTH
-  const ox = Math.cos(a) * ring * BOLT_OUTER
-  const oy = Math.sin(a) * ring * BOLT_OUTER
-  const pts = BOLT_OUTLINE.map(([u, v]) => ({
-    x: ox + dx * u * L - dy * v * L,
-    y: oy + dy * u * L + dx * v * L,
-    z: 0,
-  }))
-  return [...pts, pts[0]!]
-}
-
-/** One field-line: a spiral arc bowing outward from near the globe. Starts at
- *  angle `a0` and radius `r0`, sweeps `dTheta` while growing to `r1`. */
-const fieldLine = (
-  a0: number,
-  r0: number,
-  r1: number,
-  dTheta: number,
-  segments = 16,
-): { x: number; y: number; z: number }[] => {
-  const pts: { x: number; y: number; z: number }[] = []
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments
-    const a = a0 + dTheta * t
-    const r = r0 + (r1 - r0) * t
-    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: 0 })
-  }
-  return pts
-}
-
-/** The radius the Earths are built at; the lobes resize them by `scale`. */
-const EARTH_R = 33
-
-/** A node's Earth: white land on its black sea, near dead-on. */
-const earthOf = (h: number) =>
-  new Earth({ radius: EARTH_R, land: WHITE, coastOpacity: 0, borderOpacity: 0, p: 0.12, h })
 
 export class YinYangDream extends Dream {
   /** Beat 1: the one globe divides into two and the circle widens. */
@@ -323,11 +233,10 @@ export class YinYangDream extends Dream {
    *  slowly. The blue node's globe faces Africa/Europe (spin 0); the red node's a
    *  touch turned, so the two are not identical. Their radius is REBOUND below to
    *  the size-swap, so the constructor value is only the starting size. */
-  blueEarth = earthOf(0)
-  /** Set on the page, so its node's decoration composites around it. */
-  blueGlobe = new Recede({ members: [this.blueEarth], reach: EARTH_R })
-  /** The red node is the hero's LightNode at the lobe's scale (its Earth a touch turned). */
-  redLight = new LightNode({
+  /** The blue node is the fragmented Earth (vocabulary/FragmentedEarth) at the lobe's scale. */
+  blueEarth = new FragmentedEarth({ spin: 0, tilt: 0.12, decoration: 0 })
+  /** The red node is the hero's DreamTalkSymbol at the lobe's scale (its Earth a touch turned). */
+  redLight = new DreamTalkSymbol({
     globe: RED_GLOBE_OF_RING,
     spin: 0.5,
     tilt: 0.12,
@@ -434,64 +343,17 @@ export class YinYangDream extends Dream {
    */
   private buildBlueNode(): Group {
     const orbitSrc = this.orbit.creation
-    const ring = () => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE)
-    const gr = () => ring() * BLUE_GLOBE_OF_RING
-
-    // The globe rides the node's size: its Earth's scale, its page reach.
-    this.blueEarth.scale.follow(orbitSrc.map(() => gr() / EARTH_R))
-    this.blueGlobe.reach.follow(orbitSrc.map(() => gr()))
-
-    const members: Stroke[] = []
-
-    // The grid: three families of four lines, 60° apart, only in the band.
-    for (let f = 0; f < 3; f++) {
-      const phi = (f * Math.PI) / 3
-      for (let k = 0; k < 4; k++) {
-        const c = (k - 1.5) * GRID_SPACING
-        for (const piece of [0, 1] as const) {
-          const line = new Line({ tint: BLUE_LATTICE, stroke: 1, opacity: 0 })
-          deriveRot(line, this, () => gridPieces(phi, c * ring(), gr(), ring())[piece])
-          line.opacity.follow(this.divide.creation.map((d) => clamp01(d) * 0.85))
-          members.push(line)
-        }
-      }
-    }
-    // The bounding blue ring.
-    {
-      const c = new Circle({ tint: BLUE_RING, stroke: 2.4, opacity: 0 })
-      c.radius.follow(orbitSrc.map(() => ring()))
-      c.opacity.follow(this.divide.creation.map((d) => clamp01(d)))
-      members.push(c)
-    }
-
-    // Lightning bolts in the band, one on each axis and diagonal. Each is
-    // a Shape — a concave outline, washed even-odd, never inked.
-    for (let i = 0; i < BOLT_COUNT; i++) {
-      const a = (i / BOLT_COUNT) * TAU
-      const outline = new Line({ tint: WHITE })
-      deriveRot(outline, this, () => bolt(a, ring()))
-      const glyph = new Shape({ tint: WHITE, fillOpacity: 0, outlines: [outline] })
-      glyph.fillOpacity.follow(this.divide.creation.map((d) => clamp01((d - 0.3) / 0.7)))
-      members.push(glyph)
-    }
-
-    // Red field-line spirals sweeping outward past the ring.
-    for (let i = 0; i < FIELD_COUNT; i++) {
-      const a0 = (i / FIELD_COUNT) * TAU
-      const line = new Line({ tint: RED_FIELD, stroke: 1.4, opacity: 0 })
-      deriveRot(line, this, () => fieldLine(a0, ring() * 0.9, ring() * 1.6, TAU * 0.16))
-      line.opacity.follow(this.divide.creation.map((d) => clamp01((d - 0.2) / 0.8) * 0.8))
-      members.push(line)
-    }
-
-    const group = new Group({ members: [this.blueGlobe, ...members] })
+    const node = this.blueEarth
+    node.radius.follow(orbitSrc.map(() => this.ringR(this.blueScale01(), BLUE_RING_PER_LOBE)))
+    node.decoration.follow(this.divide.creation.map((d) => clamp01(d)))
+    const group = new Group({ members: [node] })
     group.x.follow(orbitSrc.map(() => this.blueCentre().x))
     group.y.follow(orbitSrc.map(() => this.blueCentre().y))
     return group
   }
 
   /**
-   * The RED / Web3 node — the LightNode (the hero's construction) at the
+   * The RED / Web3 node — the DreamTalkSymbol (the hero's construction) at the
    * lobe's scale: it swells and shrinks with the red lobe's share and comes
    * up layer by layer on `divide`. The bloom is spaced a touch wider than
    * the hero's: its whiteness at 0.5/0.6/0.7/0.8 of the ring reads
@@ -523,7 +385,7 @@ export class YinYangDream extends Dream {
     // ~280px at 1280w, and at zoom 1 OUTER_R draws it at ~340px. The whole
     // figure was built at one consistent scale, so the camera corrects it.
     this.set(this.observer.zoom.to(0.82))
-    this.blueGlobe.seenFrom(this.observer)
+    this.blueEarth.seenFrom(this.observer)
     this.redLight.seenFrom(this.observer)
 
     // Draw order: the S-curve and outer ring under the nodes; the two globes
@@ -541,12 +403,12 @@ export class YinYangDream extends Dream {
       const local = t - 4
       const spin = (-lon * Math.PI) / 180
       if (local <= 0) {
-        this.set(this.blueEarth.h.to(spin), this.redLight.spin.to(spin))
+        this.set(this.blueEarth.spin.to(spin), this.redLight.spin.to(spin))
         continue
       }
       this.play(
         together(
-          this.blueEarth.h.to(spin, { easing: "linear" }),
+          this.blueEarth.spin.to(spin, { easing: "linear" }),
           this.redLight.spin.to(spin, { easing: "linear" }),
         ),
         local - at,

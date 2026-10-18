@@ -606,7 +606,7 @@ export const VOCABULARY: VocabEntry[] = [
   {
     id: "sMark",
     name: "S-mark",
-    holon: "SMark",
+    holon: "Vision",
     blurb: "The S with its dot and square.",
     description:
       "The S-mark ALONE (no globes around it): an S-shaped curve — two half-circle bowls, like the dividing line of a yin-yang — with a small DOT in its upper bowl and a small SQUARE in its lower bowl. Usually small, often traced over several times. It may sit inside its own drawn circle (then `framed` is yes). If it is the centre of two stacked globes, the whole drawing is `regenaissance`, not this.",

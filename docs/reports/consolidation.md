@@ -89,3 +89,7 @@ arrowheads), the human figure (`vocabulary/Figure` is already the one
 person), trucks/factories (`Truck`, Earth's `Factory`/`Headquarters` on
 `prism.ts`). Eyes were not audited past the grep (video01/origins scenes
 import `Eye`).
+
+2026-10-18: `LightNode` → **`DreamTalkSymbol`** (`vocabulary/DreamTalkSymbol/`) — the InterBrain film shows this exact symbol and names it DreamTalk ("the digital extension of SandTalk", 29:08; "a DreamTalk symbol", 29:14); `vocabulary/LightNode/LightNode.ts` is a thin re-export, boards map `lightNode` → `dreamTalkSymbol` (sketch/board.ts), and `?scene=web3s15` renders pixel-identical before/after (t=3, t=8).
+
+2026-10-18: `SMark` → **`Vision`** (`vocabulary/Vision/`) — the InterBrain film names the red S-mark Vision ("an organic vision that reveals itself through inspiration", 18:54; f5686 "Narrative → Vision"); popped out of Regenaissance (which now imports Vision), `vocabulary/Regenaissance/SMark.ts` is a thin re-export of the old names (`SMark`, `SMARK`, `SMARK_PEN`, `MARK_RED`, `sCentreline`, `sBandOutline`), the shelf lists `Vision`; boards keep the hand-written `sMark` entry (its holon is now `Vision`), so no board rename. Regenaissance's tests pass unchanged.

@@ -44,7 +44,9 @@ import { Horizons } from "../vocabulary/Horizons/Horizons"
 import { SOPLoop } from "../vocabulary/SOPLoop/SOPLoop"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
-import { LightNode } from "../vocabulary/LightNode/LightNode"
+import { DreamTalkSymbol } from "../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
+import { DreamNode } from "../vocabulary/DreamNode/DreamNode"
+import { InterBrain } from "../vocabulary/InterBrain/InterBrain"
 import { Logo } from "../vocabulary/Logo/Logo"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { MolochEye } from "../vocabulary/MolochEye/MolochEye"
@@ -53,7 +55,7 @@ import { Platonic } from "../vocabulary/Platonic/Platonic"
 import { Plot } from "../vocabulary/Plot/Plot"
 import { Pouch } from "../vocabulary/Pouch/Pouch"
 import { Regenaissance } from "../vocabulary/Regenaissance/Regenaissance"
-import { SMark } from "../vocabulary/Regenaissance/SMark"
+import { Vision } from "../vocabulary/Vision/Vision"
 import { SheetStack } from "../vocabulary/SheetStack/SheetStack"
 import { RightTriangle } from "../vocabulary/RightTriangle/RightTriangle"
 import { System } from "../vocabulary/System/System"
@@ -85,7 +87,9 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
-  { className: "LightNode", folder: "LightNode", cls: LightNode },
+  { className: "DreamTalkSymbol", folder: "DreamTalkSymbol", cls: DreamTalkSymbol },
+  { className: "DreamNode", folder: "DreamNode", cls: DreamNode },
+  { className: "InterBrain", folder: "InterBrain", cls: InterBrain },
   { className: "Logo", folder: "Logo", cls: Logo },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
   { className: "MolochEye", folder: "MolochEye", cls: MolochEye },
@@ -94,7 +98,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Plot", folder: "Plot", cls: Plot },
   { className: "Pouch", folder: "Pouch", cls: Pouch },
   { className: "Regenaissance", folder: "Regenaissance", cls: Regenaissance },
-  { className: "SMark", folder: "Regenaissance", cls: SMark },
+  { className: "Vision", folder: "Vision", cls: Vision },
   { className: "SheetStack", folder: "SheetStack", cls: SheetStack },
   { className: "RightTriangle", folder: "RightTriangle", cls: RightTriangle },
   { className: "System", folder: "System", cls: System },
