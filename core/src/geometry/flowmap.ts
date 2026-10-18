@@ -90,110 +90,107 @@ const sameSet = (a: readonly boolean[], b: readonly boolean[]): boolean =>
   a.every((v, i) => v === b[i])
 
 /**
- * `count` evenly spread points inside one REGION of the categorised picture —
- * the points clearly inside exactly the discs flagged in `set` (and the group
- * circle). Candidates on a fine hex grid; seeds by farthest-point sampling
- * from the region's centroid; then a few Lloyd steps so the points settle
- * centroidally, inset from the rims rather than hugging them. Deterministic.
+ * THE HEX LATTICE — the flower of life's points: every node of a hexagonal
+ * grid of spacing `pitch`, one primitive vector along `axis`, one node at
+ * `anchor`, within `reach` of the anchor. With the anchor on a mirror line
+ * and a lattice vector along it, the lattice is symmetric about that line.
  */
-export const regionSlots = (
-  set: readonly boolean[],
-  discs: readonly Disc[],
-  R: number,
-  count: number,
-  margin: number,
-): Vec2[] => {
-  if (count <= 0) return []
-  const step = R / 22
-  const cand: Vec2[] = []
-  const reach = R - margin
-  for (let j = -30; j <= 30; j++) {
-    const y = j * step * (Math.sqrt(3) / 2)
-    const shift = (j & 1) * step * 0.5
-    for (let i = -30; i <= 30; i++) {
-      const p = { x: i * step + shift, y }
-      if (Math.hypot(p.x, p.y) > reach) continue
-      const m = membership(p, discs, margin)
-      if (m && sameSet(m, set)) cand.push(p)
+export const hexLattice = (anchor: Vec2, axis: Vec2, pitch: number, reach: number): Vec2[] => {
+  const al = Math.hypot(axis.x, axis.y) || 1
+  const u = { x: (axis.x / al) * pitch, y: (axis.y / al) * pitch }
+  // The second vector at 60° from the first.
+  const c = Math.cos(Math.PI / 3)
+  const sn = Math.sin(Math.PI / 3)
+  const v = { x: u.x * c - u.y * sn, y: u.x * sn + u.y * c }
+  const n = Math.ceil(reach / (pitch * 0.85)) + 1
+  const out: Vec2[] = []
+  for (let j = -n; j <= n; j++)
+    for (let i = -n; i <= n; i++) {
+      const p = { x: anchor.x + i * u.x + j * v.x, y: anchor.y + i * u.y + j * v.y }
+      if (Math.hypot(p.x - anchor.x, p.y - anchor.y) <= reach + 1e-9) out.push(p)
     }
-  }
-  if (cand.length === 0) {
-    // An empty region (a three-way overlap squeezed shut): gather round the
-    // mean of its discs' centres rather than vanish.
-    const sel = discs.filter((_, i) => set[i])
-    const c = sel.length
-      ? { x: sel.reduce((s, d) => s + d.x, 0) / sel.length, y: sel.reduce((s, d) => s + d.y, 0) / sel.length }
-      : { x: 0, y: 0 }
-    return phyllotaxis(count, margin * Math.sqrt(count)).map((p) => ({ x: p.x + c.x, y: p.y + c.y }))
-  }
-  const cx = cand.reduce((s, p) => s + p.x, 0) / cand.length
-  const cy = cand.reduce((s, p) => s + p.y, 0) / cand.length
-  const d2 = (a: Vec2, b: Vec2) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2
-  // Farthest-point seeds, the first nearest the centroid.
-  let first = 0
-  for (let i = 1; i < cand.length; i++) if (d2(cand[i]!, { x: cx, y: cy }) < d2(cand[first]!, { x: cx, y: cy })) first = i
-  const seeds: Vec2[] = [cand[first]!]
-  const nearest = cand.map((p) => d2(p, cand[first]!))
-  while (seeds.length < Math.min(count, cand.length)) {
-    let best = 0
-    for (let i = 1; i < cand.length; i++) if (nearest[i]! > nearest[best]!) best = i
-    seeds.push(cand[best]!)
-    for (let i = 0; i < cand.length; i++) nearest[i] = Math.min(nearest[i]!, d2(cand[i]!, cand[best]!))
-  }
-  // Lloyd: each seed moves to the centroid of the candidates it owns.
-  let pts = seeds
-  for (let iter = 0; iter < 12; iter++) {
-    const sx = pts.map(() => 0)
-    const sy = pts.map(() => 0)
-    const n = pts.map(() => 0)
-    for (const c of cand) {
-      let k = 0
-      for (let i = 1; i < pts.length; i++) if (d2(c, pts[i]!) < d2(c, pts[k]!)) k = i
-      sx[k]! += c.x
-      sy[k]! += c.y
-      n[k]! += 1
-    }
-    pts = pts.map((p, i) => (n[i]! > 0 ? { x: sx[i]! / n[i]!, y: sy[i]! / n[i]! } : p))
-  }
-  // A region in two pieces (the side lunes left over by two discs) can pull
-  // a centroid into the gap between them: snap any point that left its
-  // region back to the nearest candidate of its own.
-  pts = pts.map((p) => {
-    const m = membership(p, discs, margin)
-    if (m && sameSet(m, set) && Math.hypot(p.x, p.y) <= reach) return p
-    let k = 0
-    for (let i = 1; i < cand.length; i++) if (d2(cand[i]!, p) < d2(cand[k]!, p)) k = i
-    return cand[k]!
-  })
-  // More members than candidates: the rest stack on the last slots (never in practice).
-  while (pts.length < count) pts.push(pts[pts.length % Math.max(1, seeds.length)]!)
-  return pts
+  return out
 }
 
-/** A deterministic hash of an integer into [0, 1). */
-const hash = (n: number): number => {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
-  return x - Math.floor(x)
+/** The reflection of p across the line through the origin along `axis`. */
+const mirror = (p: Vec2, axis: Vec2): Vec2 => {
+  const l = Math.hypot(axis.x, axis.y) || 1
+  const a = { x: axis.x / l, y: axis.y / l }
+  const d = p.x * a.x + p.y * a.y
+  return { x: 2 * d * a.x - p.x, y: 2 * d * a.y - p.y }
 }
 
 /**
- * A region's members as one compact HONEYCOMB cluster round the region's
- * deepest point (the spot farthest from every rim). Evenly relaxed points
- * follow a region's shape — in a crescent they line up along its curve and
- * the picture reads as a face; a tight hexagonal cluster reads as what it
- * is, a set of entities. The lattice is turned per region (deterministic),
- * so no two clusters line up. Undefined when the region cannot hold the
- * cluster — the caller falls back to `regionSlots`.
+ * Seat `count` things on lattice `nodes`, nearest to `focus` first, taken in
+ * MIRROR PAIRS across `axis` (a node with its reflection) so the seating is
+ * symmetric whenever the count allows; an odd count takes the nearest
+ * on-axis node as its single. Deterministic. Undefined when there are too
+ * few nodes.
  */
-export const regionCluster = (
+export const latticeSeats = (nodes: readonly Vec2[], count: number, focus: readonly Vec2[], axis: Vec2): Vec2[] | undefined => {
+  if (count <= 0) return []
+  if (nodes.length < count) return undefined
+  const eps = 1e-6
+  const key = (p: Vec2) => Math.min(...focus.map((f) => Math.hypot(p.x - f.x, p.y - f.y)))
+  const angle = (p: Vec2) => Math.atan2(p.y, p.x)
+  const order = nodes.map((p, i) => ({ p, i, k: key(p) })).sort((a, b) => a.k - b.k || angle(a.p) - angle(b.p) || a.i - b.i)
+  const used = new Set<number>()
+  const find = (q: Vec2) => order.find((o) => !used.has(o.i) && Math.hypot(o.p.x - q.x, o.p.y - q.y) < eps)
+  const groups: Vec2[][] = []
+  for (const o of order) {
+    if (used.has(o.i)) continue
+    used.add(o.i)
+    const m = mirror(o.p, axis)
+    if (Math.hypot(m.x - o.p.x, m.y - o.p.y) < eps) {
+      groups.push([o.p])
+      continue
+    }
+    const twin = find(m)
+    if (twin) {
+      used.add(twin.i)
+      groups.push([o.p, twin.p])
+    } else groups.push([o.p])
+  }
+  // Parity decides the singles: an on-axis node is taken only while an ODD
+  // number of seats remains (so the rest can always go in mirror pairs);
+  // singles passed over wait at the end. Half a pair only if nothing else.
+  const seats: Vec2[] = []
+  const deferred: Vec2[] = []
+  for (const grp of groups) {
+    const need = count - seats.length
+    if (need === 0) break
+    if (grp.length === 1) {
+      if (need % 2 === 1) seats.push(grp[0]!)
+      else deferred.push(grp[0]!)
+    } else if (need >= 2) seats.push(...grp)
+    else deferred.push(grp[0]!.x >= grp[1]!.x ? grp[0]! : grp[1]!)
+  }
+  while (seats.length < count && deferred.length) seats.push(deferred.shift()!)
+  return seats.length === count ? seats : undefined
+}
+
+/**
+ * A REGION's members on the hex lattice: the region is the part of the
+ * group circle clearly inside exactly the discs flagged in `set`. Its axis
+ * is the sum of its categories' directions (a lone category's own
+ * direction; the overlap's bisector; the space outside every disc takes the
+ * first category's line, its two lunes mirror images). The lattice is laid
+ * along that axis, anchored on it as near the region's deepest point as the
+ * axis allows; seats go nearest that deepest point (and its mirror) first,
+ * in mirror pairs. The pitch starts at `pitch` and tightens until the
+ * region holds its members, no closer than `minPitch` — past that, a
+ * phyllotaxis spiral round the deepest point.
+ */
+export const regionSeats = (
   set: readonly boolean[],
   discs: readonly Disc[],
+  dirs: readonly Vec2[],
   R: number,
   count: number,
   margin: number,
   pitch: number,
-  turn: number,
-): Vec2[] | undefined => {
+  minPitch: number,
+): Vec2[] => {
   if (count <= 0) return []
   const reach = R - margin
   const inRegion = (p: Vec2): boolean => {
@@ -201,12 +198,16 @@ export const regionCluster = (
     const m = membership(p, discs, margin)
     return !!m && sameSet(m, set)
   }
-  // The deepest point: the fine-grid point of the region with most clearance.
-  const step = R / 40
-  let deep: Vec2 | undefined
+  let axis = dirs.reduce((a, d, i) => (set[i] ? { x: a.x + d.x, y: a.y + d.y } : a), { x: 0, y: 0 })
+  if (Math.hypot(axis.x, axis.y) < 1e-9) axis = dirs[0] ?? { x: 0, y: 1 }
+  const al = Math.hypot(axis.x, axis.y)
+  axis = { x: axis.x / al, y: axis.y / al }
+  // The region's deepest point: most clearance from every rim.
+  const step = R / 48
+  let deep: Vec2 = { x: 0, y: 0 }
   let best = -Infinity
-  for (let j = -40; j <= 40; j++) {
-    for (let i = -40; i <= 40; i++) {
+  for (let j = -48; j <= 48; j++)
+    for (let i = -48; i <= 48; i++) {
       const p = { x: i * step, y: j * step }
       if (!inRegion(p)) continue
       let clear = R - Math.hypot(p.x, p.y)
@@ -216,27 +217,38 @@ export const regionCluster = (
         deep = p
       }
     }
+  const focus = [deep, mirror(deep, axis)]
+  const t = deep.x * axis.x + deep.y * axis.y
+  const anchor = { x: axis.x * t, y: axis.y * t }
+  for (let q = pitch; q >= minPitch; q *= 0.92) {
+    const nodes = hexLattice(anchor, axis, q, 2 * R).filter(inRegion)
+    const seats = latticeSeats(nodes, count, focus, axis)
+    if (seats) return seats
   }
-  if (!deep) return undefined
-  const a = 0.35 + hash(turn * 17 + 1) * (Math.PI / 3)
-  const ux = { x: Math.cos(a) * pitch, y: Math.sin(a) * pitch }
-  const uy = { x: Math.cos(a + Math.PI / 3) * pitch, y: Math.sin(a + Math.PI / 3) * pitch }
-  const nodes: { p: Vec2; d: number; k: number }[] = []
-  let k = 0
-  for (let j = -8; j <= 8; j++)
-    for (let i = -8; i <= 8; i++) {
-      const p = { x: deep.x + i * ux.x + j * uy.x, y: deep.y + i * ux.y + j * uy.y }
-      if (inRegion(p)) nodes.push({ p, d: Math.hypot(p.x - deep.x, p.y - deep.y), k: k++ })
-      else k++
-    }
-  if (nodes.length < count) return undefined
-  nodes.sort((x, y) => x.d - y.d || x.k - y.k)
-  const chosen = nodes.slice(0, count).map((n) => n.p)
-  // Centre the cluster on the deepest point, if that keeps it inside.
-  const cx = chosen.reduce((s, p) => s + p.x, 0) / count - deep.x
-  const cy = chosen.reduce((s, p) => s + p.y, 0) / count - deep.y
-  const moved = chosen.map((p) => ({ x: p.x - cx, y: p.y - cy }))
-  return moved.every(inRegion) ? moved : chosen
+  // Too many for the lattice at any legible pitch: a sunflower round the
+  // deepest point (phyllotaxis — still a named pattern, never scatter).
+  return phyllotaxis(count, minPitch * 0.5 * Math.sqrt(count)).map((p) => ({ x: p.x + deep.x, y: p.y + deep.y }))
+}
+
+/**
+ * The uncategorised picture: the whole group circle seated on the flower of
+ * life — the hex lattice round the centre, symmetric about the vertical,
+ * its pitch chosen so the members fill the circle — so the grain transition
+ * reads lattice → lattice.
+ */
+export const flowerSeats = (count: number, R: number, margin: number, pitch: number, minPitch: number): Vec2[] => {
+  if (count <= 0) return []
+  const reach = R * 0.78 - margin
+  const axis = { x: 0, y: 1 }
+  // The pitch at which `count` hex cells (√3/2 · pitch² each) fill a disc of
+  // 0.62 R — the members FILL the group circle — no tighter than `pitch`.
+  const fill = R * 0.62 * Math.sqrt((2 * Math.PI) / (Math.sqrt(3) * count))
+  for (let q = Math.max(pitch, fill); q >= minPitch; q *= 0.92) {
+    const nodes = hexLattice({ x: 0, y: 0 }, axis, q, reach)
+    const seats = latticeSeats(nodes, count, [{ x: 0, y: 0 }], axis)
+    if (seats) return seats
+  }
+  return phyllotaxis(count, reach)
 }
 
 /**
@@ -273,7 +285,10 @@ export const memberLayouts = (
 ): { flat: Vec2[]; categorised: Vec2[] } => {
   const n = categoriesOf.length
   const discs = categoryDiscs(nCategories, R, 1)
+  const dirs = discs.map((_, i) => categoryDirection(i, nCategories))
   const margin = memberRadius * 1.9
+  const pitch = memberRadius * 4.2
+  const minPitch = memberRadius * 2.6
   const categorised: Vec2[] = new Array(n)
   // Group members by their exact category set, regions in first-seen order.
   const regions = new Map<string, number[]>()
@@ -283,50 +298,63 @@ export const memberLayouts = (
     list.push(i)
     regions.set(key, list)
   })
-  let regionIndex = 0
   for (const members of regions.values()) {
     const set = discs.map((_, k) => categoriesOf[members[0]!]!.includes(k))
-    // Within a region, data order reads round the region from its first slot.
-    const cluster = regionCluster(set, discs, R, members.length, margin, memberRadius * 5, regionIndex++)
-    const slots = cluster ?? regionSlots(set, discs, R, members.length, margin)
-    members.forEach((m, j) => (categorised[m] = slots[j]!))
+    const seats = regionSeats(set, discs, dirs, R, members.length, margin, pitch, minPitch)
+    members.forEach((m, j) => (categorised[m] = seats[j]!))
   }
-  // The flat sunflower, each member taking the petal nearest its categorised
-  // home — so the grain transition is a short glide, not a shuffle.
-  const petals = phyllotaxis(n, R * 0.68)
-  const pick = assignNearest(categorised, petals)
-  const flat = pick.map((s) => petals[s]!)
+  // The flat flower of life, each member taking the seat nearest its
+  // categorised home — so the grain transition is a short glide, lattice to
+  // lattice, not a shuffle.
+  const seats = flowerSeats(n, R, margin, pitch, minPitch)
+  const pick = assignNearest(categorised, seats)
+  const flat = pick.map((s) => seats[s]!)
   return { flat, categorised }
 }
 
 export type PartnerSide = "in" | "out" | "both"
 
 /**
- * Partners round the group: suppliers ("in") on the left — value enters from
- * there — customers ("out") on the right, two-way partners ("both") top and
- * bottom, alternating. Each side's partners fan evenly about its direction.
+ * PARTNERS ON ONE RING — the 2π/n lattice: n equally spaced seats on a ring
+ * outside the group, slot 0 at 0°. Each kind is a SECTOR, mirrored about the
+ * vertical axis: outflow ("out") centred at 0°, inflow ("in") at 180°,
+ * two-way ("both") at the poles, alternating 90° / 270°. Seats go to the
+ * partners nearest their sector's centre, globally, so each sector is one
+ * contiguous arc. `exact` says whether the result is mirror-symmetric: it is
+ * when ins equal outs, the both-count is even, and the lattice has the seats
+ * on the axes the sectors need (n even; n a multiple of 4 when there are
+ * two-way partners). Otherwise the lattice stands and `exact` is false.
  */
-export const partnerLayout = (sides: readonly PartnerSide[], R: number): Vec2[] => {
+export const partnerRing = (sides: readonly PartnerSide[], R: number): { points: Vec2[]; exact: boolean } => {
+  const n = sides.length
   const ring = R * 1.36
-  const spacing = 0.34
-  const groups: Record<string, number[]> = { in: [], out: [], top: [], bottom: [] }
-  let alt = 0
-  sides.forEach((s, i) => {
-    if (s === "in") groups.in!.push(i)
-    else if (s === "out") groups.out!.push(i)
-    else groups[alt++ % 2 === 0 ? "top" : "bottom"]!.push(i)
-  })
-  const centre: Record<string, number> = { in: Math.PI, out: 0, top: Math.PI / 2, bottom: -Math.PI / 2 }
-  const out: Vec2[] = new Array(sides.length)
-  for (const [side, members] of Object.entries(groups)) {
-    const k = members.length
-    members.forEach((m, j) => {
-      const a = centre[side]! + (j - (k - 1) / 2) * spacing
-      out[m] = { x: ring * Math.cos(a), y: ring * Math.sin(a) }
-    })
+  if (n === 0) return { points: [], exact: true }
+  const slots = Array.from({ length: n }, (_, k) => (2 * Math.PI * k) / n)
+  let pole = 0
+  const centre = sides.map((s) => (s === "out" ? 0 : s === "in" ? Math.PI : pole++ % 2 === 0 ? Math.PI / 2 : (3 * Math.PI) / 2))
+  const gap = (a: number, b: number) => {
+    const d = Math.abs(a - b) % (2 * Math.PI)
+    return Math.min(d, 2 * Math.PI - d)
   }
-  return out
+  const pairs: { i: number; k: number; d: number }[] = []
+  sides.forEach((_, i) => slots.forEach((a, k) => pairs.push({ i, k, d: gap(a, centre[i]!) })))
+  pairs.sort((x, y) => x.d - y.d || x.i - y.i || x.k - y.k)
+  const seat = sides.map(() => -1)
+  const taken = new Set<number>()
+  for (const { i, k } of pairs) {
+    if (seat[i] !== -1 || taken.has(k)) continue
+    seat[i] = k
+    taken.add(k)
+  }
+  const ins = sides.filter((s) => s === "in").length
+  const outs = sides.filter((s) => s === "out").length
+  const boths = sides.length - ins - outs
+  const exact = ins === outs && boths % 2 === 0 && n % 2 === 0 && (boths === 0 || n % 4 === 0)
+  return { points: seat.map((k) => ({ x: ring * Math.cos(slots[k]!), y: ring * Math.sin(slots[k]!) })), exact }
 }
+
+/** The partners' seats on the ring (see partnerRing). */
+export const partnerLayout = (sides: readonly PartnerSide[], R: number): Vec2[] => partnerRing(sides, R).points
 
 /**
  * Where a flow's channel runs: a quadratic arc from A to B, bowed sideways by

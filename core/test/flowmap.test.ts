@@ -9,6 +9,7 @@ import {
   flowPoint,
   memberLayouts,
   partnerLayout,
+  partnerRing,
   sliceDepths,
 } from "../src/geometry/flowmap"
 import { certainty, certaintyOf, ghost, GHOST_FLOOR, seenOpacity, wobble } from "../src/certainty"
@@ -76,6 +77,49 @@ describe("flow-map geometry", () => {
     expect(pos[2]!.y).toBeGreaterThan(0)
     expect(pos[3]!.y).toBeLessThan(0)
     for (const p of pos) expect(Math.hypot(p.x, p.y)).toBeGreaterThan(R)
+  })
+
+  test("partners sit on ONE ring, the 2π/n lattice, kinds as mirrored sectors", () => {
+    const deg = (p: { x: number; y: number }) => Math.round(((Math.atan2(p.y, p.x) * 180) / Math.PI + 360) % 360)
+    const sides = ["in", "in", "in", "both", "both", "out", "out", "out"] as const
+    const { points, exact } = partnerRing([...sides], R)
+    expect(exact).toBe(true)
+    const by = (k: string) => points.filter((_, i) => sides[i] === k).map(deg).sort((a, b) => a - b)
+    expect(by("in")).toEqual([135, 180, 225])
+    expect(by("out")).toEqual([0, 45, 315])
+    expect(by("both")).toEqual([90, 270])
+    // Counts that cannot mirror: the lattice stands, and says so.
+    const odd = partnerRing(["in", "in", "out"], R)
+    expect(odd.exact).toBe(false)
+    expect(new Set(odd.points.map(deg))).toEqual(new Set([0, 120, 240]))
+  })
+
+  test("members sit on a hex lattice, in mirror pairs about their region's axis; never scattered", () => {
+    // The 20-member instance: 13 conversion, 2 both, 3 extrusion, 2 neither.
+    const cats = [
+      ...Array.from({ length: 3 }, () => [0]),
+      ...Array.from({ length: 2 }, () => [0, 1]),
+      ...Array.from({ length: 13 }, () => [1]),
+      [],
+      [],
+    ]
+    const r = R * 0.058 * 0.85
+    const { flat, categorised } = memberLayouts(cats, 2, R, r)
+    const discs = categoryDiscs(2, R, 1)
+    cats.forEach((set, i) => discs.forEach((d, k) => expect(Math.hypot(categorised[i]!.x - d.x, categorised[i]!.y - d.y) < d.radius).toBe(set.includes(k))))
+    // No two rings touch.
+    for (const pts of [flat, categorised])
+      for (let i = 0; i < pts.length; i++)
+        for (let j = i + 1; j < pts.length; j++) expect(Math.hypot(pts[i]!.x - pts[j]!.x, pts[i]!.y - pts[j]!.y)).toBeGreaterThan(2.4 * r)
+    // Both categories' regions lie along the vertical: every even-count
+    // region (and the flat flower) is mirror-symmetric about x = 0.
+    const symmetric = (pts: { x: number; y: number }[]) =>
+      pts.every((p) => pts.some((q) => Math.abs(q.x + p.x) < 1e-6 && Math.abs(q.y - p.y) < 1e-6))
+    expect(symmetric(categorised.slice(3, 5))).toBe(true)
+    expect(symmetric(categorised.slice(18, 20))).toBe(true)
+    expect(symmetric(flat)).toBe(true)
+    // Deterministic.
+    expect(memberLayouts(cats, 2, R, r)).toEqual({ flat, categorised })
   })
 
   test("slice depths: flat is one plane; opening never reorders; a closed gap merges two slices", () => {
@@ -231,7 +275,9 @@ describe("FlowMap", () => {
       })
       .sort((a, b) => a - b)
     expect(along.length).toBeGreaterThan(2)
-    for (let i = 1; i < along.length; i++) expect(Math.abs(along[i]! - along[i - 1]! - m.spacing.value / 1.5)).toBeLessThan(8)
+    // Measured by nearest channel sample: good to one sample segment.
+    const seg = table.lengths.at(-1)! / (pts.length - 1)
+    for (let i = 1; i < along.length; i++) expect(Math.abs(along[i]! - along[i - 1]! - m.spacing.value / 1.5)).toBeLessThan(seg)
   })
 
   test("the turn leads and the slices fan out behind it — both exact at the ends", () => {

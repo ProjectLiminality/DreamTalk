@@ -87,7 +87,7 @@ import {
   categoryDirection,
   flowPoint,
   memberLayouts,
-  partnerLayout,
+  partnerRing,
   sliceDepths,
   smooth,
   streamArc,
@@ -493,6 +493,7 @@ export class FlowMap extends Null {
   private memoLayout?: { flat: Vec2[]; categorised: Vec2[]; partners: Vec2[]; R: number; scale: number }
   private memoKey: number[] = []
   private memoFrame?: Frame
+  private warnedRing = false
   private memoEpoch = -1
   /** Every presence on the map and above it (resolved at first use — a wrapper may adopt the map late). */
   private presences?: Param<number>[]
@@ -516,7 +517,16 @@ export class FlowMap extends Null {
     const cats = d.categories ?? []
     const of = d.members.map((m) => (m.categories ?? []).map((c) => cats.findIndex((k) => k.id === c)).filter((i) => i >= 0))
     const { flat, categorised } = memberLayouts(of, cats.length, R, this.memberSize())
-    const partners = partnerLayout((d.partners ?? []).map((p) => p.side), R)
+    // Partners on one ring, kinds as mirrored sectors (partnerRing). When the
+    // counts cannot be mirror-exact the lattice stands, and we say so once.
+    const ring = partnerRing((d.partners ?? []).map((p) => p.side), R)
+    const partners = ring.points
+    if (!ring.exact && !this.warnedRing) {
+      this.warnedRing = true
+      console.warn(
+        "FlowMap: partners on the 2π/n ring are not mirror-symmetric (it needs as many 'in' as 'out', an even 'both' count, and n a multiple of 4 with two-way partners) — the ring lattice stands.",
+      )
+    }
     this.memoLayout = { flat, categorised, partners, R, scale }
     return this.memoLayout
   }
