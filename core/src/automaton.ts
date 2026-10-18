@@ -289,6 +289,25 @@ export const gatherStateSpace = (roots: readonly Holon[], scene?: StateSpace): S
   return { axes, clocks: [...clocks] }
 }
 
+/**
+ * A symbol JOINING a larger machine (a RoleMap inside a lens): its state
+ * space with each axis's key replaced by `keys[id]` where given — the keys
+ * the larger machine has free — the axes whose `keys[id]` is null dropped
+ * (the larger machine already has one: its labels), and `when` ANDed into
+ * every axis's own, so it is walkable only where it is seen. The axes stay
+ * the same axes otherwise (positions, params, handles, verbs).
+ */
+export const rekey = (space: StateSpace, keys: Record<string, string | null>, when?: () => boolean): StateSpace => ({
+  ...space,
+  axes: space.axes
+    .filter((a) => keys[a.id] !== null)
+    .map((a) => ({
+      ...a,
+      key: keys[a.id] ?? a.key,
+      when: when ? () => when() && (a.when?.() ?? true) : a.when,
+    })),
+})
+
 // --- Motion: continuous, deterministic retargeting -------------------------------
 
 /** A value as a vector (numbers, colours); undefined for the discrete (steps). */
