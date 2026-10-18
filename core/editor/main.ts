@@ -87,6 +87,7 @@ import type { DtHandle } from "./dt"
 import { mountSaveState, poseParams } from "./savestate"
 import { mountMorphTo } from "./morphto"
 import { mountBecoming } from "./becoming"
+import { clientBox, mountNest, symbolAt } from "./nest"
 import { mountActions, type Actions } from "./actions"
 import { resolvePlace } from "./dreamnodes"
 import { SessionRecorder, type RecorderOpts } from "./recorder"
@@ -1880,6 +1881,12 @@ const boot = async (resume?: Transport) => {
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           target.isContentEditable)
+      // u: unpack the symbol under the pointer into its own song (editor/nest.ts).
+      if (!typing && e.code === "KeyU" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && nest && !creator?.on) {
+        e.preventDefault()
+        void nest.unpackHovered()
+        return
+      }
       // ⇧R: record a live session (editor/recorder.ts) — the walk, the view, the voice.
       if (!typing && e.code === "KeyR" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && session) {
         e.preventDefault()
@@ -2100,9 +2107,51 @@ const boot = async (resume?: Transport) => {
           void code.load(file)
         },
         busy: () => !!move || !!axis || !!morphTo?.picking,
+        unpack: (holon) => void nest?.unpack(holon),
         note: (text) => showNote(text),
         signal: ac.signal,
       })
+
+  // --- Nesting (editor/nest.ts) -----------------------------------------------
+  //
+  // Unpack a symbol on screen into its own song (its WatchMe) or state
+  // space — u over it, or "unpack" in its actions — explore, Esc back to
+  // exactly this moment. The song beneath is held, never re-timed.
+  const nest = playerMode
+    ? undefined
+    : mountNest({
+        outer: {
+          canvas,
+          pick: pickAt,
+          clientBoxOf: (h) => clientBox(host, canvas, h),
+          worldBoundsOf: (h) => host.worldBoundsOf(h),
+          view: () => view,
+          hold: () => {
+            const was = playing
+            pause()
+            return () => {
+              if (was) play()
+            }
+          },
+        },
+        scenes,
+        note: (text) => showNote(text),
+        signal: ac.signal,
+      })
+
+  /** Sovereign symbols whose ink lies on the canvas now (largest first is a fair guess at "the one on screen"). */
+  const area = (h: Holon): number => {
+    const b = host.boundsOf(h)
+    if (!b) return 0
+    const w = Math.min(b.max.x, canvas.width) - Math.max(b.min.x, 0)
+    const hh = Math.min(b.max.y, canvas.height) - Math.max(b.min.y, 0)
+    return w > 0 && hh > 0 ? w * hh : 0
+  }
+  const nestable = (): Holon[] => {
+    const out: Holon[] = []
+    for (const r of dream.roots) for (const h of r.walk()) if (symbolAt(h) === h && area(h) > 0) out.push(h)
+    return out
+  }
 
   // --- Live sessions (editor/recorder.ts, scripts/session.ts) ----------------
   //
@@ -2523,6 +2572,21 @@ const boot = async (resume?: Transport) => {
         return found && actions ? actions.run(found.holon, id) : Promise.resolve(false)
       },
       up: () => actions?.up() ?? false,
+    },
+    // --- Nesting, driven headlessly ---------------------------------------------
+    nest: nest && {
+      /** The symbols on screen now, by class (headless: what can be unpacked here). */
+      onScreen: () => [...new Set(nestable().map((h) => classNameOf(h).replace(/\d+$/, "")))],
+      /** Unpack the largest symbol of this class that is on screen now. */
+      unpack: (name: string) => {
+        const h = nestable()
+          .filter((x) => classNameOf(x).replace(/\d+$/, "") === name)
+          .sort((a, b) => area(b) - area(a))[0]
+        return h ? nest.unpack(h) : Promise.resolve(false)
+      },
+      unpackAt: (x: number, y: number) => nest.unpackAt(x, y),
+      back: () => nest.back(),
+      state: () => ({ ...nest.state(), outerT: current, outerPlaying: playing, delta: { ...view.delta } }),
     },
     // --- Live sessions, driven headlessly --------------------------------------
     session: session && {

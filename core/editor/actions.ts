@@ -29,6 +29,8 @@ export interface ActionsOpts {
   showSource(file: string): void
   /** Is something else holding the pointer (a drag, a move)? */
   busy(): boolean
+  /** Unpack a symbol in place — its own song, then back (editor/nest.ts). */
+  unpack?(holon: Holon): void
   note(text: string): void
   signal: AbortSignal
 }
@@ -50,10 +52,15 @@ export const placeUrl = (search: string, sceneKey: string, path: readonly string
 }
 
 /** Everything a holon offers: its own actions after the DreamNode built-ins. */
-export const actionsOf = (holon: Holon, opts: Pick<ActionsOpts, "sceneKey" | "path">): HolonAction[] => {
+export const actionsOf = (holon: Holon, opts: Pick<ActionsOpts, "sceneKey" | "path" | "unpack">): HolonAction[] => {
   const out: HolonAction[] = []
   if (isSovereign(holon)) {
     const name = nodeNameOf(holon)
+    // Unpack: its own song (or state space) right here, and back to this moment.
+    if (opts.unpack) {
+      const unpack = opts.unpack
+      out.push({ id: "unpack", label: `unpack ${name}`, run: () => unpack(holon) })
+    }
     out.push({
       id: "open",
       label: `open ${name}'s DreamNode`,
