@@ -48,7 +48,7 @@ import { FlowMapTimeDream } from "./vocabulary/FlowMapTime"
 import { FlowMapMoneyDream } from "./vocabulary/FlowMapMoney"
 import { SOPLoopDream } from "./vocabulary/SOPLoop"
 import { HorizonsDream } from "./vocabulary/Horizons"
-import { SiteSystemsDream } from "./vocabulary/SiteSystems"
+import { HarmonizationDream } from "./vocabulary/Harmonization"
 import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
 import { Scene00Dream } from "./origins/Scene00"
@@ -278,8 +278,8 @@ export const scenes: Record<string, DreamClass> = {
   sop: SOPLoopDream,
   // Planning horizons: when we care, about what, and who — the open seat a ghost.
   horizons: HorizonsDream,
-  // Inside a site: the ERP drifting off its family's standard, the spreadsheets and tools around it.
-  sitesystems: SiteSystemsDream,
+  // Hub vs pairwise: N² mappings collapse into one canonical model, onboarded one by one.
+  harmonization: HarmonizationDream,
   // The social structure lens: roles by distance from decision; the workforce gathers into a shared service.
   rolemap: RoleMapDream,
   // The lossy chain: information rising to the humans who decide, thinning at every arrow.
