@@ -624,3 +624,36 @@ narration (song time = video time, measured from `frames5` and the
 transcript), with the pickup seams above as natural beat boundaries; the
 Keynote export's own pacing is unrecoverable and irrelevant, since the
 film's pacing is the edit's.
+
+## Build status (2026-10-18)
+
+All of §7 is built (commits on `main`, not pushed). Every holon lives in
+`core/vocabulary/<Name>/` with its README (concept + the narration's words),
+face PNG, an `ib-*` standalone scene and a test; the side-by-sides against
+the film are `docs/reports/interbrain/<name>-compare.png`.
+
+- **Wave A**: Conflict (popped out of the Web3 YinYang — one bolt), Vision
+  (was SMark; re-export kept), MolochEye `iris` (domesticated ↔ liminal eye),
+  Figure `form` (the bust), Mind (`liminal`, `framed`: DomesticatedMind /
+  MolochConsciousness ↔ liminal), DreamTalkSymbol (was LightNode; re-export
+  kept, boards renamed), DreamNode (dream / dreamer, holarchy), InterBrain (our
+  own face), Field (fragmentation ↔ wholeness, burst, swarm).
+- **Wave B**: Noosphere (six states), Worldview, FragmentedEarth (popped out
+  of YinYang), Puppeteer, HyperAgent (`love`: war machine ↔ hyper-agent of
+  love, recursive `depth`), Fire, SandTalk, Tribe (`modern`), Attractor (the
+  dialectic, pathologies, oscillation, third axis), Resonance.
+- **Wave C**: DreamGarden, LiminalWeb, DigitalCampfire, Divide (the S, popped
+  out of YinYang), DreamSong (`compress`), SongLine, CoherenceBeacon, Book,
+  RadioTower, Icons (the props, non-sovereign), Vault, Spheres.
+- **Chapters**: `core/demo/interbrain/Ch1ThirdAttractor.ts` … `Ch8NewBeginning.ts`
+  (`?scene=ib-ch1` … `ib-ch8`), each exactly its chapter's span, beats stated
+  at video time (`score.ts`), compositions of the holons above only;
+  film|ours sheets `docs/reports/interbrain/ch{1..8}-compare.jpg`.
+- **The song**: `core/demo/interbrain/InterBrainSong.ts` (`?scene=interbrain`),
+  2835 s, song time = video time, carrying David's narration cut from the
+  film's soundtrack (`narration.ts`, `import-narration.ts`; run the import once
+  per machine — the voice cache is gitignored).
+- **Out of scope, kept as timed placeholders**: the news-anchor collage
+  (16:06), the talking head (44:25–47:00), photoreal C4D looks (their symbolic
+  layer is drawn), the SVG hand drawings (12:45, 40:36) and the Jesus portrait
+  (32:12) — no source SVGs survive.
