@@ -65,14 +65,44 @@ export const presence = (v = 1): Param<number> => {
 export const isPresence = (p: unknown): p is Param<number> =>
   typeof p === "object" && p !== null && PRESENCES.has(p as Param<number>)
 
-/** Every presence on this holon and above it. */
-export const presencesOf = (holon: Holon): Param<number>[] => {
-  const out: Param<number>[] = []
-  for (let node: Holon | undefined = holon; node; node = node.parent) {
-    for (const p of node.params.values()) if (isPresence(p)) out.push(p as Param<number>)
+/**
+ * A host mounting a tree asks for the chain of every holon in it, parent
+ * before child (three-host.ts mountChapter) — each one a walk to the root
+ * over every param on the way. Inside `withChainMemo` the tree stands
+ * still, so a chain is its holon's own params followed by its parent's
+ * chain, kept for the pass: the same params in the same order, nearest
+ * first. Outside it nothing is kept (a tree may still be growing).
+ */
+let chainMemo: { certainties: Map<Holon, Param<number>[]>; presences: Map<Holon, Param<number>[]> } | undefined
+export const withChainMemo = <T>(fn: () => T): T => {
+  if (chainMemo) return fn()
+  chainMemo = { certainties: new Map(), presences: new Map() }
+  try {
+    return fn()
+  } finally {
+    chainMemo = undefined
   }
+}
+const chainOf = (holon: Holon, kind: (p: unknown) => boolean, memo: Map<Holon, Param<number>[]> | undefined): Param<number>[] => {
+  if (!memo) {
+    const out: Param<number>[] = []
+    for (let node: Holon | undefined = holon; node; node = node.parent) {
+      for (const p of node.params.values()) if (kind(p)) out.push(p as Param<number>)
+    }
+    return out
+  }
+  const hit = memo.get(holon)
+  if (hit) return hit
+  const out: Param<number>[] = []
+  for (const p of holon.params.values()) if (kind(p)) out.push(p as Param<number>)
+  const parent = holon.parent
+  if (parent) for (const p of chainOf(parent, kind, memo)) out.push(p)
+  memo.set(holon, out)
   return out
 }
+
+/** Every presence on this holon and above it. */
+export const presencesOf = (holon: Holon): Param<number>[] => chainOf(holon, isPresence, chainMemo?.presences)
 
 /** The ink pure conjecture keeps — a ghost is faint, never gone. */
 export const GHOST_FLOOR = 0.28
@@ -84,13 +114,7 @@ export const ghost = (c: number): number => {
 }
 
 /** Every certainty on this holon and above it, nearest first. */
-export const certaintiesOf = (holon: Holon): Param<number>[] => {
-  const out: Param<number>[] = []
-  for (let node: Holon | undefined = holon; node; node = node.parent) {
-    for (const p of node.params.values()) if (isCertainty(p)) out.push(p as Param<number>)
-  }
-  return out
-}
+export const certaintiesOf = (holon: Holon): Param<number>[] => chainOf(holon, isCertainty, chainMemo?.certainties)
 
 /** The certainty a holon is drawn with — the product down its chain. */
 export const certaintyOf = (holon: Holon): number => {

@@ -40,6 +40,90 @@ const FILL_KEYS = {
   at: "dtFillFalloffAt",
 } as const
 
+/**
+ * EVEN-ODD FILLS, by their exact subpaths (FillShape.setPolygons). The
+ * sweep is O(n²) and a song repeats its drawings — InterBrain's third
+ * chapter washes 4,691 drawings of 327 distinct shapes, and residency
+ * mounts them again on every return — so one triangulation serves every
+ * drawing with the same coordinates, as the very arrays setPolygon would
+ * have built (Float32 positions, three's own Uint16/Uint32 index choice):
+ * byte-identical, and the meshes share them instead of each holding a copy.
+ * Keyed by the exact coordinates (a hash, then a full compare); bounded:
+ * least-recently-used shapes go once the cached floats pass the budget.
+ */
+interface EvenOddShape {
+  /** The subpaths flattened: per subpath its length, then x, y, z per point. */
+  key: Float64Array
+  positions: Float32Array
+  index: Uint16Array | Uint32Array
+  extent: number
+}
+const EVEN_ODD_BUDGET_FLOATS = 2_000_000
+const evenOddShapes = new Map<number, EvenOddShape[]>()
+let evenOddFloats = 0
+const shapeFloats = (e: EvenOddShape): number => e.key.length + e.positions.length + e.index.length
+const evenOddShape = (subpaths: readonly (readonly Vec3Like[])[]): EvenOddShape | undefined => {
+  let n = 0
+  for (const loop of subpaths) n += 1 + loop.length * 3
+  const key = new Float64Array(n)
+  let k = 0
+  for (const loop of subpaths) {
+    key[k++] = loop.length
+    for (const p of loop) {
+      key[k++] = p.x
+      key[k++] = p.y
+      key[k++] = p.z
+    }
+  }
+  const words = new Uint32Array(key.buffer)
+  let h = 0x811c9dc5 ^ n
+  for (let i = 0; i < words.length; i++) h = Math.imul(h ^ words[i]!, 0x01000193)
+  const bucket = evenOddShapes.get(h)
+  const same = (e: EvenOddShape): boolean => {
+    if (e.key.length !== n) return false
+    for (let i = 0; i < n; i++) if (!Object.is(e.key[i], key[i])) return false
+    return true
+  }
+  const hit = bucket?.find(same)
+  if (hit) {
+    // Refresh recency: a Map iterates in insertion order.
+    evenOddShapes.delete(h)
+    evenOddShapes.set(h, bucket!)
+    return hit.positions.length === 0 ? undefined : hit
+  }
+  const { points, indices } = evenOddTriangulation(subpaths)
+  const positions = new Float32Array(indices.length === 0 ? 0 : points.length * 3)
+  let extent = 0
+  if (indices.length > 0) {
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i]!.x
+      positions[i * 3 + 1] = points[i]!.y
+      positions[i * 3 + 2] = points[i]!.z
+    }
+    for (const p of points) extent = Math.max(extent, Math.hypot(p.x, p.y))
+  }
+  // three's own index typing (BufferGeometry.setIndex of a plain array).
+  const indexed = new THREE.BufferGeometry().setIndex(indices).index
+  const shape: EvenOddShape = {
+    key,
+    positions,
+    index: (indexed?.array as Uint16Array | Uint32Array | undefined) ?? new Uint16Array(0),
+    extent,
+  }
+  if (bucket) {
+    bucket.push(shape)
+    evenOddShapes.delete(h)
+    evenOddShapes.set(h, bucket)
+  } else evenOddShapes.set(h, [shape])
+  evenOddFloats += shapeFloats(shape)
+  for (const [kh, list] of evenOddShapes) {
+    if (evenOddFloats <= EVEN_ODD_BUDGET_FLOATS || kh === h) break
+    evenOddShapes.delete(kh)
+    for (const e of list) evenOddFloats -= shapeFloats(e)
+  }
+  return indices.length === 0 ? undefined : shape
+}
+
 /** The one fill material every FillShape shares. Lazy so importing this
  *  module stays side-effect free. */
 let shared: THREE.MeshBasicNodeMaterial | undefined
@@ -285,16 +369,19 @@ export class FillShape {
    * bytes it renders today.
    */
   setPolygons(subpaths: readonly (readonly Vec3Like[])[]): void {
-    const { points, indices } = evenOddTriangulation(subpaths)
-    if (indices.length === 0) {
-      // An empty interior is an empty mesh, not a stale one: a drawing
-      // whose subpaths have all opened (or emptied) must stop painting.
-      const geometry = new THREE.BufferGeometry()
-      this.mesh.geometry.dispose()
-      this.mesh.geometry = geometry
-      return
+    const shape = evenOddShape(subpaths)
+    const geometry = new THREE.BufferGeometry()
+    // An empty interior is an empty mesh, not a stale one: a drawing
+    // whose subpaths have all opened (or emptied) must stop painting.
+    if (shape) {
+      // The cached arrays are shared, never written: each mesh still owns
+      // its geometry (and its GPU buffers), so disposal is unchanged.
+      geometry.setAttribute("position", new THREE.BufferAttribute(shape.positions, 3))
+      geometry.setIndex(new THREE.BufferAttribute(shape.index, 1))
+      this.extent = shape.extent
     }
-    this.setPolygon(points, indices)
+    this.mesh.geometry.dispose()
+    this.mesh.geometry = geometry
   }
 
   /** Sync visibility/opacity/color from the owning holon. */

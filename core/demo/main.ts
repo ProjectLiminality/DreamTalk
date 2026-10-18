@@ -207,8 +207,31 @@ const main = async () => {
   // own, so a Text whose string changed would keep its old glyphs until
   // something rendered again. Redraw the held t when a layout lands —
   // which is what makes a random-access setT across a rule change exact.
+  // One redraw at a time, once per animation frame, however many texts
+  // land: a chapter mounting with fifty Texts used to queue fifty full
+  // frames (sample, sync, render — ~3 s on InterBrain's jumps). A layout
+  // landing while one is in flight asks for one more after it, so the
+  // last redraw always follows the last layout.
+  let redrawing = false
+  let redrawAgain = false
   onTextLayout(() => {
-    if (!playing) void host.renderFrame(current)
+    if (playing) return
+    if (redrawing) {
+      redrawAgain = true
+      return
+    }
+    redrawing = true
+    void (async () => {
+      try {
+        do {
+          redrawAgain = false
+          await new Promise(requestAnimationFrame)
+          if (!playing) await host.renderFrame(current)
+        } while (redrawAgain && !playing)
+      } finally {
+        redrawing = false
+      }
+    })()
   })
 
   // --- Creator mode (editor/creator.ts) ------------------------------------

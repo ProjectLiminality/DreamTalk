@@ -26,7 +26,7 @@ import { orthoHalfHeight, type Dream } from "../dream"
 import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
 import { paramEpoch } from "../params"
-import { seenCertainty, seenOpacity } from "../certainty"
+import { isPresence, seenCertainty, seenOpacity, withChainMemo } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
 import { FillHalo, StrokeHalo } from "./glow"
@@ -1068,18 +1068,24 @@ export class ThreeHost {
    * whole list outside a song.
    */
   private awake<B extends { holon: Holon }>(list: readonly B[]): readonly B[] {
-    if (this.dormant === undefined) return list
+    if (this.dormant === undefined && this.dozing === undefined) return list
     // Keyed on the list and its length too: bindings are appended after
     // mount (a text's contours), and a grown list must be filtered again.
     const hit = this.awakeCache.get(list)
     if (hit && hit.version === this.dormancyVersion && hit.n === list.length) return hit.list as B[]
-    const awake = list.filter((b) => !this.asleep(b.holon))
+    const dozing = this.dozing
+    const awake = list.filter((b) => !this.asleep(b.holon) && !dozing?.has(b.holon))
     this.awakeCache.set(list, { version: this.dormancyVersion, n: list.length, list: awake })
     return awake
   }
 
   /** Read the song's live roots; hide the dormant chapters' root groups. */
   private updateDormancy(): void {
+    this.updateChapterDormancy()
+    this.updatePresenceSleep()
+  }
+
+  private updateChapterDormancy(): void {
     const live = (this.dream as { liveRoots?: ReadonlySet<Holon> }).liveRoots
     if (!live) {
       this.dormant = undefined
@@ -1095,6 +1101,90 @@ export class ThreeHost {
     const prev = this.dormant
     if (!prev || prev.size !== dormant.size || [...dormant].some((r) => !prev.has(r))) this.dormancyVersion++
     this.dormant = dormant
+  }
+
+  // --- PRESENCE SLEEP -------------------------------------------------------
+  //
+  // Residency in the state space: a subtree whose INHERITED presence
+  // (certainty.ts) is exactly 0 draws nothing — every stroke, fill and
+  // surface in it is styled with a seen opacity of 0 — so it dozes like a
+  // dormant chapter: its per-binding sync (geometry checks, pen metering,
+  // style, cull) is skipped and its group is hidden, so the render walk
+  // skips it too. A hyperobject's other lenses and levels cost nothing.
+  //
+  // Exactness: a subtree falls asleep only on the SECOND frame its
+  // presence reads 0 — the first is synced in full, so every mesh in it is
+  // left styled invisible (what picking, glow and the batch read is
+  // already exact) — and wakes on the very frame its presence rises above
+  // 0, before that frame's draw: it is synced in full then, from geometry
+  // signatures kept since it slept, like a chapter waking. Its group
+  // transforms and the settle still run while it sleeps, so every world
+  // matrix (bounds, picks, pen metering on waking) is what it would be.
+  // Texts, cylinders and arrows keep syncing (they are few, and a Text's
+  // layout must be current the moment it wakes).
+
+  /** This frame's dozing holons (every holon under a presence of 0 for two frames); undefined when none. */
+  private dozing?: Set<Holon>
+  /** The holons that own a presence param, with their groups — gathered per structure. */
+  private presenceOwners?: { holon: Holon; group: THREE.Object3D; params: Param<number>[] }[]
+  private presenceOwnersFor = -1
+  /** Bumped whenever holons are attached or released after mount (adopt, release, residency). */
+  private bindingsEpoch = 0
+  private presenceOwnersN = -1
+  /** Owners whose presence read 0 last frame, and those asleep now (in owner order). */
+  private zeroLastFrame = new Set<Holon>()
+  private sleepingOwners: Holon[] = []
+
+  private updatePresenceSleep(): void {
+    if (this.presenceOwnersFor !== this.bindingsEpoch || this.presenceOwnersN !== this.groups.length) {
+      this.presenceOwnersFor = this.bindingsEpoch
+      this.presenceOwnersN = this.groups.length
+      // The structure changed: everything wakes and is synced in full this
+      // frame (and may fall asleep again from the next).
+      if (this.sleepingOwners.length > 0) {
+        const was = new Set(this.sleepingOwners)
+        for (const { holon, group } of this.presenceOwners ?? []) {
+          if (was.has(holon) && (!this.dormant || this.rootOf.get(holon) !== holon)) group.visible = true
+        }
+        this.sleepingOwners = []
+        this.dozing = undefined
+        this.dormancyVersion++
+      }
+      this.zeroLastFrame = new Set()
+      const owners: { holon: Holon; group: THREE.Object3D; params: Param<number>[] }[] = []
+      for (const { holon, group } of this.groups) {
+        let params: Param<number>[] | undefined
+        for (const p of holon.params.values()) if (isPresence(p)) (params ??= []).push(p)
+        if (params) owners.push({ holon, group, params })
+      }
+      this.presenceOwners = owners
+    }
+    const owners = this.presenceOwners!
+    if (owners.length === 0 && this.dozing === undefined) return
+    const zero = new Set<Holon>()
+    const sleeping: Holon[] = []
+    for (const { holon, params } of owners) {
+      if (this.asleep(holon) || !params.some((p) => p.value === 0)) continue
+      zero.add(holon)
+      if (this.zeroLastFrame.has(holon)) sleeping.push(holon)
+    }
+    this.zeroLastFrame = zero
+    const prev = this.sleepingOwners
+    if (sleeping.length === prev.length && sleeping.every((h, i) => h === prev[i])) return
+    this.sleepingOwners = sleeping
+    const asleepNow = new Set(sleeping)
+    for (const { holon, group } of owners) {
+      // A chapter root's visibility is the chapter's (updateChapterDormancy).
+      if (asleepNow.has(holon)) group.visible = false
+      else if (!this.dormant || this.rootOf.get(holon) !== holon) group.visible = true
+    }
+    if (sleeping.length === 0) this.dozing = undefined
+    else {
+      const dozing = new Set<Holon>()
+      for (const owner of sleeping) for (const h of owner.walk()) dozing.add(h)
+      this.dozing = dozing
+    }
+    this.dormancyVersion++
   }
   /** Fills stack over strokes and over earlier fills — see fill.ts. */
   private nextFillOrder = 1
@@ -3686,12 +3776,14 @@ export class ThreeHost {
     }
     this.rootGroups = undefined
     this.inks = undefined
+    this.bindingsEpoch++
     this.freezeStaticMatrices()
     return () => this.release(holon)
   }
 
   /** Take an adopted holon (and its subtree) out of the scene and every binding list. */
   private release(holon: Holon): void {
+    this.bindingsEpoch++
     const gone = new Set<Holon>(holon.walk())
     const prune = <B extends { holon: Holon }>(list: readonly B[]): void => {
       const l = list as B[]
@@ -3871,15 +3963,19 @@ export class ThreeHost {
     const queue = mount.queue
     this.attachQueue = queue
     try {
-      for (let n = 1; queue.length > 0 || mount.attached < mount.roots.length; n++) {
-        if (queue.length === 0) {
-          const root = roots[mount.attached++]!
-          queue.push([root, this.scene, root])
+      // The tree stands still while it mounts: each holon's certainty and
+      // presence chains are its parent's plus its own (certainty.ts).
+      withChainMemo(() => {
+        for (let n = 1; queue.length > 0 || mount.attached < mount.roots.length; n++) {
+          if (queue.length === 0) {
+            const root = roots[mount.attached++]!
+            queue.push([root, this.scene, root])
+          }
+          const [holon, parent, root] = queue.pop()!
+          this.attach(holon, parent, root)
+          if (until !== undefined && (n & 63) === 0 && performance.now() >= until) break
         }
-        const [holon, parent, root] = queue.pop()!
-        this.attach(holon, parent, root)
-        if (until !== undefined && (n & 63) === 0 && performance.now() >= until) break
-      }
+      })
     } finally {
       this.attachQueue = undefined
       mount.order = this.nextFillOrder
@@ -4003,6 +4099,7 @@ export class ThreeHost {
 
   /** Every cache keyed on the binding lists or the graph starts over. */
   private residencyChanged(): void {
+    this.bindingsEpoch++
     this.rootGroups = undefined
     this.inks = undefined
     this.groupIndex = undefined
