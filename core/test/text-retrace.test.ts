@@ -118,18 +118,23 @@ describe("grantMovingRetrace", () => {
   const ids = Array.from({ length: RETRACE_BUDGET + 3 }, (_, i) => 1_000_000 + i)
 
   test("a moving frame retraces at most RETRACE_BUDGET texts, the longest-waiting first", () => {
-    // Frame 1: everyone drifted at once — the first RETRACE_BUDGET get it.
-    const f1 = ids.map((id) => grantMovingRetrace(id, 101))
-    expect(f1.filter(Boolean).length).toBe(RETRACE_BUDGET)
-    expect(f1.slice(0, RETRACE_BUDGET).every(Boolean)).toBe(true)
-    // Frame 2: a new drifter comes FIRST in host order, but the waiters
-    // from frame 1 hold the reserved slots.
     const late = 2_000_000
-    const newcomer = grantMovingRetrace(late, 102)
-    const waiters = ids.slice(RETRACE_BUDGET).map((id) => grantMovingRetrace(id, 102))
-    expect(waiters.every(Boolean)).toBe(true)
-    expect(newcomer).toBe(RETRACE_BUDGET - waiters.length > 0)
-    for (const id of [...ids, late]) forgetMovingRetrace(id)
+    try {
+      // Frame 1: everyone drifted at once — the first RETRACE_BUDGET get it.
+      const f1 = ids.map((id) => grantMovingRetrace(id, 101))
+      expect(f1.filter(Boolean).length).toBe(RETRACE_BUDGET)
+      expect(f1.slice(0, RETRACE_BUDGET).every(Boolean)).toBe(true)
+      // Frame 2: a new drifter comes FIRST in host order, but the waiters
+      // from frame 1 hold the slots, in waiting order.
+      const newcomer = grantMovingRetrace(late, 102)
+      const waiters = ids.slice(RETRACE_BUDGET).map((id) => grantMovingRetrace(id, 102))
+      const left = ids.length - RETRACE_BUDGET
+      expect(waiters.filter(Boolean).length).toBe(Math.min(RETRACE_BUDGET, left))
+      expect(waiters.slice(0, Math.min(RETRACE_BUDGET, left)).every(Boolean)).toBe(true)
+      expect(newcomer).toBe(RETRACE_BUDGET > left)
+    } finally {
+      for (const id of [...ids, late]) forgetMovingRetrace(id)
+    }
   })
 
   test("a forgotten text (retraced by a held frame, or disposed) waits no longer", () => {

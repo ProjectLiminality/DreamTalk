@@ -670,7 +670,11 @@ export const outlineRetraceDue = (o: {
  * oldest waiters from earlier frames hold reserved slots; texts newly
  * drifted this frame take what is left, first come.
  */
-export const RETRACE_BUDGET = 4
+// One: the drifted labels a moving frame can leave stale are few and
+// legible (the illegible ones are gone — TEXT_LEGIBLE_CAP_PX), and one
+// retrace (~15 ms on FlowMap's stage titles) keeps a zoom's frames under
+// ~30 ms where four reached ~55.
+export const RETRACE_BUDGET = 1
 let budgetT = Number.NaN
 let budgetFrame = 0
 let budgetFree = 0
@@ -706,6 +710,13 @@ const buildOutlines = (
   geometry: THREE.BufferGeometry,
   strokePx: number,
   pixelsPerUnit: number,
+  /**
+   * The previous tracing's strokes, taken and refilled before any new one
+   * is made: a retrace (a zoom, a camera move) then costs repacked points,
+   * not new meshes — each new mesh is a new render object in the frame it
+   * first draws.
+   */
+  pool: RibbonStroke[] = [],
 ): GlyphOutline[] => {
   const position = geometry.getAttribute("position") as THREE.BufferAttribute
   const glyphIndex = geometry.getAttribute("glyphIndex") as THREE.BufferAttribute | undefined
@@ -755,7 +766,7 @@ const buildOutlines = (
     let walked = 0
     const built: GlyphOutline["loops"] = []
     for (let i = 0; i < loops.length; i++) {
-      const ribbon = new RibbonStroke(strokePx)
+      const ribbon = pool.pop() ?? new RibbonStroke(strokePx)
       const { loop, depth } = loops[i]!
       ribbon.setPoints(closeLoop(loop).map((p) => new THREE.Vector3(p.x, p.y, p.z)))
       const from = total > 0 ? walked / total : 0
@@ -1101,12 +1112,18 @@ export const attachText = (
   const rebuildOutlines = () => {
     if (!mesh) return
     forgetMovingRetrace(textId)
-    dropOutlines()
-    outlines = buildOutlines(mesh.geometry, holon.stroke.value, insetScale)
+    // Reuse the strokes already mounted (buildOutlines' pool); only what
+    // the new tracing does not need is let go.
+    const pool = outlines.flatMap((outline) => outline.loops.map(({ ribbon }) => ribbon))
+    outlines = buildOutlines(mesh.geometry, holon.stroke.value, insetScale, pool)
+    for (const ribbon of pool) {
+      group.remove(ribbon.mesh)
+      ribbon.geometry.dispose()
+    }
     for (const outline of outlines) {
       for (const { ribbon } of outline.loops) {
         if (order !== undefined) ribbon.mesh.renderOrder = order
-        group.add(ribbon.mesh)
+        if (ribbon.mesh.parent !== group) group.add(ribbon.mesh)
       }
     }
   }
