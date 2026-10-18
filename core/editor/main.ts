@@ -2332,8 +2332,14 @@ const boot = async (resume?: Transport) => {
     return open
   }
 
+  /** The holons the walk drives — a lazy song's live ones change as it plays (editor/walk.ts reroot). */
+  let walkedRoots = dream.roots
   const loop = async (now: number) => {
     if (!alive) return
+    if (walk && dream.roots !== walkedRoots) {
+      walkedRoots = dream.roots
+      walk.reroot(walkedRoots)
+    }
     const walked = walk?.step(now) ?? false
     toolkit?.tick(now)
     syncLanes()

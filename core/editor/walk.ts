@@ -121,7 +121,7 @@ const same = (a: ParamValue | undefined, b: ParamValue | undefined): boolean => 
 export class EditorWalk {
   readonly game: GameLoop
   readonly #opts: WalkOpts
-  readonly #clocks: Set<Param<ParamValue>>
+  #clocks: Set<Param<ParamValue>>
   /** What the walk last wrote into the live layer, per param. */
   readonly #written = new Map<Param<ParamValue>, ParamValue>()
   /** Params whose override the walk itself created (it may also remove them). */
@@ -366,6 +366,18 @@ export class EditorWalk {
     this.#panelAxes = ids
     // Filled by the next step(): an inspector render can run during boot,
     // before the editor's own axes can be read.
+    this.#panelKey = ""
+  }
+
+  /**
+   * A lazy song built or dropped a chapter: walk its live holons (GameLoop.reroot)
+   * — clicks and keys never drive an off-stage one. The walk so far is kept
+   * for the holons that stay.
+   */
+  reroot(roots: readonly Holon[]): void {
+    this.game.reroot({ roots, space: this.#opts.scene?.(), animated: EVERY_PARAM })
+    this.#clocks = new Set((this.game.automaton.space.clocks ?? []) as Param<ParamValue>[])
+    this.#fired = this.game.automaton.journal.length
     this.#panelKey = ""
   }
 
