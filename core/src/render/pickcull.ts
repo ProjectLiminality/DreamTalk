@@ -43,7 +43,20 @@ interface Cached {
   boxes: Boxes
 }
 
-const cache = new WeakMap<object, Cached>()
+/** One cache per kind of box: a geometry may be asked for more than one kind. */
+const segmentCache = new WeakMap<object, Cached>()
+const triangleCache = new WeakMap<object, Cached>()
+const vertexCache = new WeakMap<object, Cached>()
+
+/** A position attribute's x, y, z of vertex v — straight from its array when it is a plain one (the fast path). */
+const reader = (position: THREE.BufferAttribute) => {
+  const plain = !(position as unknown as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute
+  const a = position.array
+  const n = position.itemSize
+  return plain
+    ? (v: number, k: number) => a[v * n + k]!
+    : (v: number, k: number) => (k === 0 ? position.getX(v) : k === 1 ? position.getY(v) : position.getZ(v))
+}
 
 const empty = (n: number) => {
   const a = new Float32Array(n * 6)
@@ -74,7 +87,7 @@ const merge = (chunks: Float32Array, n: number): Float32Array => {
  * `key` is what the cache hangs on (the geometry), `version` the buffer's.
  */
 export const segmentBoxes = (key: object, array: ArrayLike<number>, version: number, count: number, stride = 6): Boxes => {
-  const hit = cache.get(key)
+  const hit = segmentCache.get(key)
   if (hit && hit.array === array && hit.version === version && hit.count === count) return hit.boxes
   const n = Math.ceil(count / CHUNK)
   const chunks = empty(n)
@@ -85,7 +98,7 @@ export const segmentBoxes = (key: object, array: ArrayLike<number>, version: num
     grow(chunks, k, array[o + 3]!, array[o + 4]!, array[o + 5]!)
   }
   const boxes = { count, whole: merge(chunks, n), chunks }
-  cache.set(key, { array, version, count, boxes })
+  segmentCache.set(key, { array, version, count, boxes })
   return boxes
 }
 
@@ -98,7 +111,7 @@ export const triangleBoxes = (
   const array = position.array
   const indices = index.array
   const count = Math.floor(index.count / 3)
-  const hit = cache.get(key)
+  const hit = triangleCache.get(key)
   if (
     hit &&
     hit.array === array &&
@@ -110,15 +123,16 @@ export const triangleBoxes = (
     return hit.boxes
   const n = Math.ceil(count / CHUNK)
   const chunks = empty(n)
+  const at = reader(position)
   for (let t = 0; t < count; t++) {
     const k = (t / CHUNK) | 0
     for (let c = 0; c < 3; c++) {
-      const v = index.getX(t * 3 + c)
-      grow(chunks, k, position.getX(v), position.getY(v), position.getZ(v))
+      const v = indices[t * 3 + c]!
+      grow(chunks, k, at(v, 0), at(v, 1), at(v, 2))
     }
   }
   const boxes = { count, whole: merge(chunks, n), chunks }
-  cache.set(key, { array, version: position.version, count, index: indices, indexVersion: index.version, boxes })
+  triangleCache.set(key, { array, version: position.version, count, index: indices, indexVersion: index.version, boxes })
   return boxes
 }
 
@@ -126,12 +140,13 @@ export const triangleBoxes = (
 export const vertexBox = (key: object, position: THREE.BufferAttribute): Boxes => {
   const array = position.array
   const count = position.count
-  const hit = cache.get(key)
+  const hit = vertexCache.get(key)
   if (hit && hit.array === array && hit.version === position.version && hit.count === count) return hit.boxes
   const whole = empty(1)
-  for (let v = 0; v < count; v++) grow(whole, 0, position.getX(v), position.getY(v), position.getZ(v))
+  const at = reader(position)
+  for (let v = 0; v < count; v++) grow(whole, 0, at(v, 0), at(v, 1), at(v, 2))
   const boxes = { count, whole, chunks: whole }
-  cache.set(key, { array, version: position.version, count, boxes })
+  vertexCache.set(key, { array, version: position.version, count, boxes })
   return boxes
 }
 

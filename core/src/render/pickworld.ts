@@ -9,6 +9,9 @@
  * hulls), so a cull against it never hides reachable ink.
  */
 
+// Distances are Math.sqrt of a sum of squares, not Math.hypot: the same
+// value to the last bits that matter here, several times faster in V8.
+
 /** The world box of a local box (6 floats at `o`) under a column-major 4×4 `m`, written to `out` at `oo`. */
 export const worldBox = (box: ArrayLike<number>, o: number, m: ArrayLike<number>, out: Float32Array | Float64Array, oo = 0): void => {
   let minX = Infinity
@@ -48,7 +51,7 @@ export const boxDistance = (b: ArrayLike<number>, o: number, x: number, y: numbe
   const dx = Math.max(b[o]! - x, 0, x - b[o + 3]!)
   const dy = Math.max(b[o + 1]! - y, 0, y - b[o + 4]!)
   const dz = Math.max(b[o + 2]! - z, 0, z - b[o + 5]!)
-  return Math.hypot(dx, dy, dz)
+  return Math.sqrt(dx * dx + dy * dy + dz * dz)
 }
 
 /**
@@ -98,7 +101,7 @@ export const boxFarthest = (b: ArrayLike<number>, o: number, x: number, y: numbe
   const dx = Math.max(Math.abs(b[o]! - x), Math.abs(b[o + 3]! - x))
   const dy = Math.max(Math.abs(b[o + 1]! - y), Math.abs(b[o + 4]! - y))
   const dz = Math.max(Math.abs(b[o + 2]! - z), Math.abs(b[o + 5]! - z))
-  return Math.hypot(dx, dy, dz)
+  return Math.sqrt(dx * dx + dy * dy + dz * dz)
 }
 
 /** Nearest point of segment ab to p: [distance, u ∈ [0, 1]]. */
@@ -118,7 +121,10 @@ export const pointSegment = (
   const dz = bz - az
   const lenSq = dx * dx + dy * dy + dz * dz
   const u = lenSq > 1e-18 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / lenSq)) : 0
-  return [Math.hypot(px - (ax + dx * u), py - (ay + dy * u), pz - (az + dz * u)), u]
+  const ex = px - (ax + dx * u)
+  const ey = py - (ay + dy * u)
+  const ez = pz - (az + dz * u)
+  return [Math.sqrt(ex * ex + ey * ey + ez * ez), u]
 }
 
 /**
@@ -167,7 +173,7 @@ export const raySegment = (
   const qx = ox + dx * t - (ax + ex * u)
   const qy = oy + dy * t - (ay + ey * u)
   const qz = oz + dz * t - (az + ez * u)
-  return [Math.hypot(qx, qy, qz), t, u]
+  return [Math.sqrt(qx * qx + qy * qy + qz * qz), t, u]
 }
 
 /** Nearest point of triangle abc to p (Ericson, Real-Time Collision Detection 5.1.5): [distance, x, y, z]. */
@@ -179,7 +185,12 @@ export const pointTriangle = (
 ): [number, number, number, number] => {
   const sub = (u: readonly number[], v: readonly number[]) => [u[0]! - v[0]!, u[1]! - v[1]!, u[2]! - v[2]!]
   const dot = (u: number[], v: number[]) => u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!
-  const done = (x: number, y: number, z: number): [number, number, number, number] => [Math.hypot(p[0] - x, p[1] - y, p[2] - z), x, y, z]
+  const done = (x: number, y: number, z: number): [number, number, number, number] => {
+    const ex = p[0] - x
+    const ey = p[1] - y
+    const ez = p[2] - z
+    return [Math.sqrt(ex * ex + ey * ey + ez * ez), x, y, z]
+  }
   const ab = sub(b, a)
   const ac = sub(c, a)
   const ap = sub(p, a)

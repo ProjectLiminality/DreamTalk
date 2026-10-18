@@ -1322,6 +1322,7 @@ export class ThreeHost {
         ribbon.mesh.renderOrder = this.nextFillOrder++
         ribbon.setPoints(pts ?? [])
         strokeBinding = { holon, ribbon, sig: freshSig(holon), group, look: styleOf(holon) }
+        this.inkStale = true // a new stroke: the 3D pick's sphere index starts over
         const sure = seenCertainty(holon)
         if (sure) {
           const blur = new RibbonSuperposition(ribbon, sure, this.superpositions.length + 1, group)
@@ -1519,6 +1520,7 @@ export class ThreeHost {
     if (this.settleIndex === undefined || this.indexedStructure !== structureEpoch) {
       this.scene.updateMatrixWorld()
       this.indexScene()
+      this.inkStale = true
     } else {
       const index = this.settleIndex
       // Both lists are depth-first already (the groups attach depth-first;
@@ -1544,6 +1546,7 @@ export class ThreeHost {
         if (span[0] < coveredTo) continue // inside a subtree already settled
         o.updateMatrixWorld()
         coveredTo = span[1]
+        this.noteMoved(span)
       }
     }
     this.movedGroups.length = 0
@@ -1641,6 +1644,7 @@ export class ThreeHost {
     // confirmed in one compare. Playback writes params every frame, so it
     // never takes this path; nothing it skips could differ.
     const held = this.syncedEpoch === paramEpoch()
+    let widest = 0
     for (const binding of this.awake(this.strokes)) {
       const { holon, ribbon } = binding
       // The geometry dirty-check: an O(1) version+phase compare for a Line
@@ -1654,6 +1658,7 @@ export class ThreeHost {
         if (pts || holon instanceof Line) {
           ribbon.setPoints(pts ?? [])
           this.blurOf.get(ribbon)?.setPoints(pts ?? [])
+          this.noteReshaped(binding)
         }
       }
       const lift = this.highlightOf(holon)
@@ -1662,6 +1667,7 @@ export class ThreeHost {
       const opacity = look.opacity.value
       const tint = look.tint.value
       const width = look.stroke.value
+      if (width > widest) widest = width
       const erasure = look.erasure.value
       // One screen-arc measurement serves both fronts (perf F): a stroke
       // mid-draw AND mid-erase used to project its polyline twice. Only a
@@ -1681,6 +1687,7 @@ export class ThreeHost {
         erasureMid ? this.arcFrom(measured, erasure) : erasure <= 0 ? 0 : 1,
       )
     }
+    this.widestStroke = widest
     for (const binding of this.awake(this.fills)) {
       const { holon, fill } = binding
       if (!held && sigChanged(holon, binding.sig)) {
@@ -2793,14 +2800,17 @@ export class ThreeHost {
    * The nearest visible ink within `radius` (world units) of `point`: its
    * holon, the distance, and the nearest point on the ink. Nearest wins;
    * within 5% of the radius of the nearest, the deeper holon wins (a pupil
-   * inside its eye).
+   * inside its eye). `accept` narrows what counts (a spark wants ink with a
+   * walkable owner): a rejected holon is no candidate at all, so the answer
+   * is the nearest ACCEPTED ink; asked once per holon per query.
    */
   pickNear(
     point: THREE.Vector3,
     radius: number,
-    opts: { exhaustive?: boolean } = {},
+    opts: { exhaustive?: boolean; accept?: (holon: Holon) => boolean } = {},
   ): { holon: Holon; distance: number; at: THREE.Vector3 } | undefined {
     this.settleForPick()
+    const accepted = acceptance(opts.accept)
     // `exhaustive` measures every piece, no box skipped — the oracle the culled query is gated against.
     const far = (dist: number) => !opts.exhaustive && dist > radius
     const px = point.x
@@ -2808,45 +2818,64 @@ export class ThreeHost {
     const pz = point.z
     const near = new Map<Holon, { distance: number; at: [number, number, number] }>()
     const offer = (holon: Holon, distance: number, x: number, y: number, z: number) => {
+      if (!accepted(holon)) return
       const had = near.get(holon)
       if (!had || distance < had.distance) near.set(holon, { distance, at: [x, y, z] })
     }
-    this.forEachInk((piece) => {
-      if (piece.kind === "ribbon") {
-        const w = this.ribbonWorld(piece.ribbon)
+    const p: [number, number, number] = [px, py, pz]
+    this.forEachInk(
+      (holon, ribbon) => {
+        const w = this.ribbonWorld(ribbon)
         if (!w || far(boxDistance(w.whole, 0, px, py, pz))) return
         for (let k = 0; k < w.n; k++) {
           if (far(boxDistance(w.chunks, k * 6, px, py, pz))) continue
-          this.forEachRibbonSegment(piece.ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
+          this.forEachRibbonSegment(ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
             const [d, u] = pointSegment(px, py, pz, ax, ay, az, bx, by, bz)
-            if (d <= radius) offer(piece.holon, d, ax + (bx - ax) * u, ay + (by - ay) * u, az + (bz - az) * u)
+            if (d <= radius) offer(holon, d, ax + (bx - ax) * u, ay + (by - ay) * u, az + (bz - az) * u)
           })
         }
-      } else if (piece.kind === "fill") {
-        const w = this.fillWorld(piece.fill)
+      },
+      (holon, fill) => {
+        // The fill's whole vertex box first (one pass, no triangles): most fills are far.
+        const whole = !opts.exhaustive && this.fillWholeWorld(fill)
+        if (whole && far(boxDistance(whole, 0, px, py, pz))) return
+        const w = this.fillWorld(fill)
         if (!w || far(boxDistance(w.whole, 0, px, py, pz))) return
-        const p: [number, number, number] = [px, py, pz]
         for (let k = 0; k < w.n; k++) {
           if (far(boxDistance(w.chunks, k * 6, px, py, pz))) continue
-          this.forEachTriangle(piece.fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
+          this.forEachTriangle(fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
             const [d, x, y, z] = pointTriangle(p, a, b, c)
-            if (d <= radius) offer(piece.holon, d, x, y, z)
+            if (d <= radius) offer(holon, d, x, y, z)
           })
         }
-      } else {
-        this.forEachGlyphBox(piece.group, (box) => {
+      },
+      (holon, group) =>
+        this.forEachGlyphBox(group, (box) => {
           const d = boxDistance(box, 0, px, py, pz)
           if (d <= radius)
             offer(
-              piece.holon,
+              holon,
               d,
               Math.min(Math.max(px, box[0]!), box[3]!),
               Math.min(Math.max(py, box[1]!), box[4]!),
               Math.min(Math.max(pz, box[2]!), box[5]!),
             )
-        })
-      }
-    })
+        }),
+      // The stroke's own bounding sphere first (ribbon.ts computeBounds: the cover the
+      // off-screen cull already trusts) — a few multiplies, no cache touched.
+      opts.exhaustive
+        ? undefined
+        : {
+            // dist − r ≤ radius, squared (a hair of slack so rounding never drops a sphere the exhaustive pass keeps).
+            near: (x, y, z, r) => {
+              const ex = x - px
+              const ey = y - py
+              const ez = z - pz
+              const reach = (r + radius) * (1 + 1e-9)
+              return ex * ex + ey * ey + ez * ez <= reach * reach
+            },
+          },
+    )
     let nearest = Infinity
     for (const { distance } of near.values()) nearest = Math.min(nearest, distance)
     let best: { holon: Holon; depth: number; distance: number; at: [number, number, number] } | undefined
@@ -2865,14 +2894,16 @@ export class ThreeHost {
    * the ray, the pixel measured at that ink's distance from the eye (so a ray
    * from the eye through a screen point agrees with what is drawn there);
    * fills by their triangles, text by its glyph boxes. At equal t the deeper
-   * holon wins.
+   * holon wins. `accept`, as for pickNear: only accepted ink counts (none
+   * given: any visible ink — what occlusion wants).
    */
   pickRay(
     origin: THREE.Vector3,
     direction: THREE.Vector3,
-    opts: { maxDistance?: number; tolerancePx?: number; exhaustive?: boolean } = {},
+    opts: { maxDistance?: number; tolerancePx?: number; exhaustive?: boolean; accept?: (holon: Holon) => boolean } = {},
   ): { holon: Holon; t: number; at: THREE.Vector3 } | undefined {
     this.settleForPick()
+    const accepted = acceptance(opts.accept)
     // `exhaustive`: every piece measured, no box skipped (the gate's oracle).
     const missed = (enter: number) => !opts.exhaustive && (Number.isNaN(enter) || (best !== undefined && enter > best.t))
     const len = direction.length()
@@ -2891,53 +2922,215 @@ export class ThreeHost {
     const d: [number, number, number] = [dx, dy, dz]
     let best: { holon: Holon; t: number; depth: number; at: [number, number, number] } | undefined
     const offer = (holon: Holon, t: number, x: number, y: number, z: number) => {
-      if (t > tMax) return
+      if (t > tMax || !accepted(holon)) return
       if (best && t > best.t + 1e-9) return
       const depth = this.depthOf(holon)
       if (best && Math.abs(t - best.t) <= 1e-9 && depth <= best.depth) return
       best = { holon, t, depth, at: [x, y, z] }
     }
-    this.forEachInk((piece) => {
-      if (piece.kind === "ribbon") {
-        const w = this.ribbonWorld(piece.ribbon)
+    this.forEachInk(
+      (holon, ribbon, widthPx) => {
+        const tolPx = widthPx / 2 + extra
+        const w = this.ribbonWorld(ribbon)
         if (!w) return
-        const tolPx = piece.widthPx / 2 + extra
-        const pad = (b: ArrayLike<number>, at: number) => tolPx * perPx(boxFarthest(b, at, eye.x, eye.y, eye.z))
-        if (missed(rayNearBox(w.whole, 0, ox, oy, oz, dx, dy, dz, tMax, pad(w.whole, 0)))) return
+        // The pad: the stroke's half-width in pixels at the farthest the box reaches from the eye.
+        const whole = tolPx * perPx(boxFarthest(w.whole, 0, eye.x, eye.y, eye.z))
+        if (missed(rayNearBox(w.whole, 0, ox, oy, oz, dx, dy, dz, tMax, whole))) return
         for (let k = 0; k < w.n; k++) {
-          if (missed(rayNearBox(w.chunks, k * 6, ox, oy, oz, dx, dy, dz, tMax, pad(w.chunks, k * 6)))) continue
-          this.forEachRibbonSegment(piece.ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
+          const pad = tolPx * perPx(boxFarthest(w.chunks, k * 6, eye.x, eye.y, eye.z))
+          if (missed(rayNearBox(w.chunks, k * 6, ox, oy, oz, dx, dy, dz, tMax, pad))) continue
+          this.forEachRibbonSegment(ribbon, k * CHUNK, (k + 1) * CHUNK, (ax, ay, az, bx, by, bz) => {
             const [dist, t, u] = raySegment(ox, oy, oz, dx, dy, dz, tMax, ax, ay, az, bx, by, bz)
             const x = ax + (bx - ax) * u
             const y = ay + (by - ay) * u
             const z = az + (bz - az) * u
-            if (dist <= tolPx * perPx(Math.hypot(x - eye.x, y - eye.y, z - eye.z))) offer(piece.holon, t, x, y, z)
+            const ex = x - eye.x
+            const ey = y - eye.y
+            const ez = z - eye.z
+            if (dist <= tolPx * perPx(Math.sqrt(ex * ex + ey * ey + ez * ez))) offer(holon, t, x, y, z)
           })
         }
-      } else if (piece.kind === "fill") {
-        const w = this.fillWorld(piece.fill)
+      },
+      (holon, fill) => {
+        const whole = !opts.exhaustive && this.fillWholeWorld(fill)
+        if (whole && missed(rayNearBox(whole, 0, ox, oy, oz, dx, dy, dz, tMax, 0))) return
+        const w = this.fillWorld(fill)
         if (!w || missed(rayNearBox(w.whole, 0, ox, oy, oz, dx, dy, dz, tMax, 0))) return
         for (let k = 0; k < w.n; k++) {
           if (missed(rayNearBox(w.chunks, k * 6, ox, oy, oz, dx, dy, dz, tMax, 0))) continue
-          this.forEachTriangle(piece.fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
+          this.forEachTriangle(fill, k * CHUNK, (k + 1) * CHUNK, (a, b, c) => {
             const t = rayTriangle(o, d, a, b, c)
-            if (t !== undefined) offer(piece.holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
+            if (t !== undefined) offer(holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
           })
         }
-      } else {
-        this.forEachGlyphBox(piece.group, (box) => {
+      },
+      (holon, group) =>
+        this.forEachGlyphBox(group, (box) => {
           const t = rayNearBox(box, 0, ox, oy, oz, dx, dy, dz, tMax, 0)
-          if (!Number.isNaN(t)) offer(piece.holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
-        })
-      }
-    })
+          if (!Number.isNaN(t)) offer(holon, t, ox + dx * t, oy + dy * t, oz + dz * t)
+        }),
+      // The bounding sphere first: skip a stroke the (capped) ray passes farther from than its
+      // radius plus its half-width in pixels at the sphere's far side from the eye.
+      opts.exhaustive
+        ? undefined
+        : {
+            withWidth: (x, y, z, r, widthPx) => {
+              const along = Math.max(0, Math.min(tMax, (x - ox) * dx + (y - oy) * dy + (z - oz) * dz))
+              const mx = ox + dx * along - x
+              const my = oy + dy * along - y
+              const mz = oz + dz * along - z
+              const ex = x - eye.x
+              const ey = y - eye.y
+              const ez = z - eye.z
+              const reach = (r + (widthPx / 2 + extra) * perPx(Math.sqrt(ex * ex + ey * ey + ez * ez) + r)) * (1 + 1e-9)
+              return mx * mx + my * my + mz * mz <= reach * reach
+            },
+          },
+    )
     const b = best as { holon: Holon; t: number; at: [number, number, number] } | undefined
     return b && { holon: b.holon, t: b.t, at: new THREE.Vector3(...b.at) }
   }
 
   /** The world matrices a pick reads, current — the same rule as `pick`'s. */
   private settleForPick(): void {
-    if (!this.matricesSettled || this.settledStructure !== structureEpoch) this.scene.updateMatrixWorld(true)
+    if (!this.matricesSettled || this.settledStructure !== structureEpoch) {
+      this.scene.updateMatrixWorld(true)
+      this.inkStale = true
+    }
+  }
+
+  // --- The strokes' world spheres, flat (the 3D pick's first look) ----------
+  //
+  // A query's first pass over 7k strokes is memory-bound, not arithmetic:
+  // right after a render every binding, ribbon, mesh and matrix it touches
+  // is cold. So their world bounding spheres live in one Float64Array, kept
+  // current incrementally — a stroke re-shaped by sync() (noteReshaped), a
+  // subtree the settle moved (noteMoved: its depth-first node span), or all
+  // of them when the graph's structure changed or a forced update ran
+  // (inkStale). Visibility, sleep and width are read only for the strokes
+  // whose sphere passes.
+
+  private strokeSpheres?: {
+    n: number
+    structure: number
+    /** [x, y, z, r] per stroke (this.strokes order); r < 0: no sphere (always looked at). */
+    spheres: Float64Array
+    /** Stroke indices sorted by their mesh's depth-first node index, and those node indices. */
+    byNode: Int32Array
+    nodes: Int32Array
+    /** Strokes whose mesh is not in the settle index: recomputed on every query. */
+    unindexed: number[]
+    /** Stroke meshes among the first k nodes (depth-first): a span [a, b) holds one iff prefix[b] > prefix[a]. */
+    prefix: Int32Array
+    of: Map<StrokeBinding, number>
+  }
+  private inkStale = true
+  /**
+   * The widest awake stroke at the last sync (px) — a ray's pre-cull pad,
+   * valid while no param has changed since (paramEpoch === syncedEpoch).
+   */
+  private widestStroke = 0
+  private readonly inkReshaped: StrokeBinding[] = []
+  private readonly inkMoved: [number, number][] = []
+
+  private noteReshaped(binding: StrokeBinding): void {
+    if (this.inkStale) return
+    if (this.inkReshaped.length > 4096) this.inkStale = true
+    else this.inkReshaped.push(binding)
+  }
+
+  private noteMoved(span: [number, number]): void {
+    const idx = this.strokeSpheres
+    if (this.inkStale || !idx) return
+    // Most settled subtrees (text meshes three keeps auto-updating) hold no stroke at all.
+    const prefix = idx.prefix
+    if (span[1] >= prefix.length || prefix[span[1]]! === prefix[span[0]]!) {
+      if (span[1] < prefix.length) return
+      this.inkStale = true // a node past the index: the graph grew
+      return
+    }
+    if (this.inkMoved.length > 4096) this.inkStale = true
+    else this.inkMoved.push(span)
+  }
+
+  private writeSphere(spheres: Float64Array, i: number, ribbon: RibbonStroke): void {
+    const r = ribbon.boundsRadius
+    const o = i * 4
+    if (!(r > 0)) {
+      spheres[o + 3] = -1
+      return
+    }
+    const m = ribbon.mesh.matrixWorld.elements
+    const c = ribbon.boundsCenter
+    spheres[o] = m[0]! * c.x + m[4]! * c.y + m[8]! * c.z + m[12]!
+    spheres[o + 1] = m[1]! * c.x + m[5]! * c.y + m[9]! * c.z + m[13]!
+    spheres[o + 2] = m[2]! * c.x + m[6]! * c.y + m[10]! * c.z + m[14]!
+    const sx = m[0]! * m[0]! + m[1]! * m[1]! + m[2]! * m[2]!
+    const sy = m[4]! * m[4]! + m[5]! * m[5]! + m[6]! * m[6]!
+    const sz = m[8]! * m[8]! + m[9]! * m[9]! + m[10]! * m[10]!
+    spheres[o + 3] = r * Math.sqrt(Math.max(sx, sy, sz))
+  }
+
+  /** The strokes' world spheres, brought current (see above). */
+  private strokeSphereIndex() {
+    const strokes = this.strokes
+    let idx = this.strokeSpheres
+    if (!idx || this.inkStale || idx.n !== strokes.length || idx.structure !== structureEpoch || !this.settleIndex) {
+      const n = strokes.length
+      const spheres = new Float64Array(n * 4)
+      const of = new Map<StrokeBinding, number>()
+      const pairs: [number, number][] = []
+      const unindexed: number[] = []
+      for (let i = 0; i < n; i++) {
+        const b = strokes[i]!
+        of.set(b, i)
+        this.writeSphere(spheres, i, b.ribbon)
+        const node = this.settleIndex?.get(b.ribbon.mesh)?.[0]
+        if (node === undefined) unindexed.push(i)
+        else pairs.push([node, i])
+      }
+      pairs.sort((a, b) => a[0] - b[0])
+      const prefix = new Int32Array((this.settleIndex?.size ?? 0) + 1)
+      for (const [node] of pairs) prefix[node + 1]!++
+      for (let k = 1; k < prefix.length; k++) prefix[k]! += prefix[k - 1]!
+      idx = {
+        n,
+        structure: structureEpoch,
+        spheres,
+        byNode: Int32Array.from(pairs, (p) => p[1]),
+        nodes: Int32Array.from(pairs, (p) => p[0]),
+        unindexed,
+        of,
+        prefix,
+      }
+      this.strokeSpheres = idx
+      this.inkStale = false
+      this.inkReshaped.length = 0
+      this.inkMoved.length = 0
+      return idx
+    }
+    for (const b of this.inkReshaped) {
+      const i = idx.of.get(b)
+      if (i !== undefined) this.writeSphere(idx.spheres, i, b.ribbon)
+    }
+    this.inkReshaped.length = 0
+    for (const [from, to] of this.inkMoved) {
+      // The first stroke whose node is ≥ from, then every one inside the span.
+      let lo = 0
+      let hi = idx.nodes.length
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (idx.nodes[mid]! < from) lo = mid + 1
+        else hi = mid
+      }
+      for (let k = lo; k < idx.nodes.length && idx.nodes[k]! < to; k++) {
+        const i = idx.byNode[k]!
+        this.writeSphere(idx.spheres, i, strokes[i]!.ribbon)
+      }
+    }
+    this.inkMoved.length = 0
+    for (const i of idx.unindexed) this.writeSphere(idx.spheres, i, strokes[i]!.ribbon)
+    return idx
   }
 
   /** World units per drawing-buffer pixel at distance `t` from the eye. */
@@ -2953,37 +3146,101 @@ export class ThreeHost {
     return () => span
   }
 
-  /** Every pickable piece of visible ink, by `pick`'s rules. */
+  /**
+   * Every pickable piece of visible ink, by `pick`'s rules: a ribbon (with
+   * its stroke width), a fill, or a text's glyph group. Positional and
+   * allocation-free — it runs over every binding (7k strokes in the gallery)
+   * on every query.
+   */
   private forEachInk(
-    fn: (
-      piece:
-        | { kind: "ribbon"; holon: Holon; ribbon: RibbonStroke; widthPx: number }
-        | { kind: "fill"; holon: Holon; fill: FillShape }
-        | { kind: "glyphs"; holon: Holon; group: THREE.Object3D },
-    ) => void,
+    ribbonFn: (holon: Holon, ribbon: RibbonStroke, widthPx: number) => void,
+    fillFn: (holon: Holon, fill: FillShape) => void,
+    glyphFn: (holon: Holon, group: THREE.Object3D) => void,
+    /**
+     * A cheap first look at a stroke's world bounding sphere: false skips it.
+     * `near` reads the flat sphere index (no width needed); `withWidth` is
+     * asked per stroke with its sphere computed inline and its width (a
+     * ray's pad grows with the stroke's width).
+     */
+    first?:
+      | { near: (x: number, y: number, z: number, r: number) => boolean }
+      | { withWidth: (x: number, y: number, z: number, r: number, widthPx: number) => boolean },
   ): void {
-    for (const binding of this.strokes) {
-      if (this.asleep(binding.holon)) continue
-      const width = (binding.pickWidth ??= rawHolon(binding.holon).stroke).value
-      fn({ kind: "ribbon", holon: binding.holon, ribbon: binding.ribbon, widthPx: width })
-    }
+    if (first && "near" in first) {
+      const { spheres } = this.strokeSphereIndex()
+      for (let i = 0, n = this.strokes.length; i < n; i++) {
+        const o = i * 4
+        const r = spheres[o + 3]!
+        if (r > 0 && !first.near(spheres[o]!, spheres[o + 1]!, spheres[o + 2]!, r)) continue
+        const binding = this.strokes[i]!
+        if (!binding.ribbon.mesh.visible || this.asleep(binding.holon)) continue
+        ribbonFn(binding.holon, binding.ribbon, (binding.pickWidth ??= rawHolon(binding.holon).stroke).value)
+      }
+    } else if (first && this.syncedEpoch === paramEpoch()) {
+      // Held since the last sync: every awake stroke is at most `widestStroke` wide, so the
+      // flat index with that width is a safe first look; each survivor then answers with its own.
+      const { spheres } = this.strokeSphereIndex()
+      const widest = this.widestStroke
+      for (let i = 0, n = this.strokes.length; i < n; i++) {
+        const o = i * 4
+        const r = spheres[o + 3]!
+        if (r > 0 && !first.withWidth(spheres[o]!, spheres[o + 1]!, spheres[o + 2]!, r, widest)) continue
+        const binding = this.strokes[i]!
+        if (!binding.ribbon.mesh.visible || this.asleep(binding.holon)) continue
+        const widthPx = (binding.pickWidth ??= rawHolon(binding.holon).stroke).value
+        if (r > 0 && widthPx < widest && !first.withWidth(spheres[o]!, spheres[o + 1]!, spheres[o + 2]!, r, widthPx)) continue
+        ribbonFn(binding.holon, binding.ribbon, widthPx)
+      }
+    } else if (first) {
+      for (const binding of this.strokes) {
+        const ribbon = binding.ribbon
+        if (!ribbon.mesh.visible) continue
+        const widthPx = (binding.pickWidth ??= rawHolon(binding.holon).stroke).value
+        const r = ribbon.boundsRadius
+        if (r > 0) {
+          const m = ribbon.mesh.matrixWorld.elements
+          const c = ribbon.boundsCenter
+          const sx = m[0]! * m[0]! + m[1]! * m[1]! + m[2]! * m[2]!
+          const sy = m[4]! * m[4]! + m[5]! * m[5]! + m[6]! * m[6]!
+          const sz = m[8]! * m[8]! + m[9]! * m[9]! + m[10]! * m[10]!
+          const may = first.withWidth(
+            m[0]! * c.x + m[4]! * c.y + m[8]! * c.z + m[12]!,
+            m[1]! * c.x + m[5]! * c.y + m[9]! * c.z + m[13]!,
+            m[2]! * c.x + m[6]! * c.y + m[10]! * c.z + m[14]!,
+            r * Math.sqrt(Math.max(sx, sy, sz)),
+            widthPx,
+          )
+          if (!may) continue
+        }
+        if (this.asleep(binding.holon)) continue
+        ribbonFn(binding.holon, ribbon, widthPx)
+      }
+    } else
+      for (const binding of this.strokes) {
+        if (!binding.ribbon.mesh.visible || this.asleep(binding.holon)) continue
+        ribbonFn(binding.holon, binding.ribbon, (binding.pickWidth ??= rawHolon(binding.holon).stroke).value)
+      }
     for (const binding of this.cylinders) {
       if (this.asleep(binding.holon)) continue
       const width = binding.holon.stroke.value
-      for (const ribbon of [binding.farCap, binding.nearBack, binding.nearFront, binding.lineA, binding.lineB])
-        fn({ kind: "ribbon", holon: binding.holon, ribbon, widthPx: width })
+      ribbonFn(binding.holon, binding.farCap, width)
+      ribbonFn(binding.holon, binding.nearBack, width)
+      ribbonFn(binding.holon, binding.nearFront, width)
+      ribbonFn(binding.holon, binding.lineA, width)
+      ribbonFn(binding.holon, binding.lineB, width)
     }
-    for (const binding of this.fills) if (!this.asleep(binding.holon)) fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
-    for (const binding of [...this.washes, ...this.drawingWashes]) {
-      if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01 || this.asleep(binding.holon)) continue
-      fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
-    }
+    for (const binding of this.fills) if (!this.asleep(binding.holon)) fillFn(binding.holon, binding.fill)
+    for (const list of [this.washes, this.drawingWashes])
+      for (const binding of list) {
+        if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01 || this.asleep(binding.holon)) continue
+        fillFn(binding.holon, binding.fill)
+      }
     for (const binding of this.surfaces) {
       if (binding.holon.fillOpacity.value * seenOf(binding.holon).value <= 0.01 || this.asleep(binding.holon)) continue
-      fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
+      fillFn(binding.holon, binding.fill)
     }
-    for (const binding of this.arrows) if (!this.asleep(binding.holon)) fn({ kind: "fill", holon: binding.holon, fill: binding.fill })
-    for (const { binding, group } of this.texts) if (!this.asleep(binding.holon)) fn({ kind: "glyphs", holon: binding.holon, group })
+    for (const binding of this.arrows) if (!this.asleep(binding.holon)) fillFn(binding.holon, binding.fill)
+    for (const { binding, group } of this.texts) if (!this.asleep(binding.holon)) glyphFn(binding.holon, group)
   }
 
   /** World boxes of a buffer's local chunk boxes, cached until the boxes or the world matrix change. */
@@ -3015,6 +3272,20 @@ export class ThreeHost {
     if (count < 1 || !start) return undefined
     return this.worldBoxesOf(ribbon, segmentBoxes(ribbon.geometry, start.data.array as Float32Array, start.data.version, count), ribbon.mesh.matrixWorld)
   }
+
+  /**
+   * A visible fill's world box from its vertices alone (pickcull vertexBox:
+   * one pass, cached by version) — the cheap first look, before its
+   * triangles are boxed. Written to a scratch; undefined when none.
+   */
+  private fillWholeWorld(fill: FillShape): Float64Array | undefined {
+    if (!fill.mesh.visible) return undefined
+    const position = fill.mesh.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
+    if (!position || position.count === 0) return undefined
+    worldBox(vertexBox(fill.mesh.geometry, position).whole, 0, fill.mesh.matrixWorld.elements, this.wholeScratch)
+    return this.wholeScratch
+  }
+  private readonly wholeScratch = new Float64Array(6)
 
   private fillWorld(fill: FillShape) {
     if (!fill.mesh.visible) return undefined
@@ -3107,13 +3378,26 @@ export class ThreeHost {
 
   /** The world box of each visible glyph mesh under a text's group. */
   private forEachGlyphBox(group: THREE.Object3D, fn: (box: Float64Array) => void): void {
-    group.traverse((child) => {
-      if (!(child instanceof THREE.Mesh) || !child.visible) return
+    for (const child of this.glyphMeshes(group)) {
+      if (!child.visible) continue
       const position = child.geometry.getAttribute("position") as THREE.BufferAttribute | undefined
-      if (!position) return
+      if (!position) continue
       fn(this.worldBoxesOf(child, vertexBox(child.geometry, position), child.matrixWorld).whole)
-    })
+    }
   }
+
+  /** A text group's meshes, listed once per graph structure (a traverse per query was most of a 3D query's cost). */
+  private glyphMeshes(group: THREE.Object3D): THREE.Mesh[] {
+    const hit = this.glyphMeshCache.get(group)
+    if (hit && hit.structure === structureEpoch) return hit.meshes
+    const meshes: THREE.Mesh[] = []
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes.push(child)
+    })
+    this.glyphMeshCache.set(group, { structure: structureEpoch, meshes })
+    return meshes
+  }
+  private readonly glyphMeshCache = new WeakMap<THREE.Object3D, { structure: number; meshes: THREE.Mesh[] }>()
 
   /**
    * A holon's screen-space bounding box, in pixels, as a Box3 whose z is
@@ -3954,6 +4238,17 @@ export class ThreeHost {
     this.texts.length = 0
     this.compositor?.dispose()
     this.renderer.dispose()
+  }
+}
+
+/** A 3D pick's `accept`, asked once per holon per query (none: every holon). */
+const acceptance = (accept: ((holon: Holon) => boolean) | undefined): ((holon: Holon) => boolean) => {
+  if (!accept) return () => true
+  const seen = new Map<Holon, boolean>()
+  return (holon) => {
+    let ok = seen.get(holon)
+    if (ok === undefined) seen.set(holon, (ok = accept(holon)))
+    return ok
   }
 }
 

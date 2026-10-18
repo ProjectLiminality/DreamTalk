@@ -12,7 +12,9 @@
  * holon as `host.pickReference` (the original, exhaustive pick). Then 3D:
  * `pickNear` at points scattered around real ink and at random in view, and
  * `pickRay` from the eye through a grid and along random (some capped) rays,
- * each against its own `exhaustive` run — same holon, same distance / t.
+ * each against its own `exhaustive` run — same holon, same distance / t —
+ * and again with `accept` refusing the winner (the next accepted ink, never
+ * the refused one).
  * Prints mismatches, and the mean / p95 time of each. Exits 1 on any mismatch.
  */
 
@@ -103,8 +105,8 @@ const measureOnce = async (scene: string) => {
     type V = { x: number; y: number; z: number; clone(): V; unproject(c: unknown): V; sub(v: V): V; length(): number; normalize(): V }
     type Host3 = Host & {
       camera: { position: { constructor: new (x: number, y: number, z: number) => V }; getWorldPosition(v: V): V }
-      pickNear?(p: V, r: number, o?: { exhaustive?: boolean }): { holon: unknown; distance: number } | undefined
-      pickRay?(o: V, d: V, opts?: { exhaustive?: boolean; maxDistance?: number }): { holon: unknown; t: number; at: V } | undefined
+      pickNear?(p: V, r: number, o?: { exhaustive?: boolean; accept?: (h: unknown) => boolean }): { holon: unknown; distance: number } | undefined
+      pickRay?(o: V, d: V, opts?: { exhaustive?: boolean; maxDistance?: number; accept?: (h: unknown) => boolean }): { holon: unknown; t: number; at: V } | undefined
     }
     const runs3: { label: string; n: number; mismatches: string[]; fast: number[]; slow: number[] }[] = []
     const run3 = (label: string) => {
@@ -149,6 +151,14 @@ const measureOnce = async (scene: string) => {
         slow.push(performance.now() - t0)
         if (f?.holon !== e?.holon || (f && e && !same(f.distance, e.distance)))
           mismatches.push(`near (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}): fast ${name(f?.holon)} ${f?.distance} ≠ exhaustive ${name(e?.holon)} ${e?.distance}`)
+        // `accept`: refuse the winner — the next accepted ink, the same both ways, never the refused one.
+        if (e) {
+          const accept = (h: unknown) => h !== e.holon
+          const fa = h.pickNear!(p, radius, { accept })
+          const ea = h.pickNear!(p, radius, { accept, exhaustive: true })
+          if (fa?.holon === e.holon || fa?.holon !== ea?.holon || (fa && ea && !same(fa.distance, ea.distance)))
+            mismatches.push(`near+accept: fast ${name(fa?.holon)} ≠ exhaustive ${name(ea?.holon)} (refused ${name(e.holon)})`)
+        }
       }
       runs3.push({ label: `${label} · pickNear r=${radius.toFixed(1)}`, n: points.length, mismatches: [...mismatches], fast: [...fast], slow: [...slow] })
       mismatches.length = 0
@@ -163,6 +173,13 @@ const measureOnce = async (scene: string) => {
         slow.push(performance.now() - t0)
         if (f?.holon !== e?.holon || (f && e && !same(f.t, e.t)))
           mismatches.push(`ray: fast ${name(f?.holon)} t=${f?.t} ≠ exhaustive ${name(e?.holon)} t=${e?.t}`)
+        if (e) {
+          const accept = (x: unknown) => x !== e.holon
+          const fa = h.pickRay!(r.o, r.d, { maxDistance: r.max, accept })
+          const ea = h.pickRay!(r.o, r.d, { maxDistance: r.max, accept, exhaustive: true })
+          if (fa?.holon === e.holon || fa?.holon !== ea?.holon || (fa && ea && !same(fa.t, ea.t)))
+            mismatches.push(`ray+accept: fast ${name(fa?.holon)} ≠ exhaustive ${name(ea?.holon)} (refused ${name(e.holon)})`)
+        }
       }
       runs3.push({ label: `${label} · pickRay`, n: rays.length, mismatches, fast, slow })
     }
