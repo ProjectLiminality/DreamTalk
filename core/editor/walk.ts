@@ -389,11 +389,26 @@ export class EditorWalk {
   /**
    * A lazy song built or dropped a chapter: walk its live holons (GameLoop.reroot)
    * — clicks and keys never drive an off-stage one. The walk so far is kept
-   * for the holons that stay.
+   * for the holons that stay; its notes on the dropped ones are let go.
    */
   reroot(roots: readonly Holon[]): void {
     this.game.reroot({ roots, space: this.#opts.scene?.(), animated: EVERY_PARAM })
     this.#clocks = new Set((this.game.automaton.space.clocks ?? []) as Param<ParamValue>[])
+    // Forget what was written into holons the song dropped: each note holds a
+    // param, the param its holon, the holon its whole chapter — kept, they
+    // would rebuild the eager song in memory over a long walk.
+    const live = new Set(this.game.automaton.params)
+    this.#writing = true
+    try {
+      for (const p of [...this.#written.keys()]) {
+        if (live.has(p)) continue
+        if (this.#owned.has(p)) this.#opts.overrides.delete(p)
+        this.#written.delete(p)
+      }
+      for (const p of [...this.#owned]) if (!live.has(p)) this.#owned.delete(p)
+    } finally {
+      this.#writing = false
+    }
     this.#fired = this.game.automaton.journal.length
     this.#panelKey = ""
   }

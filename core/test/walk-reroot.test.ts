@@ -77,3 +77,41 @@ test("the paused editor walks a lazy song's live chapters: a dropped chapter's h
   expect(walk.game.automaton.journal.at(-1)?.axis).toBe(walk.game.automaton.axes.find((a) => a.owner === lampOf(2))!.id)
   ac.abort()
 })
+
+test("a reroot lets go of the walk's notes on dropped holons — their overrides go, nothing pins the chapter", () => {
+  const song = new DreamSong([{ scene: chapter(), span: 10 }, { scene: chapter(), span: 10 }, { scene: chapter(), span: 10 }], { lazy: true, keep: 0 })
+  song.applyAt(1)
+  const overrides = new Overrides(new Timeline([]))
+  const ac = new AbortController()
+  let now = 0
+  const realNow = performance.now.bind(performance)
+  performance.now = () => now
+  try {
+    const walk = new EditorWalk({
+      canvas: el() as unknown as HTMLCanvasElement,
+      pick: () => undefined,
+      boundsOf: () => undefined,
+      roots: song.roots,
+      scene: () => song.stateSpace(),
+      overrides,
+      isPlaying: () => false,
+      suspended: () => false,
+      currentT: () => 1,
+      pause: () => {},
+      hud: false,
+      signal: ac.signal,
+    })
+    const lamp0 = (song.chapters[0]!.dream as unknown as { lamp: Lamp }).lamp
+    walk.step(now)
+    walk.fire(walk.game.automaton.axes.find((a) => a.owner === lamp0)!.id, "on")
+    for (let k = 0; k < 40; k++) walk.step((now += 50))
+    expect(overrides.has(lamp0.on as never)).toBe(true)
+
+    song.applyAt(25)
+    walk.reroot(song.roots)
+    expect(overrides.has(lamp0.on as never)).toBe(false)
+  } finally {
+    performance.now = realNow
+    ac.abort()
+  }
+})
