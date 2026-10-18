@@ -91,7 +91,9 @@ So: **walk it, keep it.** The editor includes the old way (scrub + inspector
   a value. Verified byte-identical on the whole InterBrain song.
 - Enter is in RESERVED_KEYS (`u` is an axis key: Worldview's pullers, the
   InterBrain unfold). Hands bind to `window.__dtNest.unpackHovered()` /
-  `statesHovered()` / `back()`.
+  `statesHovered()` / `back()`. While a level is open, `__dtNest.top()`
+  gives its game loop, canvas and host (undefined at depth 0), so hands aim
+  at the level you see. `dreamtalk:nest` fires on window when it changes.
 - While a level is open, the HUD of the level beneath steps aside
   (`GameLoop.covered`).
 - Try it: `/demo/?scene=interbrain&t=2295` → Space → hover the beacon →

@@ -235,7 +235,24 @@ export interface Nest {
   back(): Promise<boolean>
   /** The top level's state (headless): its t, whether it plays, its song. */
   state(): { depth: number; path: string[]; t?: number; playing?: boolean; song?: string }
+  /**
+   * The open level on top — what hands aim at while one is open (undefined at
+   * depth 0: the song beneath is theirs). `dreamtalk:nest` on window says when it changes.
+   */
+  top(): NestTop | undefined
 }
+
+/** The open level on top: its game loop, canvas and host. */
+export interface NestTop {
+  game: GameLoop
+  canvas: HTMLCanvasElement
+  host: ThreeHost
+  depth: number
+}
+
+/** Fired on window when the top level changes (a level opened or closed); detail: the new depth. */
+export const NEST_EVENT = "dreamtalk:nest"
+const announce = (depth: number) => window.dispatchEvent(new CustomEvent(NEST_EVENT, { detail: { depth } }))
 
 /** How long entering and leaving take, seconds. */
 export const TRANSITION = 0.8
@@ -418,6 +435,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       inner.canvas.style.opacity = "1"
       inners.push(inner)
       opts.onDepth?.(stack.depth)
+      announce(stack.depth)
       await sleep(TRANSITION)
       return true
     } finally {
@@ -476,6 +494,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       if (view && saved.delta) view.delta = { ...saved.delta }
       saved.resume()
       opts.onDepth?.(stack.depth)
+      announce(stack.depth)
       opts.note(stack.depth ? `↑ ${stack.top!.name}` : "↑ back in the song")
       return true
     } finally {
@@ -554,6 +573,10 @@ export const mountNest = (opts: NestOpts): Nest => {
         playing: inner ? inner.playing && !inner.game.on : undefined,
         song: inner?.key ?? inner?.dream.constructor.name,
       }
+    },
+    top() {
+      const inner = inners[inners.length - 1]
+      return inner && { game: inner.game, canvas: inner.canvas, host: inner.host, depth: inners.length }
     },
   }
   ;(window as unknown as { __dtNest?: Nest }).__dtNest = nest
