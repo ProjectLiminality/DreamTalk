@@ -18,6 +18,7 @@ import { mountCommentMarks } from "./commentmarks"
 import { editorAddressOf, resolvePlace } from "../editor/dreamnodes"
 import { frameAlone, isExplorerToggle, mountExplorer } from "./explorer"
 import { GameLoop, type Spark } from "./game"
+import type { Param, ParamValue } from "../src/params"
 import { inkQueries } from "./spark"
 import { gameTarget, nestLevel, nestSite } from "./handtarget"
 import { mountHands } from "./handplay"
@@ -145,6 +146,10 @@ const main = async () => {
   let current = startT
 
   // --- The game loop (demo/game.ts) — Space: the world holds and is walkable.
+  // What the song animates: a lazy DreamSong's set changes as it builds and
+  // drops chapters (src/song.ts), with its roots — the loop follows both.
+  const animatedOf = () => (dream as { driven?: ReadonlySet<Param<ParamValue>> }).driven ?? new Set(dream.build().params)
+  let walkedRoots = dream.roots
   const ac = new AbortController()
   const game = new GameLoop(
     {
@@ -163,7 +168,7 @@ const main = async () => {
       roots: dream.roots,
       space: dream.stateSpace(),
       observer: dream.observer,
-      animated: new Set(dream.build().params),
+      animated: animatedOf(),
       suspended: () => creator.on || explorer.on,
       hud: query.get("hud") !== "0",
       signal: ac.signal,
@@ -201,6 +206,11 @@ const main = async () => {
       narrator.update(t, true)
       sfx.update(t, true)
       readout.textContent = `t = ${t.toFixed(2)}s / ${duration.toFixed(2)}s`
+    }
+    // A lazy song built or dropped a chapter: the walk follows its live holons.
+    if (dream.roots !== walkedRoots) {
+      walkedRoots = dream.roots
+      game.reroot({ roots: walkedRoots, space: dream.stateSpace(), animated: animatedOf() })
     }
     toolkit?.tick(now)
     requestAnimationFrame(frame)

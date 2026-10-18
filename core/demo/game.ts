@@ -169,7 +169,8 @@ const STYLE = `
 `
 
 export class GameLoop {
-  readonly automaton: Automaton
+  /** The walk — rebuilt by `reroot` when the scene's holons change under it. */
+  automaton: Automaton
   /** The viewer's camera — orbit / pan / dolly over the song's (absent without an observer). */
   readonly view: ViewLayer | undefined
   #installed = false
@@ -198,7 +199,7 @@ export class GameLoop {
   #spark: Spark | null = null
   #boxes: { at: number; list: { handle: Holon; box: Box }[] } | undefined
   readonly #host: GameHost
-  readonly #opts: GameOpts
+  #opts: GameOpts
   readonly #hud: HTMLDivElement
   readonly #overlay: HTMLCanvasElement
 
@@ -209,31 +210,7 @@ export class GameLoop {
     this.automaton = new Automaton(gatherStateSpace(opts.roots, opts.space))
     this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
     if (this.view) this.view.keepOuts = keepOutsOf(opts.roots)
-    // Keys per holon: its declared keys first, then the free digits, in
-    // declaration order — so every symbol in a gallery has its own 1, 2, 3.
-    for (const a of this.automaton.axes) if (a.owner && !this.#owners.includes(a.owner)) this.#owners.push(a.owner)
-    const groups = new Map<Holon | undefined, Axis[]>()
-    for (const a of this.automaton.axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
-    for (const axes of groups.values()) {
-      const taken = new Set<string>()
-      for (const a of axes) {
-        if (!a.key) continue
-        if (RESERVED_KEYS.includes(a.key)) {
-          // Never silently: the author asked for a key the player keeps.
-          console.warn(
-            `[dreamtalk] axis '${a.id}' (${a.owner?.constructor.name ?? "scene"}) declares the reserved key '${a.key}' ` +
-              `— it gets a digit instead. Reserved: ${RESERVED_KEYS.map((k) => JSON.stringify(k)).join(" ")} (src/automaton.ts).`,
-          )
-          continue
-        }
-        if (!taken.has(a.key)) this.#bind(a.key, a, taken)
-      }
-      const free = [...AUTO_KEYS].filter((k) => !taken.has(k))
-      for (const a of axes) {
-        const key = this.#keyOf.has(a) ? undefined : free.shift()
-        if (key) this.#bind(key, a, taken)
-      }
-    }
+    this.#bindKeys()
     if (!document.getElementById("dt-game-style")) {
       const style = document.createElement("style")
       style.id = "dt-game-style"
@@ -391,6 +368,74 @@ export class GameLoop {
     this.#host.setBeforeSync(() => this.#write())
     this.#installed = true
     this.#indexHandles()
+    this.#renderHud()
+  }
+
+  /**
+   * Keys per holon: its declared keys first, then the free digits, in
+   * declaration order — so every symbol in a gallery has its own 1, 2, 3.
+   */
+  #bindKeys(): void {
+    for (const a of this.automaton.axes) if (a.owner && !this.#owners.includes(a.owner)) this.#owners.push(a.owner)
+    const groups = new Map<Holon | undefined, Axis[]>()
+    for (const a of this.automaton.axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
+    for (const axes of groups.values()) {
+      const taken = new Set<string>()
+      for (const a of axes) {
+        if (!a.key) continue
+        if (RESERVED_KEYS.includes(a.key)) {
+          // Never silently: the author asked for a key the player keeps.
+          console.warn(
+            `[dreamtalk] axis '${a.id}' (${a.owner?.constructor.name ?? "scene"}) declares the reserved key '${a.key}' ` +
+              `— it gets a digit instead. Reserved: ${RESERVED_KEYS.map((k) => JSON.stringify(k)).join(" ")} (src/automaton.ts).`,
+          )
+          continue
+        }
+        if (!taken.has(a.key)) this.#bind(a.key, a, taken)
+      }
+      const free = [...AUTO_KEYS].filter((k) => !taken.has(k))
+      for (const a of axes) {
+        const key = this.#keyOf.has(a) ? undefined : free.shift()
+        if (key) this.#bind(key, a, taken)
+      }
+    }
+  }
+
+  /**
+   * The scene's holons changed under the loop — a lazy DreamSong builds its
+   * chapters near the playhead and drops them after (src/song.ts LAZY
+   * CONSTRUCTION) — so walk THESE roots now: the automaton, the owners, the
+   * keys, the handles and the keep-outs are rebuilt over them, and nothing
+   * any longer points at a holon that is gone. Walking, the walk goes on
+   * from where everything stands, at the same clock; of the path walked,
+   * the fires of axes that still stand (the same holon's) are kept, the
+   * rest dropped with their holons.
+   */
+  reroot(next: { roots: readonly Holon[]; space?: StateSpace; animated?: ReadonlySet<Param<ParamValue>> }): void {
+    const old = this.automaton
+    this.#opts = { ...this.#opts, roots: next.roots, space: next.space, animated: next.animated ?? this.#opts.animated }
+    this.automaton = new Automaton(gatherStateSpace(next.roots, next.space))
+    if (this.view) this.view.keepOuts = keepOutsOf(next.roots)
+    this.#owners.length = 0
+    this.#keys.clear()
+    this.#keyOf.clear()
+    this.#handleOf.clear()
+    this.#focus = null
+    this.#setHovered(null)
+    this.#boxes = undefined
+    this.#lastClick = null
+    this.#bindKeys()
+    if (this.#on) {
+      this.automaton.enter()
+      this.automaton.clock = old.clock
+      const base = (id: string) => id.replace(/#\d+$/, "")
+      for (const f of old.journal) {
+        const was = old.axis(f.axis)
+        const now = this.automaton.axes.find((a) => a.owner === was.owner && base(a.id) === base(was.id))
+        if (now) this.automaton.journal.push({ ...f, axis: now.id })
+      }
+      this.#indexHandles()
+    }
     this.#renderHud()
   }
 

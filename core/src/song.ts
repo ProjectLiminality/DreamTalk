@@ -355,6 +355,15 @@ export class DreamSong extends Dream {
     return [...this.#built.keys()].sort((a, b) => a - b)
   }
 
+  /**
+   * Every param the song animates NOW: a lazy song's own and its constructed
+   * chapters' (the set changes as chapters are built and dropped); the whole
+   * composite's for a song that is not lazy.
+   */
+  get driven(): ReadonlySet<Param<ParamValue>> {
+    return this.#lazy ? this.#lazyResolve().driven : new Set(this.build().params)
+  }
+
   /** The song's own roots — its staged and animated holons, no chapter's. */
   get ownRoots(): readonly Holon[] {
     return this.#lazy ? super.roots : this.roots
