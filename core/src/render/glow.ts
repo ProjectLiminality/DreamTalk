@@ -119,7 +119,8 @@ export class StrokeHalo {
         this.aura.setPoints(pts)
         this.mask.setPoints(pts)
       }
-      this.closed = isClosed(pts)
+      // Many polylines have no single seam: their tips are never read (no hollow).
+      this.closed = loops ? false : isClosed(pts)
     }
     const shown = shownOf(this.main)
     if (amount <= 0 || shown.opacity <= 0) {

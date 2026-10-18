@@ -125,3 +125,24 @@ describe("superposition — unchanged by becoming a soft echo", () => {
     expect(echoBreath(1, 2, 0.5)).toBeCloseTo(0.725 + 0.275 * Math.sin(1.9 * 0.5 + 2 * 3.1 + 1.7), 12)
   })
 })
+
+describe("glow — a halo around many polylines (parts/polylines.ts)", () => {
+  test("a ribbon set by loops glows without treating its loops as one polyline", async () => {
+    const THREE = await import("three/webgpu")
+    const { RibbonStroke } = await import("../src/render/ribbon")
+    const { StrokeHalo } = await import("../src/render/glow")
+    const ribbon = new RibbonStroke(2)
+    const v = (x: number, y: number) => new THREE.Vector3(x, y, 0)
+    ribbon.setLoops([
+      [v(0, 0), v(10, 0), v(10, 10)],
+      [v(20, 0), v(30, 0)],
+      [v(40, 0), v(50, 5)],
+    ])
+    ribbon.style(1, 1, GOLD, 2)
+    const layer = new THREE.Group()
+    const halo = new StrokeHalo(ribbon, layer)
+    expect(() => halo.sync(1)).not.toThrow()
+    const [rim] = halo.meshes()
+    expect(rim!.visible).toBe(true)
+  })
+})
