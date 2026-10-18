@@ -54,6 +54,7 @@ import { SongLine } from "../vocabulary/SongLine/SongLine"
 import { Worldview } from "../vocabulary/Worldview/Worldview"
 import { LiminalWeb } from "../vocabulary/LiminalWeb/LiminalWeb"
 import { Mind } from "../vocabulary/Mind/Mind"
+import { Narrative } from "../vocabulary/Narrative/Narrative"
 import { Book } from "../vocabulary/Book/Book"
 import { Dialectic } from "../vocabulary/Attractor/Dialectic"
 import { Attractor } from "../vocabulary/Attractor/Attractor"
@@ -123,6 +124,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Worldview", folder: "Worldview", cls: Worldview },
   { className: "LiminalWeb", folder: "LiminalWeb", cls: LiminalWeb },
   { className: "Mind", folder: "Mind", cls: Mind },
+  { className: "Narrative", folder: "Narrative", cls: Narrative },
   { className: "Book", folder: "Book", cls: Book },
   { className: "Dialectic", folder: "Attractor", cls: Dialectic },
   { className: "Attractor", folder: "Attractor", cls: Attractor },

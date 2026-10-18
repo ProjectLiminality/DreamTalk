@@ -66,14 +66,15 @@ liminal eye), Figure (the bust form), Vision (was SMark), DreamTalkSymbol
 | [Conflict](Conflict/) | the bolt between two values; radiating, a pathology | — |
 | [Attractor](Attractor/) | freedom/order, chaos/oppression, the oscillation, the third axis | Circle, Square, Conflict, Cylinder, MolochEye |
 | [Field](Field/) | fragmentation (red) ↔ wholeness (cyan); burst; swarm | — |
-| [Mind](Mind/) | domesticated (DomesticatedMind; framed = MolochConsciousness) ↔ liminal | Figure (bust), FoldableCube, Vision |
+| [Mind](Mind/) | domesticated (DomesticatedMind; framed = MolochConsciousness) ↔ liminal | Figure (bust), Narrative, Vision |
+| [Narrative](Narrative/) | "a mechanical narrative constructed for the purpose of manipulation": the perspective cube, bare or in its ring | FoldableCube (taper) |
 | [Noosphere](Noosphere/) | the superstructure of stories: lattice, engineered, gardened, whole, fragmented, InterBrain sphere | DreamNode/InterBrain |
 | [Spheres](Spheres/) | biosphere / social sphere / noosphere; order of influence, ladder of leverage | Earth, Noosphere, Icons |
-| [Worldview](Worldview/) | world → lens → eye; distortion, strings, looking at the lens | Earth, FragmentedEarth, Eye, Noosphere, Puppeteer |
+| [Worldview](Worldview/) | world → lens → eye; distortion, strings, looking at the lens | Earth, FragmentedEarth, Eye, Noosphere, Puppeteer, Narrative |
 | [FragmentedEarth](FragmentedEarth/) | the planet under narrative warfare | Earth, Conflict |
 | [Puppeteer](Puppeteer/) | manipulation without awareness or consent | — |
 | [HyperAgent](HyperAgent/) | the war machine (divide and conquer) ↔ the hyper-agent of love | Mind, MolochEye, Conflict, Puppeteer |
-| [Tribe](Tribe/) | the ancient tribe ↔ the modern boxed web | Mind, Fire |
+| [Tribe](Tribe/) | the ancient tribe ↔ the modern boxed web | Mind, Fire, Narrative |
 | [Fire](Fire/), [SandTalk](SandTalk/) | the campfire; symbols in the sand while talking | Figure, Fire |
 | [Divide](Divide/) | engineering │ gardening; the S of dreamweaving | — |
 | [Book](Book/), [RadioTower](RadioTower/) | the written word; broadcast | — |

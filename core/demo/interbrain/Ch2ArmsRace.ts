@@ -16,13 +16,13 @@
  *  518–536    the asymmetry again → divide and conquer                  Mind, Conflict, HyperAgent
  *  536–585    generations of warfare: breadth × depth, narrative warfare   Icons, FragmentedEarth, Noosphere
  *  585–612    the nuke vs the psy-war                                  FragmentedEarth, Noosphere, Icons, the cycle
- *  612–635    the vicious cycle, turning                                Mind, Conflict, FoldableCube, field lines
+ *  612–635    the vicious cycle, turning                                Mind, Conflict, Narrative, field lines
  */
 
 import { render } from "../../src/index"
 import { Create } from "../../src/verbs"
 import { eased } from "../../src/anim"
-import { Circle, Group, Line, Rectangle } from "../../src/parts/primitives"
+import { Group, Line, Rectangle } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { BLUE, PI, RED, WHITE, rgb, type Color } from "../../src/constants"
 import { Layer } from "../../vocabulary/Figure/Figure"
@@ -35,7 +35,7 @@ import { Spheres } from "../../vocabulary/Spheres/Spheres"
 import { Divide, FILM_TURN } from "../../vocabulary/Divide/Divide"
 import { HyperAgent } from "../../vocabulary/HyperAgent/HyperAgent"
 import { Noosphere } from "../../vocabulary/Noosphere/Noosphere"
-import { FoldableCube } from "../../vocabulary/FoldableCube/FoldableCube"
+import { Narrative, NARRATIVE } from "../../vocabulary/Narrative/Narrative"
 import { icon, type IconName } from "../../vocabulary/Icons/Icons"
 import { SERIF } from "./film"
 import { ChapterDream, px } from "./score"
@@ -56,7 +56,7 @@ const arrow = (x0: number, x1: number, y: number, stroke = 4): Line =>
  * narrative boxes on it between them, the ring's arrows turning, red field
  * lines spiralling out — "weaponising the noosphere burns the collective
  * sanity". A composition of Mind, Conflict and the boxed narrative (a white
- * FoldableCube in a blue ring, as Tribe boxes its heads); the spiral is
+ * Narrative: the white cube in its blue ring, as Tribe boxes its heads); the spiral is
  * FragmentedEarth's field-line. Sizes are f3106's px, scaled by `k`.
  */
 export const viciousCycle = (k = 1): { whole: Layer; spiral: Group } => {
@@ -65,13 +65,10 @@ export const viciousCycle = (k = 1): { whole: Layer; spiral: Group } => {
   const minds = [-143, 143].map((x) => new Mind({ size: u(R), x: u(x), y: u(-28), stroke: 2.4 * Math.max(k, 0.6) }))
   const bolt = new Conflict({ size: u(70), y: u(0) })
   const boxes = [160, -183].map((y) => {
-    const edge = u(40)
+    // The Narrative symbol, its ring r 35 px (f3106).
     return new Group({
       y: u(y),
-      members: [
-        new Circle({ radius: u(35), tint: BLUE, stroke: 3.2 * Math.max(k, 0.6) }),
-        new FoldableCube({ size: edge, fold: 1, p: PI / 2, z: -edge, tint: WHITE, stroke: 2.2 * Math.max(k, 0.6) }),
-      ],
+      members: [new Narrative({ size: u(35) / NARRATIVE.ring, stroke: 2.2 * Math.max(k, 0.6), ringStroke: 3.2 * Math.max(k, 0.6) })],
     })
   })
   // The ring's two arrows, over the top leftward and under the bottom rightward.

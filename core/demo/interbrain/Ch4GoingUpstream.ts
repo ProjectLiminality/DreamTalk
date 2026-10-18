@@ -37,14 +37,14 @@ import { together, type Anim } from "../../src/anim"
 import { Create } from "../../src/verbs"
 import { Text } from "../../src/parts/text"
 import { Circle, Line } from "../../src/parts/primitives"
-import { BLACK, BLUE, PI, RED, WHITE, rgb } from "../../src/constants"
+import { BLUE, PI, RED, WHITE, rgb } from "../../src/constants"
 import { Layer } from "../../vocabulary/Figure/Figure"
 import { HyperAgent } from "../../vocabulary/HyperAgent/HyperAgent"
 import { Spheres } from "../../vocabulary/Spheres/Spheres"
 import { Field } from "../../vocabulary/Field/Field"
 import { Dialectic } from "../../vocabulary/Attractor/Dialectic"
 import { Noosphere } from "../../vocabulary/Noosphere/Noosphere"
-import { FoldableCube } from "../../vocabulary/FoldableCube/FoldableCube"
+import { Narrative, NARRATIVE } from "../../vocabulary/Narrative/Narrative"
 import { Conflict } from "../../vocabulary/Conflict/Conflict"
 import { Tribe } from "../../vocabulary/Tribe/Tribe"
 import { Divide, FILM_TURN } from "../../vocabulary/Divide/Divide"
@@ -55,7 +55,7 @@ import type { Resonance } from "../../vocabulary/Resonance/Resonance"
 import { Book } from "../../vocabulary/Book/Book"
 import { RadioTower } from "../../vocabulary/RadioTower/RadioTower"
 import { CHAPTERS, SERIF, SERIF_ITALIC, titleCard } from "./film"
-import { fadeLayer, primeLayers, TITLE_SIZE } from "./Ch3ViciousCycle"
+import { fadeLayer, primeLayers } from "./Ch3ViciousCycle"
 
 const CH = CHAPTERS[3]!
 const PX = 720 / 1500
@@ -74,21 +74,15 @@ const arrow = (x0: number, x1: number, y: number, tint = WHITE, stroke = 3): Lin
 
 /**
  * The narrative as the film draws it standalone: a white cube in a blue ring
- * (f5148, f5655, f5807) — the same pair Tribe claps over a head (Tribe's box:
- * a black disc, FoldableCube at fold 1 open toward us, a blue Circle).
+ * (f5148, f5655, f5807) — the `Narrative` symbol, the same one Tribe claps
+ * over a head; `r` is its ring's radius.
  */
-const narrative = (r: number, cx: number, cy: number, stroke = 2.4): Layer => {
-  const cube = 1.25 * r
-  return new Layer({
+const narrative = (r: number, cx: number, cy: number, stroke = 2.4): Layer =>
+  new Layer({
     x: cx,
     y: cy,
-    members: [
-      new Circle({ radius: r, tint: BLACK, stroke: 0, fillOpacity: 1 }),
-      new FoldableCube({ size: cube, fold: 1, p: PI / 2, z: -cube, tint: WHITE, stroke }),
-      new Circle({ radius: r, tint: BLUE, stroke: stroke + 0.6 }),
-    ],
+    members: [new Narrative({ size: r / NARRATIVE.ring, stroke, ringStroke: stroke + 0.6 })],
   })
-}
 
 export class Ch4GoingUpstreamDream extends Dream {
   private now = 0
@@ -266,7 +260,7 @@ export class Ch4GoingUpstreamDream extends Dream {
 
   unfold() {
     primeLayers(this)
-    titleCard(this, { ...CH, card: [972.4, 977] }, TITLE_SIZE)
+    titleCard(this, CH)
 
     // ── The story starts and ends in the noosphere: the war machine on the ladder (16:17–16:24)
     this.beat(977.4, 2.4, this.show(this.ladder))

@@ -20,20 +20,18 @@
  * blue → red.
  *
  * COMPOSED, NEVER REDRAWN. The person is `Figure` in its bust form (THE
- * person); the cube is `FoldableCube` (DomesticatedMind.py:
+ * person); the cube is `Narrative` — a FoldableCube (DomesticatedMind.py:
  * `FoldableCube(color=BLUE, bottom=False)` — ours keeps its bottom, which is
  * the back square the film shows); the mark is `Vision`. Only the frame is
  * this holon's own line.
  *
- * THE CUBE'S DEPTH. The cube is the real FoldableCube at fold 1 (the
- * closed cup), its open side toward the viewer and its rim in the person's
- * plane, so the back square is whatever the scene's camera makes of it. The
- * film's icon has a stronger perspective (back square 0.71 of the front,
- * f7021) than a camera 1500 units off gives a head-sized cube (≈ 0.9): a
- * true box cannot show it at that size, and a flared cup (fold < 1) breaks
- * the square into four flaps. That depth is the residual, kept on purpose —
- * the cube stays the one implementation, honest in 3D (off-centre minds see
- * it from the side, as a box would be seen).
+ * THE CUBE'S DEPTH. The cube is `Narrative` — the film's own symbol for
+ * it — bare (no ring) and blue: FoldableCube at fold 1 (the closed cup),
+ * its open side toward the viewer and its rim in the person's plane,
+ * tapered so that seen front-on its back square is the film's 0.716 of
+ * the front (f7021; Narrative's header) rather than the ≈ 0.94 a true
+ * head-sized box shows from a camera 1500 units off. It stays an honest
+ * 3D solid: off-centre minds see it from the side, as a box would be seen.
  *
  * MEASURED off f7021 (1280×720), in units of R — the liminal circle's
  * centreline radius (125.5 px), which is `size`. The origin is the person:
@@ -60,6 +58,7 @@ import { Create } from "../../src/verbs"
 import { axis, type StateSpace } from "../../src/automaton"
 import { Figure, Layer } from "../Figure/Figure"
 import { FoldableCube } from "../FoldableCube/FoldableCube"
+import { Narrative } from "../Narrative/Narrative"
 import { FILM_BAND, Vision } from "../Vision/Vision"
 
 /** The construction, in units of R = `size` (see header). */
@@ -137,6 +136,8 @@ export class Mind extends Null {
 
   /** The cube, in the layer that fades and lifts it as the mind turns liminal. */
   narrative!: Layer
+  /** The Narrative round the head (bare, blue) and its FoldableCube. */
+  cage!: Narrative
   cube!: FoldableCube
   /** The frame's one outline, triangle ↔ circle, in its framed layer. */
   frameLayer!: Layer
@@ -158,21 +159,15 @@ export class Mind extends Null {
     // The cube first: attach order is composite order, and the person's
     // black silhouette must cover the cube's back where the head is.
     const edge = MIND.cubeRim * hb
-    this.cube = new FoldableCube({
-      size: edge,
-      // The closed cup — bound, so the mind's cube is not a walkable axis of its own.
-      fold: derive(() => 1),
-      // Open side toward the viewer, its rim in the person's plane.
-      p: PI / 2,
-      z: -edge,
-      tint: BLUE,
-      stroke,
-    })
+    // Bare and blue: the narrative a domesticated mind is held in.
+    this.cage = new Narrative({ size: edge, ring: derive(() => 0), tint: BLUE, stroke })
+    void this.cage.parts
+    this.cube = this.cage.cube
     this.narrative = this.add(
       new Layer({
         y: derive(() => (MIND.cubeY + MIND.cubeLift * l.value) * hb),
         presence: derive(() => 1 - l.value),
-        members: [this.cube],
+        members: [this.cage],
       }),
     )
 

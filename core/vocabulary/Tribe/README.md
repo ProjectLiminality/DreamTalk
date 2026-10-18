@@ -17,8 +17,9 @@ huge (f6736, f6826). The film walks one into the other on its timeline
 **Composed, never redrawn.** Each person is `Mind` (liminal when ancient,
 domesticated when modern; its own frame off). Each edge's campfire is a
 `SandTalk` (no sand symbol, a flatter ring). The narrative box is
-`FoldableCube`. The node frame (circle ↔ square), its black body, the edge
-band and the box's ring are Tribe's own lines.
+`Narrative` (white cube, blue ring, black disc; sized by its measured ring).
+The node frame (circle ↔ square), its black body and the edge band are
+Tribe's own lines.
 
 **Params** (in units of D = `size`, the distance between neighbouring
 minds; the table is `TRIBE`)
@@ -48,10 +49,9 @@ the edges and their campfires.
 - f6736 leaves out the middle horizontal edge of the top and bottom rows.
   Ours is the full triangular lattice, because the frame gives no rule for
   that gap.
-- The cubes (Mind's and the box's) are true 3D `FoldableCube`s seen by the
-  scene camera, so off-axis nodes show a side. The film's narrative icon is
-  a flat one-point drawing (MolochEye's pupil). A popped-out `Narrative`
-  holon would fix both at once.
+- (Fixed: the cubes — Mind's and the box's — are now `Narrative`, a
+  shallow tapered relief, so every node shows the film's front-on 0.72
+  perspective, off-axis too.)
 - The film's lines glow and its modern blue is deeper than `BLUE`.
 
 **Proven by** `test/ib-tribe.test.ts`. Standalone scenes `?scene=ib-tribe`

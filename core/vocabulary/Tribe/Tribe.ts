@@ -24,8 +24,9 @@
  * COMPOSED, NEVER REDRAWN. Each person is `Mind` (liminal ↔ domesticated,
  * its own frame off — the tribe's node frame is the circle ↔ square), each
  * edge's campfire is `SandTalk` (no sand symbol, a flatter ring, measured),
- * the narrative box is `FoldableCube`. The node frame, its black body, the
- * edge band and the box's ring are this holon's own lines.
+ * the narrative box is `Narrative` (the white cube in its blue ring, with
+ * the black disc that covers the head). The node frame, its black body and
+ * the edge band are this holon's own lines.
  *
  * THE LATTICE. Nodes are the triangular lattice inside a hexagon of
  * `rings` rings — axial (q, r) with max(|q|, |r|, |q + r|) ≤ rings, at
@@ -50,12 +51,14 @@
  *   CAMPFIRE  the SandTalk on it: ring half-width 57.5 px → 0.216·D, its
  *             ring flatter than the standalone's (12 / 57.5)
  *   BOX       the narrative box's ring radius 50 px → 0.183·D, its centre
- *             0.05·D below the node's; its cube's front 0.22·D (f5221)
+ *             0.05·D below the node's; its cube's front follows from
+ *             Narrative's ring ratio (0.813: 61.5 px; f5221 measures 62,
+ *             back 44.5 — the film's 0.72 perspective)
  */
 
 import { Circle, Ellipse, Group, Line, Null, Shape, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { color, completion, derive, integer, length } from "../../src/params"
-import { BLACK, BLUE, PI, RED, WHITE, type Color } from "../../src/constants"
+import { BLACK, BLUE, PI, RED, type Color } from "../../src/constants"
 import { lerp } from "../../src/math"
 import type { Holon } from "../../src/holon"
 import { restage, together, type Anim } from "../../src/anim"
@@ -64,7 +67,7 @@ import { axis, type StateSpace } from "../../src/automaton"
 import { Layer } from "../Figure/Figure"
 import { MIND, Mind } from "../Mind/Mind"
 import { SandTalk } from "../SandTalk/SandTalk"
-import { FoldableCube } from "../FoldableCube/FoldableCube"
+import { Narrative, NARRATIVE } from "../Narrative/Narrative"
 
 /** The construction, in units of D = `size` (see header). */
 export const TRIBE = {
@@ -78,7 +81,6 @@ export const TRIBE = {
   campfireAspect: 12 / 57.5,
   box: 50 / 272.6,
   boxY: -0.05,
-  cube: 60 / 272.6,
   /** Tribes of tribes: the ring of tribes at SPACING^k·D (f6286: 2.82–2.92·D). */
   tribeSpacing: 2.9,
 } as const
@@ -284,9 +286,7 @@ export class Tribe extends Null {
           y: TRIBE.boxY * D,
           presence: derive(() => (middle ? 0 : this.boxed.value * m.value)),
           members: [
-            new Circle({ radius: TRIBE.box * D, tint: BLACK, stroke: 0, fillOpacity: 1 }),
-            new FoldableCube({ size: TRIBE.cube * D, fold: derive(() => 1), p: PI / 2, z: -TRIBE.cube * D, tint: WHITE, stroke }),
-            new Circle({ radius: TRIBE.box * D, tint: BLUE, stroke }),
+            new Narrative({ size: (TRIBE.box * D) / NARRATIVE.ring, ring: derive(() => 1), stroke, ringStroke: stroke }),
           ],
         })
         if (mind instanceof Mind) this.minds.push(mind)

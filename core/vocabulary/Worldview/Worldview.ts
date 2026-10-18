@@ -70,7 +70,7 @@
  *               3 face (any holon handed in as `sourceFace`, f7726)
  */
 
-import { Circle, Group, Line, Null, Shape, Square, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, Shape, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { completion, derive, length, scalar } from "../../src/params"
 import { BLACK, PI, TAU, WHITE, seen, type Color } from "../../src/constants"
@@ -91,6 +91,7 @@ import { DreamTalkSymbol } from "../DreamTalkSymbol/DreamTalkSymbol"
 import { Conflict } from "../Conflict/Conflict"
 import { Puppeteer } from "../Puppeteer/Puppeteer"
 import { Noosphere } from "../Noosphere/Noosphere"
+import { Narrative } from "../Narrative/Narrative"
 
 type P = { x: number; y: number }
 const v3 = (p: P): Vec3Like => ({ x: p.x, y: p.y, z: 0 })
@@ -112,8 +113,9 @@ export const WV = {
   radiantRing: 365,
   /** f3376: the world in the lens — r 42 px, at the prism's (640, 385). */
   lensEarth: { y: -52, r: 88 },
-  /** f3541: the narrative — blue ring r 50 px about (640, 386), the cube's
-   *  front 61 px, its back 0.66 of it; the blue grid 39 px apart. */
+  /** f3541: the narrative (the `Narrative` symbol) — blue ring r 50 px about
+   *  (640, 386), the cube's front 61 px, its back 0.66 of it (deeper than
+   *  the standalone's 0.72); the blue grid 39 px apart. */
   narrative: { y: -55, ring: 104, cube: 128, back: 0.66, grid: 81 },
   /** f7681: the lattice's rows. f11806: the flower's circles. */
   latticeDivisions: 15,
@@ -554,6 +556,7 @@ export class Worldview extends Null {
         land: WHITE,
         coastOpacity: 0,
         borderOpacity: 0,
+        mapLines: false,
         limbTint: WHITE,
         limbStroke: 1.2,
         h: this.spin,
@@ -573,19 +576,9 @@ export class Worldview extends Null {
           grid.push(new Line({ points: seg, tint: GRID_BLUE, stroke: 1, opacity: 0.8 }))
         }
       }
-      const ringBlack = wash(circlePoints({ x: 0, y: N.y }, N.ring), BLACK, 1)
-      const ring = new Circle({ radius: N.ring, y: N.y, tint: RING_BLUE, stroke: 3 })
-      const f = N.cube / 2
-      const b = (N.cube * N.back) / 2
-      const front = new Square({ size: N.cube, y: N.y, tint: WHITE, stroke: 2.6 })
-      const back = new Square({ size: N.cube * N.back, y: N.y, tint: WHITE, stroke: 2.6 * N.back })
-      const connectors = [
-        [1, 1],
-        [-1, 1],
-        [-1, -1],
-        [1, -1],
-      ].map(([sx, sy]) => new Line({ points: [{ x: sx! * b, y: N.y + sy! * b, z: 0 }, { x: sx! * f, y: N.y + sy! * f, z: 0 }], tint: WHITE, stroke: 2 }))
-      lensSlot(LENS.cube, [...grid, ringBlack, ring, back, ...connectors, front])
+      // The Narrative symbol itself, its ring the measured N.ring (128 · 0.813 = 104).
+      const narrative = new Narrative({ size: N.cube, y: N.y, perspective: N.back, ringTint: RING_BLUE, stroke: 2.6, ringStroke: 3 })
+      lensSlot(LENS.cube, [...grid, narrative])
     }
     {
       const lines: Holon[] = []

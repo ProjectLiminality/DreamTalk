@@ -7,6 +7,7 @@
  */
 
 import { MindDemoDream } from "./MindDemo"
+import { NarrativeDemoDream } from "./NarrativeDemo"
 import { PuppeteerDemoDream } from "./PuppeteerDemo"
 import { HyperAgentDemoDream, HyperAgentUnitDemoDream } from "./HyperAgentDemo"
 import { FigureBustDemoDream } from "./FigureBustDemo"
@@ -81,6 +82,7 @@ export const interbrainScenes: Record<string, DreamClass> = {
   "ib-dreamnode": DreamNodeDemoDream,
   "ib-interbrain": InterBrainDemoDream,
   "ib-mind": MindDemoDream,
+  "ib-narrative": NarrativeDemoDream,
   "ib-puppeteer": PuppeteerDemoDream,
   "ib-hyperagent": HyperAgentDemoDream,
   "ib-hyperagent-unit": HyperAgentUnitDemoDream,

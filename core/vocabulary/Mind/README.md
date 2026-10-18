@@ -46,14 +46,16 @@ draws the person, closes the cube round the head and draws the frame on.
 **Composed, never redrawn**: the person is `Figure` at `form: 1` (the
 bust, THE person) with `opaque: 1`, so its black silhouette hides the
 cube's back behind the head, as the film's does. The cube is
-`FoldableCube` at fold 1, its open side to the viewer. The mark is
+`Narrative` — bare (no ring) and blue: a FoldableCube at fold 1, its open
+side to the viewer, tapered so its back square is the film's 0.72 of the
+front. The mark is
 `Vision` (film band weight). Only the frame line belongs to the Mind.
 
-**Residual**: the film's cube icon has a strong one-point perspective
-(back square 0.71 of the front). A true box of head size seen by the
-scene's camera from 1500 units shows only about 0.9, so our cube reads as
-a doubled square rather than a deep box. A flared cup (fold < 1) doesn't
-fix this, because it breaks the square into four flaps.
+**The cube's depth** (was the residual): the film's cube icon has a strong
+one-point perspective (back square 0.71 of the front, f7021); a true box of
+head size seen from 1500 units shows only about 0.9. `Narrative` fixes it
+with FoldableCube's `taper` (a frustum) and a shallow `depth`, so the
+icon reads front-on at the film's ratio wherever the mind stands.
 
 **Proven by** `test/ib-mind.test.ts` (an equilateral triangle at
 `liminal` 0, a true circle at 1, the frame's halfway rays, attach order,
