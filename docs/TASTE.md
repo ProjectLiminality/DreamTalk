@@ -72,6 +72,12 @@ old code is archaeology, not authority.
   aesthetic.
 - Symbols cannot be meaningfully AI-generated. AI may hold placeholder
   geometry; human creative resonance fills symbols with meaning.
+- **Arrangements are never random** (David, 2026-10-18). A group of
+  things always follows a mathematically elegant pattern — a hexagonal
+  / flower-of-life lattice, a phyllotaxis (sunflower) spiral, rings,
+  radial symmetry — never arbitrary coordinates. Symmetry and geometric
+  precision outrank 2D legibility: where a flat view is convoluted by
+  nature, keep it beautiful and let the third dimension bring clarity.
 
 ## The Editor (settled — David, 2026-08-22)
 - The DreamTalk editor is part of the framework, not tooling around it:
