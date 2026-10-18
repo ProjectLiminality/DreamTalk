@@ -1313,14 +1313,18 @@ export class ThreeHost {
     // Clips (src/clip.ts): their ink switches to clipped materials; a batch
     // draws with one material, so a scene with clipped strokes renders them
     // as themselves.
-    if (host.gatherClips() && host.ribbonBatches.length > 0) host.unbatch()
+    host.watchEchoes()
+    // Only the clipped strokes leave their batch: they render as themselves
+    // at their own orders, which within a run (ribbons only, MAX blending)
+    // composites exactly as the batch would.
+    if (host.gatherClips() && host.ribbonBatches.length > 0) host.unbatchClipped()
     // "auto" decides the second half here, once the runs exist: short runs
     // lose to the oracle, so the strokes go back to rendering themselves.
     const auto = opts.useInstancedRibbons === "auto" || opts.useInstancedRibbons === undefined
+    const batched = host.strokes.reduce((n, b) => n + (b.batch ? 1 : 0), 0)
     if (
-      auto &&
       host.ribbonBatches.length > 0 &&
-      host.strokes.length / host.ribbonBatches.length < ThreeHost.MIN_STROKES_PER_RUN
+      (batched === 0 || (auto && batched / host.ribbonBatches.length < ThreeHost.MIN_STROKES_PER_RUN))
     ) {
       host.unbatch()
     }
@@ -1679,6 +1683,8 @@ export class ThreeHost {
     }
     // RESIDENCY: chapters mounted this frame warm up behind it.
     if (this.residency) this.warmMounted()
+    // Echo clouds made this frame while hidden: built behind it, too.
+    if (this.coldEchoes.size > 0) this.warmEchoes()
   }
 
   /** Composites fading wholes as single pictures (layers.ts). */
@@ -2318,6 +2324,16 @@ export class ThreeHost {
     this.batchTable?.material.dispose()
     this.batchTable = undefined
     this.instanced = false
+  }
+  /** Take the clipped strokes out of their batches (a batch draws with one, unclipped, material). */
+  private unbatchClipped(): void {
+    for (const binding of this.strokes) {
+      if (!binding.batch || !binding.slot || !this.clipOfMesh.has(binding.ribbon.mesh)) continue
+      binding.batch.hideStroke(binding.slot)
+      binding.ribbon.mesh.layers.set(0)
+      binding.batch = undefined
+      binding.slot = undefined
+    }
   }
   /** The batched-ribbon runs, in attach order — present only when instancing is on. */
   private readonly ribbonBatches: RibbonBatch[] = []
@@ -4340,6 +4356,43 @@ export class ThreeHost {
   }
 
   /** Find every clipped holon's ink at mount; true if there is any. */
+  /**
+   * Superposition echoes are made lazily — the first frame their ink is
+   * uncertain, usually while it is still hidden — and a mesh three has
+   * never drawn costs a new render object in the frame it first shows
+   * (valueflow: 12 a frame as particles enter, ~20 ms). So every echo made
+   * is noted here, and the groups that gained one are compiled in the
+   * background after the frame (the prewarm, scoped to them).
+   */
+  private readonly coldEchoes = new Set<THREE.Object3D>()
+  private watchEchoes(): void {
+    for (const { blur, group } of this.superpositions) {
+      blur.onEcho = () => this.coldEchoes.add(group)
+    }
+  }
+  private warmEchoes(): void {
+    const builds: Promise<void>[] = []
+    for (const group of this.coldEchoes) {
+      const shown: THREE.Object3D[] = []
+      let compiling: Promise<void>
+      try {
+        group.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && !o.visible) {
+            o.visible = true
+            shown.push(o)
+          }
+        })
+        compiling = this.renderer.compileAsync(group, this.camera, this.scene)
+      } finally {
+        for (const o of shown) o.visible = false
+      }
+      builds.push(compiling.catch(() => {}))
+    }
+    this.coldEchoes.clear()
+    const prior = this.warmed
+    this.warmed = Promise.all([prior, ...builds]).then(() => {})
+  }
+
   private gatherClips(): boolean {
     for (const [holon, ink] of this.inkIndex()) {
       const region = clipOf(holon)
@@ -4352,7 +4405,11 @@ export class ThreeHost {
       if (!region) continue
       // Echoes are made lazily, the first frame their line is uncertain.
       for (const mesh of blur.meshes()) this.clipMesh(mesh, region)
-      blur.onEcho = (mesh) => this.clipMesh(mesh, region)
+      const cold = blur.onEcho
+      blur.onEcho = (mesh) => {
+        this.clipMesh(mesh, region)
+        cold?.(mesh)
+      }
     }
     // A Text's glyphs land asynchronously: its group is watched, and what
     // arrives in it adopts the clip on the next frame (adoptClippedText).

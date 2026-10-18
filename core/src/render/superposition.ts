@@ -134,12 +134,16 @@ export class RibbonSuperposition {
     const shown = shownOf(this.main)
     const c = shown.opacity <= 0 ? 1 : this.certainty.value
     const u = 1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)
+    // Made the first frame the line is uncertain, SHOWN OR NOT — so a line
+    // that is doubted from the start has its cloud before it first appears
+    // and the host can build it in the background (prewarm), instead of in
+    // the frame it does.
+    if (u > 0 && this.echoes.length === 0) this.make()
     if (u <= 0 || shown.opacity <= 0) {
       if (this.shown) for (const echo of this.echoes) echo.mesh.visible = false
       this.shown = false
       return
     }
-    if (this.echoes.length === 0) this.make()
     this.shown = true
     const { tint, widthPx } = inkOf(this.main)
     const unit = upp()
@@ -154,7 +158,13 @@ export class RibbonSuperposition {
 
 /** The echoes of one uncertain FILL — a particle's probability cloud. */
 export class FillSuperposition {
-  /** Made the first frame the fill is uncertain — as for strokes. */
+  /**
+   * Made at once, hidden — unlike a stroke's. A fill that is doubted (a
+   * particle) usually becomes uncertain in the very frame it appears, so a
+   * lazy cloud would be six new render objects in a frame that shows them
+   * (valueflow: ~20 ms as particles enter). Fills are few; made at mount
+   * they are built by the host's prewarm, behind the first frame.
+   */
   private readonly echoes: FillShape[] = []
   /** Called with each echo mesh as it is made (a clip adopting it). */
   onEcho?: (mesh: THREE.Mesh) => void
@@ -167,11 +177,16 @@ export class FillSuperposition {
     private readonly group: THREE.Object3D,
     /** The main fill's opacity and tint this frame (the host's own reading). */
     private readonly look: () => { opacity: number; tint: Color },
-  ) {}
+  ) {
+    this.make()
+  }
 
   private make(): void {
     for (let k = 0; k < ECHOES; k++) {
       const echo = new FillShape(this.main.mesh.renderOrder)
+      // Its source's shape from birth: a mesh that first renders with the
+      // geometry it will keep is built once, not rebuilt on first show.
+      echo.mesh.geometry = this.main.mesh.geometry
       echo.mesh.matrixAutoUpdate = false
       this.group.add(echo.mesh)
       this.echoes.push(echo)
@@ -196,7 +211,6 @@ export class FillSuperposition {
       this.shown = false
       return
     }
-    if (this.echoes.length === 0) this.make()
     this.shown = true
     const unit = upp()
     for (let k = 0; k < this.echoes.length; k++) {
