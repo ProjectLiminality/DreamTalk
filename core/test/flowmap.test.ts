@@ -69,29 +69,24 @@ describe("flow-map geometry", () => {
       }
   })
 
-  test("partners: suppliers left, customers right, two-way above and below", () => {
-    const pos = partnerLayout(["in", "out", "both", "both", "in"], R)
-    expect(pos[0]!.x).toBeLessThan(0)
-    expect(pos[4]!.x).toBeLessThan(0)
-    expect(pos[1]!.x).toBeGreaterThan(0)
-    expect(pos[2]!.y).toBeGreaterThan(0)
-    expect(pos[3]!.y).toBeLessThan(0)
-    for (const p of pos) expect(Math.hypot(p.x, p.y)).toBeGreaterThan(R)
-  })
-
-  test("partners sit on ONE ring, the 2π/n lattice, kinds as mirrored sectors", () => {
-    const deg = (p: { x: number; y: number }) => Math.round(((Math.atan2(p.y, p.x) * 180) / Math.PI + 360) % 360)
-    const sides = ["in", "in", "in", "both", "both", "out", "out", "out"] as const
-    const { points, exact } = partnerRing([...sides], R)
+  test("partners: one ring, every class its own regular polygon — David's 18-gon", () => {
+    const classes = [
+      ...Array(6).fill("raw"),
+      ...Array(3).fill("semi-in"),
+      ...Array(3).fill("semi-out"),
+      ...Array(6).fill("finished"),
+    ]
+    const { points, exact } = partnerRing(classes, R)
     expect(exact).toBe(true)
-    const by = (k: string) => points.filter((_, i) => sides[i] === k).map(deg).sort((a, b) => a - b)
-    expect(by("in")).toEqual([135, 180, 225])
-    expect(by("out")).toEqual([0, 45, 315])
-    expect(by("both")).toEqual([90, 270])
-    // Counts that cannot mirror: the lattice stands, and says so.
-    const odd = partnerRing(["in", "in", "out"], R)
-    expect(odd.exact).toBe(false)
-    expect(new Set(odd.points.map(deg))).toEqual(new Set([0, 120, 240]))
+    const step = (2 * Math.PI) / 18
+    const slot = (p: { x: number; y: number }) => Math.round((((Math.atan2(p.y, p.x) - Math.PI) % (2 * Math.PI)) + 2 * Math.PI) / step) % 18
+    const of = (c: string) => points.filter((_, i) => classes[i] === c).map(slot).sort((a, b) => a - b)
+    expect(of("raw")).toEqual([0, 3, 6, 9, 12, 15])
+    expect(of("finished")).toEqual([1, 4, 7, 10, 13, 16])
+    expect(of("semi-in")).toEqual([2, 8, 14])
+    expect(of("semi-out")).toEqual([5, 11, 17])
+    // A class that cannot be regular on the ring is said so.
+    expect(partnerRing(["a", "a", "b", "b", "b"], R).exact).toBe(false)
   })
 
   test("members sit on a hex lattice, in mirror pairs about their region's axis; never scattered", () => {

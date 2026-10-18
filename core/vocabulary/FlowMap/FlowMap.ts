@@ -110,7 +110,17 @@ export interface FlowMapData {
   /** The group's own entities. `categories` lists category ids (several = the overlap). */
   members: { id: string; label?: string; categories?: string[]; certainty?: number }[]
   /** Outside the group: "in" supplies it, "out" buys from it, "both" does either. */
-  partners?: { id: string; label?: string; side: PartnerSide; certainty?: number }[]
+  partners?: {
+    id: string
+    label?: string
+    side: PartnerSide
+    certainty?: number
+    /**
+     * Its class on the ring (default: its side). Each class is spread round
+     * the whole circle as its own regular polygon (geometry partnerRing).
+     */
+    class?: string
+  }[]
   /**
    * The value chain, IN ORDER — the order is the point and never changes.
    * Stage k's flows run from slice k to slice k + 1 of the expanded stack.
@@ -548,12 +558,12 @@ export class FlowMap extends Null {
     const { flat, categorised } = memberLayouts(of, cats.length, R, this.memberSize())
     // Partners on one ring, kinds as mirrored sectors (partnerRing). When the
     // counts cannot be mirror-exact the lattice stands, and we say so once.
-    const ring = partnerRing((d.partners ?? []).map((p) => p.side), R)
+    const ring = partnerRing((d.partners ?? []).map((p) => p.class ?? p.side), R)
     const partners = ring.points
     if (!ring.exact && !this.warnedRing) {
       this.warnedRing = true
       console.warn(
-        "FlowMap: partners on the 2π/n ring are not mirror-symmetric (it needs as many 'in' as 'out', an even 'both' count, and n a multiple of 4 with two-way partners) — the ring lattice stands.",
+        "FlowMap: partner classes cannot each be a regular polygon on the n-slot ring (every class size must divide n, and the classes must interleave) — each keeps as even a spread as the free slots allow.",
       )
     }
     this.memoLayout = { flat, categorised, partners, R, scale }
@@ -1340,14 +1350,13 @@ export const MOCK_FLOWMAP: FlowMapData = {
     { id: "K", label: "Site K", categories: ["extrusion", "conversion"] },
   ],
   partners: [
-    { id: "S1", label: "Supplier 1", side: "in" },
-    { id: "S2", label: "Supplier 2", side: "in" },
-    { id: "S3", label: "Supplier 3", side: "in" },
-    { id: "P1", label: "Partner 1", side: "both" },
-    { id: "P2", label: "Partner 2", side: "both" },
-    { id: "K1", label: "Customer 1", side: "out" },
-    { id: "K2", label: "Customer 2", side: "out" },
-    { id: "K3", label: "Customer 3", side: "out" },
+    // Each class its own regular polygon on one 18-slot ring: six raw
+    // suppliers and six finished buyers (two hexagons), three semi-finished
+    // suppliers and three semi-finished buyers (two triangles).
+    ...[1, 2, 3, 4, 5, 6].map((i) => ({ id: `S${i}`, label: `Supplier ${i}`, side: "in" as const, class: "raw" })),
+    ...[1, 2, 3].map((i) => ({ id: `P${i}`, label: `Partner ${i}`, side: "in" as const, class: "semi-in" })),
+    ...[1, 2, 3].map((i) => ({ id: `Q${i}`, label: `Partner ${i + 3}`, side: "out" as const, class: "semi-out" })),
+    ...[1, 2, 3, 4, 5, 6].map((i) => ({ id: `K${i}`, label: `Customer ${i}`, side: "out" as const, class: "finished" })),
   ],
   stages: [
     { id: "raw", label: "raw material in", certainty: 0.15 },
@@ -1355,28 +1364,32 @@ export const MOCK_FLOWMAP: FlowMapData = {
     { id: "finished", label: "finished product out" },
   ],
   flows: [
-    // Raw material in: suppliers → the extruding sites. Conjecture for now.
+    // Raw material in: six suppliers → the extruding sites. Conjecture for now.
     { from: "S1", to: "A", stage: "raw", rate: 1.5 },
-    { from: "S1", to: "I", stage: "raw" },
     { from: "S2", to: "B", stage: "raw" },
-    { from: "S2", to: "C", stage: "raw" },
     { from: "S3", to: "G", stage: "raw" },
-    { from: "S3", to: "K", stage: "raw", rate: 0.5 },
-    // Semi-finished: intercompany (extrusion → conversion), plus to and from outside.
+    { from: "S4", to: "I", stage: "raw" },
+    { from: "S5", to: "C", stage: "raw" },
+    { from: "S6", to: "K", stage: "raw", rate: 0.5 },
+    // Semi-finished: intercompany (extrusion → conversion), in from three
+    // partners and out to three.
     { from: "A", to: "D", stage: "semi", rate: 1.5 },
     { from: "B", to: "E", stage: "semi" },
     { from: "C", to: "F", stage: "semi" },
     { from: "G", to: "H", stage: "semi" },
     { from: "I", to: "J", stage: "semi" },
-    { from: "A", to: "P1", stage: "semi", rate: 0.5 },
-    { from: "P2", to: "E", stage: "semi", rate: 0.5 },
-    // Finished product out: conversion sites → customers.
+    { from: "P1", to: "E", stage: "semi", rate: 0.5 },
+    { from: "P2", to: "F", stage: "semi", rate: 0.5 },
+    { from: "P3", to: "H", stage: "semi", rate: 0.5 },
+    { from: "A", to: "Q1", stage: "semi", rate: 0.5 },
+    { from: "B", to: "Q2", stage: "semi", rate: 0.5 },
+    { from: "I", to: "Q3", stage: "semi", rate: 0.5 },
+    // Finished product out: conversion sites → six customers.
     { from: "D", to: "K1", stage: "finished", rate: 1.5 },
     { from: "E", to: "K2", stage: "finished" },
-    { from: "F", to: "K2", stage: "finished" },
-    { from: "H", to: "K3", stage: "finished" },
-    { from: "J", to: "K3", stage: "finished" },
-    { from: "C", to: "K1", stage: "finished", rate: 0.5 },
-    { from: "K", to: "K2", stage: "finished", rate: 0.5 },
+    { from: "F", to: "K3", stage: "finished" },
+    { from: "H", to: "K4", stage: "finished" },
+    { from: "J", to: "K5", stage: "finished" },
+    { from: "K", to: "K6", stage: "finished", rate: 0.5 },
   ],
 }

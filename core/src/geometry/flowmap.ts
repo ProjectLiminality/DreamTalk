@@ -315,46 +315,79 @@ export const memberLayouts = (
 export type PartnerSide = "in" | "out" | "both"
 
 /**
- * PARTNERS ON ONE RING — the 2π/n lattice: n equally spaced seats on a ring
- * outside the group, slot 0 at 0°. Each kind is a SECTOR, mirrored about the
- * vertical axis: outflow ("out") centred at 0°, inflow ("in") at 180°,
- * two-way ("both") at the poles, alternating 90° / 270°. Seats go to the
- * partners nearest their sector's centre, globally, so each sector is one
- * contiguous arc. `exact` says whether the result is mirror-symmetric: it is
- * when ins equal outs, the both-count is even, and the lattice has the seats
- * on the axes the sectors need (n even; n a multiple of 4 when there are
- * two-way partners). Otherwise the lattice stands and `exact` is false.
+ * PARTNERS ON ONE RING — every CLASS its own regular polygon (David,
+ * 2026-10-18): n partners sit on an n-slot ring (equal steps, slot 0 at
+ * 180°), and a class of k partners takes every (n/k)-th slot — so each
+ * class is spread equidistantly round the WHOLE circle, and the classes
+ * interleave into one uniform n-gon. Six raw suppliers, six finished
+ * buyers, three semi-in and three semi-out make an 18-gon: two hexagons
+ * (20° apart) and two triangles. The offsets are found by a small search
+ * (largest classes first, in data order), so the packing is exact whenever
+ * one exists — every class size must divide n. When none exists, `exact`
+ * is false and each class keeps as even a spread as the free slots allow.
+ * In the stage stack each slice shows only the classes that act there, so
+ * each layer keeps its own polygon.
  */
-export const partnerRing = (sides: readonly PartnerSide[], R: number): { points: Vec2[]; exact: boolean } => {
-  const n = sides.length
+export const partnerRing = (classes: readonly string[], R: number): { points: Vec2[]; exact: boolean } => {
+  const n = classes.length
   const ring = R * 1.36
   if (n === 0) return { points: [], exact: true }
-  const slots = Array.from({ length: n }, (_, k) => (2 * Math.PI * k) / n)
-  let pole = 0
-  const centre = sides.map((s) => (s === "out" ? 0 : s === "in" ? Math.PI : pole++ % 2 === 0 ? Math.PI / 2 : (3 * Math.PI) / 2))
-  const gap = (a: number, b: number) => {
-    const d = Math.abs(a - b) % (2 * Math.PI)
-    return Math.min(d, 2 * Math.PI - d)
+  const order: string[] = []
+  for (const c of classes) if (!order.includes(c)) order.push(c)
+  const size = (c: string) => classes.filter((x) => x === c).length
+  // Largest first (the hexagons before the triangles), then data order.
+  const keys = [...order].sort((a, b) => size(b) - size(a) || order.indexOf(a) - order.indexOf(b))
+  const slotOf = new Map<string, number[]>()
+  const used = new Array<boolean>(n).fill(false)
+  const place = (i: number): boolean => {
+    if (i === keys.length) return true
+    const c = keys[i]!
+    const k = size(c)
+    if (n % k !== 0) return false
+    const step = n / k
+    for (let off = 0; off < step; off++) {
+      const slots = Array.from({ length: k }, (_, j) => off + j * step)
+      if (slots.some((x) => used[x])) continue
+      for (const x of slots) used[x] = true
+      slotOf.set(c, slots)
+      if (place(i + 1)) return true
+      for (const x of slots) used[x] = false
+    }
+    return false
   }
-  const pairs: { i: number; k: number; d: number }[] = []
-  sides.forEach((_, i) => slots.forEach((a, k) => pairs.push({ i, k, d: gap(a, centre[i]!) })))
-  pairs.sort((x, y) => x.d - y.d || x.i - y.i || x.k - y.k)
-  const seat = sides.map(() => -1)
-  const taken = new Set<number>()
-  for (const { i, k } of pairs) {
-    if (seat[i] !== -1 || taken.has(k)) continue
-    seat[i] = k
-    taken.add(k)
+  let exact = place(0)
+  if (!exact) {
+    // No exact packing: each class, largest first, takes the free slots
+    // nearest its own even spread.
+    slotOf.clear()
+    used.fill(false)
+    for (const c of keys) {
+      const k = size(c)
+      const want = Array.from({ length: k }, (_, j) => Math.round((j * n) / k) % n)
+      const got: number[] = []
+      for (const w of want) {
+        let best = -1
+        for (let d = 0; d < n && best < 0; d++)
+          for (const x of [(w + d) % n, (w - d + n) % n]) if (!used[x] && best < 0) best = x
+        used[best] = true
+        got.push(best)
+      }
+      slotOf.set(c, got)
+    }
+    exact = false
   }
-  const ins = sides.filter((s) => s === "in").length
-  const outs = sides.filter((s) => s === "out").length
-  const boths = sides.length - ins - outs
-  const exact = ins === outs && boths % 2 === 0 && n % 2 === 0 && (boths === 0 || n % 4 === 0)
-  return { points: seat.map((k) => ({ x: ring * Math.cos(slots[k]!), y: ring * Math.sin(slots[k]!) })), exact }
+  const next = new Map<string, number>()
+  const points = classes.map((c) => {
+    const i = next.get(c) ?? 0
+    next.set(c, i + 1)
+    const a = Math.PI + (2 * Math.PI * slotOf.get(c)![i]!) / n
+    return { x: ring * Math.cos(a), y: ring * Math.sin(a) }
+  })
+  return { points, exact }
 }
 
 /** The partners' seats on the ring (see partnerRing). */
-export const partnerLayout = (sides: readonly PartnerSide[], R: number): Vec2[] => partnerRing(sides, R).points
+export const partnerLayout = (classes: readonly string[], R: number): Vec2[] => partnerRing(classes, R).points
 
 /**
  * Where a flow's channel runs: a quadratic arc from A to B, bowed sideways by
