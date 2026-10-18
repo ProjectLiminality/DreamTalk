@@ -155,6 +155,9 @@ interface StrokeBinding {
   lastLift?: number
   lastLineVersion?: number
   lastShown?: boolean
+  /** READS adaptivity: tracking misses in a row, and the sync count until which it rests. */
+  readsMisses?: number
+  readsOffUntil?: number
   /** The run this stroke's slot lives in (instancing on). */
   batch?: RibbonBatch
   look: StyleParams
@@ -1840,6 +1843,7 @@ export class ThreeHost {
   private frameT = Number.NaN
 
   private sync(): void {
+    this.syncCount++
     this.matricesSettled = false
     this.updateDormancy()
     for (const binding of this.groups) {
@@ -1908,6 +1912,12 @@ export class ThreeHost {
       // metering a pen front (a reading of the camera): it would sync to
       // exactly what it shows — skip it.
       const known = binding.reads
+      // Not worth tracking now (it kept missing): sync plainly until the re-probe.
+      if (!ThreeHost.READS || (binding.readsOffUntil !== undefined && this.syncCount < binding.readsOffUntil)) {
+        const width = this.syncStroke(binding, held, lift)
+        if (width > widest) widest = width
+        continue
+      }
       if (
         known !== undefined &&
         lift === binding.lastLift &&
@@ -1926,8 +1936,24 @@ export class ThreeHost {
         const reads: Reads = { deps: [], opaque: false }
         const readAt = quietEpoch()
         width = trackReads(reads, () => this.syncStroke(binding, held, lift))
-        binding.reads = held || reads.opaque || reads.deps.length > ThreeHost.MAX_READS ? undefined : reads
+        // A long list is often one param many times: each once.
+        if (!reads.opaque && reads.deps.length > ThreeHost.MAX_READS) reads.deps = [...new Set(reads.deps)]
+        const kept = !held && !reads.opaque && reads.deps.length <= ThreeHost.MAX_READS
+        binding.reads = kept ? reads : undefined
         binding.readAt = readAt
+        // ADAPTIVE: a stroke that is opaque, too long, or dirty again frame
+        // after frame (a list that never holds) pays the tracking and the
+        // check for nothing — after READS_MISSES such frames in a row it
+        // syncs plainly for READS_REST frames, then is probed again.
+        if (!held) {
+          const missed = !kept || known !== undefined
+          binding.readsMisses = missed ? (binding.readsMisses ?? 0) + 1 : 0
+          if (binding.readsMisses >= ThreeHost.READS_MISSES) {
+            binding.readsOffUntil = this.syncCount + ThreeHost.READS_REST
+            binding.readsMisses = ThreeHost.READS_MISSES - 1
+            binding.reads = undefined
+          }
+        }
       }
       if (width > widest) widest = width
       binding.lastWidth = width
@@ -2070,6 +2096,13 @@ export class ThreeHost {
 
   /** Most params a stroke's sync may read and still be skipped by READS (the check reads each one's changedAt). */
   static readonly MAX_READS = 64
+  /** READS on (the default); false syncs every stroke every frame — the A/B baseline. */
+  static READS = true
+  /** READS adaptivity: consecutive frames a stroke's tracking may miss before it rests, and how many frames it rests. */
+  static readonly READS_MISSES = 3
+  static readonly READS_REST = 60
+  /** Syncs so far (READS' re-probe clock). */
+  private syncCount = 0
 
   /** One stroke's per-frame sync (READS: run tracked); returns its width. */
   private syncStroke(binding: StrokeBinding, held: boolean, lift: number): number {

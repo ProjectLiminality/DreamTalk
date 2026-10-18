@@ -65,6 +65,8 @@ export const bumpParamEpoch = (): void => {
 export interface Reads {
   deps: Param<ParamValue>[]
   opaque: boolean
+  /** The memo lists already noted into this one (each is noted once). */
+  noted?: Set<readonly Param<ParamValue>[]>
 }
 let reads: Reads | undefined
 export const trackReads = <T>(into: Reads, fn: () => T): T => {
@@ -79,8 +81,56 @@ export const trackReads = <T>(into: Reads, fn: () => T): T => {
 /** A memo answering for reads it made earlier: list them for whoever tracks now. */
 export const noteReads = (deps: readonly Param<ParamValue>[], opaque: boolean): void => {
   if (!reads) return
-  for (let i = 0; i < deps.length; i++) reads.deps.push(deps[i]!)
   if (opaque) reads.opaque = true
+  // A memo read many times in one pass lists its params once.
+  const noted = (reads.noted ??= new Set())
+  if (noted.has(deps)) return
+  noted.add(deps)
+  for (let i = 0; i < deps.length; i++) reads.deps.push(deps[i]!)
+}
+
+/**
+ * THE memo that stays transparent to READS — the one implementation (it
+ * was three: memo.ts memoReads, FlowMap's quietMemo, framememo.ts
+ * FrameMemo; certainty.ts seenOpacity is the same recipe inline). It
+ * answers at most once per `quietEpoch()`, computes under `trackReads`
+ * (each param listed once; nested memos replay theirs) and replays the
+ * list with `noteReads` on every answer, so a stroke built on it stays
+ * skippable by the host. (A memo keyed on `paramEpoch()` instead makes
+ * every reading through it opaque.) Pure caching: byte-identical.
+ *
+ * `{ keep: true }` also KEEPS the value across epochs while none of the
+ * params it read has changed since (`changedAt`) — the same object, so
+ * whatever is keyed on it is not rebuilt. Only for a compute that is a
+ * function of PARAMS alone: one that also reads plain fields or data (a
+ * frame built from a holon's structure) must not keep — a first answer
+ * computed before those were set would stand forever. An opaque reading
+ * is recomputed at every new epoch either way.
+ */
+export const memoReads = <T>(compute: () => T, opts: { keep?: boolean } = {}): (() => T) => {
+  const keep = opts.keep === true
+  let seen = -1
+  let at = -1
+  let value!: T
+  let deps: readonly Param<ParamValue>[] = []
+  let opaque = true
+  return () => {
+    const now = epoch
+    if (now !== seen) {
+      seen = now
+      let fresh = keep && !opaque
+      for (let i = 0; fresh && i < deps.length; i++) if (deps[i]!.changedAt > at) fresh = false
+      if (!fresh) {
+        const reads: Reads = { deps: [], opaque: false }
+        at = now
+        value = trackReads(reads, compute)
+        deps = [...new Set(reads.deps)]
+        opaque = reads.opaque
+      }
+    }
+    noteReads(deps, opaque)
+    return value
+  }
 }
 /** A reading that depends on something no param lists (the camera): opaque. */
 export const readsOpaque = (): void => {
