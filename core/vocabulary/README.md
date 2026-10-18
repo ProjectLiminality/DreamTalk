@@ -50,6 +50,7 @@ Eye · Cylinder · Axes ──── the video-01 vocabulary (leaf symbols)
 | [FlowMap](FlowMap/) | staged + categorised, `?scene=flowmap` t=26 | primitives (geometry/flowmap, certainty) | flowmap tests (16) |
 | [SOPLoop](SOPLoop/) | demand ghosted, `?scene=sop` t=4.5 | primitives (geometry/lemniscate, flowmap stream, certainty) | planning tests |
 | [Horizons](Horizons/) | all three horizons, `?scene=horizons` t=14 | Figure (geometry/horizons, certainty) | planning tests |
+| [RoleMap](RoleMap/) | sites + risk shown, `?scene=rolemap` t=9 | Figure (layout.ts, certainty) | rolemap tests |
 
 ## The InterBrain cast (corpus #14, 2026-10-18)
 
