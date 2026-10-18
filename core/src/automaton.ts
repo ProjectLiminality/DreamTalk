@@ -73,6 +73,12 @@ export interface AxisOpts {
   when?: () => boolean
   /** A verb that plays the transition `from → to` instead of the plain ease. */
   via?: (from: string, to: string) => Anim
+  /**
+   * A handle that stands for ONE position: touching it goes there, not to
+   * the next — a button per state (HyperCard), a lattice node
+   * (vocabulary/StateLattice). Undefined for a handle: the next, as ever.
+   */
+  at?: (handle: Holon) => string | undefined
 }
 
 /**
@@ -100,6 +106,8 @@ export interface Axis {
   readonly key?: string
   readonly when?: () => boolean
   readonly via?: (from: string, to: string) => Anim
+  /** The position a handle stands for, if it stands for one (AxisOpts.at). */
+  readonly at?: (handle: Holon) => string | undefined
   /** The owning elements (resolved). */
   handles(): Holon[]
   /** The song's spelling: an Anim into this position, for `this.play(…)`. */
@@ -141,6 +149,7 @@ const makeAxis = (id: string, positions: Position[], opts: AxisOpts): Axis => {
     key: opts.key,
     when: opts.when,
     via: opts.via,
+    at: opts.at,
     handles: () => (typeof handles === "function" ? handles() : (handles ?? [])),
     to(name) {
       const pos = positions.find((p) => p.name === name)
@@ -406,7 +415,7 @@ export class Automaton {
     this.#clockBase.clear()
     for (const a of this.space.axes) {
       for (const p of a.params()) this.#base.set(p, p.value)
-      this.#position.set(a.id, nearest(a))
+      this.#position.set(a.id, nearestPosition(a))
     }
     for (const c of this.space.clocks ?? []) this.#clockBase.set(c, c.value)
   }
@@ -465,7 +474,7 @@ export class Automaton {
     // holon's own axes) now head somewhere too: read where, off the goals.
     for (const other of this.space.axes) {
       if (other.id === id || !other.params().some((p) => target.values.has(p))) continue
-      this.#position.set(other.id, nearest(other, (p) => target.values.get(p) ?? this.#goal(p)))
+      this.#position.set(other.id, nearestPosition(other, (p) => target.values.get(p) ?? this.#goal(p)))
     }
 
     // At rest along every param this axis touches? Then a verb may play.
@@ -579,7 +588,8 @@ export class Automaton {
 }
 
 /** The position whose values lie nearest the params' live values. */
-const nearest = (a: Axis, valueOf: (p: Param<ParamValue>) => ParamValue = (p) => p.value): string => {
+/** The position of an axis nearest these values (live values by default) — what `enter` reads, and the lattice (src/lattice.ts). */
+export const nearestPosition = (a: Axis, valueOf: (p: Param<ParamValue>) => ParamValue = (p) => p.value): string => {
   let best = a.positions[0]!.name
   let bestD = Infinity
   for (const pos of a.positions) {

@@ -609,7 +609,8 @@ export class GameLoop {
   clickAt(clientX: number, clientY: number): string | undefined {
     const hit = this.#ownerAt(clientX, clientY)
     if (!hit) return undefined
-    this.fire(hit.axis.id)
+    // A handle that stands for one position goes there (AxisOpts.at); else the next.
+    this.fire(hit.axis.id, hit.axis.at?.(hit.handle))
     this.#setHovered(hit)
     return hit.axis.id
   }

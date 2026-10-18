@@ -12,6 +12,7 @@ import { FoundingSmokeDream } from "./FoundingSmoke"
 import { StrokeCalibrationDream } from "./StrokeCalibration"
 import { VocabShowcaseDream } from "./VocabShowcase"
 import { HandsTestDream } from "./HandsTestDemo"
+import { LatticeDream } from "./LatticeDemo"
 import { CameraCalDream, CameraCalCylinderDream, CameraCalGridDream } from "./video01/CameraCal"
 import { S01Dream } from "./video01/S01"
 import { S02Dream } from "./video01/S02"
@@ -262,6 +263,8 @@ export const scenes: Record<string, DreamClass> = {
   gallery: GalleryDream,
   // A light room for tuning hands: three walkable symbols big in view (play=free&hands=webcam|leap).
   "hands-test": HandsTestDream,
+  // The state-space lattice beside real automata: nodes are buttons, the song a gold line.
+  lattice: LatticeDream,
   // The flow map driven by a monthly table: volume, appearance, gaps as conjecture.
   "flowmap-time": FlowMapTimeDream,
   // Value ↔ money: the same channels, coins counter-flowing in paired lanes.

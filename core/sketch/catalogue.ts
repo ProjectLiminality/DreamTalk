@@ -180,6 +180,7 @@ export const NOT_SYMBOLS: Readonly<Record<string, string>> = {
   FourierTrace: "traces a path it is handed",
   Quote: "typesets words it is handed",
   FlowerText: "settles circles into words it is handed",
+  StateLattice: "draws the state machine of the holons it is handed (src/lattice.ts machinesOf)",
 }
 
 // -- the generic adapter ------------------------------------------------------
