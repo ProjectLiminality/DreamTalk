@@ -160,6 +160,14 @@ export class Text extends Holon {
    */
   composite: "first" | "inOrder" | "overlay" = "first"
   /**
+   * Legibility LOD (render/text.ts TEXT_LEGIBLE_CAP_PX): on, a text whose
+   * capitals stand shorter on screen than a legible size fades out over a
+   * small band and, gone, is not traced at all — a label a few pixels tall
+   * under a pen wider than its letters is ink, not words. Off for a text
+   * meant to be SEEN shrinking away (a title receding to a point).
+   */
+  lod = true
+  /**
    * Baseline-to-baseline distance as a MULTIPLE of `size`, or unset for
    * the shaper's own default (which is the face's own line height).
    *

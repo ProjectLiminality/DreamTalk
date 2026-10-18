@@ -594,6 +594,32 @@ const insetScaleOf = (bucket: number): number => Math.exp(bucket * INSET_STEP)
 export const OUTLINE_DRIFT = Math.round(Math.log(1.1) / INSET_STEP)
 
 /**
+ * The legibility LOD (lead, 2026-10-18). A text's capitals below
+ * TEXT_LEGIBLE_CAP_PX on screen are not read as letters: at 5 px a cap
+ * is five pixel rows and its lowercase three or four — under the size any
+ * UI type is set at (the smallest screen text in common use, 9 px, has
+ * ~6.5 px caps), and every stroke of the traced pen (2–5 px) is as wide
+ * as the letter's stems, so what lands is a blot. Such a text fades out
+ * over TEXT_LEGIBLE_BAND_PX above the threshold (smoothly: smoothstep)
+ * and at the threshold is gone — not drawn and not traced, which was
+ * the whole cost of a zoom over a map of tiny labels. Above the band the
+ * factor is exactly 1, so every legible text renders as before.
+ * Text.lod = false opts a holon out.
+ */
+export const TEXT_LEGIBLE_CAP_PX = 5
+export const TEXT_LEGIBLE_BAND_PX = 2
+/** Cap height as a fraction of the font size (Arimo: 1409/2048 em). */
+export const TEXT_CAP_EM = 1409 / 2048
+/** 1 for a legible text, easing to 0 at TEXT_LEGIBLE_CAP_PX of cap height. */
+export const legibility = (size: number, pixelsPerUnit: number): number => {
+  const cap = size * TEXT_CAP_EM * pixelsPerUnit
+  if (cap >= TEXT_LEGIBLE_CAP_PX + TEXT_LEGIBLE_BAND_PX) return 1
+  if (cap <= TEXT_LEGIBLE_CAP_PX) return 0
+  const k = (cap - TEXT_LEGIBLE_CAP_PX) / TEXT_LEGIBLE_BAND_PX
+  return k * k * (3 - 2 * k)
+}
+
+/**
  * Whether a Text retraces its contours this frame (TextBinding.sync):
  * when they are stale or traced at another bucket — but never while the
  * text is unseen (its contour strokes are hidden), and not while the
@@ -1171,8 +1197,10 @@ export const attachText = (
     ready,
     sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT, t?: number): void {
       if (layoutKey(holon) !== currentKey) void relayout()
-      // Seen opacity: its own fade times its inherited certainty (certainty.ts).
-      const opacity = seen.value
+      // Seen opacity: its own fade times its inherited certainty
+      // (certainty.ts), times its legibility at this scale (TEXT_LEGIBLE_CAP_PX).
+      const lod = holon.lod ? legibility(holon.size.value, pixelsPerUnit) : 1
+      const opacity = lod === 1 ? seen.value : seen.value * lod
       // The inset depends on the projection, so a camera move (or a
       // resize) rebuilds the contours — a few hundred points repacked,
       // and only when the number actually changes. Not while the text is

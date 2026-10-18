@@ -13,6 +13,8 @@ import {
   outlineRetraceDue,
   requestOutlineSettle,
 } from "../src/render/text"
+import * as TextRender from "../src/render/text"
+import { Text } from "../src/parts/text"
 
 const base = { stale: false, seen: true, bucket: 10, traced: 10, lastBucket: 10, t: 1, lastT: 1 }
 
@@ -136,5 +138,32 @@ describe("grantMovingRetrace", () => {
     // Nobody reserved: a fresh drifter gets a slot at once.
     expect(grantMovingRetrace(3_000_000, 202)).toBe(true)
     forgetMovingRetrace(3_000_000)
+  })
+})
+
+describe("legibility LOD", () => {
+  const { legibility, TEXT_LEGIBLE_CAP_PX: CAP, TEXT_LEGIBLE_BAND_PX: BAND, TEXT_CAP_EM: EM } = TextRender
+  // pixels-per-unit that puts a size-50 text's capitals at `px` on screen.
+  const ppuFor = (px: number) => px / (50 * EM)
+  test("exactly 1 at and above the band: legible text renders as before", () => {
+    expect(legibility(50, ppuFor(CAP + BAND))).toBe(1)
+    expect(legibility(50, 1.28)).toBe(1) // the 2021 rig: 44 px caps
+  })
+  test("0 at and below the threshold: not drawn, not traced", () => {
+    expect(legibility(50, ppuFor(CAP))).toBe(0)
+    expect(legibility(50, ppuFor(1))).toBe(0)
+  })
+  test("eases monotonically across the band", () => {
+    let prev = 0
+    for (let px = CAP; px <= CAP + BAND; px += BAND / 16) {
+      const v = legibility(50, ppuFor(px))
+      expect(v).toBeGreaterThanOrEqual(prev)
+      prev = v
+    }
+    expect(legibility(50, ppuFor(CAP + BAND / 2))).toBeCloseTo(0.5, 6)
+  })
+  test("a holon opts out with lod = false", () => {
+    expect(new Text({ content: "x" }).lod).toBe(true)
+    expect(new Text({ content: "x", lod: false }).lod).toBe(false)
   })
 })
