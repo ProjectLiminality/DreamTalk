@@ -45,7 +45,7 @@
 
 import { Group, Line, Null, derivePoints } from "../../src/parts/primitives"
 import type { Observer } from "../../src/dream"
-import { localView, viewOf, type View } from "../../src/geometry/frames"
+import { liveView, localView, viewOf, type View } from "../../src/geometry/frames"
 import { facingTurn } from "../Noosphere/geodesic"
 import { completion, derive, integer, length, scalar } from "../../src/params"
 import { presence } from "../../src/certainty"
@@ -179,7 +179,7 @@ export class InterBrain extends Null {
   }
   /** The eye in this symbol's own frame. */
   localEye(): { x: number; y: number; z: number } {
-    const v = localView(this, this.eye?.() ?? { eye: { x: 0, y: 0, z: 1500 } })
+    const v = localView(this, this.eye?.() ?? liveView() ?? { eye: { x: 0, y: 0, z: 1500 } })
     if ("eye" in v) return v.eye
     return { x: v.toward.x * 1e6, y: v.toward.y * 1e6, z: v.toward.z * 1e6 }
   }

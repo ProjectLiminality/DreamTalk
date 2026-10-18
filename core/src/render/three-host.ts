@@ -23,6 +23,7 @@
 
 import * as THREE from "three/webgpu"
 import { orthoHalfHeight, type Dream } from "../dream"
+import { setLiveObserver } from "../geometry/frames"
 import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
 import { paramEpoch } from "../params"
@@ -1628,6 +1629,8 @@ export class ThreeHost {
   /** Deterministic: sample the timeline at t, sync the scene, render. */
   async renderFrame(t: number): Promise<void> {
     this.frameT = t
+    // View-dependent geometry reads the camera this host renders with (frames.ts liveView).
+    setLiveObserver(this.dream.observer)
     this.dream.applyAt(t)
     if (this.residency) {
       const settling = this.reside(t)

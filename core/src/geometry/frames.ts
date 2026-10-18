@@ -28,6 +28,20 @@ export type View = { eye: Vec3Like } | { toward: Vec3Like }
 /** How far a perspective observer's eye stands from its focus (zoom is distance, dream.ts). */
 export const eyeDistance = (obs: Observer): number => obs.radius.value / (obs.zoom.value || 1)
 
+/**
+ * The LIVE eye: the observer of the scene a host is rendering now (the host
+ * names it every frame — three-host.ts renderFrame), so view-dependent CPU
+ * geometry (a sphere's horizon, a disc facing the eye) follows the actual
+ * camera — the song's rig, the free-play orbit, a nested level — without
+ * every scene having to pass its observer in. Undefined outside a host
+ * (tests, bun): callers fall back to the framework's default eye.
+ */
+let live: Observer | undefined
+export const setLiveObserver = (obs: Observer | undefined): void => {
+  live = obs
+}
+export const liveView = (): View | undefined => (live ? viewOf(live) : undefined)
+
 export const viewOf = (obs: Observer): View => {
   const phi = obs.phi.value
   const theta = obs.theta.value

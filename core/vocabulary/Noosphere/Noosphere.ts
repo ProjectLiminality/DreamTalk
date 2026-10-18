@@ -76,7 +76,7 @@ import type { Overrides } from "../../src/holon"
 import { Conflict } from "../Conflict/Conflict"
 import { InterBrainGem } from "../InterBrain/InterBrainGem"
 import type { Observer } from "../../src/dream"
-import { localView, viewOf, type View } from "../../src/geometry/frames"
+import { liveView, localView, viewOf, type View } from "../../src/geometry/frames"
 import {
   eyeRuns,
   flowerArcs,
@@ -230,7 +230,7 @@ export class Noosphere extends Null {
   }
   /** The eye in the ball's own frame (through every transform above it). */
   sphereEyeNow(): SphereEye | undefined {
-    const v = localView(this.ball, this.eye?.() ?? { eye: { x: 0, y: 0, z: 1500 } })
+    const v = localView(this.ball, this.eye?.() ?? liveView() ?? { eye: { x: 0, y: 0, z: 1500 } })
     return "eye" in v ? sphereEye(v.eye, this.radius.value, false) : sphereEye(v.toward, this.radius.value, true)
   }
   /** Node i's point in the Noosphere's own frame (turned by spin/pitch). */
