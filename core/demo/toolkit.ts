@@ -369,6 +369,13 @@ export const mountToolkit = (host: ToolkitHost): Toolkit => {
     return true
   }
 
+  // The scene's slots that open a level (Dream.slots nest): built in the
+  // background once the page has settled, so recalling one only reveals it.
+  const warmSlots = window.setTimeout(() => {
+    for (const s of host.slots ?? []) if (s.nest?.[0]) host.nest?.prewarmByName(s.nest[0])
+  }, 2500)
+  host.signal.addEventListener("abort", () => clearTimeout(warmSlots))
+
   const q = new URLSearchParams(location.search)
   if (q.get("presenter") === "1") setPresenter(true)
   if (q.get("minimap") === "1") minimap.show(true)

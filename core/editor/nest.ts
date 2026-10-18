@@ -253,7 +253,7 @@ export interface Nest {
   /** Come back one level. Resolves when the transition has landed. */
   back(): Promise<boolean>
   /** The top level's state (headless): its t, whether it plays, its song. */
-  state(): { depth: number; path: string[]; t?: number; playing?: boolean; song?: string }
+  state(): { depth: number; path: string[]; t?: number; playing?: boolean; song?: string; kept?: number }
   /**
    * The open level on top — what hands aim at while one is open (undefined at
    * depth 0: the song beneath is theirs). `dreamtalk:nest` on window says when it changes.
@@ -265,6 +265,10 @@ export interface Nest {
    * space — how a link to a state opens its nest again.
    */
   openByName(name: string): Promise<boolean>
+  /** Build a symbol's level in the background, so opening it only reveals it (a rested pointer or spark does this itself). */
+  prewarm(holon: Holon, states?: boolean): void
+  /** The same, by level name (Nest.path's spelling) — a scene's slot about to be recalled. */
+  prewarmByName(name: string): void
   /** The song's view as it stood before the first level opened (it glides back there on return). */
   readonly outerDelta: ViewDelta | undefined
 }
@@ -295,9 +299,30 @@ interface Inner {
   playing: boolean
   anchor: number
   key?: string
+  /** What it was opened as — a revisited level starts its WatchMe again from here. */
+  wm: WatchMe
+  /** What opened it, under which kind — the key it is kept by once closed. */
+  symbol?: Holon
+  kind?: string
+  /** Start its frame loop (it stops itself when parked). */
+  loop?: () => void
+  /** Its clock and frames run (on the stack); a prepared or kept level stands still, hidden. */
+  running: boolean
 }
 
 const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000))
+/** A breath: the rest of a mount waits for the next frame, so no one frame carries all of it. */
+const breath = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+/** Idle time, or soon (no requestIdleCallback): where prewarming and teardown run, never in a transition frame. */
+const whenIdle = (fn: () => void) => {
+  const idle = (window as { requestIdleCallback?: (fn: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+  if (idle) idle(fn, { timeout: 1500 })
+  else setTimeout(fn, 50)
+}
+/** How long a pointer rests on a symbol before its level is built in the background, ms. */
+const PREWARM_REST_MS = 150
+/** Levels kept built while not open — the last closed, the last hovered (an LRU, like a song's keep). */
+const KEEP_LEVELS = 2
 
 /**
  * The machine is also on the page as `window.__dtNest` — the named actions a
@@ -313,8 +338,22 @@ export const mountNest = (opts: NestOpts): Nest => {
   let pointer: { x: number; y: number } | undefined
 
   const top = (): LevelSurface => inners[inners.length - 1]?.surface ?? opts.outer
+  // A pointer that rests on a symbol builds its level in the background (prewarm).
+  let rest = 0
   const track = (canvas: HTMLCanvasElement, signal: AbortSignal) =>
-    canvas.addEventListener("pointermove", (e) => (pointer = { x: e.clientX, y: e.clientY }), { signal })
+    canvas.addEventListener(
+      "pointermove",
+      (e) => {
+        pointer = { x: e.clientX, y: e.clientY }
+        clearTimeout(rest)
+        rest = window.setTimeout(() => {
+          if (busy || !pointer || top().canvas !== canvas) return
+          const h = symbolAt(top().pick(pointer.x, pointer.y))
+          if (h) prewarm(h)
+        }, PREWARM_REST_MS)
+      },
+      { signal },
+    )
   track(opts.outer.canvas, opts.signal)
 
   /** A box (client px) as the transform that lays the full canvas onto it. */
@@ -327,7 +366,14 @@ export const mountNest = (opts: NestOpts): Nest => {
     return `translate(${dx}px, ${dy}px) scale(${s})`
   }
 
-  const mountInner = async (wm: WatchMe, under: HTMLCanvasElement): Promise<Inner> => {
+  /**
+   * Build a level, hidden: its scene constructed, mounted, framed, drawn
+   * once at its start (the visible pipelines compile then) and its hidden
+   * ones compiled in the background (host.warmed). Each step takes its own
+   * frame — on a hover in idle time, or across the glide of an open that
+   * found nothing prepared. startInner then only reveals it.
+   */
+  const prepareInner = async (wm: WatchMe, under: HTMLCanvasElement): Promise<Inner> => {
     const ac = new AbortController()
     opts.signal.addEventListener("abort", () => ac.abort())
     const canvas = document.createElement("canvas")
@@ -336,10 +382,12 @@ export const mountNest = (opts: NestOpts): Nest => {
     canvas.height = under.height
     // Laid exactly over the level beneath — same box, same buffer size.
     const r = under.getBoundingClientRect()
-    canvas.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:${30 + inners.length};background:#000;opacity:0;transition:transform ${TRANSITION}s cubic-bezier(.4,0,.2,1), opacity ${TRANSITION}s ease;`
+    canvas.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:${30 + inners.length};background:#000;opacity:0;visibility:hidden;pointer-events:none;transition:transform ${TRANSITION}s cubic-bezier(.4,0,.2,1), opacity ${TRANSITION}s ease;`
     document.body.appendChild(canvas)
     const dream = new wm.Dream()
+    await breath()
     const host = await ThreeHost.mount(dream, canvas)
+    await breath()
     const pickAt = (x: number, y: number) => {
       const b = canvas.getBoundingClientRect()
       if (b.width <= 0) return undefined
@@ -377,6 +425,8 @@ export const mountNest = (opts: NestOpts): Nest => {
       playing: true,
       anchor: performance.now(),
       key: wm.key,
+      wm,
+      running: false,
       surface: {
         canvas,
         roots: () => dream.roots,
@@ -405,7 +455,7 @@ export const mountNest = (opts: NestOpts): Nest => {
     // Its own clock: the WatchMe plays through once, then holds its last pose
     // walkable (free play) — explore it, its nodes or handles are buttons.
     const frame = async (now: number) => {
-      if (ac.signal.aborted) return
+      if (ac.signal.aborted || !inner.running) return
       game.tick(now)
       if (game.on) await host.renderFrame(game.heldAt)
       else {
@@ -420,19 +470,87 @@ export const mountNest = (opts: NestOpts): Nest => {
       }
       requestAnimationFrame(frame)
     }
-    if (wm.startAt) {
-      inner.t = Math.min(dream.duration, wm.startAt)
-      inner.anchor = performance.now() - inner.t * 1000
-    }
+    inner.loop = () => requestAnimationFrame(frame)
+    // Its pipelines compile in the background first (yielding between
+    // objects), so its first drawn frames build nothing in one go.
+    await host.warmed
     await host.renderFrame(dream.duration)
     if (wm.framed) await frameLevel(dream, host)
-    await host.renderFrame(inner.t)
-    requestAnimationFrame(frame)
+    await breath()
+    await host.renderFrame(wm.startAt ? Math.min(dream.duration, wm.startAt) : 0)
     return inner
   }
 
+  /** Reveal a prepared (or kept) level on top of `under`: its WatchMe from its start, its clock running. */
+  const startInner = (inner: Inner, under: HTMLCanvasElement): void => {
+    const { canvas, game, dream, wm } = inner
+    const r = under.getBoundingClientRect()
+    Object.assign(canvas.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, zIndex: String(30 + inners.length), visibility: "visible", pointerEvents: "" })
+    // A level visited before starts over, as a fresh one would.
+    if (game.on) game.leave()
+    inner.t = wm.startAt ? Math.min(dream.duration, wm.startAt) : 0
+    inner.playing = true
+    inner.anchor = performance.now() - inner.t * 1000
+    inner.running = true
+    game.covered = false
+    inner.loop?.()
+  }
+
+  /** Stop a level and hide it, built — kept for a return (or a hover that comes to nothing). */
+  const parkInner = (inner: Inner): void => {
+    inner.running = false
+    inner.game.covered = true
+    Object.assign(inner.canvas.style, { visibility: "hidden", pointerEvents: "none" })
+  }
+
+  const disposeInner = (inner: Inner): void => {
+    inner.running = false
+    inner.ac.abort()
+    inner.canvas.remove()
+    inner.host.dispose()
+  }
+
+  // Levels built but not open: prepared on a hover, or closed a moment ago.
+  // Most recent first; past KEEP_LEVELS the oldest is torn down in idle time.
+  const kept: { holon: Holon; kind: string; ready: Promise<Inner | undefined> }[] = []
+  const take = (holon: Holon, kind: string): Promise<Inner | undefined> | undefined => {
+    const k = kept.findIndex((e) => e.holon === holon && e.kind === kind)
+    return k < 0 ? undefined : kept.splice(k, 1)[0]!.ready
+  }
+  const keep = (holon: Holon, kind: string, ready: Promise<Inner | undefined>): void => {
+    kept.unshift({ holon, kind, ready })
+    while (kept.length > KEEP_LEVELS) {
+      const old = kept.pop()!
+      whenIdle(() => void old.ready.then((inner) => inner && disposeInner(inner)))
+    }
+  }
+  opts.signal.addEventListener("abort", () => {
+    for (const e of kept.splice(0)) void e.ready.then((inner) => inner && disposeInner(inner))
+  })
+  /** What a symbol opens as, kept apart: its WatchMe, or its state space. */
+  const kindOf = (wm: WatchMe, states: boolean) => (states ? `states:${wm.Dream.name}` : "unpack")
+
+  /** Build a symbol's level in the background (a rested pointer, a slot about to be recalled), so opening it only reveals it. */
+  const prewarm = (holon: Holon, states = false): void => {
+    const symbol = symbolAt(holon) ?? holon
+    let wm: WatchMe
+    try {
+      wm = states ? statesOf(opts.scenes, symbol) : watchMeOf(opts.scenes, symbol)
+    } catch {
+      return // a symbol that cannot stand alone (a StateLattice without its machine): nothing to warm
+    }
+    const kind = kindOf(wm, states)
+    if (kept.some((e) => e.holon === symbol && e.kind === kind)) return
+    if (stack.top?.holon === symbol) return
+    const under = top().canvas
+    keep(symbol, kind, new Promise((done) => whenIdle(() => void prepareInner(wm, under).then(
+      (inner) => (parkInner(inner), done(inner)),
+      () => done(undefined),
+    ))))
+  }
+
   /** Open a level for a symbol: its WatchMe, or its state space (a lattice). */
-  const open = async (symbol: Holon, wm: WatchMe, name?: string): Promise<boolean> => {
+  const open = async (symbol: Holon, wm: WatchMe, name?: string, states = false): Promise<boolean> => {
     if (busy) return false
     const surface = top()
     const under = surface.canvas
@@ -456,8 +574,15 @@ export const mountNest = (opts: NestOpts): Nest => {
         view.delta = from
         view.glideTo(into, now, TRANSITION)
       }
-      // …while its own world grows out of the box it occupied.
-      const inner = await mountInner(wm, under)
+      // …while its own world grows out of the box it occupied — built already
+      // when it was hovered or closed a moment ago, else built across the glide.
+      const kind = kindOf(wm, states)
+      const inner = (await take(symbol, kind)) ?? (await prepareInner(wm, under))
+      // The moment it starts from is this open's (a song's lattice from where you were).
+      inner.wm = { ...inner.wm, startAt: wm.startAt }
+      inner.kind = kind
+      inner.symbol = symbol
+      startInner(inner, under)
       inner.canvas.style.transition = "none"
       inner.canvas.style.transform = onto(inner.canvas, saved.box)
       void inner.canvas.offsetWidth
@@ -489,7 +614,7 @@ export const mountNest = (opts: NestOpts): Nest => {
    */
   const states = (holon?: Holon): Promise<boolean> => {
     const symbol = holon && (symbolAt(holon) ?? holon)
-    if (symbol) return open(symbol, statesOf(opts.scenes, symbol), `${nodeNameOf(symbol)} ◇`)
+    if (symbol) return open(symbol, statesOf(opts.scenes, symbol), `${nodeNameOf(symbol)} ◇`, true)
     const inner = inners[inners.length - 1]
     if (!inner) return Promise.resolve(false)
     const name = inner.dream.constructor.name.replace(/Dream$/, "")
@@ -499,7 +624,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       framed: true,
       startAt: inner.game.on ? inner.game.heldAt : inner.t,
     }
-    return open(inner.dream.roots[0]!, wm, `${name} ◇`)
+    return open(inner.dream.roots[0]!, wm, `${name} ◇`, true)
   }
 
   const back = async (): Promise<boolean> => {
@@ -517,9 +642,9 @@ export const mountNest = (opts: NestOpts): Nest => {
       stack.leave(below, { glide: TRANSITION })
       await sleep(TRANSITION + 0.05)
       inners.pop()
-      inner.ac.abort()
-      inner.canvas.remove()
-      inner.host.dispose()
+      // Kept built, hidden: Esc and coming back in cost nothing; torn down in idle time when evicted.
+      parkInner(inner)
+      keep(inner.symbol!, inner.kind!, Promise.resolve(inner))
       // The glide has landed: the delta is the saved value exactly.
       const view = below.view()
       if (view && saved.delta) view.delta = { ...saved.delta }
@@ -608,7 +733,16 @@ export const mountNest = (opts: NestOpts): Nest => {
         t: inner ? (inner.game.on ? inner.game.heldAt : inner.t) : undefined,
         playing: inner ? inner.playing && !inner.game.on : undefined,
         song: inner?.key ?? inner?.dream.constructor.name,
+        kept: kept.length,
       }
+    },
+    prewarm,
+    prewarmByName(name) {
+      const lattice = name.endsWith(" ◇")
+      const base = lattice ? name.slice(0, -2) : name
+      for (const r of top().roots?.() ?? [])
+        for (const h of r.walk())
+          if (symbolAt(h) === h && levelNameOf(h) === base) return prewarm(h, lattice)
     },
     openByName(name) {
       const lattice = name.endsWith(" ◇")
