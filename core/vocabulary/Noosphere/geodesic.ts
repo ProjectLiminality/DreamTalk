@@ -358,6 +358,14 @@ export const normalTurn = (n: V3): { h: number; p: number } => ({
   p: Math.atan2(-n[1], n[2]),
 })
 
+/** As normalTurn, but keeping the holon UPRIGHT from every side: the pitch
+ *  stays within ±90° and a face seen from behind turns about y instead of
+ *  tipping over (a sign facing the eye, never upside down). */
+export const facingTurn = (n: V3): { h: number; p: number } => {
+  const c = (n[2] >= 0 ? 1 : -1) * Math.sqrt(Math.max(1e-12, 1 - n[0] * n[0]))
+  return { h: Math.atan2(n[0], c), p: Math.atan2(-n[1] / c, n[2] / c) }
+}
+
 /** Turn every polyline and keep its near runs, projected at `radius`. */
 export const nearRuns = (lines: readonly V3[][], radius: number, spin: number, pitch: number): Vec3Like[][] =>
   lines.flatMap((l) => sideRuns(l.map((p) => orient(p, spin, pitch)), true, radius))

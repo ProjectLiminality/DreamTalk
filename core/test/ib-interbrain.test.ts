@@ -108,10 +108,20 @@ describe("InterBrain", () => {
     const sats = ib.nodes.slice(1)
     expect(sats.length).toBe(6)
     for (const n of sats) {
-      near(Math.hypot(n.x.value, n.y.value), WEB.orbit * INTERBRAIN.web * R, 1e-6)
+      // A solid round the heart (an octahedron's vertices), not a page: the orbit is 3-D.
+      near(Math.hypot(n.x.value, n.y.value, n.z.value), WEB.orbit * INTERBRAIN.web * R, 1e-6)
       near(n.radius.value, WEB.satellite * INTERBRAIN.web * R, 1e-6)
     }
     expect(sats.map((n) => n.kind.value)).toEqual([1, 0, 1, 0, 1, 0])
+    // Each friend stands opposite a dream, and the six span all three axes.
+    for (let i = 0; i < 3; i++) {
+      const [a, b] = [sats[i]!, sats[i + 3]!]
+      near(a.x.value + b.x.value, 0, 1e-6)
+      near(a.y.value + b.y.value, 0, 1e-6)
+      near(a.z.value + b.z.value, 0, 1e-6)
+      expect(a.kind.value).not.toBe(b.kind.value)
+    }
+    expect(sats.some((n) => Math.abs(n.z.value) > 1)).toBe(true)
     for (const s of ib.strands) expect(s.there.value).toBe(1)
     expect(ib.songline).toBeInstanceOf(SongLine)
     expect(ib.songline.count.value).toBe(8)

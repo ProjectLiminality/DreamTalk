@@ -33,6 +33,7 @@ export class InterBrainDemoDream extends Dream {
   unfold() {
     const { ib } = this
     void ib.parts
+    ib.seenFrom(this.observer) // real 3-D: the horizon and the discs follow the camera's orbit
     this.play(Create(ib), 4)
     this.play(ib.sphere.spin.to(ib.sphere.spin.value + 0.5), 4)
   }
@@ -44,6 +45,7 @@ export class InterBrainUnfoldDemoDream extends Dream {
   unfold() {
     const { ib } = this
     void ib.parts
+    ib.seenFrom(this.observer)
     const unfold = ib.stateAxis("unfold")
     this.play(Create(ib), 3)
     this.wait(1)

@@ -43,7 +43,10 @@
  * sits inside the central ring of nodes; `heart` scales it, 0 hides it.
  */
 
-import { Group, Null } from "../../src/parts/primitives"
+import { Group, Line, Null, derivePoints } from "../../src/parts/primitives"
+import type { Observer } from "../../src/dream"
+import { localView, viewOf, type View } from "../../src/geometry/frames"
+import { facingTurn } from "../Noosphere/geodesic"
 import { completion, derive, integer, length, scalar } from "../../src/params"
 import { presence } from "../../src/certainty"
 import { restage, together, type Anim } from "../../src/anim"
@@ -130,6 +133,17 @@ export const held = (heart: () => Holon): Relations => {
   }
 }
 
+/** The octahedron's six vertices, in the order the web's six take them:
+ *  friend, dream, friend, dream, … — each friend opposite a dream. */
+const OCTAHEDRON: readonly [number, number, number][] = [
+  [0, 1, 0],
+  [1, 0, 0],
+  [0, 0, 1],
+  [0, -1, 0],
+  [-1, 0, 0],
+  [0, 0, -1],
+]
+
 export class InterBrain extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
@@ -157,6 +171,24 @@ export class InterBrain extends Null {
     super(overrides)
   }
 
+  /** The eye the symbol is seen from (`seenFrom`), else the default eye. */
+  eye?: () => View
+  seenFrom(observer: Observer): void {
+    this.eye = () => viewOf(observer)
+    this.sphere?.seenFrom(observer)
+  }
+  /** The eye in this symbol's own frame. */
+  localEye(): { x: number; y: number; z: number } {
+    const v = localView(this, this.eye?.() ?? { eye: { x: 0, y: 0, z: 1500 } })
+    if ("eye" in v) return v.eye
+    return { x: v.toward.x * 1e6, y: v.toward.y * 1e6, z: v.toward.z * 1e6 }
+  }
+
+  private eyeKey(): number[] {
+    const e = this.localEye()
+    return [Math.round(e.x), Math.round(e.y), Math.round(e.z)]
+  }
+
   /** How far the symbol reaches from its centre: the sphere's limb. */
   get reach(): number {
     return this.radius.value
@@ -168,6 +200,18 @@ export class InterBrain extends Null {
     const release = () => smooth(phase(u(), 0, RELEASE))
     const fly = () => smooth(phase(u(), FLY0, FLY1))
     const open = () => smooth(phase(u(), 0.1, 0.6))
+    // A node's disc turns to face the eye wherever it stands (a disc in
+    // 3-D: from the side it would be a sliver, as a sign never is).
+    const faceTheEye = (n: DreamNode) => {
+      const turn = () => {
+        const e = this.localEye()
+        const d = [e.x - n.x.value, e.y - n.y.value, e.z - n.z.value] as [number, number, number]
+        const l = Math.hypot(...d) || 1
+        return facingTurn([d[0] / l, d[1] / l, d[2] / l])
+      }
+      n.h.follow(this.unfold.map(() => turn().h))
+      n.p.follow(this.unfold.map(() => turn().p))
+    }
 
     // THE SPHERE: the Noosphere in its InterBrain state, held there (its
     // own axes stand down — they are not this symbol's); it swells and
@@ -229,6 +273,7 @@ export class InterBrain extends Null {
         node.radius.follow(this.unfold.map(() => lerp(r0(), C(), fly())))
         node.ringOpacity.follow(this.unfold.map(() => fly()))
         this.core = node
+        faceTheEye(node)
         inside.attach(node)
         this.nodes.push(node)
         return
@@ -237,9 +282,34 @@ export class InterBrain extends Null {
       // Where the gem is now (it turns and swells with the sphere), and its ring's size.
       const gx = () => (slot ? this.sphere.slotPoint(slot.i).x : 0)
       const gy = () => (slot ? this.sphere.slotPoint(slot.i).y : 0)
+      const gz = () => (slot ? this.sphere.slotPoint(slot.i).z : 0)
+      // Unfolded, the web is a SOLID round the heart, not a page: the six
+      // sit on an octahedron's vertices, friends and dreams alternating, so
+      // every friend's antipode is a dream and it reads from any side.
+      const o = OCTAHEDRON[(i - 1) % 6]!
+      const at3 = () => {
+        const orbit = Math.hypot(place().x, place().y) * C()
+        return { x: o[0] * orbit, y: o[1] * orbit, z: o[2] * orbit }
+      }
       const gr = () => (slot ? (slot.slot.scale.value * 100) / FACE_FILL : 0)
-      node.x.follow(this.unfold.map(() => lerp(gx(), place().x * C(), fly())))
-      node.y.follow(this.unfold.map(() => lerp(gy(), place().y * C(), fly())))
+      node.x.follow(this.unfold.map(() => lerp(gx(), at3().x, fly())))
+      node.y.follow(this.unfold.map(() => lerp(gy(), at3().y, fly())))
+      node.z.follow(this.unfold.map(() => lerp(gz(), at3().z, fly())))
+      faceTheEye(node)
+      // The tie: a real 3-D line from the heart's ring to this node's.
+      const tie = new Line({ tint: derive(() => (node.kind.value > 0.5 ? node.dreamerTint.value : node.dreamTint.value)), stroke: 1.4, opacity: derive(() => fly()) })
+      derivePoints(tie, () => [u(), R(), ...this.eyeKey()], () => {
+        const p = { x: node.x.value, y: node.y.value, z: node.z.value }
+        const d = Math.hypot(p.x, p.y, p.z)
+        if (d < 1e-6) return []
+        const r0 = this.core.radius.value / d
+        const r1 = 1 - node.radius.value / d
+        return [
+          { x: p.x * r0, y: p.y * r0, z: p.z * r0 },
+          { x: p.x * r1, y: p.y * r1, z: p.z * r1 },
+        ]
+      })
+      this.add(new Layer({ members: [tie] })).there.follow(this.unfold.map(() => release()))
       node.radius.follow(this.unfold.map(() => lerp(gr(), place().r * C(), fly())))
       const strand = this.add(new Layer({ members: [node] }))
       strand.there.follow(this.unfold.map(() => release()))
@@ -254,6 +324,17 @@ export class InterBrain extends Null {
       x: derive(() => INTERBRAIN.songX * R()),
       y: derive(() => INTERBRAIN.songY * R()),
     })
+    {
+      const sl = this.songline
+      const turn = () => {
+        const e = this.localEye()
+        const d = [e.x - sl.x.value, e.y - sl.y.value, e.z - sl.z.value] as [number, number, number]
+        const l = Math.hypot(...d) || 1
+        return facingTurn([d[0] / l, d[1] / l, d[2] / l])
+      }
+      sl.h.follow(this.unfold.map(() => turn().h))
+      sl.p.follow(this.unfold.map(() => turn().p))
+    }
     this.songline.grow.follow(this.unfold.map(() => smooth(phase(u(), SONG0, 1))))
     this.song = this.add(new Layer({ members: [this.songline] }))
     this.song.there.follow(this.unfold.map(() => smooth(phase(u(), SONG0 - 0.1, SONG0 + 0.05))))
