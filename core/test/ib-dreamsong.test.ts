@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { DreamSong, SONG, slotSpot, textLines } from "../vocabulary/DreamSong/DreamSong"
+import { DreamSongSymbol, SONG, slotSpot, textLines } from "../vocabulary/DreamSongSymbol/DreamSongSymbol"
 import { reachOf } from "../vocabulary/DreamNode/DreamNode"
 import { Logo } from "../vocabulary/Logo/Logo"
 
@@ -24,7 +24,7 @@ describe("DreamSong", () => {
   })
 
   test("compress 0: the page fills the ring, symbols fitted to their slot; the face is folded away", () => {
-    const s = new DreamSong({ radius: 400 })
+    const s = new DreamSongSymbol({ radius: 400 })
     void s.parts
     expect(s.symbols.length).toBe(3)
     expect(s.texts.length).toBe(3)
@@ -36,7 +36,7 @@ describe("DreamSong", () => {
   })
 
   test("compress 1: the song is one symbol — the Logo at the film's share of the ring", () => {
-    const s = new DreamSong({ radius: 400, compress: 1 })
+    const s = new DreamSongSymbol({ radius: 400, compress: 1 })
     void s.parts
     expect(s.face).toBeInstanceOf(Logo)
     near(s.page.scale.value, 0)

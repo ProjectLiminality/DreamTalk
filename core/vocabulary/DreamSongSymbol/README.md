@@ -1,6 +1,6 @@
-# DreamSong
+# DreamSongSymbol
 
-![DreamSong](DreamSong.png)
+![DreamSongSymbol](DreamSongSymbol.png)
 
 DreamTalk symbols woven into a larger story, held in one DreamNode. "The
 corresponding DreamTalk symbols can then be woven together to tell a

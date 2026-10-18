@@ -25,7 +25,7 @@ import { Create, UnCreate } from "../../src/verbs"
 import { Text } from "../../src/parts/text"
 import { BLUE, RED, WHITE, seen, type Color } from "../../src/constants"
 import { Divide, FILM_TURN } from "../../vocabulary/Divide/Divide"
-import { DreamSong } from "../../vocabulary/DreamSong/DreamSong"
+import { DreamSongSymbol } from "../../vocabulary/DreamSongSymbol/DreamSongSymbol"
 import { DreamNode } from "../../vocabulary/DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { InterBrain } from "../../vocabulary/InterBrain/InterBrain"
@@ -63,7 +63,7 @@ export class DreamSongDemoDream extends Dream {
     (face, i) =>
       new DreamNode({ radius: 64 / PX, ringStroke: 2.5, face, x: ux(TALK_AT[i]![0]), y: uy(TALK_AT[i]![1]) }),
   )
-  song = new DreamSong({ radius: 234 / PX, x: ux(832), y: uy(326) })
+  song = new DreamSongSymbol({ radius: 234 / PX, x: ux(832), y: uy(326) })
   talkLabel = label("DreamTalk", 336, 640, 72, BLUE)
   songLabel = label("DreamSong", 832, 640, 72, RED)
   /** f10996: compressed, the song is labelled a DreamTalk again. */

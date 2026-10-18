@@ -52,7 +52,7 @@ import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
 import { DreamNode, ImportLines } from "../../vocabulary/DreamNode/DreamNode"
 import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
 import { Vision } from "../../vocabulary/Vision/Vision"
-import { DreamSong } from "../../vocabulary/DreamSong/DreamSong"
+import { DreamSongSymbol } from "../../vocabulary/DreamSongSymbol/DreamSongSymbol"
 import { Divide, FILM_TURN } from "../../vocabulary/Divide/Divide"
 import { Logo } from "../../vocabulary/Logo/Logo"
 import { DREAMER_FACES } from "../../vocabulary/DreamGarden/DreamGarden"
@@ -212,7 +212,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
   hol2: Layer
 
   // F. The DreamSong (f10906 … f10981).
-  song = new DreamSong({ radius: R(233), y: Y(336) })
+  song = new DreamSongSymbol({ radius: R(233), y: Y(336) })
   songLabel = label("DreamSong", 640, 644, 60)
   talks = SONG_FACES.map((f, i) => new DreamNode({ radius: R(64), ringStroke: 2.5, face: f(), x: X([346, 432, 220][i]!), y: Y([420, 260, 226][i]!) }))
   talkLabel = label("DreamTalk", 336, 640, 60, BLUE)
@@ -226,7 +226,7 @@ export class Ch7BreakingTheSpellDream extends ShotDream {
 
   // H. DreamWeaving ── broadcast (f11071).
   wv = new Divide({ radius: R(188), turn: FILM_TURN, stroke: 3, outer: 1, x: X(360), y: Y(356) })
-  wvSong = new DreamSong({ radius: R(35), x: X(424), y: Y(286) })
+  wvSong = new DreamSongSymbol({ radius: R(35), x: X(424), y: Y(286) })
   wvTalks = SONG_FACES.map((f, i) => new DreamNode({ radius: R(19), ringStroke: 1.5, face: f(), x: X([253, 320, 287][i]!), y: Y([406, 406, 466][i]!) }))
   wvTowerRing = new Circle({ radius: R(188), tint: WHITE, stroke: 3, x: X(924), y: Y(356) })
   wvTower = new RadioTower({ size: R(120), x: X(924), y: Y(356) })

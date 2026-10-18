@@ -82,7 +82,7 @@ liminal eye), Figure (the bust form), Vision (was SMark), DreamTalkSymbol
 | [DreamNode](DreamNode/) | the vehicle (a git repo): dream / dreamer; holarchy | DreamTalkSymbol, Sketch |
 | [InterBrain](InterBrain/) | our own face: the Logo in a crystal | Logo |
 | [DreamGarden](DreamGarden/), [LiminalWeb](LiminalWeb/), [DigitalCampfire](DigitalCampfire/) | nodes without imposed structure; dreams ↔ dreamers; the video call | DreamNode, SandTalk, InterBrain |
-| [SongLine](SongLine/), [DreamSong](DreamSong/), [CoherenceBeacon](CoherenceBeacon/) | provenance; woven symbols; reach coupled to coherence | DreamNode, Field, RadioTower |
+| [SongLine](SongLine/), [DreamSongSymbol](DreamSongSymbol/), [CoherenceBeacon](CoherenceBeacon/) | provenance; woven symbols; reach coupled to coherence | DreamNode, Field, RadioTower |
 | [Resonance](Resonance/) | ripples round a group that resonates | — |
 | [Icons](Icons/) | the film's props (weapons, buildings, devices) — an invisible asset table | — |
 

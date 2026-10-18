@@ -67,7 +67,7 @@ import { RadioTower } from "../vocabulary/RadioTower/RadioTower"
 import { Field } from "../vocabulary/Field/Field"
 import { SandTalk } from "../vocabulary/SandTalk/SandTalk"
 import { HyperAgent } from "../vocabulary/HyperAgent/HyperAgent"
-import { DreamSong } from "../vocabulary/DreamSong/DreamSong"
+import { DreamSongSymbol } from "../vocabulary/DreamSongSymbol/DreamSongSymbol"
 import { Conflict } from "../vocabulary/Conflict/Conflict"
 import { Tribe } from "../vocabulary/Tribe/Tribe"
 import { Divide } from "../vocabulary/Divide/Divide"
@@ -137,7 +137,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Field", folder: "Field", cls: Field },
   { className: "SandTalk", folder: "SandTalk", cls: SandTalk },
   { className: "HyperAgent", folder: "HyperAgent", cls: HyperAgent },
-  { className: "DreamSong", folder: "DreamSong", cls: DreamSong },
+  { className: "DreamSongSymbol", folder: "DreamSongSymbol", cls: DreamSongSymbol },
   { className: "Conflict", folder: "Conflict", cls: Conflict },
   { className: "Tribe", folder: "Tribe", cls: Tribe },
   { className: "Divide", folder: "Divide", cls: Divide },

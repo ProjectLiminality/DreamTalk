@@ -102,7 +102,7 @@ class Layer extends Group {
   there = presence(1)
 }
 
-export class DreamSong extends Null {
+export class DreamSongSymbol extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
 
