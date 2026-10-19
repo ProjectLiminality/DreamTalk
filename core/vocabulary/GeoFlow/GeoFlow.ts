@@ -47,7 +47,7 @@ import { rgb, WHITE, type Color } from "../../src/constants"
 import { completion, derive, length, paramEpoch, scalar, type Param, type ParamValue } from "../../src/params"
 import { together } from "../../src/anim"
 import { axis, type StateSpace } from "../../src/automaton"
-import { certainty } from "../../src/certainty"
+import { certainty, presence } from "../../src/certainty"
 import { BALL_INSET, Earth, Place } from "../Earth/Earth"
 import { EarthView, followEarth, viewPose, zoomForSpan } from "../Earth/EarthView"
 import { Factory } from "../Earth/Factory"
@@ -121,6 +121,8 @@ class Site extends Place {
 /** A ring in flight from the planet to its seat: as sure of its place as the data, until seated. */
 class Traveler extends Group {
   certainty = certainty(1)
+  /** Exactly 0 outside its flight, so the host lets it sleep there. */
+  presence = presence(1)
 }
 
 export class GeoFlow extends Null {
@@ -513,20 +515,21 @@ export class GeoFlow extends Null {
         const e = seat()
         return { x: f.x + (e.x.value - f.x) * k, y: f.y + (e.y.value - f.y) * k }
       })
-      const presence = derive(() => (flying() ? ss(start, t0, a()) : 0))
+      const shown = derive(() => (flying() ? ss(start, t0, a()) : 0))
       const ink = derive(tint)
       return new Traveler({
         certainty: derive(() => sure + (1 - sure) * u()),
+        presence: derive(() => (flying() ? 1 : 0)),
         x: derive(() => at().x),
         y: derive(() => at().y),
         members: [
-          new Circle({ radius: derive(() => seat().ring.radius.value), stroke: 2.5, tint: ink, opacity: presence }),
+          new Circle({ radius: derive(() => seat().ring.radius.value), stroke: 2.5, tint: ink, opacity: shown }),
           new Text({
             content: label,
             size: derive(() => seat().ring.radius.value * 0.7),
             tint: ink,
             y: derive(() => -seat().ring.radius.value * 0.25),
-            opacity: presence,
+            opacity: shown,
           }),
         ],
       })
@@ -571,6 +574,8 @@ export class GeoFlow extends Null {
     map.presence.follow(on)
     void this.earth.parts
     const ground = derive(() => (a() < W.gone[1] ? 1 : 0))
+    // Gone, the planet is absent as a whole (exactly 0): its subtree sleeps.
+    this.earth.presence.follow(ground)
     this.earth.ball.opacity.follow(ground)
     this.earth.horizon.opacity.follow(ground)
     const bury = (h: Holon) => {

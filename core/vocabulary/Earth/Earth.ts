@@ -91,6 +91,7 @@ import { Surface } from "../../src/parts/surface"
 import { color, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
 import { RED, rgb, WHITE } from "../../src/constants"
+import { presence } from "../../src/certainty"
 import type { Observer } from "../../src/dream"
 import { localView, toWorld, viewOf, type View } from "../../src/geometry/frames"
 import type { KeepOut } from "../../src/view"
@@ -380,6 +381,13 @@ export class Earth extends Null {
 
   /** The sphere's radius in scene units. Construction-time (geometry is built at it); animate `scale` to resize. */
   radius = length(400)
+
+  /**
+   * The whole planet's presence (src/certainty.ts `presence`, inherited by
+   * everything on it, places included): 1 here, 0 absent. At exactly 0 the
+   * host lets the whole subtree sleep — thousands of strokes cost nothing.
+   */
+  presence = presence(1)
 
   /** The ocean — the ball's colour. Black by default: on black, the Earth is its land. */
   sea = color(rgb(0, 0, 0))
