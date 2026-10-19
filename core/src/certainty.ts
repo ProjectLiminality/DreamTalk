@@ -33,7 +33,7 @@
  */
 
 import type { Holon } from "./holon"
-import { completion, noteReads, paramEpoch, quietEpoch, trackReads, type Param, type Readable, type Reads } from "./params"
+import { completion, memoReads, noteReads, paramEpoch, quietEpoch, trackReads, type Param, type Readable, type Reads } from "./params"
 
 const CERTAINTIES = new WeakSet<Param<number>>()
 
@@ -140,6 +140,43 @@ export const seenCertainty = (holon: Holon): Readable<number> | undefined => {
 }
 
 /**
+ * A chain's product, memoised per holon per epoch (memoReads: its reads
+ * replayed) — the product of every certainty (or presence) on the holon
+ * and above it, multiplied NEAREST FIRST from 1, exactly as a walk of the
+ * chain multiplies it. A holon with none of its own answers its parent's
+ * product (1 · x = x: the same float), so the strokes under a group share
+ * one computation; a holon with its own folds its whole chain once.
+ */
+const certaintyProducts = new WeakMap<Holon, () => number>()
+const presenceProducts = new WeakMap<Holon, () => number>()
+const productOf = (
+  holon: Holon,
+  kind: (p: unknown) => boolean,
+  memo: WeakMap<Holon, () => number>,
+): (() => number) => {
+  let product = memo.get(holon)
+  if (product) return product
+  let own = false
+  for (const p of holon.params.values()) if (kind(p)) own = true
+  const parent = holon.parent
+  if (!own && parent) {
+    // The very same memo: nothing of its own to multiply in.
+    product = productOf(parent, kind, memo)
+  } else if (!own) {
+    product = () => 1
+  } else {
+    const full = chainOf(holon, kind, undefined)
+    product = memoReads(() => {
+      let x = 1
+      for (const p of full) x *= p.value
+      return x
+    })
+  }
+  memo.set(holon, product)
+  return product
+}
+
+/**
  * The opacity the renderer should draw a leaf with: its own fade times its
  * inherited presence times the ghost of its inherited certainty. With no
  * certainty and no presence anywhere above it, this IS `holon.opacity`
@@ -157,13 +194,11 @@ export const seenOpacity = (holon: Holon): Readable<number> => {
   let epoch = -1
   let seen = 0
   const reads: Reads = { deps: [], opaque: false }
-  const compute = (): number => {
-    let c = 1
-    for (const p of chain) c *= p.value
-    let k = 1
-    for (const p of there) k *= p.value
-    return own.value * k * ghost(c)
-  }
+  // The chains' products come from the holon's chain memo (productOf): every
+  // stroke under a group shares its parent's, computed once per epoch.
+  const c = chain.length > 0 ? productOf(holon, isCertainty, certaintyProducts) : undefined
+  const k = there.length > 0 ? productOf(holon, isPresence, presenceProducts) : undefined
+  const compute = (): number => own.value * (k ? k() : 1) * ghost(c ? c() : 1)
   return {
     get value() {
       const now = quietEpoch()
