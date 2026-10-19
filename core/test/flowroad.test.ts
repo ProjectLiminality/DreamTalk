@@ -75,6 +75,20 @@ describe("FlowRoad", () => {
     expect(Math.hypot(a1![20]!.x - b1![20]!.x, a1![20]!.y - b1![20]!.y, a1![20]!.z - b1![20]!.z)).toBeCloseTo(road.width.value, 3)
   })
 
+  test("the road is the path's: it is not rebuilt while the trucks ride it", () => {
+    const { stream, road, edges, fleet } = build()
+    road.concrete.value = 1
+    const v0 = edges.geomVersion
+    const f0 = fleet.geomVersion
+    for (let i = 0; i < 5; i++) {
+      stream.time.value += 0.2
+      void edges.loops
+      void fleet.loops
+    }
+    expect(edges.geomVersion).toBe(v0)
+    expect(fleet.geomVersion).toBeGreaterThan(f0)
+  })
+
   test("reversible: what it draws is a function of the moment, not the way there", () => {
     const { road, fleet } = build()
     road.concrete.value = 0.55

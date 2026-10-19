@@ -328,7 +328,7 @@ export class FlowRoad extends Group {
   }
 
   /** The path in this holon's space, with arc lengths, and every visible particle's truck. Once per frame. */
-  private state(): { points: Vec3Like[]; lengths: number[]; riders: Rider[] } {
+  private state(): { points: Vec3Like[]; lengths: number[]; riders: Rider[]; up: Vec3Like } {
     return this.stateFM()
   }
   // Once per frame, replaying its reads (params.ts memoReads). Not `keep`:
@@ -344,7 +344,7 @@ export class FlowRoad extends Group {
     return out
   })
 
-  private stateNow(): { points: Vec3Like[]; lengths: number[]; riders: Rider[] } {
+  private stateNow(): { points: Vec3Like[]; lengths: number[]; riders: Rider[]; up: Vec3Like } {
     const { source, opts } = this.road
     const frame = source.frame
     // The source frame → this space, as ONE affine map read once a frame
@@ -372,7 +372,12 @@ export class FlowRoad extends Group {
     const pc = this.pathMemo
     let points: Vec3Like[]
     let lengths: number[]
-    if (pc && pc.raw === raw && pc.key.length === mapKey.length && pc.key.every((v, i) => v === mapKey[i])) {
+    // The same path — the same array, or one equal point for point (a source
+    // that rebuilds its path every frame) — under the same map: kept, so the
+    // road keyed on it is not rebuilt.
+    const samePath = (a: readonly Vec3Like[], b: readonly Vec3Like[]) =>
+      a === b || (a.length === b.length && a.every((p, i) => p.x === b[i]!.x && p.y === b[i]!.y && p.z === b[i]!.z))
+    if (pc && samePath(pc.raw, raw) && pc.key.length === mapKey.length && pc.key.every((v, i) => v === mapKey[i])) {
       points = pc.points
       lengths = pc.lengths
     } else {
@@ -423,7 +428,7 @@ export class FlowRoad extends Group {
       const el = Math.round(Math.asin(Math.max(-1, Math.min(1, t.y))) / step)
       riders.push({ at, fwd, up, side, scale, az, el, step })
     }
-    return { points, lengths, riders }
+    return { points, lengths, riders, up: upHere }
   }
 
   protected override compose(): void {
@@ -442,17 +447,18 @@ export class FlowRoad extends Group {
       () => {
         // Undrawn, it reads nothing but its phase: skippable while the flow runs.
         if (!drawn()) return UNDRAWN
+        // The road is the PATH's: it stands still while the trucks ride it
+        // (its key holds no rider), rebuilt only when the path, the frame
+        // map, the width or the morph moves.
         const st = this.state()
-        const up = st.riders[0]?.up
-        return [phase().morph, this.width.value, st.points, up?.x, up?.y, up?.z]
+        return [phase().morph, this.width.value, st.points, st.up.x, st.up.y, st.up.z]
       },
       (): Vec3Like[][] => {
       if (!drawn()) return NO_LOOPS
       const { points } = this.state()
       const m = phase().morph
       const w = (this.width.value / 2) * m
-      const u0 = this.state().riders[0]?.up
-      const upHere = u0 ?? { x: 0, y: 1, z: 0 }
+      const upHere = this.state().up
       const edge = (sign: number) =>
         points.map((p, i) => {
           const a = points[Math.max(0, i - 1)]!
