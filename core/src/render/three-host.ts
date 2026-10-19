@@ -3083,11 +3083,15 @@ export class ThreeHost {
       consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
     }
     for (const binding of [...this.washes, ...this.drawingWashes]) {
+      // A hidden fill (its style left it invisible: opacity 0) fails the
+      // opacity test too — known without reading its derived look.
+      if (!binding.fill.mesh.visible) continue
       if (binding.look.fillOpacity.value * binding.look.opacity.value <= 0.01) continue
       if (outranked(binding.holon)) continue
       consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
     }
     for (const binding of this.surfaces) {
+      if (!binding.fill.mesh.visible) continue
       if (binding.holon.fillOpacity.value * seenOf(binding.holon).value <= 0.01) continue
       if (outranked(binding.holon)) continue
       consider(binding.holon, this.fillDistanceCulled(binding.fill, px, py, width, height), 0)
@@ -3783,6 +3787,10 @@ export class ThreeHost {
   boundsOf(holon: Holon): THREE.Box3 | undefined {
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
+    return this.measureBounds(holon, width, height)
+  }
+
+  private measureBounds(holon: Holon, width: number, height: number): THREE.Box3 | undefined {
     const box = new THREE.Box3()
     box.makeEmpty()
     const point = new THREE.Vector3()
@@ -3856,7 +3864,10 @@ export class ThreeHost {
    * selectable — it falls back to its origin. False when it is not on stage.
    */
   private eachInkPoint(holon: Holon, visit: (world: THREE.Vector3) => void): boolean {
-    this.scene.updateMatrixWorld(true)
+    // As pick: settled since the last frame with no node added or removed,
+    // every world matrix already is what a forced update would make — the
+    // hover outline asks this every frame, and the forced walk was all its cost.
+    if (!this.matricesSettled || this.settledStructure !== structureEpoch) this.scene.updateMatrixWorld(true)
     const wanted = new Set<Holon>()
     for (const h of holon.walk()) wanted.add(h)
     let any = false
@@ -4650,14 +4661,20 @@ export class ThreeHost {
 
   /** Depth in the part tree — how many wholes a holon sits inside. */
   private depthOf(holon: Holon): number {
+    // A mounted holon's parents are final: its depth is counted once
+    // (the pick asks it of every binding, through the proxy, per pointer move).
+    const known = this.depths.get(holon)
+    if (known !== undefined) return known
     let depth = 0
     let node: Holon | undefined = holon.parent
     while (node) {
       depth++
       node = node.parent
     }
+    this.depths.set(holon, depth)
     return depth
   }
+  private readonly depths = new WeakMap<Holon, number>()
 
   /**
    * Pixel distance from (px, py) to a ribbon's currently VISIBLE ink.
