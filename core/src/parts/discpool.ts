@@ -22,7 +22,10 @@
  *     drawn into the same mesh right after it, at its own seed, so the
  *     discs of a pool shimmer independently. The cloud's clock is `time`
  *     (scene seconds), 0 without one;
- *   - a disc at zero is left out of the mesh.
+ *   - the topology is FIXED — (1 + ECHOES) discs per member, built once —
+ *     and each frame rewrites positions, alphas and colours in place (a
+ *     disc not drawn is transparent where it last was), so the host keeps
+ *     its buffers (fill.ts setMesh).
  *
  * The discs are drawn in member order within the one mesh, so where two
  * overlap at partial opacity the later composites over the earlier — as
@@ -66,6 +69,9 @@ export interface DiscLook {
 
 /** Disc vertices (one centre + this many around). */
 const SEGMENTS = 48
+const VERTS = SEGMENTS + 1
+const COS = Array.from({ length: SEGMENTS }, (_, i) => Math.cos((i / SEGMENTS) * 2 * Math.PI))
+const SIN = Array.from({ length: SEGMENTS }, (_, i) => Math.sin((i / SEGMENTS) * 2 * Math.PI))
 
 /** A holon's scale in the world: the product of every scale up its chain. */
 const worldScale = (h: Holon): number => {
@@ -125,17 +131,17 @@ export class DiscPool extends Surface {
     const scale = worldScale(this) || 1
     this.seen ??= { pool: seenOpacity(this), members: new Map() }
     const poolSeen = this.seen.pool.value
-    const empty = { positions: new Float32Array(0), indices: new Uint32Array(0), alphas: new Float32Array(0), colors: new Float32Array(0) }
-    if (poolSeen <= 0) return empty
+    const buf = this.buffers()
+    const out = { positions: buf.positions, indices: buf.indices, alphas: buf.alphas, colors: buf.colors }
+    if (poolSeen <= 0) return out
     const seenOf = (h: Holon): number => {
       let r = this.seen!.members.get(h)
       if (!r) this.seen!.members.set(h, (r = seenOpacity(h)))
       return r.value
     }
-    const pos: number[] = []
-    const idx: number[] = []
-    const alpha: number[] = []
-    const col: number[] = []
+    const pos = buf.positions
+    const alpha = buf.alphas
+    const col = buf.colors
     const n = SEGMENTS
     const t = this.crowd.time?.value ?? 0
     // Units per screen pixel in this frame, at a point (a 720-high frame).
@@ -148,26 +154,38 @@ export class DiscPool extends Surface {
       const d = Math.hypot(v.eye.x - p.x, v.eye.y - p.y, v.eye.z - p.z)
       return (2 * d * Math.tan(o.fov.value / 2)) / 720 / scale
     }
-    const disc = (c: Vec3Like, u: Vec3Like, w: Vec3Like, r: number, a: number, tint: Color) => {
-      const base = pos.length / 3
-      pos.push(c.x, c.y, c.z)
-      alpha.push(a)
-      col.push(tint.r, tint.g, tint.b)
+    // Disc `slot` written in place: its centre and rim, its alpha, its colour.
+    const disc = (slot: number, c: Vec3Like, u: Vec3Like, w: Vec3Like, r: number, a: number, tint: Color) => {
+      let v = slot * VERTS
+      pos[v * 3] = c.x
+      pos[v * 3 + 1] = c.y
+      pos[v * 3 + 2] = c.z
       for (let i = 0; i < n; i++) {
-        const th = (i / n) * 2 * Math.PI
-        const x = Math.cos(th) * r
-        const y = Math.sin(th) * r
-        pos.push(c.x + u.x * x + w.x * y, c.y + u.y * x + w.y * y, c.z + u.z * x + w.z * y)
-        alpha.push(a)
-        col.push(tint.r, tint.g, tint.b)
+        const x = COS[i]! * r
+        const y = SIN[i]! * r
+        const q = (v + 1 + i) * 3
+        pos[q] = c.x + u.x * x + w.x * y
+        pos[q + 1] = c.y + u.y * x + w.y * y
+        pos[q + 2] = c.z + u.z * x + w.z * y
       }
-      for (let i = 0; i < n; i++) idx.push(base, base + 1 + i, base + 1 + ((i + 1) % n))
+      for (let i = 0; i < VERTS; i++, v++) {
+        alpha[v] = a
+        col[v * 3] = tint.r
+        col[v * 3 + 1] = tint.g
+        col[v * 3 + 2] = tint.b
+      }
     }
+    // A disc not drawn this frame: transparent, where it last was.
+    const hide = (slot: number) => alpha.fill(0, slot * VERTS, (slot + 1) * VERTS)
+    const PER = 1 + ECHOES
     this.crowd.members.forEach(({ holon: h, look }, mi) => {
+      const first = mi * PER
       const fill = look.fill ? look.fill() : 1
-      if (fill <= 0) return
-      const a = (seenOf(h) * fill) / poolSeen
-      if (a <= 0) return
+      const a = fill <= 0 ? 0 : (seenOf(h) * fill) / poolSeen
+      if (a <= 0) {
+        for (let e = 0; e < PER; e++) hide(first + e)
+        return
+      }
       const c = toLocal(this, toWorld(h, { x: 0, y: 0, z: 0 }))
       let u: Vec3Like
       let w: Vec3Like
@@ -193,11 +211,14 @@ export class DiscPool extends Surface {
       }
       const r = (look.radius() * worldScale(h)) / scale
       const tint = look.tint()
-      disc(c, u, w, r, a, tint)
+      disc(first, c, u, w, r, a, tint)
       // Its probability cloud, right after it (superposition.ts's recipe).
       const sure = certaintyOf(h)
       const doubt = 1 - (sure <= 0 ? 0 : sure >= 1 ? 1 : sure)
-      if (doubt <= 0) return
+      if (doubt <= 0) {
+        for (let e = 1; e < PER; e++) hide(first + e)
+        return
+      }
       // The offsets are on SCREEN: along the view's right and up at the disc.
       const d = "eye" in view ? { x: view.eye.x - c.x, y: view.eye.y - c.y, z: view.eye.z - c.z } : view.toward
       const l = Math.hypot(d.x, d.y, d.z) || 1
@@ -213,9 +234,38 @@ export class DiscPool extends Surface {
         const ox = off.x * unit
         const oy = off.y * unit
         const ce = { x: c.x + sx.x * ox + sy.x * oy, y: c.y + sx.y * ox + sy.y * oy, z: c.z + sx.z * ox + sy.z * oy }
-        disc(ce, u, w, r * (1 + 0.9 * doubt), a * doubt * 0.24 * echoBreath(e, seed, t), tint)
+        disc(first + 1 + e, ce, u, w, r * (1 + 0.9 * doubt), a * doubt * 0.24 * echoBreath(e, seed, t), tint)
       }
     })
-    return { positions: new Float32Array(pos), indices: new Uint32Array(idx), alphas: new Float32Array(alpha), colors: new Float32Array(col) }
+    // A new wrapper, the SAME arrays: the host sees a change and rewrites
+    // the vertices in place (fill.ts setMesh) — no new buffers per frame.
+    return out
   }
+
+  /**
+   * The pool's arrays: a fixed topology of (1 + ECHOES) discs per member,
+   * built once per member count; every frame writes into them in place.
+   */
+  private buffers(): { positions: Float32Array; indices: Uint32Array; alphas: Float32Array; colors: Float32Array } {
+    const discs = this.crowd.members.length * (1 + ECHOES)
+    if (this.buf?.discs === discs) return this.buf
+    const indices = new Uint32Array(discs * SEGMENTS * 3)
+    for (let dsc = 0, k = 0; dsc < discs; dsc++) {
+      const base = dsc * VERTS
+      for (let i = 0; i < SEGMENTS; i++) {
+        indices[k++] = base
+        indices[k++] = base + 1 + i
+        indices[k++] = base + 1 + ((i + 1) % SEGMENTS)
+      }
+    }
+    this.buf = {
+      discs,
+      positions: new Float32Array(discs * VERTS * 3),
+      indices,
+      alphas: new Float32Array(discs * VERTS),
+      colors: new Float32Array(discs * VERTS * 3),
+    }
+    return this.buf
+  }
+  private buf?: { discs: number; positions: Float32Array; indices: Uint32Array; alphas: Float32Array; colors: Float32Array }
 }

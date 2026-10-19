@@ -371,7 +371,7 @@ describe("Grain — a dot computes no drawing", () => {
 })
 
 describe("DotPool — a flow's dots as one mesh", () => {
-  test("one disc per visible dot, each at its grain's place, size and opacity; hidden dots left out", async () => {
+  test("one disc per dot (plus its cloud's), each at its grain's place, size and opacity; a hidden dot transparent", async () => {
     const { DotPool } = await import("../vocabulary/Grain/Grain")
     const { Group } = await import("../src/parts/primitives")
     const o = observer()
@@ -384,20 +384,28 @@ describe("DotPool — a flow's dots as one mesh", () => {
     grains[2]!.opacity.value = 0
     const pos = pool.positions
     const alphas = pool.alphas!
-    expect(pos.length / 3).toBe(2 * 49) // grain 2 is hidden: left out
+    // A fixed topology: seven discs (the dot and its cloud's six) per member.
+    const D = 7 * 49
+    expect(pos.length / 3).toBe(3 * D)
+    expect(pool.indices.length).toBe(3 * 7 * 48 * 3)
     expect(alphas[0]).toBeCloseTo(1, 6)
-    expect(alphas[49]).toBeCloseTo(0.5, 6)
+    expect(alphas[D]).toBeCloseTo(0.5, 6)
+    expect(alphas[2 * D]).toBe(0) // grain 2 is hidden: transparent
+    expect(alphas[49]).toBe(0) // certain: no cloud
     // Centres at the grains' places, discs of their radius.
     expect(pos[0]).toBeCloseTo(0, 4)
-    expect(pos[49 * 3]).toBeCloseTo(100, 4)
+    expect(pos[D * 3]).toBeCloseTo(100, 4)
     const rim = Math.hypot(pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!)
     expect(rim).toBeCloseTo(10, 4)
-    expect(pool.indices.length).toBe(2 * 48 * 3)
+    // The same arrays every frame (rewritten in place).
+    grains[0]!.x.value = 5
+    expect(pool.positions).toBe(pos)
+    expect(pos[0]).toBeCloseTo(5, 4)
     // Each disc's colour rides its vertices (the sheet's own tint is white); past the morph start the dots are gone.
     const cols = pool.colors!
     expect([cols[0], cols[1], cols[2]]).toEqual([BLUE.r, BLUE.g, BLUE.b].map((x) => Math.fround(x)))
     for (const g of grains) g.grain.value = 1.5
-    expect(pool.positions.length).toBe(0)
+    expect(Math.max(...pool.alphas!)).toBe(0)
   })
 
   test("a member's own certainty ghosts its disc (folded into its alpha)", async () => {
@@ -428,9 +436,9 @@ describe("DotPool — presence between the pool and a dot", () => {
     void flow.parts
     carriers[0]!.presence.value = 0.5
     expect(pool.alphas![0]).toBeCloseTo(0.5, 6)
-    expect(pool.alphas![49]).toBeCloseTo(1, 6)
+    expect(pool.alphas![7 * 49]).toBeCloseTo(1, 6)
     carriers[0]!.presence.value = 0
-    expect(pool.positions.length / 3).toBe(49)
+    expect(pool.alphas![0]).toBe(0)
   })
 })
 
@@ -460,5 +468,26 @@ describe("DiscPool — the live eye", () => {
     const b = spread(2)
     expect(a).toBeGreaterThan(0)
     expect(b / a).toBeCloseTo(0.5, 4)
+  })
+})
+
+describe("Grain — a dot draws no lines", () => {
+  test("at the dot rungs its line stroke is empty, hidden, and its loops never change as it moves", async () => {
+    const { Polylines } = await import("../src/parts/polylines")
+    const g = new Grain({ observer: new Observer(), category: BLUE, symbol: (x) => new Pallet(x), grain: 1 })
+    void g.parts
+    const pool = g.parts.find((p) => p instanceof Polylines) as InstanceType<typeof Polylines>
+    expect(pool.loops).toEqual([])
+    expect(pool.opacity.value).toBe(0)
+    const v = pool.geomVersion
+    for (let i = 1; i <= 5; i++) {
+      g.x.value = i * 37
+      g.z.value = -i * 11
+      void pool.loops
+    }
+    expect(pool.geomVersion).toBe(v)
+    g.grain.value = 2
+    expect(pool.loops.length).toBeGreaterThan(0)
+    expect(pool.opacity.value).toBe(1)
   })
 })

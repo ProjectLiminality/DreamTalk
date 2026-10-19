@@ -498,6 +498,16 @@ export class Grain extends Stroke {
     const piecesNow = () => this.ink()
     let memo: Vec3Like[][] = []
     const current = memoReads((): Vec3Like[][] => {
+      // A dot draws no lines: one constant key, so its (empty) stroke is
+      // never re-sent while it rides the flow.
+      if (this.rung() <= 1) {
+        if (lastKey !== "dot") {
+          lastKey = "dot"
+          memo = []
+          version++
+        }
+        return memo
+      }
       const ids = [this.symbol, this.item].map((s) => (s && s.opacity.value > 0 ? drawingId(s.drawing()) : 0))
       const key = `${this.rung()}|${this.radius.value}|${this.size.value}|${Object.values(this.toward()).join(",")}|${ids.join(",")}`
       if (key !== lastKey) {
@@ -514,7 +524,8 @@ export class Grain extends Stroke {
       // ONE stroke for all of it (src/parts/polylines.ts): every piece and
       // edge a loop of the same ribbon, so a flow of hundreds of grains
       // mounts hundreds of strokes, not tens of thousands.
-      const pool = new Polylines({ stroke: this.stroke, tint: derive(inkTint), opacity: this.opacity })
+      // Hidden while it has nothing to draw (a dot): no mesh drawn at all.
+      const pool = new Polylines({ stroke: this.stroke, tint: derive(inkTint), opacity: derive(() => (current().length ? this.opacity.value : 0)) })
       deriveLoops(pool, () => (current(), [version]), () => current())
       this.add(pool)
     }

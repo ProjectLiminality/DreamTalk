@@ -382,6 +382,22 @@ export class FillShape {
    * triangulation, and a curved one has no plane to triangulate in.
    */
   setMesh(positions: Float32Array, indices: Uint32Array, alphas?: Float32Array, colors?: Float32Array): void {
+    // The SAME arrays as last time (a pool rewriting its vertices in place,
+    // its topology unchanged): mark them changed and keep the geometry —
+    // no new buffers, no rebuilt bounds (such a sheet is not culled).
+    const g = this.mesh.geometry
+    if (
+      (alphas || colors) &&
+      g.index?.array === indices &&
+      g.getAttribute("position")?.array === positions &&
+      (!alphas || g.getAttribute("alpha")?.array === alphas) &&
+      (!colors || g.getAttribute("dtColor")?.array === colors)
+    ) {
+      g.getAttribute("position").needsUpdate = true
+      if (alphas) g.getAttribute("alpha").needsUpdate = true
+      if (colors) g.getAttribute("dtColor").needsUpdate = true
+      return
+    }
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
@@ -394,6 +410,8 @@ export class FillShape {
       const m = this.mesh.material
       if (colors && (m === sharedFillMaterial() || m === sharedAlphaFillMaterial())) this.mesh.material = sharedColorAlphaFillMaterial()
       else if (!colors && m === sharedFillMaterial()) this.mesh.material = sharedAlphaFillMaterial()
+      // Its vertices move every frame and its bounds are never recomputed.
+      this.mesh.frustumCulled = false
     }
     this.mesh.geometry.dispose()
     this.mesh.geometry = geometry
