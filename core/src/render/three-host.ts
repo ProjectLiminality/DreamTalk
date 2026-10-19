@@ -1045,6 +1045,12 @@ const whenIdle = (fn: (timeLeft: number) => void): void => {
   else setTimeout(() => fn(4), 50)
 }
 
+/** Run `fn` just after the next animation frame has been produced. */
+const afterFrame = (fn: (timeLeft: number) => void): void => {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(() => fn(0), 0))
+  else setTimeout(() => fn(0), 16)
+}
+
 export class ThreeHost {
   readonly renderer: THREE.WebGPURenderer
   readonly scene: THREE.Scene
@@ -1512,7 +1518,11 @@ export class ThreeHost {
       const until = performance.now() + ThreeHost.WARM_SLICE_MS
       const traced: THREE.Object3D[] = []
       while (k < this.texts.length && performance.now() < until) {
-        const { binding } = this.texts[k++]!
+        const { binding } = this.texts[k]!
+        // A long text's glyphs warm a slice at a time (the slice ends at
+        // `until`); its trace then reads them all from the cache.
+        if (binding.traceSlice(until)) break
+        k++
         if (binding.pretrace()) traced.push(binding.group)
       }
       if (k < this.texts.length) this.enqueueWarm(pretrace)
@@ -1546,6 +1556,9 @@ export class ThreeHost {
   private attachSliced(roots: readonly Holon[]): Promise<void> {
     const queue: [Holon, THREE.Object3D, Holon][] = []
     let next = 0
+    // A host mounting in slices is not on screen: its jobs run a frame at a
+    // time (warmFirstFrame), not in idle time a playing page never has.
+    this.warmEveryFrame = true
     return new Promise<void>((resolve) => {
       const job = () => {
         const until = performance.now() + ThreeHost.WARM_JOB_MS
@@ -1566,7 +1579,10 @@ export class ThreeHost {
           this.attachQueue = undefined
         }
         if (queue.length > 0 || next < roots.length) this.queueWarm(job)
-        else resolve()
+        else {
+          this.warmEveryFrame = false
+          resolve()
+        }
       }
       this.queueWarm(job)
     })
@@ -1609,6 +1625,130 @@ export class ThreeHost {
   }
 
   /**
+   * Prepare this host's FIRST FRAME at time `t` without one long task — for a
+   * host built while another scene plays (a nested level, editor/nest.ts),
+   * after `mount(…, { sliced: true })`. As ≤ WARM_JOB_MS jobs, one per
+   * animation frame (not idle time, which such a page never has):
+   *   1. every stroke's geometry for t (warmSync);
+   *   2. one sync without its text tracing (transforms, styles, camera);
+   *   3. each Text's contours traced, a text per job;
+   *   4. a render object for every mesh, a chunk per job — rendered into this
+   *      host's own (not yet shown) canvas with only the chunk visible, the
+   *      synchronous way three builds them (compileAsync never settles while
+   *      the page animates), and for the layer compositor's target too.
+   * Resolves when done; the first renderFrame(t) then builds nothing. Its
+   * canvas shows nothing until that frame redraws it whole.
+   */
+  async warmFirstFrame(t: number): Promise<void> {
+    this.warmEveryFrame = true
+    try {
+      await this.warmSync(t)
+      await this.warmJob(() => {
+        this.frameT = t
+        setLiveObserver(this.dream.observer)
+        this.dream.applyAt(t)
+        this.traceDeferred = true
+        try {
+          this.sync()
+        } finally {
+          this.traceDeferred = false
+        }
+      })
+      for (const { binding } of this.texts) {
+        // A long text's glyphs traced a slice per job; then the trace itself
+        // reads them all from the cache.
+        let more = true
+        while (more) await this.warmJob(() => void (more = binding.traceSlice(performance.now() + ThreeHost.WARM_JOB_MS)))
+        await this.warmJob(() => void binding.traceNow())
+      }
+      this.trackBuilt()
+      const cold: THREE.Mesh[] = []
+      this.scene.traverse((object) => {
+        const mesh = object as THREE.Mesh
+        if (mesh.isMesh && !this.built.has(mesh) && mesh.layers.test(this.camera.layers)) cold.push(mesh)
+      })
+      // Pipelines first, asynchronously: this host has its own device, so
+      // every pipeline is new to it, and a render compiles them on the spot
+      // (~0.5 s in one frame). One mesh per material and attribute layout,
+      // through compileAsync, whose pipeline builds are async.
+      const reps = new Map<string, THREE.Mesh>()
+      for (const mesh of cold) {
+        const material = mesh.material as THREE.Material
+        const key = `${material.uuid}|${Object.keys(mesh.geometry.attributes).sort().join(",")}`
+        if (!reps.has(key)) reps.set(key, mesh)
+      }
+      await this.warmJob(() => this.warmMeshes([...reps.values()]))
+      while (cold.length > 0) {
+        await this.warmJob(() => {
+          const until = performance.now() + ThreeHost.WARM_JOB_MS
+          const chunk: THREE.Mesh[] = []
+          while (cold.length > 0 && (chunk.length === 0 || performance.now() < until) && chunk.length < 64) {
+            const mesh = cold.pop()!
+            if (!this.built.has(mesh) && mesh.parent) chunk.push(mesh)
+          }
+          if (chunk.length > 0) this.renderOnly(chunk)
+        })
+      }
+    } finally {
+      this.warmEveryFrame = false
+    }
+  }
+
+  /** Run one job on the warm queue and resolve when it (and its promise) is done. */
+  private warmJob(job: () => Promise<void> | void): Promise<void> {
+    return new Promise<void>((resolve) =>
+      this.enqueueWarm(() => {
+        let result: Promise<void> | void
+        try {
+          result = job()
+        } catch {
+          result = undefined
+        }
+        // A compile that never settles (compileAsync while the page animates)
+        // must not hold the preparation: WARM_JOB_WAIT_MS at most.
+        return Promise.race([Promise.resolve(result), new Promise<void>((r) => setTimeout(r, ThreeHost.WARM_JOB_WAIT_MS))])
+          .catch(() => {})
+          .finally(resolve)
+      }),
+    )
+  }
+
+  /**
+   * Render these meshes alone (all else hidden for the call, then given back)
+   * into this host's canvas and the compositor's target: three builds their
+   * render objects synchronously. Only for a host whose canvas is not shown
+   * yet — its first real frame redraws everything.
+   */
+  private renderOnly(meshes: readonly THREE.Mesh[]): void {
+    const was = new Map<THREE.Object3D, boolean>()
+    const previous = this.renderer.getRenderTarget()
+    try {
+      this.scene.traverse((object) => {
+        if (object === this.scene) return
+        was.set(object, object.visible)
+        object.visible = false
+      })
+      for (const mesh of meshes) {
+        for (let o: THREE.Object3D | null = mesh; o && o !== this.scene; o = o.parent) o.visible = true
+      }
+      void this.renderer.render(this.scene, this.camera)
+      const compositor = (this.compositor ??= new LayerCompositor(4)) as unknown as { target?: THREE.RenderTarget }
+      if (compositor.target) {
+        this.renderer.setRenderTarget(compositor.target)
+        void this.renderer.render(this.scene, this.camera)
+      }
+    } finally {
+      this.renderer.setRenderTarget(previous)
+      for (const [object, visible] of was) object.visible = visible
+    }
+  }
+
+  /** Preparing a first frame: warm jobs run one per animation frame (warmFirstFrame). */
+  private warmEveryFrame = false
+  /** sync() leaves Text tracing to later jobs (warmFirstFrame step 2). */
+  private traceDeferred = false
+
+  /**
    * Queue background work (warming a level ahead, building what a recall
    * will show) on the host's ONE warm queue: it runs one job at a time, only
    * in idle time and never while anything moves (input, t, camera,
@@ -1631,6 +1771,26 @@ export class ThreeHost {
     if (this.warmPumping) return
     this.warmPumping = true
     const step = (timeLeft: number) => {
+      // A host PREPARING ITS FIRST FRAME (warmFirstFrame — a hidden level
+      // built while another scene plays) never sees idle time on such a page:
+      // its jobs run one per animation frame, just after it, each ≤ WARM_JOB_MS.
+      if (this.warmEveryFrame) {
+        const job = this.warmJobs.shift()
+        if (!job) {
+          this.warmPumping = false
+          this.warmDrained?.()
+          this.warmDrained = undefined
+          return
+        }
+        let result: Promise<void> | void
+        try {
+          result = job()
+        } catch {
+          result = undefined
+        }
+        void Promise.resolve(result).finally(() => afterFrame(step))
+        return
+      }
       // STARVED: a scene that animates every frame (free play, a playing
       // song) never leaves WARM_MIN_IDLE_MS idle, and the queue grew without
       // end (ValueFlow: 87 jobs after 20 s; ⌥8 then built ~1.9k render
@@ -2502,7 +2662,7 @@ export class ThreeHost {
       // the contour in is a reading of this frame's projection.
       for (const { binding, group, holon } of this.texts) {
         if (this.asleep(holon)) continue
-        binding.sync(1 / this.unitsPerPixelAt(group, ORIGIN), this.frameT)
+        binding.sync(1 / this.unitsPerPixelAt(group, ORIGIN), this.frameT, !this.traceDeferred)
       }
       // Uncertainty's echoes: offsets in pixels, so after the settle.
       for (const { blur, group } of this.superpositions) {

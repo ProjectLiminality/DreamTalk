@@ -706,6 +706,40 @@ export const forgetMovingRetrace = (id: number): void => {
 }
 let nextTextId = 0
 
+/**
+ * Warm the trace caches (glyphRings, glyphInsets) for glyphs from `from`
+ * on, stopping once `until` (performance.now()) has passed after at least one
+ * glyph — so a host preparing a hidden frame can trace a long text in slices,
+ * and the final buildOutlines then reads every glyph from the cache. Returns
+ * the next glyph to warm, or -1 when every glyph is warm.
+ */
+const warmOutlines = (
+  geometry: THREE.BufferGeometry,
+  strokePx: number,
+  pixelsPerUnit: number,
+  from: number,
+  until: number,
+): number => {
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute
+  const glyphIndex = geometry.getAttribute("glyphIndex") as THREE.BufferAttribute | undefined
+  const index = geometry.getIndex()
+  if (!glyphIndex || !index) return -1
+  const positions = position.array as ArrayLike<number>
+  const indices = index.array as ArrayLike<number>
+  let glyphCount = 0
+  for (let i = 0; i < glyphIndex.count; i++) {
+    const g = glyphIndex.getX(i)
+    if (g + 1 > glyphCount) glyphCount = g + 1
+  }
+  const geoKey = geometryKey(position, indices, glyphIndex)
+  const inset = strokePx / 2 / Math.max(pixelsPerUnit, 1e-6)
+  for (let g = from; g < glyphCount; g++) {
+    glyphInsets(geoKey, g, glyphRings(geoKey, positions, indices, glyphIndex, g), inset)
+    if (performance.now() >= until && g + 1 < glyphCount) return g + 1
+  }
+  return -1
+}
+
 const buildOutlines = (
   geometry: THREE.BufferGeometry,
   strokePx: number,
@@ -838,7 +872,7 @@ export interface TextBinding {
    * frame is the same pixels as before. Without `t`, every bucket change
    * retraces at once, as before.
    */
-  sync(pixelsPerUnit?: number, t?: number): void
+  sync(pixelsPerUnit?: number, t?: number, trace?: boolean): void
   /**
    * Trace the contours NOW if this text is mounted but unseen and its last
    * sync's scale has none traced — the host's idle warm-up, so the frame it
@@ -848,6 +882,17 @@ export interface TextBinding {
    * text's own, zero, opacity) until it is seen. True if it traced.
    */
   pretrace(): boolean
+  /**
+   * Trace the contours now at the last sync's scale if they are not traced
+   * there yet, seen or not (legibility cut respected) — a host preparing
+   * its first frame in slices (ThreeHost.warmFirstFrame). True if it traced.
+   */
+  traceNow(): boolean
+  /**
+   * Ahead of traceNow: warm its glyph traces in a slice that stops at `until`
+   * (performance.now()). False once there is nothing left to warm.
+   */
+  traceSlice(until: number): boolean
   /** The group its glyphs and contours live in (the warm-up compiles it). */
   readonly group: THREE.Object3D
   dispose(): void
@@ -1106,6 +1151,11 @@ export const attachText = (
   /** The last sync's projection scale and whether the text was seen then. */
   let lastPpu = Number.NaN
   let lastSeen = false
+  let lastOpacity = 0
+  /** traceSlice's progress: the bucket and geometry it warms, and the next glyph (-1: all warm). */
+  let warmedFor = Number.NaN
+  let warmedGeometry: THREE.BufferGeometry | undefined
+  let warmedNext = 0
   let lastT = Number.NaN
   let layoutToken = 0
   let disposed = false
@@ -1228,17 +1278,34 @@ export const attachText = (
     ready,
     group,
     pretrace(): boolean {
-      if (disposed || !mesh || lastSeen || !Number.isFinite(lastBucket)) return false
+      if (lastSeen) return false
+      return this.traceNow()
+    },
+    traceSlice(until: number): boolean {
+      if (disposed || !mesh || !Number.isFinite(lastBucket)) return false
+      if (!outlinesStale && insetBucket === lastBucket) return false
+      if (holon.lod && legibility(holon.size.value, lastPpu) <= 0) return false
+      if (warmedFor !== lastBucket || warmedGeometry !== mesh.geometry) {
+        warmedFor = lastBucket
+        warmedGeometry = mesh.geometry
+        warmedNext = 0
+      }
+      if (warmedNext < 0) return false
+      warmedNext = warmOutlines(mesh.geometry, holon.stroke.value, insetScaleOf(lastBucket), warmedNext, until)
+      return warmedNext >= 0
+    },
+    traceNow(): boolean {
+      if (disposed || !mesh || !Number.isFinite(lastBucket)) return false
       if (!outlinesStale && insetBucket === lastBucket) return false
       if (holon.lod && legibility(holon.size.value, lastPpu) <= 0) return false
       insetBucket = lastBucket
       insetScale = insetScaleOf(lastBucket)
       outlinesStale = false
       rebuildOutlines()
-      syncOutlines(outlines, holon, 0)
+      syncOutlines(outlines, holon, lastSeen ? lastOpacity : 0)
       return true
     },
-    sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT, t?: number): void {
+    sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT, t?: number, trace = true): void {
       if (layoutKey(holon) !== currentKey) void relayout()
       // Seen opacity: its own fade times its inherited certainty
       // (certainty.ts), times its legibility at this scale (TEXT_LEGIBLE_CAP_PX).
@@ -1267,11 +1334,12 @@ export const attachText = (
       lastBucket = bucket
       lastPpu = pixelsPerUnit
       lastSeen = seenNow
+      lastOpacity = opacity
       lastT = t ?? Number.NaN
       noteTextSync()
       // Kept stale this frame: make sure a stop here still settles.
       if (mesh && !due && seenNow && bucket !== insetBucket) requestOutlineSettle()
-      if (mesh && due) {
+      if (mesh && due && trace) {
         insetBucket = bucket
         insetScale = insetScaleOf(bucket)
         outlinesStale = false
