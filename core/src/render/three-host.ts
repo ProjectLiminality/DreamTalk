@@ -1530,6 +1530,18 @@ export class ThreeHost {
   /** When the last input, camera move or change of t happened (performance.now()). */
   private lastActivity = 0
   private activityWatched = false
+  /**
+   * Queue background work (warming a level ahead, building what a recall
+   * will show) on the host's ONE warm queue: it runs one job at a time, only
+   * in idle time and never while anything moves (input, t, camera,
+   * dissolve). A job should take a few ms of main thread and return the
+   * promise of whatever it leaves running; heavier work splits itself and
+   * queues the rest.
+   */
+  queueWarm(job: () => Promise<void> | void): void {
+    this.enqueueWarm(job)
+  }
+
   private enqueueWarm(job: () => Promise<void> | void): void {
     this.warmJobs.push(job)
     if (!this.warmDrained) {
