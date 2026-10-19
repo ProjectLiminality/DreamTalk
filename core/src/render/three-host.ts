@@ -1368,6 +1368,12 @@ export class ThreeHost {
       residency?: boolean
       /** The song time the first frame will show — the chapters resident there are mounted before ready. */
       at?: number
+      /**
+       * Attach in slices on the idle warm queue (≤ WARM_JOB_MS each) instead
+       * of in one task — for a host built ahead in the background (a nested
+       * level warmed while another scene plays). Resolves when whole.
+       */
+      sliced?: boolean
     } = {},
   ): Promise<ThreeHost> {
     await Promise.resolve() // keep the signature async-stable
@@ -1390,7 +1396,8 @@ export class ThreeHost {
     await host.renderer.init()
     host.renderer.setSize(canvas.clientWidth || canvas.width, canvas.clientHeight || canvas.height, false)
     if (residency) return host.mountResident(residency, opts.at ?? 0)
-    for (const root of dream.roots) host.attach(root, host.scene)
+    if (opts.sliced) await host.attachSliced(dream.roots)
+    else for (const root of dream.roots) host.attach(root, host.scene)
     // Clips (src/clip.ts): their ink switches to clipped materials; a batch
     // draws with one material, so a scene with clipped strokes renders them
     // as themselves.
@@ -1530,6 +1537,77 @@ export class ThreeHost {
   /** When the last input, camera move or change of t happened (performance.now()). */
   private lastActivity = 0
   private activityWatched = false
+  /**
+   * Attach `roots` depth-first off a queue, ≤ WARM_JOB_MS of main thread per
+   * warm job — the same order as attach()'s own recursion (residency's
+   * chapter slices use the same queue), so the bindings and composite
+   * orders are those of a whole mount.
+   */
+  private attachSliced(roots: readonly Holon[]): Promise<void> {
+    const queue: [Holon, THREE.Object3D, Holon][] = []
+    let next = 0
+    return new Promise<void>((resolve) => {
+      const job = () => {
+        const until = performance.now() + ThreeHost.WARM_JOB_MS
+        this.attachQueue = queue
+        try {
+          withChainMemo(() => {
+            for (let n = 1; queue.length > 0 || next < roots.length; n++) {
+              if (queue.length === 0) {
+                const root = roots[next++]!
+                queue.push([root, this.scene, root])
+              }
+              const [holon, parent, root] = queue.pop()!
+              this.attach(holon, parent, root)
+              if ((n & 15) === 0 && performance.now() >= until) break
+            }
+          })
+        } finally {
+          this.attachQueue = undefined
+        }
+        if (queue.length > 0 || next < roots.length) this.queueWarm(job)
+        else resolve()
+      }
+      this.queueWarm(job)
+    })
+  }
+
+  /**
+   * The first sync's GEOMETRY, ahead and in warm-queue slices: every
+   * stroke's polyline (a derived one computed) and ribbon, at time `t` —
+   * exactly the reshape the first renderFrame(t) would do, so that frame
+   * only styles and draws. For a host built in the background. Resolves when
+   * done; nothing is drawn.
+   */
+  warmSync(t: number): Promise<void> {
+    setLiveObserver(this.dream.observer)
+    this.dream.applyAt(t)
+    let i = 0
+    const strokes = this.strokes
+    return new Promise<void>((resolve) => {
+      const job = () => {
+        setLiveObserver(this.dream.observer)
+        const until = performance.now() + ThreeHost.WARM_JOB_MS
+        let did = 0
+        while (i < strokes.length && (did++ === 0 || performance.now() < until)) {
+          const binding = strokes[i++]!
+          const { holon, ribbon, look } = binding
+          if (look.opacity.value > 0 && look.stroke.value > 0 && sigChanged(holon, binding.sig)) {
+            const pts = polyline(holon)
+            if (pts || holon instanceof Line) {
+              ribbon.setPoints(pts ?? [])
+              this.blurOf.get(ribbon)?.setPoints(pts ?? [])
+              this.noteReshaped(binding)
+            }
+          }
+        }
+        if (i < strokes.length) this.queueWarm(job)
+        else resolve()
+      }
+      this.queueWarm(job)
+    })
+  }
+
   /**
    * Queue background work (warming a level ahead, building what a recall
    * will show) on the host's ONE warm queue: it runs one job at a time, only
