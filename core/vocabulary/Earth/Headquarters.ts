@@ -14,7 +14,8 @@
  * observer's view.
  */
 
-import { Line, type Vec3Like } from "../../src/parts/primitives"
+import type { Vec3Like } from "../../src/parts/primitives"
+import { Polylines } from "../../src/parts/polylines"
 import { color, length } from "../../src/params"
 import { WHITE } from "../../src/constants"
 import { BODY, Building, prism, rect, type FaceLine } from "./prism"
@@ -42,6 +43,7 @@ export class Headquarters extends Building {
     const towerH = w * TOWER_H
     const shapes = [prism(this, rect(w, podiumH), w * 0.7, ink), prism(this, rect(towerW, towerH), towerW, ink, { x: 0, y: podiumH, z: 0 })]
     const floorLines: FaceLine[] = []
+    const floorRings: Vec3Like[][] = []
     // A ring round the tower's faces at every floor.
     const n = Math.max(0, Math.round(this.floors.value))
     const t = towerW / 2
@@ -54,11 +56,13 @@ export class Headquarters extends Building {
         { x: -t, y, z: -t },
         { x: -t, y, z: t },
       ]
-      this.add(new Line({ tint: this.tint, stroke: this.stroke.times(0.6), points: ring }))
+      floorRings.push(ring)
       // Each side of the ring lies on one face of the tower.
       const normals = [{ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: -1, y: 0, z: 0 }]
       normals.forEach((normal, i) => floorLines.push({ points: [ring[i]!, ring[i + 1]!], normal }))
     }
     this.shape(shapes, floorLines)
+    // The floors: one thinner pen, one stroke for them all.
+    if (floorRings.length) this.add(new Polylines({ tint: this.tint, stroke: this.stroke.times(0.6), loops: floorRings }))
   }
 }

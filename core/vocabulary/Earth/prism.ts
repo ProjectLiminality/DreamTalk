@@ -8,6 +8,8 @@
  * body is a black solid `Surface` that writes depth (parts/surface.ts), so
  * the edges on its far side vanish behind its own near faces at any angle
  * the camera takes, and whatever stands behind the building is covered.
+ * The ink of every prism of a `Building` is ONE `Polylines` (one mesh, one
+ * draw) — a fleet of buildings is a few dozen strokes, not thousands.
  *
  * The body is INSET a little toward its centre: an edge drawn exactly on a
  * face would fight that face for depth (a ribbon's quad carries its line's
@@ -18,7 +20,8 @@
 import { ShapeUtils, Vector2 } from "three/webgpu"
 import type { Observer } from "../../src/dream"
 import type { Holon } from "../../src/holon"
-import { Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Null, type Vec3Like } from "../../src/parts/primitives"
+import { Polylines } from "../../src/parts/polylines"
 import { Surface } from "../../src/parts/surface"
 import { rgb } from "../../src/constants"
 import { paramEpoch } from "../../src/params"
@@ -88,27 +91,30 @@ export const prism = (
   body.positions = new Float32Array(positions)
   body.indices = new Uint32Array(indices)
 
-  const style = { tint: ink.tint, stroke: ink.stroke }
+  const loops: Vec3Like[][] = []
   const edges: Segment[] = []
   for (const z of [z1, z0]) {
     const loop = [...profile.map((p) => at(p, z)), at(profile[0]!, z)]
-    add(new Line({ ...style, points: loop }))
+    loops.push(loop)
     for (let i = 1; i < loop.length; i++) edges.push([loop[i - 1]!, loop[i]!])
   }
   for (const p of profile) {
-    add(new Line({ ...style, points: [at(p, z1), at(p, z0)] }))
+    loops.push([at(p, z1), at(p, z0)])
     edges.push([at(p, z1), at(p, z0)])
   }
   const triangles = Array.from({ length: indices.length / 3 }, (_, t): Tri => [indices[3 * t]!, indices[3 * t + 1]!, indices[3 * t + 2]!])
-  return { mesh: { kind: "mesh", ...subdivide([z0, z1].flatMap((z) => profile.map((p) => at(p, z))), triangles, 3) }, edges }
+  return { mesh: { kind: "mesh", ...subdivide([z0, z1].flatMap((z) => profile.map((p) => at(p, z))), triangles, 3) }, edges, loops, ink }
 }
 
 type Segment = readonly [Vec3Like, Vec3Like]
 
-/** A prism as hidden-line removal sees it: its closed mesh and the edges drawn on it. */
+/** A prism as hidden-line removal sees it (its closed mesh, its edges), and its ink (loops + pen). */
 export interface PrismShape {
   mesh: MeshSolid
   edges: Segment[]
+  /** The edges as polylines: the two profile loops and the ribs — what `Building.shape` inks. */
+  loops: Vec3Like[][]
+  ink: Ink
 }
 
 /** A line lying ON a face (outward `normal`): seen where that face faces the eye and nothing hides it. */
@@ -136,11 +142,21 @@ export class Building extends Null {
   private shapeVersion = 0
   private curves?: { epoch: number; key: number[]; curves: Vec3Like[][] }
 
-  /** State what the building is made of (call from compose). */
+  /**
+   * State what the building is made of (call from compose, after its
+   * prisms): inks them as ONE Polylines per pen (tint + stroke).
+   */
   protected shape(shapes: PrismShape[], faceLines: FaceLine[] = []): void {
     this.shapes = shapes
     this.faceLines = faceLines
     this.shapeVersion++
+    const pens: { tint: unknown; stroke: unknown; loops: Vec3Like[][] }[] = []
+    for (const s of shapes) {
+      const pen = pens.find((p) => p.tint === s.ink.tint && p.stroke === s.ink.stroke)
+      if (pen) pen.loops.push(...s.loops)
+      else pens.push({ tint: s.ink.tint, stroke: s.ink.stroke, loops: [...s.loops] })
+    }
+    for (const { tint, stroke, loops } of pens) this.attach(new Polylines({ tint, stroke, loops }))
   }
 
   private view(): View {

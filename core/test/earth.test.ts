@@ -37,7 +37,9 @@ import { Factory } from "../vocabulary/Earth/Factory"
 import { Headquarters } from "../vocabulary/Earth/Headquarters"
 import { MOCK_SITES } from "../vocabulary/Earth/mockSites"
 import { Surface } from "../src/parts/surface"
-import { Group } from "../src/parts/primitives"
+import { Group, Line } from "../src/parts/primitives"
+import { Polylines } from "../src/parts/polylines"
+import type { Holon } from "../src/holon"
 import { Observer } from "../src/dream"
 import { derive } from "../src/params"
 import { WHITE } from "../src/constants"
@@ -353,6 +355,19 @@ describe("Place", () => {
     expect(near({ x: 50, y: 0, z: -30 })).toBeGreaterThan(5)
     // The same frame asks again: the same array (memoised).
     expect(f.worldCurves()).toBe(curves)
+  })
+
+  test("a building's ink is ONE Polylines per pen (a fleet of buildings is a few strokes, not thousands)", () => {
+    const strokes = (h: Holon) => h.parts.filter((p) => p instanceof Line || p instanceof Polylines)
+    const f = new Factory({ size: 100 })
+    void f.parts
+    expect(strokes(f).map((p) => p.constructor.name)).toEqual(["Polylines"])
+    expect((strokes(f)[0] as Polylines).loops.length).toBe(2 + 9)
+    const hq = new Headquarters({ size: 100, floors: 4 })
+    void hq.parts
+    // Both prisms' edges in one; the thinner floor rings in another.
+    expect(strokes(hq).map((p) => p.constructor.name)).toEqual(["Polylines", "Polylines"])
+    expect((strokes(hq)[1] as Polylines).loops.length).toBe(3)
   })
 
   test("a Headquarters' worldCurves: visible edges of both prisms and the floor lines on the faces it shows", () => {
