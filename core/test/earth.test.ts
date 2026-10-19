@@ -267,18 +267,22 @@ describe("Earth", () => {
   // Composed here, not by whichever test happens to run first.
   const earth = new Earth({ radius: 400 })
   void earth.parts
-  test("one object: ground, occluder, land sheets, ~2,000 surface strokes", () => {
+  test("one object: ground, occluder, land sheets, ~2,000 surface strokes in one stroke per pen", () => {
     void earth.parts
     expect(earth.ball).toBeInstanceOf(Surface)
     expect(earth.ball.solid.value).toBe(true)
     expect(earth.horizon.solid.value).toBe(true)
     expect(earth.landSheets.length).toBeGreaterThan(3)
-    expect(earth.coastLines.length).toBeGreaterThan(1000)
-    expect(earth.borderLines.length).toBe(393)
+    expect(earth.coastLines).toBeInstanceOf(Polylines)
+    expect(earth.coastLines!.loops.length).toBeGreaterThan(1000)
+    expect(earth.borderLines!.loops.length).toBe(393)
+    // Each loop its own opacity (rank, size), each its own pen front.
+    expect(earth.coastLines!.loopOpacity!().length).toBe(earth.coastLines!.loops.length)
+    expect(earth.coastLines!.penPerLoop).toBe(true)
   })
   test("strokes lie on the sphere", () => {
-    for (const line of earth.coastLines.slice(0, 100)) {
-      for (const p of line.points) expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(400, 6)
+    for (const loop of earth.coastLines!.loops.slice(0, 100)) {
+      for (const p of loop) expect(Math.hypot(p.x, p.y, p.z)).toBeCloseTo(400, 6)
     }
   })
   test("the horizon disc stands from the default eye, and follows the observer once told", () => {
@@ -640,12 +644,12 @@ describe("the Earth under a parent", () => {
     void parent.parts
     void earth.parts
     // Every shoreline's outline, as the gauge rates it.
-    const tiny = earth.coastLines
+    const tiny = earth.coastLines!
     earth.detail.value = 10
     parent.scale.value = 0.5
-    const before = tiny.map((l) => l.opacity.value)
+    const before = Array.from(tiny.loopOpacity!())
     parent.scale.value = 2 // four times bigger on screen: more outlines earn their pen
-    const after = tiny.map((l) => l.opacity.value)
+    const after = Array.from(tiny.loopOpacity!())
     expect(after.reduce((a, b) => a + b, 0)).toBeGreaterThan(before.reduce((a, b) => a + b, 0))
   })
 })
@@ -722,7 +726,7 @@ describe("data layers", () => {
     expect(de.fillOpacity.value).toBeCloseTo(GHOST_FLOOR, 9) // DE has no value in period 1
     // Composited under the strokes: the layer sits before the stroke group.
     const parts = earth.parts
-    expect(parts.indexOf(map)).toBeLessThan(parts.findIndex((p) => p === earth.coastLines[0]!.parent))
+    expect(parts.indexOf(map)).toBeLessThan(parts.findIndex((p) => p === earth.coastLines!.parent))
   })
   test("point data: one Place per row; a column's height is the value's share of the maximum", () => {
     const pts = new PointData({ rows: [{ lat: 48, lon: 16, values: [10, 20] }, { lat: 50, lon: 8, values: 5 }], size: 40 })

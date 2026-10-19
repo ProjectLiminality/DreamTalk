@@ -87,6 +87,7 @@
 import { Euler, Matrix4, Vector3 } from "three/webgpu"
 import { Holon, type Overrides } from "../../src/holon"
 import { derivePoints, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { Polylines } from "../../src/parts/polylines"
 import { Surface } from "../../src/parts/surface"
 import { color, completion, derive, length, paramEpoch, scalar } from "../../src/params"
 import { together, type Anim } from "../../src/anim"
@@ -554,12 +555,19 @@ export class Earth extends Null {
   horizon!: Surface
   limb!: Line
   landSheets: Surface[] = []
-  coastLines: Line[] = []
-  borderLines: Line[] = []
-  graticuleLines: Line[] = []
+  /**
+   * The line work, ONE Polylines per pen (one mesh each, not one per
+   * feature): every feature a loop, faded by its own detail rank (and a
+   * shoreline by its size on screen) through `loopOpacity`, drawn on by
+   * its pen's `…Draw` param loop by loop (`penPerLoop`). Undefined without
+   * `mapLines`.
+   */
+  coastLines: Polylines | undefined
+  borderLines: Polylines | undefined
+  graticuleLines: Polylines | undefined
   lakeSheets: Surface[] = []
-  lakeShores: Line[] = []
-  riverLines: Line[] = []
+  lakeShores: Polylines | undefined
+  riverLines: Polylines | undefined
   nightSheets: Surface[] = []
   terminator!: Line
   atmosphereRings: Line[] = []
@@ -681,64 +689,59 @@ export class Earth extends Null {
     const strokes = new Null()
     this.add(strokes)
     if (this.mapLines) {
+      const detail = this.detail
+      /** One pen's features as one stroke: each loop faded by `alpha(i)` (its rank, its size). */
+      const pen = <G extends { points: Vec3[] }>(
+        lines: readonly G[],
+        style: { tint: unknown; stroke: unknown; creation?: unknown; opacity: unknown },
+        alpha: (g: G) => number,
+      ): Polylines => {
+        const alphas = new Float32Array(lines.length)
+        return addTo(
+          strokes,
+          new Polylines({
+            ...style,
+            loops: lines.map((g) => scaled(g.points, r)),
+            penPerLoop: true,
+            loopOpacity: () => {
+              for (let i = 0; i < lines.length; i++) alphas[i] = alpha(lines[i]!)
+              return alphas
+            },
+          }),
+        )
+      }
       // The graticule lies under every other stroke.
-      for (const g of graticuleLines(this.graticuleStep)) {
-        this.graticuleLines.push(
-          addTo(
-            strokes,
-            new Line({
-              points: scaled(g.points, r),
-              tint: this.graticuleTint,
-              stroke: this.graticuleStroke,
-              opacity: derive(() => this.graticuleOpacity.value * lod(g.rank, this.detail.value)),
-            }),
-          ),
-        )
-      }
+      this.graticuleLines = pen(
+        graticuleLines(this.graticuleStep),
+        { tint: this.graticuleTint, stroke: this.graticuleStroke, opacity: this.graticuleOpacity },
+        (g) => lod(g.rank, detail.value),
+      )
       const fineness = this.finenessGauge()
-      const lineOf = (g: GeoLine, kind: "coast" | "border"): Line => {
-        const coast = kind === "coast"
-        const presence = coast ? this.coastOpacity : this.borderOpacity
-        return new Line({
-          points: scaled(g.points, r),
-          tint: coast ? this.coastTint : this.borderTint,
-          stroke: coast ? this.coastStroke : this.borderStroke,
-          creation: coast ? this.coastDraw : this.borderDraw,
-          opacity: derive(
-            () => presence.value * lod(g.rank, this.detail.value) * (coast ? fineness(g.width) : 1),
-          ),
-        })
-      }
-      for (const g of geo.coast) this.coastLines.push(addTo(strokes, lineOf(g, "coast")))
-      for (const g of lakes.shores) {
-        this.lakeShores.push(
-          addTo(
-            strokes,
-            new Line({
-              points: scaled(g.points, r),
-              tint: this.coastTint,
-              stroke: this.coastStroke,
-              creation: this.coastDraw,
-              opacity: derive(() => this.lakeOpacity.value * this.coastOpacity.value * lod(g.rank, this.detail.value)),
-            }),
-          ),
-        )
-      }
-      for (const g of riverGeometry(region)) {
-        this.riverLines.push(
-          addTo(
-            strokes,
-            new Line({
-              points: scaled(g.points, r),
-              tint: this.riverTint,
-              stroke: this.riverStroke,
-              creation: this.riverDraw,
-              opacity: derive(() => this.riverOpacity.value * lod(g.rank, this.detail.value)),
-            }),
-          ),
-        )
-      }
-      for (const g of geo.borders) this.borderLines.push(addTo(strokes, lineOf(g, "border")))
+      this.coastLines = pen(
+        geo.coast,
+        { tint: this.coastTint, stroke: this.coastStroke, creation: this.coastDraw, opacity: this.coastOpacity },
+        (g) => lod(g.rank, detail.value) * fineness(g.width),
+      )
+      this.lakeShores = pen(
+        lakes.shores,
+        {
+          tint: this.coastTint,
+          stroke: this.coastStroke,
+          creation: this.coastDraw,
+          opacity: derive(() => this.lakeOpacity.value * this.coastOpacity.value),
+        },
+        (g) => lod(g.rank, detail.value),
+      )
+      this.riverLines = pen(
+        riverGeometry(region),
+        { tint: this.riverTint, stroke: this.riverStroke, creation: this.riverDraw, opacity: this.riverOpacity },
+        (g) => lod(g.rank, detail.value),
+      )
+      this.borderLines = pen(
+        geo.borders,
+        { tint: this.borderTint, stroke: this.borderStroke, creation: this.borderDraw, opacity: this.borderOpacity },
+        (g) => lod(g.rank, detail.value),
+      )
     }
     this.terminator = addTo(
       strokes,
