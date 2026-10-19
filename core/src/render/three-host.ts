@@ -1034,9 +1034,14 @@ const liftTint = (tint: Color, amount: number): Color =>
  * with a conservative budget.
  */
 const whenIdle = (fn: (timeLeft: number) => void): void => {
-  const ric = (globalThis as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void) => number })
-    .requestIdleCallback
-  if (ric) ric((d) => fn(d.timeRemaining()))
+  const ric = (globalThis as {
+    requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void, o?: { timeout: number }) => number
+  }).requestIdleCallback
+  // With a timeout: a page that renders every frame (free play, playback)
+  // gets NO idle period at all, and an idle callback without one never ran —
+  // the warm queue only grew. Called late, it reads 0 ms left (the warm
+  // pump's starvation rule decides what then may run).
+  if (ric) ric((d) => fn(d.timeRemaining()), { timeout: 250 })
   else setTimeout(() => fn(4), 50)
 }
 
@@ -1444,10 +1449,19 @@ export class ThreeHost {
     if (this.warmPumping) return
     this.warmPumping = true
     const step = (timeLeft: number) => {
-      if (performance.now() - this.lastActivity < ThreeHost.WARM_QUIET_MS || timeLeft < ThreeHost.WARM_MIN_IDLE_MS) {
+      // STARVED: a scene that animates every frame (free play, a playing
+      // song) never leaves WARM_MIN_IDLE_MS idle, and the queue grew without
+      // end (ValueFlow: 87 jobs after 20 s; ⌥8 then built ~1.9k render
+      // objects in its frame). Once nothing has run for WARM_STARVE_MS, a
+      // job runs in whatever idle the frame leaves — one small job, then
+      // the wait again.
+      const now = performance.now()
+      const starved = now - this.warmProgressAt > ThreeHost.WARM_STARVE_MS
+      if (now - this.lastActivity < ThreeHost.WARM_QUIET_MS || (timeLeft < ThreeHost.WARM_MIN_IDLE_MS && !starved)) {
         whenIdle(step)
         return
       }
+      this.warmProgressAt = now
       const job = this.warmJobs.shift()
       if (!job) {
         this.warmPumping = false
@@ -1461,7 +1475,17 @@ export class ThreeHost {
       } catch {
         result = undefined
       }
-      void Promise.resolve(result).finally(() => whenIdle(step))
+      // A job's compile may never settle (three's async pipeline build for an
+      // object released meanwhile): the pump waits for it WARM_JOB_WAIT_MS at
+      // most, or one stuck promise stalls every warm-up after it for good.
+      let next = false
+      const go = () => {
+        if (next) return
+        next = true
+        whenIdle(step)
+      }
+      void Promise.resolve(result).finally(go)
+      setTimeout(go, ThreeHost.WARM_JOB_WAIT_MS)
     }
     whenIdle(step)
   }
@@ -1480,6 +1504,12 @@ export class ThreeHost {
 
   /** Quiet needed before warm-up resumes after any activity (ms). */
   static readonly WARM_QUIET_MS = 300
+  /** Longest the warm queue may wait for a roomy idle before one job runs anyway (ms). */
+  static readonly WARM_STARVE_MS = 250
+  /** Longest the warm pump waits for one job's compile before it goes on (ms). */
+  static readonly WARM_JOB_WAIT_MS = 1000
+  /** When a warm job last ran. */
+  private warmProgressAt = 0
   /** Idle time a warm job needs before the next frame is due (ms). */
   static readonly WARM_MIN_IDLE_MS = 8
   private lastWarmT = Number.NaN
