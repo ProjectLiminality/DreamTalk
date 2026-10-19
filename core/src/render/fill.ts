@@ -159,6 +159,26 @@ const sharedAlphaFillMaterial = (): THREE.MeshBasicNodeMaterial => {
 }
 
 /**
+ * The same with a per-VERTEX colour too (Surface `colors`): the tint times
+ * the vertex's `dtColor` attribute — many particles in their own colours
+ * as one mesh (DiscPool). The vertex colours are the tints' own values,
+ * read exactly as `style` hands a tint to the shared material.
+ */
+let sharedColorAlpha: THREE.MeshBasicNodeMaterial | undefined
+const sharedColorAlphaFillMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedColorAlpha) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = true
+    m.depthWrite = false
+    m.side = THREE.DoubleSide
+    m.colorNode = userData(FILL_KEYS.tint, "color").mul(attribute("dtColor", "vec3"))
+    m.opacityNode = userData(FILL_KEYS.fade, "float").mul(attribute("alpha", "float"))
+    sharedColorAlpha = m
+  }
+  return sharedColorAlpha
+}
+
+/**
  * The SOLID material (parts/surface.ts `solid`): opaque and depth-writing —
  * the one thing in the host that anything can be behind. It renders in
  * three's opaque pass, before every transparent stroke and fill, so they
@@ -361,15 +381,19 @@ export class FillShape {
    * xyz and triangle indices, taken as they are: a surface knows its own
    * triangulation, and a curved one has no plane to triangulate in.
    */
-  setMesh(positions: Float32Array, indices: Uint32Array, alphas?: Float32Array): void {
+  setMesh(positions: Float32Array, indices: Uint32Array, alphas?: Float32Array, colors?: Float32Array): void {
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     // Per-vertex opacity (Surface `alphas`): its own material, once, for a
     // sheet that carries them; a sheet that never does is untouched.
-    if (alphas) {
-      geometry.setAttribute("alpha", new THREE.BufferAttribute(alphas, 1))
-      if (this.mesh.material === sharedFillMaterial()) this.mesh.material = sharedAlphaFillMaterial()
+    if (alphas || colors) {
+      const vertices = positions.length / 3
+      geometry.setAttribute("alpha", new THREE.BufferAttribute(alphas ?? new Float32Array(vertices).fill(1), 1))
+      if (colors) geometry.setAttribute("dtColor", new THREE.BufferAttribute(colors, 3))
+      const m = this.mesh.material
+      if (colors && (m === sharedFillMaterial() || m === sharedAlphaFillMaterial())) this.mesh.material = sharedColorAlphaFillMaterial()
+      else if (!colors && m === sharedFillMaterial()) this.mesh.material = sharedAlphaFillMaterial()
     }
     this.mesh.geometry.dispose()
     this.mesh.geometry = geometry

@@ -1758,7 +1758,7 @@ export class ThreeHost {
       const gradient = !holon.solid.value && this.lightsRadially(holon, fill, true)
       // The version first: a DERIVED surface builds its arrays on that read.
       const version = holon.geomVersion
-      fill.setMesh(holon.positions, holon.indices, holon.alphas)
+      fill.setMesh(holon.positions, holon.indices, holon.alphas, holon.colors)
       group.add(fill.mesh)
       this.surfaces.push({ holon, fill, version, gradient })
     } else if (holon instanceof Polylines) {
@@ -2313,7 +2313,7 @@ export class ThreeHost {
       const { holon, fill } = binding
       if (holon.geomVersion !== binding.version) {
         binding.version = holon.geomVersion
-        fill.setMesh(holon.positions, holon.indices, holon.alphas)
+        fill.setMesh(holon.positions, holon.indices, holon.alphas, holon.colors)
       }
       // Seen opacity (certainty.ts): a Layer's presence fades the land as it does the strokes.
       fill.style(holon.fillOpacity.value * seenOf(holon).value, liftTint(holon.tint.value, this.highlightOf(holon)))

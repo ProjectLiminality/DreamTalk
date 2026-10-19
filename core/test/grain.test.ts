@@ -393,8 +393,9 @@ describe("DotPool — a flow's dots as one mesh", () => {
     const rim = Math.hypot(pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!)
     expect(rim).toBeCloseTo(10, 4)
     expect(pool.indices.length).toBe(2 * 48 * 3)
-    // The tint is the members' dot colour; past the morph start the dots are gone.
-    expect(pool.tint.value).toEqual(BLUE)
+    // Each disc's colour rides its vertices (the sheet's own tint is white); past the morph start the dots are gone.
+    const cols = pool.colors!
+    expect([cols[0], cols[1], cols[2]]).toEqual([BLUE.r, BLUE.g, BLUE.b].map((x) => Math.fround(x)))
     for (const g of grains) g.grain.value = 1.5
     expect(pool.positions.length).toBe(0)
   })

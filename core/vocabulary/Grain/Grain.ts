@@ -42,16 +42,15 @@
 import { WHITE, rgb, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Overrides } from "../../src/holon"
-import { certainty, certaintyOf, seenOpacity } from "../../src/certainty"
-import { Param, completion, derive, length, scalar, type Readable } from "../../src/params"
+import { certainty } from "../../src/certainty"
+import { Param, completion, derive, length, scalar } from "../../src/params"
 import { memoReads } from "../../src/params"
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
 import { rotHPB } from "../../src/parts/curves"
 import { Text } from "../../src/parts/text"
 import { Polylines, deriveLoops } from "../../src/parts/polylines"
-import { derivePoints, localView, toLocal, toWorld, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
-import { Surface } from "../../src/parts/surface"
-import { CLOUD_PX, ECHOES, echoBreath, echoOffset } from "../../src/render/superposition"
+import { derivePoints, localView, toWorld, viewOf, type SolidDrawing } from "../../src/parts/soliddrawing"
+import { DiscPool } from "../../src/parts/discpool"
 import { orthoHalfHeight } from "../../src/dream"
 import type { Holon } from "../../src/holon"
 import { solidBounds, type View } from "../../src/geometry/hiddenline"
@@ -114,7 +113,7 @@ export interface GrainOptions {
    * Draw the dot in a shared DotPool (one mesh for a whole flow's dots)
    * instead of a fill of its own. See DotPool.
    */
-  dots?: DotPool
+  dots?: DiscPool
   /** Rung 1: the category's colour (the symbol's `material`, if it has one). Default NEUTRAL. */
   category?: Color
   /** Rung 2: the type's symbol, built from the overrides that size and fade it. */
@@ -474,7 +473,13 @@ export class Grain extends Stroke {
 
     // The dot: a filled disc facing the viewer, in the colour of its rung —
     // its own fill, or one disc in a shared DotPool.
-    if (this.opts.dots) this.opts.dots.join(this)
+    if (this.opts.dots)
+      this.opts.dots.join(this, {
+        radius: () => this.radius.value,
+        tint: () => this.dotTint(),
+        fill: () => this.dotFill(),
+        snap: snapDirection,
+      })
     else {
       const dot = new Line({
         stroke: 0,
@@ -556,159 +561,11 @@ export class Grain extends Stroke {
 
 // ─── Many dots, one mesh ────────────────────────────────────────────
 
-/** A holon's scale in the world: the product of every scale up its chain. */
-const worldScale = (h: Holon): number => {
-  let s = 1
-  for (let n: Holon | undefined = h; n; n = n.parent) s *= Math.abs(n.scale.value)
-  return s
-}
-
-/** Disc vertices per dot (one centre + this many around). */
-const POOL_SEGMENTS = 48
-
 /**
- * DotPool — every dot of a flow as ONE fill mesh.
- *
- * A Grain's dot is a filled disc; a flow of hundreds of grains as hundreds
- * of fills is hundreds of draws. A DotPool is one Surface (a transparent
- * sheet) holding all its members' discs, each facing the camera at its
- * grain's place and size, each at its own opacity through the Surface's
- * per-vertex `alphas` — the grain's own seen opacity (its fade, the
- * presence and the certainty ghost of its whole chain, certainty.ts
- * seenOpacity) over the pool's (which the host already applies), times
- * its dot's fill (gone once the symbol morph starts).
- * The tint is the members' dot colour (a flow's grains share their rung
- * and category). A dot at zero is left out of the mesh.
- *
- * The discs are drawn in member order within the one mesh, so where two
- * dots of a flow overlap at partial opacity the later one composites over
- * the earlier — as their separate fills did, in attach order.
- *
- * An uncertain dot keeps its own PROBABILITY CLOUD: the host's echo
- * recipe (render/superposition.ts — ECHOES discs, each orbiting
- * CLOUD_PX·(1 − c) pixels off, a little larger, faint and breathing) is
- * drawn into the same mesh, right after its dot, at its own seed — so the
- * dots of a flow shimmer independently, as their separate fills did. The
- * cloud's clock is `time` (the flow's; scene seconds), 0 without one.
- *
- * Place it in a frame that holds the flow (FlowMap's Flow; a Stream's
- * parent) and hand it to each Grain as `dots`.
+ * DotPool — a flow's Grain dots as ONE fill mesh: the core DiscPool
+ * (src/parts/discpool.ts), which every particle population shares. Place
+ * it in the flow's frame and hand it to each Grain as `dots`; a Grain
+ * joins with its dot's look (camera-facing on the view grid, its rung's
+ * colour, its fill gone once the symbol morph starts).
  */
-export class DotPool extends Surface {
-  private crowd!: { grains: Grain[]; observer?: Observer; time?: Readable<number> }
-  // The seen-opacity readers (certainty.ts), made at the first build — the
-  // tree is final by then.
-  private seen?: { pool: Readable<number>; members: Map<Grain, Readable<number>> }
-
-  constructor(overrides: Overrides & { observer?: Observer; time?: Readable<number> } = {}) {
-    const { observer, time, ...rest } = overrides
-    super(rest)
-    this.crowd = { grains: [], observer, time }
-    this.tint.follow(derive(() => this.crowd.grains[0]?.dotTint() ?? NEUTRAL))
-    const now = memoReads(() => this.build())
-    let last: unknown
-    let version = 0
-    Object.defineProperty(this, "geomVersion", {
-      configurable: true,
-      get: () => {
-        const m = now()
-        if (m !== last) {
-          last = m
-          version++
-        }
-        return version
-      },
-      set() {},
-    })
-    Object.defineProperty(this, "positions", { configurable: true, get: () => now().positions, set() {} })
-    Object.defineProperty(this, "indices", { configurable: true, get: () => now().indices, set() {} })
-    Object.defineProperty(this, "alphas", { configurable: true, get: () => now().alphas, set() {} })
-  }
-
-  /** A grain's dot joins the pool (Grain does this for its `dots` option). */
-  join(g: Grain): void {
-    this.crowd.grains.push(g)
-  }
-
-  /** The members, in drawing order. */
-  get members(): readonly Grain[] {
-    return this.crowd.grains
-  }
-
-  private build(): { positions: Float32Array; indices: Uint32Array; alphas: Float32Array } {
-    const o = this.crowd.observer
-    const view = localView(this, o ? viewOf(o) : { eye: { x: 0, y: 0, z: 1500 } })
-    const scale = worldScale(this) || 1
-    // What the host already applies to the pool (its presence and the ghost
-    // of its certainty), divided out of each member's own seen opacity —
-    // so a dot carries exactly its grain's fade, presence (a fiber's focus)
-    // and certainty, however they differ along the flow.
-    this.seen ??= { pool: seenOpacity(this), members: new Map() }
-    const poolSeen = this.seen.pool.value
-    if (poolSeen <= 0) return { positions: new Float32Array(0), indices: new Uint32Array(0), alphas: new Float32Array(0) }
-    const seenOf = (g: Grain): number => {
-      let r = this.seen!.members.get(g)
-      if (!r) this.seen!.members.set(g, (r = seenOpacity(g)))
-      return r.value
-    }
-    const pos: number[] = []
-    const idx: number[] = []
-    const alpha: number[] = []
-    const n = POOL_SEGMENTS
-    const t = this.crowd.time?.value ?? 0
-    // Units per screen pixel in this frame (a 720-high frame, as Grain's LOD).
-    const upp = (c: Vec3Like): number => {
-      if (!o) return 1
-      if (o.orthographic.value) return (2 * orthoHalfHeight(o.zoom.value || 1, 16 / 9)) / 720 / scale
-      const v = viewOf(o)
-      if (!("eye" in v)) return 1
-      const p = toWorld(this, c)
-      const d = Math.hypot(v.eye.x - p.x, v.eye.y - p.y, v.eye.z - p.z)
-      return (2 * d * Math.tan(o.fov.value / 2)) / 720 / scale
-    }
-    const disc = (cx: number, cy: number, cz: number, u: Vec3Like, w: Vec3Like, r: number, a: number) => {
-      const base = pos.length / 3
-      pos.push(cx, cy, cz)
-      alpha.push(a)
-      for (let i = 0; i < n; i++) {
-        const th = (i / n) * 2 * Math.PI
-        const x = Math.cos(th) * r
-        const y = Math.sin(th) * r
-        pos.push(cx + u.x * x + w.x * y, cy + u.y * x + w.y * y, cz + u.z * x + w.z * y)
-        alpha.push(a)
-      }
-      for (let i = 0; i < n; i++) idx.push(base, base + 1 + i, base + 1 + ((i + 1) % n))
-    }
-    this.crowd.grains.forEach((g, gi) => {
-      const fill = g.dotFill()
-      if (fill <= 0) return
-      const sure = certaintyOf(g)
-      const a = (seenOf(g) * fill) / poolSeen
-      if (a <= 0) return
-      const c = toLocal(this, toWorld(g, { x: 0, y: 0, z: 0 }))
-      // Facing the viewer from the dot's own place (the grain's rule, in
-      // the pool's frame): u ⟂ up and the view, w up on screen.
-      const d = "eye" in view ? { x: view.eye.x - c.x, y: view.eye.y - c.y, z: view.eye.z - c.z } : view.toward
-      const l = Math.hypot(d.x, d.y, d.z) || 1
-      const k = snapDirection({ x: d.x / l, y: d.y / l, z: d.z / l })
-      let u = { x: k.z, y: 0, z: -k.x }
-      const lu = Math.hypot(u.x, u.z)
-      u = lu > 1e-6 ? { x: u.x / lu, y: 0, z: u.z / lu } : { x: 1, y: 0, z: 0 }
-      const w = { x: k.y * u.z - k.z * u.y, y: k.z * u.x - k.x * u.z, z: k.x * u.y - k.y * u.x }
-      const r = (g.radius.value * worldScale(g)) / scale
-      disc(c.x, c.y, c.z, u, w, r, a)
-      // Its probability cloud, right after it (superposition.ts's recipe).
-      const doubt = 1 - (sure <= 0 ? 0 : sure >= 1 ? 1 : sure)
-      if (doubt <= 0) return
-      const unit = upp(c)
-      const seed = gi + 1
-      for (let k = 0; k < ECHOES; k++) {
-        const off = echoOffset(k, seed, t, CLOUD_PX * doubt)
-        const ox = off.x * unit
-        const oy = off.y * unit
-        disc(c.x + u.x * ox + w.x * oy, c.y + u.y * ox + w.y * oy, c.z + u.z * ox + w.z * oy, u, w, r * (1 + 0.9 * doubt), a * doubt * 0.24 * echoBreath(k, seed, t))
-      }
-    })
-    return { positions: new Float32Array(pos), indices: new Uint32Array(idx), alphas: new Float32Array(alpha) }
-  }
-}
+export { DiscPool as DotPool }

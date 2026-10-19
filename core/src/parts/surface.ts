@@ -58,7 +58,7 @@ export class Surface extends Stroke {
   /** Washed by default — a surface IS its fill. */
   override fillOpacity = completion(1)
 
-  /** Bumped whenever `positions`/`indices`/`alphas` change (the host's dirty check). */
+  /** Bumped whenever `positions`/`indices`/`alphas`/`colors` change (the host's dirty check). */
   geomVersion = 0
 
   /** Flat xyz, local space. */
@@ -94,9 +94,22 @@ export class Surface extends Stroke {
     this.geomVersion++
   }
 
+  /**
+   * Optional: one colour per VERTEX (r, g, b, 0…1 each — the same values a
+   * tint takes), multiplying the wash's tint — many pieces in their own
+   * colours as one surface (DiscPool's particles). Unset = the tint alone.
+   */
+  get colors(): Float32Array | undefined {
+    return this[MESH].colors
+  }
+  set colors(c: Float32Array | undefined) {
+    this[MESH].colors = c
+    this.geomVersion++
+  }
+
   /** Symbol-keyed backing — a Proxy'd holon cannot reach #-private fields
    *  (holon.ts), and off `Object.keys` the field scan never sees it. */
-  [MESH]: { positions: Float32Array; indices: Uint32Array; alphas?: Float32Array } = {
+  [MESH]: { positions: Float32Array; indices: Uint32Array; alphas?: Float32Array; colors?: Float32Array } = {
     positions: new Float32Array(0),
     indices: new Uint32Array(0),
   }

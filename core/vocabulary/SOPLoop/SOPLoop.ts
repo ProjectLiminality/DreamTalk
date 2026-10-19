@@ -29,7 +29,9 @@
  * Supply/Operations.
  */
 
-import { derivePoints, Circle, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { derivePoints, Group, Line, Null, type Vec3Like } from "../../src/parts/primitives"
+import { DiscPool } from "../../src/parts/discpool"
+import type { Observer } from "../../src/dream"
 import { Text } from "../../src/parts/text"
 import { bipolar, completion, derive, length, scalar, type Readable } from "../../src/params"
 import { BLUE, RED, WHITE, type Color } from "../../src/constants"
@@ -106,7 +108,16 @@ export class SOPLoop extends Null {
   left!: SOPSideHolon
   right!: SOPSideHolon
   centre?: Text
-  dots: Circle[] = []
+  /** Each particle (its carrier: place, opacity, certainty) — drawn as one disc of `pool`. */
+  dots: Holon[] = []
+  /** Every particle's disc, as ONE mesh (src/parts/discpool.ts). */
+  pool?: DiscPool
+  /**
+   * Who sees the loop — `() => this.observer` from the Dream. Its camera
+   * sizes the particles' uncertainty clouds in pixels; without it, the
+   * default camera's.
+   */
+  seenBy: (() => Observer) | undefined = undefined
   /** The frame that tips back while the lobe flips. */
   frame!: Group
 
@@ -218,6 +229,10 @@ export class SOPLoop extends Null {
     const rightTint = d.right.tint ?? RED
     const total = this.table().lengths[this.table().lengths.length - 1]!
     const n = Math.max(4, Math.round(total / this.spacing.value))
+    // All particles as one mesh, at their first one's place in the drawing order.
+    const pool = new DiscPool({ observer: this.seenBy?.(), time: this.time })
+    this.pool = pool
+    parts.push(pool)
     for (let j = 0; j < n; j++) {
       let memoT = Number.NaN
       let memoTable: unknown
@@ -242,11 +257,12 @@ export class SOPLoop extends Null {
         const k = smooth(-0.12, 0.12, -c.x / a())
         return onLeftLobe(c.t) ? Math.max(k, 0.5) : Math.min(k, 0.5)
       }
-      const dot = new Circle({
-        radius: derive(() => a() * 0.022),
-        stroke: 0,
-        fillOpacity: 1,
-        tint: derive(() => mix(rightTint, leftTint, leftness())),
+      // The particle: its carrier holds its place, opacity and certainty; its
+      // disc (flat in the figure's plane, as its own Circle was) is the pool's.
+      const carrier = new SOPParticle({
+        x: derive(() => cur().x),
+        y: derive(() => cur().y),
+        z: derive(() => cur().z),
         opacity: derive(() => {
           const l = leftness()
           const f = this.focus.value
@@ -257,11 +273,10 @@ export class SOPLoop extends Null {
           return presence * smooth(gap * 0.6, gap * 1.1, Math.hypot(c.x, c.y, c.z))
         }),
       })
-      const carrier = new SOPParticle({
-        members: [dot],
-        x: derive(() => cur().x),
-        y: derive(() => cur().y),
-        z: derive(() => cur().z),
+      pool.join(carrier, {
+        radius: () => a() * 0.022,
+        tint: () => mix(rightTint, leftTint, leftness()),
+        face: "plane",
       })
       carrier.certainty.follow(
         derive(() => {
@@ -269,7 +284,7 @@ export class SOPLoop extends Null {
           return l * (this.left.certainty.value) + (1 - l) * this.right.certainty.value
         }),
       )
-      this.dots.push(dot)
+      this.dots.push(carrier)
       parts.push(carrier)
     }
 
