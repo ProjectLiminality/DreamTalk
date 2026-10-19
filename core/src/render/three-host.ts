@@ -1382,53 +1382,114 @@ export class ThreeHost {
    * sleeping chapters warm up while it plays).
    */
   private prewarm(): Promise<void> {
-    // SLEEPING subtrees too — a dormant chapter, a presence-0 branch, a
-    // slot state not yet recalled: their GROUPS are hidden, and the gather
-    // skips a hidden group's whole subtree, so every hidden object (not
-    // only meshes) is shown for it. One scene root per idle slice, so no
-    // frame waits on a large tree's gather (ValueFlow's first recall of a
-    // lens that slept since boot compiled its pipelines in that frame).
-    const roots = [...this.scene.children]
+    // Only what three has NOT built yet — a mesh it drew once is warm — and
+    // SLEEPING subtrees too: a dormant chapter, a presence-0 branch, a
+    // slot state not yet recalled. A hidden GROUP hides its whole subtree
+    // from compileAsync's gather, so for each chunk every object is hidden
+    // but the chunk's meshes and their ancestors (and all is given back
+    // before control returns: no frame sees it). One chunk per idle slice,
+    // so no frame waits on a large tree (ValueFlow: 20k objects in one root).
+    this.trackBuilt()
+    // Gathered at the first idle moment, after the first frames have built
+    // what they show.
+    let cold: THREE.Mesh[] | undefined
     const builds: Promise<void>[] = []
     return new Promise<void>((resolve) => {
       const slice = () => {
-        const until = performance.now() + ThreeHost.WARM_SLICE_MS
-        do {
-          const root = roots.shift()
-          if (!root) break
-          builds.push(this.warmSubtree(root))
-        } while (roots.length > 0 && performance.now() < until)
-        if (roots.length > 0) whenIdle(slice)
+        if (!cold) {
+          cold = []
+          this.scene.traverse((object) => {
+            const mesh = object as THREE.Mesh
+            if (mesh.isMesh && !this.built.has(mesh) && mesh.layers.test(this.camera.layers)) cold!.push(mesh)
+          })
+        }
+        const chunk: THREE.Mesh[] = []
+        while (cold.length > 0 && chunk.length < ThreeHost.WARM_CHUNK) {
+          const mesh = cold.pop()!
+          if (!this.built.has(mesh) && mesh.parent) chunk.push(mesh)
+        }
+        if (chunk.length > 0) builds.push(this.warmMeshes(chunk))
+        if (cold.length > 0) whenIdle(slice)
         else void Promise.all(builds).then(() => resolve())
       }
       whenIdle(slice)
     })
   }
 
-  /** Main-thread time one idle warm slice may take before it yields (ms). */
+  /** Meshes compiled per idle slice (each one yields to the main thread as it builds). */
+  static readonly WARM_CHUNK = 200
+  /** Main-thread time one idle slice of other warm-up work may take (ms). */
   static readonly WARM_SLICE_MS = 6
 
   /**
-   * Compile one subtree's render objects with everything in it shown just
-   * for compileAsync's synchronous gather — given back before control
-   * returns, so no frame ever sees it.
+   * Every mesh three has built a render object for — what the warm-up can
+   * skip. Read off the renderer's own object cache as it fills (one wrap of
+   * its factory); without it, nothing counts as built and all is warmed.
    */
-  private warmSubtree(root: THREE.Object3D): Promise<void> {
-    const shown: THREE.Object3D[] = []
+  private readonly built = new WeakSet<THREE.Object3D>()
+  private tracking = false
+  private trackBuilt(): void {
+    if (this.tracking) return
+    this.tracking = true
+    const objects = (this.renderer as unknown as { _objects?: { createRenderObject?: (...a: unknown[]) => unknown } })._objects
+    const make = objects?.createRenderObject
+    if (!objects || typeof make !== "function") return
+    objects.createRenderObject = (...a: unknown[]) => {
+      this.built.add(a[3] as THREE.Object3D)
+      return make.apply(objects, a)
+    }
+  }
+
+  /**
+   * Compile these meshes' render objects: for compileAsync's synchronous
+   * gather, everything in the scene is hidden but them and their
+   * ancestors; all of it is given back before control returns.
+   */
+  private warmMeshes(meshes: readonly THREE.Mesh[]): Promise<void> {
+    const was = new Map<THREE.Object3D, boolean>()
     let compiling: Promise<void>
     try {
-      root.traverse((object) => {
-        if (!object.visible) {
-          object.visible = true
-          shown.push(object)
-        }
+      this.scene.traverse((object) => {
+        if (object === this.scene) return
+        was.set(object, object.visible)
+        object.visible = false
       })
-      compiling = this.renderer.compileAsync(root, this.camera, this.scene)
+      for (const mesh of meshes) {
+        for (let o: THREE.Object3D | null = mesh; o && o !== this.scene; o = o.parent) o.visible = true
+      }
+      compiling = this.compileEverywhere(this.scene)
     } finally {
-      for (const object of shown) object.visible = false
+      for (const [object, visible] of was) object.visible = visible
     }
-    return compiling.catch(() => {})
+    return compiling
   }
+
+  /**
+   * compileAsync for every render context this host draws into: the
+   * canvas, and the layer compositor's target — a subtree mid-dissolve
+   * (presence, a lens recall) is drawn into that, and a render object is
+   * per context, so warming the canvas alone left a recall's first frames
+   * building thousands (ValueFlow ⌥8: 3.7k). Both contexts are chosen
+   * synchronously at the call, so the target is set and restored around it.
+   */
+  private compileEverywhere(root: THREE.Object3D): Promise<void> {
+    const builds = [this.renderer.compileAsync(root, this.camera, this.scene)]
+    const target = (this.compositor ??= new LayerCompositor(4)) as unknown as { target?: THREE.RenderTarget }
+    if (target.target) {
+      const previous = this.renderer.getRenderTarget()
+      this.renderer.setRenderTarget(target.target)
+      try {
+        builds.push(this.renderer.compileAsync(root, this.camera, this.scene))
+      } finally {
+        this.renderer.setRenderTarget(previous)
+      }
+    }
+    return Promise.all(builds).then(
+      () => {},
+      () => {},
+    )
+  }
+
   /** Resolves once the background prewarm has built every render object. */
   warmed: Promise<void> = Promise.resolve()
 
@@ -4480,11 +4541,11 @@ export class ThreeHost {
             shown.push(o)
           }
         })
-        compiling = this.renderer.compileAsync(group, this.camera, this.scene)
+        compiling = this.compileEverywhere(group)
       } finally {
         for (const o of shown) o.visible = false
       }
-      builds.push(compiling.catch(() => {}))
+      builds.push(compiling)
     }
     this.coldEchoes.clear()
     const prior = this.warmed
