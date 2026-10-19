@@ -4751,10 +4751,18 @@ export class ThreeHost {
     this.enqueueWarm(() => this.compileGroups(groups))
   }
 
-  /** Compile these groups' hidden meshes (a warm job). */
+  /**
+   * Compile these groups' hidden meshes (a warm job) — for at most
+   * WARM_JOB_MS of main thread; the rest goes back in the queue. (One job
+   * for every echo cloud made at boot was a single ~4 s task after load.)
+   */
   private compileGroups(groups: readonly THREE.Object3D[]): Promise<void> {
     const builds: Promise<void>[] = []
+    const until = performance.now() + ThreeHost.WARM_JOB_MS
+    let done = 0
     for (const group of groups) {
+      if (done > 0 && performance.now() > until) break
+      done++
       const shown: THREE.Object3D[] = []
       let compiling: Promise<void>
       try {
@@ -4770,8 +4778,15 @@ export class ThreeHost {
       }
       builds.push(compiling)
     }
+    if (done < groups.length) {
+      const rest = groups.slice(done)
+      this.enqueueWarm(() => this.compileGroups(rest))
+    }
     return Promise.all(builds).then(() => {})
   }
+
+  /** Main-thread time one warm job may take before it hands the rest back to the queue (ms). */
+  static readonly WARM_JOB_MS = 3
 
   private gatherClips(): boolean {
     for (const [holon, ink] of this.inkIndex()) {
