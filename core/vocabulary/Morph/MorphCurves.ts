@@ -145,12 +145,17 @@ export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => 
 export const curvesOf = (h: Holon): Vec3Like[][] => partCurvesOf(h).map((c) => c.curve)
 
 /**
- * A Line whose points are plain data (not `derivePoints`) may be reassigned
- * without any param moving: a reading of it cannot be listed by READS, so
- * it is opaque — recomputed, and its strokes synced, every frame.
+ * A Line whose points (or a Polylines whose loops) are plain data — not
+ * `derivePoints` / `deriveLoops` — may be reassigned without any param
+ * moving: a reading of it cannot be listed by READS, so it is opaque —
+ * recomputed, and its strokes synced, every frame. (A derived Polylines
+ * answers `geomVersion` through an accessor; a plain one holds a field.)
  */
 const plainGeometry = (parts: readonly Holon[]): void => {
-  for (const h of parts) if (h instanceof Line && !hasDerivedPoints(h)) return readsOpaque()
+  for (const h of parts) {
+    if (h instanceof Line && !hasDerivedPoints(h)) return readsOpaque()
+    if (h instanceof Polylines && !Object.getOwnPropertyDescriptor(h, "geomVersion")?.get) return readsOpaque()
+  }
 }
 
 /** A hidden morpher's slots' key: constant, so they recompute once on hiding and never again until shown. */
