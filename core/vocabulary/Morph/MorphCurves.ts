@@ -58,6 +58,7 @@ import { derive } from "../../src/params"
 import { Line, Null, Stroke, hasDerivedPoints, type Vec3Like } from "../../src/parts/primitives"
 import { SolidDrawing, derivePoints, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import { worldOutlineOf } from "../../src/geometry/morph"
+import { Polylines } from "../../src/parts/polylines"
 import {
   blendPlan,
   blendTravel,
@@ -88,8 +89,22 @@ const bearsCurves = (h: unknown): h is CurveBearing =>
  * MindVirus's cube is blue, its eye white, the creature itself has no
  * colour). See the header for what counts.
  */
+/**
+ * A Polylines' loops in world space — many lines as one stroke are still
+ * many curves — but for those its own per-loop opacity has faded out.
+ */
+const loopCurves = (n: Polylines): Vec3Like[][] => {
+  const alphas = n.loopOpacity?.()
+  const out: Vec3Like[][] = []
+  n.loops.forEach((loop, i) => {
+    if (loop.length >= 2 && !(alphas && !(alphas[i]! > 0))) out.push(loop.map((p) => toWorld(n, p)))
+  })
+  return out
+}
+
 export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => {
   if (bearsCurves(h)) return h.worldCurves().map((curve) => ({ curve, part: h }))
+  if (h instanceof Polylines) return loopCurves(h).map((curve) => ({ curve, part: h }))
   if (h instanceof Stroke) {
     const o = worldOutlineOf(h)
     if (o) return [{ curve: o, part: h }]
@@ -113,7 +128,9 @@ export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => 
         if (seen) for (const curve of n.worldCurves()) out.push({ curve, part: n })
         return
       }
-      if (n instanceof Stroke && seen) {
+      if (n instanceof Polylines) {
+        if (seen) for (const curve of loopCurves(n)) out.push({ curve, part: n })
+      } else if (n instanceof Stroke && seen) {
         const o = n instanceof Line ? (n.points.length >= 2 ? n.points.map((p) => toWorld(n, p)) : undefined) : worldOutlineOf(n)
         if (o) out.push({ curve: o, part: n })
       }

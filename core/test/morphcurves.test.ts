@@ -9,6 +9,7 @@ import { Observer } from "../src/dream"
 import { BLUE, WHITE } from "../src/constants"
 import { MorphCurves, MorphMany, curvesOf } from "../vocabulary/Morph/MorphCurves"
 import { Truck } from "../vocabulary/Truck/Truck"
+import { Figure } from "../vocabulary/Figure/Figure"
 import { totalLength } from "../src/geometry/correspond"
 
 const slotsOf = (m: MorphCurves) => m.parts.filter((p): p is Line => p instanceof Line)
@@ -42,6 +43,26 @@ describe("MorphCurves", () => {
     const m = new MorphCurves([dot], [truck], { observer: obs })
     m.morph.value = 1
     expect(totalLength(ink(m))).toBeCloseTo(totalLength(truck.worldCurves()), 4)
+  })
+
+  test("a Figure (one Polylines) morphs: its curves are its loops, the faded ones left out", () => {
+    const body = new Figure({ height: 200, x: 50 })
+    // The silhouette's outline, then the ink: two arch halves, head, spine,
+    // two legs — in world space (x = 50).
+    const curves = curvesOf(body)
+    expect(curves.length).toBe(1 + 6)
+    expect(curves[4]!.every((p) => Math.abs(p.x - 50) < 1e-9)).toBe(true) // the spine, on the axis
+    // The bust: head, spine and legs have faded into the outline — two ink curves.
+    expect(curvesOf(new Figure({ height: 200, form: 1 })).length).toBe(1 + 2)
+    // And it morphs, both ways.
+    const c = new Circle({ radius: 60 })
+    const there = new MorphCurves([body], [c])
+    expect(totalLength(ink(there))).toBeCloseTo(totalLength(curves), 6)
+    there.morph.value = 1
+    expect(totalLength(ink(there))).toBeCloseTo(totalLength(curvesOf(c)), 6)
+    const back = new MorphCurves([c], [new Figure({ height: 200 })])
+    back.morph.value = 1
+    expect(totalLength(ink(back))).toBeCloseTo(totalLength(curves), 6)
   })
 
   test("refuses an empty side, and says why", () => {
