@@ -89,6 +89,20 @@ describe("FlowRoad", () => {
     expect(fleet.geomVersion).toBeGreaterThan(f0)
   })
 
+  test("its bounds hint holds every point the road and the fleet draw, through the morph and the ride", () => {
+    const { stream, road, edges, fleet } = build()
+    for (const c of [0.3, 0.45, 0.6, 0.75, 0.9, 1])
+      for (let i = 0; i < 4; i++) {
+        road.concrete.value = c
+        stream.time.value += 0.37
+        for (const pl of [edges, fleet]) {
+          const { center, radius } = pl.boundsHint!
+          for (const loop of pl.loops)
+            for (const p of loop) expect(Math.hypot(p.x - center.x, p.y - center.y, p.z - center.z)).toBeLessThanOrEqual(radius)
+        }
+      }
+  })
+
   test("reversible: what it draws is a function of the moment, not the way there", () => {
     const { road, fleet } = build()
     road.concrete.value = 0.55

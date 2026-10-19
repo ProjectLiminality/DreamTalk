@@ -312,6 +312,34 @@ export class FlowRoad extends Group {
     }
   }
 
+  /**
+   * A sphere holding everything the road and its fleet can draw: the
+   * path's own bounding sphere, grown by the farthest a truck reaches from
+   * its ground point (its middle is a half height above it, its far corner
+   * half a diagonal beyond — 473 of its 650 units), with room for the
+   * morph's arcs and the dot's ring, and by half the road's width. Kept
+   * while the path stands.
+   */
+  private bounds(): { center: Vec3Like; radius: number } {
+    const { points } = this.state()
+    const reach = Math.max(this.width.value / 2, this.truckLength.value * 1.2 + this.dotRadius.value * 2)
+    const b = this.boundsMemo
+    if (b && b.points === points && b.reach === reach) return b.hint
+    let lo = { x: Infinity, y: Infinity, z: Infinity }
+    let hi = { x: -Infinity, y: -Infinity, z: -Infinity }
+    for (const p of points) {
+      lo = { x: Math.min(lo.x, p.x), y: Math.min(lo.y, p.y), z: Math.min(lo.z, p.z) }
+      hi = { x: Math.max(hi.x, p.x), y: Math.max(hi.y, p.y), z: Math.max(hi.z, p.z) }
+    }
+    const center = points.length ? { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 } : { x: 0, y: 0, z: 0 }
+    let r = 0
+    for (const p of points) r = Math.max(r, Math.hypot(p.x - center.x, p.y - center.y, p.z - center.z))
+    const hint = { center, radius: r + reach }
+    this.boundsMemo = { points, reach, hint }
+    return hint
+  }
+  private boundsMemo?: { points: Vec3Like[]; reach: number; hint: { center: Vec3Like; radius: number } }
+
   /** The dot's radius in truck units — one plan per view, whatever a truck's growth at the ends. */
   private ringRadius(): number {
     return (this.dotRadius.value * TRUCK_LENGTH) / Math.max(1e-6, this.truckLength.value)
@@ -513,6 +541,10 @@ export class FlowRoad extends Group {
       },
     )
     deriveLoops(fleet, () => [fleetLoops()], () => fleetLoops())
+    // Conservative bounds (polylines.ts boundsHint): everything either
+    // stroke can draw lies within the path's sphere plus a truck's reach —
+    // so the host never re-measures a fleet that is rewritten every frame.
+    for (const pl of [road, fleet]) Object.defineProperty(pl, "boundsHint", { configurable: true, get: () => this.bounds() })
 
     // The fills: cargo and body, every truck's visible faces in one solid Surface each.
     const fillOf = (g: number, tint: () => Color) => {
