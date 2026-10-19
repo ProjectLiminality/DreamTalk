@@ -42,7 +42,7 @@
 import { WHITE, rgb, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Overrides } from "../../src/holon"
-import { certainty, certaintyOf, ghost } from "../../src/certainty"
+import { certainty, certaintyOf, seenOpacity } from "../../src/certainty"
 import { Param, completion, derive, length, scalar, type Readable } from "../../src/params"
 import { memoReads } from "../../src/params"
 import { Group, Line, Stroke, type Vec3Like } from "../../src/parts/primitives"
@@ -573,9 +573,10 @@ const POOL_SEGMENTS = 48
  * of fills is hundreds of draws. A DotPool is one Surface (a transparent
  * sheet) holding all its members' discs, each facing the camera at its
  * grain's place and size, each at its own opacity through the Surface's
- * per-vertex `alphas` — the grain's fade, its dot's fill (gone once the
- * symbol morph starts) and its OWN certainty's ghost (the pool's chain
- * carries the flow's; the members' extra is folded into their alphas).
+ * per-vertex `alphas` — the grain's own seen opacity (its fade, the
+ * presence and the certainty ghost of its whole chain, certainty.ts
+ * seenOpacity) over the pool's (which the host already applies), times
+ * its dot's fill (gone once the symbol morph starts).
  * The tint is the members' dot colour (a flow's grains share their rung
  * and category). A dot at zero is left out of the mesh.
  *
@@ -595,6 +596,9 @@ const POOL_SEGMENTS = 48
  */
 export class DotPool extends Surface {
   private crowd!: { grains: Grain[]; observer?: Observer; time?: Readable<number> }
+  // The seen-opacity readers (certainty.ts), made at the first build — the
+  // tree is final by then.
+  private seen?: { pool: Readable<number>; members: Map<Grain, Readable<number>> }
 
   constructor(overrides: Overrides & { observer?: Observer; time?: Readable<number> } = {}) {
     const { observer, time, ...rest } = overrides
@@ -635,7 +639,18 @@ export class DotPool extends Surface {
     const o = this.crowd.observer
     const view = localView(this, o ? viewOf(o) : { eye: { x: 0, y: 0, z: 1500 } })
     const scale = worldScale(this) || 1
-    const own = ghost(certaintyOf(this))
+    // What the host already applies to the pool (its presence and the ghost
+    // of its certainty), divided out of each member's own seen opacity —
+    // so a dot carries exactly its grain's fade, presence (a fiber's focus)
+    // and certainty, however they differ along the flow.
+    this.seen ??= { pool: seenOpacity(this), members: new Map() }
+    const poolSeen = this.seen.pool.value
+    if (poolSeen <= 0) return { positions: new Float32Array(0), indices: new Uint32Array(0), alphas: new Float32Array(0) }
+    const seenOf = (g: Grain): number => {
+      let r = this.seen!.members.get(g)
+      if (!r) this.seen!.members.set(g, (r = seenOpacity(g)))
+      return r.value
+    }
     const pos: number[] = []
     const idx: number[] = []
     const alpha: number[] = []
@@ -668,7 +683,7 @@ export class DotPool extends Surface {
       const fill = g.dotFill()
       if (fill <= 0) return
       const sure = certaintyOf(g)
-      const a = g.opacity.value * fill * (ghost(sure) / own)
+      const a = (seenOf(g) * fill) / poolSeen
       if (a <= 0) return
       const c = toLocal(this, toWorld(g, { x: 0, y: 0, z: 0 }))
       // Facing the viewer from the dot's own place (the grain's rule, in

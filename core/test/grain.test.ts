@@ -409,3 +409,26 @@ describe("DotPool — a flow's dots as one mesh", () => {
     expect(pool.alphas![0]).toBeCloseTo(ghost(0.25), 6)
   })
 })
+
+describe("DotPool — presence between the pool and a dot", () => {
+  test("a fiber's presence on a grain's carrier fades its disc (and 0 drops it)", async () => {
+    const { DotPool } = await import("../vocabulary/Grain/Grain")
+    const { Group } = await import("../src/parts/primitives")
+    const { presence } = await import("../src/certainty")
+    class Carrier extends Group {
+      presence = presence(1)
+    }
+    const o = observer()
+    const pool = new DotPool({ observer: o })
+    const grains = [0, 1].map((i) => new Grain({ observer: o, category: BLUE, symbol: (x) => new Pallet(x), dots: pool, grain: 1, x: i * 100 }))
+    const carriers = grains.map((g) => new Carrier({ members: [g] }))
+    const flow = new Group({ members: [pool, ...carriers] })
+    for (const g of grains) void g.parts
+    void flow.parts
+    carriers[0]!.presence.value = 0.5
+    expect(pool.alphas![0]).toBeCloseTo(0.5, 6)
+    expect(pool.alphas![49]).toBeCloseTo(1, 6)
+    carriers[0]!.presence.value = 0
+    expect(pool.positions.length / 3).toBe(49)
+  })
+})
