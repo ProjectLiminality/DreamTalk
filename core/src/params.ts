@@ -63,30 +63,58 @@ export const bumpParamEpoch = (): void => {
  * (`changedAt`): a reading that is a pure function of params is the same.
  */
 export interface Reads {
+  /** The params listed — the first `n` of them when `n` is set (the array is reused as capacity). */
   deps: Param<ParamValue>[]
+  /** How many of `deps` this pass listed (set by trackReads/beginReads; undefined: all of them). */
+  n?: number
   opaque: boolean
-  /** The memo lists already noted into this one (each is noted once). */
-  noted?: Set<readonly Param<ParamValue>[]>
+  /** This pass's stamp (set by trackReads/beginReads): a param already listed in it carries it. */
+  id?: number
 }
 let reads: Reads | undefined
-export const trackReads = <T>(into: Reads, fn: () => T): T => {
+let readsSerial = 0
+/**
+ * Start listing reads into `into` (reusable: its list is emptied); returns
+ * the tracker it interrupts, to hand back to `endReads`. The allocation-free
+ * form of `trackReads` for a hot loop.
+ */
+export const beginReads = (into: Reads): Reads | undefined => {
   const outer = reads
+  // Refilled in place: emptying the array would drop its storage and every
+  // pass would grow it again (most of a frame's allocation, measured).
+  into.n = 0
+  into.opaque = false
+  into.id = ++readsSerial
   reads = into
+  return outer
+}
+export const endReads = (outer: Reads | undefined): void => {
+  reads = outer
+}
+export const trackReads = <T>(into: Reads, fn: () => T): T => {
+  const outer = beginReads(into)
   try {
     return fn()
   } finally {
     reads = outer
   }
 }
-/** A memo answering for reads it made earlier: list them for whoever tracks now. */
-export const noteReads = (deps: readonly Param<ParamValue>[], opaque: boolean): void => {
-  if (!reads) return
-  if (opaque) reads.opaque = true
-  // A memo read many times in one pass lists its params once.
-  const noted = (reads.noted ??= new Set())
-  if (noted.has(deps)) return
-  noted.add(deps)
-  for (let i = 0; i < deps.length; i++) reads.deps.push(deps[i]!)
+/**
+ * List a param once per pass: each param remembers the last pass that listed
+ * it, so a list never holds a param twice and needs no Set to dedupe.
+ */
+const listRead = (r: Reads, p: Param<ParamValue>): void => {
+  if (p._readBy === r.id) return
+  p._readBy = r.id!
+  if (r.n === undefined) r.deps.push(p)
+  else r.deps[r.n++] = p
+}
+/** A memo answering for reads it made earlier: list them for whoever tracks now (each param once). */
+export const noteReads = (deps: readonly Param<ParamValue>[], opaque: boolean, n = deps.length): void => {
+  const r = reads
+  if (!r) return
+  if (opaque) r.opaque = true
+  for (let i = 0; i < n; i++) listRead(r, deps[i]!)
 }
 
 /**
@@ -113,22 +141,25 @@ export const memoReads = <T>(compute: () => T, opts: { keep?: boolean } = {}): (
   let at = -1
   let value!: T
   let deps: readonly Param<ParamValue>[] = []
+  let count = 0
   let opaque = true
+  // One list for the memo's life, refilled on each recompute (noteReads copies out of it).
+  const own: Reads = { deps: [], opaque: false }
   return () => {
     const now = epoch
     if (now !== seen) {
       seen = now
       let fresh = keep && !opaque
-      for (let i = 0; fresh && i < deps.length; i++) if (deps[i]!.changedAt > at) fresh = false
+      for (let i = 0; fresh && i < count; i++) if (deps[i]!.changedAt > at) fresh = false
       if (!fresh) {
-        const reads: Reads = { deps: [], opaque: false }
         at = now
-        value = trackReads(reads, compute)
-        deps = [...new Set(reads.deps)]
-        opaque = reads.opaque
+        value = trackReads(own, compute)
+        deps = own.deps
+        count = own.n!
+        opaque = own.opaque
       }
     }
-    noteReads(deps, opaque)
+    noteReads(deps, opaque, count)
     return value
   }
 }
@@ -141,6 +172,8 @@ export const quietEpoch = (): number => epoch
 
 export class Param<T extends ParamValue = number> implements Readable<T> {
   readonly id: number
+  /** READS: the last tracking pass that listed this param (internal). */
+  _readBy = 0
   readonly kind: ParamKind
   readonly min: number | undefined
   readonly max: number | undefined
@@ -186,7 +219,7 @@ export class Param<T extends ParamValue = number> implements Readable<T> {
 
   /** The live value — written by Timeline.apply(t), the editor, or read through a binding. */
   get value(): T {
-    if (reads) reads.deps.push(this as unknown as Param<ParamValue>)
+    if (reads !== undefined && this._readBy !== reads.id) listRead(reads, this as unknown as Param<ParamValue>)
     let v = this.#source ? this.#source.value : this.#value
     if (this.#fader && this.#source && typeof v === "number") v = (v * this.#fader.value) as T
     if (typeof v !== "number" || (this.#gate === 1 && this.#bias === 0)) return v

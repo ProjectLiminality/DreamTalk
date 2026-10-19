@@ -156,22 +156,22 @@ export const seenOpacity = (holon: Holon): Readable<number> => {
   // params.ts), so a tracked reading stays transparent.
   let epoch = -1
   let seen = 0
-  let reads: Reads = { deps: [], opaque: false }
+  const reads: Reads = { deps: [], opaque: false }
+  const compute = (): number => {
+    let c = 1
+    for (const p of chain) c *= p.value
+    let k = 1
+    for (const p of there) k *= p.value
+    return own.value * k * ghost(c)
+  }
   return {
     get value() {
       const now = quietEpoch()
       if (now !== epoch) {
         epoch = now
-        reads = { deps: [], opaque: false }
-        seen = trackReads(reads, () => {
-          let c = 1
-          for (const p of chain) c *= p.value
-          let k = 1
-          for (const p of there) k *= p.value
-          return own.value * k * ghost(c)
-        })
+        seen = trackReads(reads, compute)
       }
-      noteReads(reads.deps, reads.opaque)
+      noteReads(reads.deps, reads.opaque, reads.n)
       return seen
     },
   }

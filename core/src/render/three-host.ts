@@ -26,7 +26,7 @@ import { orthoHalfHeight, type Dream } from "../dream"
 import { setLiveObserver } from "../geometry/frames"
 import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
-import { paramEpoch, quietEpoch, readsOpaque, trackReads, type ParamValue, type Reads } from "../params"
+import { beginReads, endReads, paramEpoch, quietEpoch, readsOpaque, type ParamValue, type Reads } from "../params"
 import { isPresence, seenCertainty, seenOpacity, withChainMemo } from "../certainty"
 import { FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
@@ -155,6 +155,8 @@ interface StrokeBinding {
   lastLift?: number
   lastLineVersion?: number
   lastShown?: boolean
+  /** The list READS refills for this stroke (reused frame to frame). */
+  readsBuf?: Reads
   /** READS adaptivity: tracking misses in a row, and the sync count until which it rests. */
   readsMisses?: number
   readsOffUntil?: number
@@ -930,9 +932,23 @@ const EMPTY_KEY: number[] = []
  * small value array. A superset of the old array comparison in every
  * case, so no stale geometry is possible.
  */
+/** unitsPerPixelAt's scratch (one host renders at a time; nothing holds these across a call). */
+const UPP = {
+  world: new THREE.Vector3(),
+  basis: new THREE.Matrix3(),
+  sideWorld: new THREE.Vector3(),
+  forward: new THREE.Vector3(),
+  up: new THREE.Vector3(0, 1, 0),
+  a: new THREE.Vector3(),
+  b: new THREE.Vector3(),
+  scale: new THREE.Vector3(),
+}
+/** A group's own origin, read only. */
+const ORIGIN = new THREE.Vector3()
+
 /** READS: has none of these params changed since `at`? */
-const unchangedSince = (deps: readonly Param<ParamValue>[], at: number): boolean => {
-  for (let i = 0; i < deps.length; i++) if (deps[i]!.changedAt > at) return false
+const unchangedSince = (deps: readonly Param<ParamValue>[], n: number, at: number): boolean => {
+  for (let i = 0; i < n; i++) if (deps[i]!.changedAt > at) return false
   return true
 }
 
@@ -1929,7 +1945,7 @@ export class ThreeHost {
         lift === binding.lastLift &&
         ribbon.mesh.visible === binding.lastShown &&
         (binding.sig.line === undefined || binding.sig.line.geomVersion === binding.lastLineVersion) &&
-        unchangedSince(known.deps, binding.readAt!)
+        unchangedSince(known.deps, known.n ?? known.deps.length, binding.readAt!)
       ) {
         if (binding.lastWidth! > widest) widest = binding.lastWidth!
         continue
@@ -1939,12 +1955,16 @@ export class ThreeHost {
       let width: number
       if (held && known !== undefined) width = this.syncStroke(binding, held, lift)
       else {
-        const reads: Reads = { deps: [], opaque: false }
+        // One list per stroke, refilled (no allocation per frame); each param listed once.
+        const reads = (binding.readsBuf ??= { deps: [], opaque: false })
         const readAt = quietEpoch()
-        width = trackReads(reads, () => this.syncStroke(binding, held, lift))
-        // A long list is often one param many times: each once.
-        if (!reads.opaque && reads.deps.length > ThreeHost.MAX_READS) reads.deps = [...new Set(reads.deps)]
-        const kept = !held && !reads.opaque && reads.deps.length <= ThreeHost.MAX_READS
+        const outer = beginReads(reads)
+        try {
+          width = this.syncStroke(binding, held, lift)
+        } finally {
+          endReads(outer)
+        }
+        const kept = !held && !reads.opaque && reads.n! <= ThreeHost.MAX_READS
         binding.reads = kept ? reads : undefined
         binding.readAt = readAt
         // ADAPTIVE: a stroke that is opaque, too long, or dirty again frame
@@ -2075,11 +2095,11 @@ export class ThreeHost {
       // the contour in is a reading of this frame's projection.
       for (const { binding, group, holon } of this.texts) {
         if (this.asleep(holon)) continue
-        binding.sync(1 / this.unitsPerPixelAt(group, new THREE.Vector3()), this.frameT)
+        binding.sync(1 / this.unitsPerPixelAt(group, ORIGIN), this.frameT)
       }
       // Uncertainty's echoes: offsets in pixels, so after the settle.
       for (const { blur, group } of this.superpositions) {
-        blur.sync(this.frameT, () => this.unitsPerPixelAt(group, new THREE.Vector3()))
+        blur.sync(this.frameT, () => this.unitsPerPixelAt(group, ORIGIN))
       }
       // Attention's halos: after every stroke and fill is styled and settled.
       this.syncGlow()
@@ -2599,28 +2619,31 @@ export class ThreeHost {
   ): number {
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
-    const world = localPoint.clone().applyMatrix4(group.matrixWorld)
-    const basis = new THREE.Matrix3().setFromMatrix4(group.matrixWorld)
-    const sideWorld = new THREE.Vector3()
+    // Scratch objects (called per Text and per uncertain stroke, every frame):
+    // the same operations on reused vectors, so the same floats.
+    const { world, basis, sideWorld, forward, a, b } = UPP
+    world.copy(localPoint).applyMatrix4(group.matrixWorld)
+    basis.setFromMatrix4(group.matrixWorld)
+    sideWorld.set(0, 0, 0)
     if (localDir && localDir.lengthSq() > 1e-12) {
       sideWorld.copy(localDir).applyMatrix3(basis)
     }
     if (sideWorld.lengthSq() < 1e-12) {
       // A step whose world direction is perpendicular to the view — the
       // isotropic reading, with no degenerate head-on case.
-      const forward = this.camera.getWorldDirection(new THREE.Vector3())
-      sideWorld.crossVectors(forward, new THREE.Vector3(0, 1, 0))
+      this.camera.getWorldDirection(forward)
+      sideWorld.crossVectors(forward, UPP.up)
       if (sideWorld.lengthSq() < 1e-12) sideWorld.set(1, 0, 0)
     }
     sideWorld.normalize()
-    const a = world.clone().project(this.camera)
-    const b = world.clone().add(sideWorld).project(this.camera)
+    a.copy(world).project(this.camera)
+    b.copy(world).add(sideWorld).project(this.camera)
     // NDC spans 2 units across each viewport axis.
     const pixels = Math.hypot((b.x - a.x) * (width / 2), (b.y - a.y) * (height / 2))
     if (!Number.isFinite(pixels) || pixels <= 1e-9) return 1
     // …and back into the group's local units, which the world step is
     // not stated in when the holon carries a scale.
-    const scale = new THREE.Vector3().setFromMatrixScale(group.matrixWorld).x || 1
+    const scale = UPP.scale.setFromMatrixScale(group.matrixWorld).x || 1
     return 1 / (pixels * scale)
   }
 
