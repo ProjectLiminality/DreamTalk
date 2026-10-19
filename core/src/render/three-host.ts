@@ -28,7 +28,7 @@ import { Holon, rawHolon } from "../holon"
 import type { Param, Readable } from "../params"
 import { beginReads, endReads, paramEpoch, quietEpoch, readsOpaque, type ParamValue, type Reads } from "../params"
 import { isPresence, seenCertainty, seenOpacity, withChainMemo } from "../certainty"
-import { FillSuperposition, RibbonSuperposition } from "./superposition"
+import { ECHOES, FillSuperposition, RibbonSuperposition } from "./superposition"
 import { HOVER, breathe, seenGlow } from "../glow"
 import { FillHalo, StrokeHalo } from "./glow"
 import { clipOf, type ClipRegion } from "../clip"
@@ -1027,6 +1027,13 @@ const liftTint = (tint: Color, amount: number): Color =>
         b: tint.b + (1 - tint.b) * amount,
       }
 
+/** Run `fn` when the main thread is idle (soon, at the latest). */
+const whenIdle = (fn: () => void): void => {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+  if (ric) ric(fn, { timeout: 250 })
+  else setTimeout(fn, 0)
+}
+
 export class ThreeHost {
   readonly renderer: THREE.WebGPURenderer
   readonly scene: THREE.Scene
@@ -1330,6 +1337,7 @@ export class ThreeHost {
     // draws with one material, so a scene with clipped strokes renders them
     // as themselves.
     host.watchEchoes()
+    host.premakeEchoes()
     // Only the clipped strokes leave their batch: they render as themselves
     // at their own orders, which within a run (ribbons only, MAX blending)
     // composites exactly as the batch would.
@@ -1374,16 +1382,48 @@ export class ThreeHost {
    * sleeping chapters warm up while it plays).
    */
   private prewarm(): Promise<void> {
-    const shown: THREE.Object3D[] = []
-    this.scene.traverse((object) => {
-      if ((object as THREE.Mesh).isMesh && !object.visible) {
-        object.visible = true
-        shown.push(object)
+    // SLEEPING subtrees too — a dormant chapter, a presence-0 branch, a
+    // slot state not yet recalled: their GROUPS are hidden, and the gather
+    // skips a hidden group's whole subtree, so every hidden object (not
+    // only meshes) is shown for it. One scene root per idle slice, so no
+    // frame waits on a large tree's gather (ValueFlow's first recall of a
+    // lens that slept since boot compiled its pipelines in that frame).
+    const roots = [...this.scene.children]
+    const builds: Promise<void>[] = []
+    return new Promise<void>((resolve) => {
+      const slice = () => {
+        const until = performance.now() + ThreeHost.WARM_SLICE_MS
+        do {
+          const root = roots.shift()
+          if (!root) break
+          builds.push(this.warmSubtree(root))
+        } while (roots.length > 0 && performance.now() < until)
+        if (roots.length > 0) whenIdle(slice)
+        else void Promise.all(builds).then(() => resolve())
       }
+      whenIdle(slice)
     })
+  }
+
+  /** Main-thread time one idle warm slice may take before it yields (ms). */
+  static readonly WARM_SLICE_MS = 6
+
+  /**
+   * Compile one subtree's render objects with everything in it shown just
+   * for compileAsync's synchronous gather — given back before control
+   * returns, so no frame ever sees it.
+   */
+  private warmSubtree(root: THREE.Object3D): Promise<void> {
+    const shown: THREE.Object3D[] = []
     let compiling: Promise<void>
     try {
-      compiling = this.renderer.compileAsync(this.scene, this.camera)
+      root.traverse((object) => {
+        if (!object.visible) {
+          object.visible = true
+          shown.push(object)
+        }
+      })
+      compiling = this.renderer.compileAsync(root, this.camera, this.scene)
     } finally {
       for (const object of shown) object.visible = false
     }
@@ -4404,6 +4444,30 @@ export class ThreeHost {
       blur.onEcho = () => this.coldEchoes.add(group)
     }
   }
+  /**
+   * The echo clouds a scene may need, made ahead of their first doubt in
+   * idle slices (and then warmed like any), so a jump that both doubts and
+   * shows a line (a recall, a scrub) makes nothing in its frame. Up to a
+   * budget of meshes: a scene of tens of thousands of doubtable lines (a
+   * field of Grains) keeps them lazy, where traversal would cost more.
+   */
+  private premakeEchoes(): void {
+    const blurs = this.superpositions
+      .map(({ blur }) => blur)
+      .filter((b): b is RibbonSuperposition => b instanceof RibbonSuperposition)
+    if (blurs.length * ECHOES > ThreeHost.ECHO_PREMAKE_BUDGET) return
+    let next = 0
+    const slice = () => {
+      const until = performance.now() + ThreeHost.WARM_SLICE_MS
+      while (next < blurs.length && performance.now() < until) blurs[next++]!.prepare()
+      if (this.coldEchoes.size > 0) this.warmEchoes()
+      if (next < blurs.length) whenIdle(slice)
+    }
+    whenIdle(slice)
+  }
+  /** Most echo meshes made ahead of need (premakeEchoes). */
+  static readonly ECHO_PREMAKE_BUDGET = 24000
+
   private warmEchoes(): void {
     const builds: Promise<void>[] = []
     for (const group of this.coldEchoes) {

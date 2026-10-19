@@ -105,6 +105,13 @@ export class RibbonSuperposition {
   }
   private loops: readonly (readonly THREE.Vector3[])[] | undefined
 
+  /** Make the cloud now, hidden, if it is not made yet (the host's idle warm-up). */
+  prepare(): boolean {
+    if (this.echoes.length > 0) return false
+    this.make()
+    return true
+  }
+
   private make(): void {
     // A gaussian cross-section: the echoes overlap into one soft band.
     for (let k = 0; k < ECHOES; k++) {
