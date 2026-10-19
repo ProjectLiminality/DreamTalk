@@ -29,6 +29,7 @@ import type { Color } from "../src/constants"
 import { Dream } from "../src/dream"
 import type { Holon } from "../src/holon"
 import { Circle, Ellipse, Line, Rectangle, Stroke, rectanglePolyline } from "../src/parts/primitives"
+import { Polylines } from "../src/parts/polylines"
 import { polyline } from "../src/render/three-host"
 import { capPolylineFrom, generatorPoint, silhouetteAngles } from "../src/render/silhouette"
 import { Cylinder } from "../vocabulary/Cylinder/Cylinder"
@@ -289,6 +290,18 @@ export const flattenHolon = (
         // takes the wash's grey, or the e-ink would stripe a solid mark in
         // black. A partial wash lends nothing: a pale interior's rim stays ink.
         const grey = washedTints.get(tintKey(h.tint.value)) ?? lineGrey(h.tint.value)
+        if (h instanceof Polylines && grey !== undefined) {
+          // Many lines as one stroke (parts/polylines.ts): each loop is a line
+          // of the page, but for those its own opacity has faded out.
+          const alphas = h.loopOpacity?.()
+          const shown = h.creation.value > 0 && h.erasure.value < 1
+          h.loops.forEach((loop, i) => {
+            if (loop.length < 2 || (alphas && !(alphas[i]! > 0))) return
+            const page = toPage(world, loop)
+            const run = h.penPerLoop ? visibleRun(page, h.erasure.value, h.creation.value) : shown ? page : []
+            if (run.length >= 2) prims.push({ k: "line", pts: flat(run), w: LINE_W(h.stroke.value), ...(grey ? { grey } : {}) })
+          })
+        }
         const pts = grey === undefined ? undefined : polyline(h)
         if (pts && pts.length >= 2) {
           const run = visibleRun(toPage(world, pts), h.erasure.value, h.creation.value)

@@ -8,8 +8,8 @@ describe("Figure — the bust as a form of THE person", () => {
     const f = new Figure({ height: 200 })
     void f.parts
     expect(f.form.value).toBe(0)
-    const L = f.armLeft.points
-    const R = f.armRight.points
+    const L = f.limbs.armLeft
+    const R = f.limbs.armRight
     expect(L.length).toBe(25)
     expect(R.length).toBe(25)
     // Both halves start at the same crown on the axis, and mirror each other.
@@ -20,11 +20,11 @@ describe("Figure — the bust as a form of THE person", () => {
       expect(L[i]!.y).toBeCloseTo(R[i]!.y, 9)
     }
     // The head floats above the arch: its bottom is above the arch's crown.
-    expect(f.head.y.value - f.head.radius.value).toBeGreaterThan(L[0]!.y)
+    expect(Math.min(...f.limbs.head.map((p) => p.y))).toBeGreaterThan(L[0]!.y)
     // Crown at +h/2, feet at −h/2: the whole symbol is `height`.
-    expect(f.head.y.value + f.head.radius.value).toBeCloseTo(100, 9)
-    expect(f.legLeft.points[1]!.y).toBeCloseTo(-100, 9)
-    expect(f.body.presence.value).toBe(1)
+    expect(Math.max(...f.limbs.head.map((p) => p.y))).toBeCloseTo(100, 9)
+    expect(f.limbs.legLeft[1]!.y).toBeCloseTo(-100, 9)
+    expect(f.bodyPresence()).toBe(1)
     expect(f.silhouette.fillOpacity.value).toBe(0)
   })
 
@@ -53,8 +53,8 @@ describe("Figure — the bust as a form of THE person", () => {
     const f = new Figure({ height: 240, form: 1, opaque: 1 })
     void f.parts
     const half = bustHalf(240)
-    const L = f.armLeft.points
-    const R = f.armRight.points
+    const L = f.limbs.armLeft
+    const R = f.limbs.armRight
     expect(L.length).toBe(half.length)
     for (let i = 0; i < half.length; i++) {
       expect(L[i]!.x).toBeCloseTo(half[i]!.x, 9)
@@ -62,7 +62,7 @@ describe("Figure — the bust as a form of THE person", () => {
       expect(R[i]!.x).toBeCloseTo(-half[i]!.x, 9)
     }
     expect(span([...L, ...R])).toBeCloseTo(240, 9)
-    expect(f.body.presence.value).toBe(0)
+    expect(f.bodyPresence()).toBe(0)
     // The silhouette is one closed loop round the outline, washed black.
     const loop = f.silhouette.outlines[0]!.points
     expect(loop[0]!.x).toBeCloseTo(loop[loop.length - 1]!.x, 9)
@@ -74,13 +74,13 @@ describe("Figure — the bust as a form of THE person", () => {
     const a = new Figure({ height: 200, form: 0.5 })
     void a.parts
     const half = bustHalf(200)
-    const mid = a.armLeft.points
+    const mid = a.limbs.armLeft
     expect(mid.length).toBe(half.length)
     // Endpoints: the crown halfway between the arch's crown and the head's crown.
     const body = new Figure({ height: 200 })
     void body.parts
-    expect(mid[0]!.y).toBeCloseTo((body.armLeft.points[0]!.y + 100) / 2, 9)
-    expect(a.body.presence.value).toBeCloseTo(0.25, 9)
+    expect(mid[0]!.y).toBeCloseTo((body.limbs.armLeft[0]!.y + 100) / 2, 9)
+    expect(a.bodyPresence()).toBeCloseTo(0.25, 9)
   })
 
   test("walkable: body ↔ bust (unless bound)", () => {

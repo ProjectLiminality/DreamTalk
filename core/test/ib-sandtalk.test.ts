@@ -30,13 +30,13 @@ describe("Figure — the profile ability", () => {
     const front = new Figure({ height: h, form: 1 })
     void front.parts
     const bl = bustHalf(h)
-    front.armLeft.points.forEach((p, i) => expect(p.x).toBeCloseTo(bl[i]!.x, 9))
+    front.limbs.armLeft.forEach((p, i) => expect(p.x).toBeCloseTo(bl[i]!.x, 9))
     const right = new Figure({ height: h, form: 1, profile: 1 })
     void right.parts
-    right.armRight.points.forEach((p, i) => expect(p.x).toBeCloseTo(face[i]!.x, 9))
+    right.limbs.armRight.forEach((p, i) => expect(p.x).toBeCloseTo(face[i]!.x, 9))
     const left = new Figure({ height: h, form: 1, profile: -1 })
     void left.parts
-    left.armLeft.points.forEach((p, i) => expect(p.x).toBeCloseTo(-face[i]!.x, 9))
+    left.limbs.armLeft.forEach((p, i) => expect(p.x).toBeCloseTo(-face[i]!.x, 9))
   })
 })
 

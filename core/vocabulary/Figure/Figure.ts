@@ -65,9 +65,17 @@
  * the bust's two halves onto the profile's (the back of the head and the
  * face, both from the crown down), +1 facing +x, −1 facing −x, 0 the front.
  * `height` stays crown to the bottom of the outline.
+ *
+ * ONE STROKE (2026-10-19, perf). The ink is one `Polylines` — the two arch
+ * halves, the head, the spine and the legs are its loops — so a person is
+ * one mesh (and one echo cloud when ghosted), not six. The head, spine and
+ * legs fade with the form through their loops' own opacity; `creation`
+ * draws every loop on at once, each as its own line would (`penPerLoop`).
+ * The loops by name: `limbs`.
  */
 
-import { Circle, Group, Line, Shape, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Group, Line, Shape, Stroke, derivePoints, type Vec3Like } from "../../src/parts/primitives"
+import { Polylines, deriveLoops } from "../../src/parts/polylines"
 import { BLACK, RED } from "../../src/constants"
 import { bipolar, color, completion, derive, length } from "../../src/params"
 import { slide07 } from "../Slides/assets/pl02/slide07"
@@ -100,6 +108,9 @@ const ARCH_H = 0.25
 const SWEEP = (12 * Math.PI) / 180
 const HIP = 0.36
 const STANCE = 0.12
+
+/** The head's outline segments — the host's own for a Circle (three-host STROKE_SEGMENTS). */
+const HEAD_SEGMENTS = 128
 
 /** Samples along each half of the arch — smooth at any size the symbol is drawn. */
 const ARC_SAMPLES = 24
@@ -279,14 +290,17 @@ export class Figure extends Stroke {
 
   /** The black wash inside the outline (`opaque`). */
   silhouette!: Shape
-  /** The body's head, spine and legs — faded out as the form becomes the bust. */
-  body!: Layer
-  head!: Circle
-  spine!: Line
-  armLeft!: Line
-  armRight!: Line
-  legLeft!: Line
-  legRight!: Line
+  /** The whole ink: one stroke whose loops are the limbs (`limbs`). */
+  ink!: Polylines
+  /** The body's head, spine and legs' opacity — 1 the body, 0 gone into the bust. */
+  bodyPresence!: () => number
+
+  /** The ink's loops by name (local points, this frame's form). */
+  get limbs(): Record<"armLeft" | "armRight" | "head" | "spine" | "legLeft" | "legRight", Vec3Like[]> {
+    void this.parts
+    const [armLeft, armRight, head, spine, legLeft, legRight] = this.ink.loops as Vec3Like[][]
+    return { armLeft: armLeft!, armRight: armRight!, head: head!, spine: spine!, legLeft: legLeft!, legRight: legRight! }
+  }
 
   protected override compose(): void {
     const h = this.height.value
@@ -338,12 +352,6 @@ export class Figure extends Stroke {
         return { x: lerp(p.x, tx, f), y: lerp(p.y, ty, f), z: 0 }
       })
     }
-    const half = (side: -1 | 1) => {
-      const line = new Line({ tint: this.tint, stroke })
-      derivePoints(line, () => [form.value, turned.value], () => halfAt(side, form.value))
-      return line
-    }
-
     // The silhouette first: attach order is composite order, so the ink
     // draws over it and it covers whatever came before the figure.
     const outline = new Line({ tint: BLACK })
@@ -354,29 +362,51 @@ export class Figure extends Stroke {
     })
     this.silhouette = this.add(new Shape({ tint: BLACK, fillOpacity: this.opaque.map((o) => o), outlines: [outline] }))
 
-    this.armLeft = this.add(half(-1))
-    this.armRight = this.add(half(1))
-
-    // The body's own head, spine and legs: the head swells and drops onto
-    // the bust's head as it fades, so it dissolves into the risen outline
-    // (the fade runs ahead of the morph — (1 − form)² — so the legs are
-    // mostly gone by the time the shoulders have risen).
+    // The ink: the two arch halves (crown outward), then the body's own
+    // head, spine and legs — the head swells and drops onto the bust's head
+    // as it fades, so it dissolves into the risen outline (the fade runs
+    // ahead of the morph — (1 − form)² — so the legs are mostly gone by the
+    // time the shoulders have risen).
     const bustR = BUST_HEAD * h
-    this.head = new Circle({
-      radius: derive(() => lerp(headR, bustR, form.value)),
-      y: derive(() => lerp(headCy, crown - bustR, form.value)),
-      tint: this.tint,
-      stroke,
-    })
-    this.spine = new Line({ points: [{ x: 0, y: shoulderTop, z: 0 }, { x: 0, y: hip, z: 0 }], tint: this.tint, stroke })
+    const at = (x: number, y: number): Vec3Like => ({ x, y, z: 0 })
+    const headLoop = (): Vec3Like[] => {
+      const r = lerp(headR, bustR, form.value)
+      const cy = lerp(headCy, crown - bustR, form.value)
+      // The host's own circle: HEAD_SEGMENTS from angle 0, counter-clockwise.
+      const pts: Vec3Like[] = []
+      for (let i = 0; i <= HEAD_SEGMENTS; i++) {
+        const a = (i / HEAD_SEGMENTS) * Math.PI * 2
+        pts.push(at(Math.cos(a) * r, cy + Math.sin(a) * r))
+      }
+      return pts
+    }
+    const spine = [at(0, shoulderTop), at(0, hip)]
     // Legs from the hip, a quiet stance.
-    this.legLeft = new Line({ points: [{ x: 0, y: hip, z: 0 }, { x: -h * STANCE, y: foot, z: 0 }], tint: this.tint, stroke })
-    this.legRight = new Line({ points: [{ x: 0, y: hip, z: 0 }, { x: h * STANCE, y: foot, z: 0 }], tint: this.tint, stroke })
-    this.body = this.add(
-      new Layer({
-        presence: derive(() => (1 - form.value) ** 2),
-        members: [this.head, this.spine, this.legLeft, this.legRight],
+    const legLeft = [at(0, hip), at(-h * STANCE, foot)]
+    const legRight = [at(0, hip), at(h * STANCE, foot)]
+    this.bodyPresence = () => (1 - form.value) ** 2
+    const alphas = new Float32Array(6)
+    this.ink = this.add(
+      new Polylines({
+        tint: this.tint,
+        stroke,
+        penPerLoop: true,
+        loopOpacity: () => {
+          const b = this.bodyPresence()
+          alphas[0] = 1
+          alphas[1] = 1
+          alphas[2] = alphas[3] = alphas[4] = alphas[5] = b
+          return alphas
+        },
       }),
     )
+    deriveLoops(this.ink, () => [form.value, turned.value], () => [
+      halfAt(-1, form.value),
+      halfAt(1, form.value),
+      headLoop(),
+      spine,
+      legLeft,
+      legRight,
+    ])
   }
 }
