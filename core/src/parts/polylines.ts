@@ -37,7 +37,14 @@ export class Polylines extends Stroke {
   /** Each loop's opacity, one per loop, multiplying `opacity` — read every frame. Unset: all 1. Construction-time. */
   loopOpacity: (() => ArrayLike<number>) | undefined = undefined
   /** `creation` draws every loop on at once, from its first point (else it only shows or hides). Construction-time. */
-  penPerLoop = false;
+  penPerLoop = false
+  /**
+   * A sphere (local space) that contains every point of every loop this
+   * holon can draw while it is set — the host then skips measuring the
+   * loops' bounds on each reshape (a fleet that moves every frame). Must be
+   * CONSERVATIVE: the off-screen cull trusts it.
+   */
+  boundsHint: { center: Vec3Like; radius: number } | undefined = undefined;
   [LOOPS]: Vec3Like[][] = []
 
   constructor(overrides: Overrides = {}) {

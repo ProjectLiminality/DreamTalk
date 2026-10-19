@@ -680,7 +680,10 @@ export class RibbonStroke {
    * its end (totalLength 1), so a draw front `fraction` draws EVERY loop on
    * at once — each as far along itself as a Line of its own would be.
    */
-  setLoops(loops: readonly (readonly THREE.Vector3[])[], opts: { perLoopPen?: boolean } = {}): void {
+  setLoops(
+    loops: readonly (readonly THREE.Vector3[])[],
+    opts: { perLoopPen?: boolean; bounds?: { center: { x: number; y: number; z: number }; radius: number } } = {},
+  ): void {
     this.loops = loops
     this.resetAlphas()
     const starts = [0]
@@ -708,7 +711,15 @@ export class RibbonStroke {
       for (let k = 0; k + 1 < loop.length; k++, i++) {
         const a = loop[k]!
         const b = loop[k + 1]!
-        positions.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6)
+        // Written in place (no per-segment array): the buffers are kept by
+        // capacity, so a fleet whose loops come and go reallocates only to grow.
+        const o = i * 6
+        positions[o] = a.x
+        positions[o + 1] = a.y
+        positions[o + 2] = a.z
+        positions[o + 3] = b.x
+        positions[o + 4] = b.y
+        positions[o + 5] = b.z
         distances[i * 2] = acc
         acc += a.distanceTo(b)
         distances[i * 2 + 1] = acc
@@ -721,7 +732,11 @@ export class RibbonStroke {
     dist.data.needsUpdate = true
     this.geometry.instanceCount = count
     this.totalLength = perLoop ? 1 : acc
-    this.computeBounds()
+    if (opts.bounds) {
+      const { center, radius } = opts.bounds
+      this.boundsCenter.set(center.x, center.y, center.z)
+      this.boundsRadius = radius
+    } else this.computeBounds()
   }
 
   /**

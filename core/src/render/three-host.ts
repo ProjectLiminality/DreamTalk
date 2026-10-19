@@ -1074,7 +1074,7 @@ export class ThreeHost {
   /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
   private readonly surfaces: { holon: Surface; fill: FillShape; version: number; gradient: boolean }[] = []
   /** Many-polyline strokes (parts/polylines.ts) — one ribbon each, no pen front. */
-  private readonly polylines: { holon: Polylines; ribbon: RibbonStroke; version: number; look: StyleParams; alphas?: Float32Array; fronts?: Float32Array }[] = []
+  private readonly polylines: { holon: Polylines; ribbon: RibbonStroke; version: number; look: StyleParams; alphas?: Float32Array; points?: THREE.Vector3[]; fronts?: Float32Array }[] = []
   /**
    * Drawings that wash as one even-odd surface across their subpaths —
    * a Sketch and anything else composed of closed Lines
@@ -2593,9 +2593,22 @@ export class ThreeHost {
       // Hidden lines keep their loops (and skip deriving them) until they can show, as strokes do.
       let reshaped = false
       if (on > 0 && opacity > 0 && width > 0 && holon.geomVersion !== binding.version) {
-        const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
+        // Fresh loop arrays (a halo or cloud keys on their identity), points
+        // from the binding's own pool of vectors, refilled in place.
+        const pool = (binding.points ??= [])
+        let used = 0
+        const loops = holon.loops.map((loop) => {
+          const out = new Array<THREE.Vector3>(loop.length)
+          for (let k = 0; k < loop.length; k++) {
+            const p = loop[k]!
+            const v = pool[used] ?? (pool[used] = new THREE.Vector3())
+            used++
+            out[k] = v.set(p.x, p.y, p.z)
+          }
+          return out
+        })
         binding.version = holon.geomVersion
-        ribbon.setLoops(loops, { perLoopPen: perLoop })
+        ribbon.setLoops(loops, { perLoopPen: perLoop, bounds: holon.boundsHint })
         this.blurOf.get(ribbon)?.setLoops(loops, { perLoopPen: perLoop })
         reshaped = true
       }
