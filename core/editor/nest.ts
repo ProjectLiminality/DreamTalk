@@ -325,6 +325,8 @@ const PREWARM_REST_MS = 150
 const KEEP_LEVELS = 2
 /** The longest a level's background compile is waited for before it is drawn anyway, s. */
 const WARM_WAIT_S = 1.5
+/** The longest a background build waits for one first frame's warm-up before it draws anyway, s. */
+const AHEAD_WAIT_S = 30
 /** The longest an open waits for a level still being prepared before it builds its own, s. */
 const OPEN_WAIT_S = 3
 
@@ -419,7 +421,7 @@ export const mountNest = (opts: NestOpts): Nest => {
    * frame — on a hover in idle time, or across the glide of an open that
    * found nothing prepared. startInner then only reveals it.
    */
-  const prepareInner = async (wm: WatchMe, under: HTMLCanvasElement): Promise<Inner> => {
+  const prepareInner = async (wm: WatchMe, under: HTMLCanvasElement, ahead = false): Promise<Inner> => {
     const ac = new AbortController()
     opts.signal.addEventListener("abort", () => ac.abort())
     const canvas = document.createElement("canvas")
@@ -432,7 +434,10 @@ export const mountNest = (opts: NestOpts): Nest => {
     document.body.appendChild(canvas)
     const dream = new wm.Dream()
     await breath()
-    const host = await ThreeHost.mount(dream, canvas)
+    // In the background (`ahead`) the level mounts in slices and prepares each
+    // first frame in ≤3 ms jobs, one per animation frame (ThreeHost sliced /
+    // warmFirstFrame), so no frame of the page beneath carries the build.
+    const host = await ThreeHost.mount(dream, canvas, { sliced: ahead })
     await breath()
     const pickAt = (x: number, y: number) => {
       const b = canvas.getBoundingClientRect()
@@ -520,11 +525,17 @@ export const mountNest = (opts: NestOpts): Nest => {
     // Its pipelines compile in the background first (yielding between
     // objects), so its first drawn frames build nothing in one go.
     // Bounded: a compile that never settles must not hold the level back.
-    await Promise.race([host.warmed, sleep(WARM_WAIT_S)])
+    const startT = wm.startAt ? Math.min(dream.duration, wm.startAt) : 0
+    // Bounded too: builds queue one after another, and a warm-up that never
+    // settled would hold every later prewarm back.
+    const warmFirst = (t: number) => Promise.race([host.warmFirstFrame(t), sleep(AHEAD_WAIT_S)])
+    if (ahead) await warmFirst(dream.duration)
+    else await Promise.race([host.warmed, sleep(WARM_WAIT_S)])
     await host.renderFrame(dream.duration)
     if (wm.framed) await frameLevel(dream, host)
     await breath()
-    await host.renderFrame(wm.startAt ? Math.min(dream.duration, wm.startAt) : 0)
+    if (ahead) await warmFirst(startT)
+    await host.renderFrame(startT)
     return inner
   }
 
@@ -588,7 +599,7 @@ export const mountNest = (opts: NestOpts): Nest => {
     const under = top().canvas
     const ready: Promise<Inner | undefined> = building
       .then(() => new Promise<void>((idle) => whenIdle(idle)))
-      .then(() => prepareInner(wm, under))
+      .then(() => prepareInner(wm, under, true))
       .then((inner) => (parkInner(inner), inner))
       .catch(() => undefined)
     building = ready
