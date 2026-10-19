@@ -1421,8 +1421,38 @@ export class ThreeHost {
     // screenshot at an arbitrary t deterministic — without it the first
     // frames a harness captures are silently textless.
     await Promise.all(host.texts.map((t) => t.binding.ready))
+    // BOOT WARM: while the page is still loading — before the first
+    // animated frame — make what the idle queue builds later.
+    await host.bootWarm(ThreeHost.BOOT_WARM_MS)
     host.warmed = host.prewarm()
     return host
+  }
+
+  /** Most time mount spends building render objects ahead of the first frame (ms). */
+  static readonly BOOT_WARM_MS = 2000
+
+  /**
+   * Make ahead, within `budget` ms and before anything animates, every echo
+   * cloud the scene may need (hidden) — a recall that both doubts and shows
+   * a line then makes none in its frame; the idle queue builds them.
+   *
+   * Tried and left out (2026-10-19): rendering the whole scene once at boot
+   * with every hidden object shown, through an eye that clips it all, to
+   * build ~20k render objects synchronously. It cut ValueFlow's first ⌥8
+   * from ~2.1k new render objects to ~0.7k, but that frame got SLOWER
+   * (worst 250 → 700 ms headless) and boot grew ~2.6 s.
+   */
+  async bootWarm(budget: number): Promise<void> {
+    const until = performance.now() + budget
+    this.trackBuilt()
+    const blurs = this.superpositions
+      .map(({ blur }) => blur)
+      .filter((b): b is RibbonSuperposition => b instanceof RibbonSuperposition)
+    if (blurs.length * ECHOES > ThreeHost.ECHO_PREMAKE_BUDGET) return
+    for (const blur of blurs) {
+      if (performance.now() > until) break
+      blur.prepare()
+    }
   }
 
   /**
@@ -1467,6 +1497,21 @@ export class ThreeHost {
       if (cold.length > 0) this.enqueueWarm(next)
       if (chunk.length > 0) return this.warmMeshes(chunk)
     }
+    // Unseen Text first: its contours are traced only once it is seen, and
+    // a recall that shows a lens's labels traced (and built) every one of
+    // them in its first frame. Traced here at the scale it last synced at.
+    let k = 0
+    const pretrace = (): Promise<void> | void => {
+      const until = performance.now() + ThreeHost.WARM_SLICE_MS
+      const traced: THREE.Object3D[] = []
+      while (k < this.texts.length && performance.now() < until) {
+        const { binding } = this.texts[k++]!
+        if (binding.pretrace()) traced.push(binding.group)
+      }
+      if (k < this.texts.length) this.enqueueWarm(pretrace)
+      if (traced.length > 0) return this.compileGroups(traced)
+    }
+    this.enqueueWarm(pretrace)
     this.enqueueWarm(next)
     return this.warmed
   }

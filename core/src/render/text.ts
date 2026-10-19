@@ -839,6 +839,17 @@ export interface TextBinding {
    * retraces at once, as before.
    */
   sync(pixelsPerUnit?: number, t?: number): void
+  /**
+   * Trace the contours NOW if this text is mounted but unseen and its last
+   * sync's scale has none traced — the host's idle warm-up, so the frame it
+   * first shows traces nothing. Never for a text below the legibility cut
+   * at that scale, never for one already traced there; a seen text is the
+   * frame's own business (sync). Its strokes stay hidden (style() with the
+   * text's own, zero, opacity) until it is seen. True if it traced.
+   */
+  pretrace(): boolean
+  /** The group its glyphs and contours live in (the warm-up compiles it). */
+  readonly group: THREE.Object3D
   dispose(): void
   /** Resolves once the first layout has been mounted. */
   readonly ready: Promise<void>
@@ -1092,6 +1103,9 @@ export const attachText = (
   const textId = nextTextId++
   /** The previous sync's bucket and time: is the scale still moving? */
   let lastBucket = Number.NaN
+  /** The last sync's projection scale and whether the text was seen then. */
+  let lastPpu = Number.NaN
+  let lastSeen = false
   let lastT = Number.NaN
   let layoutToken = 0
   let disposed = false
@@ -1212,6 +1226,18 @@ export const attachText = (
   return {
     holon,
     ready,
+    group,
+    pretrace(): boolean {
+      if (disposed || !mesh || lastSeen || !Number.isFinite(lastBucket)) return false
+      if (!outlinesStale && insetBucket === lastBucket) return false
+      if (holon.lod && legibility(holon.size.value, lastPpu) <= 0) return false
+      insetBucket = lastBucket
+      insetScale = insetScaleOf(lastBucket)
+      outlinesStale = false
+      rebuildOutlines()
+      syncOutlines(outlines, holon, 0)
+      return true
+    },
     sync(pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT, t?: number): void {
       if (layoutKey(holon) !== currentKey) void relayout()
       // Seen opacity: its own fade times its inherited certainty
@@ -1239,6 +1265,8 @@ export const attachText = (
       })
       const due = want === "budget" ? grantMovingRetrace(textId, t!) : want
       lastBucket = bucket
+      lastPpu = pixelsPerUnit
+      lastSeen = seenNow
       lastT = t ?? Number.NaN
       noteTextSync()
       // Kept stale this frame: make sure a stop here still settles.
