@@ -58,7 +58,7 @@ export class Surface extends Stroke {
   /** Washed by default — a surface IS its fill. */
   override fillOpacity = completion(1)
 
-  /** Bumped whenever `positions`/`indices` change (the host's dirty check). */
+  /** Bumped whenever `positions`/`indices`/`alphas` change (the host's dirty check). */
   geomVersion = 0
 
   /** Flat xyz, local space. */
@@ -79,9 +79,24 @@ export class Surface extends Stroke {
     this.geomVersion++
   }
 
+  /**
+   * Optional: one opacity per VERTEX (0…1), multiplying the wash's — so one
+   * surface can carry many pieces at their own fades (a flow's dots, each
+   * fading in and out at the ends of its run, as ONE mesh). Unset = every
+   * vertex at 1, the surface exactly as before. Sheets only (a solid is
+   * opaque).
+   */
+  get alphas(): Float32Array | undefined {
+    return this[MESH].alphas
+  }
+  set alphas(a: Float32Array | undefined) {
+    this[MESH].alphas = a
+    this.geomVersion++
+  }
+
   /** Symbol-keyed backing — a Proxy'd holon cannot reach #-private fields
    *  (holon.ts), and off `Object.keys` the field scan never sees it. */
-  [MESH]: { positions: Float32Array; indices: Uint32Array } = {
+  [MESH]: { positions: Float32Array; indices: Uint32Array; alphas?: Float32Array } = {
     positions: new Float32Array(0),
     indices: new Uint32Array(0),
   }

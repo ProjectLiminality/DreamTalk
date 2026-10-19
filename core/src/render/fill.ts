@@ -28,7 +28,7 @@ import { evenOddTriangulation } from "../geometry/evenodd"
 // Same @types/three lag as ribbon.ts: UserDataNode misses the typed
 // Node<...> surface — the graph is verified when the shader builds.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { userData, positionLocal, smoothstep, float, max } = TSLTyped as any
+const { userData, positionLocal, smoothstep, float, max, attribute } = TSLTyped as any
 
 /** The per-mesh value slots the shared fill material reads (FillShape
  *  owns the writes). */
@@ -137,6 +137,25 @@ const sharedFillMaterial = (): THREE.MeshBasicNodeMaterial => {
     shared.opacityNode = userData(FILL_KEYS.fade, "float")
   }
   return shared
+}
+
+/**
+ * The fill material with a per-VERTEX opacity (Surface `alphas`): the
+ * shared material's, times the vertex's `alpha` attribute. Used only by a
+ * mesh that carries alphas, so every other fill keeps its exact bytes.
+ */
+let sharedAlpha: THREE.MeshBasicNodeMaterial | undefined
+const sharedAlphaFillMaterial = (): THREE.MeshBasicNodeMaterial => {
+  if (!sharedAlpha) {
+    const m = new THREE.MeshBasicNodeMaterial()
+    m.transparent = true
+    m.depthWrite = false
+    m.side = THREE.DoubleSide
+    m.colorNode = userData(FILL_KEYS.tint, "color")
+    m.opacityNode = userData(FILL_KEYS.fade, "float").mul(attribute("alpha", "float"))
+    sharedAlpha = m
+  }
+  return sharedAlpha
 }
 
 /**
@@ -342,10 +361,16 @@ export class FillShape {
    * xyz and triangle indices, taken as they are: a surface knows its own
    * triangulation, and a curved one has no plane to triangulate in.
    */
-  setMesh(positions: Float32Array, indices: Uint32Array): void {
+  setMesh(positions: Float32Array, indices: Uint32Array, alphas?: Float32Array): void {
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    // Per-vertex opacity (Surface `alphas`): its own material, once, for a
+    // sheet that carries them; a sheet that never does is untouched.
+    if (alphas) {
+      geometry.setAttribute("alpha", new THREE.BufferAttribute(alphas, 1))
+      if (this.mesh.material === sharedFillMaterial()) this.mesh.material = sharedAlphaFillMaterial()
+    }
     this.mesh.geometry.dispose()
     this.mesh.geometry = geometry
     let extent = 0

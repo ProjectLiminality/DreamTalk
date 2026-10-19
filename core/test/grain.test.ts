@@ -369,3 +369,43 @@ describe("Grain — a dot computes no drawing", () => {
     }
   })
 })
+
+describe("DotPool — a flow's dots as one mesh", () => {
+  test("one disc per visible dot, each at its grain's place, size and opacity; hidden dots left out", async () => {
+    const { DotPool } = await import("../vocabulary/Grain/Grain")
+    const { Group } = await import("../src/parts/primitives")
+    const o = observer()
+    const pool = new DotPool({ observer: o })
+    const grains = [0, 1, 2].map((i) => new Grain({ observer: o, category: BLUE, symbol: (x) => new Pallet(x), dots: pool, grain: 1, radius: 10, x: i * 100 }))
+    const flow = new Group({ members: [pool, ...grains] })
+    for (const g of grains) void g.parts
+    void flow.parts
+    grains[1]!.opacity.value = 0.5
+    grains[2]!.opacity.value = 0
+    const pos = pool.positions
+    const alphas = pool.alphas!
+    expect(pos.length / 3).toBe(2 * 49) // grain 2 is hidden: left out
+    expect(alphas[0]).toBeCloseTo(1, 6)
+    expect(alphas[49]).toBeCloseTo(0.5, 6)
+    // Centres at the grains' places, discs of their radius.
+    expect(pos[0]).toBeCloseTo(0, 4)
+    expect(pos[49 * 3]).toBeCloseTo(100, 4)
+    const rim = Math.hypot(pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!)
+    expect(rim).toBeCloseTo(10, 4)
+    expect(pool.indices.length).toBe(2 * 48 * 3)
+    // The tint is the members' dot colour; past the morph start the dots are gone.
+    expect(pool.tint.value).toEqual(BLUE)
+    for (const g of grains) g.grain.value = 1.5
+    expect(pool.positions.length).toBe(0)
+  })
+
+  test("a member's own certainty ghosts its disc (folded into its alpha)", async () => {
+    const { DotPool } = await import("../vocabulary/Grain/Grain")
+    const { ghost } = await import("../src/certainty")
+    const o = observer()
+    const pool = new DotPool({ observer: o })
+    const g = new Grain({ observer: o, category: BLUE, symbol: (x) => new Pallet(x), dots: pool, grain: 1, categoryKnown: 0.25 })
+    void g.parts
+    expect(pool.alphas![0]).toBeCloseTo(ghost(0.25), 6)
+  })
+})
