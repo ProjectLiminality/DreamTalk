@@ -553,7 +553,11 @@ export class RibbonStroke {
   /** The first segment of each loop, and the end (setLoops). */
   private loopStarts: number[] = []
 
+  /** The loop alphas as last set (setLoopAlphas), until the shape is replaced — what a halo of this stroke copies. */
+  loopAlphas: ArrayLike<number> | undefined
+
   private resetAlphas(): void {
+    this.loopAlphas = undefined
     if (!this.alphaSet) return
     const attr = this.geometry.getAttribute("instanceAlpha") as THREE.InstancedBufferAttribute
     ;(attr.array as Float32Array).fill(1)
@@ -574,6 +578,7 @@ export class RibbonStroke {
     for (let l = 0; l + 1 < starts.length; l++) arr.fill(alphas[l]!, starts[l]!, starts[l + 1]!)
     attr.needsUpdate = true
     this.alphaSet = true
+    this.loopAlphas = alphas
   }
 
   constructor(widthPx: number) {

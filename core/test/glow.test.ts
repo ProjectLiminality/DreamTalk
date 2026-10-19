@@ -145,4 +145,27 @@ describe("glow — a halo around many polylines (parts/polylines.ts)", () => {
     const [rim] = halo.meshes()
     expect(rim!.visible).toBe(true)
   })
+
+  test("a loop faded out of the ink (loop alphas) is out of its light: rim, aura and mask take the same alphas", async () => {
+    const THREE = await import("three/webgpu")
+    const { RibbonStroke } = await import("../src/render/ribbon")
+    const { StrokeHalo } = await import("../src/render/glow")
+    const ribbon = new RibbonStroke(2)
+    const v = (x: number, y: number) => new THREE.Vector3(x, y, 0)
+    ribbon.setLoops([
+      [v(0, 0), v(10, 0), v(10, 10)],
+      [v(20, 0), v(30, 0)],
+    ])
+    ribbon.setLoopAlphas(new Float32Array([1, 0]))
+    ribbon.style(1, 1, GOLD, 2)
+    const halo = new StrokeHalo(ribbon, new THREE.Group())
+    halo.sync(1)
+    const alphaOf = (m: { geometry: unknown }) =>
+      Array.from(((m.geometry as InstanceType<typeof THREE.InstancedBufferGeometry>).getAttribute("instanceAlpha").array as Float32Array).slice(0, 3))
+    for (const m of halo.meshes()) expect(alphaOf(m as { geometry: unknown })).toEqual([1, 1, 0])
+    // The ink's alphas move: the light follows.
+    ribbon.setLoopAlphas(new Float32Array([0.5, 1]))
+    halo.sync(1)
+    for (const m of halo.meshes()) expect(alphaOf(m as { geometry: unknown })).toEqual([0.5, 0.5, 1])
+  })
 })

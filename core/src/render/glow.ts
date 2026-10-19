@@ -91,6 +91,7 @@ export class StrokeHalo {
   private readonly mask: RibbonStroke
   private points: readonly THREE.Vector3[] | undefined
   private closed = false
+  private alphas: ArrayLike<number> | undefined
 
   constructor(private readonly main: RibbonStroke, layer: THREE.Object3D) {
     this.rim = softEcho(1, LIGHT_ORDER, layer)
@@ -121,6 +122,15 @@ export class StrokeHalo {
       }
       // Many polylines have no single seam: their tips are never read (no hollow).
       this.closed = loops ? false : isClosed(pts)
+      this.alphas = undefined
+    }
+    // A loop faded out of the ink (Polylines `loopOpacity`) is out of its light too.
+    const alphas = loops ? this.main.loopAlphas : undefined
+    if (alphas && alphas !== this.alphas) {
+      this.alphas = alphas
+      this.rim.setLoopAlphas(alphas)
+      this.aura.setLoopAlphas(alphas)
+      this.mask.setLoopAlphas(alphas)
     }
     const shown = shownOf(this.main)
     if (amount <= 0 || shown.opacity <= 0) {
