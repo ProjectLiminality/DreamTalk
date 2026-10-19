@@ -41,6 +41,8 @@ export const setLiveObserver = (obs: Observer | undefined): void => {
   live = obs
 }
 export const liveView = (): View | undefined => (live ? viewOf(live) : undefined)
+/** The live observer itself (its projection, not only where it stands): pixel-sized CPU geometry. */
+export const liveObserver = (): Observer | undefined => live
 
 export const viewOf = (obs: Observer): View => {
   const phi = obs.phi.value

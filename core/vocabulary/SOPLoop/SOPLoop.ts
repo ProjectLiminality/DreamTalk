@@ -113,9 +113,9 @@ export class SOPLoop extends Null {
   /** Every particle's disc, as ONE mesh (src/parts/discpool.ts). */
   pool?: DiscPool
   /**
-   * Who sees the loop — `() => this.observer` from the Dream. Its camera
-   * sizes the particles' uncertainty clouds in pixels; without it, the
-   * default camera's.
+   * Who sees the loop — an override only. The particles' uncertainty
+   * clouds are sized in pixels by the camera the host renders with (the
+   * live eye, DiscPool); pass `() => observer` to pin another.
    */
   seenBy: (() => Observer) | undefined = undefined
   /** The frame that tips back while the lobe flips. */

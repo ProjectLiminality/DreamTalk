@@ -433,3 +433,32 @@ describe("DotPool — presence between the pool and a dot", () => {
     expect(pool.positions.length / 3).toBe(49)
   })
 })
+
+describe("DiscPool — the live eye", () => {
+  test("with no observer given, the clouds are sized by the host's live camera", async () => {
+    const { DiscPool } = await import("../src/parts/discpool")
+    const { setLiveObserver } = await import("../src/geometry/frames")
+    const { Group } = await import("../src/parts/primitives")
+    const spread = (zoom: number): number => {
+      const live = new Observer()
+      live.orthographic.value = true
+      live.zoom.value = zoom
+      setLiveObserver(live)
+      const pool = new DiscPool()
+      const g = new Grain({ category: BLUE, symbol: (x) => new Pallet(x), dots: pool, grain: 1, categoryKnown: 0 })
+      const flow = new Group({ members: [pool, g] })
+      void g.parts
+      void flow.parts
+      const p = pool.positions
+      // The first echo's centre (after the dot's 49 vertices), off the dot's centre.
+      const off = Math.hypot(p[49 * 3]! - p[0]!, p[49 * 3 + 1]! - p[1]!, p[49 * 3 + 2]! - p[2]!)
+      setLiveObserver(undefined)
+      return off
+    }
+    // Twice the zoom: half the units per pixel, half the cloud's spread in units.
+    const a = spread(1)
+    const b = spread(2)
+    expect(a).toBeGreaterThan(0)
+    expect(b / a).toBeCloseTo(0.5, 4)
+  })
+})

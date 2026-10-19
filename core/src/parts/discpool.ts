@@ -28,6 +28,10 @@
  * overlap at partial opacity the later composites over the earlier — as
  * their separate fills did, in attach order.
  *
+ * The camera that faces its discs and sizes its clouds is `observer` if
+ * given, else the host's LIVE eye (frames.ts liveObserver — whatever it is
+ * rendering with now), else the framework's default eye (tests).
+ *
  * Place it in a frame that holds its members (a flow, a figure) and `join`
  * each member with its look. One implementation for every particle
  * population: Grain's dots (vocabulary/Grain `DotPool` is this), SOPLoop's
@@ -40,7 +44,7 @@ import type { Holon, Overrides } from "../holon"
 import { certaintyOf, seenOpacity } from "../certainty"
 import { derive, memoReads, type Readable } from "../params"
 import { orthoHalfHeight } from "../dream"
-import { localView, toLocal, toWorld, viewOf } from "../geometry/frames"
+import { liveObserver, localView, toLocal, toWorld, viewOf } from "../geometry/frames"
 import { CLOUD_PX, ECHOES, echoBreath, echoOffset } from "../render/superposition"
 import { WHITE } from "../constants"
 import { Surface } from "./surface"
@@ -114,7 +118,9 @@ export class DiscPool extends Surface {
   }
 
   private build(): { positions: Float32Array; indices: Uint32Array; alphas: Float32Array; colors: Float32Array } {
-    const o = this.crowd.observer
+    // The camera: the one given, else the one the host renders with now
+    // (frames.ts live eye) — so the clouds are sized right with no wiring.
+    const o = this.crowd.observer ?? liveObserver()
     const view = localView(this, o ? viewOf(o) : { eye: { x: 0, y: 0, z: 1500 } })
     const scale = worldScale(this) || 1
     this.seen ??= { pool: seenOpacity(this), members: new Map() }
