@@ -68,7 +68,7 @@ import type { Holon } from "../../src/holon"
 import { certainty, presence, presencesOf, wobble } from "../../src/certainty"
 import type { Observer } from "../../src/dream"
 import type { SolidDrawing } from "../../src/parts/soliddrawing"
-import { Grain, NEUTRAL } from "../Grain/Grain"
+import { DotPool, Grain, NEUTRAL } from "../Grain/Grain"
 import { FlowRoad } from "../Road/FlowRoad"
 import { Pallet } from "../Pallet/Pallet"
 import { FilmReel } from "../FilmReel/FilmReel"
@@ -1148,6 +1148,8 @@ export class FlowMap extends Null {
       const seen: (() => number)[] = []
       const carriers: Group[] = []
       const material = sd.symbol && sd.symbol !== "dot" ? MATERIALS[sd.symbol] : undefined
+      // A material flow's dots, all of them, as one mesh (Grain's DotPool).
+      const dotPool = material ? new DotPool({ observer: this.seenBy?.(), time: this.time }) : undefined
       const spindle = sd.symbol ? SPINDLES[sd.symbol] : undefined
       const stageRate = Math.max(...d.flows.filter((g) => g.stage === f.stage).map((g) => g.rate ?? 1))
       for (let j = 0; j < n; j++) {
@@ -1185,6 +1187,7 @@ export class FlowMap extends Null {
         const dot = material
           ? new Grain({
               observer: this.seenBy?.(),
+              dots: dotPool,
               radius: derive(() => R() * 0.02),
               // As large as the gap the stage's DENSEST flow allows — so the
               // stage's symbols match and never overlap; a scene that wants
@@ -1318,7 +1321,7 @@ export class FlowMap extends Null {
         },
       )
       const flow = new Flow({
-        members: [line, ...carriers, ...(moneyLane ? [moneyLane] : []), ...(road ? [road] : [])],
+        members: [line, ...(dotPool ? [dotPool] : []), ...carriers, ...(moneyLane ? [moneyLane] : []), ...(road ? [road] : [])],
         certainty: flowCertainty,
       })
       flow.road = road
