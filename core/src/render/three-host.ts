@@ -1027,11 +1027,17 @@ const liftTint = (tint: Color, amount: number): Color =>
         b: tint.b + (1 - tint.b) * amount,
       }
 
-/** Run `fn` when the main thread is idle (soon, at the latest). */
-const whenIdle = (fn: () => void): void => {
-  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
-  if (ric) ric(fn, { timeout: 250 })
-  else setTimeout(fn, 0)
+/**
+ * Run `fn` when the main thread is truly idle, with the time left before
+ * the next frame is due (ms). No timeout: warm-up waits for idle, it never
+ * forces itself between frames. Without requestIdleCallback, a short timer
+ * with a conservative budget.
+ */
+const whenIdle = (fn: (timeLeft: number) => void): void => {
+  const ric = (globalThis as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void) => number })
+    .requestIdleCallback
+  if (ric) ric((d) => fn(d.timeRemaining()))
+  else setTimeout(() => fn(4), 50)
 }
 
 export class ThreeHost {
@@ -1387,37 +1393,101 @@ export class ThreeHost {
     // slot state not yet recalled. A hidden GROUP hides its whole subtree
     // from compileAsync's gather, so for each chunk every object is hidden
     // but the chunk's meshes and their ancestors (and all is given back
-    // before control returns: no frame sees it). One chunk per idle slice,
-    // so no frame waits on a large tree (ValueFlow: 20k objects in one root).
+    // before control returns: no frame sees it). Gathered at the first idle
+    // moment, after the first frames have built what they show; then one
+    // small chunk per warm job (enqueueWarm: true idle only, never while
+    // anything moves).
     this.trackBuilt()
-    // Gathered at the first idle moment, after the first frames have built
-    // what they show.
     let cold: THREE.Mesh[] | undefined
-    const builds: Promise<void>[] = []
-    return new Promise<void>((resolve) => {
-      const slice = () => {
-        if (!cold) {
-          cold = []
-          this.scene.traverse((object) => {
-            const mesh = object as THREE.Mesh
-            if (mesh.isMesh && !this.built.has(mesh) && mesh.layers.test(this.camera.layers)) cold!.push(mesh)
-          })
-        }
-        const chunk: THREE.Mesh[] = []
-        while (cold.length > 0 && chunk.length < ThreeHost.WARM_CHUNK) {
-          const mesh = cold.pop()!
-          if (!this.built.has(mesh) && mesh.parent) chunk.push(mesh)
-        }
-        if (chunk.length > 0) builds.push(this.warmMeshes(chunk))
-        if (cold.length > 0) whenIdle(slice)
-        else void Promise.all(builds).then(() => resolve())
+    const next = (): Promise<void> | void => {
+      if (!cold) {
+        cold = []
+        this.scene.traverse((object) => {
+          const mesh = object as THREE.Mesh
+          if (mesh.isMesh && !this.built.has(mesh) && mesh.layers.test(this.camera.layers)) cold!.push(mesh)
+        })
       }
-      whenIdle(slice)
-    })
+      const chunk: THREE.Mesh[] = []
+      while (cold.length > 0 && chunk.length < ThreeHost.WARM_CHUNK) {
+        const mesh = cold.pop()!
+        if (!this.built.has(mesh) && mesh.parent) chunk.push(mesh)
+      }
+      if (cold.length > 0) this.enqueueWarm(next)
+      if (chunk.length > 0) return this.warmMeshes(chunk)
+    }
+    this.enqueueWarm(next)
+    return this.warmed
   }
 
-  /** Meshes compiled per idle slice (each one yields to the main thread as it builds). */
-  static readonly WARM_CHUNK = 200
+  /**
+   * THE WARM QUEUE — all background warm-up (prewarm chunks, echo clouds):
+   * one job at a time, the next only after the last one's compile has
+   * settled, and only when the main thread is truly idle with at least
+   * WARM_MIN_IDLE_MS before the next frame, and nothing has moved — no
+   * input, no camera move, no change of t — for WARM_QUIET_MS. Warm-up must
+   * never cost a visible frame.
+   */
+  private readonly warmJobs: (() => Promise<void> | void)[] = []
+  private warmPumping = false
+  private warmDrained?: () => void
+  /** When the last input, camera move or change of t happened (performance.now()). */
+  private lastActivity = 0
+  private activityWatched = false
+  private enqueueWarm(job: () => Promise<void> | void): void {
+    this.warmJobs.push(job)
+    if (!this.warmDrained) {
+      const drained = new Promise<void>((resolve) => (this.warmDrained = resolve))
+      const prior = this.warmed
+      this.warmed = Promise.all([prior, drained]).then(() => {})
+    }
+    this.watchActivity()
+    if (this.warmPumping) return
+    this.warmPumping = true
+    const step = (timeLeft: number) => {
+      if (performance.now() - this.lastActivity < ThreeHost.WARM_QUIET_MS || timeLeft < ThreeHost.WARM_MIN_IDLE_MS) {
+        whenIdle(step)
+        return
+      }
+      const job = this.warmJobs.shift()
+      if (!job) {
+        this.warmPumping = false
+        this.warmDrained?.()
+        this.warmDrained = undefined
+        return
+      }
+      let result: Promise<void> | void
+      try {
+        result = job()
+      } catch {
+        result = undefined
+      }
+      void Promise.resolve(result).finally(() => whenIdle(step))
+    }
+    whenIdle(step)
+  }
+
+  /** Input on the page counts as activity: warm-up keeps still while someone acts. */
+  private watchActivity(): void {
+    if (this.activityWatched || typeof window === "undefined") return
+    this.activityWatched = true
+    const touch = () => {
+      this.lastActivity = performance.now()
+    }
+    for (const type of ["pointerdown", "pointermove", "keydown", "wheel"]) {
+      window.addEventListener(type, touch, { passive: true, capture: true })
+    }
+  }
+
+  /** Quiet needed before warm-up resumes after any activity (ms). */
+  static readonly WARM_QUIET_MS = 300
+  /** Idle time a warm job needs before the next frame is due (ms). */
+  static readonly WARM_MIN_IDLE_MS = 8
+  private lastWarmT = Number.NaN
+  private readonly lastWarmVP = new THREE.Matrix4()
+  private readonly warmVP = new THREE.Matrix4()
+
+  /** Meshes compiled per warm job (each one yields to the main thread as it builds). */
+  static readonly WARM_CHUNK = 24
   /** Main-thread time one idle slice of other warm-up work may take (ms). */
   static readonly WARM_SLICE_MS = 6
 
@@ -1771,6 +1841,12 @@ export class ThreeHost {
 
   /** Deterministic: sample the timeline at t, sync the scene, render. */
   async renderFrame(t: number): Promise<void> {
+    // A change of t (playback, a scrub, a glide in time) is activity: the
+    // background warm-up holds still while the picture moves.
+    if (!Object.is(t, this.lastWarmT)) {
+      this.lastWarmT = t
+      this.lastActivity = performance.now()
+    }
     this.frameT = t
     // View-dependent geometry reads the camera this host renders with (frames.ts liveView).
     setLiveObserver(this.dream.observer)
@@ -1793,6 +1869,8 @@ export class ThreeHost {
     if (settled) this.scene.matrixWorldAutoUpdate = false
     try {
       const layers = this.fadingLayers()
+      // A dissolve in progress (a lens recall, presence) is activity too.
+      if (layers) this.lastActivity = performance.now()
       if (layers) await (this.compositor ??= new LayerCompositor(4)).render(this.renderer, this.scene, this.camera, layers)
       else await this.renderer.render(this.scene, this.camera)
     } finally {
@@ -1800,6 +1878,12 @@ export class ThreeHost {
     }
     // RESIDENCY: chapters mounted this frame warm up behind it.
     if (this.residency) this.warmMounted()
+    // A camera that moved this frame (an orbit, a glide) is activity too.
+    const vp = this.warmVP.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+    if (!vp.equals(this.lastWarmVP)) {
+      this.lastWarmVP.copy(vp)
+      this.lastActivity = performance.now()
+    }
     // Echo clouds made this frame while hidden: built behind it, too.
     if (this.coldEchoes.size > 0) this.warmEchoes()
   }
@@ -4518,20 +4602,27 @@ export class ThreeHost {
       .filter((b): b is RibbonSuperposition => b instanceof RibbonSuperposition)
     if (blurs.length * ECHOES > ThreeHost.ECHO_PREMAKE_BUDGET) return
     let next = 0
-    const slice = () => {
+    const job = () => {
       const until = performance.now() + ThreeHost.WARM_SLICE_MS
       while (next < blurs.length && performance.now() < until) blurs[next++]!.prepare()
+      if (next < blurs.length) this.enqueueWarm(job)
       if (this.coldEchoes.size > 0) this.warmEchoes()
-      if (next < blurs.length) whenIdle(slice)
     }
-    whenIdle(slice)
+    this.enqueueWarm(job)
   }
   /** Most echo meshes made ahead of need (premakeEchoes). */
   static readonly ECHO_PREMAKE_BUDGET = 24000
 
   private warmEchoes(): void {
+    const groups = [...this.coldEchoes]
+    this.coldEchoes.clear()
+    this.enqueueWarm(() => this.compileGroups(groups))
+  }
+
+  /** Compile these groups' hidden meshes (a warm job). */
+  private compileGroups(groups: readonly THREE.Object3D[]): Promise<void> {
     const builds: Promise<void>[] = []
-    for (const group of this.coldEchoes) {
+    for (const group of groups) {
       const shown: THREE.Object3D[] = []
       let compiling: Promise<void>
       try {
@@ -4547,9 +4638,7 @@ export class ThreeHost {
       }
       builds.push(compiling)
     }
-    this.coldEchoes.clear()
-    const prior = this.warmed
-    this.warmed = Promise.all([prior, ...builds]).then(() => {})
+    return Promise.all(builds).then(() => {})
   }
 
   private gatherClips(): boolean {
