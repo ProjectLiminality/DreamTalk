@@ -509,6 +509,38 @@ describe("FlowMap", () => {
     expect(m.stateSpace().axes.find((a) => a.id === "semi.concrete")!.positions.map((p) => p.name)).toEqual(["lines", "roads"])
   })
 
+  test("a slice's rings are pooled: one Polylines per tint, each ring a loop at its entity's own opacity", () => {
+    const plain = new FlowMap({ radius: R })
+    void plain.parts
+    expect(plain.slices[0]!.pools.length).toBe(0) // off by default
+    const m = new FlowMap({ radius: R, poolRings: true })
+    void m.parts
+    const slice = m.slices[0]!
+    // Two category tints, the neither-sites' white, the partners: four pools, not 11 + 18 strokes.
+    expect(slice.pools.length).toBe(4)
+    const A = MOCK_FLOWMAP.members.findIndex((x) => x.id === "A")
+    const site = slice.sites[A]!
+    const pool = slice.pools.find((p) => p.loopOwners().includes(site.ring))!
+    const at = pool.loopOwners().indexOf(site.ring)
+    // Whole and at rest: the pool draws it, its own Circle does not.
+    expect(site.ring.opacity.value).toBe(0)
+    expect(pool.loopOpacity!()[at]).toBeCloseTo(1, 9)
+    const loop = pool.loops[at]!
+    expect(loop.length).toBe(129)
+    expect(Math.hypot(loop[0]!.x - site.x.value - (loop[64]!.x - site.x.value), 0) / 2).toBeCloseTo(m.slices[0]!.sites[A]!.ring.radius.value, 6)
+    // Drawing on: its own Circle draws it, the loop steps aside.
+    site.ring.creation.value = 0.5
+    expect(site.ring.opacity.value).toBe(1)
+    expect(pool.loopOpacity!()[at]).toBe(0)
+    site.ring.creation.value = 1
+    // Out of a site's fiber: its loop goes with its presence.
+    const H = MOCK_FLOWMAP.members.findIndex((x) => x.id === "H")
+    const h = slice.sites[H]!
+    const hp = slice.pools.find((p) => p.loopOwners().includes(h.ring))!
+    ;(m as unknown as Record<string, { value: number }>)[`focus_${A}`]!.value = 1
+    expect(hp.loopOpacity!()[hp.loopOwners().indexOf(h.ring)]).toBe(0)
+  })
+
   test("site focus: only the site's fiber stays, rearranged round the site centred, the whole fiber symmetric and filling the view", () => {
     const m = new FlowMap({ radius: R })
     void m.parts

@@ -65,7 +65,8 @@ import { angle, choice, completion, derive, length, memoReads, scalar, state, ty
 import { together, type Anim } from "../../src/anim"
 import { BLUE, GREEN, PURPLE, RED, WHITE, YELLOW, rgb, type Color } from "../../src/constants"
 import type { Holon } from "../../src/holon"
-import { certainty, presence, presencesOf, wobble } from "../../src/certainty"
+import { certainty, presence, presencesOf, seenOpacity, wobble } from "../../src/certainty"
+import { deriveLoops, Polylines } from "../../src/parts/polylines"
 import type { Observer } from "../../src/dream"
 import type { SolidDrawing } from "../../src/parts/soliddrawing"
 import { DotPool, Grain, NEUTRAL } from "../Grain/Grain"
@@ -237,6 +238,61 @@ export class FlowSlice extends Group {
   discs: Circle[] = []
   sites: FlowEntity[] = []
   partners: FlowEntity[] = []
+  /** The slice's rings drawn as one mesh per tint (RingPool). */
+  pools: RingPool[] = []
+}
+
+/** A ring hands over to its slice's pool once it is whole and certain: drawn on, not being erased. */
+const pooled = (ring: Circle, sure: number): boolean =>
+  sure >= 1 && ring.creation.value >= 1 && ring.erasure.value <= 0 && ring.drawStart.value <= 0
+
+/**
+ * A slice's rings of one tint as ONE stroke: a Polylines whose every loop is
+ * one entity's ring — a circle (the host's own 128 segments) at the entity's
+ * place, its radius the members' — at the entity's own seen opacity
+ * (certainty.ts seenOpacity: its presence, the certainty of its chain) over
+ * the pool's, times what its ring would show. A ring still drawing on or off,
+ * or uncertain (its own blur), keeps its Circle, and its loop is 0 (`pooled`).
+ * `loopOwners` names each loop's ring: the handle a pick of that loop stands for.
+ */
+export class RingPool extends Polylines {
+  loopOwners: () => readonly Holon[] = () => []
+
+  constructor(entities: readonly FlowEntity[], shown: readonly Readable<number>[], sure: readonly number[], o: { tint: Readable<Color>; radius: () => number }) {
+    super({ stroke: 2.5, tint: o.tint as Param<Color> })
+    this.loopOwners = () => entities.map((e) => e.ring)
+    const SEGMENTS = 128
+    deriveLoops(
+      this,
+      () => [o.radius(), ...entities.flatMap((e) => [e.x.value, e.y.value])],
+      () => {
+        const r = o.radius()
+        return entities.map((e) => {
+          const cx = e.x.value
+          const cy = e.y.value
+          const pts: Vec3Like[] = []
+          for (let i = 0; i <= SEGMENTS; i++) {
+            const a = (i / SEGMENTS) * Math.PI * 2
+            pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, z: 0 })
+          }
+          return pts
+        })
+      },
+    )
+    let seen: Readable<number>[] | undefined
+    let own: Readable<number> | undefined
+    const alphas = new Float32Array(entities.length)
+    this.loopOpacity = memoReads(() => {
+      // Made at first use: the tree is final by then.
+      seen ??= entities.map((e) => seenOpacity(e))
+      own ??= seenOpacity(this)
+      const base = own.value
+      entities.forEach((e, i) => {
+        alphas[i] = base > 0 && pooled(e.ring, sure[i]!) ? (seen![i]!.value / base) * shown[i]!.value : 0
+      })
+      return alphas
+    })
+  }
 }
 
 /** One flow: its channel and the particles running down it. */
@@ -365,6 +421,13 @@ export class FlowMap extends Null {
    * A construction choice — a road per flow is a holon tree of its own.
    */
   roads = false
+  /**
+   * Draw each slice's rings as one stroke per tint (RingPool) instead of one
+   * Circle apiece. Construction-time. Off by default until the host's pick
+   * resolves a pooled loop to its ring (`RingPool.loopOwners`): pooled, a
+   * site's ring is not pickable as a handle.
+   */
+  poolRings = false
   private lanesWanted(): boolean {
     return this.moneyLanes ?? this.data.flows.some((f) => f.valueSeries !== undefined)
   }
@@ -928,15 +991,18 @@ export class FlowMap extends Null {
             opacity: derive(() => this.frame().visible[k]! * Math.max(this.rim.value, smooth(0, 0.3, this.grain.value)) * this.frame().unfocused),
           }),
       )
+      const partnerShown: Readable<number>[] = []
       const members = d.members.map((m, i) => {
         const home = (m.categories ?? []).map((c) => cats.findIndex((x) => x.id === c)).filter((j) => j >= 0)
         const tint = home.length === 1 ? (cats[home[0]!]!.tint ?? CATEGORY_TINTS[home[0]! % CATEGORY_TINTS.length]!) : WHITE
         const ringTint = derive(() => mix(WHITE, tint, this.grain.value))
-        const ring = new Circle({
+        const ring: Circle = new Circle({
           radius: derive(() => this.memberSize()),
           stroke: 2.5,
           tint: ringTint,
-          opacity: vis,
+          // Drawn by its slice's RingPool once whole; its own stroke only
+          // while drawing on or off (or uncertain — its own blur).
+          opacity: derive(() => (this.poolRings && pooled(ring, m.certainty ?? 1) ? 0 : vis.value)),
         })
         // Its name, centred in the ring and facing the camera; it inherits
         // the entity's certainty like the ring does.
@@ -969,15 +1035,17 @@ export class FlowMap extends Null {
         const used = d.flows.some(
           (f) => (f.from === p.id && stageIndex(f.stage) === k) || (f.to === p.id && stageIndex(f.stage) === k - 1),
         )
-        const ring = new Circle({
+        const shown: Readable<number> = used
+          ? vis
+          : k === 0
+            ? derive(() => 1 - smooth(0, 0.5, this.expand.value))
+            : { value: 0 }
+        partnerShown.push(shown)
+        const ring: Circle = new Circle({
           radius: derive(() => this.memberSize()),
           stroke: 2.5,
           tint: PARTNER_TINT,
-          opacity: used
-            ? vis
-            : k === 0
-              ? derive(() => 1 - smooth(0, 0.5, this.expand.value))
-              : 0,
+          opacity: derive(() => (this.poolRings && pooled(ring, p.certainty ?? 1) ? 0 : shown.value)),
         })
         const e = new FlowEntity({
           members: [ring],
@@ -1013,14 +1081,33 @@ export class FlowMap extends Null {
           )
         })
       }
+      // The rings, pooled: one Polylines per tint in this slice — the sites
+      // by their category's tint, the partners in theirs — each ring a loop
+      // at its entity's place, at its entity's own opacity (RingPool).
+      const groups = new Map<Color, { tint: Readable<Color>; entities: FlowEntity[]; shown: Readable<number>[]; sure: number[] }>()
+      const join = (key: Color, tint: Readable<Color>, e: FlowEntity, shown: Readable<number>, sure: number) => {
+        let g = groups.get(key)
+        if (!g) groups.set(key, (g = { tint, entities: [], shown: [], sure: [] }))
+        g.entities.push(e)
+        g.shown.push(shown)
+        g.sure.push(sure)
+      }
+      d.members.forEach((m, i) => {
+        const home = (m.categories ?? []).map((c) => cats.findIndex((x) => x.id === c)).filter((j) => j >= 0)
+        const tint = home.length === 1 ? (cats[home[0]!]!.tint ?? CATEGORY_TINTS[home[0]! % CATEGORY_TINTS.length]!) : WHITE
+        join(tint, members[i]!.ring.tint, members[i]!, vis, m.certainty ?? 1)
+      })
+      partners.forEach((p, i) => join(PARTNER_TINT, outer[i]!.ring.tint, outer[i]!, partnerShown[i]!, p.certainty ?? 1))
+      const pools = !this.poolRings ? [] : [...groups.values()].map((g) => new RingPool(g.entities, g.shown, g.sure, { tint: g.tint, radius: () => this.memberSize() }))
       const slice = new FlowSlice({
-        members: [hull, ...discs, ...members, ...outer, ...named],
+        members: [hull, ...discs, ...pools, ...members, ...outer, ...named],
         z: derive(() => this.frame().depths[k]!),
       })
       slice.hull = hull
       slice.discs = discs
       slice.sites = members
       slice.partners = outer
+      slice.pools = pools
       slices.push(slice)
     }
     this.slices = slices
