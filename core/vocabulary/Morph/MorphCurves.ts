@@ -52,10 +52,10 @@
 import { together, type Anim, type Windowed } from "../../src/anim"
 import type { Observer } from "../../src/dream"
 import { Holon, type Overrides } from "../../src/holon"
-import { completion, paramEpoch, type Param } from "../../src/params"
+import { completion, memoReads, readsOpaque, type Param } from "../../src/params"
 import { WHITE, type Color } from "../../src/constants"
 import { derive } from "../../src/params"
-import { Line, Null, Stroke, type Vec3Like } from "../../src/parts/primitives"
+import { Line, Null, Stroke, hasDerivedPoints, type Vec3Like } from "../../src/parts/primitives"
 import { SolidDrawing, derivePoints, toLocal, toWorld, viewOf } from "../../src/parts/soliddrawing"
 import { worldOutlineOf } from "../../src/geometry/morph"
 import {
@@ -127,6 +127,15 @@ export const partCurvesOf = (h: Holon): { curve: Vec3Like[]; part: Holon }[] => 
 /** The world-space curves a holon offers a morph (`partCurvesOf` without the parts). */
 export const curvesOf = (h: Holon): Vec3Like[][] => partCurvesOf(h).map((c) => c.curve)
 
+/**
+ * A Line whose points are plain data (not `derivePoints`) may be reassigned
+ * without any param moving: a reading of it cannot be listed by READS, so
+ * it is opaque — recomputed, and its strokes synced, every frame.
+ */
+const plainGeometry = (parts: readonly Holon[]): void => {
+  for (const h of parts) if (h instanceof Line && !hasDerivedPoints(h)) return readsOpaque()
+}
+
 /** A hidden morpher's slots' key: constant, so they recompute once on hiding and never again until shown. */
 const HIDDEN_KEY: readonly number[] = [-1]
 
@@ -145,7 +154,9 @@ const chainOf = (h: Holon): number[] => {
 export const signatureOf = (h: Holon): number[] => {
   if (bearsCurves(h) && h.curveSignature) return h.curveSignature()
   if (h instanceof SolidDrawing) return [...h.signature(), ...chainOf(h)]
-  if (h instanceof Line) return [h.geomVersion, h.drawStart.value, h.drawReversed.value ? 1 : 0, ...chainOf(h)]
+  // Points FIRST (as the host does): a derived Line's version is only current
+  // once its points are read — and so are its key's params, for READS.
+  if (h instanceof Line) return (void h.points, [h.geomVersion, h.drawStart.value, h.drawReversed.value ? 1 : 0, ...chainOf(h)])
   if (h instanceof Stroke && !bearsCurves(h)) {
     // Geometry only: a morph hides and shows its ends (opacity, fill) as it
     // goes, which moves no curve and must not re-plan it.
@@ -324,9 +335,13 @@ export class MorphCurves extends Stroke {
   private frameMemo?: { plan: MorphPlan; u: number; offset?: { from: Vec3Like; to: Vec3Like }; curves: Vec3Like[][]; version: number }
   private restMemo?: { key: number[]; curves: Vec3Like[][]; owners: Holon[]; version: number }
   private frames = 0
-  private planEpoch = -1
-  private curvesEpoch = -1
-  private curvesMemo?: { curves: Vec3Like[][]; version: number }
+  // Per frame, replaying their reads (params.ts memoReads): a morpher whose
+  // inputs stood still answers the same objects, and the host can skip its
+  // slots (READS). `keep` is sound here: a plan is a function of params
+  // alone — a plain Line's geometry, the one input that is not, makes the
+  // reading opaque (plainGeometry), and an opaque memo never keeps.
+  private planFM = memoReads(() => this.planNow(), { keep: true })
+  private curvesFM = memoReads(() => this.curvesNow(), { keep: true })
 
   constructor(sources: Holon[], targets: Holon[], options: MorphCurvesOptions & Overrides = {}) {
     const { observer, capacity, step, lag, relative, order, normal, axis, snap, rotate, travel, stagger, arc, bend, chain, minor, pairwise, ...rest } = options
@@ -370,26 +385,30 @@ export class MorphCurves extends Stroke {
       this.idleKey = key
       return false
     }
-    this.planEpoch = -1
     this.plan()
     return true
   }
 
   /** The current plan — re-planned only when an input's curves change. */
   plan(): { plan: MorphPlan; srcOwner: Holon[]; tgtOwner: Holon[]; offset?: { from: Vec3Like; to: Vec3Like } } {
-    // Same frame (no param written since), same plan — the slots ask
-    // hundreds of times a frame, the key below need only be read once.
-    const epoch = paramEpoch()
-    if (this.planMemo && this.planEpoch === epoch) return this.planMemo
-    this.planEpoch = epoch
+    // Once a frame at most (the slots ask hundreds of times), and not at
+    // all while its inputs stand still.
+    return this.planFM()
+  }
+
+  private planNow(): { plan: MorphPlan; srcOwner: Holon[]; tgtOwner: Holon[]; offset?: { from: Vec3Like; to: Vec3Like } } {
     const { sources, targets, opts } = this.ends
     const obs = opts.observer
     const key = this.planKey()
-    if (this.planMemo && sameKey(this.planMemo.key, key)) return this.planMemo
+    if (this.planMemo && sameKey(this.planMemo.key, key)) {
+      plainGeometry([...this.planMemo.srcOwner, ...this.planMemo.tgtOwner])
+      return this.planMemo
+    }
     const srcOwner: Holon[] = []
     const tgtOwner: Holon[] = []
     let src = sources.flatMap((h) => partCurvesOf(h).map((c) => (srcOwner.push(c.part), c.curve)))
     let tgt = targets.flatMap((h) => partCurvesOf(h).map((c) => (tgtOwner.push(c.part), c.curve)))
+    plainGeometry([...srcOwner, ...tgtOwner])
     if ((opts.chain ?? true) && !opts.pairwise) {
       // Strokes, not shards: join each side's curves that meet end to end.
       // A chain wears its first member's colour.
@@ -467,10 +486,7 @@ export class MorphCurves extends Stroke {
 
   /** The blended curves at the current `morph`, one per piece. */
   curves(): { curves: Vec3Like[][]; version: number } {
-    const epoch = paramEpoch()
-    if (this.curvesMemo && this.curvesEpoch === epoch) return this.curvesMemo
-    this.curvesEpoch = epoch
-    return (this.curvesMemo = this.curvesNow())
+    return this.curvesFM()
   }
 
   private curvesNow(): { curves: Vec3Like[][]; version: number } {
@@ -483,9 +499,13 @@ export class MorphCurves extends Stroke {
       const side = u <= 0 ? this.ends.sources : this.ends.targets
       const key = [u <= 0 ? 0 : 1, ...side.flatMap((h) => [-1, ...signatureOf(h)])]
       const r = this.restMemo
-      if (r && sameKey(r.key, key)) return r
+      if (r && sameKey(r.key, key)) {
+        plainGeometry(r.owners)
+        return r
+      }
       const owners: Holon[] = []
       const curves = side.flatMap((h) => partCurvesOf(h).map((c) => (owners.push(c.part), c.curve)))
+      plainGeometry(owners)
       this.restMemo = { key, curves, owners, version: ++this.frames }
       return this.restMemo
     }
@@ -532,16 +552,17 @@ export class MorphCurves extends Stroke {
   private pieceAlpha(i: number): number {
     const u = this.morph.value
     if (u <= 0 || u >= 1) return 1
-    const o = this.ends.opts
     const { plan } = this.plan()
     if (!plan.pieces.some((p) => p.condense)) return 1
-    const epoch = paramEpoch()
-    if (this.alphaMemo?.epoch !== epoch || this.alphaMemo.plan !== plan) {
-      this.alphaMemo = { epoch, plan, alphas: pieceAlphas(plan, u, { stagger: o.stagger, axis: this.axisNow() }) }
-    }
-    return this.alphaMemo.alphas[i] ?? 1
+    return this.alphasFM()[i] ?? 1
   }
-  private alphaMemo?: { epoch: number; plan: MorphPlan; alphas: number[] }
+  private alphasFM = memoReads(
+    (): number[] => {
+      const o = this.ends.opts
+      return pieceAlphas(this.plan().plan, this.morph.value, { stagger: o.stagger, axis: this.axisNow() })
+    },
+    { keep: true },
+  )
 
   /** The curves in flight, world space (this holon sits at the identity). */
   worldCurves(): Vec3Like[][] {

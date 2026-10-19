@@ -585,6 +585,14 @@ export class Line extends Stroke {
   }
 }
 
+const DERIVED = new WeakSet<Line>()
+/**
+ * Are this Line's points derived (`derivePoints`) — a function of params —
+ * or plain data, which code may reassign without any param moving? A
+ * reading of a plain Line's points cannot be listed by READS (params.ts).
+ */
+export const hasDerivedPoints = (line: Line): boolean => DERIVED.has(line)
+
 /**
  * Give a Line DERIVED points: `compute` runs only when `sourceKey` changes
  * (element-wise ===, so numbers, strings and object identities all key),
@@ -599,6 +607,7 @@ export const derivePoints = (
   sourceKey: () => readonly unknown[],
   compute: () => Vec3Like[],
 ): void => {
+  DERIVED.add(line)
   let key: readonly unknown[] | undefined
   let memo: Vec3Like[] = []
   Object.defineProperty(line, "points", {

@@ -39,7 +39,7 @@ import { BLACK, BLUE, WHITE, type Color } from "../../src/constants"
 import type { Observer } from "../../src/dream"
 import type { Overrides } from "../../src/holon"
 import { certainty } from "../../src/certainty"
-import { color, completion, derive, length, paramEpoch } from "../../src/params"
+import { color, completion, derive, length, memoReads } from "../../src/params"
 import { Group, type Vec3Like } from "../../src/parts/primitives"
 import { Polylines, deriveLoops } from "../../src/parts/polylines"
 import { Surface } from "../../src/parts/surface"
@@ -184,8 +184,30 @@ const planFor = (seen: Seen, radius: number): MorphPlan => {
   return plan
 }
 
-/** The loops' key while nothing is drawn (concrete still in the dots' fade): constant, so nothing recomputes. */
-const IDLE: readonly number[] = [-1]
+/**
+ * A value recomputed only when its key — the values it is a function of —
+ * changes (element-wise ===), else the same object: what a Polylines or a
+ * Surface is keyed on. The key's own reads are what a tracker lists.
+ */
+const byValues = <T>(key: () => readonly unknown[], compute: () => T): (() => T) => {
+  let last: readonly unknown[] | undefined
+  let value!: T
+  return () => {
+    const k = key()
+    if (!last || last.length !== k.length || k.some((v, i) => v !== last![i])) {
+      last = k
+      value = compute()
+    }
+    return value
+  }
+}
+
+/** The key of a geometry not drawn: constant. */
+const UNDRAWN: readonly unknown[] = [-1]
+
+/** What is drawn while nothing is (concrete still in the dots' fade): constant objects, so nothing is rebuilt. */
+const NO_LOOPS: Vec3Like[][] = []
+const NO_MESH = { positions: new Float32Array(0), indices: new Uint32Array(0) }
 
 const cross = (a: Vec3Like, b: Vec3Like): Vec3Like => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x })
 const dot = (a: Vec3Like, b: Vec3Like): number => a.x * b.x + a.y * b.y + a.z * b.z
@@ -263,7 +285,6 @@ export class FlowRoad extends Group {
 
   private road!: { source: FlowSource; opts: FlowRoadOptions }
   private pathMemo?: { raw: readonly Vec3Like[]; key: number[]; points: Vec3Like[]; lengths: number[] }
-  private memo?: { epoch: number; value: { points: Vec3Like[]; lengths: number[]; riders: Rider[] } }
 
   constructor(source: FlowSource, overrides: Overrides & FlowRoadOptions = {}) {
     const { seenBy, up, lineTint, dotTint, bucket, ...rest } = overrides
@@ -308,8 +329,22 @@ export class FlowRoad extends Group {
 
   /** The path in this holon's space, with arc lengths, and every visible particle's truck. Once per frame. */
   private state(): { points: Vec3Like[]; lengths: number[]; riders: Rider[] } {
-    const epoch = paramEpoch()
-    if (this.memo?.epoch === epoch) return this.memo.value
+    return this.stateFM()
+  }
+  // Once per frame, replaying its reads (params.ts memoReads). Not `keep`:
+  // it reads the flow source's path and particles, which need not be
+  // functions of params alone.
+  private stateFM = memoReads(() => this.stateNow())
+
+  /** The riders as numbers — what the fleet and its fills are a function of (their real key). */
+  private ridersKey = memoReads((): number[] => {
+    const out: number[] = []
+    for (const r of this.state().riders)
+      out.push(r.at.x, r.at.y, r.at.z, r.fwd.x, r.fwd.y, r.fwd.z, r.up.x, r.up.y, r.up.z, r.side.x, r.side.y, r.side.z, r.scale, r.az, r.el, r.step)
+    return out
+  })
+
+  private stateNow(): { points: Vec3Like[]; lengths: number[]; riders: Rider[] } {
     const { source, opts } = this.road
     const frame = source.frame
     // The source frame → this space, as ONE affine map read once a frame
@@ -388,9 +423,7 @@ export class FlowRoad extends Group {
       const el = Math.round(Math.asin(Math.max(-1, Math.min(1, t.y))) / step)
       riders.push({ at, fwd, up, side, scale, az, el, step })
     }
-    const value = { points, lengths, riders }
-    this.memo = { epoch, value }
-    return value
+    return { points, lengths, riders }
   }
 
   protected override compose(): void {
@@ -402,8 +435,19 @@ export class FlowRoad extends Group {
 
     // The road: the flow's line splitting into two edges as the morph runs.
     const road = new Polylines({ tint: ink, stroke: this.stroke, opacity: derive(drawn) })
-    deriveLoops(road, () => (drawn() ? [paramEpoch()] : IDLE), () => {
-      if (!drawn()) return []
+    // Each geometry is keyed by the VALUES it is a function of — it is
+    // rebuilt only when one of them moves, and its reads are the params
+    // behind them (READS: the host may skip it while they stand still).
+    const roadLoops = byValues(
+      () => {
+        // Undrawn, it reads nothing but its phase: skippable while the flow runs.
+        if (!drawn()) return UNDRAWN
+        const st = this.state()
+        const up = st.riders[0]?.up
+        return [phase().morph, this.width.value, st.points, up?.x, up?.y, up?.z]
+      },
+      (): Vec3Like[][] => {
+      if (!drawn()) return NO_LOOPS
       const { points } = this.state()
       const m = phase().morph
       const w = (this.width.value / 2) * m
@@ -418,7 +462,9 @@ export class FlowRoad extends Group {
           return { x: p.x + side.x * w * sign, y: p.y + side.y * w * sign, z: p.z + side.z * w * sign }
         })
       return [edge(-1), edge(1)]
-    })
+      },
+    )
+    deriveLoops(road, () => [roadLoops()], () => roadLoops())
 
     // The fleet's ink: every truck (or every dot on its way to one) as one stroke.
     const fleet = new Polylines({
@@ -426,8 +472,10 @@ export class FlowRoad extends Group {
       stroke: this.stroke,
       opacity: derive(drawn),
     })
-    deriveLoops(fleet, () => (drawn() ? [paramEpoch()] : IDLE), () => {
-      if (!drawn()) return []
+    const fleetLoops = byValues(
+      () => (drawn() ? [phase().morph, this.ringRadius(), ...this.ridersKey()] : UNDRAWN),
+      (): Vec3Like[][] => {
+      if (!drawn()) return NO_LOOPS
       const m = phase().morph
       const out: Vec3Like[][] = []
       for (const r of this.state().riders) {
@@ -456,7 +504,9 @@ export class FlowRoad extends Group {
         }
       }
       return out
-    })
+      },
+    )
+    deriveLoops(fleet, () => [fleetLoops()], () => fleetLoops())
 
     // The fills: cargo and body, every truck's visible faces in one solid Surface each.
     const fillOf = (g: number, tint: () => Color) => {
@@ -470,14 +520,9 @@ export class FlowRoad extends Group {
         fillOpacity: derive(() => (phase().fillIn > 0 ? 1 : 0)),
         opacity: derive(() => (phase().fillIn > 0 ? 1 : 0)),
       })
-      let epoch = -1
-      let version = 0
-      let positions = new Float32Array(0)
-      let indices = new Uint32Array(0)
-      const refresh = () => {
-        const e = paramEpoch()
-        if (e === epoch) return
-        epoch = e
+      const mesh = byValues(
+        () => (phase().fillIn > 0 ? this.ridersKey() : UNDRAWN),
+        (): { positions: Float32Array; indices: Uint32Array } => {
         const riders = phase().fillIn > 0 ? this.state().riders.filter((r) => r.scale > 0) : []
         let nv = 0
         let nt = 0
@@ -485,9 +530,9 @@ export class FlowRoad extends Group {
           nv += seenOf(r).faces[g]!.positions.length
           nt += seenOf(r).faces[g]!.triangles.length
         }
-        if (nv === 0 && positions.length === 0) return
-        positions = new Float32Array(nv)
-        indices = new Uint32Array(nt)
+        if (nv === 0) return NO_MESH
+        const positions = new Float32Array(nv)
+        const indices = new Uint32Array(nt)
         let v = 0
         let t = 0
         for (const r of riders) {
@@ -509,11 +554,23 @@ export class FlowRoad extends Group {
           }
           for (const q of f.triangles) indices[t++] = base + q
         }
-        version++
+        return { positions, indices }
+        },
+      )
+      // The version moves exactly when the mesh object does.
+      let version = 0
+      let last = mesh()
+      const current = () => {
+        const m = mesh()
+        if (m !== last) {
+          last = m
+          version++
+        }
+        return m
       }
-      Object.defineProperty(surface, "geomVersion", { configurable: true, get: () => (refresh(), version), set() {} })
-      Object.defineProperty(surface, "positions", { configurable: true, get: () => (refresh(), positions), set() {} })
-      Object.defineProperty(surface, "indices", { configurable: true, get: () => (refresh(), indices), set() {} })
+      Object.defineProperty(surface, "geomVersion", { configurable: true, get: () => (current(), version), set() {} })
+      Object.defineProperty(surface, "positions", { configurable: true, get: () => current().positions, set() {} })
+      Object.defineProperty(surface, "indices", { configurable: true, get: () => current().indices, set() {} })
       return surface
     }
     // Paint order: fills first, so the edges draw over them.
