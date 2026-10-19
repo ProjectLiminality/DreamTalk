@@ -323,6 +323,52 @@ const whenIdle = (fn: () => void) => {
 const PREWARM_REST_MS = 150
 /** Levels kept built while not open — the last closed, the last hovered (an LRU, like a song's keep). */
 const KEEP_LEVELS = 2
+/** The longest a level's background compile is waited for before it is drawn anyway, s. */
+const WARM_WAIT_S = 1.5
+/** The longest an open waits for a level still being prepared before it builds its own, s. */
+const OPEN_WAIT_S = 3
+
+/**
+ * Levels built but not open, most recent first (editor/nest.ts). Past `size`
+ * the oldest unpinned one is let go (a slot's level is pinned: a hover never
+ * evicts it); a taken one leaves the cache. `take` waits at most `waitMs` for
+ * a level still being prepared — one that lands later is let go.
+ */
+export class LevelCache<T> {
+  readonly #entries: { holon: Holon; kind: string; ready: Promise<T | undefined>; pinned: boolean }[] = []
+  constructor(
+    readonly size: number,
+    readonly release: (level: T) => void,
+  ) {}
+  /** Levels held now. */
+  get count(): number {
+    return this.#entries.length
+  }
+  has(holon: Holon, kind: string): boolean {
+    return this.#entries.some((e) => e.holon === holon && e.kind === kind)
+  }
+  keep(holon: Holon, kind: string, ready: Promise<T | undefined>, pinned = false): void {
+    this.#entries.unshift({ holon, kind, ready, pinned })
+    while (this.#entries.length > this.size) {
+      let k = -1
+      for (let i = this.#entries.length - 1; i >= 0; i--) if (!this.#entries[i]!.pinned) { k = i; break }
+      const [old] = this.#entries.splice(k < 0 ? this.#entries.length - 1 : k, 1)
+      void old!.ready.then((level) => level !== undefined && this.release(level))
+    }
+  }
+  async take(holon: Holon, kind: string, waitMs: number): Promise<T | undefined> {
+    const k = this.#entries.findIndex((e) => e.holon === holon && e.kind === kind)
+    if (k < 0) return undefined
+    const [e] = this.#entries.splice(k, 1)
+    let late = false
+    const got = await Promise.race([e!.ready, new Promise<undefined>((r) => setTimeout(() => ((late = true), r(undefined)), waitMs))])
+    if (got === undefined && late) void e!.ready.then((level) => level !== undefined && this.release(level))
+    return got
+  }
+  clear(): void {
+    for (const e of this.#entries.splice(0)) void e.ready.then((level) => level !== undefined && this.release(level))
+  }
+}
 
 /**
  * The machine is also on the page as `window.__dtNest` — the named actions a
@@ -349,7 +395,7 @@ export const mountNest = (opts: NestOpts): Nest => {
         rest = window.setTimeout(() => {
           if (busy || !pointer || top().canvas !== canvas) return
           const h = symbolAt(top().pick(pointer.x, pointer.y))
-          if (h) prewarm(h)
+          if (h && hasOwnLevel(h)) prewarm(h)
         }, PREWARM_REST_MS)
       },
       { signal },
@@ -473,7 +519,8 @@ export const mountNest = (opts: NestOpts): Nest => {
     inner.loop = () => requestAnimationFrame(frame)
     // Its pipelines compile in the background first (yielding between
     // objects), so its first drawn frames build nothing in one go.
-    await host.warmed
+    // Bounded: a compile that never settles must not hold the level back.
+    await Promise.race([host.warmed, sleep(WARM_WAIT_S)])
     await host.renderFrame(dream.duration)
     if (wm.framed) await frameLevel(dream, host)
     await breath()
@@ -510,28 +557,25 @@ export const mountNest = (opts: NestOpts): Nest => {
     inner.host.dispose()
   }
 
-  // Levels built but not open: prepared on a hover, or closed a moment ago.
-  // Most recent first; past KEEP_LEVELS the oldest is torn down in idle time.
-  const kept: { holon: Holon; kind: string; ready: Promise<Inner | undefined> }[] = []
-  const take = (holon: Holon, kind: string): Promise<Inner | undefined> | undefined => {
-    const k = kept.findIndex((e) => e.holon === holon && e.kind === kind)
-    return k < 0 ? undefined : kept.splice(k, 1)[0]!.ready
-  }
-  const keep = (holon: Holon, kind: string, ready: Promise<Inner | undefined>): void => {
-    kept.unshift({ holon, kind, ready })
-    while (kept.length > KEEP_LEVELS) {
-      const old = kept.pop()!
-      whenIdle(() => void old.ready.then((inner) => inner && disposeInner(inner)))
+  // Levels built but not open: prepared on a hover or for a slot, or closed a moment ago.
+  const kept = new LevelCache<Inner>(KEEP_LEVELS, (inner) => whenIdle(() => disposeInner(inner)))
+  opts.signal.addEventListener("abort", () => kept.clear())
+  /** One level builds at a time: hosts compiling side by side stalled each other's compileAsync. */
+  let building: Promise<unknown> = Promise.resolve()
+  /** Worth building on a hover: a level of its own (Holon.unpack) or a scene that explains it — not a symbol shown alone. */
+  const hasOwnLevel = (h: Holon): boolean => {
+    if (h.unpack() !== undefined) return true
+    try {
+      return !watchMeOf(opts.scenes, h).alone
+    } catch {
+      return false
     }
   }
-  opts.signal.addEventListener("abort", () => {
-    for (const e of kept.splice(0)) void e.ready.then((inner) => inner && disposeInner(inner))
-  })
   /** What a symbol opens as, kept apart: its WatchMe, or its state space. */
   const kindOf = (wm: WatchMe, states: boolean) => (states ? `states:${wm.Dream.name}` : "unpack")
 
   /** Build a symbol's level in the background (a rested pointer, a slot about to be recalled), so opening it only reveals it. */
-  const prewarm = (holon: Holon, states = false): void => {
+  const prewarm = (holon: Holon, states = false, pinned = false): void => {
     const symbol = symbolAt(holon) ?? holon
     let wm: WatchMe
     try {
@@ -540,13 +584,15 @@ export const mountNest = (opts: NestOpts): Nest => {
       return // a symbol that cannot stand alone (a StateLattice without its machine): nothing to warm
     }
     const kind = kindOf(wm, states)
-    if (kept.some((e) => e.holon === symbol && e.kind === kind)) return
-    if (stack.top?.holon === symbol) return
+    if (kept.has(symbol, kind) || stack.top?.holon === symbol) return
     const under = top().canvas
-    keep(symbol, kind, new Promise((done) => whenIdle(() => void prepareInner(wm, under).then(
-      (inner) => (parkInner(inner), done(inner)),
-      () => done(undefined),
-    ))))
+    const ready: Promise<Inner | undefined> = building
+      .then(() => new Promise<void>((idle) => whenIdle(idle)))
+      .then(() => prepareInner(wm, under))
+      .then((inner) => (parkInner(inner), inner))
+      .catch(() => undefined)
+    building = ready
+    kept.keep(symbol, kind, ready, pinned)
   }
 
   /** Open a level for a symbol: its WatchMe, or its state space (a lattice). */
@@ -577,7 +623,8 @@ export const mountNest = (opts: NestOpts): Nest => {
       // …while its own world grows out of the box it occupied — built already
       // when it was hovered or closed a moment ago, else built across the glide.
       const kind = kindOf(wm, states)
-      const inner = (await take(symbol, kind)) ?? (await prepareInner(wm, under))
+      // A prepared one that has not come within OPEN_WAIT_S is not waited for (it is let go when it lands).
+      const inner = (await kept.take(symbol, kind, OPEN_WAIT_S * 1000)) ?? (await prepareInner(wm, under))
       // The moment it starts from is this open's (a song's lattice from where you were).
       inner.wm = { ...inner.wm, startAt: wm.startAt }
       inner.kind = kind
@@ -644,7 +691,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       inners.pop()
       // Kept built, hidden: Esc and coming back in cost nothing; torn down in idle time when evicted.
       parkInner(inner)
-      keep(inner.symbol!, inner.kind!, Promise.resolve(inner))
+      kept.keep(inner.symbol!, inner.kind!, Promise.resolve(inner))
       // The glide has landed: the delta is the saved value exactly.
       const view = below.view()
       if (view && saved.delta) view.delta = { ...saved.delta }
@@ -733,7 +780,7 @@ export const mountNest = (opts: NestOpts): Nest => {
         t: inner ? (inner.game.on ? inner.game.heldAt : inner.t) : undefined,
         playing: inner ? inner.playing && !inner.game.on : undefined,
         song: inner?.key ?? inner?.dream.constructor.name,
-        kept: kept.length,
+        kept: kept.count,
       }
     },
     prewarm,
@@ -742,7 +789,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       const base = lattice ? name.slice(0, -2) : name
       for (const r of top().roots?.() ?? [])
         for (const h of r.walk())
-          if (symbolAt(h) === h && levelNameOf(h) === base) return prewarm(h, lattice)
+          if (symbolAt(h) === h && levelNameOf(h) === base) return prewarm(h, lattice, true)
     },
     openByName(name) {
       const lattice = name.endsWith(" ◇")

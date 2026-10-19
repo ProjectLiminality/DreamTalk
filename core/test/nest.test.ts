@@ -9,7 +9,7 @@ import { Dream, type DreamClass } from "../src/dream"
 import { Holon } from "../src/holon"
 import { Observer } from "../src/dream"
 import { ViewLayer } from "../src/view"
-import { latticeDream, levelNameOf, NestStack, songLatticeDream, statesOf, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
+import { latticeDream, LevelCache, levelNameOf, NestStack, songLatticeDream, statesOf, symbolAt, watchMeOf, type LevelSurface } from "../editor/nest"
 import { Eye } from "../vocabulary/Eye/Eye"
 import { StateLattice } from "../vocabulary/StateLattice/StateLattice"
 
@@ -163,5 +163,52 @@ describe("the symbol with its state space — the lattice", () => {
     const wm = statesOf(scenes, new Beacon())
     expect(wm).toMatchObject({ alone: false, framed: true, key: "ib-beacon ◇" })
     expect(statesOf({}, new Eye())).toMatchObject({ alone: true, framed: true })
+  })
+})
+
+describe("levels kept built (LevelCache) — a recall into a prepared or a closed level, and out", () => {
+  const sym = () => new Lens()
+
+  test("a closed level is taken back as it was; taking it leaves the cache", async () => {
+    const released: string[] = []
+    const cache = new LevelCache<string>(2, (l) => released.push(l))
+    const a = sym()
+    cache.keep(a, "unpack", Promise.resolve("A"))
+    expect(await cache.take(a, "unpack", 100)).toBe("A")
+    expect(cache.count).toBe(0)
+    expect(await cache.take(a, "unpack", 100)).toBeUndefined()
+    expect(released).toEqual([])
+  })
+
+  test("a slot's prepared level is pinned: hovers past the size evict the others, never it", async () => {
+    const released: string[] = []
+    const cache = new LevelCache<string>(2, (l) => released.push(l))
+    const slot = sym()
+    cache.keep(slot, "unpack", Promise.resolve("slot"), true)
+    for (const name of ["h1", "h2", "h3"]) cache.keep(sym(), "unpack", Promise.resolve(name))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(cache.has(slot, "unpack")).toBe(true)
+    expect(released.sort()).toEqual(["h1", "h2"])
+    expect(await cache.take(slot, "unpack", 100)).toBe("slot")
+  })
+
+  test("a level still being prepared is waited for only so long; when it lands late it is let go, not leaked", async () => {
+    const released: string[] = []
+    const cache = new LevelCache<string>(2, (l) => released.push(l))
+    const a = sym()
+    let land!: (v: string) => void
+    cache.keep(a, "unpack", new Promise((r) => (land = r)))
+    expect(await cache.take(a, "unpack", 20)).toBeUndefined() // the open builds its own
+    land("late")
+    await new Promise((r) => setTimeout(r, 0))
+    expect(released).toEqual(["late"])
+  })
+
+  test("a level that lands in time is the one opened", async () => {
+    const cache = new LevelCache<string>(2, () => {})
+    const a = sym()
+    cache.keep(a, "unpack", new Promise((r) => setTimeout(() => r("ready"), 10)))
+    expect(await cache.take(a, "unpack", 500)).toBe("ready")
   })
 })
