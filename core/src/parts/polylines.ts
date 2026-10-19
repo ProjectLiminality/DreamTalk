@@ -10,7 +10,13 @@
  * its golden glow and its clip are one each, too.
  *
  * It has no pen front: `creation` shows it (> 0) or not, `erasure` hides it
- * (≥ 1). A loop that must draw on is a Line.
+ * (≥ 1) — unless `penPerLoop`: then `creation` draws EVERY loop on at once,
+ * each as far along itself as a Line of its own would be (and `erasure`
+ * consumes them so).
+ *
+ * Each loop may have its own opacity (`loopOpacity`, read every frame,
+ * multiplying the stroke's): loops that fade apart — a coastline by its
+ * detail rank — still draw as one mesh, and a loop at 0 is not drawn.
  *
  * Its geometry follows Line's contract: `loops` is an accessor whose every
  * write bumps `geomVersion` (the host's O(1) dirty-check), and
@@ -27,7 +33,11 @@ export class Polylines extends Stroke {
   /** Bumped whenever `loops` change. Monotonic. */
   geomVersion = 0
   /** The polylines, local space; a closed one repeats its first point at the end. */
-  loops: Vec3Like[][] = [];
+  loops: Vec3Like[][] = []
+  /** Each loop's opacity, one per loop, multiplying `opacity` — read every frame. Unset: all 1. Construction-time. */
+  loopOpacity: (() => ArrayLike<number>) | undefined = undefined
+  /** `creation` draws every loop on at once, from its first point (else it only shows or hides). Construction-time. */
+  penPerLoop = false;
   [LOOPS]: Vec3Like[][] = []
 
   constructor(overrides: Overrides = {}) {

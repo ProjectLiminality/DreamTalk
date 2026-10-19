@@ -97,6 +97,7 @@ const {
   screenSize,
   smoothstep,
   userData,
+  varying,
   varyingProperty,
   vec2,
   vec3,
@@ -122,6 +123,13 @@ const AA_PX = 1.0
 const vStartPx = varyingProperty("vec2", "dtRibbonStartPx")
 const vEndPx = varyingProperty("vec2", "dtRibbonEndPx")
 const vDist = varyingProperty("vec2", "dtRibbonDist")
+/**
+ * Each segment's own alpha (`instanceAlpha`, 1 unless a Polylines states
+ * per-loop opacities — parts/polylines.ts `loopOpacity`). FLAT: the
+ * fragment reads the vertex's value bit for bit, so alpha 1 multiplies
+ * exactly and every stroke without per-loop alpha draws what it did.
+ */
+const vAlpha = () => varying(float(attribute("instanceAlpha")), "dtRibbonAlpha").setInterpolation(THREE.InterpolationSamplingType.FLAT)
 
 /**
  * The per-mesh value slots the shared RibbonMaterial reads from each
@@ -313,7 +321,9 @@ export class RibbonMaterial extends THREE.NodeMaterial {
       )
       clip.x.assign(targetNdc.x.mul(clip.w))
       clip.y.assign(targetNdc.y.mul(clip.w))
-      return clip
+      // A segment at alpha 0 (a loop faded out) collapses to a point
+      // outside the clip volume: never rasterised.
+      return float(attribute("instanceAlpha")).greaterThan(0.0).select(clip, vec4(0.0, 0.0, 2.0, 1.0))
     })()
 
     this.fragmentNode = Fn(() => {
@@ -371,7 +381,7 @@ export class RibbonMaterial extends THREE.NodeMaterial {
         coverage = coverage.mul(clipCoverageNode())
         if (opts.mask) coverage.lessThan(0.5).discard()
       }
-      const a = coverage.mul(fade)
+      const a = coverage.mul(fade).mul(vAlpha())
       // Premultiplied on black — max-blended (see module header).
       return vec4(vec3(tint).mul(a), a)
     })()
@@ -496,6 +506,74 @@ export class RibbonStroke {
       "instanceDistanceEnd",
       new THREE.InterleavedBufferAttribute(distBuf, 1, 1),
     )
+    this.geometry.setAttribute(
+      "instanceAlpha",
+      new THREE.InstancedBufferAttribute(new Float32Array(this.capacity).fill(1), 1),
+    )
+    this.alphaSet = false
+  }
+
+  /** A per-loop pen's own arc lengths (each loop 0 → 1), kept so setLoopFronts can rescale them. */
+  private loopDistances: Float32Array | undefined
+  private frontsSet = false
+
+  /**
+   * A per-loop pen (setLoops `perLoopPen`) whose loops stand at DIFFERENT
+   * fronts this frame — each its own screen-arc reading of one `fraction`,
+   * as a Line of its own would (render/screen-arc.ts). The one `drawn`
+   * uniform stays `fraction`; each loop's arc lengths are scaled so that
+   * `fraction` falls exactly on its own front (a front of 0 hides the loop).
+   * `undefined` restores the plain per-loop arc lengths.
+   */
+  setLoopFronts(fronts: ArrayLike<number> | undefined, fraction: number): void {
+    const base = this.loopDistances
+    if (!base || (!fronts && !this.frontsSet)) return
+    const dist = this.geometry.getAttribute("instanceDistanceStart") as THREE.InterleavedBufferAttribute
+    const arr = dist.data.array as Float32Array
+    const starts = this.loopStarts
+    if (!fronts) arr.set(base)
+    else {
+      for (let l = 0; l + 1 < starts.length; l++) {
+        const front = fronts[l]!
+        const lo = starts[l]! * 2
+        const hi = starts[l + 1]! * 2
+        if (front <= 0) for (let j = lo; j < hi; j++) arr[j] = base[j]! + 2
+        else {
+          const k = Math.min(1e6, fraction / front)
+          for (let j = lo; j < hi; j++) arr[j] = base[j]! * k
+        }
+      }
+    }
+    dist.data.needsUpdate = true
+    this.frontsSet = fronts !== undefined
+  }
+
+  /** Whether any segment's alpha is not 1 (setLoopAlphas) — reset to 1 when the shape is replaced. */
+  private alphaSet = false
+  /** The first segment of each loop, and the end (setLoops). */
+  private loopStarts: number[] = []
+
+  private resetAlphas(): void {
+    if (!this.alphaSet) return
+    const attr = this.geometry.getAttribute("instanceAlpha") as THREE.InstancedBufferAttribute
+    ;(attr.array as Float32Array).fill(1)
+    attr.needsUpdate = true
+    this.alphaSet = false
+  }
+
+  /**
+   * Each loop's own alpha (multiplies the stroke's fade) — after setLoops,
+   * one value per loop. A loop at 0 is never rasterised. Writes only the
+   * alpha buffer: the loops' fades can move every frame for free.
+   */
+  setLoopAlphas(alphas: ArrayLike<number>): void {
+    const starts = this.loopStarts
+    if (!this.loops || alphas.length !== starts.length - 1) return
+    const attr = this.geometry.getAttribute("instanceAlpha") as THREE.InstancedBufferAttribute
+    const arr = attr.array as Float32Array
+    for (let l = 0; l + 1 < starts.length; l++) arr.fill(alphas[l]!, starts[l]!, starts[l + 1]!)
+    attr.needsUpdate = true
+    this.alphaSet = true
   }
 
   constructor(widthPx: number) {
@@ -546,6 +624,8 @@ export class RibbonStroke {
 
   setPoints(pts: readonly THREE.Vector3[]): void {
     this.loops = undefined
+    this.loopDistances = undefined
+    this.resetAlphas()
     this.points = resamplePolyline(
       pts,
       RibbonStroke.SUBDIVISION,
@@ -590,11 +670,18 @@ export class RibbonStroke {
    * bridges a gap, so it draws as the loops and nothing between them.
    * Not resampled: an echo of a whole shape is always fully drawn, so no
    * pen front ever needs the projective arc-length identity.
+   *
+   * `perLoopPen`: arc length restarts at 0 on every loop and runs to 1 at
+   * its end (totalLength 1), so a draw front `fraction` draws EVERY loop on
+   * at once — each as far along itself as a Line of its own would be.
    */
-  setLoops(loops: readonly (readonly THREE.Vector3[])[]): void {
+  setLoops(loops: readonly (readonly THREE.Vector3[])[], opts: { perLoopPen?: boolean } = {}): void {
     this.loops = loops
+    this.resetAlphas()
+    const starts = [0]
     let count = 0
-    for (const loop of loops) count += Math.max(0, loop.length - 1)
+    for (const loop of loops) starts.push((count += Math.max(0, loop.length - 1)))
+    this.loopStarts = starts
     this.points = loops.flat()
     if (count < 1) {
       this.geometry.instanceCount = 0
@@ -609,7 +696,10 @@ export class RibbonStroke {
     const distances = dist.data.array as Float32Array
     let i = 0
     let acc = 0
+    const perLoop = opts.perLoopPen === true
     for (const loop of loops) {
+      const i0 = i
+      if (perLoop) acc = 0
       for (let k = 0; k + 1 < loop.length; k++, i++) {
         const a = loop[k]!
         const b = loop[k + 1]!
@@ -618,11 +708,14 @@ export class RibbonStroke {
         acc += a.distanceTo(b)
         distances[i * 2 + 1] = acc
       }
+      if (perLoop && acc > 0) for (let j = i0 * 2; j < i * 2; j++) distances[j]! /= acc
     }
+    this.loopDistances = perLoop ? distances.slice(0, count * 2) : undefined
+    this.frontsSet = false
     start.data.needsUpdate = true
     dist.data.needsUpdate = true
     this.geometry.instanceCount = count
-    this.totalLength = acc
+    this.totalLength = perLoop ? 1 : acc
     this.computeBounds()
   }
 

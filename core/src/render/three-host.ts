@@ -1068,7 +1068,7 @@ export class ThreeHost {
   /** Triangle-mesh fills (parts/surface.ts) — sheets and depth-writing solids. */
   private readonly surfaces: { holon: Surface; fill: FillShape; version: number; gradient: boolean }[] = []
   /** Many-polyline strokes (parts/polylines.ts) — one ribbon each, no pen front. */
-  private readonly polylines: { holon: Polylines; ribbon: RibbonStroke; version: number; look: StyleParams }[] = []
+  private readonly polylines: { holon: Polylines; ribbon: RibbonStroke; version: number; look: StyleParams; alphas?: Float32Array; fronts?: Float32Array }[] = []
   /**
    * Drawings that wash as one even-odd surface across their subpaths —
    * a Sketch and anything else composed of closed Lines
@@ -1191,6 +1191,53 @@ export class ThreeHost {
   /** Owners whose presence read 0 last frame, and those asleep now (in owner order). */
   private zeroLastFrame = new Set<Holon>()
   private sleepingOwners: Holon[] = []
+
+  /**
+   * A Polylines' per-loop opacities (parts/polylines.ts `loopOpacity`) into
+   * its ribbon and echoes — written only when one moved (or the loops were
+   * just replaced, which resets them to 1).
+   */
+  private syncLoopAlphas(binding: { holon: Polylines; ribbon: RibbonStroke; alphas?: Float32Array }, force: boolean): void {
+    const read = binding.holon.loopOpacity
+    if (!read) return
+    const now = read()
+    const was = binding.alphas
+    if (!force && was && was.length === now.length) {
+      let i = 0
+      while (i < now.length && was[i] === Math.fround(now[i]!)) i++
+      if (i === now.length) return
+    }
+    binding.alphas = Float32Array.from(now)
+    binding.ribbon.setLoopAlphas(binding.alphas)
+    this.blurOf.get(binding.ribbon)?.setLoopAlphas(binding.alphas)
+  }
+
+  /**
+   * A per-loop pen mid-draw: each loop's front is the SCREEN-arc reading of
+   * `creation` along that loop — what a Line of its own would draw
+   * (screenArc) — so the loops of one stroke draw on exactly as separate
+   * lines did. Off the draw (0 or 1) the plain per-loop arc lengths stand.
+   */
+  private meterLoops(binding: { holon: Polylines; ribbon: RibbonStroke; fronts?: Float32Array }, creation: number, reshaped: boolean): void {
+    const { ribbon } = binding
+    const loops = ribbon.loops
+    if (!loops || creation <= 0 || creation >= 1) {
+      if (binding.fronts || reshaped) {
+        binding.fronts = undefined
+        ribbon.setLoopFronts(undefined, creation)
+        this.blurOf.get(ribbon)?.setLoopFronts(undefined, creation)
+      }
+      return
+    }
+    const fronts = (binding.fronts ??= new Float32Array(loops.length))
+    const matrix = ribbon.mesh.matrixWorld
+    for (let l = 0; l < loops.length; l++) {
+      const m = this.measureScreenArcOf(loops[l]!, matrix)
+      fronts[l] = this.arcFrom(m, creation)
+    }
+    ribbon.setLoopFronts(fronts, creation)
+    this.blurOf.get(ribbon)?.setLoopFronts(fronts, creation)
+  }
 
   private updatePresenceSleep(): void {
     if (this.presenceOwnersFor !== this.bindingsEpoch || this.presenceOwnersN !== this.groups.length) {
@@ -1720,16 +1767,19 @@ export class ThreeHost {
       ribbon.mesh.renderOrder = this.nextFillOrder++
       const version = holon.geomVersion
       const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
-      ribbon.setLoops(loops)
+      const pen = { perLoopPen: holon.penPerLoop }
+      ribbon.setLoops(loops, pen)
       group.add(ribbon.mesh)
-      this.polylines.push({ holon, ribbon, version, look: styleOf(holon) })
+      const binding: (typeof this.polylines)[number] = { holon, ribbon, version, look: styleOf(holon) }
+      this.polylines.push(binding)
       const sure = seenCertainty(holon)
       if (sure) {
         const blur = new RibbonSuperposition(ribbon, sure, this.superpositions.length + 1, group)
-        blur.setLoops(loops)
+        blur.setLoops(loops, pen)
         this.blurOf.set(ribbon, blur)
         this.superpositions.push({ blur, group })
       }
+      this.syncLoopAlphas(binding, true)
     } else if (holon instanceof Stroke) {
       let strokeBinding: StrokeBinding | undefined
       // The wash goes down BEFORE the ribbon, so the sketch line draws
@@ -2239,18 +2289,25 @@ export class ThreeHost {
     }
     for (const binding of this.awake(this.polylines)) {
       const { holon, ribbon, look } = binding
-      // No pen front: shown while created and not erased.
-      const on = look.creation.value > 0 && look.erasure.value < 1 ? 1 : 0
+      // No pen front: shown while created and not erased — unless each loop
+      // has its own pen (penPerLoop), drawn on and consumed as a Line is.
+      const perLoop = holon.penPerLoop
+      const on = perLoop ? look.creation.value : look.creation.value > 0 && look.erasure.value < 1 ? 1 : 0
       const opacity = look.opacity.value
       const width = look.stroke.value
       // Hidden lines keep their loops (and skip deriving them) until they can show, as strokes do.
+      let reshaped = false
       if (on > 0 && opacity > 0 && width > 0 && holon.geomVersion !== binding.version) {
         const loops = holon.loops.map((loop) => loop.map((p) => new THREE.Vector3(p.x, p.y, p.z)))
         binding.version = holon.geomVersion
-        ribbon.setLoops(loops)
-        this.blurOf.get(ribbon)?.setLoops(loops)
+        ribbon.setLoops(loops, { perLoopPen: perLoop })
+        this.blurOf.get(ribbon)?.setLoops(loops, { perLoopPen: perLoop })
+        reshaped = true
       }
-      ribbon.style(on, opacity, look.tint.value, width)
+      if (reshaped || (!held && on > 0 && opacity > 0)) this.syncLoopAlphas(binding, reshaped)
+      // Held (nothing moved, the camera included): last frame's fronts stand.
+      if (perLoop && !(held && !reshaped)) this.meterLoops(binding, on, reshaped)
+      ribbon.style(on, opacity, look.tint.value, width, perLoop ? look.erasure.value : 0)
     }
     for (const binding of this.awake(this.surfaces)) {
       const { holon, fill } = binding
@@ -5197,11 +5254,17 @@ export class ThreeHost {
   private measureScreenArc(
     ribbon: RibbonStroke,
   ): { remap: ReturnType<typeof screenArcRemap>; totalWorld: number } | undefined {
-    const pts = ribbon.worldPoints()
+    return this.measureScreenArcOf(ribbon.worldPoints(), ribbon.mesh.matrixWorld)
+  }
+
+  /** measureScreenArc over any local polyline under `matrix` (a Polylines' loop, one by one). */
+  private measureScreenArcOf(
+    pts: readonly THREE.Vector3[],
+    matrix: THREE.Matrix4,
+  ): { remap: ReturnType<typeof screenArcRemap>; totalWorld: number } | undefined {
     if (pts.length < 2) return undefined
     const width = this.renderer.domElement.width || 1280
     const height = this.renderer.domElement.height || 720
-    const matrix = ribbon.mesh.matrixWorld
     // A pooled array of point records, rewritten in place (perf: one fresh
     // object per point per stroke per frame was the draw-on's GC churn —
     // ~80k a frame on the Earth). toScreen's arithmetic is inlined

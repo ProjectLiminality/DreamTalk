@@ -98,12 +98,28 @@ export class RibbonSuperposition {
     for (const e of this.echoes) e.setPoints(pts)
   }
 
-  /** Many polylines as one cloud (parts/polylines.ts). */
-  setLoops(loops: readonly (readonly THREE.Vector3[])[]): void {
+  /** Many polylines as one cloud (parts/polylines.ts) — each echo per loop, as its ink. */
+  setLoops(loops: readonly (readonly THREE.Vector3[])[], opts: { perLoopPen?: boolean } = {}): void {
     this.loops = loops
-    for (const e of this.echoes) e.setLoops(loops)
+    this.loopOpts = opts
+    this.loopAlphas = undefined
+    this.loopFronts = undefined
+    for (const e of this.echoes) e.setLoops(loops, opts)
   }
+  /** Each loop's alpha, as its ink's (RibbonStroke.setLoopAlphas): a faded loop has no echo either. */
+  setLoopAlphas(alphas: ArrayLike<number>): void {
+    this.loopAlphas = alphas
+    for (const e of this.echoes) e.setLoopAlphas(alphas)
+  }
+  /** Each loop's own front this frame, as its ink's (RibbonStroke.setLoopFronts). */
+  setLoopFronts(fronts: ArrayLike<number> | undefined, fraction: number): void {
+    this.loopFronts = fronts && { fronts, fraction }
+    for (const e of this.echoes) e.setLoopFronts(fronts, fraction)
+  }
+  private loopFronts: { fronts: ArrayLike<number>; fraction: number } | undefined
   private loops: readonly (readonly THREE.Vector3[])[] | undefined
+  private loopOpts: { perLoopPen?: boolean } = {}
+  private loopAlphas: ArrayLike<number> | undefined
 
   /** Make the cloud now, hidden, if it is not made yet (the host's idle warm-up). */
   prepare(): boolean {
@@ -116,8 +132,11 @@ export class RibbonSuperposition {
     // A gaussian cross-section: the echoes overlap into one soft band.
     for (let k = 0; k < ECHOES; k++) {
       const echo = softEcho(inkOf(this.main).widthPx, this.main.mesh.renderOrder, this.group)
-      if (this.loops) echo.setLoops(this.loops)
-      else echo.setPoints(this.points)
+      if (this.loops) {
+        echo.setLoops(this.loops, this.loopOpts)
+        if (this.loopAlphas) echo.setLoopAlphas(this.loopAlphas)
+        if (this.loopFronts) echo.setLoopFronts(this.loopFronts.fronts, this.loopFronts.fraction)
+      } else echo.setPoints(this.points)
       this.echoes.push(echo)
       this.onEcho?.(echo.mesh)
     }
