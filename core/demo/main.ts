@@ -27,8 +27,10 @@ import { mountSummoning } from "./summon"
 import { mountHandUI } from "./handui"
 import { SessionRecorder } from "../editor/recorder"
 import { holonPathOf } from "../editor/checkpoint"
-import { clientBox, mountNest, symbolAt } from "../editor/nest"
+import { clientBox, levelsOf, mountNest, symbolAt } from "../editor/nest"
 import { mountToolkit, type Toolkit } from "./toolkit"
+import { DOF_KEY, loadMask, mountDofPanel, type DofPanel } from "./dofpanel"
+import { dofsOf } from "../src/dof"
 import type { Holon } from "../src/holon"
 
 // Expose THREE for the instancing byte-identity harness (it reconstructs
@@ -151,6 +153,9 @@ const main = async () => {
   const animatedOf = () => (dream as { driven?: ReadonlySet<Param<ParamValue>> }).driven ?? new Set(dream.build().params)
   let walkedRoots = dream.roots
   const ac = new AbortController()
+  // The scene's degrees of freedom (src/dof.ts): its preset under the viewer's
+  // toggles (`,` — demo/dofpanel.ts). The game loop, the nest and the toolkit read it live.
+  const mask = loadMask(sceneName, dream.preset())
   const game = new GameLoop(
     {
       canvas,
@@ -172,6 +177,7 @@ const main = async () => {
       suspended: () => creator.on || explorer.on,
       hud: query.get("hud") !== "0",
       signal: ac.signal,
+      mask,
     },
   )
   const toggleGame = async () => {
@@ -192,6 +198,8 @@ const main = async () => {
   let nestDepth = 0
   /** Links to any state, the minimap, presenter mode (demo/toolkit.ts) — mounted once the page is. */
   let toolkit: Toolkit | undefined
+  /** The settings (`,`, demo/dofpanel.ts) — mounted with the toolkit. */
+  let dofPanel: DofPanel | undefined
   const frame = async (now: number) => {
     game.hold(creator.on || explorer.on || nestDepth > 0, now)
     game.tick(now)
@@ -380,6 +388,7 @@ const main = async () => {
 
   document.addEventListener("keydown", (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+    if (!creator.on && !explorer.on && dofPanel?.key(e)) return
     if (!creator.on && !explorer.on && toolkit?.key(e)) return
     if (isExplorerToggle(e) || (e.code === "Escape" && explorer.on)) {
       e.preventDefault()
@@ -560,6 +569,8 @@ const main = async () => {
     note: (text) => (recNote.textContent = text),
     // While a symbol is open the song beneath is frozen whole — its clocks too.
     onDepth: (d) => (nestDepth = d),
+    allow: (name) => mask.levelOn(name),
+    pageKeys: [DOF_KEY],
     signal: ac.signal,
   })
   // Summoning (demo/summon.ts): `invoke:<Symbol>` brings a shelf symbol in at the hand, `invoke:dismiss` sends it off.
@@ -599,9 +610,20 @@ const main = async () => {
     roots: dream.roots,
     space: dream.stateSpace(),
     slots: dream.slots(),
+    mask,
     signal: ac.signal,
   })
   ;(window as unknown as Record<string, unknown>).__dtToolkit = toolkit
+  // The settings (`,`): the scene's degrees of freedom on and off, live.
+  const dofs = () => dofsOf({ axes: game.automaton.axes, levels: levelsOf(dream.roots, scenes), slots: dream.slots() })
+  dofPanel = mountDofPanel({
+    sceneKey: sceneName,
+    mask,
+    dofs,
+    keyOf: (id) => game.state().find((s) => s.id === id)?.key,
+    signal: ac.signal,
+  })
+  ;(window as unknown as Record<string, unknown>).__dtDof = { mask, panel: dofPanel, dofs }
   window.__dt = {
     ready: true,
     duration,

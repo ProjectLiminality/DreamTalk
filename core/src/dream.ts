@@ -9,6 +9,7 @@ import { angle, bool, length, scalar } from "./params"
 import { PI } from "./constants"
 import type { Anim } from "./anim"
 import type { Axis, StateSpace } from "./automaton"
+import type { DofPreset } from "./dof"
 import { Narration } from "./narration"
 import {
   creationChimes,
@@ -266,6 +267,17 @@ export abstract class Dream {
    */
   slots(): readonly DreamSlot[] {
     return []
+  }
+
+  /**
+   * Optional: which of the scene's degrees of freedom are on by default
+   * (src/dof.ts) — ids `axis:<id>`, `level:<name>`, `slot:<k>` to on/off, a
+   * whole kind with `axis:*` / `level:*` / `slot:*`, everything with `*`;
+   * unnamed is on. A demo's walk: `{ "axis:*": false, "axis:grain": true }`.
+   * The player's settings (`,`) toggle over it.
+   */
+  preset(): DofPreset {
+    return {}
   }
 
   /** One of the scene's own axes, by id — `this.play(this.stateAxis("look").to("busy"), 1.2)`. */

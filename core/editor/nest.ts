@@ -102,19 +102,24 @@ export const songLatticeDream = (Song: DreamClass, name: string): DreamClass => 
   return Through
 }
 
+/** The registered scene that explains a symbol by name: `<Name>WatchMeDream`, `<Name>Dream`, `<Name>DemoDream`, or the key `<name>`. */
+const sceneExplaining = (scenes: Record<string, DreamClass>, name: string): [string, DreamClass] | undefined => {
+  const entries = Object.entries(scenes)
+  for (const suffix of ["WatchMeDream", "Dream", "DemoDream"]) {
+    const hit = entries.find(([, Ctor]) => Ctor.name === `${name}${suffix}`)
+    if (hit) return hit
+  }
+  return entries.find(([key]) => key === name.toLowerCase())
+}
+
 /** A holon's WatchMe: its own level (Holon.unpack), else the scene that explains its class, else the symbol alone. */
 export const watchMeOf = (scenes: Record<string, DreamClass>, holon: Holon): WatchMe => {
   const name = nodeNameOf(holon)
   // Its own level, from its own data (Holon.unpack), before its class's.
   const own = holon.unpack()
   if (own) return { Dream: own, alone: false }
-  const entries = Object.entries(scenes)
-  for (const suffix of ["WatchMeDream", "Dream", "DemoDream"]) {
-    const hit = entries.find(([, Ctor]) => Ctor.name === `${name}${suffix}`)
-    if (hit) return { Dream: hit[1], key: hit[0], alone: false }
-  }
-  const byKey = entries.find(([key]) => key === name.toLowerCase())
-  if (byKey) return { Dream: byKey[1], key: byKey[0], alone: false }
+  const scene = sceneExplaining(scenes, name)
+  if (scene) return { Dream: scene[1], key: scene[0], alone: false }
   // No song of its own: the symbol beside its state lattice (if it has states).
   const Ctor = holon.constructor as new () => Holon
   const beside = latticeDream(Ctor, name)
@@ -135,6 +140,25 @@ export const statesOf = (scenes: Record<string, DreamClass>, holon: Holon): Watc
  * site, not whichever part of the same class is largest on screen.
  */
 export const levelNameOf = (holon: Holon): string => holon.unpack()?.name || nodeNameOf(holon)
+
+/** A level of its own (Holon.unpack) or a scene that explains it — not a symbol shown alone. */
+export const hasLevel = (scenes: Record<string, DreamClass>, h: Holon): boolean =>
+  h.unpack() !== undefined || sceneExplaining(scenes, nodeNameOf(h)) !== undefined
+
+/**
+ * The levels a scene's symbols unpack into, one per path name, in walk
+ * order — the degrees of freedom the settings panel lists (src/dof.ts).
+ * Symbols shown alone (no level or scene of their own) are not listed.
+ */
+export const levelsOf = (roots: readonly Holon[], scenes: Record<string, DreamClass>): string[] => {
+  const names = new Set<string>()
+  for (const r of roots)
+    for (const h of r.walk()) {
+      if (symbolAt(h) !== h || !hasLevel(scenes, h)) continue
+      names.add(levelNameOf(h))
+    }
+  return [...names]
+}
 
 /** The symbol touched: the nearest at-or-above a hit that is sovereign or has its own level (Holon.unpack). */
 export const symbolAt = (hit: Holon | undefined): Holon | undefined => {
@@ -230,6 +254,14 @@ export interface NestOpts {
   note(text: string): void
   /** The outer's pointer / key handlers are suspended while a level is open. */
   onDepth?(depth: number): void
+  /**
+   * May this level open (by its path name, levelNameOf)? The scene's degrees
+   * of freedom (src/dof.ts `level:<name>`): a refused one neither unpacks
+   * nor shows its state space, nor is built ahead. Default: every level.
+   */
+  allow?(name: string): boolean
+  /** Keys that stay the page's at any depth (the player's settings, `,`): passed through, not to the level. */
+  pageKeys?: readonly string[]
   signal: AbortSignal
 }
 
@@ -573,21 +605,15 @@ export const mountNest = (opts: NestOpts): Nest => {
   opts.signal.addEventListener("abort", () => kept.clear())
   /** One level builds at a time: hosts compiling side by side stalled each other's compileAsync. */
   let building: Promise<unknown> = Promise.resolve()
-  /** Worth building on a hover: a level of its own (Holon.unpack) or a scene that explains it — not a symbol shown alone. */
-  const hasOwnLevel = (h: Holon): boolean => {
-    if (h.unpack() !== undefined) return true
-    try {
-      return !watchMeOf(opts.scenes, h).alone
-    } catch {
-      return false
-    }
-  }
+  const hasOwnLevel = (h: Holon): boolean => hasLevel(opts.scenes, h)
+  const allowed = (symbol: Holon): boolean => opts.allow?.(levelNameOf(symbol)) ?? true
   /** What a symbol opens as, kept apart: its WatchMe, or its state space. */
   const kindOf = (wm: WatchMe, states: boolean) => (states ? `states:${wm.Dream.name}` : "unpack")
 
   /** Build a symbol's level in the background (a rested pointer, a slot about to be recalled), so opening it only reveals it. */
   const prewarm = (holon: Holon, states = false, pinned = false): void => {
     const symbol = symbolAt(holon) ?? holon
+    if (!allowed(symbol)) return
     let wm: WatchMe
     try {
       wm = states ? statesOf(opts.scenes, symbol) : watchMeOf(opts.scenes, symbol)
@@ -662,6 +688,7 @@ export const mountNest = (opts: NestOpts): Nest => {
 
   const unpack = (holon: Holon): Promise<boolean> => {
     const symbol = symbolAt(holon) ?? holon
+    if (!allowed(symbol)) return Promise.resolve(false)
     return open(symbol, watchMeOf(opts.scenes, symbol))
   }
 
@@ -672,6 +699,7 @@ export const mountNest = (opts: NestOpts): Nest => {
    */
   const states = (holon?: Holon): Promise<boolean> => {
     const symbol = holon && (symbolAt(holon) ?? holon)
+    if (symbol && !allowed(symbol)) return Promise.resolve(false)
     if (symbol) return open(symbol, statesOf(opts.scenes, symbol), `${nodeNameOf(symbol)} ◇`, true)
     const inner = inners[inners.length - 1]
     if (!inner) return Promise.resolve(false)
@@ -735,6 +763,7 @@ export const mountNest = (opts: NestOpts): Nest => {
       if (typing) return
       // ⌥1–9 recalls a presenter slot (demo/toolkit.ts) from any depth: the page's, not the level's.
       if (e.altKey && /^Digit[1-9]$/.test(e.code)) return
+      if (opts.pageKeys?.includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) return
       e.stopImmediatePropagation()
       if (e.code === "Escape") {
         e.preventDefault()

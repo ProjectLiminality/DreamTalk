@@ -95,12 +95,14 @@ export interface AxisOpts {
  * r (view home), f (frame), c (calibrate the hands' pinch), i (hand talk —
  * demo/handui.ts), Enter (unpack the symbol under the pointer into its own
  * song; ⇧Enter its state space — editor/nest.ts), q (presenter mode), y (the
- * minimap) and ⇧1–9 (! @ # $ % ^ & * ( — save the state to a slot; demo/toolkit.ts).
+ * minimap), `,` (the player's settings: degrees of freedom on and off —
+ * demo/dofpanel.ts; the editor's frame step) and ⇧1–9 (! @ # $ % ^ & * ( —
+ * save the state to a slot; demo/toolkit.ts).
  * An axis may not declare one
  * (test/reservedkeys.test.ts scans every shipped holon). Esc and the
  * arrows are named keys, not characters, so no axis can collide with them.
  */
-export const RESERVED_KEYS: readonly string[] = [" ", "`", "~", "m", "h", "r", "f", "c", "i", "Enter", "q", "y", "!", "@", "#", "$", "%", "^", "&", "*", "("]
+export const RESERVED_KEYS: readonly string[] = [" ", "`", "~", "m", "h", "r", "f", "c", "i", "Enter", "q", "y", ",", "!", "@", "#", "$", "%", "^", "&", "*", "("]
 
 export interface Position {
   name: string
@@ -120,6 +122,13 @@ export interface Axis {
   /** The position a handle stands for, if it stands for one (AxisOpts.at). */
   readonly at?: (handle: Holon) => string | undefined
   readonly escape?: string
+  /**
+   * Switched off by the scene's degrees of freedom (src/dof.ts) — live. A
+   * masked axis stays in the automaton (it holds where it stands, a link's
+   * journal keeps its indices) but is walkable from nowhere: no key, no
+   * handle, no row, no lattice node. Set by gatherStateSpace's mask.
+   */
+  readonly masked?: () => boolean
   /** The owning elements (resolved). */
   handles(): Holon[]
   /** The song's spelling: an Anim into this position, for `this.play(…)`. */
@@ -259,11 +268,18 @@ export const choices = (
   )
 }
 
+/** Which gathered axes are on (src/dof.ts DofMask), asked live, by gathered id. */
+export interface AxisMask {
+  axisOn(id: string): boolean
+}
+
 /**
  * Every state space declared under these roots (Holon.stateSpace()), one
  * space. Ids stay as declared; a repeat (two FlowMaps) gets `#2`, `#3`.
+ * With a `mask`, each axis is masked by it (as rekey masks: `when` ANDed),
+ * live — what it says now is what is walkable now.
  */
-export const gatherStateSpace = (roots: readonly Holon[], scene?: StateSpace): StateSpace => {
+export const gatherStateSpace = (roots: readonly Holon[], scene?: StateSpace, mask?: AxisMask): StateSpace => {
   const axes: Axis[] = []
   const clocks = new Set<Param<number>>()
   const seen = new Map<string, number>()
@@ -298,8 +314,19 @@ export const gatherStateSpace = (roots: readonly Holon[], scene?: StateSpace): S
       for (const c of space.clocks ?? []) clocks.add(c)
     }
   }
-  return { axes, clocks: [...clocks] }
+  if (!mask) return { axes, clocks: [...clocks] }
+  return {
+    axes: axes.map((a) => ({
+      ...a,
+      masked: () => !mask.axisOn(a.id),
+      when: () => mask.axisOn(a.id) && (a.when?.() ?? true),
+    })),
+    clocks: [...clocks],
+  }
 }
+
+/** The space without its masked axes — what a lattice draws (the minimap's machine). */
+export const unmasked = (space: StateSpace): StateSpace => ({ ...space, axes: space.axes.filter((a) => !a.masked?.()) })
 
 /**
  * A symbol JOINING a larger machine (a RoleMap inside a lens): its state

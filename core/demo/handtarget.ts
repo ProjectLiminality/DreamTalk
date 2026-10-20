@@ -37,7 +37,8 @@ export const gameTarget = (o: {
     settleAxis: (id) => game.settleAxis(id),
     view,
     fire: (id, position) => game.fire(id, position),
-    axes: () => game.automaton.axes.map((a) => ({ id: a.id, label: a.label })),
+    // Masked axes (src/dof.ts) are no gesture's to fire.
+    axes: () => game.automaton.axes.filter((a) => !a.masked?.()).map((a) => ({ id: a.id, label: a.label })),
     hovered: () => game.hovered ?? undefined,
     changed: o.changed,
     menuAt: o.menuAt,

@@ -49,6 +49,7 @@ import { HOVER, SELECTED } from "../src/glow"
 import { beginOverlay, clientBox, makeOverlay, type PixelBox } from "../editor/overlay"
 import { ViewLayer, keepOutsOf } from "../src/view"
 import { touchCamera } from "../editor/touchcamera"
+import type { DofMask } from "../src/dof"
 import type { Observer } from "../src/dream"
 
 export interface GameHost {
@@ -136,6 +137,13 @@ export interface GameOpts {
   suspended: () => boolean
   hud: boolean
   signal: AbortSignal
+  /**
+   * The scene's degrees of freedom (src/dof.ts): a masked axis is walkable
+   * from nowhere — no key (its digit goes to the next), no handle, no row —
+   * and holds where it stands, or goes home (its `escape`) when switched
+   * off mid-walk. Live: a change rebinds at once.
+   */
+  mask?: DofMask
 }
 
 /** How long the walked state takes to hand back to the song (s). */
@@ -207,10 +215,14 @@ export class GameLoop {
     this.#host = host
     this.#opts = opts
     this.#hudShown = opts.hud
-    this.automaton = new Automaton(gatherStateSpace(opts.roots, opts.space))
+    this.automaton = new Automaton(gatherStateSpace(opts.roots, opts.space, opts.mask))
     this.view = opts.observer ? new ViewLayer(opts.observer) : undefined
     if (this.view) this.view.keepOuts = keepOutsOf(opts.roots)
     this.#bindKeys()
+    if (opts.mask) {
+      const off = opts.mask.subscribe(() => this.#remask())
+      opts.signal.addEventListener("abort", off)
+    }
     if (!document.getElementById("dt-game-style")) {
       const style = document.createElement("style")
       style.id = "dt-game-style"
@@ -376,9 +388,11 @@ export class GameLoop {
    * declaration order — so every symbol in a gallery has its own 1, 2, 3.
    */
   #bindKeys(): void {
-    for (const a of this.automaton.axes) if (a.owner && !this.#owners.includes(a.owner)) this.#owners.push(a.owner)
+    // A masked axis (src/dof.ts) takes no key and makes no owner walkable.
+    const axes = this.automaton.axes.filter((a) => !a.masked?.())
+    for (const a of axes) if (a.owner && !this.#owners.includes(a.owner)) this.#owners.push(a.owner)
     const groups = new Map<Holon | undefined, Axis[]>()
-    for (const a of this.automaton.axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
+    for (const a of axes) groups.set(a.owner, [...(groups.get(a.owner) ?? []), a])
     for (const axes of groups.values()) {
       const taken = new Set<string>()
       for (const a of axes) {
@@ -414,7 +428,7 @@ export class GameLoop {
   reroot(next: { roots: readonly Holon[]; space?: StateSpace; animated?: ReadonlySet<Param<ParamValue>> }): void {
     const old = this.automaton
     this.#opts = { ...this.#opts, roots: next.roots, space: next.space, animated: next.animated ?? this.#opts.animated }
-    this.automaton = new Automaton(gatherStateSpace(next.roots, next.space))
+    this.automaton = new Automaton(gatherStateSpace(next.roots, next.space, this.#opts.mask))
     if (this.view) this.view.keepOuts = keepOutsOf(next.roots)
     this.#owners.length = 0
     this.#keys.clear()
@@ -436,6 +450,26 @@ export class GameLoop {
       }
       this.#indexHandles()
     }
+    this.#renderHud()
+  }
+
+  /**
+   * The degrees of freedom changed (src/dof.ts): keys and owners are bound
+   * again over the axes still on, and an axis just switched off mid-walk
+   * goes home (its `escape`) if it has one, else holds where it stands.
+   */
+  #remask(): void {
+    this.#owners.length = 0
+    this.#keys.clear()
+    this.#keyOf.clear()
+    this.#bindKeys()
+    const masked = (a: Axis) => a.masked?.() ?? false
+    if (this.#hovered && masked(this.#hovered.axis)) this.#setHovered(null)
+    if (this.#focus && !this.#owners.includes(this.#focus)) this.#focus = null
+    if (this.#on)
+      for (const a of this.automaton.axes)
+        if (masked(a) && a.escape !== undefined && this.automaton.position(a.id) !== a.escape) this.automaton.fire(a.id, a.escape)
+    this.#lastClick = null
     this.#renderHud()
   }
 

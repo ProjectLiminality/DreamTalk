@@ -25,7 +25,9 @@
 import { Dream, type DreamSlot } from "../src/dream"
 import { together } from "../src/anim"
 import { Create } from "../src/verbs"
-import { gatherStateSpace, type Fired, type StateSpace } from "../src/automaton"
+import { gatherStateSpace, unmasked, type Fired, type StateSpace } from "../src/automaton"
+import { slotOpen, type DofMask } from "../src/dof"
+import { readableUrl } from "./dofpanel"
 import { machinesOf, currentNode } from "../src/lattice"
 import { Polylines, deriveLoops } from "../src/parts/polylines"
 import { ThreeHost } from "../src/render/three-host"
@@ -57,6 +59,8 @@ export interface ToolkitHost {
   space?: StateSpace
   /** The scene's own presenter slots (Dream.slots): slot k is [k − 1], unless the viewer saved one. */
   slots?: readonly DreamSlot[]
+  /** The scene's degrees of freedom (src/dof.ts): a slot switched off, or opening a level that is, does not recall; the minimap draws only the axes on. */
+  mask?: DofMask
   signal: AbortSignal
 }
 
@@ -152,11 +156,16 @@ interface Minimap {
 
 const mountMinimap = (host: ToolkitHost): Minimap => {
   let on = false
-  let mounted: Promise<{ canvas: HTMLCanvasElement; three: ThreeHost; lattice: StateLattice; segs: { x: number; y: number; z: number }[][]; last: number[] } | undefined> | undefined
+  /** The mask's version the minimap was drawn for: a change draws it again. */
+  let drawnFor = host.mask?.version ?? 0
+  let mounted:
+    | Promise<{ canvas: HTMLCanvasElement; three: ThreeHost; lattice: StateLattice; segs: { x: number; y: number; z: number }[][]; last: number[]; dispose(): void } | undefined>
+    | undefined
   let seen = ""
   const mount = () =>
     (mounted ??= (async () => {
-      const space = gatherStateSpace(host.roots, host.space)
+      drawnFor = host.mask?.version ?? 0
+      const space = unmasked(gatherStateSpace(host.roots, host.space, host.mask))
       if (!space.axes.length) return undefined
       // One block on a 16:9 grid (not a block per machine, left to right): it fits a corner.
       const top = machinesOf(space)
@@ -179,12 +188,17 @@ const mountMinimap = (host: ToolkitHost): Minimap => {
       canvas.dataset.dtChrome = "minimap"
       canvas.style.cssText =
         "position:fixed;right:12px;bottom:12px;width:240px;height:135px;z-index:44;pointer-events:none;border:1px solid #222;border-radius:4px;background:#000;opacity:.92"
+      canvas.style.display = on ? "" : "none"
       document.body.append(canvas)
       const three = await ThreeHost.mount(dream, canvas)
-      host.signal.addEventListener("abort", () => {
+      let gone = false
+      const dispose = () => {
+        if (gone) return
+        gone = true
         canvas.remove()
         three.dispose()
-      })
+      }
+      host.signal.addEventListener("abort", dispose)
       await three.renderFrame(1)
       // Framed to the whole lattice, in its own camera.
       const b = three.worldBoundsOf(lattice)
@@ -197,10 +211,18 @@ const mountMinimap = (host: ToolkitHost): Minimap => {
         set(o.radius, (R / (0.85 * Math.tan(o.fov.value / 2))) * (o.zoom.value || 1))
       }
       const last = lattice.drawn.map((d) => currentNode(d.factor))
-      return { canvas, three, lattice, segs, last }
+      return { canvas, three, lattice, segs, last, dispose }
     })())
+  /** The degrees of freedom moved: the machine is another one — drawn again from scratch. */
+  const remount = () => {
+    const was = mounted
+    mounted = undefined
+    seen = ""
+    void was?.then((m) => m?.dispose())
+  }
   const update = async () => {
     if (!on) return
+    if (host.mask && host.mask.version !== drawnFor) remount()
     const m = await mount()
     if (!m) return
     const key = host.game.on ? host.game.state().map((s) => s.position).join() + host.game.automaton.journal.length : `song ${Math.round(host.t() * 4)}`
@@ -313,6 +335,7 @@ export const mountToolkit = (host: ToolkitHost): Toolkit => {
     else u.searchParams.delete("presenter")
     if (minimap.on) u.searchParams.set("minimap", "1")
     else u.searchParams.delete("minimap")
+    readableUrl(u)
     if (push) history.pushState({ dt: code }, "", u)
     else history.replaceState({ dt: code }, "", u)
   }
@@ -354,7 +377,10 @@ export const mountToolkit = (host: ToolkitHost): Toolkit => {
       toast(`⇧${slot}: storage unavailable`)
     }
   }
+  const slotOn = (slot: number): boolean => !host.mask || slotOpen(host.mask, slot, host.slots?.[slot - 1])
   const recall = async (slot: number) => {
+    // Switched off: as if it were not there (no toast — the demo stays clean).
+    if (!slotOn(slot)) return false
     // The viewer's own save first; else the scene's slot (Dream.slots), by name.
     const own = decodeState(readSlots()[slot] ?? null)
     const scene = own ? undefined : host.slots?.[slot - 1]
@@ -372,7 +398,7 @@ export const mountToolkit = (host: ToolkitHost): Toolkit => {
   // The scene's slots that open a level (Dream.slots nest): built in the
   // background once the page has settled, so recalling one only reveals it.
   const warmSlots = window.setTimeout(() => {
-    for (const s of host.slots ?? []) if (s.nest?.[0]) host.nest?.prewarmByName(s.nest[0])
+    host.slots?.forEach((s, i) => s.nest?.[0] && slotOn(i + 1) && host.nest?.prewarmByName(s.nest[0]))
   }, 2500)
   host.signal.addEventListener("abort", () => clearTimeout(warmSlots))
 
