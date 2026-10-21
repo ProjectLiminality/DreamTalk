@@ -186,6 +186,8 @@ export class GameLoop {
   #lastClick: { x: number; y: number; at: number; fired?: { axis: string; from: string } } | null = null
   #lastPointerTouch = false
   #on = false
+  /** Where an axis with a `whenOff` stood when the degrees of freedom switched it off. */
+  #beforeOff = new Map<string, string>()
   /** Wall-clock origin of the automaton's clock (ms); undefined = manual clock. */
   #origin: number | undefined = 0
   #heldAt = 0
@@ -468,7 +470,18 @@ export class GameLoop {
     if (this.#focus && !this.#owners.includes(this.#focus)) this.#focus = null
     if (this.#on)
       for (const a of this.automaton.axes)
-        if (masked(a) && a.escape !== undefined && this.automaton.position(a.id) !== a.escape) this.automaton.fire(a.id, a.escape)
+        if (masked(a)) {
+          const rest = a.whenOff ?? a.escape
+          const at = this.automaton.position(a.id)
+          if (rest === undefined || at === rest) continue
+          if (a.whenOff !== undefined) this.#beforeOff.set(a.id, at)
+          this.automaton.fire(a.id, rest)
+        } else {
+          // Switched on again: back to where it stood when it was switched off.
+          const back = this.#beforeOff.get(a.id)
+          this.#beforeOff.delete(a.id)
+          if (back !== undefined && this.automaton.position(a.id) !== back) this.automaton.fire(a.id, back)
+        }
     this.#lastClick = null
     this.#renderHud()
   }

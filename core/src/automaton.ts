@@ -87,6 +87,13 @@ export interface AxisOpts {
    * leaves the axis be.
    */
   escape?: string
+  /**
+   * Where the axis goes when the degrees of freedom switch it off
+   * (src/dof.ts) — for an axis whose "off" means a look, not a frozen
+   * walk (the uncertainty drawn: switched off, none). Switched on again,
+   * it goes back to where it stood. Unset: its escape, else it holds.
+   */
+  whenOff?: string
 }
 
 /**
@@ -122,6 +129,7 @@ export interface Axis {
   /** The position a handle stands for, if it stands for one (AxisOpts.at). */
   readonly at?: (handle: Holon) => string | undefined
   readonly escape?: string
+  readonly whenOff?: string
   /**
    * Switched off by the scene's degrees of freedom (src/dof.ts) — live. A
    * masked axis stays in the automaton (it holds where it stands, a link's
@@ -172,6 +180,7 @@ const makeAxis = (id: string, positions: Position[], opts: AxisOpts): Axis => {
     via: opts.via,
     at: opts.at,
     escape: opts.escape,
+    whenOff: opts.whenOff,
     handles: () => (typeof handles === "function" ? handles() : (handles ?? [])),
     to(name) {
       const pos = positions.find((p) => p.name === name)

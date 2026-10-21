@@ -113,6 +113,20 @@ export const ghost = (c: number): number => {
   return GHOST_FLOOR + (1 - GHOST_FLOOR) * k
 }
 
+/**
+ * How much of the picture's doubt is drawn, for the whole page: 1 = all of
+ * it (the ghosts, their blur, the wobble), 0 = none — everything as if
+ * certain. A viewer's switch, not data: the certainties stay as declared,
+ * only what they are drawn as follows it (a scene walks it as an axis).
+ */
+export const doubtShown = completion(1)
+
+/** A certainty as it is drawn under `doubtShown`. shown(c) = c while all doubt is shown. */
+export const shown = (c: number): number => {
+  const u = doubtShown.value
+  return u >= 1 ? c : 1 - u * (1 - c)
+}
+
 /** Every certainty on this holon and above it, nearest first. */
 export const certaintiesOf = (holon: Holon): Param<number>[] => chainOf(holon, isCertainty, chainMemo?.certainties)
 
@@ -120,7 +134,7 @@ export const certaintiesOf = (holon: Holon): Param<number>[] => chainOf(holon, i
 export const certaintyOf = (holon: Holon): number => {
   let c = 1
   for (const p of certaintiesOf(holon)) c *= p.value
-  return c
+  return shown(c)
 }
 
 /**
@@ -134,7 +148,7 @@ export const seenCertainty = (holon: Holon): Readable<number> | undefined => {
     get value() {
       let c = 1
       for (const p of chain) c *= p.value
-      return c
+      return shown(c)
     },
   }
 }
@@ -169,7 +183,7 @@ const productOf = (
     product = memoReads(() => {
       let x = 1
       for (const p of full) x *= p.value
-      return x
+      return kind === isCertainty ? shown(x) : x
     })
   }
   memo.set(holon, product)
@@ -224,7 +238,8 @@ export const wobble = (
   c: number,
   amp: number,
 ): { x: number; y: number } => {
-  const u = (1 - (c <= 0 ? 0 : c >= 1 ? 1 : c)) * amp
+  const k = shown(c)
+  const u = (1 - (k <= 0 ? 0 : k >= 1 ? 1 : k)) * amp
   if (u === 0) return { x: 0, y: 0 }
   const s = seed * 12.9898
   const x = Math.sin(t * 1.7 + s) * 0.6 + Math.sin(t * 2.9 + s * 1.3) * 0.4
