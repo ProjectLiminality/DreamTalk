@@ -1,6 +1,8 @@
 /**
  * dofpanel.ts — the player's SETTINGS: a scene's degrees of freedom, each
- * on or off (src/dof.ts). `,` opens and closes it.
+ * on or off (src/dof.ts). `,` opens and closes it, as does the small
+ * button in the top right corner (a page in an iframe has no keys until it
+ * is clicked, and a viewer may not know the key).
  *
  * It lists what the scene offers — its walkable axes, grouped by the holon
  * that owns them (the scene's own first), the levels its symbols unpack
@@ -76,6 +78,9 @@ const STYLE = `
 .dt-dof .dt-dof-row em { font-style: normal; color: #444; }
 .dt-dof .dt-dof-empty { padding: 0 12px; color: #444; }
 body.dt-presenter .dt-dof { cursor: default; }
+.dt-dof-btn { position: fixed; top: 12px; right: 12px; z-index: 70; width: 28px; height: 28px; padding: 0;
+  background: none; border: 1px solid #222; border-radius: 4px; color: #444; font: 16px/26px monospace; cursor: pointer; }
+.dt-dof-btn:hover { color: #bbb; border-color: #444; }
 `
 
 export interface DofPanelHost {
@@ -106,6 +111,12 @@ export const mountDofPanel = (host: DofPanelHost): DofPanel => {
   el.className = "dt-dof"
   el.style.display = "none"
   document.body.append(el)
+  const btn = document.createElement("button")
+  btn.className = "dt-dof-btn"
+  btn.title = `settings (${DOF_KEY})`
+  btn.textContent = "⚙"
+  btn.addEventListener("click", () => toggle(true), { signal: host.signal })
+  document.body.append(btn)
   let open = false
   let listed: Dof[] = []
   /** Folded groups, by name — in a long list, a long group starts folded. */
@@ -168,11 +179,13 @@ export const mountDofPanel = (host: DofPanelHost): DofPanel => {
   host.signal.addEventListener("abort", () => {
     off()
     el.remove()
+    btn.remove()
   })
 
   const toggle = (on = !open) => {
     open = on
     el.style.display = on ? "" : "none"
+    btn.style.display = on ? "none" : ""
     if (on) listed = host.dofs()
     render()
   }
@@ -184,7 +197,8 @@ export const mountDofPanel = (host: DofPanelHost): DofPanel => {
     toggle,
     key(e) {
       if (e.metaKey || e.ctrlKey || e.altKey) return false
-      if (e.key === DOF_KEY) {
+      // The key, or the key where it lies (a layout whose `,` needs a modifier).
+      if (e.key === DOF_KEY || (e.code === "Comma" && !e.shiftKey)) {
         e.preventDefault()
         toggle()
         return true
