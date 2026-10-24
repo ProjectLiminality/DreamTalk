@@ -33,6 +33,9 @@ outlines leave; R, E and L fill once theirs have landed.
 fly, the A steps over on a low arc, TALK slides · [0, 0.75] the cloud lies
 down · [0, 0.35] the speech is drawn in · [0.85, 1] R, E and L fill.
 
+**Create** writes it: the cloud draws round, the letters A, SS, TALK draw in
+after it, and the voice goes out last (`REALTALK.voice` of `creation`).
+
 **Params**
 - `real` (0..1, the walkable state `ass` ↔ `real`): the axis.
 - `size` (120): the em size; every proportion (`REALTALK`) follows from the

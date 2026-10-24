@@ -43,6 +43,8 @@ import { Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primiti
 import { color, completion, derive, length } from "../../src/params"
 import { BLUE, RED, type Color } from "../../src/constants"
 import { toggle, type StateSpace } from "../../src/automaton"
+import { restage, together, type Anim } from "../../src/anim"
+import { Create } from "../../src/verbs"
 import { flattenContour, type FontData } from "../../src/geometry/glyphs"
 import { ARIMO } from "../../src/geometry/fonts/arimo"
 import { blendTravel, planMorphDetailed, type MorphPlan } from "../../src/geometry/correspond"
@@ -71,6 +73,8 @@ export const REALTALK = {
   waveSpan: 0.6,
   /** How high the A's step over the S's rises. */
   step: 0.55,
+  /** Created: where the voice starts going out (of `creation`). */
+  voice: 0.7,
 } as const
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
@@ -251,7 +255,8 @@ export class RealTalkWord extends Null {
     )
     // The speech: arcs about the cloud's right tip, widening outward (a
     // voice going out), symmetric about the word's axis, drawn back in.
-    const voiced = derive(() => 1 - smooth(phase(u(), 0, REALTALK.speech)))
+    // (Also the last thing written as the word is created: the voice goes out.)
+    const voiced = derive(() => (1 - smooth(phase(u(), 0, REALTALK.speech))) * smooth(phase(this.creation.value, REALTALK.voice, 1)))
     const tip = ax0 + REALTALK.billow * H
     for (let i = 0; i < REALTALK.waves; i++) {
       const r = (REALTALK.waveGap + i * REALTALK.waveStep) * H
@@ -268,5 +273,16 @@ export class RealTalkWord extends Null {
       })
       this.speech.push(this.add(wave))
     }
+  }
+
+  /** Written: the cloud draws round, the letters draw in after it, the
+   *  voice goes out last. (R, E, L and the flying pieces are unseen here.) */
+  override createAnim(): Anim {
+    void this.parts
+    return together(
+      this.creation.sequence(0, 1),
+      restage(Create(this.cloud), 0, 0.55),
+      ...[this.a, this.ss, this.talk].map((w, i) => restage(w.creation.sequence(0, 1), 0.2 + 0.08 * i, 0.7 + 0.05 * i)),
+    )
   }
 }

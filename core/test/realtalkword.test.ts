@@ -7,6 +7,8 @@ import { RealTalkWord } from "../vocabulary/RealTalkWord/RealTalkWord"
 import { wordOutline } from "../src/geometry/glyphs"
 import { ARIMO } from "../src/geometry/fonts/arimo"
 import type { Word } from "../vocabulary/Word/Word"
+import { Create } from "../src/verbs"
+import { Timeline } from "../src/timeline"
 import type { Vec3Like } from "../src/parts/primitives"
 
 const SIZE = 120
@@ -71,6 +73,19 @@ describe("RealTalkWord", () => {
     expect([w.ss.opacity.value, w.re.opacity.value, w.re.fillOpacity.value, w.pieces[0]!.opacity.value]).toEqual([0, 1, 1, 0])
     expect(tall(w.cloud.points)).toBeLessThan(1e-9)
     expect(w.speech.every((s) => s.creation.value === 0)).toBe(true)
+  })
+
+  test("Create writes it: the cloud, then the letters, the voice last", () => {
+    const w = new RealTalkWord({ size: SIZE })
+    const tl = new Timeline([{ anim: Create(w), start: 0, duration: 1 }], 1)
+    const at = (u: number) => tl.apply(u)
+    at(0)
+    expect([w.cloud.creation.value, w.a.creation.value, w.speech[0]!.creation.value]).toEqual([0, 0, 0])
+    at(0.5)
+    expect(w.cloud.creation.value).toBeGreaterThan(0.5)
+    expect(w.speech[0]!.creation.value).toBe(0)
+    at(1)
+    expect([w.cloud.creation.value, w.a.creation.value, w.talk.creation.value, w.speech[0]!.creation.value]).toEqual([1, 1, 1, 1])
   })
 
   test("one walkable axis, ass ↔ real", () => {
