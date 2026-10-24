@@ -52,6 +52,7 @@ import { HarmonizationDream } from "./vocabulary/Harmonization"
 import { SiteSystemsDream } from "./vocabulary/SiteSystems"
 import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
+import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
 import { EgoLensDream } from "./vocabulary/EgoLens"
 import { Scene00Dream } from "./origins/Scene00"
 import { Scene01Dream } from "./origins/Scene01"
@@ -291,6 +292,8 @@ export const scenes: Record<string, DreamClass> = {
   rolemap: RoleMapDream,
   // The lossy chain: information rising to the humans who decide, thinning at every arrow.
   lossychain: LossyChainDream,
+  // The sphere of meaning: diabolic → symbolic, idolic disk → iconic depth; the flow readable both ways.
+  "meaning-sphere": MeaningSphereDream,
   // The ego as a lens between the light and the land: away · icon · deep (the cyclops).
   egolens: EgoLensDream,
   // p02h: MagicMove03Dream, // p6 died before writing it

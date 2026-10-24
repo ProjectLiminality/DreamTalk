@@ -67,6 +67,7 @@ import { Resonance } from "../vocabulary/Resonance/Resonance"
 import { FragmentedEarth } from "../vocabulary/FragmentedEarth/FragmentedEarth"
 import { Fire } from "../vocabulary/Fire/Fire"
 import { Noosphere } from "../vocabulary/Noosphere/Noosphere"
+import { MeaningSphere } from "../vocabulary/MeaningSphere/MeaningSphere"
 import { DigitalCampfire } from "../vocabulary/DigitalCampfire/DigitalCampfire"
 import { RadioTower } from "../vocabulary/RadioTower/RadioTower"
 import { Field } from "../vocabulary/Field/Field"
@@ -143,6 +144,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "FragmentedEarth", folder: "FragmentedEarth", cls: FragmentedEarth },
   { className: "Fire", folder: "Fire", cls: Fire },
   { className: "Noosphere", folder: "Noosphere", cls: Noosphere },
+  { className: "MeaningSphere", folder: "MeaningSphere", cls: MeaningSphere },
   { className: "DigitalCampfire", folder: "DigitalCampfire", cls: DigitalCampfire },
   { className: "RadioTower", folder: "RadioTower", cls: RadioTower },
   { className: "Field", folder: "Field", cls: Field },
