@@ -106,6 +106,10 @@ export interface MeshSolid {
   triangles: [number, number, number][]
   fill?: Color
   crease?: number
+  /** false: an occluder only — it hides what lies behind it (and keeps its
+   *  fill) but draws no lines of its own, so another drawing can draw them
+   *  in its own pen (vocabulary/Parody: one body, two inks). Default true. */
+  lines?: boolean
 }
 
 export type Solid = Box | CylinderSolid | Panel | MeshSolid
@@ -483,7 +487,7 @@ export const hiddenLineDrawing = (
       const m = prepared(s)
       const toward = (q: Vec3Like) => towardViewer(view, q)
       const step = m.size / 160
-      for (const pl of meshLines(m, toward, s.crease ?? DEFAULT_CREASE)) {
+      for (const pl of s.lines === false ? [] : meshLines(m, toward, s.crease ?? DEFAULT_CREASE)) {
         if (pl.length < 2) continue
         const cum = [0]
         for (let i = 1; i < pl.length; i++) cum.push(cum[i - 1]! + Math.hypot(pl[i]!.x - pl[i - 1]!.x, pl[i]!.y - pl[i - 1]!.y, pl[i]!.z - pl[i - 1]!.z))

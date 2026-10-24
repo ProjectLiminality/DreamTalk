@@ -107,7 +107,7 @@ const meshId = (positions: object): number => {
 const flattenSolids = (solids: readonly Solid[]): number[] =>
   solids.flatMap((s) => {
     const fill = s.fill ? [s.fill.r, s.fill.g, s.fill.b] : [-1, -1, -1]
-    if (s.kind === "mesh") return [3, meshId(s.positions), meshId(s.triangles), s.crease ?? -1, ...fill]
+    if (s.kind === "mesh") return [3, meshId(s.positions), meshId(s.triangles), s.crease ?? -1, s.lines === false ? 0 : 1, ...fill]
     if (s.kind === "panel")
       return [2, s.center.x, s.center.y, s.center.z, s.size.x, s.size.y, s.size.z, s.normal.x, s.normal.y, s.normal.z, ...fill]
     return s.kind === "box"

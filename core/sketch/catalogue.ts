@@ -61,6 +61,8 @@ import { Worldview } from "../vocabulary/Worldview/Worldview"
 import { LiminalWeb } from "../vocabulary/LiminalWeb/LiminalWeb"
 import { Mind } from "../vocabulary/Mind/Mind"
 import { Narrative } from "../vocabulary/Narrative/Narrative"
+import { Parody } from "../vocabulary/Parody/Parody"
+import { RealTalkWord } from "../vocabulary/RealTalkWord/RealTalkWord"
 import { Book } from "../vocabulary/Book/Book"
 import { Dialectic } from "../vocabulary/Attractor/Dialectic"
 import { Attractor } from "../vocabulary/Attractor/Attractor"
@@ -139,6 +141,8 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "LiminalWeb", folder: "LiminalWeb", cls: LiminalWeb },
   { className: "Mind", folder: "Mind", cls: Mind },
   { className: "Narrative", folder: "Narrative", cls: Narrative },
+  { className: "Parody", folder: "Parody", cls: Parody },
+  { className: "RealTalkWord", folder: "RealTalkWord", cls: RealTalkWord },
   { className: "Book", folder: "Book", cls: Book },
   { className: "Dialectic", folder: "Attractor", cls: Dialectic },
   { className: "Attractor", folder: "Attractor", cls: Attractor },

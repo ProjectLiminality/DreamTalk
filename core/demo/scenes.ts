@@ -52,6 +52,8 @@ import { HarmonizationDream } from "./vocabulary/Harmonization"
 import { SiteSystemsDream } from "./vocabulary/SiteSystems"
 import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
+import { ParodyDream } from "./vocabulary/Parody"
+import { RealTalkWordDream } from "./vocabulary/RealTalkWord"
 import { TriadDream } from "./vocabulary/Triad"
 import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
 import { EgoLensDream } from "./vocabulary/EgoLens"
@@ -293,6 +295,10 @@ export const scenes: Record<string, DreamClass> = {
   rolemap: RoleMapDream,
   // The lossy chain: information rising to the humans who decide, thinning at every arrow.
   lossychain: LossyChainDream,
+  // The real and its counterfeit in one place: a torus ↔ the same ring as discrete cubes.
+  parody: ParodyDream,
+  // Ass talk ↔ real talk: the cloud word resolves into the grounded one.
+  "realtalk-word": RealTalkWordDream,
   // The triad, drawn and then opened into 3D: the plane of the two poles, the vertical without opposite; the ego reading.
   triad: TriadDream,
   // The sphere of meaning: diabolic → symbolic, idolic disk → iconic depth; the flow readable both ways.
