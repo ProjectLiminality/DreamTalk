@@ -82,6 +82,7 @@ import { Spheres } from "../vocabulary/Spheres/Spheres"
 import { CoherenceBeacon } from "../vocabulary/CoherenceBeacon/CoherenceBeacon"
 import { MindVirus } from "../vocabulary/MindVirus/MindVirus"
 import { MolochEye } from "../vocabulary/MolochEye/MolochEye"
+import { EgoLens } from "../vocabulary/EgoLens/EgoLens"
 import { Pallet } from "../vocabulary/Pallet/Pallet"
 import { Platonic } from "../vocabulary/Platonic/Platonic"
 import { Plot } from "../vocabulary/Plot/Plot"
@@ -157,6 +158,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "CoherenceBeacon", folder: "CoherenceBeacon", cls: CoherenceBeacon },
   { className: "MindVirus", folder: "MindVirus", cls: MindVirus },
   { className: "MolochEye", folder: "MolochEye", cls: MolochEye },
+  { className: "EgoLens", folder: "EgoLens", cls: EgoLens },
   { className: "Pallet", folder: "Pallet", cls: Pallet },
   { className: "Platonic", folder: "Platonic", cls: Platonic },
   { className: "Plot", folder: "Plot", cls: Plot },
