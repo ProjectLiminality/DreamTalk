@@ -57,8 +57,10 @@ export class Eye extends Stroke {
   static sovereign = true
   opening = completion(1)
 
-  /** Walkable (src/automaton.ts): the lids close and open — click the eye, or `o`. */
-  override stateSpace(): StateSpace {
+  /** Walkable (src/automaton.ts): the lids close and open — click the eye, or `o`.
+   *  Not when a whole drives the lids (the Triad's apex): theirs, not the eye's. */
+  override stateSpace(): StateSpace | undefined {
+    if (this.opening.isBound) return undefined
     return { axes: [toggle("opening", this.opening, { key: "o", off: ["closed", 0], on: ["open", 1], handles: [this] })] }
   }
   // The lids are ONE stroke in the source — a three-point Spline

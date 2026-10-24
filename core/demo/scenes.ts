@@ -52,6 +52,7 @@ import { HarmonizationDream } from "./vocabulary/Harmonization"
 import { SiteSystemsDream } from "./vocabulary/SiteSystems"
 import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
+import { TriadDream } from "./vocabulary/Triad"
 import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
 import { EgoLensDream } from "./vocabulary/EgoLens"
 import { Scene00Dream } from "./origins/Scene00"
@@ -292,6 +293,8 @@ export const scenes: Record<string, DreamClass> = {
   rolemap: RoleMapDream,
   // The lossy chain: information rising to the humans who decide, thinning at every arrow.
   lossychain: LossyChainDream,
+  // The triad, drawn and then opened into 3D: the plane of the two poles, the vertical without opposite; the ego reading.
+  triad: TriadDream,
   // The sphere of meaning: diabolic → symbolic, idolic disk → iconic depth; the flow readable both ways.
   "meaning-sphere": MeaningSphereDream,
   // The ego as a lens between the light and the land: away · icon · deep (the cyclops).
