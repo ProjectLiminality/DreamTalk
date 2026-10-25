@@ -57,6 +57,7 @@ import { RingEyeDream } from "./vocabulary/RingEye"
 import { RealTalkWordDream } from "./vocabulary/RealTalkWord"
 import { SixPathsDream } from "./vocabulary/SixPaths"
 import { TriadDream } from "./vocabulary/Triad"
+import { TotalityDream } from "./vocabulary/Totality"
 import { TimeSpiralDream } from "./vocabulary/TimeSpiral"
 import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
 import { EgoLensDream } from "./vocabulary/EgoLens"
@@ -308,6 +309,8 @@ export const scenes: Record<string, DreamClass> = {
   "six-paths": SixPathsDream,
   // The triad, drawn and then opened into 3D: the plane of the two poles, the vertical without opposite; the ego reading.
   triad: TriadDream,
+  // Horizontality, verticality and totality: the cross, and down its third axis the cross repeating in itself, endlessly.
+  totality: TotalityDream,
   // The sphere of meaning: diabolic → symbolic, idolic disk → iconic depth; the flow readable both ways.
   "meaning-sphere": MeaningSphereDream,
   // The ego as a lens between the light and the land: away · icon · deep (the cyclops).

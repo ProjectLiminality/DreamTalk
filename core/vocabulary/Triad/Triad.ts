@@ -41,6 +41,28 @@
  * turns, life and death trading places through it endlessly, each keeping
  * its pole's side. Seen edge-on, the coil scrolls.
  *
+ * THE PERSPECTIVES (`view`, a camera reading — `rig(observer)` hands the
+ * symbol the scene's camera): the same figure seen through three eyes.
+ *
+ *   below   standing in lowercase life on the plane, looking UP: the
+ *           triangle towers, the eye at its apex turns down to the one
+ *           who looks and looms (twice its size); the sphere, seen from
+ *           inside, has no outline and fades;
+ *   side    low among the coil, between the poles, the gaze swinging left
+ *           and right along the base (with the dance): the poles and the
+ *           coil pass close, edge-on, a confusion of light and shadow —
+ *           the relative eye;
+ *   above   from over the apex, from Life, looking DOWN the vertical: the
+ *           same figure is an ordered creation — the rim, the base its
+ *           diameter, the helix a spiral of two turns, red on one side and
+ *           blue on the other, round the centre the vertical stands on.
+ *
+ * The camera is bound to its home pose (the observer's at `rig`, so a scene
+ * that never walks `view` sees exactly what it always saw) and blended, in
+ * spherical terms about a moving focus, toward each eye by the three
+ * weights the axis eases; the roll keeps the figure's own symmetry upright
+ * on screen. The viewer's free orbit stays a layer over it.
+ *
  * CONSTRUCTION, in units of ρ = `radius` (the triangle's circumradius = the
  * sphere's radius), the sphere's centre at the origin: the triangle is
  * equilateral, apex (0, ρ, 0), poles (∓ρ√3/2, −ρ/2, 0); the plane y = −ρ/2,
@@ -51,12 +73,12 @@
 
 import { Circle, Group, Line, Null, derivePoints, type Vec3Like } from "../../src/parts/primitives"
 import type { Observer } from "../../src/dream"
-import { liveView, localView, viewOf, type View } from "../../src/geometry/frames"
+import { liveView, localView, toWorld, viewOf, type View } from "../../src/geometry/frames"
 import { facingTurn } from "../Noosphere/geodesic"
 import { completion, derive, length, scalar } from "../../src/params"
 import { presence } from "../../src/certainty"
 import { restage, together, type Anim } from "../../src/anim"
-import { toggle, type StateSpace } from "../../src/automaton"
+import { poses, toggle, type StateSpace } from "../../src/automaton"
 import type { Overrides } from "../../src/holon"
 import { BLUE, PI, RED, WHITE } from "../../src/constants"
 import { Create } from "../../src/verbs"
@@ -74,6 +96,19 @@ export const DANCE = {
 
 /** The 3D lean, unfolded: pitched toward the eye, turned a little. */
 export const LEAN = { p: 0.42, h: -0.4 } as const
+
+/**
+ * The three eyes of `view`, in units of ρ in the body's frame: where the
+ * eye stands, where it looks, which local direction is up on screen, and
+ * the lens (vertical fov, radians).
+ */
+export const VIEWS = {
+  below: { eye: [0, -0.46, 0.62], at: [0, 0.8, 0], up: [0, 1, 0], fov: 0.8 },
+  /** `at` swings along the base, ± swing × the rim's radius, once per DANCE.period. */
+  side: { eye: [0, -0.71, 0.36], at: [0, -0.62, 0], up: [0, 1, 0], fov: 1.5, swing: 0.92 },
+  above: { eye: [0, 2.3, 0], at: [0, -0.5, 0], up: [0, 0, -1], fov: (53.13 * Math.PI) / 180 },
+} as const
+export type TriadView = keyof typeof VIEWS
 
 /** The pole's and the apex's dots, × ρ. */
 const DOT = 0.034
@@ -104,6 +139,10 @@ export class Triad extends Null {
   reading = completion(0)
   /** The dance's clock, seconds (keeps running in free play). */
   dance = scalar(0)
+  /** The `view` weights: how far the camera has gone to each eye (see header). */
+  below = completion(0)
+  side = completion(0)
+  above = completion(0)
 
   body!: Group
   edges!: Line[]
@@ -127,6 +166,86 @@ export class Triad extends Null {
   seenFrom(observer: Observer): void {
     this.view = () => viewOf(observer)
   }
+  /** The camera the `view` reading carries, once `rig`ged. */
+  private rigged?: Observer
+
+  /**
+   * Hand the symbol the scene's camera: it is bound from here on to its
+   * home pose (the observer's now, or `home`) blended toward the `view`
+   * eyes — the song animates `below`/`side`/`above`, free play walks `v`.
+   * Also `seenFrom` it.
+   */
+  rig(observer: Observer, home: { radius?: number; phi?: number; theta?: number; fov?: number } = {}): void {
+    this.seenFrom(observer)
+    this.rigged = observer
+    const o = observer
+    const h = {
+      x: o.x.value, y: o.y.value, z: o.z.value,
+      phi: home.phi ?? o.phi.value, theta: home.theta ?? o.theta.value, tilt: o.tilt.value,
+      radius: home.radius ?? o.radius.value, fov: home.fov ?? o.fov.value,
+    }
+    let memo: { key: string; v: typeof h } | undefined
+    const now = () => {
+      const w = [this.below.value, this.side.value, this.above.value]
+      if (w[0] === 0 && w[1] === 0 && w[2] === 0) return h
+      const key = `${w}|${this.dance.value}|${this.unfold.value}|${this.radius.value}|${this.x.value},${this.y.value},${this.z.value},${this.h.value},${this.p.value},${this.b.value},${this.scale.value}`
+      if (memo?.key === key) return memo.v
+      const v = { ...h }
+      const names: TriadView[] = ["below", "side", "above"]
+      let lr = 0
+      names.forEach((name, i) => {
+        const k = w[i]!
+        if (k === 0) return
+        const p = this.eyePose(name, o.zoom.value || 1)
+        v.x += k * (p.x - h.x)
+        v.y += k * (p.y - h.y)
+        v.z += k * (p.z - h.z)
+        v.phi += k * Math.atan2(Math.sin(p.phi - h.phi), Math.cos(p.phi - h.phi))
+        v.theta += k * (p.theta - h.theta)
+        v.tilt += k * Math.atan2(Math.sin(p.tilt - h.tilt), Math.cos(p.tilt - h.tilt))
+        v.fov += k * (p.fov - h.fov)
+        lr += k * Math.log(p.radius / h.radius)
+      })
+      v.radius = h.radius * Math.exp(lr)
+      memo = { key, v }
+      return v
+    }
+    o.x.follow(derive(() => now().x))
+    o.y.follow(derive(() => now().y))
+    o.z.follow(derive(() => now().z))
+    o.phi.follow(derive(() => now().phi))
+    o.theta.follow(derive(() => now().theta))
+    o.tilt.follow(derive(() => now().tilt))
+    o.radius.follow(derive(() => now().radius))
+    o.fov.follow(derive(() => now().fov))
+  }
+
+  /** One `view` eye as the observer's own terms: focus, orbit, roll, distance, lens. */
+  eyePose(name: TriadView, zoom = 1): { x: number; y: number; z: number; phi: number; theta: number; tilt: number; radius: number; fov: number } {
+    const R = this.radius.value
+    const V = VIEWS[name]
+    const local = (q: readonly number[]): Vec3Like => ({ x: q[0]! * R, y: q[1]! * R, z: q[2]! * R })
+    let at = local(V.at)
+    if (name === "side") {
+      const swing = Math.sin((2 * PI * this.dance.value) / DANCE.period)
+      at = { ...at, x: VIEWS.side.swing * ((R * Math.sqrt(3)) / 2) * swing }
+    }
+    const E = toWorld(this.body, local(V.eye))
+    const F = toWorld(this.body, at)
+    const U0 = toWorld(this.body, { x: at.x + V.up[0]! * R, y: at.y + V.up[1]! * R, z: at.z + V.up[2]! * R })
+    const U = { x: U0.x - F.x, y: U0.y - F.y, z: U0.z - F.z }
+    const d = Math.hypot(E.x - F.x, E.y - F.y, E.z - F.z) || 1
+    const back = { x: (E.x - F.x) / d, y: (E.y - F.y) / d, z: (E.z - F.z) / d }
+    const phi = Math.atan2(back.x, back.z)
+    const theta = Math.asin(Math.max(-1, Math.min(1, back.y)))
+    // The roll that stands U upright on screen (view.ts Pose: the basis lookAt
+    // gives, then rolled by tilt).
+    const r0 = { x: Math.cos(phi), y: 0, z: -Math.sin(phi) }
+    const u0 = { x: -Math.sin(theta) * Math.sin(phi), y: Math.cos(theta), z: -Math.sin(theta) * Math.cos(phi) }
+    const tilt = Math.atan2(-(r0.x * U.x + r0.z * U.z), u0.x * U.x + u0.y * U.y + u0.z * U.z)
+    return { x: F.x, y: F.y, z: F.z, phi, theta, tilt, radius: d * zoom, fov: V.fov }
+  }
+
   /** The eye in the body's frame (the lean included). */
   private localView(): View {
     return localView(this.body, this.view?.() ?? liveView() ?? { eye: { x: 0, y: 0, z: 1500 } })
@@ -161,7 +280,12 @@ export class Triad extends Null {
 
     // THE SPHERE (reading 1): Life as the whole — its outline is the
     // silhouette the eye sees (a circle facing it), exact in perspective.
-    this.sphere = new Line({ tint: WHITE, stroke: 2, opacity: derive(() => whole()) })
+    // Seen from inside (below, from the side) the whole has no outline: it fades.
+    const outside = () => {
+      const v = this.localView()
+      return "eye" in v ? smooth(phase(Math.hypot(v.eye.x, v.eye.y, v.eye.z) / R(), 1.02, 1.3)) : 1
+    }
+    this.sphere = new Line({ tint: WHITE, stroke: 2, opacity: derive(() => whole() * outside()) })
     derivePoints(this.sphere, () => [...live()(), ...this.viewKey()], () => {
       const v = this.localView()
       const r = R()
@@ -308,8 +432,15 @@ export class Triad extends Null {
     // the triangle, its lids nesting in the apex; it opens with the reading.
     const s = (EYE * 300) / 230
     this.eye = new Eye({ tint: WHITE, stroke: 2, b: -PI / 2, opening: derive(() => opening()) })
-    this.eye.scale.follow(this.radius.map(() => (s * R()) / 300))
+    // Seen from below it looms: twice its size.
+    this.eye.scale.follow(this.radius.map(() => ((s * R()) / 300) * (1 + smooth(this.below.value))))
     this.eye.y.follow(this.radius.map(() => R()))
+    // From below, the eye turns its face down to the one who looks up
+    // (its drawing's normal toward the below-eye, its gaze kept in the
+    // figure's plane of symmetry).
+    const [, by, bz] = VIEWS.below.eye
+    const down = Math.atan2(1 - by, bz)
+    this.eye.h.follow(this.below.map(() => down * smooth(this.below.value)))
     this.seer = new Layer({ members: [this.eye] })
     this.seer.there.follow(this.reading.map(() => smooth(phase(this.reading.value, 0.15, 0.6))))
 
@@ -344,7 +475,8 @@ export class Triad extends Null {
   }
 
   /** Walkable: `u` opens the drawing into 3D and folds it back; `w` reads
-   *  the triangle as the ego, Life as the whole. The dance is a clock. */
+   *  the triangle as the ego, Life as the whole; `v` (rigged, unfolded)
+   *  walks the camera through the eyes. The dance is a clock. */
   override stateSpace(): StateSpace | undefined {
     void this.parts
     const axes = []
@@ -352,6 +484,15 @@ export class Triad extends Null {
       axes.push(toggle("unfold", this.unfold, { key: "u", off: ["drawn", 0], on: ["3D", 1], duration: 2.4, handles: () => [...this.edges, this.rim] }))
     if (!this.reading.isBound)
       axes.push(toggle("reading", this.reading, { key: "w", off: ["apex", 0], on: ["whole", 1], duration: 2.2, handles: () => [this.apex, this.eye, this.sphere] }))
+    // The perspectives: only with a camera to carry, and the figure in 3D.
+    if (this.rigged && !this.below.isBound && !this.side.isBound && !this.above.isBound) {
+      const w = (b: number, s: number, a: number) => [[this.below, b], [this.side, s], [this.above, a]] as [typeof this.below, number][]
+      axes.push(
+        poses("view", { orbit: w(0, 0, 0), below: w(1, 0, 0), side: w(0, 1, 0), above: w(0, 0, 1) }, {
+          key: "v", duration: 3, escape: "orbit", handles: () => [this.axis], when: () => this.unfold.value > 0.99,
+        }),
+      )
+    }
     return { axes, clocks: this.dance.isBound ? [] : [this.dance] }
   }
 }

@@ -7,6 +7,9 @@
  * turning under it, the apex rises on the plane's normal. Then the second
  * reading: an eye opens at the apex — the triangle is the ego — and Life is
  * the sphere that holds it all. The wheel keeps turning throughout.
+ * Last, the perspectives: the camera goes down onto the plane and looks up
+ * at the eye, then low between the poles, then up above the apex — the
+ * same figure from below, from the side, from above — and home.
  */
 
 import { Dream, render } from "../../src/index"
@@ -24,8 +27,8 @@ export class TriadDream extends Dream {
 
   unfold() {
     const t = this.triad
-    this.triad.seenFrom(this.observer)
-    this.set(...this.observer.dolly(1300))
+    // The camera is the triad's to carry (its `view` reading), home at 1300.
+    this.triad.rig(this.observer, { radius: 1300 })
     this.stage(t)
     this.dancing(3, Create(t))
     this.dancing(1.5)
@@ -35,6 +38,15 @@ export class TriadDream extends Dream {
     // The ego: the eye at the apex, Life the whole.
     this.dancing(2.5, t.reading.to(1))
     this.dancing(3)
+    // The perspectives: from below, from the side, from above, and home.
+    this.dancing(3.5, t.below.to(1))
+    this.dancing(2.5)
+    this.dancing(3.5, t.below.to(0), t.side.to(1))
+    this.dancing(5)
+    this.dancing(3.5, t.side.to(0), t.above.to(1))
+    this.dancing(3)
+    this.dancing(3, t.above.to(0))
+    this.dancing(1)
   }
 }
 
