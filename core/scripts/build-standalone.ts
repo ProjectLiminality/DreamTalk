@@ -3,7 +3,7 @@
  * outside this repo: index.html + app.js + the fonts and the shaping WASM.
  * Any static host serves it (`bunx serve <out>`).
  *
- *   bun scripts/build-standalone.ts --scene <id> [--data=anon|client] [--out <dir>] [--title <text>]
+ *   bun scripts/build-standalone.ts --scene <id> [--data=anon|client] [--out <dir>] [--title <text>] [--feedback <url>]
  *
  * --scene   a holon scene id (its dreamtalk.json `scene.id`, scripts/local-holons.ts).
  * --data    `anon` (default): every module of the holon that has a
@@ -12,6 +12,12 @@
  *           the original. `client`: the holon's modules as they are.
  * --out     default: `<holon name>Demo/` beside this repo. Never inside it.
  * --title   the page title; default: the holon's name, words spaced.
+ * --feedback  a sink for viewers' notes (demo/feedback.ts): the page gets
+ *           a quiet comment button and ` — pause, point at a part of the
+ *           song, leave a note (typed, spoken, a photo) that is POSTed
+ *           there with its object, t and walked state. The dashboard's
+ *           sink is `bun run pl feedback:link <song>` (its per-song token
+ *           included). Without it the mode is not in the bundle at all.
  *
  * The bundle is demo/standalone.ts with the registry holding ONLY this scene
  * (the public scene list is never imported), minified (no comments), no
@@ -46,6 +52,8 @@ const holonName = basename(holonDir)
 const out = resolve(opt("out") ?? `${dirname(repoRoot)}/${holonName}Demo`)
 if (out === repoRoot || out.startsWith(`${repoRoot}/`)) throw new Error(`--out must lie outside ${repoRoot}`)
 const title = opt("title") ?? holonName.replace(/([a-z])([A-Z])/g, "$1 $2")
+const feedback = opt("feedback") ?? ""
+if (feedback && !/^https?:\/\//.test(feedback)) throw new Error(`--feedback must be an http(s) url, not ${feedback}`)
 
 /** Modules of the holon swapped for their `.anon.ts` sibling. */
 const swapped = new Set<string>()
@@ -106,7 +114,7 @@ const result = await Bun.build({
   // and the toolkit name levels by their classes.
   minify: { whitespace: true, syntax: true, identifiers: false },
   sourcemap: "none",
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: { "process.env.NODE_ENV": '"production"', __FEEDBACK_URL__: JSON.stringify(feedback) },
   plugins: [localHolonsPlugin([scene]), variantPlugin, assetsPlugin],
 })
 if (!result.success) {
@@ -169,4 +177,4 @@ await Bun.write(
 )
 
 const kb = (Bun.file(`${out}/app.js`).size / 1024).toFixed(0)
-console.log(`${sceneId} → ${out} · data=${variant}${swapped.size ? ` (${[...swapped].join(", ")})` : ""} · app.js ${kb} KB`)
+console.log(`${sceneId} → ${out} · data=${variant}${swapped.size ? ` (${[...swapped].join(", ")})` : ""}${feedback ? ` · feedback → ${new URL(feedback).origin}` : ""} · app.js ${kb} KB`)

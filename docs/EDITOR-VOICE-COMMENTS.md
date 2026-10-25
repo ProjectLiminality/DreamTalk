@@ -153,3 +153,37 @@ than beside it:
   each open note with scene, holon path, the `file:line` that declares it
   (`opGlyph = new Text(…)` in Calculator.ts) and its class's file:line,
   the t, and the text. `--resolve <scene> <id>` marks one worked.
+
+## Shared songs: viewers' notes (2026-10-25)
+
+The same comment mode, for a song sent to someone as a website — where
+there is no daemon and no repo, only a static host and a viewer.
+
+- **The page.** `bun scripts/build-standalone.ts --scene <id> --feedback <url>`
+  bakes a sink into the bundle (without the flag the mode is not in it at
+  all). The player gets a quiet note button (bottom right) and `` ` ``:
+  the song holds where it stands, the golden dot points (creator mode's
+  own, editor/creator.ts), a click or tap selects a part, and a small sheet
+  takes the note — typed, spoken (hold the mic to talk, or tap it on and
+  off; MediaRecorder, the audio itself is sent) and/or a photo (a paper
+  sketch, scaled to 2000 px). Esc or the button lets the song go on. A
+  bottom sheet at phone width. demo/feedback.ts.
+- **The anchor.** As above — scene, t, path + class, field name, wholes,
+  screen box — plus the walked state: the toolkit's `&state=` code and the
+  link that reopens exactly that moment, the axes' positions in words, the
+  frame size, and a 640 px JPEG of the frame with the selection glowing.
+  The viewer's name is optional and remembered per browser.
+- **The sink.** The dashboard worker's `POST /api/feedback/:song?k=<token>`
+  (multipart `meta` + `audio` + `image` + `shot`; the token is per song,
+  `bun run pl feedback:link <song>` in the dashboard prints the whole url).
+  Rows in D1, blobs in R2, short voice notes transcribed by Whisper on
+  arrival. `bun run pl feedback [song]` lists them; they ride along in
+  `pl intake`; `pl done <fb_id>` marks one worked.
+- **Into the DreamNode.** `bun scripts/feedback-pull.ts --song <id>` writes
+  each note into the holon's `inputs/feedback/<date>-<id>/` (note.json with
+  the source `file:line` of the object and its class, voice + transcript,
+  photo, frame) and a README.md of all of them in song order — what an
+  agent reads before acting. `--into <dir>` for anywhere else.
+- **Class names.** The page reads `constructor.name`, which the bundle may
+  have suffixed (`Line` → `Line2`, a top-level name clash); the pull tries
+  the name without its digits when the exact one isn't found.

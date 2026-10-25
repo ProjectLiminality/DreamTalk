@@ -6,7 +6,10 @@
  * free play (Space; `?play=free` opens there), Enter / Esc into and out of
  * a symbol's level, and the toolkit — links to any state, the scene's
  * slots on ⌥1–9, presenter mode (q) — and the settings (`,`), the scene's
- * degrees of freedom over its own preset (Dream.preset). No creator mode, explorer, hands,
+ * degrees of freedom over its own preset (Dream.preset). Built with a
+ * feedback sink (`--feedback <url>`), the viewer's comment mode too
+ * (demo/feedback.ts: ` or the quiet button — a note on a part of the song,
+ * at its moment, sent to the sink). No creator mode, explorer, hands,
  * recording, narration or sounds: they need the studio's daemon, which a
  * static host does not have. The registry holds only the scene the build
  * put in demo/localHolons.ts; the public scene list is never imported.
@@ -22,7 +25,16 @@ import { clientBox, levelsOf, mountNest } from "../editor/nest"
 import { mountToolkit, type Toolkit } from "./toolkit"
 import { dofsOf } from "../src/dof"
 import { DOF_KEY, loadMask, mountDofPanel, type DofPanel } from "./dofpanel"
+import { encodeState } from "./toolkit"
+import type { Feedback } from "./feedback"
 import type {} from "../editor/dt"
+
+/**
+ * The feedback sink this build was given (build-standalone --feedback); ""
+ * for none — a literal the bundler folds, so without one the comment mode
+ * is not in the bundle at all.
+ */
+declare const __FEEDBACK_URL__: string
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement
 const readout = document.getElementById("readout") as HTMLDivElement
@@ -65,7 +77,7 @@ const main = async () => {
       space: dream.stateSpace(),
       observer: dream.observer,
       animated: animatedOf(),
-      suspended: () => false,
+      suspended: () => feedback?.on ?? false,
       hud: query.get("hud") !== "0",
       signal: ac.signal,
       mask,
@@ -86,8 +98,9 @@ const main = async () => {
   let nestDepth = 0
   let toolkit: Toolkit | undefined
   let dofPanel: DofPanel | undefined
+  let feedback: Feedback | undefined
   const frame = async (now: number) => {
-    game.hold(nestDepth > 0, now)
+    game.hold(nestDepth > 0 || (feedback?.on ?? false), now)
     game.tick(now)
     if (game.on) {
       await host.renderFrame(game.heldAt)
@@ -157,6 +170,7 @@ const main = async () => {
   })
 
   document.addEventListener("keydown", (e) => {
+    if (feedback?.key(e)) return
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
     if (dofPanel?.key(e)) return
     if (toolkit?.key(e)) return
@@ -214,10 +228,48 @@ const main = async () => {
     keyOf: (id) => game.state().find((s) => s.id === id)?.key,
     signal: ac.signal,
   })
+  if (__FEEDBACK_URL__) {
+    const tk = toolkit
+    const { mountFeedback } = await import("./feedback")
+    feedback = mountFeedback(__FEEDBACK_URL__, {
+      canvas,
+      pick: pickAt,
+      boundsOf: (h) => host.boundsOf(h),
+      // The glow is the host's interaction layer; a held song draws it on the next frame.
+      attend: (channel, holon, amount) => {
+        host.attend(channel, holon, amount)
+        if (!playing && !game.on) void host.renderFrame(current)
+      },
+      dream,
+      roots: () => dream.roots,
+      scene: sceneName,
+      t: () => (game.on ? game.heldAt : current),
+      hold: () => {
+        const wasPlaying = playing
+        playing = false
+        return () => {
+          if (!wasPlaying) return
+          t0 = performance.now() - current * 1000
+          playing = true
+        }
+      },
+      redraw: () => host.renderFrame(game.on ? game.heldAt : current),
+      state: () => {
+        const code = encodeState(tk.capture())
+        const u = new URL(location.href)
+        u.searchParams.set("state", code)
+        u.searchParams.set("t", String(game.on ? game.heldAt : current))
+        return { code, link: u.toString() }
+      },
+      walk: () => ({ free: game.on, positions: Object.fromEntries(game.state().map((a) => [a.id, a.position])) }),
+      signal: ac.signal,
+    })
+  }
   // The harness's handles (scripts/build-standalone.ts --check, any headless driver).
   ;(window as unknown as Record<string, unknown>).__dtGame = { game, state: () => game.state(), nest: { state: () => nest.state(), back: () => nest.back() } }
   ;(window as unknown as Record<string, unknown>).__dtToolkit = toolkit
   ;(window as unknown as Record<string, unknown>).__dtDof = { mask, panel: dofPanel, dofs }
+  ;(window as unknown as Record<string, unknown>).__dtFeedback = feedback
   window.__dt = {
     ready: true,
     duration,
