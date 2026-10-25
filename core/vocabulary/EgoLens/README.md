@@ -15,9 +15,9 @@ disc below with a lotus at its centre. Y is up. The symbol can be orbited.
 
 | relation | position | what happens |
 |---|---|---|
-| −1 | `away` | the lens banks a little past upright and turns from the light. The rays end on its back and nothing passes. The land is dark, and the lotus droops and curls under (blue, cold) |
+| −1 | `away` | the lens turns from the light: it turns right over, its face (the red ring where the light enters) down to the dark and its back (a blue ring) up to the star. The rays end on its back and nothing passes. Its shadow lies cold on the dimmed land, and the lotus droops and curls under (blue, cold) |
 | 0 | `icon` | right relationship. The light refracts through the lens and spreads over the land in a red pool, and the lotus opens toward it (red, warm) |
-| 1 | `deep` | it looks too deep into the light and takes itself for the Self. The lens becomes a cyclops: the sovereign [MolochEye](../MolochEye/) with a red gaze and a corona of flame round its almond. The eye rises toward the star, the star shrinks, and every ray is drawn into the eye. Nothing reaches the land, and the lotus closes to a bud |
+| 1 | `deep` | it looks too deep into the light and takes itself for the Self. The lens becomes the eye whose section it is: first the clear eye, then burning — the flaming, lidless eye of the watchtower ([RingEye](../RingEye/)'s `WatchEye`: the lids give way to fire, the iris glares, the pupil narrows to a slit). The eye rises toward the star, the star shrinks, and every ray is drawn into the eye. Nothing reaches the land, and the lotus closes to a bud |
 
 Esc returns to `icon`. The axis carries no fixed key, so the player assigns
 a digit and a whole can rekey it. A whole that drives `relation` itself takes
@@ -28,8 +28,13 @@ turned about the vertical: the rim is 2h and the faces have radius 2.5h
 (`LENS_RADIUS_RATIO`). Each meridian is exactly the eye's almond. Seen
 edge-on, the ego-lens is the outline of the eye it can become, and the
 cyclops is drawn at the lens's own h. The eye always stands upright, turned
-toward whoever looks. Its own `iris` axis is held, because that axis belongs
-to the eye standing alone, not to this symbol.
+toward whoever looks; its `gaze` follows the relation (clear as it opens,
+burning by `deep`).
+
+**The face and the back.** On the lens's upper face, the one turned to the
+star, a red ring marks where the light enters; on the lower face a blue ring,
+its back, shows only as it turns away. Each is bright while it faces the eye
+and faint as the far side, so turning over reads in a line drawing.
 
 **The rays** run from the star to the first point where they meet the lens
 body (the intersection of the two face balls), however the lens is turned.

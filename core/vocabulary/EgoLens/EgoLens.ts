@@ -5,16 +5,19 @@
  * serving the other psychic functions below. Its three relationships to
  * the light are ONE number, `relation`, walked as one axis:
  *
- *   −1  AWAY   the lens turns from the light. The rays end on its back,
- *              nothing passes, the land lies dark and the flower shrivels
- *              (cold, blue).
+ *   −1  AWAY   the lens turns from the light: it turns right over, its
+ *              face (the red ring where the light enters) down to the dark
+ *              and its back (blue) up to the star. The rays end on its back,
+ *              nothing passes, its shadow lies cold on the dimmed land and
+ *              the flower droops and shrivels (cold, blue).
  *    0  ICON   right relationship: the light refracts through the lens and
  *              spreads over the land below; the flower opens toward it.
  *   +1  DEEP   it looks too deep into the light and takes itself for the
- *              Self: the lens becomes the cyclops — a single eye (the
- *              sovereign MolochEye, its gaze red) rising toward the star,
- *              the rays drawn into it and hoarded. Nothing reaches the land;
- *              the flower closes.
+ *              Self: the lens becomes the eye whose section it is — first
+ *              the clear eye, then burning: the flaming, lidless eye of the
+ *              watchtower (RingEye's eye), rising toward the star, the rays
+ *              drawn into it and hoarded. Nothing reaches the land; the
+ *              flower closes.
  *
  * REAL 3D, one vertical line and one horizontal plane: the star on the
  * axis above, the lens on the axis between, the land a horizontal disc
@@ -44,7 +47,8 @@ import { BLUE, RED, TAU, WHITE, type Color } from "../../src/constants"
 import { clamp01, lerp } from "../../src/math"
 import { ease } from "../../src/timeline"
 import { Layer } from "../Figure/Figure"
-import { LENS_RADIUS_RATIO, MolochEye } from "../MolochEye/MolochEye"
+import { LENS_RADIUS_RATIO } from "../MolochEye/MolochEye"
+import { WatchEye } from "../RingEye/RingEye"
 
 /** The construction, in units of `size` (star to land). */
 export const EGOLENS = {
@@ -76,11 +80,8 @@ const PETALS = 8
 /** The lens's meridians (every 45°) and the samples along an arc. */
 const MERIDIANS = 4
 const ARC = 32
-/** How far the lens banks when it turns away: a little past upright, its upper face turned down. */
-const AWAY_BANK = 0.58 * Math.PI
-/** The cyclops's flames: tongues per lens arc (+1), and the arc's half-span (the 3-4-5: asin 4/5). */
-const FLAMES = 8
-const ARC_HALF_SPAN = Math.asin(4 / 5)
+/** How far the lens turns when it turns away: right over, its face (toward the star) turned down to the dark. */
+const AWAY_BANK = Math.PI
 
 const smooth = (u: number) => ease("smooth", clamp01(u))
 const mix = (a: Color, b: Color, u: number): Color => ({ r: lerp(a.r, b.r, u), g: lerp(a.g, b.g, u), b: lerp(a.b, b.b, u) })
@@ -149,9 +150,11 @@ export class EgoLens extends Null {
   lens!: Layer
   meridians: Line[] = []
   rim!: Line
+  /** The lens's face (the ring where the light enters, turned to the star) and its back. */
+  face!: Line
+  back!: Line
   eyeLayer!: Layer
-  eye!: MolochEye
-  flames: Line[] = []
+  eye!: WatchEye
   land!: Circle
   pool!: Circle
   petals: Line[] = []
@@ -166,6 +169,11 @@ export class EgoLens extends Null {
     const v = localView(this, this.view?.() ?? liveView() ?? { eye: { x: 0, y: 0, z: 1500 } })
     if ("eye" in v) return v.eye
     return { x: v.toward.x * 1e6, y: v.toward.y * 1e6, z: v.toward.z * 1e6 }
+  }
+
+  private eyeKey(): number[] {
+    const e = this.localEye()
+    return [Math.round(e.x), Math.round(e.y), Math.round(e.z)]
   }
 
   /** How far the symbol reaches from its centre: half its height. */
@@ -259,20 +267,23 @@ export class EgoLens extends Null {
     }
 
     // THE LAND: a horizontal disc, quiet; the pool of light on it (red, a
-    // wash and its ring) is there while light reaches it.
-    this.land = this.add(new Circle({ radius: derive(() => EGOLENS.ground * U()), y: derive(landY), p: Math.PI / 2, tint: WHITE, stroke: thin, opacity: 0.45 }))
+    // wash and its ring) is there while light reaches it. Turned away, the
+    // lens's shadow lies there instead: the ring cold, the land dimmed.
+    this.land = this.add(
+      new Circle({ radius: derive(() => EGOLENS.ground * U()), y: derive(landY), p: Math.PI / 2, tint: WHITE, stroke: thin, opacity: derive(() => 0.45 - 0.2 * this.away()) }),
+    )
     this.pool = this.add(
       new Circle({
         radius: derive(() => EGOLENS.pool * U()),
         y: derive(landY),
         p: Math.PI / 2,
-        tint: RED,
+        tint: derive(() => mix(RED, BLUE, smooth((this.away() - 0.5) / 0.5))),
         stroke: thin,
-        opacity: derive(() => this.lit()),
+        opacity: derive(() => this.lit() + 0.5 * this.away()),
       }),
     )
-    // A faint wash (the host blends in linear light: a little reads as a glow), drawn with the ring.
-    this.pool.fillOpacity.follow(derive(() => 0.03 * this.pool.creation.value))
+    // A faint wash (the host blends in linear light: a little reads as a glow), drawn with the ring, there while lit.
+    this.pool.fillOpacity.follow(derive(() => 0.03 * this.pool.creation.value * this.lit()))
 
     // THE VERTICAL: the axis ray from the star to the lens, and on from the
     // lens to the flower while the light passes.
@@ -297,11 +308,11 @@ export class EgoLens extends Null {
       const rho = () => EGOLENS.aperture * rimR()
       const rin = this.add(new Line({ tint: RED, stroke: thin }))
       derivePoints(rin, key, () => {
-        // Aimed at the aperture ring, narrowed across the bank as the lens
-        // turns edge-on: away, the light ends on its back.
-        const a = this.away()
+        // Aimed at the aperture ring, narrowed while the lens turns over
+        // (edge-on halfway): away, the light ends on its back.
+        const edge = Math.abs(Math.sin(bank()))
         const hit = firstHit({
-          x: rho() * Math.cos(phi) * lerp(1, 0.4, a),
+          x: rho() * Math.cos(phi) * lerp(1, 0.2, edge),
           y: lensY(),
           z: rho() * Math.sin(phi),
         })
@@ -346,15 +357,40 @@ export class EgoLens extends Null {
       })
       this.meridians.push(line)
     }
+    // ITS FACE AND ITS BACK: the ring where the light enters, on the face
+    // turned to the star (red), and its twin on the other face (blue, the
+    // back, there only as it turns away). Each bright while it faces the
+    // eye, faint when it is the far side — so the turn over reads.
+    const facing = (sign: number) => {
+      const b = bank()
+      const n = { x: -Math.sin(b) * sign, y: Math.cos(b) * sign, z: 0 }
+      const e = this.localEye()
+      const d = { x: e.x, y: e.y - lensY(), z: e.z }
+      const l = Math.hypot(d.x, d.y, d.z) || 1
+      return smooth(0.5 + (4 * (n.x * d.x + n.y * d.y + n.z * d.z)) / l)
+    }
+    const faceRing = (sign: number, tint: Color, shown: () => number) => {
+      const seen = () => shown() * lerp(0.22, 1, facing(sign))
+      const line = this.lens.attach(new Line({ tint, stroke, opacity: derive(seen), fillOpacity: derive(() => 0.12 * seen()) }))
+      derivePoints(line, () => [...key(), ...this.eyeKey()], () => {
+        const pts: Vec3Like[] = []
+        for (let k = 0; k <= 4 * ARC; k++) pts.push(placeLens(face(sign, EGOLENS.aperture * rimR(), (k / (4 * ARC)) * TAU)))
+        return pts
+      })
+      return line
+    }
+    this.face = faceRing(1, RED, () => 1 - 0.5 * this.away())
+    this.back = faceRing(-1, BLUE, () => this.away())
 
-    // THE CYCLOPS: the sovereign MolochEye at the lens's own h, its gaze red,
-    // standing on the axis and turned to whoever looks (upright: the turn is
-    // a heading on the outer layer and a pitch on the inner, so it never
-    // rolls); it rises toward the star and swells as the ego takes itself
-    // for the Self, and burns: a corona of flame round its almond, the
-    // star's radiance parodied.
+    // THE CYCLOPS: the lens becomes the eye whose section it is (RingEye's
+    // eye, at the lens's own h), standing on the axis and turned to whoever
+    // looks (upright: a heading on the outer layer, a pitch on the inner, so
+    // it never rolls). It opens as the clear eye — the lens's outline is its
+    // lids — and, going deeper, burns: the lids give way to fire, the iris
+    // glares, the pupil narrows to a slit. The flaming, lidless eye of the
+    // watchtower, risen toward the star and swollen, every ray drawn into it.
     this.eyeLayer = this.add(new Layer({ y: derive(() => this.eyeY()) }))
-    this.eyeLayer.presence.follow(derive(() => smooth((r() - 0.35) / 0.5)))
+    this.eyeLayer.presence.follow(derive(() => smooth((r() - 0.3) / 0.45)))
     this.eyeLayer.scale.follow(derive(() => 0.85 + 0.35 * this.deep()))
     const toEye = () => {
       const e = this.localEye()
@@ -366,26 +402,7 @@ export class EgoLens extends Null {
       const d = toEye()
       return -Math.atan2(d.y, Math.hypot(d.x, d.z))
     }))
-    for (const sign of [1, -1]) {
-      for (let k = 1; k < FLAMES; k++) {
-        // Along each lens arc (centre (0, ∓1.5h), radius 2.5h) at equal angles, outward.
-        const t = -1 + (2 * k) / FLAMES
-        const a = sign * (Math.PI / 2) + t * ARC_HALF_SPAN
-        const tongue = upright.attach(new Line({ tint: RED, stroke: thin }))
-        derivePoints(tongue, key, () => {
-          const H = h()
-          const c = { x: 0, y: -sign * (LENS_RADIUS_RATIO - 1) * H, z: 0 }
-          const n = { x: Math.cos(a), y: Math.sin(a), z: 0 }
-          const rim = add(c, n, LENS_RADIUS_RATIO * H)
-          const len = H * (0.35 + 0.45 * Math.cos((t * Math.PI) / 2)) * this.deep()
-          return len < 1e-3 ? [] : [add(rim, n, 0.25 * H), add(rim, n, 0.25 * H + len)]
-        })
-        this.flames.push(tongue)
-      }
-    }
-    this.eye = upright.attach(new MolochEye({ height: derive(h), tint: RED, stroke }))
-    // Its iris holds the gaze (its own cube ↔ vision axis is not this symbol's).
-    this.eye.iris.follow(derive(() => 0))
+    this.eye = upright.attach(new WatchEye({ unit: derive(h), gaze: derive(() => 1 - smooth((r() - 0.45) / 0.5)), stroke }))
 
     // THE LOTUS at the centre of the land.
     const centre = () => ({ x: 0, y: landY(), z: 0 })

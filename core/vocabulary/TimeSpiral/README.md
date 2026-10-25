@@ -33,16 +33,26 @@ slightly tilted, both oriented at k times the golden angle, so every turn is
 kin to its neighbours and none ever repeats. It only takes effect as the
 spiral opens; the pure line and the pure circle have nothing to rhyme.
 
+**The Kairos moments** (`moments`, 0 none … 1 kairos): red radii joining the
+curve to its still centre, nine per turn, placed where the cumulative of the
+density (1 − cos θ)² reaches (i + ½)/9 — dense toward the profound side
+(left), thinning toward the profane, never on it. Kairos moments become likelier
+in the profound world, yet Kairos itself, the centre, is bound to no form of
+time: in Kronos the radii are nothing, in Aion they are spokes of the circle,
+in the spiral they reach in from every turn. Deterministic and mirror-symmetric
+about the base line (`kairosBearings`).
+
 **The present moment** runs on the symbol's clock (`now`, seconds): a white
 point travels the curve (up the line, round the circle, up the spiral), and
 its Kairos, a red point joined to it by the radius, is its projection onto
 the centre.
 
 **Params**: `height` (the axis's half-length, the one size), `time` 0 kronos ·
-1 aion · 2 spiral, `rhyme` 0 mirror … 1 rhyme, `labels` (the words'
-presence), `now` (a clock).
+1 aion · 2 spiral, `rhyme` 0 mirror … 1 rhyme, `moments` 0 none … 1 kairos,
+`labels` (the words' presence), `now` (a clock).
 
-**Axes**: `time` (kronos · aion · spiral), `rhyme` (mirror · rhyme); no fixed
+**Axes**: `time` (kronos · aion · spiral), `rhyme` (mirror · rhyme), `moments`
+(none · kairos); no fixed
 keys (the player assigns digits; rekeyable). `now` is a clock, so the moment
 keeps travelling in free play. A whole that drives a param makes that axis
 its own.
@@ -57,4 +67,5 @@ Pure: `spiralPoint(s, time, rhyme)`.
 halves, filled Circles, Text).
 
 `?scene=time-spiral` draws the figure, folds it to Kronos and Aion and back,
-and lets its turns mirror and rhyme; `?scene=time-spiral&play=free` walks it.
+lets its turns mirror and rhyme, and shows the Kairos moments;
+`?scene=time-spiral&play=free` walks it.

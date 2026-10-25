@@ -21,8 +21,23 @@ describe("EgoLens", () => {
     expect(held.stateSpace()).toBeUndefined()
   })
 
-  test("the eye's own iris axis is not this symbol's", () => {
+  test("the cyclops is the watchtower's eye: clear as it opens, burning when deep", () => {
     expect(at(0).eye.stateSpace()).toBeUndefined()
+    expect(at(1).eye.fire()).toBeCloseTo(1)
+    expect(at(1).eye.calm()).toBeCloseTo(0)
+    expect(at(0.5).eye.calm()).toBeGreaterThan(0.5)
+  })
+
+  test("turned away, the face looks down to the dark and the back up to the star", () => {
+    const meanY = (pts: readonly { y: number }[]) => pts.reduce((a, p) => a + p.y, 0) / pts.length
+    const lensY = EGOLENS.lens * 900
+    const icon = at(0)
+    expect(meanY(icon.face.points)).toBeGreaterThan(lensY)
+    expect(icon.back.opacity.value).toBe(0)
+    const away = at(-1)
+    expect(meanY(away.face.points)).toBeLessThan(lensY)
+    expect(meanY(away.back.points)).toBeGreaterThan(lensY)
+    expect(away.back.opacity.value).toBeGreaterThan(0)
   })
 
   test("the flower: open with the light, shrivelled away, a bud too deep", () => {

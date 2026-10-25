@@ -198,6 +198,145 @@ class Tower extends SolidDrawing {
   }
 }
 
+/**
+ * The eye RingEye frames, in its own plane (x right, y up, facing +z): one
+ * number, `gaze`, from the watchtower's eye (0: lidless, the almond rimmed
+ * with fire under a crown of flames, the glaring iris, the slit) to the clear
+ * eye (1: the lids and the crease, the blue iris, the round pupil holding the
+ * world). Its owner stands it and turns it; EgoLens's cyclops is this eye too.
+ * The construction is MolochEye's, its `unit` h the lens half-height.
+ */
+export class WatchEye extends Null {
+  /** The unit h, the lens half-height: the almond is 4h wide. */
+  unit = length(RINGEYE.h * 120)
+  /** 0 the watchtower's eye … 1 the clear eye. */
+  gaze = completion(0)
+  /** The pen, screen px. */
+  stroke = length(2.4)
+
+  lidTop!: Line
+  lidBottom!: Line
+  crease!: Line
+  iris!: Line
+  pupil!: Line
+  world!: Layer
+  equator!: Line
+  meridian!: Line
+  catchlight!: Ellipse
+  flames: Line[] = []
+
+  /** How much fire, how much calm. */
+  fire(): number {
+    return fireAt(this.gaze.value)
+  }
+  calm(): number {
+    return calmAt(this.gaze.value)
+  }
+
+  protected override compose(): void {
+    const h = () => this.unit.value
+    const g = () => this.gaze.value
+    const s = () => smooth(g())
+    const key = () => [g(), h()]
+    const stroke = this.stroke
+    const thin = derive(() => this.stroke.value * 0.6)
+    const tint = (f: () => Color): Readable<Color> => derive(f)
+
+    // The almond (MolochEye's 3-4-5 lens): fire's rim at the watchtower, the lids at clear.
+    const lidTint = tint(() => mix(HOT, WHITE, s()))
+    const arc = (sign: number, lift = 0, span = 1): Vec3Like[] => {
+      const H = h()
+      const c = -sign * (LENS_RADIUS_RATIO - 1) * H + lift * H
+      const pts: Vec3Like[] = []
+      for (let k = 0; k <= ROUND; k++) {
+        const a = sign * (Math.PI / 2) + (-1 + (2 * k) / ROUND) * HALF_SPAN * span
+        pts.push({ x: LENS_RADIUS_RATIO * H * Math.cos(a), y: c + LENS_RADIUS_RATIO * H * Math.sin(a), z: 0 })
+      }
+      return pts
+    }
+    this.lidTop = this.attach(new Line({ tint: lidTint, stroke }))
+    derivePoints(this.lidTop, () => [h()], () => arc(1))
+    this.lidBottom = this.attach(new Line({ tint: lidTint, stroke }))
+    derivePoints(this.lidBottom, () => [h()], () => arc(-1))
+    // The upper lid's crease: the lid itself, lifted — there only where there are lids.
+    this.crease = this.attach(new Line({ tint: WHITE, stroke: thin, opacity: derive(() => this.calm()) }))
+    derivePoints(this.crease, () => [h()], () => arc(1, 0.3, 0.72))
+
+    // The iris: glaring, kissing the corners · clear and blue.
+    this.iris = this.attach(new Line({ tint: tint(() => mix(GLARE, BLUE, s())), stroke }))
+    derivePoints(this.iris, key, () => {
+      const r = lerp(RINGEYE.irisWatch, RINGEYE.irisClear, s()) * h()
+      return Array.from({ length: ROUND + 1 }, (_, k) => {
+        const a = Math.PI / 2 + (k / ROUND) * 2 * Math.PI
+        return { x: r * Math.cos(a), y: r * Math.sin(a), z: 0 }
+      })
+    })
+    // The pupil: the slit dilating into the round pupil.
+    this.pupil = this.attach(new Line({ tint: tint(() => mix(RED, WHITE, s())), stroke }))
+    derivePoints(this.pupil, key, () => pupilOutline(g(), h()))
+
+    // THE WORLD in the clear pupil: a small globe, its limb the pupil itself —
+    // the near halves of its equator (tipped toward the eye) and of a meridian.
+    this.world = this.attach(new Layer())
+    this.world.presence.follow(derive(() => this.calm()))
+    const globe = (tilt: number, turnY: number, meridian: boolean): Vec3Like[] => {
+      // Inside the pupil as it opens: its half-width until it is round.
+      const r = lerp(RINGEYE.slitW, RINGEYE.pupil, s()) * h() * 0.98
+      const pts: Vec3Like[] = []
+      for (let k = 0; k <= ROUND / 2; k++) {
+        const a = (k / (ROUND / 2)) * Math.PI
+        // A great circle: the equator in the x–z plane, a meridian in the y–z plane; the near half (z ≥ 0).
+        let p = meridian ? { x: 0, y: r * Math.cos(a), z: r * Math.sin(a) } : { x: r * Math.cos(a), y: 0, z: r * Math.sin(a) }
+        p = { x: p.x, y: p.y * Math.cos(tilt) + p.z * Math.sin(tilt), z: -p.y * Math.sin(tilt) + p.z * Math.cos(tilt) }
+        p = { x: p.x * Math.cos(turnY) + p.z * Math.sin(turnY), y: p.y, z: -p.x * Math.sin(turnY) + p.z * Math.cos(turnY) }
+        pts.push(p)
+      }
+      return pts
+    }
+    this.equator = this.world.attach(new Line({ tint: BLUE, stroke: thin }))
+    derivePoints(this.equator, key, () => globe(-0.42, 0, false))
+    this.meridian = this.world.attach(new Line({ tint: BLUE, stroke: thin }))
+    derivePoints(this.meridian, key, () => globe(-0.42, 0.55, true))
+    this.catchlight = this.world.attach(
+      new Ellipse({
+        x: derive(() => -0.5 * h()),
+        y: derive(() => 0.42 * h()),
+        radiusX: derive(() => 0.085 * h()),
+        radiusY: derive(() => 0.085 * h()),
+        filled: true,
+        tint: WHITE,
+      }),
+    )
+
+    // THE FIRE: a crown of flames over the lidless almond — rising, tallest
+    // over its apex, long and short in turn — and one out of each corner,
+    // leaning up; mirror-symmetric. Where the lid would be, fire.
+    const flame = (place: () => { root: Vec3Like; n: { x: number; y: number } }, len: number, width: number, bend: number) => {
+      const line = this.attach(new Line({ tint: RED, stroke: thin }))
+      derivePoints(line, key, () => {
+        const f = this.fire()
+        if (f < 1e-3) return []
+        const { root, n } = place()
+        return flameOutline(root, n, len * h() * f, width * h() * (0.4 + 0.6 * f), bend)
+      })
+      this.flames.push(line)
+    }
+    const onLid = (a: number) => () => {
+      const H = h()
+      const n = { x: Math.cos(a), y: Math.sin(a) }
+      const cy = -(LENS_RADIUS_RATIO - 1) * H
+      const r = (LENS_RADIUS_RATIO + 0.14) * H
+      return { root: { x: n.x * r, y: cy + n.y * r, z: 0 }, n }
+    }
+    for (let k = 1; k < FLAMES; k++) {
+      const t = -1 + (2 * k) / FLAMES
+      const a = Math.PI / 2 + t * HALF_SPAN
+      flame(onLid(a), (0.42 + 0.5 * Math.cos((t * Math.PI) / 2)) * (k % 2 === 0 ? 1 : 0.7), 0.15, 0.35)
+    }
+    for (const side of [1, -1]) flame(() => ({ root: { x: side * 2.14 * h(), y: 0, z: 0 }, n: { x: side, y: 0 } }), 0.38, 0.12, 0.5)
+  }
+}
+
 export class RingEye extends Null {
   /** ONTOLOGY.md: a sovereign symbol — cast, not asset. */
   static sovereign = true
@@ -217,6 +356,8 @@ export class RingEye extends Null {
   tower!: Tower
   ground!: Ellipse
   eyeLayer!: Layer
+  /** The eye, and its parts (the same objects, for a whole that weaves them). */
+  watch!: WatchEye
   lidTop!: Line
   lidBottom!: Line
   crease!: Line
@@ -226,7 +367,7 @@ export class RingEye extends Null {
   equator!: Line
   meridian!: Line
   catchlight!: Ellipse
-  flames: Line[] = []
+  flames!: Line[]
 
   /** @internal the tower's frustum, per R. */
   towerMemo = new Map<string, Mesh>()
@@ -282,7 +423,6 @@ export class RingEye extends Null {
     const h = () => RINGEYE.h * R()
     const g = () => this.gaze.value
     const s = () => smooth(g())
-    const key = () => [g(), R()]
     const stroke = this.stroke
     const thin = derive(() => this.stroke.value * 0.6)
     const tint = (f: () => Color): Readable<Color> => derive(f)
@@ -323,98 +463,13 @@ export class RingEye extends Null {
       return -Math.atan2(d.y, Math.hypot(d.x, d.z))
     }))
 
-    // The almond (MolochEye's 3-4-5 lens): fire's rim at the watchtower, the lids at clear.
-    const lidTint = tint(() => mix(HOT, WHITE, s()))
-    const arc = (sign: number, lift = 0, span = 1): Vec3Like[] => {
-      const H = h()
-      const c = -sign * (LENS_RADIUS_RATIO - 1) * H + lift * H
-      const pts: Vec3Like[] = []
-      for (let k = 0; k <= ROUND; k++) {
-        const a = sign * (Math.PI / 2) + (-1 + (2 * k) / ROUND) * HALF_SPAN * span
-        pts.push({ x: LENS_RADIUS_RATIO * H * Math.cos(a), y: c + LENS_RADIUS_RATIO * H * Math.sin(a), z: 0 })
-      }
-      return pts
-    }
-    this.lidTop = eye.attach(new Line({ tint: lidTint, stroke }))
-    derivePoints(this.lidTop, () => [R()], () => arc(1))
-    this.lidBottom = eye.attach(new Line({ tint: lidTint, stroke }))
-    derivePoints(this.lidBottom, () => [R()], () => arc(-1))
-    // The upper lid's crease: the lid itself, lifted — there only where there are lids.
-    this.crease = eye.attach(new Line({ tint: WHITE, stroke: thin, opacity: derive(() => this.calm()) }))
-    derivePoints(this.crease, () => [R()], () => arc(1, 0.3, 0.72))
-
-    // The iris: glaring, kissing the corners · clear and blue.
-    this.iris = eye.attach(new Line({ tint: tint(() => mix(GLARE, BLUE, s())), stroke }))
-    derivePoints(this.iris, key, () => {
-      const r = lerp(RINGEYE.irisWatch, RINGEYE.irisClear, s()) * h()
-      return Array.from({ length: ROUND + 1 }, (_, k) => {
-        const a = Math.PI / 2 + (k / ROUND) * 2 * Math.PI
-        return { x: r * Math.cos(a), y: r * Math.sin(a), z: 0 }
-      })
-    })
-    // The pupil: the slit dilating into the round pupil.
-    this.pupil = eye.attach(new Line({ tint: tint(() => mix(RED, WHITE, s())), stroke }))
-    derivePoints(this.pupil, key, () => pupilOutline(g(), h()))
-
-    // THE WORLD in the clear pupil: a small globe, its limb the pupil itself —
-    // the near halves of its equator (tipped toward the eye) and of a meridian.
-    this.world = eye.attach(new Layer())
-    this.world.presence.follow(derive(() => this.calm()))
-    const globe = (tilt: number, turnY: number, meridian: boolean): Vec3Like[] => {
-      // Inside the pupil as it opens: its half-width until it is round.
-      const r = lerp(RINGEYE.slitW, RINGEYE.pupil, s()) * h() * 0.98
-      const pts: Vec3Like[] = []
-      for (let k = 0; k <= ROUND / 2; k++) {
-        const a = (k / (ROUND / 2)) * Math.PI
-        // A great circle: the equator in the x–z plane, a meridian in the y–z plane; the near half (z ≥ 0).
-        let p = meridian ? { x: 0, y: r * Math.cos(a), z: r * Math.sin(a) } : { x: r * Math.cos(a), y: 0, z: r * Math.sin(a) }
-        p = { x: p.x, y: p.y * Math.cos(tilt) + p.z * Math.sin(tilt), z: -p.y * Math.sin(tilt) + p.z * Math.cos(tilt) }
-        p = { x: p.x * Math.cos(turnY) + p.z * Math.sin(turnY), y: p.y, z: -p.x * Math.sin(turnY) + p.z * Math.cos(turnY) }
-        pts.push(p)
-      }
-      return pts
-    }
-    this.equator = this.world.attach(new Line({ tint: BLUE, stroke: thin }))
-    derivePoints(this.equator, key, () => globe(-0.42, 0, false))
-    this.meridian = this.world.attach(new Line({ tint: BLUE, stroke: thin }))
-    derivePoints(this.meridian, key, () => globe(-0.42, 0.55, true))
-    this.catchlight = this.world.attach(
-      new Ellipse({
-        x: derive(() => -0.5 * h()),
-        y: derive(() => 0.42 * h()),
-        radiusX: derive(() => 0.085 * h()),
-        radiusY: derive(() => 0.085 * h()),
-        filled: true,
-        tint: WHITE,
-      }),
-    )
-
-    // THE FIRE: a crown of flames over the lidless almond — rising, tallest
-    // over its apex, long and short in turn — and one out of each corner,
-    // leaning up; mirror-symmetric. Where the lid would be, fire.
-    const flame = (place: () => { root: Vec3Like; n: { x: number; y: number } }, len: number, width: number, bend: number) => {
-      const line = eye.attach(new Line({ tint: RED, stroke: thin }))
-      derivePoints(line, key, () => {
-        const f = this.fire()
-        if (f < 1e-3) return []
-        const { root, n } = place()
-        return flameOutline(root, n, len * h() * f, width * h() * (0.4 + 0.6 * f), bend)
-      })
-      this.flames.push(line)
-    }
-    const onLid = (a: number) => () => {
-      const H = h()
-      const n = { x: Math.cos(a), y: Math.sin(a) }
-      const cy = -(LENS_RADIUS_RATIO - 1) * H
-      const r = (LENS_RADIUS_RATIO + 0.14) * H
-      return { root: { x: n.x * r, y: cy + n.y * r, z: 0 }, n }
-    }
-    for (let k = 1; k < FLAMES; k++) {
-      const t = -1 + (2 * k) / FLAMES
-      const a = Math.PI / 2 + t * HALF_SPAN
-      flame(onLid(a), (0.42 + 0.5 * Math.cos((t * Math.PI) / 2)) * (k % 2 === 0 ? 1 : 0.7), 0.15, 0.35)
-    }
-    for (const side of [1, -1]) flame(() => ({ root: { x: side * 2.14 * h(), y: 0, z: 0 }, n: { x: side, y: 0 } }), 0.38, 0.12, 0.5)
+    // The eye itself (WatchEye: the almond, the iris, the pupil, the world
+    // in it or the fire round it), in the plane of `eye`.
+    const watch = eye.attach(new WatchEye({ unit: derive(h), gaze: derive(g), stroke: derive(() => this.stroke.value) }))
+    void watch.parts
+    this.watch = watch
+    ;({ lidTop: this.lidTop, lidBottom: this.lidBottom, crease: this.crease, iris: this.iris, pupil: this.pupil, world: this.world } = watch)
+    ;({ equator: this.equator, meridian: this.meridian, catchlight: this.catchlight, flames: this.flames } = watch)
   }
 
   /**

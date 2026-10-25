@@ -57,6 +57,12 @@ is r = h, kissing the apexes. (EgoLens's cyclops is the MolochEye itself with
 a red gaze; this eye is its own because its parts morph — the slit into the
 pupil, the fire into the lids.)
 
+**The eye is a part of its own, `WatchEye`** (exported): the almond, the iris,
+the pupil, the world or the fire, in its own plane, one number `gaze`, its
+`unit` the lens half-height h. RingEye stands it behind the ring and turns
+it; [EgoLens](../EgoLens/)'s cyclops is the same eye — the ego that looks too
+deep and takes itself for the Self.
+
 **Params**
 - `gaze` (0..1, the walkable state `watchtower` ↔ `clear`): the axis.
 - `radius` (120): the ring, to its tube's centre — the symbol's one size.

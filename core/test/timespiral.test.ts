@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { RHYME, SPIRAL, TimeSpiral, momentAt, spiralPoint, starOutline, turnRadius } from "../vocabulary/TimeSpiral/TimeSpiral"
+import { KAIROS, RHYME, SPIRAL, TimeSpiral, kairosBearings, momentAt, spiralPoint, starOutline, turnRadius } from "../vocabulary/TimeSpiral/TimeSpiral"
 import { derive } from "../src/params"
 
 const near = (a: number, b: number, eps = 1e-9) => expect(Math.abs(a - b)).toBeLessThan(eps)
@@ -93,10 +93,11 @@ describe("TimeSpiral symbol", () => {
     expect((performance.now() - t0) / 60).toBeLessThan(2)
   })
 
-  test("two walkable axes, time (kronos · aion · spiral) and rhyme (mirror ↔ rhyme); now is a clock", () => {
+  test("three walkable axes, time (kronos · aion · spiral), rhyme (mirror ↔ rhyme) and moments; now is a clock", () => {
     const t = new TimeSpiral()
     const space = t.stateSpace()!
-    expect(space.axes.map((a) => a.id)).toEqual(["time", "rhyme"])
+    expect(space.axes.map((a) => a.id)).toEqual(["time", "rhyme", "moments"])
+    expect(space.axes[2]!.positions.map((p) => p.name)).toEqual(["none", "kairos"])
     expect(space.axes[0]!.positions.map((p) => p.name)).toEqual(["kronos", "aion", "spiral"])
     expect(space.axes[1]!.positions.map((p) => p.name)).toEqual(["mirror", "rhyme"])
     expect(space.clocks).toEqual([t.now])
@@ -104,6 +105,21 @@ describe("TimeSpiral symbol", () => {
     driven.time.follow(derive(() => 1))
     driven.rhyme.follow(derive(() => 1))
     driven.now.follow(derive(() => 0))
+    driven.moments.follow(derive(() => 0))
     expect(driven.stateSpace()).toBeUndefined()
+  })
+
+  test("the Kairos moments: likelier toward the profound, never on the profane, mirror-symmetric", () => {
+    const b = kairosBearings()
+    const left = b.filter((t) => Math.cos(t) < 0).length
+    expect(left).toBeGreaterThan(b.length - left)
+    // Symmetric about the base line (θ ↔ 2π − θ), and none at the profane pole (θ = 0).
+    for (let i = 0; i < b.length; i++) expect(b[i]! + b[b.length - 1 - i]!).toBeCloseTo(2 * Math.PI, 6)
+    for (const t of b) expect(Math.cos(t)).toBeLessThan(0.5)
+    const t = new TimeSpiral()
+    void t.parts
+    expect(t.kairosMoments.loops.length).toBe(0)
+    t.moments.value = 1
+    expect(t.kairosMoments.loops.length).toBe(SPIRAL.turns * KAIROS.perTurn)
   })
 })

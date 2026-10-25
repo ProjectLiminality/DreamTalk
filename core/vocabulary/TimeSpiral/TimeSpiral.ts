@@ -83,6 +83,31 @@ export const RHYME = {
   golden: PI * (3 - Math.sqrt(5)),
 } as const
 
+/**
+ * The Kairos moments (`moments`): per turn KAIROS.perTurn radii joining the
+ * curve to its centre, placed where the cumulative of the density
+ * (1 − cos θ)² reaches (i + ½)/perTurn — dense toward the profound side
+ * (θ = π, left), thinning toward the profane, never on it. Deterministic and
+ * mirror-symmetric about the base line: likelier, not random.
+ */
+export const KAIROS = { perTurn: 9 } as const
+
+/** The bearings (radians, in a turn) of the Kairos moments: the inverse cumulative of (1 − cos θ)². */
+export const kairosBearings = (n: number = KAIROS.perTurn): number[] => {
+  const F = (t: number) => (1.5 * t - 2 * Math.sin(t) + Math.sin(2 * t) / 4) / (3 * PI)
+  return Array.from({ length: n }, (_, i) => {
+    const u = (i + 0.5) / n
+    let a = 0
+    let b = 2 * PI
+    for (let k = 0; k < 40; k++) {
+      const m = (a + b) / 2
+      if (F(m) < u) a = m
+      else b = m
+    }
+    return (a + b) / 2
+  })
+}
+
 /** The base plane and its line, × H. */
 export const BASE = { y: -1, rim: 0.72, line: 1.02 } as const
 /** The ring round the held aeon, × that turn's radius. */
@@ -163,6 +188,8 @@ export class TimeSpiral extends Null {
   labels = completion(1)
   /** The present moment's clock, seconds (keeps running in free play). */
   now = scalar(0)
+  /** 0 none … 1 the Kairos moments shown (likelier toward the profound). */
+  moments = completion(0)
 
   body!: Group
   axisLine!: Line
@@ -176,6 +203,7 @@ export class TimeSpiral extends Null {
   moment!: Circle
   kairos!: Circle
   radius!: Line
+  kairosMoments!: Polylines
   words!: Text[]
 
   constructor(overrides: Overrides = {}) {
@@ -300,6 +328,23 @@ export class TimeSpiral extends Null {
       }),
     )
 
+    // THE KAIROS MOMENTS: radii from the curve to the still centre, dense
+    // on the profound side; they reach out from the centre as they appear.
+    const bearings = kairosBearings()
+    this.kairosMoments = new Polylines({ tint: RED, stroke: 1.2, opacity: derive(() => 0.75 * smooth(this.moments.value) * f().round) })
+    deriveLoops(this.kairosMoments, () => [H(), this.time.value, this.rhyme.value, this.moments.value], () => {
+      const m = smooth(this.moments.value)
+      if (m < 1e-3) return []
+      const out: Vec3Like[][] = []
+      for (let k = 0; k < SPIRAL.turns; k++)
+        for (const b of bearings) {
+          const p = sc(spiralPoint(k + b / (2 * PI), this.time.value, this.rhyme.value))
+          const c = { x: 0, y: p.y, z: 0 }
+          out.push([c, { x: lerp(c.x, p.x, m), y: p.y, z: lerp(c.z, p.z, m) }])
+        }
+      return out
+    })
+
     // THE PRESENT MOMENT and its Kairos on the centre, joined by the radius.
     const at = () => {
       const m = momentAt(this.now.value)
@@ -334,7 +379,7 @@ export class TimeSpiral extends Null {
       word("profane", { x: BASE.line + 0.19, y: -1.02, z: 0 }),
     ]
 
-    for (const h of [this.rim, this.base, this.far, this.ring, this.axisLine, this.radius, this.near, this.destiny, this.star, this.kairos, this.moment])
+    for (const h of [this.rim, this.base, this.far, this.ring, this.kairosMoments, this.axisLine, this.radius, this.near, this.destiny, this.star, this.kairos, this.moment])
       this.body.attach(h)
     for (const w of this.words) page.attach(w)
   }
@@ -367,6 +412,8 @@ export class TimeSpiral extends Null {
       axes.push(axis("time", this, { kronos: { time: 0 }, aion: { time: 1 }, spiral: { time: 2 } }, { duration: 2.6, handles: () => [this.axisLine, this.ring] }))
     if (!this.rhyme.isBound)
       axes.push(toggle("rhyme", this.rhyme, { off: ["mirror", 0], on: ["rhyme", 1], duration: 2.2, handles: () => [this.near, this.far] }))
+    if (!this.moments.isBound)
+      axes.push(toggle("moments", this.moments, { off: ["none", 0], on: ["kairos", 1], duration: 2.2, handles: () => [this.axisLine] }))
     if (!axes.length && this.now.isBound) return undefined
     return { axes, clocks: this.now.isBound ? [] : [this.now] }
   }

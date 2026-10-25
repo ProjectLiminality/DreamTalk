@@ -42,7 +42,9 @@ three eyes, and the camera goes to each:
   one looking and looms twice its size. Seen from inside, the sphere has no
   outline and fades.
 - **side**: low among the coil, between the poles, the gaze swinging left and
-  right along the base with the dance. Only one pole is seen at a time, large
+  right along the base with the dance, bobbing twice as fast while the eye
+  sways the other way and the head rolls — a figure-eight through a wide
+  lens, never at rest. Only one pole is seen at a time, large
   and close, with strands of red and blue passing edge-on. This is the
   relative eye, and to it the figure looks incoherent.
 - **above**: over the apex, from Life, looking straight down the vertical.
@@ -52,7 +54,9 @@ three eyes, and the camera goes to each:
   on the cold pole's, around the centre the vertical stands on.
 
 `rig(observer, home?)` gives the symbol the scene's camera. From then on the
-camera is bound to its home pose (the observer's own pose, or `home`) and is
+camera is bound to its home pose (the observer's own pose, or `home`, whose
+values may be live params: a whole that moves its camera between rooms moves
+the home) and is
 blended toward each eye by three weights, `below`, `side` and `above`. The
 blend works in the observer's own terms: the focus, the orbit angles, the
 distance (logarithmically) and the lens. A roll keeps the figure's plane of

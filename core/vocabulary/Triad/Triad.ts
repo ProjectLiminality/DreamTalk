@@ -104,8 +104,13 @@ export const LEAN = { p: 0.42, h: -0.4 } as const
  */
 export const VIEWS = {
   below: { eye: [0, -0.46, 0.62], at: [0, 0.8, 0], up: [0, 1, 0], fov: 0.8 },
-  /** `at` swings along the base, ± swing × the rim's radius, once per DANCE.period. */
-  side: { eye: [0, -0.71, 0.36], at: [0, -0.62, 0], up: [0, 1, 0], fov: 1.5, swing: 0.92 },
+  /**
+   * `at` swings along the base, ± swing × the rim's radius, once per
+   * DANCE.period, and bobs ± bob (× ρ) twice as fast; the eye sways the
+   * other way (± sway × ρ) and the head rolls ± roll — a figure-eight, the
+   * relative eye never at rest.
+   */
+  side: { eye: [0, -0.71, 0.36], at: [0, -0.62, 0], up: [0, 1, 0], fov: 1.85, swing: 0.92, bob: 0.22, sway: 0.16, roll: 0.38 },
   above: { eye: [0, 2.3, 0], at: [0, -0.5, 0], up: [0, 0, -1], fov: (53.13 * Math.PI) / 180 },
 } as const
 export type TriadView = keyof typeof VIEWS
@@ -175,20 +180,34 @@ export class Triad extends Null {
    * eyes — the song animates `below`/`side`/`above`, free play walks `v`.
    * Also `seenFrom` it.
    */
-  rig(observer: Observer, home: { radius?: number; phi?: number; theta?: number; fov?: number } = {}): void {
+  rig(observer: Observer, home: Partial<Record<"x" | "y" | "z" | "radius" | "phi" | "theta" | "fov", number | { readonly value: number }>> = {}): void {
     this.seenFrom(observer)
     this.rigged = observer
     const o = observer
-    const h = {
+    // The home pose: the observer's own at `rig`, or `home` — whose values may
+    // be live (a whole that moves its camera between rooms moves the home).
+    const fixed = {
       x: o.x.value, y: o.y.value, z: o.z.value,
-      phi: home.phi ?? o.phi.value, theta: home.theta ?? o.theta.value, tilt: o.tilt.value,
-      radius: home.radius ?? o.radius.value, fov: home.fov ?? o.fov.value,
+      phi: o.phi.value, theta: o.theta.value, tilt: o.tilt.value,
+      radius: o.radius.value, fov: o.fov.value,
     }
-    let memo: { key: string; v: typeof h } | undefined
+    const live = Object.entries(home).some(([, v]) => typeof v !== "number")
+    const val = (k: keyof typeof home & keyof typeof fixed) => {
+      const v = home[k]
+      return v === undefined ? fixed[k] : typeof v === "number" ? v : v.value
+    }
+    const homeNow = () => ({
+      x: val("x"), y: val("y"), z: val("z"),
+      phi: val("phi"), theta: val("theta"), tilt: fixed.tilt,
+      radius: val("radius"), fov: val("fov"),
+    })
+    const still = homeNow()
+    let memo: { key: string; v: typeof still } | undefined
     const now = () => {
+      const h = live ? homeNow() : still
       const w = [this.below.value, this.side.value, this.above.value]
       if (w[0] === 0 && w[1] === 0 && w[2] === 0) return h
-      const key = `${w}|${this.dance.value}|${this.unfold.value}|${this.radius.value}|${this.x.value},${this.y.value},${this.z.value},${this.h.value},${this.p.value},${this.b.value},${this.scale.value}`
+      const key = `${w}|${this.dance.value}|${this.unfold.value}|${this.radius.value}|${this.x.value},${this.y.value},${this.z.value},${this.h.value},${this.p.value},${this.b.value},${this.scale.value}|${Object.values(h)}`
       if (memo?.key === key) return memo.v
       const v = { ...h }
       const names: TriadView[] = ["below", "side", "above"]
@@ -226,11 +245,17 @@ export class Triad extends Null {
     const V = VIEWS[name]
     const local = (q: readonly number[]): Vec3Like => ({ x: q[0]! * R, y: q[1]! * R, z: q[2]! * R })
     let at = local(V.at)
+    let eye = local(V.eye)
+    let roll = 0
     if (name === "side") {
-      const swing = Math.sin((2 * PI * this.dance.value) / DANCE.period)
-      at = { ...at, x: VIEWS.side.swing * ((R * Math.sqrt(3)) / 2) * swing }
+      const S = VIEWS.side
+      const ph = (2 * PI * this.dance.value) / DANCE.period
+      const swing = Math.sin(ph)
+      at = { ...at, x: S.swing * ((R * Math.sqrt(3)) / 2) * swing, y: at.y + S.bob * R * Math.sin(2 * ph) }
+      eye = { ...eye, x: -S.sway * R * swing }
+      roll = S.roll * Math.sin(2 * ph + PI / 2) * swing
     }
-    const E = toWorld(this.body, local(V.eye))
+    const E = toWorld(this.body, eye)
     const F = toWorld(this.body, at)
     const U0 = toWorld(this.body, { x: at.x + V.up[0]! * R, y: at.y + V.up[1]! * R, z: at.z + V.up[2]! * R })
     const U = { x: U0.x - F.x, y: U0.y - F.y, z: U0.z - F.z }
@@ -242,7 +267,7 @@ export class Triad extends Null {
     // gives, then rolled by tilt).
     const r0 = { x: Math.cos(phi), y: 0, z: -Math.sin(phi) }
     const u0 = { x: -Math.sin(theta) * Math.sin(phi), y: Math.cos(theta), z: -Math.sin(theta) * Math.cos(phi) }
-    const tilt = Math.atan2(-(r0.x * U.x + r0.z * U.z), u0.x * U.x + u0.y * U.y + u0.z * U.z)
+    const tilt = Math.atan2(-(r0.x * U.x + r0.z * U.z), u0.x * U.x + u0.y * U.y + u0.z * U.z) + roll
     return { x: F.x, y: F.y, z: F.z, phi, theta, tilt, radius: d * zoom, fov: V.fov }
   }
 

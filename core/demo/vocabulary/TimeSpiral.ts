@@ -6,7 +6,8 @@
  * star of fate above. The present moment travels it all along. The spiral
  * folds back into its two forms — Kronos, the straight line; Aion, the
  * circle — and opens again; then its turns stop rhyming and mirror, and
- * rhyme once more. In free play (`&play=free`) both axes are walkable.
+ * rhyme once more. Last, the Kairos moments reach in to the still centre,
+ * likelier on the profound side. In free play (`&play=free`) every axis is walkable.
  */
 
 import { Dream, render } from "../../src/index"
@@ -40,6 +41,9 @@ export class TimeSpiralDream extends Dream {
     this.passing(2.5)
     this.passing(2.2, t.stateAxis("rhyme").to("rhyme"))
     this.passing(3)
+    // The Kairos moments reach in to the still centre, likelier on the profound side.
+    this.passing(2.2, t.stateAxis("moments").to("kairos"))
+    this.passing(3.5)
   }
 }
 
