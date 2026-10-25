@@ -55,6 +55,7 @@ import { LossyChainDream } from "./vocabulary/LossyChain"
 import { ParodyDream } from "./vocabulary/Parody"
 import { RealTalkWordDream } from "./vocabulary/RealTalkWord"
 import { TriadDream } from "./vocabulary/Triad"
+import { TimeSpiralDream } from "./vocabulary/TimeSpiral"
 import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
 import { EgoLensDream } from "./vocabulary/EgoLens"
 import { Scene00Dream } from "./origins/Scene00"
@@ -305,6 +306,8 @@ export const scenes: Record<string, DreamClass> = {
   "meaning-sphere": MeaningSphereDream,
   // The ego as a lens between the light and the land: away · icon · deep (the cyclops).
   egolens: EgoLensDream,
+  // The three forms of time: Kronos the line, Aion the circle, the spiral both; Kairos its centre, the turns rhyming.
+  "time-spiral": TimeSpiralDream,
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 

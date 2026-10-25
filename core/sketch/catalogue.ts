@@ -47,6 +47,7 @@ import { LossyChain } from "../vocabulary/LossyChain/LossyChain"
 import { Harmonization } from "../vocabulary/Harmonization/Harmonization"
 import { SiteSystems } from "../vocabulary/SiteSystems/SiteSystems"
 import { Triad } from "../vocabulary/Triad/Triad"
+import { TimeSpiral } from "../vocabulary/TimeSpiral/TimeSpiral"
 import { FilmReel } from "../vocabulary/FilmReel/FilmReel"
 import { Labyrinth } from "../vocabulary/Labyrinth/Labyrinth"
 import { DreamTalkSymbol } from "../vocabulary/DreamTalkSymbol/DreamTalkSymbol"
@@ -126,6 +127,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Harmonization", folder: "Harmonization", cls: Harmonization },
   { className: "SiteSystems", folder: "SiteSystems", cls: SiteSystems },
   { className: "Triad", folder: "Triad", cls: Triad },
+  { className: "TimeSpiral", folder: "TimeSpiral", cls: TimeSpiral },
   { className: "FilmReel", folder: "FilmReel", cls: FilmReel },
   { className: "Headquarters", folder: "Earth", cls: Headquarters },
   { className: "Labyrinth", folder: "Labyrinth", cls: Labyrinth },
