@@ -54,6 +54,7 @@ import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
 import { ParodyDream } from "./vocabulary/Parody"
 import { RealTalkWordDream } from "./vocabulary/RealTalkWord"
+import { SixPathsDream } from "./vocabulary/SixPaths"
 import { TriadDream } from "./vocabulary/Triad"
 import { TimeSpiralDream } from "./vocabulary/TimeSpiral"
 import { MeaningSphereDream } from "./vocabulary/MeaningSphere"
@@ -300,6 +301,8 @@ export const scenes: Record<string, DreamClass> = {
   parody: ParodyDream,
   // Ass talk ↔ real talk: the cloud word resolves into the grounded one.
   "realtalk-word": RealTalkWordDream,
+  // The six paths: science · technology, mysticism · magic, spirituality · religion on three axes of an octahedron; the hexagram.
+  "six-paths": SixPathsDream,
   // The triad, drawn and then opened into 3D: the plane of the two poles, the vertical without opposite; the ego reading.
   triad: TriadDream,
   // The sphere of meaning: diabolic → symbolic, idolic disk → iconic depth; the flow readable both ways.
