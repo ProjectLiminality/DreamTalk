@@ -53,6 +53,7 @@ import { SiteSystemsDream } from "./vocabulary/SiteSystems"
 import { RoleMapDream } from "./vocabulary/RoleMap"
 import { LossyChainDream } from "./vocabulary/LossyChain"
 import { ParodyDream } from "./vocabulary/Parody"
+import { RingEyeDream } from "./vocabulary/RingEye"
 import { RealTalkWordDream } from "./vocabulary/RealTalkWord"
 import { SixPathsDream } from "./vocabulary/SixPaths"
 import { TriadDream } from "./vocabulary/Triad"
@@ -299,6 +300,8 @@ export const scenes: Record<string, DreamClass> = {
   lossychain: LossyChainDream,
   // The real and its counterfeit in one place: a torus ↔ the same ring as discrete cubes.
   parody: ParodyDream,
+  // The eye seen through the ring: the watchtower's burning eye ↔ the clear eye holding the world.
+  "ring-eye": RingEyeDream,
   // Ass talk ↔ real talk: the cloud word resolves into the grounded one.
   "realtalk-word": RealTalkWordDream,
   // The six paths: science · technology, mysticism · magic, spirituality · religion on three axes of an octahedron; the hexagram.

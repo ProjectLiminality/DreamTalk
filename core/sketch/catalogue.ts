@@ -63,6 +63,7 @@ import { LiminalWeb } from "../vocabulary/LiminalWeb/LiminalWeb"
 import { Mind } from "../vocabulary/Mind/Mind"
 import { Narrative } from "../vocabulary/Narrative/Narrative"
 import { Parody } from "../vocabulary/Parody/Parody"
+import { RingEye } from "../vocabulary/RingEye/RingEye"
 import { RealTalkWord } from "../vocabulary/RealTalkWord/RealTalkWord"
 import { SixPaths } from "../vocabulary/SixPaths/SixPaths"
 import { Book } from "../vocabulary/Book/Book"
@@ -145,6 +146,7 @@ export const SHELF: readonly { className: string; folder: string; cls: HolonClas
   { className: "Mind", folder: "Mind", cls: Mind },
   { className: "Narrative", folder: "Narrative", cls: Narrative },
   { className: "Parody", folder: "Parody", cls: Parody },
+  { className: "RingEye", folder: "RingEye", cls: RingEye },
   { className: "RealTalkWord", folder: "RealTalkWord", cls: RealTalkWord },
   { className: "SixPaths", folder: "SixPaths", cls: SixPaths },
   { className: "Book", folder: "Book", cls: Book },
