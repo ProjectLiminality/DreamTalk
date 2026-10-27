@@ -13,7 +13,6 @@
     "./constants": "./src/constants.ts"
   },
   "scripts": {
-    "setup": "bun scripts/setup.ts",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "build:demo": "bun scripts/build-demo.ts",

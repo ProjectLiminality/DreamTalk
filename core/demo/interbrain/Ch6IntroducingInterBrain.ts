@@ -44,7 +44,7 @@
 
 import { render } from "../../src/index"
 import { together } from "../../src/anim"
-import { Group, Line } from "../../src/parts/primitives"
+import { Group, Line, Square } from "../../src/parts/primitives"
 import { BLUE, RED, WHITE } from "../../src/constants"
 import { Layer } from "../../vocabulary/Figure/Figure"
 import { Create } from "../../src/verbs"
@@ -68,7 +68,6 @@ import { Clip, SongLine } from "../../vocabulary/SongLine/SongLine"
 import { Earth, Place } from "../../vocabulary/Earth/Earth"
 import { Connection } from "../../vocabulary/Earth/Connection"
 import { Resonance } from "../../vocabulary/Resonance/Resonance"
-import { Square } from "../../../holons/Square/Square"
 
 const CH = CHAPTERS[5]!
 

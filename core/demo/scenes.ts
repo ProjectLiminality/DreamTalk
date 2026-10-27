@@ -1,9 +1,9 @@
 /**
  * The demo scene registry — picked by URL query, e.g. /demo?scene=calibration.
  *
- * "founding" is the Chapter-8 parable — the sovereign Cylinder repo's
- * own DreamWeaving (holons/Cylinder), drawn in from outside the core:
- * the first scene whose source of truth lives in a holon repo.
+ * Scenes whose source lives in a holon repo (holons/, each its own repo)
+ * are not listed here: a holon that declares a scene in its dreamtalk.json
+ * joins the player at build time (scripts/local-holons.ts).
  */
 
 import type { DreamClass } from "../src/dream"
@@ -113,7 +113,6 @@ import { Shot12VitruvianDream } from "./web3/Shot12Vitruvian"
 import { Shot14CallbackDream } from "./web3/Shot14Callback"
 import { Shot15HeroDream } from "./web3/Shot15Hero"
 // import { MagicMove03Dream } from "./pl02/MagicMove03" // p6 died before writing it — restore on revival
-import { CylinderDream } from "../../holons/Cylinder/Cylinder"
 import { SquareCircleDream } from "./SquareCircle"
 import { GeometrySketchDemoDream } from "./GeometrySketchDemo"
 import { RayCasterDemoDream } from "./RayCasterDemo"
@@ -127,13 +126,10 @@ import { MorphWordDream, MorphWordVirusDream } from "./MorphWordDemo"
 import { MeshDream, MeshMorphDream } from "./MeshDemo"
 import { FormsDream, MorphSolidsDream } from "./MorphAnyDemo"
 import { FlowRoadDream } from "./FlowRoadDemo"
-import { CircleDream } from "../../holons/Circle/Circle"
-import { SquareDream } from "../../holons/Square/Square"
 
 export const scenes: Record<string, DreamClass> = {
   // The InterBrain DreamSong (corpus #14): its symbols and chapters.
   ...interbrainScenes,
-  founding: CylinderDream,
   squarecircle: SquareCircleDream,
   geometrysketch: GeometrySketchDemoDream,
   raycaster: RayCasterDemoDream,
@@ -163,8 +159,6 @@ export const scenes: Record<string, DreamClass> = {
   "morph-solids": MorphSolidsDream,
   // A flow made concrete: twenty channels → roads, their particles → trucks.
   "flow-road": FlowRoadDream,
-  circle: CircleDream,
-  square: SquareDream,
   smoke: FoundingSmokeDream,
   calibration: StrokeCalibrationDream,
   vocab: VocabShowcaseDream,
@@ -320,4 +314,4 @@ export const scenes: Record<string, DreamClass> = {
   // p02h: MagicMove03Dream, // p6 died before writing it
 }
 
-export const defaultScene = "founding"
+export const defaultScene = "s01"

@@ -75,7 +75,6 @@ the UI is written back into the source file; the file is the only truth.
 git clone https://github.com/ProjectLiminality/DreamTalk.git
 cd DreamTalk/core
 bun install
-bun run setup                # the founding holons (Circle, Square, Cylinder) into holons/
 bun run build:demo           # the player, with whatever holons/ holds
 bun scripts/daemon.ts        # → http://localhost:4174/?scene=s01 (studio)
                              #   http://localhost:4174/demo/?scene=<id> (player)

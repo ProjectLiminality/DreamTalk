@@ -19,7 +19,7 @@
  */
 
 import { Dream, render } from "../../src/index"
-import { Rectangle } from "../../src/parts/primitives"
+import { Circle, Rectangle, Square } from "../../src/parts/primitives"
 import { together } from "../../src/anim"
 import { Create, UnCreate } from "../../src/verbs"
 import { Text } from "../../src/parts/text"
@@ -31,8 +31,6 @@ import { DreamTalkSymbol } from "../../vocabulary/DreamTalkSymbol/DreamTalkSymbo
 import { InterBrainGem } from "../../vocabulary/InterBrain/InterBrainGem"
 import { Vision } from "../../vocabulary/Vision/Vision"
 import { Cylinder } from "../../vocabulary/Cylinder/Cylinder"
-import { Circle } from "../../../holons/Circle/Circle"
-import { Square } from "../../../holons/Square/Square"
 
 const PX = 0.48
 /** The muddied square of f11401, sampled off the frame (the film's pink, not PURPLE). */

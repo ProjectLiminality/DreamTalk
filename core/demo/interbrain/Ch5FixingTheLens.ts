@@ -38,7 +38,7 @@ import { Dream, render } from "../../src/index"
 import type { Anim } from "../../src/anim"
 import { together } from "../../src/anim"
 import type { Holon } from "../../src/holon"
-import { Group, Line } from "../../src/parts/primitives"
+import { Circle, Group, Line, Square } from "../../src/parts/primitives"
 import { Text } from "../../src/parts/text"
 import { BLUE, RED, WHITE, type Color } from "../../src/constants"
 import { CHAPTERS, SERIF, titleCard, type FilmChapter } from "./film"
@@ -55,8 +55,6 @@ import { DreamNode } from "../../vocabulary/DreamNode/DreamNode"
 import { Puppeteer } from "../../vocabulary/Puppeteer/Puppeteer"
 import { Tribe } from "../../vocabulary/Tribe/Tribe"
 import { icon } from "../../vocabulary/Icons/Icons"
-import { Circle } from "../../../holons/Circle/Circle"
-import { Square } from "../../../holons/Square/Square"
 
 /** px per unit at the default eye (720p). */
 export const PX = 0.48

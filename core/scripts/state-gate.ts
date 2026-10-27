@@ -49,7 +49,7 @@ if (argv[0] === "--compare") {
 }
 ensureFreshDemoBundle()
 const label = argv[0]!
-const scenes = argv.slice(1).length ? argv.slice(1) : ["thewall", "video01", "s06", "s01", "s03", "s04", "o01", "o03", "molocheye", "mindvirus", "labyrinth", "magicmove", "founding", "text", "patience", "agentarena"]
+const scenes = argv.slice(1).length ? argv.slice(1) : ["thewall", "video01", "s06", "s01", "s03", "s04", "o01", "o03", "molocheye", "mindvirus", "labyrinth", "magicmove", "text", "patience", "agentarena"]
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,

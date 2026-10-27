@@ -69,7 +69,7 @@ describe("dreamNodesOf", () => {
 })
 
 describe("layoutOf", () => {
-  for (const key of ["creatormode", "mindvirus", "regenaissance", "yinyang", "founding"]) {
+  for (const key of ["creatormode", "mindvirus", "regenaissance", "yinyang"]) {
     test(`${key}: discs inside the frame, none touching`, () => {
       const discs = [...layoutOf(treeOf(key), 1280, 720).values()]
       for (const d of discs) {

@@ -17,7 +17,7 @@
  * gone while the beacon still stands.
  *
  * COMPOSED, NEVER REDRAWN: the nodes are `DreamNode`, the coherent face is
- * the `Cylinder` (made of `holons/Circle` and `holons/Square` through
+ * the `Cylinder` (made of the core Circle and Square through
  * `Cylinder.of` — it IS their intersection), the rays and the swarm are
  * `Field` (burst / swarm). The broadcast rings and the link are this
  * holon's own line work. The radio tower is NOT drawn here: `tower` is a
@@ -47,7 +47,7 @@
  *   time       a clock: the rays and the swarm flow as it advances.
  */
 
-import { Circle, Group, Line, Null, Rectangle } from "../../src/parts/primitives"
+import { Circle, Group, Line, Null, Rectangle, Square } from "../../src/parts/primitives"
 import { color, completion, derive, length, scalar } from "../../src/params"
 import { BLACK, BLUE, WHITE, seen } from "../../src/constants"
 import { clamp01 } from "../../src/math"
@@ -59,8 +59,6 @@ import { presence } from "../../src/certainty"
 import { DreamNode } from "../DreamNode/DreamNode"
 import { Field } from "../Field/Field"
 import { Cylinder } from "../Cylinder/Cylinder"
-import { Circle as FoundingCircle } from "../../../holons/Circle/Circle"
-import { Square as FoundingSquare } from "../../../holons/Square/Square"
 
 /** The construction, in units of S = `size` (see header). */
 export const BEACON = {
@@ -87,8 +85,8 @@ class Layer extends Group {
 /** The coherent face: the cylinder that IS a circle × a square, lying down. */
 export const coherentFace = (S: number): Cylinder => {
   const r = BEACON.cylinder * S
-  const circle = new FoundingCircle({ radius: r })
-  const square = new FoundingSquare({ size: 2 * r })
+  const circle = new Circle({ radius: r })
+  const square = new Square({ size: 2 * r })
   return Cylinder.of(square, circle, { tint: WHITE, stroke: 2.2, b: Math.PI / 2, p: -0.5 })
 }
 
