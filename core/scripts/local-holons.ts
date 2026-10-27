@@ -12,8 +12,10 @@
  * The tracked editor bundle never goes through here.
  */
 
-import type { BunPlugin } from "bun"
+import type { BunPlugin, PluginBuilder } from "bun"
+import { existsSync } from "node:fs"
 import { readdir } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
 
 const repoRoot = new URL("../../", import.meta.url).pathname
 export const holonsDir = `${repoRoot}holons/`
@@ -43,9 +45,25 @@ export const findLocalScenes = async (): Promise<LocalScene[]> => {
   return found.sort((a, b) => a.id.localeCompare(b.id))
 }
 
+/**
+ * A holon shared without its private modules plays on their anonymized
+ * siblings: inside holons/, an import of `./data` whose `data.ts` is absent
+ * resolves to `data.anon.ts`. A machine that has the private module uses it.
+ */
+export const anonFallback = (build: PluginBuilder): void => {
+  build.onResolve({ filter: /^\.\.?\// }, (a) => {
+    if (!a.importer.startsWith(holonsDir)) return undefined
+    const target = resolve(dirname(a.importer), a.path).replace(/\.ts$/, "")
+    if (existsSync(`${target}.ts`) || existsSync(target)) return undefined
+    const alt = `${target}.anon.ts`
+    return existsSync(alt) ? { path: alt } : undefined
+  })
+}
+
 export const localHolonsPlugin = (scenes: LocalScene[]): BunPlugin => ({
   name: "dreamtalk-local-holons",
   setup(build) {
+    anonFallback(build)
     build.onLoad({ filter: /demo\/localHolons\.ts$/ }, () => ({
       loader: "ts",
       contents: [

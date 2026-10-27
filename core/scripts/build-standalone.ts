@@ -28,7 +28,7 @@
 import type { BunPlugin } from "bun"
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
-import { findLocalScenes, localHolonsPlugin, holonsDir } from "./local-holons"
+import { anonFallback, findLocalScenes, localHolonsPlugin, holonsDir } from "./local-holons"
 
 const repoRoot = resolve(new URL("../../", import.meta.url).pathname)
 const core = `${repoRoot}/core`
@@ -60,7 +60,7 @@ const swapped = new Set<string>()
 const variantPlugin: BunPlugin = {
   name: "standalone-data-variant",
   setup(build) {
-    if (variant === "client") return
+    if (variant === "client") return anonFallback(build)
     build.onResolve({ filter: /^\.\.?\// }, (a) => {
       if (!a.importer.startsWith(`${holonsDir}${holonName}/`)) return undefined
       const target = resolve(dirname(a.importer), a.path).replace(/\.ts$/, "")
