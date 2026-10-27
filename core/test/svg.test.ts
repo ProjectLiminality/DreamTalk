@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import {
   FLATTEN_TOLERANCE,
@@ -484,7 +484,8 @@ describe("basic shape elements", () => {
   })
 })
 
-describe("the 2021 corpus", () => {
+// The corpus lives in refs/ (gitignored): present on the authoring machine, absent from a clone.
+describe.skipIf(!existsSync(SVG_DIR))("the 2021 corpus", () => {
   test("david.svg parses to exactly 37 subpaths — the 37 pen strokes", () => {
     const g = importSvg(readAsset("david"), { height: 400 })
     expect(g.subpaths.length).toBe(37)

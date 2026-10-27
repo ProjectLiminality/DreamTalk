@@ -75,8 +75,24 @@ the UI is written back into the source file; the file is the only truth.
 git clone https://github.com/ProjectLiminality/DreamTalk.git
 cd DreamTalk/core
 bun install
-bun scripts/daemon.ts        # → http://localhost:4174/?scene=s01
+bun run setup                # the founding holons (Circle, Square, Cylinder) into holons/
+bun run build:demo           # the player, with whatever holons/ holds
+bun scripts/daemon.ts        # → http://localhost:4174/?scene=s01 (studio)
+                             #   http://localhost:4174/demo/?scene=<id> (player)
 ```
+
+Requires [Bun](https://bun.sh) and a browser with WebGPU (Chrome, Edge,
+Safari 26+).
+
+### Your own holons
+
+`holons/` is gitignored: each holon in it is its own repository, and some
+never leave the machine they are on. A holon whose `dreamtalk.json`
+declares `"scene": { "id", "export" }` is playable at
+`/demo/?scene=<id>` after `bun run build:demo`. A holon can be shared
+without its private data: when `data.ts` is absent but `data.anon.ts` is
+present, it plays on the anonymized data. `bun scripts/build-standalone.ts
+--scene <id> --data=anon` turns one into a static site of its own.
 
 Scenes are TypeScript classes:
 

@@ -40,6 +40,8 @@ import { Slide, hexToColor } from "../vocabulary/Slides/Slides"
 import { BLUE, RED } from "../src/constants"
 
 const REPO = resolve(import.meta.dir, "../..")
+/** The Keynote source (refs/, gitignored): present on the authoring machine, absent from a clone. */
+const HAS_KEYNOTE = existsSync(join(REPO, "refs/pitch/pl02/key"))
 
 // ---------------------------------------------------------------------------
 // The frame
@@ -773,7 +775,7 @@ describe("builds", () => {
     }
   })
 
-  test("every module's recorded source is a file that exists", async () => {
+  test.skipIf(!HAS_KEYNOTE)("every module's recorded source is a file that exists", async () => {
     // Slide 18 lives in the unsuffixed `Slide.iwa`, so a source path
     // reconstructed from the id named a file that does not exist and
     // broke the hash's provenance.
@@ -1105,7 +1107,7 @@ describe("the Slide holon", () => {
 // ---------------------------------------------------------------------------
 
 describe("key2ts determinism", () => {
-  test("re-running the codegen reproduces the module byte for byte", () => {
+  test.skipIf(!HAS_KEYNOTE)("re-running the codegen reproduces the module byte for byte", () => {
     const path = join(REPO, "core/vocabulary/Slides/assets/pl02/slide01.ts")
     const before = readFileSync(path, "utf8")
     execFileSync("bun", [join(REPO, "core/scripts/key2ts.ts"), "--slides", "1"], {
